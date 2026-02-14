@@ -15,8 +15,23 @@ API_TOKEN=$(openssl rand -hex 32)
 
 # Save this token somewhere safe (you'll need it for the web UI deploy config: `trader-config.js`).
 
-# Run the automated deployment script
-bash deploy-aws-quick.sh ap-northeast-1 "$API_TOKEN"
+# Required: Postgres connection for ops/combo persistence
+TRADER_DB_URL="postgresql://user:pass@host:5432/trader?sslmode=require"
+
+# Run the automated deployment script (auto-creates S3 state bucket)
+bash deploy-aws-quick.sh --ensure-resources --region ap-northeast-1 --api-token "$API_TOKEN" --db-url "$TRADER_DB_URL"
+
+# Optional: auto-provision S3 state + CloudFront (reuses existing resources if present)
+# bash deploy-aws-quick.sh --ensure-resources --cloudfront --region ap-northeast-1 --api-token "$API_TOKEN" --db-url "$TRADER_DB_URL"
+#   # defaults: trader-api-state-<account>-<region>, trader-ui-<account>-<region>
+#
+# Optional: override the state directory (default: /var/lib/trader/state)
+# bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" --state-dir "/var/lib/trader/state"
+#
+# Required: enable S3 state persistence for App Runner (script enforces this)
+# bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" \
+#   --db-url "$TRADER_DB_URL" \
+#   --state-s3-bucket "trader-api-state-..." --state-s3-prefix "trader" --instance-role-arn "arn:aws:iam::123:role/TraderAppRunnerS3Role"
 ```
 
 The script will:
@@ -25,11 +40,32 @@ The script will:
 3. ✅ Push to ECR
 4. ✅ Create (or reuse) the App Runner ECR access IAM role
 5. ✅ Create/update App Runner service (single-instance)
-6. ✅ Return the public API URL
+6. ✅ Enable multi-user mode (`TRADER_MULTI_USER=true`)
+7. ✅ Return the public API URL
+
+With `--ensure-resources`, it also creates or reuses the state S3 bucket and App Runner instance role (and `--cloudfront` will create or reuse the UI bucket + CloudFront distribution).
 
 **Total time: 5-10 minutes**
 
 ---
+
+## Persist state with S3 (required for App Runner)
+
+Checklist (App Runner + S3):
+1. Create an S3 bucket for state (private).
+2. Create an IAM role for App Runner with `s3:GetObject`/`s3:PutObject` on the bucket/prefix.
+3. Pass `--state-s3-bucket` (plus optional `--state-s3-prefix`, `--state-s3-region`) and `--instance-role-arn` to the deploy script.
+4. Or use `--ensure-resources` to create/reuse the bucket + instance role automatically.
+5. The quick deploy script will fail without S3 state configured.
+6. App Runner does **not** support EFS volumes; S3 is the supported persistence option.
+
+---
+
+## Persist ops/combos with Postgres (required)
+
+1. Provision a managed Postgres instance.
+2. Set `TRADER_DB_URL` (or pass `--db-url`) with `sslmode=require`.
+3. The quick deploy script will fail without a database URL configured.
 
 ## Option 2: Manual Steps (Step by Step)
 
@@ -45,7 +81,11 @@ echo "ECR URI: $ECR_URI"
 
 ### 2. Create ECR Repository
 ```bash
-AWS_REGION=$AWS_REGION ECR_REPO=$ECR_REPO bash deploy/aws/create-ecr-repo.sh
+aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$AWS_REGION" >/dev/null 2>&1 || \
+  aws ecr create-repository \
+    --repository-name "$ECR_REPO" \
+    --image-scanning-configuration scanOnPush=true \
+    --region "$AWS_REGION" >/dev/null
 ```
 
 ### 3. Build & Push Docker Image
@@ -55,6 +95,8 @@ aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
 # Build
+# If ECR push fails with `403 Forbidden` on `HEAD .../manifests/sha256:...`, add `ecr:BatchGetImage`
+# to your deploy IAM policy or disable Docker attestations (example: `docker build --provenance=false --sbom=false ...`).
 docker build -t "${ECR_REPO}:latest" .
 
 # Tag
@@ -72,6 +114,12 @@ docker push "${ECR_URI}:latest"
 5. Environment variables:
    ```
    TRADER_API_TOKEN=<your-api-token>
+   TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require
+   TRADER_MULTI_USER=true
+   TRADER_STATE_DIR=/var/lib/trader/state
+   TRADER_STATE_S3_BUCKET=<s3-bucket>
+   TRADER_STATE_S3_PREFIX=trader
+   TRADER_STATE_S3_REGION=ap-northeast-1
    ```
 6. Click **Create & deploy** (wait 5-10 min)
 
@@ -94,6 +142,32 @@ curl -s -H "Authorization: Bearer ${TRADER_API_TOKEN}" "${API_URL}/health"
 
 ## Deploy Web UI (Optional)
 
+### Option A: Use the same deploy script (recommended)
+
+From the repo root:
+
+```bash
+AWS_REGION=ap-northeast-1
+S3_BUCKET="trader-ui-..."
+CLOUDFRONT_DISTRIBUTION_ID="E123..."   # optional
+
+bash deploy-aws-quick.sh --ui-only \
+  --region "$AWS_REGION" \
+  --ui-bucket "$S3_BUCKET" \
+  --api-url "$API_URL" \
+  --api-token "$TRADER_API_TOKEN" \
+  --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID"
+```
+
+Notes:
+- When `--distribution-id` is set, the script defaults `apiBaseUrl` to `/api` (same-origin). Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to use the API URL directly (CORS required; the script auto-fills `TRADER_CORS_ORIGIN` from the CloudFront domain when available, and defaults `apiFallbackUrl` to `/api` so same-origin fallback works if direct calls are blocked). When `/api` is used and the App Runner URL is known, the script fills `apiFallbackUrl` to the API URL; set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly to override.
+- Use `--cloudfront-domain d123.cloudfront.net` (or `TRADER_UI_CLOUDFRONT_DOMAIN`) to reuse an existing distribution and auto-detect the UI bucket.
+- Use `--cloudfront` (and optionally `--ensure-resources`) to auto-create or reuse a CloudFront distribution and set the UI bucket policy.
+- CloudFront is non-sticky. Keep App Runner min=1/max=1 unless you have shared async job storage (`TRADER_API_ASYNC_DIR` or `TRADER_STATE_DIR`).
+- The script loads `.env.deploy` (or `TRADER_DEPLOY_ENV_FILE`) for persistent deploy defaults.
+
+### Option B: Manual deploy (S3 website hosting)
+
 ```bash
 cd haskell/web
 
@@ -103,6 +177,8 @@ TRADER_API_TARGET="${API_URL}" npm run build
 # Configure deploy-time API settings (edit this file before uploading to S3)
 cat > dist/trader-config.js <<EOF
 globalThis.__TRADER_CONFIG__ = {
+  // Use the API URL directly for S3 website hosting (CORS required).
+  // Set "/api" only when CloudFront proxies /api/* to your API origin.
   apiBaseUrl: "${API_URL}",
   apiToken: "${TRADER_API_TOKEN}",
 };
@@ -138,6 +214,8 @@ aws s3api put-bucket-policy --bucket "$S3_BUCKET" --policy '{
 
 echo "UI: http://${S3_BUCKET}.s3-website-ap-northeast-1.amazonaws.com"
 ```
+
+If you are using a CloudFront `/api/*` proxy and want same-origin calls, set `apiBaseUrl` to `/api` instead.
 
 ---
 

@@ -1,0 +1,11 @@
+Configuring library for random-1.3.1...
+Preprocessing library for random-1.3.1...
+Building library for random-1.3.1...
+[1 of 6] Compiling System.Random.Array ( src/System/Random/Array.hs, dist/build/System/Random/Array.o, dist/build/System/Random/Array.dyn_o )
+[2 of 6] Compiling System.Random.GFinite ( src/System/Random/GFinite.hs, dist/build/System/Random/GFinite.o, dist/build/System/Random/GFinite.dyn_o )
+[3 of 6] Compiling System.Random.Internal ( src/System/Random/Internal.hs, dist/build/System/Random/Internal.o, dist/build/System/Random/Internal.dyn_o )
+[4 of 6] Compiling System.Random.Seed ( src/System/Random/Seed.hs, dist/build/System/Random/Seed.o, dist/build/System/Random/Seed.dyn_o )
+[5 of 6] Compiling System.Random    ( src/System/Random.hs, dist/build/System/Random.o, dist/build/System/Random.dyn_o )
+[6 of 6] Compiling System.Random.Stateful ( src/System/Random/Stateful.hs, dist/build/System/Random/Stateful.o, dist/build/System/Random/Stateful.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67506/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/rndm-1.3.1-be8dcc11/lib

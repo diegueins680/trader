@@ -1,0 +1,14 @@
+Configuring library for auto-update-0.2.6...
+Preprocessing library for auto-update-0.2.6...
+Building library for auto-update-0.2.6...
+[1 of 9] Compiling Control.AutoUpdate.Types ( Control/AutoUpdate/Types.hs, dist/build/Control/AutoUpdate/Types.o, dist/build/Control/AutoUpdate/Types.dyn_o )
+[2 of 9] Compiling Control.AutoUpdate.Thread ( Control/AutoUpdate/Thread.hs, dist/build/Control/AutoUpdate/Thread.o, dist/build/Control/AutoUpdate/Thread.dyn_o )
+[3 of 9] Compiling Control.AutoUpdate.Event ( Control/AutoUpdate/Event.hs, dist/build/Control/AutoUpdate/Event.o, dist/build/Control/AutoUpdate/Event.dyn_o )
+[4 of 9] Compiling Control.AutoUpdate.Internal ( Control/AutoUpdate/Internal.hs, dist/build/Control/AutoUpdate/Internal.o, dist/build/Control/AutoUpdate/Internal.dyn_o )
+[5 of 9] Compiling Control.AutoUpdate ( Control/AutoUpdate.hs, dist/build/Control/AutoUpdate.o, dist/build/Control/AutoUpdate.dyn_o )
+[6 of 9] Compiling Control.Debounce.Internal ( Control/Debounce/Internal.hs, dist/build/Control/Debounce/Internal.o, dist/build/Control/Debounce/Internal.dyn_o )
+[7 of 9] Compiling Control.Debounce ( Control/Debounce.hs, dist/build/Control/Debounce.o, dist/build/Control/Debounce.dyn_o )
+[8 of 9] Compiling Control.Reaper.Internal ( Control/Reaper/Internal.hs, dist/build/Control/Reaper/Internal.o, dist/build/Control/Reaper/Internal.dyn_o )
+[9 of 9] Compiling Control.Reaper   ( Control/Reaper.hs, dist/build/Control/Reaper.o, dist/build/Control/Reaper.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41765/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/t-pdt-0.2.6-fee1ad2d/lib

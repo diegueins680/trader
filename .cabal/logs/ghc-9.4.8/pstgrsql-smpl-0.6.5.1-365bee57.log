@@ -1,0 +1,276 @@
+Configuring library for postgresql-simple-0.6.5.1...
+Preprocessing library for postgresql-simple-0.6.5.1...
+Building library for postgresql-simple-0.6.5.1...
+[ 1 of 39] Compiling Database.PostgreSQL.Simple.Arrays ( src/Database/PostgreSQL/Simple/Arrays.hs, dist/build/Database/PostgreSQL/Simple/Arrays.o, dist/build/Database/PostgreSQL/Simple/Arrays.dyn_o )
+
+src/Database/PostgreSQL/Simple/Arrays.hs:16:1: warning: [-Wunused-imports]
+    The import of ‘<$>, Applicative’
+    from module ‘Control.Applicative’ is redundant
+   |
+16 | import           Control.Applicative (Applicative(..), Alternative(..), (<$>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple/Arrays.hs:19:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+19 | import           Data.Monoid
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 2 of 39] Compiling Database.PostgreSQL.Simple.Compat ( src/Database/PostgreSQL/Simple/Compat.hs, dist/build/Database/PostgreSQL/Simple/Compat.o, dist/build/Database/PostgreSQL/Simple/Compat.dyn_o )
+
+src/Database/PostgreSQL/Simple/Compat.hs:15:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+15 | import Data.Monoid
+   | ^^^^^^^^^^^^^^^^^^
+[ 3 of 39] Compiling Database.PostgreSQL.Simple.Ok ( src/Database/PostgreSQL/Simple/Ok.hs, dist/build/Database/PostgreSQL/Simple/Ok.o, dist/build/Database/PostgreSQL/Simple/Ok.dyn_o )
+[ 4 of 39] Compiling Database.PostgreSQL.Simple.Time.Internal.Parser ( src/Database/PostgreSQL/Simple/Time/Internal/Parser.hs, dist/build/Database/PostgreSQL/Simple/Time/Internal/Parser.o, dist/build/Database/PostgreSQL/Simple/Time/Internal/Parser.dyn_o )
+
+src/Database/PostgreSQL/Simple/Time/Internal/Parser.hs:27:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+27 | import Control.Applicative ((<$>), (<*>), (<*), (*>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple/Time/Internal/Parser.hs:31:1: warning: [-Wunused-imports]
+    The import of ‘Data.ByteString’ is redundant
+      except perhaps to import instances from ‘Data.ByteString’
+    To import instances alone, use: import Data.ByteString()
+   |
+31 | import Data.ByteString (ByteString)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 5 of 39] Compiling Database.PostgreSQL.Simple.Time.Internal.Printer ( src/Database/PostgreSQL/Simple/Time/Internal/Printer.hs, dist/build/Database/PostgreSQL/Simple/Time/Internal/Printer.o, dist/build/Database/PostgreSQL/Simple/Time/Internal/Printer.dyn_o )
+
+src/Database/PostgreSQL/Simple/Time/Internal/Printer.hs:37:43: warning: [-Wunused-imports]
+    The import of ‘<>’
+    from module ‘Database.PostgreSQL.Simple.Compat’ is redundant
+   |
+37 | import Database.PostgreSQL.Simple.Compat ((<>), fromPico)
+   |                                           ^^^^
+[ 6 of 39] Compiling Database.PostgreSQL.Simple.Time.Implementation ( src/Database/PostgreSQL/Simple/Time/Implementation.hs, dist/build/Database/PostgreSQL/Simple/Time/Implementation.o, dist/build/Database/PostgreSQL/Simple/Time/Implementation.dyn_o )
+
+src/Database/PostgreSQL/Simple/Time/Implementation.hs:26:1: warning: [-Wunused-imports]
+    The import of ‘Database.PostgreSQL.Simple.Compat’ is redundant
+      except perhaps to import instances from ‘Database.PostgreSQL.Simple.Compat’
+    To import instances alone, use: import Database.PostgreSQL.Simple.Compat()
+   |
+26 | import Database.PostgreSQL.Simple.Compat ((<>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 7 of 39] Compiling Database.PostgreSQL.Simple.Time.Internal ( src/Database/PostgreSQL/Simple/Time/Internal.hs, dist/build/Database/PostgreSQL/Simple/Time/Internal.o, dist/build/Database/PostgreSQL/Simple/Time/Internal.dyn_o )
+[ 8 of 39] Compiling Database.PostgreSQL.Simple.Time ( src/Database/PostgreSQL/Simple/Time.hs, dist/build/Database/PostgreSQL/Simple/Time.o, dist/build/Database/PostgreSQL/Simple/Time.dyn_o )
+[ 9 of 39] Compiling Database.PostgreSQL.Simple.TypeInfo.Types ( src/Database/PostgreSQL/Simple/TypeInfo/Types.hs, dist/build/Database/PostgreSQL/Simple/TypeInfo/Types.o, dist/build/Database/PostgreSQL/Simple/TypeInfo/Types.dyn_o )
+[10 of 39] Compiling Database.PostgreSQL.Simple.TypeInfo.Static ( src/Database/PostgreSQL/Simple/TypeInfo/Static.hs, dist/build/Database/PostgreSQL/Simple/TypeInfo/Static.o, dist/build/Database/PostgreSQL/Simple/TypeInfo/Static.dyn_o )
+[11 of 39] Compiling Database.PostgreSQL.Simple.Types ( src/Database/PostgreSQL/Simple/Types.hs, dist/build/Database/PostgreSQL/Simple/Types.o, dist/build/Database/PostgreSQL/Simple/Types.dyn_o )
+
+src/Database/PostgreSQL/Simple/Types.hs:37:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+37 | import           Data.Monoid (Monoid(..))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[12 of 39] Compiling Database.PostgreSQL.Simple.TypeInfo.Macro ( src/Database/PostgreSQL/Simple/TypeInfo/Macro.hs, dist/build/Database/PostgreSQL/Simple/TypeInfo/Macro.o, dist/build/Database/PostgreSQL/Simple/TypeInfo/Macro.dyn_o )
+[13 of 39] Compiling Database.PostgreSQL.Simple.ToField[boot] ( src/Database/PostgreSQL/Simple/ToField.hs-boot, dist/build/Database/PostgreSQL/Simple/ToField.o-boot, dist/build/Database/PostgreSQL/Simple/ToField.dyn_o-boot )
+[14 of 39] Compiling Database.PostgreSQL.Simple.ToRow[boot] ( src/Database/PostgreSQL/Simple/ToRow.hs-boot, dist/build/Database/PostgreSQL/Simple/ToRow.o-boot, dist/build/Database/PostgreSQL/Simple/ToRow.dyn_o-boot )
+[15 of 39] Compiling Database.PostgreSQL.Simple.ToField ( src/Database/PostgreSQL/Simple/ToField.hs, dist/build/Database/PostgreSQL/Simple/ToField.o, dist/build/Database/PostgreSQL/Simple/ToField.dyn_o )
+
+src/Database/PostgreSQL/Simple/ToField.hs:38:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+38 | import Data.Monoid (mappend)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple/ToField.hs:42:19: warning: [-Wunused-imports]
+    The import of ‘Word’ from module ‘Data.Word’ is redundant
+   |
+42 | import Data.Word (Word, Word8, Word16, Word32, Word64)
+   |                   ^^^^
+[16 of 39] Compiling Database.PostgreSQL.Simple.ToRow ( src/Database/PostgreSQL/Simple/ToRow.hs, dist/build/Database/PostgreSQL/Simple/ToRow.o, dist/build/Database/PostgreSQL/Simple/ToRow.dyn_o )
+[17 of 39] Compiling Database.PostgreSQL.Simple.SqlQQ ( src/Database/PostgreSQL/Simple/SqlQQ.hs, dist/build/Database/PostgreSQL/Simple/SqlQQ.o, dist/build/Database/PostgreSQL/Simple/SqlQQ.dyn_o )
+[18 of 39] Compiling Database.PostgreSQL.Simple.Internal ( src/Database/PostgreSQL/Simple/Internal.hs, dist/build/Database/PostgreSQL/Simple/Internal.o, dist/build/Database/PostgreSQL/Simple/Internal.dyn_o )
+
+src/Database/PostgreSQL/Simple/Internal.hs:37:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+37 | import           Data.Monoid
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple/Internal.hs:362:17: warning: [-Wincomplete-patterns]
+    Pattern match(es) are non-exhaustive
+    In a case alternative:
+        Patterns of type ‘ExecStatus’ not matched:
+            CopyBoth
+            SingleTuple
+    |
+362 |                 case status of
+    |                 ^^^^^^^^^^^^^^...
+
+src/Database/PostgreSQL/Simple/Internal.hs:383:5: warning: [-Wincomplete-patterns]
+    Pattern match(es) are non-exhaustive
+    In a case alternative:
+        Patterns of type ‘ExecStatus’ not matched:
+            CopyBoth
+            SingleTuple
+    |
+383 |     case status of
+    |     ^^^^^^^^^^^^^^...
+[19 of 39] Compiling Database.PostgreSQL.Simple.Notification ( src/Database/PostgreSQL/Simple/Notification.hs, dist/build/Database/PostgreSQL/Simple/Notification.o, dist/build/Database/PostgreSQL/Simple/Notification.dyn_o )
+[20 of 39] Compiling Database.PostgreSQL.Simple.LargeObjects ( src/Database/PostgreSQL/Simple/LargeObjects.hs, dist/build/Database/PostgreSQL/Simple/LargeObjects.o, dist/build/Database/PostgreSQL/Simple/LargeObjects.dyn_o )
+
+src/Database/PostgreSQL/Simple/LargeObjects.hs:43:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+43 | import           Control.Applicative ((<$>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[21 of 39] Compiling Database.PostgreSQL.Simple.Errors ( src/Database/PostgreSQL/Simple/Errors.hs, dist/build/Database/PostgreSQL/Simple/Errors.o, dist/build/Database/PostgreSQL/Simple/Errors.dyn_o )
+
+src/Database/PostgreSQL/Simple/Errors.hs:28:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+28 | import Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[22 of 39] Compiling Database.PostgreSQL.Simple.Transaction ( src/Database/PostgreSQL/Simple/Transaction.hs, dist/build/Database/PostgreSQL/Simple/Transaction.o, dist/build/Database/PostgreSQL/Simple/Transaction.dyn_o )
+
+src/Database/PostgreSQL/Simple/Transaction.hs:54:49: warning: [-Wunused-imports]
+    The import of ‘<>’
+    from module ‘Database.PostgreSQL.Simple.Compat’ is redundant
+   |
+54 | import Database.PostgreSQL.Simple.Compat (mask, (<>))
+   |                                                 ^^^^
+[23 of 39] Compiling Database.PostgreSQL.Simple.FromField[boot] ( src/Database/PostgreSQL/Simple/FromField.hs-boot, dist/build/Database/PostgreSQL/Simple/FromField.o-boot, dist/build/Database/PostgreSQL/Simple/FromField.dyn_o-boot )
+[24 of 39] Compiling Database.PostgreSQL.Simple.FromRow[boot] ( src/Database/PostgreSQL/Simple/FromRow.hs-boot, dist/build/Database/PostgreSQL/Simple/FromRow.o-boot, dist/build/Database/PostgreSQL/Simple/FromRow.dyn_o-boot )
+[25 of 39] Compiling Database.PostgreSQL.Simple[boot] ( src/Database/PostgreSQL/Simple.hs-boot, dist/build/Database/PostgreSQL/Simple.o-boot, dist/build/Database/PostgreSQL/Simple.dyn_o-boot )
+[26 of 39] Compiling Database.PostgreSQL.Simple.TypeInfo ( src/Database/PostgreSQL/Simple/TypeInfo.hs, dist/build/Database/PostgreSQL/Simple/TypeInfo.o, dist/build/Database/PostgreSQL/Simple/TypeInfo.dyn_o )
+[27 of 39] Compiling Database.PostgreSQL.Simple.FromField ( src/Database/PostgreSQL/Simple/FromField.hs, dist/build/Database/PostgreSQL/Simple/FromField.o, dist/build/Database/PostgreSQL/Simple/FromField.dyn_o )
+
+src/Database/PostgreSQL/Simple/FromField.hs:119:1: warning: [-Wunused-imports]
+    The import of ‘*>, <$>, <*, pure’
+    from module ‘Control.Applicative’ is redundant
+    |
+119 | import           Control.Applicative ( Const(Const), (<|>), (<$>), pure, (*>), (<*) )
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[28 of 39] Compiling Database.PostgreSQL.Simple.Internal.PQResultUtils ( src/Database/PostgreSQL/Simple/Internal/PQResultUtils.hs, dist/build/Database/PostgreSQL/Simple/Internal/PQResultUtils.o, dist/build/Database/PostgreSQL/Simple/Internal/PQResultUtils.dyn_o )
+[29 of 39] Compiling Database.PostgreSQL.Simple.FromRow ( src/Database/PostgreSQL/Simple/FromRow.hs, dist/build/Database/PostgreSQL/Simple/FromRow.o, dist/build/Database/PostgreSQL/Simple/FromRow.dyn_o )
+
+src/Database/PostgreSQL/Simple/FromRow.hs:32:1: warning: [-Wunused-imports]
+    The import of ‘*>, <$>’
+    from module ‘Control.Applicative’ is redundant
+   |
+32 | import           Control.Applicative (Applicative(..), (<$>), (<|>), (*>), liftA2)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[30 of 39] Compiling Database.PostgreSQL.Simple.Cursor ( src/Database/PostgreSQL/Simple/Cursor.hs, dist/build/Database/PostgreSQL/Simple/Cursor.o, dist/build/Database/PostgreSQL/Simple/Cursor.dyn_o )
+
+src/Database/PostgreSQL/Simple/Cursor.hs:26:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+26 | import           Control.Applicative ((<$>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple/Cursor.hs:29:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+29 | import           Data.Monoid (mconcat)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple/Cursor.hs:30:53: warning: [-Wunused-imports]
+    The import of ‘<>’
+    from module ‘Database.PostgreSQL.Simple.Compat’ is redundant
+   |
+30 | import           Database.PostgreSQL.Simple.Compat ((<>), toByteString)
+   |                                                     ^^^^
+[31 of 39] Compiling Database.PostgreSQL.Simple ( src/Database/PostgreSQL/Simple.hs, dist/build/Database/PostgreSQL/Simple.o, dist/build/Database/PostgreSQL/Simple.dyn_o )
+
+src/Database/PostgreSQL/Simple.hs:123:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+    |
+123 | import           Control.Applicative ((<$>))
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple.hs:128:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+    |
+128 | import           Data.Monoid (mconcat)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple.hs:129:53: warning: [-Wunused-imports]
+    The import of ‘<>’
+    from module ‘Database.PostgreSQL.Simple.Compat’ is redundant
+    |
+129 | import           Database.PostgreSQL.Simple.Compat ((<>), toByteString)
+    |                                                     ^^^^
+[32 of 39] Compiling Database.PostgreSQL.Simple.Range ( src/Database/PostgreSQL/Simple/Range.hs, dist/build/Database/PostgreSQL/Simple/Range.o, dist/build/Database/PostgreSQL/Simple/Range.dyn_o )
+
+src/Database/PostgreSQL/Simple/Range.hs:37:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+37 | import           Data.Monoid                          (mempty)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple/Range.hs:47:56: warning: [-Wunused-imports]
+    The import of ‘Word’ from module ‘Data.Word’ is redundant
+   |
+47 | import           Data.Word                            (Word, Word16, Word32,
+   |                                                        ^^^^
+
+src/Database/PostgreSQL/Simple/Range.hs:50:75: warning: [-Wunused-imports]
+    The import of ‘<>’
+    from module ‘Database.PostgreSQL.Simple.Compat’ is redundant
+   |
+50 | import           Database.PostgreSQL.Simple.Compat    (scientificBuilder, (<>), toByteString)
+   |                                                                           ^^^^
+[33 of 39] Compiling Database.PostgreSQL.Simple.Newtypes ( src/Database/PostgreSQL/Simple/Newtypes.hs, dist/build/Database/PostgreSQL/Simple/Newtypes.o, dist/build/Database/PostgreSQL/Simple/Newtypes.dyn_o )
+[34 of 39] Compiling Database.PostgreSQL.Simple.HStore.Implementation ( src/Database/PostgreSQL/Simple/HStore/Implementation.hs, dist/build/Database/PostgreSQL/Simple/HStore/Implementation.o, dist/build/Database/PostgreSQL/Simple/HStore/Implementation.dyn_o )
+
+src/Database/PostgreSQL/Simple/HStore/Implementation.hs:36:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+36 | import           Data.Monoid(Monoid(..))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Database/PostgreSQL/Simple/HStore/Implementation.hs:37:1: warning: [-Wunused-imports]
+    The import of ‘Data.Semigroup’ is redundant
+      except perhaps to import instances from ‘Data.Semigroup’
+    To import instances alone, use: import Data.Semigroup()
+   |
+37 | import           Data.Semigroup
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[35 of 39] Compiling Database.PostgreSQL.Simple.HStore.Internal ( src/Database/PostgreSQL/Simple/HStore/Internal.hs, dist/build/Database/PostgreSQL/Simple/HStore/Internal.o, dist/build/Database/PostgreSQL/Simple/HStore/Internal.dyn_o )
+[36 of 39] Compiling Database.PostgreSQL.Simple.HStore ( src/Database/PostgreSQL/Simple/HStore.hs, dist/build/Database/PostgreSQL/Simple/HStore.o, dist/build/Database/PostgreSQL/Simple/HStore.dyn_o )
+[37 of 39] Compiling Database.PostgreSQL.Simple.Copy ( src/Database/PostgreSQL/Simple/Copy.hs, dist/build/Database/PostgreSQL/Simple/Copy.o, dist/build/Database/PostgreSQL/Simple/Copy.dyn_o )
+
+src/Database/PostgreSQL/Simple/Copy.hs:42:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+42 | import           Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[38 of 39] Compiling Database.PostgreSQL.Simple.Vector ( src/Database/PostgreSQL/Simple/Vector.hs, dist/build/Database/PostgreSQL/Simple/Vector.o, dist/build/Database/PostgreSQL/Simple/Vector.dyn_o )
+[39 of 39] Compiling Database.PostgreSQL.Simple.Vector.Unboxed ( src/Database/PostgreSQL/Simple/Vector/Unboxed.hs, dist/build/Database/PostgreSQL/Simple/Vector/Unboxed.o, dist/build/Database/PostgreSQL/Simple/Vector/Unboxed.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/pstgrsql-smpl-0.6.5.1-365bee57/lib

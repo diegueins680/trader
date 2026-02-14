@@ -1,0 +1,40 @@
+Configuring library for prettyprinter-1.7.1...
+Preprocessing library for prettyprinter-1.7.1...
+Building library for prettyprinter-1.7.1...
+[ 1 of 28] Compiling Prettyprinter.Render.Util.Panic ( src/Prettyprinter/Render/Util/Panic.hs, dist/build/Prettyprinter/Render/Util/Panic.o, dist/build/Prettyprinter/Render/Util/Panic.dyn_o )
+[ 2 of 28] Compiling Prettyprinter.Internal ( src/Prettyprinter/Internal.hs, dist/build/Prettyprinter/Internal.o, dist/build/Prettyprinter/Internal.dyn_o )
+[ 3 of 28] Compiling Prettyprinter.Render.String ( src/Prettyprinter/Render/String.hs, dist/build/Prettyprinter/Render/String.o, dist/build/Prettyprinter/Render/String.dyn_o )
+[ 4 of 28] Compiling Data.Text.Prettyprint.Doc.Render.String ( src/Data/Text/Prettyprint/Doc/Render/String.hs, dist/build/Data/Text/Prettyprint/Doc/Render/String.o, dist/build/Data/Text/Prettyprint/Doc/Render/String.dyn_o )
+[ 5 of 28] Compiling Prettyprinter.Internal.Type ( src/Prettyprinter/Internal/Type.hs, dist/build/Prettyprinter/Internal/Type.o, dist/build/Prettyprinter/Internal/Type.dyn_o )
+[ 6 of 28] Compiling Data.Text.Prettyprint.Doc.Internal.Type ( src/Data/Text/Prettyprint/Doc/Internal/Type.hs, dist/build/Data/Text/Prettyprint/Doc/Internal/Type.o, dist/build/Data/Text/Prettyprint/Doc/Internal/Type.dyn_o )
+[ 7 of 28] Compiling Prettyprinter.Internal.Debug ( src/Prettyprinter/Internal/Debug.hs, dist/build/Prettyprinter/Internal/Debug.o, dist/build/Prettyprinter/Internal/Debug.dyn_o )
+[ 8 of 28] Compiling Data.Text.Prettyprint.Doc.Internal.Debug ( src/Data/Text/Prettyprint/Doc/Internal/Debug.hs, dist/build/Data/Text/Prettyprint/Doc/Internal/Debug.o, dist/build/Data/Text/Prettyprint/Doc/Internal/Debug.dyn_o )
+[ 9 of 28] Compiling Data.Text.Prettyprint.Doc.Internal ( src/Data/Text/Prettyprint/Doc/Internal.hs, dist/build/Data/Text/Prettyprint/Doc/Internal.o, dist/build/Data/Text/Prettyprint/Doc/Internal.dyn_o )
+[10 of 28] Compiling Data.Text.Prettyprint.Doc.Render.Util.Panic ( src/Data/Text/Prettyprint/Doc/Render/Util/Panic.hs, dist/build/Data/Text/Prettyprint/Doc/Render/Util/Panic.o, dist/build/Data/Text/Prettyprint/Doc/Render/Util/Panic.dyn_o )
+[11 of 28] Compiling Prettyprinter.Render.Util.StackMachine ( src/Prettyprinter/Render/Util/StackMachine.hs, dist/build/Prettyprinter/Render/Util/StackMachine.o, dist/build/Prettyprinter/Render/Util/StackMachine.dyn_o )
+[12 of 28] Compiling Data.Text.Prettyprint.Doc.Render.Util.StackMachine ( src/Data/Text/Prettyprint/Doc/Render/Util/StackMachine.hs, dist/build/Data/Text/Prettyprint/Doc/Render/Util/StackMachine.o, dist/build/Data/Text/Prettyprint/Doc/Render/Util/StackMachine.dyn_o )
+[13 of 28] Compiling Prettyprinter.Symbols.Ascii ( src/Prettyprinter/Symbols/Ascii.hs, dist/build/Prettyprinter/Symbols/Ascii.o, dist/build/Prettyprinter/Symbols/Ascii.dyn_o )
+[14 of 28] Compiling Prettyprinter    ( src/Prettyprinter.hs, dist/build/Prettyprinter.o, dist/build/Prettyprinter.dyn_o )
+[15 of 28] Compiling Prettyprinter.Render.Util.SimpleDocTree ( src/Prettyprinter/Render/Util/SimpleDocTree.hs, dist/build/Prettyprinter/Render/Util/SimpleDocTree.o, dist/build/Prettyprinter/Render/Util/SimpleDocTree.dyn_o )
+[16 of 28] Compiling Data.Text.Prettyprint.Doc.Render.Util.SimpleDocTree ( src/Data/Text/Prettyprint/Doc/Render/Util/SimpleDocTree.hs, dist/build/Data/Text/Prettyprint/Doc/Render/Util/SimpleDocTree.o, dist/build/Data/Text/Prettyprint/Doc/Render/Util/SimpleDocTree.dyn_o )
+[17 of 28] Compiling Prettyprinter.Render.Tutorials.TreeRenderingTutorial ( src/Prettyprinter/Render/Tutorials/TreeRenderingTutorial.hs, dist/build/Prettyprinter/Render/Tutorials/TreeRenderingTutorial.o, dist/build/Prettyprinter/Render/Tutorials/TreeRenderingTutorial.dyn_o )
+[18 of 28] Compiling Data.Text.Prettyprint.Doc.Render.Tutorials.TreeRenderingTutorial ( src/Data/Text/Prettyprint/Doc/Render/Tutorials/TreeRenderingTutorial.hs, dist/build/Data/Text/Prettyprint/Doc/Render/Tutorials/TreeRenderingTutorial.o, dist/build/Data/Text/Prettyprint/Doc/Render/Tutorials/TreeRenderingTutorial.dyn_o )
+[19 of 28] Compiling Prettyprinter.Render.Tutorials.StackMachineTutorial ( src/Prettyprinter/Render/Tutorials/StackMachineTutorial.hs, dist/build/Prettyprinter/Render/Tutorials/StackMachineTutorial.o, dist/build/Prettyprinter/Render/Tutorials/StackMachineTutorial.dyn_o )
+[20 of 28] Compiling Data.Text.Prettyprint.Doc.Render.Tutorials.StackMachineTutorial ( src/Data/Text/Prettyprint/Doc/Render/Tutorials/StackMachineTutorial.hs, dist/build/Data/Text/Prettyprint/Doc/Render/Tutorials/StackMachineTutorial.o, dist/build/Data/Text/Prettyprint/Doc/Render/Tutorials/StackMachineTutorial.dyn_o )
+
+src/Data/Text/Prettyprint/Doc/Render/Tutorials/StackMachineTutorial.hs:7:1: warning: [-Wdeprecations]
+    Module ‘Prettyprinter.Render.Tutorials.StackMachineTutorial’ is deprecated:
+      "Writing your own stack machine is probably more efficient and customizable; also consider using »renderSimplyDecorated(A)« instead"
+  |
+7 | import Prettyprinter.Render.Tutorials.StackMachineTutorial
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[21 of 28] Compiling Prettyprinter.Render.Text ( src/Prettyprinter/Render/Text.hs, dist/build/Prettyprinter/Render/Text.o, dist/build/Prettyprinter/Render/Text.dyn_o )
+[22 of 28] Compiling Data.Text.Prettyprint.Doc.Render.Text ( src/Data/Text/Prettyprint/Doc/Render/Text.hs, dist/build/Data/Text/Prettyprint/Doc/Render/Text.o, dist/build/Data/Text/Prettyprint/Doc/Render/Text.dyn_o )
+[23 of 28] Compiling Data.Text.Prettyprint.Doc ( src/Data/Text/Prettyprint/Doc.hs, dist/build/Data/Text/Prettyprint/Doc.o, dist/build/Data/Text/Prettyprint/Doc.dyn_o )
+[24 of 28] Compiling Data.Text.Prettyprint.Doc.Symbols.Ascii ( src/Data/Text/Prettyprint/Doc/Symbols/Ascii.hs, dist/build/Data/Text/Prettyprint/Doc/Symbols/Ascii.o, dist/build/Data/Text/Prettyprint/Doc/Symbols/Ascii.dyn_o )
+[25 of 28] Compiling Prettyprinter.Symbols.Unicode ( src/Prettyprinter/Symbols/Unicode.hs, dist/build/Prettyprinter/Symbols/Unicode.o, dist/build/Prettyprinter/Symbols/Unicode.dyn_o )
+[26 of 28] Compiling Data.Text.Prettyprint.Doc.Symbols.Unicode ( src/Data/Text/Prettyprint/Doc/Symbols/Unicode.hs, dist/build/Data/Text/Prettyprint/Doc/Symbols/Unicode.o, dist/build/Data/Text/Prettyprint/Doc/Symbols/Unicode.dyn_o )
+[27 of 28] Compiling Prettyprinter.Util ( src/Prettyprinter/Util.hs, dist/build/Prettyprinter/Util.o, dist/build/Prettyprinter/Util.dyn_o )
+[28 of 28] Compiling Data.Text.Prettyprint.Doc.Util ( src/Data/Text/Prettyprint/Doc/Util.hs, dist/build/Data/Text/Prettyprint/Doc/Util.o, dist/build/Data/Text/Prettyprint/Doc/Util.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67506/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/prttyprntr-1.7.1-959680cf/lib

@@ -1,0 +1,24 @@
+Configuring library for free-5.2...
+Preprocessing library for free-5.2...
+Building library for free-5.2...
+[ 1 of 19] Compiling Control.Alternative.Free ( src/Control/Alternative/Free.hs, dist/build/Control/Alternative/Free.o, dist/build/Control/Alternative/Free.dyn_o )
+[ 2 of 19] Compiling Control.Alternative.Free.Final ( src/Control/Alternative/Free/Final.hs, dist/build/Control/Alternative/Free/Final.o, dist/build/Control/Alternative/Free/Final.dyn_o )
+[ 3 of 19] Compiling Control.Applicative.Free ( src/Control/Applicative/Free.hs, dist/build/Control/Applicative/Free.o, dist/build/Control/Applicative/Free.dyn_o )
+[ 4 of 19] Compiling Control.Applicative.Free.Fast ( src/Control/Applicative/Free/Fast.hs, dist/build/Control/Applicative/Free/Fast.o, dist/build/Control/Applicative/Free/Fast.dyn_o )
+[ 5 of 19] Compiling Control.Applicative.Free.Final ( src/Control/Applicative/Free/Final.hs, dist/build/Control/Applicative/Free/Final.o, dist/build/Control/Applicative/Free/Final.dyn_o )
+[ 6 of 19] Compiling Control.Applicative.Trans.Free ( src/Control/Applicative/Trans/Free.hs, dist/build/Control/Applicative/Trans/Free.o, dist/build/Control/Applicative/Trans/Free.dyn_o )
+[ 7 of 19] Compiling Control.Comonad.Cofree.Class ( src/Control/Comonad/Cofree/Class.hs, dist/build/Control/Comonad/Cofree/Class.o, dist/build/Control/Comonad/Cofree/Class.dyn_o )
+[ 8 of 19] Compiling Control.Comonad.Cofree ( src/Control/Comonad/Cofree.hs, dist/build/Control/Comonad/Cofree.o, dist/build/Control/Comonad/Cofree.dyn_o )
+[ 9 of 19] Compiling Control.Comonad.Trans.Cofree ( src/Control/Comonad/Trans/Cofree.hs, dist/build/Control/Comonad/Trans/Cofree.o, dist/build/Control/Comonad/Trans/Cofree.dyn_o )
+[10 of 19] Compiling Control.Comonad.Trans.Coiter ( src/Control/Comonad/Trans/Coiter.hs, dist/build/Control/Comonad/Trans/Coiter.o, dist/build/Control/Comonad/Trans/Coiter.dyn_o )
+[11 of 19] Compiling Control.Monad.Free.Class ( src/Control/Monad/Free/Class.hs, dist/build/Control/Monad/Free/Class.o, dist/build/Control/Monad/Free/Class.dyn_o )
+[12 of 19] Compiling Control.Monad.Free.TH ( src/Control/Monad/Free/TH.hs, dist/build/Control/Monad/Free/TH.o, dist/build/Control/Monad/Free/TH.dyn_o )
+[13 of 19] Compiling Control.Monad.Trans.Free ( src/Control/Monad/Trans/Free.hs, dist/build/Control/Monad/Trans/Free.o, dist/build/Control/Monad/Trans/Free.dyn_o )
+[14 of 19] Compiling Control.Monad.Free ( src/Control/Monad/Free.hs, dist/build/Control/Monad/Free.o, dist/build/Control/Monad/Free.dyn_o )
+[15 of 19] Compiling Control.Monad.Free.Church ( src/Control/Monad/Free/Church.hs, dist/build/Control/Monad/Free/Church.o, dist/build/Control/Monad/Free/Church.dyn_o )
+[16 of 19] Compiling Control.Monad.Trans.Free.Ap ( src/Control/Monad/Trans/Free/Ap.hs, dist/build/Control/Monad/Trans/Free/Ap.o, dist/build/Control/Monad/Trans/Free/Ap.dyn_o )
+[17 of 19] Compiling Control.Monad.Free.Ap ( src/Control/Monad/Free/Ap.hs, dist/build/Control/Monad/Free/Ap.o, dist/build/Control/Monad/Free/Ap.dyn_o )
+[18 of 19] Compiling Control.Monad.Trans.Free.Church ( src/Control/Monad/Trans/Free/Church.hs, dist/build/Control/Monad/Trans/Free/Church.o, dist/build/Control/Monad/Trans/Free/Church.dyn_o )
+[19 of 19] Compiling Control.Monad.Trans.Iter ( src/Control/Monad/Trans/Iter.hs, dist/build/Control/Monad/Trans/Iter.o, dist/build/Control/Monad/Trans/Iter.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/fr-5.2-37f64baa/lib

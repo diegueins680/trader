@@ -1,12 +1,17 @@
-import React from "react";
-import type { IntrabarFill, Method, Normalization, Positioning } from "../lib/types";
+import React, { useMemo, useState } from "react";
+import type { IntrabarFill, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { fmtPct, fmtRatio } from "../lib/format";
+import { PLATFORM_LABELS } from "../app/constants";
+import { fmtTimeMs } from "../app/utils";
 
 export type OptimizationComboParams = {
+  binanceSymbol?: string | null;
+  platform?: Platform | null;
   interval: string;
   bars: number;
   method: Method;
-  positioning?: Positioning;
+  blendWeight?: number | null;
+  positioning?: Positioning | null;
   normalization: Normalization;
   baseOpenThreshold?: number | null;
   baseCloseThreshold?: number | null;
@@ -23,13 +28,27 @@ export type OptimizationComboParams = {
   stopLoss?: number | null;
   takeProfit?: number | null;
   trailingStop?: number | null;
+  stopLossVolMult?: number | null;
+  takeProfitVolMult?: number | null;
+  trailingStopVolMult?: number | null;
   minHoldBars?: number | null;
   cooldownBars?: number | null;
+  maxHoldBars?: number | null;
+  minEdge?: number | null;
+  minSignalToNoise?: number | null;
+  edgeBuffer?: number | null;
+  costAwareEdge?: boolean | null;
+  trendLookback?: number | null;
   maxDrawdown?: number | null;
   maxDailyLoss?: number | null;
   maxOrderErrors?: number | null;
+  orderQuote?: number | null;
+  orderQuantity?: number | null;
+  orderQuoteFraction?: number | null;
+  maxOrderQuote?: number | null;
   kalmanZMin?: number | null;
   kalmanZMax?: number | null;
+  kalmanMarketTopN?: number | null;
   maxHighVolProb?: number | null;
   maxConformalWidth?: number | null;
   maxQuantileWidth?: number | null;
@@ -37,11 +56,44 @@ export type OptimizationComboParams = {
   confirmQuantiles?: boolean;
   confidenceSizing?: boolean;
   minPositionSize?: number | null;
+  maxPositionSize?: number | null;
+  volTarget?: number | null;
+  volLookback?: number | null;
+  volEwmaAlpha?: number | null;
+  volFloor?: number | null;
+  volScaleMax?: number | null;
+  maxVolatility?: number | null;
+  rebalanceBars?: number | null;
+  rebalanceThreshold?: number | null;
+  rebalanceCostMult?: number | null;
+  rebalanceGlobal?: boolean | null;
+  rebalanceResetOnSignal?: boolean | null;
+  fundingRate?: number | null;
+  fundingBySide?: boolean | null;
+  fundingOnOpen?: boolean | null;
+  periodsPerYear?: number | null;
+  walkForwardFolds?: number | null;
+  walkForwardEmbargoBars?: number | null;
+  tuneStressVolMult?: number | null;
+  tuneStressShock?: number | null;
+  tuneStressWeight?: number | null;
+  [key: string]: unknown;
+};
+
+export type OptimizationComboOperation = {
+  entryIndex: number;
+  exitIndex: number;
+  entryEquity?: number | null;
+  exitEquity?: number | null;
+  return?: number | null;
+  holdingPeriods?: number | null;
+  exitReason?: string | null;
 };
 
 export type OptimizationCombo = {
   id: number;
   rank?: number | null;
+  createdAtMs?: number | null;
   finalEquity: number;
   objective?: string | null;
   score?: number | null;
@@ -50,11 +102,13 @@ export type OptimizationCombo = {
     maxDrawdown?: number | null;
     turnover?: number | null;
     roundTrips?: number | null;
+    annualizedReturn?: number | null;
   } | null;
   openThreshold: number | null;
   closeThreshold: number | null;
   params: OptimizationComboParams;
-  source: "binance" | "csv" | null;
+  source: "binance" | "coinbase" | "kraken" | "poloniex" | "csv" | null;
+  operations?: OptimizationComboOperation[] | null;
 };
 
 type Props = {
@@ -63,35 +117,80 @@ type Props = {
   error: string | null;
   selectedId: number | null;
   onSelect: (combo: OptimizationCombo) => void;
+  onApply: (combo: OptimizationCombo) => void;
 };
 
-export function TopCombosChart({ combos, loading, error, selectedId, onSelect }: Props) {
-  if (loading) {
+export const TopCombosChart = React.memo(function TopCombosChart({ combos, loading, error, selectedId, onSelect, onApply }: Props) {
+  if (loading && combos.length === 0) {
     return <div className="hint">Looking for optimizer combos…</div>;
   }
-  if (error) {
-    return (
-      <div className="hint" style={{ color: "rgba(239, 68, 68, 0.85)" }}>
-        {error}
-      </div>
-    );
-  }
   if (combos.length === 0) {
+    if (error) {
+      return (
+        <div className="hint" style={{ color: "rgba(239, 68, 68, 0.85)" }}>
+          {error}
+        </div>
+      );
+    }
     return (
       <div className="hint">
-        No combos available yet. Run the optimizer script with <code>--top-json haskell/web/public/top-combos.json</code> (or your own path) and refresh the UI.
+        No combos available yet. Run <code>optimize-equity --top-json haskell/web/public/top-combos.json</code> (or your own path) and refresh the UI.
       </div>
     );
   }
 
-  const maxEq = combos.reduce((acc, combo) => Math.max(acc, combo.finalEquity), 0.0) || 1.0;
+  const annualizedEquityValue = (combo: OptimizationCombo): number | null => {
+    const annReturn = combo.metrics?.annualizedReturn;
+    if (typeof annReturn !== "number" || !Number.isFinite(annReturn)) return null;
+    const annEq = annReturn + 1;
+    return Number.isFinite(annEq) ? annEq : null;
+  };
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
+  const maxRating = useMemo(
+    () => combos.reduce((acc, combo) => Math.max(acc, annualizedEquityValue(combo) ?? combo.finalEquity), 0.0) || 1.0,
+    [combos],
+  );
+  const fmtOptRatio = (v: number | null | undefined, digits = 4): string =>
+    typeof v === "number" && Number.isFinite(v) ? fmtRatio(v, digits) : "—";
+  const fmtOptPct = (v: number | null | undefined, digits = 2): string =>
+    typeof v === "number" && Number.isFinite(v) ? fmtPct(v, digits) : "—";
+  const fmtOptInt = (v: number | null | undefined): string =>
+    typeof v === "number" && Number.isFinite(v) ? Math.trunc(v).toString() : "—";
+  const fmtParamValue = (value: unknown): string => {
+    if (value == null) return "—";
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return "—";
+      if (Number.isInteger(value)) return value.toString();
+      const fixed = value.toFixed(6);
+      return fixed.replace(/\.?0+$/, "");
+    }
+    if (typeof value === "boolean") return value ? "true" : "false";
+    if (typeof value === "string") return value.trim() ? value : "—";
+    try {
+      const json = JSON.stringify(value);
+      if (json.length > 120) return `${json.slice(0, 117)}...`;
+      return json;
+    } catch {
+      return String(value);
+    }
+  };
 
   return (
     <div className="topCombosChart">
+      {error ? (
+        <div className="hint" style={{ color: "rgba(239, 68, 68, 0.85)" }}>
+          {error} Showing last known combos.
+        </div>
+      ) : null}
       {combos.map((combo) => {
         const barsLabel = combo.params.bars <= 0 ? "auto" : combo.params.bars.toString();
-        const sourceLabel = combo.source === "binance" ? "Binance" : combo.source === "csv" ? "CSV" : "Unknown";
-        const barWidth = Math.max(1, (combo.finalEquity / maxEq) * 100);
+        const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
+        const sourceLabel = platform ? PLATFORM_LABELS[platform] : combo.source === "csv" ? "CSV" : "Unknown";
+        const symbolLabel = combo.params.binanceSymbol ? combo.params.binanceSymbol : null;
+        const annualizedEquity = annualizedEquityValue(combo);
+        const annualizedEquityLabel = annualizedEquity != null ? fmtRatio(annualizedEquity, 4) : null;
+        const ratingValue = annualizedEquity ?? combo.finalEquity;
+        const barWidth = Math.max(1, (ratingValue / maxRating) * 100);
         const objectiveLabel = typeof combo.objective === "string" && combo.objective ? combo.objective : null;
         const scoreLabel =
           typeof combo.score === "number" && Number.isFinite(combo.score) ? combo.score.toFixed(4) : null;
@@ -118,17 +217,45 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
             : openLabel !== "—"
               ? openLabel
               : "—";
+        const createdLabel = combo.createdAtMs != null ? fmtTimeMs(combo.createdAtMs) : "—";
+        const operations = combo.operations ?? [];
+        const hasOps = operations.length > 0;
+        const paramEntries = (() => {
+          const rawParams = (combo.params ?? {}) as Record<string, unknown>;
+          const entries = Object.entries(rawParams).filter(([, value]) => value !== undefined);
+          entries.sort(([a], [b]) => a.localeCompare(b));
+          return [
+            ["openThreshold", combo.openThreshold],
+            ["closeThreshold", combo.closeThreshold],
+            ...entries.filter(([key]) => key !== "openThreshold" && key !== "closeThreshold"),
+          ] as Array<[string, unknown]>;
+        })();
+        const showOpsDetails = hasOps && (hoveredId === combo.id || selectedId === combo.id);
         return (
-          <button
-            type="button"
+          <div
             key={combo.id}
             className={`comboRow${selectedId === combo.id ? " comboRowSelected" : ""}`}
+            role="button"
+            tabIndex={0}
             onClick={() => onSelect(combo)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect(combo);
+              }
+            }}
+            onMouseEnter={() => setHoveredId(combo.id)}
+            onMouseLeave={() => setHoveredId((prev) => (prev === combo.id ? null : prev))}
+            onFocus={() => setHoveredId(combo.id)}
+            onBlur={() => setHoveredId((prev) => (prev === combo.id ? null : prev))}
           >
             <div className="comboRowHeader">
               <div>
                 <div className="comboTitle">
-                  #{combo.rank ?? combo.id} · {sourceLabel} · {combo.params.interval} · bars={barsLabel}
+                  #{combo.rank ?? combo.id} · {sourceLabel}
+                  {symbolLabel ? ` · ${symbolLabel}` : ""}
+                  {" · "}
+                  {combo.params.interval} · bars={barsLabel}
                 </div>
                 <div className="comboDetail">
                   {(() => {
@@ -155,25 +282,87 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
                     );
                   })()}
                 </div>
+                <div className="comboDetail">Obtained {createdLabel}</div>
               </div>
-              <div className="comboEquity">{fmtRatio(combo.finalEquity, 4)}</div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+                <div className="comboEquity">{fmtRatio(combo.finalEquity, 4)}</div>
+                <button
+                  className="btnSmall"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onApply(combo);
+                  }}
+                >
+                  Apply
+                </button>
+              </div>
             </div>
             <div className="comboBarWrapper">
               <div className="comboBar" style={{ width: `${barWidth}%` }} />
             </div>
             <div className="comboDetailRow">
+              {annualizedEquityLabel ? <span className="badge">AnnEq {annualizedEquityLabel}</span> : null}
               {objectiveLabel ? <span className="badge">Obj {objectiveLabel}</span> : null}
               {scoreLabel ? <span className="badge">Score {scoreLabel}</span> : null}
               {sharpeLabel ? <span className="badge">Sharpe {sharpeLabel}</span> : null}
               {maxDdLabel ? <span className="badge">MaxDD {maxDdLabel}</span> : null}
               {turnoverLabel ? <span className="badge">Turn {turnoverLabel}</span> : null}
               {roundTripsLabel ? <span className="badge">RT {roundTripsLabel}</span> : null}
+              {hasOps ? <span className="badge">Ops {operations.length}</span> : null}
               <span className="badge">Open {openLabel}</span>
               <span className="badge">Close {closeLabel}</span>
             </div>
-          </button>
+            <div className="comboParams">
+              <div className="comboParamsTitle">Parameters</div>
+              <div className="comboParamsGrid">
+                {paramEntries.map(([key, value]) => (
+                  <div key={`${combo.id}-param-${key}`} className="comboParam">
+                    <span className="comboParamKey">{key}</span>
+                    <span className="comboParamValue">{fmtParamValue(value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {showOpsDetails ? (
+              <div className="comboOpsTooltip" aria-hidden="true">
+                <div className="comboOpsTitle">
+                  Operations <span className="badge">{operations.length}</span>
+                </div>
+                <div className="comboOpsHeader">
+                  <span>Entry</span>
+                  <span>Exit</span>
+                  <span>Equity</span>
+                  <span>Return</span>
+                  <span>Hold</span>
+                  <span>Reason</span>
+                </div>
+                <div className="comboOpsList">
+                  {operations.map((op, idx) => {
+                    const entryEq = fmtOptRatio(op.entryEquity, 4);
+                    const exitEq = fmtOptRatio(op.exitEquity, 4);
+                    const eqLabel = entryEq !== "—" || exitEq !== "—" ? `${entryEq} → ${exitEq}` : "—";
+                    const retLabel = fmtOptPct(op.return, 2);
+                    const holdLabel = fmtOptInt(op.holdingPeriods);
+                    const reasonLabel =
+                      typeof op.exitReason === "string" && op.exitReason.trim() ? op.exitReason.trim() : "—";
+                    return (
+                      <div key={`${combo.id}-op-${idx}`} className="comboOpsRow">
+                        <span>#{op.entryIndex}</span>
+                        <span>#{op.exitIndex}</span>
+                        <span>{eqLabel}</span>
+                        <span>{retLabel}</span>
+                        <span>{holdLabel}</span>
+                        <span>{reasonLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
         );
       })}
     </div>
   );
-}
+});

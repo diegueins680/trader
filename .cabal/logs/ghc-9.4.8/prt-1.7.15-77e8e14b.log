@@ -1,0 +1,40 @@
+Configuring library for iproute-1.7.15...
+Preprocessing library for iproute-1.7.15...
+Building library for iproute-1.7.15...
+[1 of 9] Compiling Data.IP.Addr     ( Data/IP/Addr.hs, dist/build/Data/IP/Addr.o, dist/build/Data/IP/Addr.dyn_o )
+
+Data/IP/Addr.hs:679:5: warning: [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding:
+        Patterns of type ‘[Int]’ not matched:
+            []
+            [_]
+            [_, _]
+            [_, _, _]
+            ...
+    |
+679 |     [i1, i2, i3, i4] = fromIPv4 ip
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2 of 9] Compiling Data.IP.Builder  ( Data/IP/Builder.hs, dist/build/Data/IP/Builder.o, dist/build/Data/IP/Builder.dyn_o )
+[3 of 9] Compiling Data.IP.Mask     ( Data/IP/Mask.hs, dist/build/Data/IP/Mask.o, dist/build/Data/IP/Mask.dyn_o )
+[4 of 9] Compiling Data.IP.Range    ( Data/IP/Range.hs, dist/build/Data/IP/Range.o, dist/build/Data/IP/Range.dyn_o )
+[5 of 9] Compiling Data.IP.Op       ( Data/IP/Op.hs, dist/build/Data/IP/Op.o, dist/build/Data/IP/Op.dyn_o )
+
+Data/IP/Op.hs:103:5: warning: [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding:
+        Patterns of type ‘[Int]’ not matched:
+            []
+            [_]
+            [_, _]
+            [_, _, _]
+            ...
+    |
+103 |     [i1, i2, i3, i4] = fromIPv4 ip
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[6 of 9] Compiling Data.IP.Internal ( Data/IP/Internal.hs, dist/build/Data/IP/Internal.o, dist/build/Data/IP/Internal.dyn_o )
+[7 of 9] Compiling Data.IP          ( Data/IP.hs, dist/build/Data/IP.o, dist/build/Data/IP.dyn_o )
+[8 of 9] Compiling Data.IP.RouteTable.Internal ( Data/IP/RouteTable/Internal.hs, dist/build/Data/IP/RouteTable/Internal.o, dist/build/Data/IP/RouteTable/Internal.dyn_o )
+[9 of 9] Compiling Data.IP.RouteTable ( Data/IP/RouteTable.hs, dist/build/Data/IP/RouteTable.o, dist/build/Data/IP/RouteTable.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/prt-1.7.15-77e8e14b/lib

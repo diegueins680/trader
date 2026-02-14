@@ -1,0 +1,38 @@
+Configuring library for StateVar-1.2.2...
+Preprocessing library for StateVar-1.2.2...
+Building library for StateVar-1.2.2...
+[1 of 1] Compiling Data.StateVar    ( src/Data/StateVar.hs, dist/build/Data/StateVar.o, dist/build/Data/StateVar.dyn_o )
+
+src/Data/StateVar.hs:220:33: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+220 |   default ($~) :: (MonadIO m, a ~ b, HasGetter t a) => t -> (a -> b) -> m ()
+    |                                 ^
+
+src/Data/StateVar.hs:226:34: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+226 |   default ($~!) :: (MonadIO m, a ~ b, HasGetter t a) => t -> (a -> b) -> m ()
+    |                                  ^
+
+src/Data/StateVar.hs:230:32: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+230 | defaultUpdate :: (MonadIO m, a ~ b, HasGetter t a, HasSetter t a) => t -> (a -> b) -> m ()
+    |                                ^
+
+src/Data/StateVar.hs:235:38: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+235 | defaultUpdateStrict :: (MonadIO m, a ~ b, HasGetter t a, HasSetter t a) => t -> (a -> b) -> m ()
+    |                                      ^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67507/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/SttVr-1.2.2-41d1017b/lib

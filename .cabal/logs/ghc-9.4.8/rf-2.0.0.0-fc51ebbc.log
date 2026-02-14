@@ -1,0 +1,12 @@
+Warning: erf.cabal:15:37: version operators used. To use version operators the
+package needs to specify at least 'cabal-version: >= 1.8'.
+Warning: erf.cabal:7:1: The field "synopsis" is specified more than once at
+positions 7:1, 11:1
+Warning: erf.cabal:3:1: The field "license" is specified more than once at
+positions 3:1, 10:1
+Configuring erf-2.0.0.0...
+Preprocessing library for erf-2.0.0.0...
+Building library for erf-2.0.0.0...
+[1 of 1] Compiling Data.Number.Erf  ( src/Data/Number/Erf.hs, dist/build/Data/Number/Erf.o, dist/build/Data/Number/Erf.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67506/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/rf-2.0.0.0-fc51ebbc/lib

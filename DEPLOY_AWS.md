@@ -34,14 +34,12 @@ Create an Amazon Elastic Container Registry (ECR) repository for the Docker imag
 export AWS_REGION=ap-northeast-1          # Change to your region (e.g., us-east-1, eu-west-1)
 export ECR_REPO=trader-api
 
-# Run the helper script
-bash deploy/aws/create-ecr-repo.sh
-
-# Expected output:
-# 123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/trader-api
+aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$AWS_REGION" >/dev/null 2>&1 || \
+  aws ecr create-repository \
+    --repository-name "$ECR_REPO" \
+    --image-scanning-configuration scanOnPush=true \
+    --region "$AWS_REGION" >/dev/null
 ```
-
-Save the output (ECR URI) — you'll need it in the next step.
 
 **Or manually via AWS Console:**
 - AWS Console → **ECR** → **Create repository**
@@ -106,6 +104,11 @@ Create an AWS App Runner service to run your API.
 6. **Environment variables** (optional but recommended):
    ```
    TRADER_API_TOKEN=<your-random-token>
+   TRADER_DB_URL=<postgres-connection-url>
+   TRADER_MULTI_USER=true
+   TRADER_STATE_S3_BUCKET=<s3-bucket>
+   TRADER_STATE_S3_PREFIX=trader
+   TRADER_STATE_S3_REGION=ap-northeast-1
    ```
    Generate a token:
    ```bash
@@ -178,10 +181,40 @@ If you didn't set `TRADER_API_TOKEN` during creation, add it now:
 4. Add:
    ```
    TRADER_API_TOKEN=<your-random-token>
+   TRADER_DB_URL=<postgres-connection-url>
+   TRADER_MULTI_USER=true
    ```
 5. Click **Save changes**
 
 The service will redeploy.
+
+---
+
+## Required: Enable S3 State Persistence (App Runner)
+
+App Runner does **not** support EFS volumes. To persist state across deploys, store bot snapshots and optimizer top-combos in S3:
+
+1. Create a private S3 bucket (e.g. `trader-api-state-...`).
+2. Create an App Runner instance role with S3 access (trust `tasks.apprunner.amazonaws.com`).
+3. Set the instance role on the service and add env vars:
+   ```
+   TRADER_STATE_S3_BUCKET=<s3-bucket>
+   TRADER_STATE_S3_PREFIX=trader
+   TRADER_STATE_S3_REGION=ap-northeast-1
+   ```
+
+## Required: Configure PostgreSQL Persistence
+
+Persist operations, combos, strategies, and combo parameters in Postgres:
+
+1. Provision a managed Postgres database (RDS/Aurora/etc.).
+2. Set the connection URL on the App Runner service:
+   ```
+   TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require
+   ```
+3. Deploy/update the service so the new env var is picked up.
+
+If you use `deploy-aws-quick.sh`, pass `--state-s3-bucket ... --state-s3-prefix ... --instance-role-arn ...` (the script now enforces S3 state for API deploys).
 
 ---
 
@@ -298,6 +331,7 @@ For production, use CloudFront to serve the UI over HTTPS:
 After it's deployed (5-10 minutes):
 - Access your UI at: `https://dxxx.cloudfront.net`
 - Create a CNAME for your domain (e.g., `trader.example.com`)
+ - The quick deploy script can reuse an existing distribution by domain via `--cloudfront-domain`/`TRADER_UI_CLOUDFRONT_DOMAIN`.
 
 ---
 
@@ -305,14 +339,20 @@ After it's deployed (5-10 minutes):
 
 The UI can discover the API in two ways:
 
-**Option A: CloudFront `/api/*` proxy (recommended)**
-- Configure CloudFront to forward `/api/*` to your API origin (App Runner/ALB/etc)
-- The UI will use `/api` by default (no extra UI config needed)
+**Option A: CloudFront `/api/*` proxy (default with CloudFront)**
+- Configure CloudFront to forward `/api/*` to your API origin (App Runner/ALB/etc).
+- Set `apiBaseUrl` to `/api` (or let `deploy-aws-quick.sh` default to it when CloudFront is configured). When `/api` is used and the API URL is known, the script fills `apiFallbackUrl` to the API URL; override it via `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed (CORS required).
 
-**Option B: Deploy-time config file**
+**Option B: Direct API base**
+- Point the UI at the full API URL (App Runner/ALB/etc).
+- Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` and allow CORS on the API host (`TRADER_CORS_ORIGIN`). The quick deploy script auto-fills this from the CloudFront domain when available, and defaults `apiFallbackUrl` to `/api` so same-origin fallback works if direct calls are blocked.
+
+**Option C: Deploy-time config file**
 - Edit `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build) before uploading to S3:
-  - `apiBaseUrl`: `https://<your-api-host>` (or `/api`)
+  - `apiBaseUrl`: `/api` when CloudFront proxies `/api/*` (default for quick deploy) or `https://<your-api-host>` for direct (CORS required)
   - `apiToken`: the same value as backend `TRADER_API_TOKEN` (optional)
+
+CloudFront is non-sticky. If you run multiple backend instances, either keep it single-instance or ensure `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) points to a shared writable directory so async job polling works across instances.
 
 ---
 
@@ -344,8 +384,8 @@ aws apprunner describe-service --service-arn <arn> --region ap-northeast-1 \
 aws apprunner start-deployment --service-arn <arn> --region ap-northeast-1
 
 # Set single-instance scaling
-AWS_REGION=ap-northeast-1 bash deploy/aws/set-app-runner-single-instance.sh \
-  --service-arn <arn> --min 1 --max 1
+# Note: `deploy-aws-quick.sh` sets min=1/max=1 automatically on API deploy.
+# If you need to adjust scaling manually, do it in the App Runner console.
 
 # View ECR images
 aws ecr describe-images --repository-name trader-api --region ap-northeast-1
@@ -377,6 +417,7 @@ aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
 - Verify ECR login: `aws ecr get-login-password ... | docker login ...`
 - Check AWS credentials: `aws sts get-caller-identity`
 - Ensure ECR repository exists
+- If you see `403 Forbidden` on a `HEAD .../manifests/sha256:...` request, your deploy IAM role likely needs `ecr:BatchGetImage` (Docker checks for existing manifests), or your build is producing attestations (provenance/SBOM); add `ecr:BatchGetImage` or disable attestations (example: `docker build --provenance=false --sbom=false ...`). `deploy-aws-quick.sh` disables attestations by default (set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable).
 
 ---
 
@@ -395,7 +436,8 @@ Use CloudWatch to monitor and set up auto-scaling if you expect variable traffic
 ## Next Steps
 
 1. **Monitor the API:** Set up CloudWatch dashboards and alarms
-2. **Backup async jobs:** If using stateful endpoints (`/bot/*`), ensure `TRADER_API_ASYNC_DIR` is on persistent storage (EFS)
+2. **Persist state:** For App Runner, use S3-backed persistence (`TRADER_STATE_S3_BUCKET`) and grant the service an instance role with S3 access.
+   - App Runner does **not** support EFS volumes; S3 is the supported persistence option.
 3. **Setup CI/CD:** Use GitHub Actions to automatically build & push on commit
 4. **Enable HTTPS:** Use CloudFront + ACM certificate for your domain
 5. **Security:** Use IAM roles, VPC security groups, and API Gateway if needed

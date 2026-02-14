@@ -1,0 +1,109 @@
+Configuring library for websockets-0.13.0.0...
+Preprocessing library for websockets-0.13.0.0...
+Building library for websockets-0.13.0.0...
+[ 1 of 17] Compiling Network.WebSockets.Connection.Options ( src/Network/WebSockets/Connection/Options.hs, dist/build/Network/WebSockets/Connection/Options.o, dist/build/Network/WebSockets/Connection/Options.dyn_o )
+
+src/Network/WebSockets/Connection/Options.hs:18:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+18 | import           Data.Monoid (Monoid (..))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 2 of 17] Compiling Network.WebSockets.Extensions.Description ( src/Network/WebSockets/Extensions/Description.hs, dist/build/Network/WebSockets/Extensions/Description.o, dist/build/Network/WebSockets/Extensions/Description.dyn_o )
+
+src/Network/WebSockets/Extensions/Description.hs:13:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+13 | import           Control.Applicative              ((*>), (<*))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Network/WebSockets/Extensions/Description.hs:17:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+17 | import           Data.Monoid                      (mconcat, mappend)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 3 of 17] Compiling Network.WebSockets.Http ( src/Network/WebSockets/Http.hs, dist/build/Network/WebSockets/Http.o, dist/build/Network/WebSockets/Http.dyn_o )
+
+src/Network/WebSockets/Http.hs:36:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+36 | import           Control.Applicative                       (pure, (*>), (<$>),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^...
+
+src/Network/WebSockets/Http.hs:47:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+47 | import           Data.Monoid                               (mappend, mconcat)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 4 of 17] Compiling Network.WebSockets.Hybi13.Mask ( src/Network/WebSockets/Hybi13/Mask.hs, dist/build/Network/WebSockets/Hybi13/Mask.o, dist/build/Network/WebSockets/Hybi13/Mask.dyn_o )
+[ 5 of 17] Compiling Network.WebSockets.Types ( src/Network/WebSockets/Types.hs, dist/build/Network/WebSockets/Types.o, dist/build/Network/WebSockets/Types.dyn_o )
+[ 6 of 17] Compiling Network.WebSockets.Stream ( src/Network/WebSockets/Stream.hs, dist/build/Network/WebSockets/Stream.o, dist/build/Network/WebSockets/Stream.dyn_o )
+[ 7 of 17] Compiling Network.WebSockets.Hybi13.Demultiplex ( src/Network/WebSockets/Hybi13/Demultiplex.hs, dist/build/Network/WebSockets/Hybi13/Demultiplex.o, dist/build/Network/WebSockets/Hybi13/Demultiplex.dyn_o )
+
+src/Network/WebSockets/Hybi13/Demultiplex.hs:22:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+22 | import           Data.Monoid                           (mappend)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 8 of 17] Compiling Network.WebSockets.Hybi13 ( src/Network/WebSockets/Hybi13.hs, dist/build/Network/WebSockets/Hybi13.o, dist/build/Network/WebSockets/Hybi13.dyn_o )
+
+src/Network/WebSockets/Hybi13.hs:21:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+21 | import           Control.Applicative                   (pure, (<$>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Network/WebSockets/Hybi13.hs:37:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+37 | import           Data.Monoid                           (mappend, mconcat,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^...
+[ 9 of 17] Compiling Network.WebSockets.Protocol ( src/Network/WebSockets/Protocol.hs, dist/build/Network/WebSockets/Protocol.o, dist/build/Network/WebSockets/Protocol.dyn_o )
+[10 of 17] Compiling Network.WebSockets.Extensions ( src/Network/WebSockets/Extensions.hs, dist/build/Network/WebSockets/Extensions.o, dist/build/Network/WebSockets/Extensions.dyn_o )
+[11 of 17] Compiling Network.WebSockets.Extensions.StrictUnicode ( src/Network/WebSockets/Extensions/StrictUnicode.hs, dist/build/Network/WebSockets/Extensions/StrictUnicode.o, dist/build/Network/WebSockets/Extensions/StrictUnicode.dyn_o )
+[12 of 17] Compiling Network.WebSockets.Extensions.PermessageDeflate ( src/Network/WebSockets/Extensions/PermessageDeflate.hs, dist/build/Network/WebSockets/Extensions/PermessageDeflate.o, dist/build/Network/WebSockets/Extensions/PermessageDeflate.dyn_o )
+
+src/Network/WebSockets/Extensions/PermessageDeflate.hs:17:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+17 | import           Control.Applicative                       ((<$>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[13 of 17] Compiling Network.WebSockets.Connection ( src/Network/WebSockets/Connection.hs, dist/build/Network/WebSockets/Connection.o, dist/build/Network/WebSockets/Connection.dyn_o )
+
+src/Network/WebSockets/Connection.hs:48:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+48 | import           Control.Applicative                             ((<$>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[14 of 17] Compiling Network.WebSockets.Connection.PingPong ( src/Network/WebSockets/Connection/PingPong.hs, dist/build/Network/WebSockets/Connection/PingPong.o, dist/build/Network/WebSockets/Connection/PingPong.dyn_o )
+[15 of 17] Compiling Network.WebSockets.Server ( src/Network/WebSockets/Server.hs, dist/build/Network/WebSockets/Server.o, dist/build/Network/WebSockets/Server.dyn_o )
+[16 of 17] Compiling Network.WebSockets.Client ( src/Network/WebSockets/Client.hs, dist/build/Network/WebSockets/Client.o, dist/build/Network/WebSockets/Client.dyn_o )
+
+src/Network/WebSockets/Client.hs:22:58: warning: [-Wunused-imports]
+    The import of ‘finally’
+    from module ‘Control.Exception’ is redundant
+   |
+22 | import           Control.Exception             (bracket, finally, throwIO)
+   |                                                          ^^^^^^^
+[17 of 17] Compiling Network.WebSockets ( src/Network/WebSockets.hs, dist/build/Network/WebSockets.o, dist/build/Network/WebSockets.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/wbsckts-0.13.0.0-dd75b8fa/lib

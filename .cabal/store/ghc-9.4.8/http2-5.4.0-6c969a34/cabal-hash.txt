@@ -1,0 +1,12 @@
+pkgid: http2-5.4.0
+component: ComponentLib
+src: b83df78feefd2dde21edcc7a415d674ada5249808c220d9339cd35c09c421227
+pkg-config-deps: 
+deps: array-0.5.4.0, base-4.17.2.1, bytestring-0.11.5.3, containers-0.6.7, cs-nsnstv-1.2.1.0-f05712b6, http-smntcs-0.4.0-4b147780, http-typs-0.12.4-7e184036, ntwrk-3.2.8.0-948adf32, ntwrk-byt-rdr-0.1.7-05ade90a, ntwrk-cntrl-0.1.7-e0ad2046, nx-tm-0.4.17-2c3fdda4, prt-1.7.15-77e8e14b, stm-2.5.1.0, sync-2.2.6-1114405e, tf8-strng-1.0.2-ffdc6b52, tm-mngr-0.3.1-b3746c28
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+flags: -devel -h2spec
+shared-lib: True
+stripped-exe: False
+debug-info: 0

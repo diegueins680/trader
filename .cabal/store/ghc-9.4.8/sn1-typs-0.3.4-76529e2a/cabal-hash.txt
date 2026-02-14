@@ -1,0 +1,10 @@
+pkgid: asn1-types-0.3.4
+src: 78ee92a251379298ca820fa53edbf4b33c539b9fcd887c86f520c30e3b4e21a8
+pkg-config-deps: 
+deps: base-4.17.2.1, bytestring-0.11.5.3, hrglss-0.2.12-dc3a30e2, mmry-0.18.0-e767045c
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

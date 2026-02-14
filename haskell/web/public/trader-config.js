@@ -4,19 +4,33 @@
 //
 // Example:
 // globalThis.__TRADER_CONFIG__ = {
-//   apiBaseUrl: "https://your-api-host",
+//   // Use "/api" when CloudFront proxies /api/* to your API origin (deploy-aws-quick.sh enforces /api when a
+//   // distribution ID is provided). CloudFront is non-sticky, so keep the backend single-instance unless you
+//   // configure shared async storage (TRADER_API_ASYNC_DIR or TRADER_STATE_DIR).
+//   // Use "https://your-api-host" for direct API calls when you are not proxying via /api.
+//   apiBaseUrl: "/api",
+//   // Optional: set apiFallbackUrl to "/api" for same-origin fallback when the UI uses direct API calls.
+//   // Cross-origin fallbacks are ignored when apiBaseUrl is "/api" (proxy mode) to avoid CORS loops;
+//   // use apiBaseUrl=https://<api-host> if you want cross-origin failover.
+//   apiFallbackUrl: "",
 //   apiToken: "TRADER_API_TOKEN",
 //   timeoutsMs: {
+//     // Increase these if large backtests/trades time out in the UI.
 //     requestMs: 30_000,
 //     signalMs: 10 * 60_000,
-//     backtestMs: 20 * 60_000,
+//     backtestMs: 30 * 60_000,
 //     tradeMs: 10 * 60_000,
-//     botStartMs: 20 * 60_000,
+//     botStartMs: 30 * 60_000,
 //     botStatusMs: 60_000,
 //   },
 // };
 (() => {
   const existing = globalThis.__TRADER_CONFIG__;
   if (existing && typeof existing === "object") return;
-  globalThis.__TRADER_CONFIG__ = { apiBaseUrl: "", apiToken: "" };
+  globalThis.__TRADER_CONFIG__ = {
+    apiBaseUrl: "/api",
+    apiFallbackUrl: "",
+    apiToken: "6c5808d0d2058d74f8f39584d8776f8227db04c42360378424d48b545854eea7",
+    timeoutsMs: { botStatusMs: 120000 },
+  };
 })();

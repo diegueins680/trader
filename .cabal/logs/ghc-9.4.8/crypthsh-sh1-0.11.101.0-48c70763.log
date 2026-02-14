@@ -1,0 +1,16 @@
+Configuring library for cryptohash-sha1-0.11.101.0...
+Preprocessing library for cryptohash-sha1-0.11.101.0...
+Building library for cryptohash-sha1-0.11.101.0...
+[1 of 3] Compiling Compat           ( src/Compat.hs, dist/build/Compat.o, dist/build/Compat.dyn_o )
+[2 of 3] Compiling Crypto.Hash.SHA1.FFI ( src/Crypto/Hash/SHA1/FFI.hs, dist/build/Crypto/Hash/SHA1/FFI.o, dist/build/Crypto/Hash/SHA1/FFI.dyn_o )
+[3 of 3] Compiling Crypto.Hash.SHA1 ( src/Crypto/Hash/SHA1.hs, dist/build/Crypto/Hash/SHA1.o, dist/build/Crypto/Hash/SHA1.dyn_o )
+
+src/Crypto/Hash/SHA1.hs:133:19: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+133 | copyCtx dst src = memcpy (castPtr dst) (castPtr src) (fromIntegral sizeCtx)
+    |                   ^^^^^^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41766/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/crypthsh-sh1-0.11.101.0-48c70763/lib

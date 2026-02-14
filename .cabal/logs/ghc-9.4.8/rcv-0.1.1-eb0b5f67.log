@@ -1,0 +1,9 @@
+Configuring library for recv-0.1.1...
+Preprocessing library for recv-0.1.1...
+Building library for recv-0.1.1...
+[1 of 4] Compiling Network.Socket.BufferPool.Types ( Network/Socket/BufferPool/Types.hs, dist/build/Network/Socket/BufferPool/Types.o, dist/build/Network/Socket/BufferPool/Types.dyn_o )
+[2 of 4] Compiling Network.Socket.BufferPool.Buffer ( Network/Socket/BufferPool/Buffer.hs, dist/build/Network/Socket/BufferPool/Buffer.o, dist/build/Network/Socket/BufferPool/Buffer.dyn_o )
+[3 of 4] Compiling Network.Socket.BufferPool.Recv ( Network/Socket/BufferPool/Recv.hs, dist/build/Network/Socket/BufferPool/Recv.o, dist/build/Network/Socket/BufferPool/Recv.dyn_o )
+[4 of 4] Compiling Network.Socket.BufferPool ( Network/Socket/BufferPool.hs, dist/build/Network/Socket/BufferPool.o, dist/build/Network/Socket/BufferPool.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/rcv-0.1.1-eb0b5f67/lib

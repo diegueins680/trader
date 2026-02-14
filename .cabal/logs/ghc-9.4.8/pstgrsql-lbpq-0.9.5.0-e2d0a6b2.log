@@ -1,0 +1,145 @@
+[1 of 2] Compiling Main             ( /Users/diegosaa/GitHub/trader/haskell/dist-newstyle/tmp/src-41772/postgresql-libpq-0.9.5.0/dist/setup/setup.hs, /Users/diegosaa/GitHub/trader/haskell/dist-newstyle/tmp/src-41772/postgresql-libpq-0.9.5.0/dist/setup/Main.o )
+[2 of 2] Linking /Users/diegosaa/GitHub/trader/haskell/dist-newstyle/tmp/src-41772/postgresql-libpq-0.9.5.0/dist/setup/setup
+Configuring postgresql-libpq-0.9.5.0...
+Preprocessing library for postgresql-libpq-0.9.5.0..
+Building library for postgresql-libpq-0.9.5.0..
+[1 of 8] Compiling Database.PostgreSQL.LibPQ.Compat ( src/Database/PostgreSQL/LibPQ/Compat.hs, dist/build/Database/PostgreSQL/LibPQ/Compat.o, dist/build/Database/PostgreSQL/LibPQ/Compat.dyn_o )
+[2 of 8] Compiling Database.PostgreSQL.LibPQ.Enums ( dist/build/Database/PostgreSQL/LibPQ/Enums.hs, dist/build/Database/PostgreSQL/LibPQ/Enums.o, dist/build/Database/PostgreSQL/LibPQ/Enums.dyn_o )
+[3 of 8] Compiling Database.PostgreSQL.LibPQ.Internal ( src/Database/PostgreSQL/LibPQ/Internal.hs, dist/build/Database/PostgreSQL/LibPQ/Internal.o, dist/build/Database/PostgreSQL/LibPQ/Internal.dyn_o )
+[4 of 8] Compiling Database.PostgreSQL.LibPQ.Marshal ( src/Database/PostgreSQL/LibPQ/Marshal.hs, dist/build/Database/PostgreSQL/LibPQ/Marshal.o, dist/build/Database/PostgreSQL/LibPQ/Marshal.dyn_o )
+[5 of 8] Compiling Database.PostgreSQL.LibPQ.Notify ( dist/build/Database/PostgreSQL/LibPQ/Notify.hs, dist/build/Database/PostgreSQL/LibPQ/Notify.o, dist/build/Database/PostgreSQL/LibPQ/Notify.dyn_o )
+[6 of 8] Compiling Database.PostgreSQL.LibPQ.Oid ( dist/build/Database/PostgreSQL/LibPQ/Oid.hs, dist/build/Database/PostgreSQL/LibPQ/Oid.o, dist/build/Database/PostgreSQL/LibPQ/Oid.dyn_o )
+[7 of 8] Compiling Database.PostgreSQL.LibPQ.FFI ( src/Database/PostgreSQL/LibPQ/FFI.hs, dist/build/Database/PostgreSQL/LibPQ/FFI.o, dist/build/Database/PostgreSQL/LibPQ/FFI.dyn_o )
+
+/var/folders/0s/0tg301f95s51dvsjf74ksxjm0000gn/T/ghc47023_0/ghc_30.c:18:179: error:
+     warning: passing 'HsWord8 *' (aka 'unsigned char *') to parameter of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+       18 | HsInt32 ghczuwrapperZC5ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZClozuread(void* a1, HsInt32 a2, HsWord8* a3, HsWord64 a4) {return lo_read(a1, a2, a3, a4);}
+          |                                                                                                                                                                                   ^~
+   |
+18 | HsInt32 ghczuwrapperZC5ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZClozuread(void* a1, HsInt32 a2, HsWord8* a3, HsWord64 a4) {return lo_read(a1, a2, a3, a4);}
+   |                                                                                                                                                                                   ^
+
+/usr/local/opt/postgresql@16/include/libpq-fe.h:620:48: error:
+     note: passing argument to parameter 'buf' here
+      620 | extern int      lo_read(PGconn *conn, int fd, char *buf, size_t len);
+          |                                                     ^
+    |
+620 | extern int      lo_read(PGconn *conn, int fd, char *buf, size_t len);
+    |                                                ^
+
+/var/folders/0s/0tg301f95s51dvsjf74ksxjm0000gn/T/ghc47023_0/ghc_30.c:46:162: error:
+     warning: passing 'char *' to parameter of type 'const unsigned char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+       46 | HsWord8* ghczuwrapperZC19ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQunescapeBytea(char* a1, size_t* a2) {return PQunescapeBytea(a1, a2);}
+          |                                                                                                                                                                  ^~
+   |
+46 | HsWord8* ghczuwrapperZC19ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQunescapeBytea(char* a1, size_t* a2) {return PQunescapeBytea(a1, a2);}
+   |                                                                                                                                                                  ^
+
+/usr/local/opt/postgresql@16/include/libpq-fe.h:581:60: error:
+     note: passing argument to parameter 'strtext' here
+      581 | extern unsigned char *PQunescapeBytea(const unsigned char *strtext,
+          |                                                            ^
+    |
+581 | extern unsigned char *PQunescapeBytea(const unsigned char *strtext,
+    |                                                            ^
+
+/var/folders/0s/0tg301f95s51dvsjf74ksxjm0000gn/T/ghc47023_0/ghc_30.c:48:193: error:
+     warning: passing 'char *' to parameter of type 'const unsigned char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+       48 | HsWord8* ghczuwrapperZC20ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQescapeByteaConn(void* a1, char* a2, HsWord64 a3, size_t* a4) {return PQescapeByteaConn(a1, a2, a3, a4);}
+          |                                                                                                                                                                                                 ^~
+   |
+48 | HsWord8* ghczuwrapperZC20ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQescapeByteaConn(void* a1, char* a2, HsWord64 a3, size_t* a4) {return PQescapeByteaConn(a1, a2, a3, a4);}
+   |                                                                                                                                                                                                 ^
+
+/usr/local/opt/postgresql@16/include/libpq-fe.h:579:32: error:
+     note: passing argument to parameter 'from' here
+      579 |                                                                                 const unsigned char *from, size_t from_length,
+          |                                                                                                      ^
+    |
+579 |                                                                                 const unsigned char *from, size_t from_length,
+    |                                ^
+
+/var/folders/0s/0tg301f95s51dvsjf74ksxjm0000gn/T/ghc47023_0/ghc_30.c:50:205: error:
+     warning: passing 'HsWord8 *' (aka 'unsigned char *') to parameter of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+       50 | HsWord64 ghczuwrapperZC21ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQescapeStringConn(void* a1, HsWord8* a2, char* a3, HsWord64 a4, int* a5) {return PQescapeStringConn(a1, a2, a3, a4, a5);}
+          |                                                                                                                                                                                                             ^~
+   |
+50 | HsWord64 ghczuwrapperZC21ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQescapeStringConn(void* a1, HsWord8* a2, char* a3, HsWord64 a4, int* a5) {return PQescapeStringConn(a1, a2, a3, a4, a5);}
+   |                                                                                                                                                                                                             ^
+
+/usr/local/opt/postgresql@16/include/libpq-fe.h:574:16: error:
+     note: passing argument to parameter 'to' here
+      574 |                                                                  char *to, const char *from, size_t length,
+          |                                                                        ^
+    |
+574 |                                                                  char *to, const char *from, size_t length,
+    |                ^
+4 warnings generated.
+
+/var/folders/0s/0tg301f95s51dvsjf74ksxjm0000gn/T/ghc47023_0/ghc_37.c:18:179: error:
+     warning: passing 'HsWord8 *' (aka 'unsigned char *') to parameter of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+       18 | HsInt32 ghczuwrapperZC5ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZClozuread(void* a1, HsInt32 a2, HsWord8* a3, HsWord64 a4) {return lo_read(a1, a2, a3, a4);}
+          |                                                                                                                                                                                   ^~
+   |
+18 | HsInt32 ghczuwrapperZC5ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZClozuread(void* a1, HsInt32 a2, HsWord8* a3, HsWord64 a4) {return lo_read(a1, a2, a3, a4);}
+   |                                                                                                                                                                                   ^
+
+/usr/local/opt/postgresql@16/include/libpq-fe.h:620:48: error:
+     note: passing argument to parameter 'buf' here
+      620 | extern int      lo_read(PGconn *conn, int fd, char *buf, size_t len);
+          |                                                     ^
+    |
+620 | extern int      lo_read(PGconn *conn, int fd, char *buf, size_t len);
+    |                                                ^
+
+/var/folders/0s/0tg301f95s51dvsjf74ksxjm0000gn/T/ghc47023_0/ghc_37.c:46:162: error:
+     warning: passing 'char *' to parameter of type 'const unsigned char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+       46 | HsWord8* ghczuwrapperZC19ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQunescapeBytea(char* a1, size_t* a2) {return PQunescapeBytea(a1, a2);}
+          |                                                                                                                                                                  ^~
+   |
+46 | HsWord8* ghczuwrapperZC19ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQunescapeBytea(char* a1, size_t* a2) {return PQunescapeBytea(a1, a2);}
+   |                                                                                                                                                                  ^
+
+/usr/local/opt/postgresql@16/include/libpq-fe.h:581:60: error:
+     note: passing argument to parameter 'strtext' here
+      581 | extern unsigned char *PQunescapeBytea(const unsigned char *strtext,
+          |                                                            ^
+    |
+581 | extern unsigned char *PQunescapeBytea(const unsigned char *strtext,
+    |                                                            ^
+
+/var/folders/0s/0tg301f95s51dvsjf74ksxjm0000gn/T/ghc47023_0/ghc_37.c:48:193: error:
+     warning: passing 'char *' to parameter of type 'const unsigned char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+       48 | HsWord8* ghczuwrapperZC20ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQescapeByteaConn(void* a1, char* a2, HsWord64 a3, size_t* a4) {return PQescapeByteaConn(a1, a2, a3, a4);}
+          |                                                                                                                                                                                                 ^~
+   |
+48 | HsWord8* ghczuwrapperZC20ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQescapeByteaConn(void* a1, char* a2, HsWord64 a3, size_t* a4) {return PQescapeByteaConn(a1, a2, a3, a4);}
+   |                                                                                                                                                                                                 ^
+
+/usr/local/opt/postgresql@16/include/libpq-fe.h:579:32: error:
+     note: passing argument to parameter 'from' here
+      579 |                                                                                 const unsigned char *from, size_t from_length,
+          |                                                                                                      ^
+    |
+579 |                                                                                 const unsigned char *from, size_t from_length,
+    |                                ^
+
+/var/folders/0s/0tg301f95s51dvsjf74ksxjm0000gn/T/ghc47023_0/ghc_37.c:50:205: error:
+     warning: passing 'HsWord8 *' (aka 'unsigned char *') to parameter of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+       50 | HsWord64 ghczuwrapperZC21ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQescapeStringConn(void* a1, HsWord8* a2, char* a3, HsWord64 a4, int* a5) {return PQescapeStringConn(a1, a2, a3, a4, a5);}
+          |                                                                                                                                                                                                             ^~
+   |
+50 | HsWord64 ghczuwrapperZC21ZCpstgrsqlzmlbpqzm0zi9zi5zi0zme2d0a6b2ZCDatabaseziPostgreSQLziLibPQziFFIZCPQescapeStringConn(void* a1, HsWord8* a2, char* a3, HsWord64 a4, int* a5) {return PQescapeStringConn(a1, a2, a3, a4, a5);}
+   |                                                                                                                                                                                                             ^
+
+/usr/local/opt/postgresql@16/include/libpq-fe.h:574:16: error:
+     note: passing argument to parameter 'to' here
+      574 |                                                                  char *to, const char *from, size_t length,
+          |                                                                        ^
+    |
+574 |                                                                  char *to, const char *from, size_t length,
+    |                ^
+4 warnings generated.
+[8 of 8] Compiling Database.PostgreSQL.LibPQ ( src/Database/PostgreSQL/LibPQ.hs, dist/build/Database/PostgreSQL/LibPQ.o, dist/build/Database/PostgreSQL/LibPQ.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/pstgrsql-lbpq-0.9.5.0-e2d0a6b2/lib

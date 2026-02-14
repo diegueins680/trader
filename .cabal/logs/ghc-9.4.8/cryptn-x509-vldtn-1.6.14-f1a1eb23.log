@@ -1,0 +1,10 @@
+Configuring library for crypton-x509-validation-1.6.14...
+Preprocessing library for crypton-x509-validation-1.6.14...
+Building library for crypton-x509-validation-1.6.14...
+[1 of 5] Compiling Data.X509.Validation.Fingerprint ( Data/X509/Validation/Fingerprint.hs, dist/build/Data/X509/Validation/Fingerprint.o, dist/build/Data/X509/Validation/Fingerprint.dyn_o )
+[2 of 5] Compiling Data.X509.Validation.Signature ( Data/X509/Validation/Signature.hs, dist/build/Data/X509/Validation/Signature.o, dist/build/Data/X509/Validation/Signature.dyn_o )
+[3 of 5] Compiling Data.X509.Validation.Types ( Data/X509/Validation/Types.hs, dist/build/Data/X509/Validation/Types.o, dist/build/Data/X509/Validation/Types.dyn_o )
+[4 of 5] Compiling Data.X509.Validation.Cache ( Data/X509/Validation/Cache.hs, dist/build/Data/X509/Validation/Cache.o, dist/build/Data/X509/Validation/Cache.dyn_o )
+[5 of 5] Compiling Data.X509.Validation ( Data/X509/Validation.hs, dist/build/Data/X509/Validation.o, dist/build/Data/X509/Validation.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/cryptn-x509-vldtn-1.6.14-f1a1eb23/lib

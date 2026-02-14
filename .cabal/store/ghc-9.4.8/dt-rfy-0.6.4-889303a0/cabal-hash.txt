@@ -1,0 +1,12 @@
+pkgid: data-reify-0.6.4
+component: ComponentLib
+src: 12d32ead161bb9ed289ed13c05894d2904859d4e76935be7887332a92d5457ac
+pkg-config-deps: 
+deps: base-4.17.2.1, containers-0.6.7, hshbl-1.4.7.0-aee9b33f, nrdrd-cntnrs-0.2.21-a93a7ffd
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+flags: -tests
+shared-lib: True
+stripped-exe: False
+debug-info: 0

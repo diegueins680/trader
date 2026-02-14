@@ -1,9 +1,11 @@
-import type { IntrabarFill, Market, Method, Normalization, Positioning } from "../lib/types";
-import { BINANCE_INTERVAL_SECONDS, BINANCE_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
+import type { IntrabarFill, Market, Method, Normalization, Platform, Positioning } from "../lib/types";
+import { BINANCE_INTERVAL_SECONDS, PLATFORM_DEFAULT_SYMBOL, PLATFORM_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
 import { clamp } from "./utils";
 
 export type FormState = {
   binanceSymbol: string;
+  botSymbols: string;
+  platform: Platform;
   market: Market;
   interval: string;
   bars: number;
@@ -20,18 +22,49 @@ export type FormState = {
   stopLoss: number;
   takeProfit: number;
   trailingStop: number;
+  stopLossVolMult: number;
+  takeProfitVolMult: number;
+  trailingStopVolMult: number;
   minHoldBars: number;
+  maxHoldBars: number;
   cooldownBars: number;
   maxDrawdown: number;
   maxDailyLoss: number;
   maxOrderErrors: number;
+  minEdge: number;
+  minSignalToNoise: number;
+  costAwareEdge: boolean;
+  edgeBuffer: number;
+  trendLookback: number;
+  maxPositionSize: number;
+  volTarget: number;
+  volLookback: number;
+  volEwmaAlpha: number;
+  volFloor: number;
+  volScaleMax: number;
+  maxVolatility: number;
+  rebalanceBars: number;
+  rebalanceThreshold: number;
+  rebalanceCostMult: number;
+  rebalanceGlobal: boolean;
+  rebalanceResetOnSignal: boolean;
+  fundingRate: number;
+  fundingBySide: boolean;
+  fundingOnOpen: boolean;
+  blendWeight: number;
+  routerLookback: number;
+  routerMinScore: number;
   backtestRatio: number;
   tuneRatio: number;
   tuneObjective: string;
   tunePenaltyMaxDrawdown: number;
   tunePenaltyTurnover: number;
+  tuneStressVolMult: number;
+  tuneStressShock: number;
+  tuneStressWeight: number;
   minRoundTrips: number;
   walkForwardFolds: number;
+  walkForwardEmbargoBars: number;
   normalization: Normalization;
   epochs: number;
   learningRate: number;
@@ -61,65 +94,100 @@ export type FormState = {
   bypassCache: boolean;
   autoRefresh: boolean;
   autoRefreshSec: number;
+  positionsOpenTimeCacheSec: number;
 
   // Live bot (advanced)
   botPollSeconds: number;
   botOnlineEpochs: number;
   botTrainBars: number;
   botMaxPoints: number;
+  botProtectionOrders: boolean;
   botAdoptExistingPosition: boolean;
 };
 
 export const defaultForm: FormState = {
   binanceSymbol: "BTCUSDT",
+  botSymbols: "",
+  platform: "binance",
   market: "spot",
   interval: "1h",
-  bars: 200,
-  lookbackWindow: "24h",
+  bars: 500,
+  lookbackWindow: "7d",
   lookbackBars: 0,
   method: "11",
   positioning: "long-flat",
-  openThreshold: 0.001,
-  closeThreshold: 0.001,
-  fee: 0.0005,
-  slippage: 0,
-  spread: 0,
+  openThreshold: 0.002,
+  closeThreshold: 0.002,
+  fee: 0.0008,
+  slippage: 0.0002,
+  spread: 0.0002,
   intrabarFill: "stop-first",
   stopLoss: 0,
   takeProfit: 0,
   trailingStop: 0,
-  minHoldBars: 0,
-  cooldownBars: 0,
+  stopLossVolMult: 0,
+  takeProfitVolMult: 0,
+  trailingStopVolMult: 0,
+  minHoldBars: 4,
+  maxHoldBars: 36,
+  cooldownBars: 2,
   maxDrawdown: 0,
   maxDailyLoss: 0,
   maxOrderErrors: 0,
+  minEdge: 0.0004,
+  minSignalToNoise: 0.8,
+  costAwareEdge: true,
+  edgeBuffer: 0.0002,
+  trendLookback: 30,
+  maxPositionSize: 0.8,
+  volTarget: 0.7,
+  volLookback: 30,
+  volEwmaAlpha: 0,
+  volFloor: 0.15,
+  volScaleMax: 1,
+  maxVolatility: 1.5,
+  rebalanceBars: 24,
+  rebalanceThreshold: 0.05,
+  rebalanceCostMult: 1,
+  rebalanceGlobal: false,
+  rebalanceResetOnSignal: false,
+  fundingRate: 0.1,
+  fundingBySide: false,
+  fundingOnOpen: false,
+  blendWeight: 0.5,
+  routerLookback: 30,
+  routerMinScore: 0.25,
   backtestRatio: 0.2,
-  tuneRatio: 0.2,
-  tuneObjective: "equity-dd-turnover",
-  tunePenaltyMaxDrawdown: 1.0,
-  tunePenaltyTurnover: 0.1,
-  minRoundTrips: 0,
-  walkForwardFolds: 5,
+  tuneRatio: 0.25,
+  tuneObjective: "annualized-equity",
+  tunePenaltyMaxDrawdown: 1.5,
+  tunePenaltyTurnover: 0.2,
+  tuneStressVolMult: 1.0,
+  tuneStressShock: 0,
+  tuneStressWeight: 0,
+  minRoundTrips: 5,
+  walkForwardFolds: 7,
+  walkForwardEmbargoBars: 1,
   normalization: "standard",
   epochs: 30,
   learningRate: 0.001,
-  valRatio: 0.2,
+  valRatio: 0.3,
   patience: 10,
   gradClip: 0,
   hiddenSize: 16,
-  kalmanZMin: 0,
+  kalmanZMin: 0.5,
   kalmanZMax: 3,
   maxHighVolProb: 0,
   maxConformalWidth: 0,
   maxQuantileWidth: 0,
-  confirmConformal: false,
-  confirmQuantiles: false,
-  confidenceSizing: false,
-  minPositionSize: 0,
+  confirmConformal: true,
+  confirmQuantiles: true,
+  confidenceSizing: true,
+  minPositionSize: 0.15,
   optimizeOperations: false,
   sweepThreshold: false,
   binanceTestnet: false,
-  orderQuote: 20,
+  orderQuote: 100,
   orderQuantity: 0,
   orderQuoteFraction: 0,
   maxOrderQuote: 0,
@@ -129,16 +197,19 @@ export const defaultForm: FormState = {
   bypassCache: false,
   autoRefresh: false,
   autoRefreshSec: 20,
+  positionsOpenTimeCacheSec: 60,
 
   botPollSeconds: 0,
   botOnlineEpochs: 1,
   botTrainBars: 800,
   botMaxPoints: 2000,
-  botAdoptExistingPosition: false,
+  botProtectionOrders: false,
+  botAdoptExistingPosition: true,
 };
 
 export type FormStateJson = Partial<FormState> & {
   threshold?: unknown; // legacy field (maps to openThreshold/closeThreshold)
+  platform?: unknown;
   interval?: unknown;
   positioning?: unknown;
   intrabarFill?: unknown;
@@ -149,6 +220,30 @@ export type FormStateJson = Partial<FormState> & {
 export function binanceIntervalSeconds(interval: string): number | null {
   const sec = BINANCE_INTERVAL_SECONDS[interval];
   return typeof sec === "number" && Number.isFinite(sec) ? sec : null;
+}
+
+export function platformIntervalSeconds(platform: Platform, interval: string): number | null {
+  if (platform === "binance") return binanceIntervalSeconds(interval);
+  return parseDurationSeconds(interval);
+}
+
+function symbolFormatPattern(platform: Platform): RegExp {
+  switch (platform) {
+    case "coinbase":
+      return /^[A-Z0-9]+-[A-Z0-9]+$/;
+    case "poloniex":
+      return /^[A-Z0-9]+_[A-Z0-9]+$/;
+    case "binance":
+    case "kraken":
+    default:
+      return /^[A-Z0-9]{3,30}$/;
+  }
+}
+
+function normalizeSymbol(raw: unknown, platform: Platform, fallback: string): string {
+  const s = typeof raw === "string" ? raw.trim().toUpperCase() : "";
+  if (!s) return fallback;
+  return symbolFormatPattern(platform).test(s) ? s : fallback;
 }
 
 export function parseDurationSeconds(raw: string): number | null {
@@ -179,10 +274,10 @@ export function parseDurationSeconds(raw: string): number | null {
   return n * mult;
 }
 
-function normalizeBinanceInterval(raw: unknown, fallback: string): string {
+function normalizePlatformInterval(platform: Platform, raw: unknown, fallback: string): string {
   if (typeof raw !== "string") return fallback;
   const value = raw.trim();
-  return BINANCE_INTERVAL_SET.has(value) ? value : fallback;
+  return PLATFORM_INTERVAL_SET[platform].has(value) ? value : fallback;
 }
 
 function normalizeLookbackWindow(raw: unknown, fallback: string): string {
@@ -232,6 +327,16 @@ function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFi
   return fallback;
 }
 
+function normalizePlatform(raw: unknown, fallback: Platform): Platform {
+  if (raw === "binance" || raw === "coinbase" || raw === "kraken" || raw === "poloniex") return raw;
+  return fallback;
+}
+
+function normalizeMarket(raw: unknown, fallback: Market): Market {
+  if (raw === "spot" || raw === "margin" || raw === "futures") return raw;
+  return fallback;
+}
+
 function normalizeTuneObjective(raw: unknown, fallback: string): string {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (s && TUNE_OBJECTIVE_SET.has(s)) return s;
@@ -242,6 +347,7 @@ function normalizeTuneObjective(raw: unknown, fallback: string): string {
 export function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
   const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
+  const botSymbols = typeof rawRec.botSymbols === "string" ? rawRec.botSymbols : merged.botSymbols;
   const legacyThreshold = rawRec.threshold;
   const openThreshold = normalizeFiniteNumber(rawRec.openThreshold ?? legacyThreshold ?? merged.openThreshold, defaultForm.openThreshold, 0, 1e9);
   const closeThreshold = normalizeFiniteNumber(
@@ -258,10 +364,35 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     1e9,
   );
   const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
+  const platform = normalizePlatform(rawRec.platform ?? merged.platform, defaultForm.platform);
+  let market = platform === "binance" ? normalizeMarket(rawRec.market ?? merged.market, defaultForm.market) : "spot";
+  const binanceLiveCandidate =
+    platform === "binance" ? normalizeBool(rawRec.binanceLive ?? merged.binanceLive, defaultForm.binanceLive) : false;
+  // Margin requires live orders; prefer a safe fallback over implicitly enabling live mode.
+  const binanceLive = market === "margin" && !binanceLiveCandidate ? false : binanceLiveCandidate;
+  if (market === "margin" && !binanceLiveCandidate) market = "spot";
+  // Trade arming is meaningful for Binance + Coinbase; disable it for non-trading platforms.
+  const tradeArmed =
+    platform === "binance" || platform === "coinbase"
+      ? normalizeBool(rawRec.tradeArmed ?? merged.tradeArmed, defaultForm.tradeArmed)
+      : false;
+  const binanceTestnet =
+    platform === "binance" && market !== "margin"
+      ? normalizeBool(rawRec.binanceTestnet ?? merged.binanceTestnet, defaultForm.binanceTestnet)
+      : false;
+  const symbolFallback = PLATFORM_DEFAULT_SYMBOL[platform] ?? defaultForm.binanceSymbol;
+  const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform, symbolFallback);
   const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
   return {
     ...mergedNoLegacy,
-    interval: normalizeBinanceInterval(raw?.interval ?? merged.interval, defaultForm.interval),
+    botSymbols,
+    platform,
+    market,
+    binanceTestnet,
+    binanceLive,
+    tradeArmed,
+    binanceSymbol,
+    interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, defaultForm.interval),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
     lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
@@ -270,28 +401,107 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     slippage: normalizeFiniteNumber(rawRec.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
     spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
     intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
+    stopLossVolMult: normalizeFiniteNumber(
+      rawRec.stopLossVolMult ?? merged.stopLossVolMult,
+      defaultForm.stopLossVolMult,
+      0,
+      1e9,
+    ),
+    takeProfitVolMult: normalizeFiniteNumber(
+      rawRec.takeProfitVolMult ?? merged.takeProfitVolMult,
+      defaultForm.takeProfitVolMult,
+      0,
+      1e9,
+    ),
+    trailingStopVolMult: normalizeFiniteNumber(
+      rawRec.trailingStopVolMult ?? merged.trailingStopVolMult,
+      defaultForm.trailingStopVolMult,
+      0,
+      1e9,
+    ),
     minHoldBars: normalizeFiniteNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1e9),
+    maxHoldBars: normalizeFiniteNumber(rawRec.maxHoldBars ?? merged.maxHoldBars, defaultForm.maxHoldBars, 0, 1e9),
     cooldownBars: normalizeFiniteNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1e9),
     tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
     tuneObjective: normalizeTuneObjective(rawRec.tuneObjective ?? merged.tuneObjective, defaultForm.tuneObjective),
     tunePenaltyMaxDrawdown: normalizeFiniteNumber(rawRec.tunePenaltyMaxDrawdown ?? merged.tunePenaltyMaxDrawdown, defaultForm.tunePenaltyMaxDrawdown, 0, 1e9),
     tunePenaltyTurnover: normalizeFiniteNumber(rawRec.tunePenaltyTurnover ?? merged.tunePenaltyTurnover, defaultForm.tunePenaltyTurnover, 0, 1e9),
+    tuneStressVolMult: normalizeFiniteNumber(rawRec.tuneStressVolMult ?? merged.tuneStressVolMult, defaultForm.tuneStressVolMult, 0, 1e9),
+    tuneStressShock: normalizeFiniteNumber(rawRec.tuneStressShock ?? merged.tuneStressShock, defaultForm.tuneStressShock, -1e9, 1e9),
+    tuneStressWeight: normalizeFiniteNumber(rawRec.tuneStressWeight ?? merged.tuneStressWeight, defaultForm.tuneStressWeight, 0, 1e9),
     minRoundTrips: normalizeFiniteNumber(rawRec.minRoundTrips ?? merged.minRoundTrips, defaultForm.minRoundTrips, 0, 1e9),
     walkForwardFolds: normalizeFiniteNumber(rawRec.walkForwardFolds ?? merged.walkForwardFolds, defaultForm.walkForwardFolds, 1, 1000),
+    walkForwardEmbargoBars: normalizeFiniteNumber(
+      rawRec.walkForwardEmbargoBars ?? merged.walkForwardEmbargoBars,
+      defaultForm.walkForwardEmbargoBars,
+      0,
+      1e9,
+    ),
     kalmanZMin,
     kalmanZMax,
+    minEdge: normalizeFiniteNumber(rawRec.minEdge ?? merged.minEdge, defaultForm.minEdge, 0, 1e9),
+    minSignalToNoise: normalizeFiniteNumber(
+      rawRec.minSignalToNoise ?? merged.minSignalToNoise,
+      defaultForm.minSignalToNoise,
+      0,
+      1e9,
+    ),
+    costAwareEdge: normalizeBool(rawRec.costAwareEdge ?? merged.costAwareEdge, defaultForm.costAwareEdge),
+    edgeBuffer: normalizeFiniteNumber(rawRec.edgeBuffer ?? merged.edgeBuffer, defaultForm.edgeBuffer, 0, 1e9),
+    trendLookback: normalizeFiniteNumber(rawRec.trendLookback ?? merged.trendLookback, defaultForm.trendLookback, 0, 1e9),
+    maxPositionSize: normalizeFiniteNumber(rawRec.maxPositionSize ?? merged.maxPositionSize, defaultForm.maxPositionSize, 0, 1e9),
+    volTarget: normalizeFiniteNumber(rawRec.volTarget ?? merged.volTarget, defaultForm.volTarget, 0, 1e9),
+    volLookback: normalizeFiniteNumber(rawRec.volLookback ?? merged.volLookback, defaultForm.volLookback, 0, 1e9),
+    volEwmaAlpha: normalizeFiniteNumber(rawRec.volEwmaAlpha ?? merged.volEwmaAlpha, defaultForm.volEwmaAlpha, 0, 0.999999),
+    volFloor: normalizeFiniteNumber(rawRec.volFloor ?? merged.volFloor, defaultForm.volFloor, 0, 1e9),
+    volScaleMax: normalizeFiniteNumber(rawRec.volScaleMax ?? merged.volScaleMax, defaultForm.volScaleMax, 0, 1e9),
+    maxVolatility: normalizeFiniteNumber(rawRec.maxVolatility ?? merged.maxVolatility, defaultForm.maxVolatility, 0, 1e9),
+    rebalanceBars: normalizeFiniteNumber(rawRec.rebalanceBars ?? merged.rebalanceBars, defaultForm.rebalanceBars, 0, 1e9),
+    rebalanceThreshold: normalizeFiniteNumber(
+      rawRec.rebalanceThreshold ?? merged.rebalanceThreshold,
+      defaultForm.rebalanceThreshold,
+      0,
+      1e9,
+    ),
+    rebalanceCostMult: normalizeFiniteNumber(
+      rawRec.rebalanceCostMult ?? merged.rebalanceCostMult,
+      defaultForm.rebalanceCostMult,
+      0,
+      1e9,
+    ),
+    rebalanceGlobal: normalizeBool(rawRec.rebalanceGlobal ?? merged.rebalanceGlobal, defaultForm.rebalanceGlobal),
+    rebalanceResetOnSignal: normalizeBool(
+      rawRec.rebalanceResetOnSignal ?? merged.rebalanceResetOnSignal,
+      defaultForm.rebalanceResetOnSignal,
+    ),
+    fundingRate: normalizeFiniteNumber(rawRec.fundingRate ?? merged.fundingRate, defaultForm.fundingRate, -1e9, 1e9),
+    fundingBySide: normalizeBool(rawRec.fundingBySide ?? merged.fundingBySide, defaultForm.fundingBySide),
+    fundingOnOpen: normalizeBool(rawRec.fundingOnOpen ?? merged.fundingOnOpen, defaultForm.fundingOnOpen),
+    blendWeight: normalizeFiniteNumber(rawRec.blendWeight ?? merged.blendWeight, defaultForm.blendWeight, 0, 1),
+    routerLookback: normalizeFiniteNumber(rawRec.routerLookback ?? merged.routerLookback, defaultForm.routerLookback, 2, 1e9),
+    routerMinScore: normalizeFiniteNumber(rawRec.routerMinScore ?? merged.routerMinScore, defaultForm.routerMinScore, 0, 1),
     maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
     maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
     maxQuantileWidth: normalizeFiniteNumber(rawRec.maxQuantileWidth ?? merged.maxQuantileWidth, 0, 0, 1e9),
     confirmConformal: normalizeBool(rawRec.confirmConformal ?? merged.confirmConformal, defaultForm.confirmConformal),
     confirmQuantiles: normalizeBool(rawRec.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
     confidenceSizing: normalizeBool(rawRec.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
+    optimizeOperations: normalizeBool(rawRec.optimizeOperations ?? merged.optimizeOperations, defaultForm.optimizeOperations),
+    sweepThreshold: normalizeBool(rawRec.sweepThreshold ?? merged.sweepThreshold, defaultForm.sweepThreshold),
     bypassCache: normalizeBool(rawRec.bypassCache ?? merged.bypassCache, defaultForm.bypassCache),
+    autoRefresh: normalizeBool(rawRec.autoRefresh ?? merged.autoRefresh, defaultForm.autoRefresh),
+    positionsOpenTimeCacheSec: normalizeFiniteNumber(
+      rawRec.positionsOpenTimeCacheSec ?? merged.positionsOpenTimeCacheSec,
+      defaultForm.positionsOpenTimeCacheSec,
+      0,
+      86_400,
+    ),
     learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1),
     valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
     patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
     gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
-    minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
-    botAdoptExistingPosition: normalizeBool(rawRec.botAdoptExistingPosition ?? merged.botAdoptExistingPosition, defaultForm.botAdoptExistingPosition),
+    minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, defaultForm.minPositionSize, 0, 1),
+    botProtectionOrders: normalizeBool(rawRec.botProtectionOrders ?? merged.botProtectionOrders, defaultForm.botProtectionOrders),
+    botAdoptExistingPosition: true,
   };
 }

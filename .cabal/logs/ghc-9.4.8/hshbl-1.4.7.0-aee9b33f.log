@@ -1,0 +1,21 @@
+Configuring library for hashable-1.4.7.0...
+Preprocessing library for hashable-1.4.7.0...
+Building library for hashable-1.4.7.0...
+[ 1 of 10] Compiling Data.Hashable.FFI ( src/Data/Hashable/FFI.hs, dist/build/Data/Hashable/FFI.o, dist/build/Data/Hashable/FFI.dyn_o )
+[ 2 of 10] Compiling Data.Hashable.Imports ( src/Data/Hashable/Imports.hs, dist/build/Data/Hashable/Imports.o, dist/build/Data/Hashable/Imports.dyn_o )
+[ 3 of 10] Compiling Data.Hashable.Mix ( src/Data/Hashable/Mix.hs, dist/build/Data/Hashable/Mix.o, dist/build/Data/Hashable/Mix.dyn_o )
+[ 4 of 10] Compiling Data.Hashable.XXH3 ( src/Data/Hashable/XXH3.hs, dist/build/Data/Hashable/XXH3.o, dist/build/Data/Hashable/XXH3.dyn_o )
+[ 5 of 10] Compiling Data.Hashable.LowLevel ( src/Data/Hashable/LowLevel.hs, dist/build/Data/Hashable/LowLevel.o, dist/build/Data/Hashable/LowLevel.dyn_o )
+[ 6 of 10] Compiling Data.Hashable.Class ( src/Data/Hashable/Class.hs, dist/build/Data/Hashable/Class.o, dist/build/Data/Hashable/Class.dyn_o )
+[ 7 of 10] Compiling Data.Hashable.Lifted ( src/Data/Hashable/Lifted.hs, dist/build/Data/Hashable/Lifted.o, dist/build/Data/Hashable/Lifted.dyn_o )
+[ 8 of 10] Compiling Data.Hashable.Generic.Instances ( src/Data/Hashable/Generic/Instances.hs, dist/build/Data/Hashable/Generic/Instances.o, dist/build/Data/Hashable/Generic/Instances.dyn_o )
+
+src/Data/Hashable/Generic/Instances.hs:5:14: warning: [-Wtrustworthy-safe]
+    ‘Data.Hashable.Generic.Instances’ is marked as Trustworthy but has been inferred as safe!
+  |
+5 | {-# LANGUAGE Trustworthy #-}
+  |              ^^^^^^^^^^^
+[ 9 of 10] Compiling Data.Hashable.Generic ( src/Data/Hashable/Generic.hs, dist/build/Data/Hashable/Generic.o, dist/build/Data/Hashable/Generic.dyn_o )
+[10 of 10] Compiling Data.Hashable    ( src/Data/Hashable.hs, dist/build/Data/Hashable.o, dist/build/Data/Hashable.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/hshbl-1.4.7.0-aee9b33f/lib
