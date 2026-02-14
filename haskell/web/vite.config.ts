@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
     const raw = env.TRADER_UI_PROXY_TIMEOUT_MS;
     if (!raw) return 30 * 60 * 1000;
     const parsed = Math.trunc(Number(raw));
-    if (!Number.isFinite(parsed) || parsed < 0) return 30 * 60 * 1000;
+    if (!Number.isFinite(parsed) || parsed < 1000) return 30 * 60 * 1000;
     return parsed;
   })();
 
