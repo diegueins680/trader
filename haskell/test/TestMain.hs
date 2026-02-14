@@ -3,11 +3,14 @@
 module Main where
 
 import Control.Exception (SomeException, evaluate, try)
+import qualified Control.Monad
 import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.List (isInfixOf)
+import Data.Maybe (isNothing)
+import qualified Data.Maybe
 import qualified Data.Vector as V
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
 import System.Exit (exitFailure, exitSuccess)
@@ -76,6 +79,7 @@ main = do
             , run "cooldown blocks re-entry" testCooldownBars
             , run "entry block holds position (no-trade window)" testEntryBlockNoTradeWindow
             , run "entry block holds position (max trades)" testEntryBlockMaxTradesPerDay
+            , run "weekly loss resets on UTC calendar week boundary" testWeeklyLossResetsOnUtcWeekBoundary
             , run "flip fees apply per side" testFlipFeesPerSide
             , run "long-short down move" testLongShortDownMove
             , run "liquidation clamps equity" testLiquidationClamp
@@ -85,6 +89,8 @@ main = do
             , run "binance kline json parsing" testBinanceKlineParsing
             , run "method parsing" testMethodParsing
             , run "platform parsing" testPlatformParsing
+            , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+            , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
             , run "platform intervals" testPlatformIntervals
             , run "platform interval mapping" testPlatformIntervalMapping
             , run "method selects predictions" testMethodSelection
@@ -114,18 +120,27 @@ assertApprox :: String -> Double -> Double -> Double -> IO ()
 assertApprox msg eps a b =
     assert msg (abs (a - b) <= eps)
 
+requireRight :: String -> Either String a -> a
+requireRight label res =
+    case res of
+        Left err -> error (label ++ ": " ++ err)
+        Right v -> v
+
 parseArgs :: [String] -> IO Args
 parseArgs argv = do
+    case parseArgsResult argv of
+        Left err -> error err
+        Right ok -> pure ok
+
+parseArgsResult :: [String] -> Either String Args
+parseArgsResult argv =
     let parser = info (opts <**> helper) fullDesc
-    case execParserPure defaultPrefs parser argv of
-        Success args ->
-            case validateArgs args of
-                Left err -> error err
-                Right ok -> pure ok
-        Failure failure ->
-            let (msg, _) = renderFailure failure "trader-tests"
-             in error msg
-        CompletionInvoked _ -> error "Unexpected completion"
+     in case execParserPure defaultPrefs parser argv of
+            Success args -> validateArgs args
+            Failure failure ->
+                let (msg, _) = renderFailure failure "trader-tests"
+                 in Left msg
+            CompletionInvoked _ -> Left "Unexpected completion"
 
 baseEnsembleConfig :: EnsembleConfig
 baseEnsembleConfig =
@@ -135,6 +150,12 @@ baseEnsembleConfig =
         , ecFee = 0.0
         , ecSlippage = 0.0
         , ecSpread = 0.0
+        , ecFeeFixed = 0.0
+        , ecFeeMin = 0.0
+        , ecSlippageVolMult = 0.0
+        , ecSlippageImpact = 0.0
+        , ecSlippageImpactPower = 1.0
+        , ecSpreadVolMult = 0.0
         , ecStopLoss = Nothing
         , ecTakeProfit = Nothing
         , ecTrailingStop = Nothing
@@ -151,6 +172,16 @@ baseEnsembleConfig =
         , ecMaxTradesPerDay = Nothing
         , ecExpectancyLookback = 0
         , ecMinExpectancy = Nothing
+        , ecPerfLookback = 0
+        , ecPerfMinWinRate = Nothing
+        , ecPerfMinProfitFactor = Nothing
+        , ecAdaptiveFilters = False
+        , ecAdaptiveEdgeBufferMax = 0
+        , ecAdaptiveMinSignalToNoiseMax = 0
+        , ecAdaptiveKalmanZMinMax = 0
+        , ecAdaptiveTrendLookbackMax = 0
+        , ecLossStreakMax = 0
+        , ecLossStreakCooldownBars = 0
         , ecNoTradeWindows = []
         , ecIntervalSeconds = Nothing
         , ecOpenTimes = Nothing
@@ -235,7 +266,7 @@ testKalmanFusionMulti :: IO ()
 testKalmanFusionMulti = do
     let k0 = initKalman1 0 1 0
         k1 = updateMulti [(0.01, 1e-4), (0.02, 1e-2)] k0
-        expected = (0 * 1 + 0.01 * 10000 + 0.02 * 100) / (1 + 10000 + 100)
+        expected = (0 + 0.01 * 10000 + 0.02 * 100) / (1 + 10000 + 100)
     assertApprox "posterior mean" 1e-6 (kMean k1) expected
     assert "posterior variance shrinks" (kVar k1 < 1)
 
@@ -388,7 +419,7 @@ testAgreementGate = do
         kalPred = [101, 110, 120] -- length 3
         lstmPred = [110, 100] -- length 2, for t=1..2
         cfg = baseEnsembleConfig
-        res = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
+        res = requireRight "simulateEnsemble" (simulateEnsemble cfg lookback prices kalPred lstmPred Nothing)
     assert "expected two position changes (enter + exit)" (brPositionChanges res == 2)
 
 testHoldOnCloseAgree :: IO ()
@@ -398,9 +429,9 @@ testHoldOnCloseAgree = do
         kalPred = [103, 101]
         lstmPred = [103, 101]
         cfgHold = baseEnsembleConfig{ecOpenThreshold = 0.02, ecCloseThreshold = 0.005}
-        btHold = simulateEnsemble cfgHold lookback prices kalPred lstmPred Nothing
+        btHold = requireRight "simulateEnsemble hold" (simulateEnsemble cfgHold lookback prices kalPred lstmPred Nothing)
         cfgExit = baseEnsembleConfig{ecOpenThreshold = 0.02, ecCloseThreshold = 0.02}
-        btExit = simulateEnsemble cfgExit lookback prices kalPred lstmPred Nothing
+        btExit = requireRight "simulateEnsemble exit" (simulateEnsemble cfgExit lookback prices kalPred lstmPred Nothing)
     assert "holds when close signal still agrees" (brPositions btHold == [1, 1])
     assert "exits when open signal neutral and close signal does not agree" (brPositions btExit == [1, 0])
 
@@ -410,7 +441,7 @@ testMinHoldBars = do
         lookback = 1
         preds = [101, 99, 99, 99] -- enter, then exit signals
         cfg = baseEnsembleConfig{ecMinHoldBars = 2}
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble min-hold" (simulateEnsemble cfg lookback prices preds preds Nothing)
     assert "min-hold keeps position through bar 2" (brPositions bt == [1, 1, 0, 0])
 
 testMaxHoldBars :: IO ()
@@ -419,7 +450,7 @@ testMaxHoldBars = do
         lookback = 1
         preds = [101, 101, 101]
         cfg = baseEnsembleConfig{ecMaxHoldBars = Just 1}
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble max-hold" (simulateEnsemble cfg lookback prices preds preds Nothing)
     assert "max-hold forces exit after limit with 1-bar cooldown" (brPositions bt == [1, 0, 0])
 
 testCooldownBars :: IO ()
@@ -428,7 +459,7 @@ testCooldownBars = do
         lookback = 1
         preds = [101, 99, 101, 101] -- enter, exit, re-enter attempts
         cfg = baseEnsembleConfig{ecCooldownBars = 1}
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble cooldown" (simulateEnsemble cfg lookback prices preds preds Nothing)
     assert "cooldown blocks entry for 1 bar after exit" (brPositions bt == [1, 0, 0, 1])
 
 testEntryBlockNoTradeWindow :: IO ()
@@ -444,7 +475,7 @@ testEntryBlockNoTradeWindow = do
                 , ecOpenTimes = Just openTimes
                 , ecPositioning = LongShort
                 }
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble no-trade-window" (simulateEnsemble cfg lookback prices preds preds Nothing)
     case brPositions bt of
         [p0, p1, p2] -> do
             assert "entered long" (p0 > 0)
@@ -465,7 +496,7 @@ testEntryBlockMaxTradesPerDay = do
                 , ecOpenTimes = Just openTimes
                 , ecPositioning = LongShort
                 }
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble max-trades" (simulateEnsemble cfg lookback prices preds preds Nothing)
     case brPositions bt of
         [p0, p1, p2] -> do
             assert "entered long" (p0 > 0)
@@ -473,13 +504,44 @@ testEntryBlockMaxTradesPerDay = do
             assert "trade limit holds position" (p2 > 0)
         _ -> error "expected 3 position entries"
 
+testWeeklyLossResetsOnUtcWeekBoundary :: IO ()
+testWeeklyLossResetsOnUtcWeekBoundary = do
+    let prices = replicate 5 100
+        lookback = 1
+        preds = [110, 90, 110, 90] -- enter/exit, then enter/exit again after UTC week rollover
+        dayMs :: Int64
+        dayMs = 86400000
+        minMs :: Int64
+        minMs = 60000
+        sunday2358 = 3 * dayMs + (23 * 60 + 58) * minMs
+        sunday2359 = 3 * dayMs + (23 * 60 + 59) * minMs
+        monday0000 = 4 * dayMs
+        monday0001 = 4 * dayMs + minMs
+        monday0002 = 4 * dayMs + 2 * minMs
+        openTimes :: V.Vector Int64
+        openTimes = V.fromList [sunday2358, sunday2359, monday0000, monday0001, monday0002]
+        cfg =
+            baseEnsembleConfig
+                { ecFee = 0.03
+                , ecMaxWeeklyLoss = Just 0.05
+                , ecOpenTimes = Just openTimes
+                }
+        bt = requireRight "simulateEnsemble weekly-reset" (simulateEnsemble cfg lookback prices preds preds Nothing)
+    case brPositions bt of
+        [p0, p1, p2, p3] -> do
+            assert "entered before week boundary" (p0 > 0)
+            assert "exited after first reversal" (p1 == 0)
+            assert "weekly loss gate resets at UTC Monday boundary and allows re-entry" (p2 > 0)
+            assert "second reversal exits again" (p3 == 0)
+        _ -> error "expected 4 position entries"
+
 testFlipFeesPerSide :: IO ()
 testFlipFeesPerSide = do
     let prices = replicate 4 100
         lookback = 1
         preds = [110, 90, 90] -- enter long then flip short
         cfg = baseEnsembleConfig{ecFee = 0.1, ecPositioning = LongShort}
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble flip-fees" (simulateEnsemble cfg lookback prices preds preds Nothing)
     case brEquityCurve bt of
         [e0, e1, e2, e3] -> do
             assertApprox "initial equity" 1e-12 e0 1.0
@@ -495,8 +557,8 @@ testLongShortDownMove = do
         kalPred = [90]
         lstmPred = [90]
         baseCfg = baseEnsembleConfig
-        btFlat = simulateEnsemble baseCfg lookback prices kalPred lstmPred Nothing
-        btShort = simulateEnsemble (baseCfg{ecPositioning = LongShort}) lookback prices kalPred lstmPred Nothing
+        btFlat = requireRight "simulateEnsemble flat" (simulateEnsemble baseCfg lookback prices kalPred lstmPred Nothing)
+        btShort = requireRight "simulateEnsemble short" (simulateEnsemble (baseCfg{ecPositioning = LongShort}) lookback prices kalPred lstmPred Nothing)
 
     assertApprox "flat final equity" 1e-12 (last (brEquityCurve btFlat)) 1.0
     assertApprox "short final equity" 1e-12 (last (brEquityCurve btShort)) 1.1
@@ -509,7 +571,7 @@ testLiquidationClamp = do
         kalPred = [50]
         lstmPred = [50]
         cfg = baseEnsembleConfig{ecPositioning = LongShort}
-        bt = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
+        bt = requireRight "simulateEnsemble liquidation" (simulateEnsemble cfg lookback prices kalPred lstmPred Nothing)
         finalEq = last (brEquityCurve bt)
         trades = brTrades bt
     assertApprox "equity clamped at 0" 1e-12 finalEq 0.0
@@ -541,7 +603,10 @@ testMetricsProfitFactorPnL = do
                 , trExitEquity = 2.0
                 , trReturn = 1.0
                 , trHoldingPeriods = 1
+                , trEntryHighVolProb = Nothing
                 , trExitReason = Just ExitSignal
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
                 }
         tr2 =
             Trade
@@ -551,7 +616,10 @@ testMetricsProfitFactorPnL = do
                 , trExitEquity = 1.0
                 , trReturn = -0.5
                 , trHoldingPeriods = 1
+                , trEntryHighVolProb = Nothing
                 , trExitReason = Just ExitSignal
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
                 }
         br =
             BacktestResult
@@ -566,7 +634,7 @@ testMetricsProfitFactorPnL = do
 
     assertApprox "gross profit (PnL)" 1e-12 (bmGrossProfit m) 1.0
     assertApprox "gross loss (PnL)" 1e-12 (bmGrossLoss m) 1.0
-    assertApprox "profit factor" 1e-12 (maybe 0 id (bmProfitFactor m)) 1.0
+    assertApprox "profit factor" 1e-12 (Data.Maybe.fromMaybe 0 (bmProfitFactor m)) 1.0
 
 testBinanceSignatureLength :: IO ()
 testBinanceSignatureLength = do
@@ -598,6 +666,31 @@ testMethodParsing = do
     assert "parse lstm" (parseMethod "lstm" == Right MethodLstmOnly)
     assert "parse LSTM_ONLY" (parseMethod "LSTM_ONLY" == Right MethodLstmOnly)
     assert "parse blend" (parseMethod "blend" == Right MethodBlend)
+    assert "parse conf_blend" (parseMethod "conf_blend" == Right MethodConfBlend)
+    assert "parse conf-blend" (parseMethod "conf-blend" == Right MethodConfBlend)
+    assert "parse conf_pick" (parseMethod "conf_pick" == Right MethodConfPick)
+    assert "parse cost_pick" (parseMethod "cost_pick" == Right MethodCostPick)
+    assert "parse harmonic_blend" (parseMethod "harmonic_blend" == Right MethodHarmonicBlend)
+    assert "parse disagreement_guard" (parseMethod "disagreement_guard" == Right MethodDisagreementGuard)
+    assert "parse median_blend" (parseMethod "median_blend" == Right MethodMedianBlend)
+    assert "parse neutral_guard" (parseMethod "neutral_guard" == Right MethodNeutralGuard)
+    assert "parse risk_parity_blend" (parseMethod "risk_parity_blend" == Right MethodRiskParityBlend)
+    assert "parse consensus_boost" (parseMethod "consensus_boost" == Right MethodConsensusBoost)
+    assert "parse anchor_blend" (parseMethod "anchor_blend" == Right MethodAnchorBlend)
+    assert "parse tension_gate" (parseMethod "tension_gate" == Right MethodTensionGate)
+    assert "parse entropy_blend" (parseMethod "entropy_blend" == Right MethodEntropyBlend)
+    assert "parse coherence_gate" (parseMethod "coherence_gate" == Right MethodCoherenceGate)
+    assert "parse divergence_gate" (parseMethod "divergence_gate" == Right MethodDivergenceGate)
+    assert "parse fractal_blend" (parseMethod "fractal_blend" == Right MethodFractalBlend)
+    assert "parse phase_cancel" (parseMethod "phase_cancel" == Right MethodPhaseCancel)
+    assert "parse softmax_blend" (parseMethod "softmax_blend" == Right MethodSoftmaxBlend)
+    assert "parse smooth_softmax_blend" (parseMethod "smooth_softmax_blend" == Right MethodSmoothSoftmaxBlend)
+    assert "parse net_softmax_blend" (parseMethod "net_softmax_blend" == Right MethodNetSoftmaxBlend)
+    assert "parse edge_blend" (parseMethod "edge_blend" == Right MethodEdgeBlend)
+    assert "parse edge_pick" (parseMethod "edge_pick" == Right MethodEdgePick)
+    assert "parse geo_blend" (parseMethod "geo_blend" == Right MethodGeoBlend)
+    assert "parse regime_switch" (parseMethod "regime_switch" == Right MethodRegimeSwitch)
+    assert "parse bandit_router" (parseMethod "bandit_router" == Right MethodBanditRouter)
     case parseMethod "00" of
         Left _ -> pure ()
         Right _ -> error "expected parse failure"
@@ -612,6 +705,62 @@ testPlatformParsing = do
         Left _ -> pure ()
         Right _ -> error "expected parsePlatform to reject unknown platforms"
 
+testNonBinanceArgsLiveDefault :: IO ()
+testNonBinanceArgsLiveDefault = do
+    let krakenBaseArgs =
+            [ "--platform"
+            , "kraken"
+            , "--data"
+            , "sample.csv"
+            , "--price-column"
+            , "close"
+            , "--interval"
+            , "1h"
+            , "--bars"
+            , "100"
+            , "--lookback-bars"
+            , "10"
+            ]
+    case parseArgsResult krakenBaseArgs of
+        Left err -> error ("unexpected validation failure for kraken defaults: " ++ err)
+        Right _ -> pure ()
+    case parseArgsResult (krakenBaseArgs ++ ["--binance-live"]) of
+        Left err -> assert "explicit --binance-live rejected on kraken" ("--binance-live is only supported on Binance/Coinbase" `isInfixOf` err)
+        Right _ -> error "expected explicit --binance-live to be rejected on kraken"
+
+testDexTradeArgsRequireTokensNotSymbol :: IO ()
+testDexTradeArgsRequireTokensNotSymbol = do
+    let dexBaseArgs =
+            [ "--platform"
+            , "uniswap"
+            , "--data"
+            , "sample.csv"
+            , "--price-column"
+            , "close"
+            , "--interval"
+            , "1h"
+            , "--bars"
+            , "100"
+            , "--lookback-bars"
+            , "10"
+            , "--trade-only"
+            , "--binance-trade"
+            , "--no-binance-live"
+            ]
+        dexWithTokens =
+            dexBaseArgs
+                ++ [ "--dex-base-token"
+                   , "ETH"
+                   , "--dex-quote-token"
+                   , "USDC"
+                   ]
+    case parseArgsResult dexWithTokens of
+        Left err -> error ("unexpected validation failure for dex token trade: " ++ err)
+        Right _ -> pure ()
+    case parseArgsResult (dexBaseArgs ++ ["--dex-base-token", "ETH"]) of
+        Left err -> assert "missing quote token rejected" ("--binance-trade requires --symbol/--binance-symbol" `isInfixOf` err)
+        Right _ -> error "expected missing dex quote token to be rejected"
+
 testPlatformIntervals :: IO ()
 testPlatformIntervals = do
     assert "binance supports 3m" (isPlatformInterval PlatformBinance "3m")
@@ -622,11 +771,11 @@ testPlatformIntervals = do
 testPlatformIntervalMapping :: IO ()
 testPlatformIntervalMapping = do
     assert "coinbase 1h -> 3600s" (coinbaseIntervalSeconds "1h" == Just 3600)
-    assert "coinbase rejects 30m" (coinbaseIntervalSeconds "30m" == Nothing)
+    assert "coinbase rejects 30m" (isNothing (coinbaseIntervalSeconds "30m"))
     assert "kraken 1h -> 60m" (krakenIntervalMinutes "1h" == Just 60)
     assert "poloniex 2h -> HOUR_2" (poloniexIntervalLabel "2h" == Just "HOUR_2")
     assert "poloniex 2h -> 7200s" (poloniexIntervalSeconds "2h" == Just 7200)
-    assert "poloniex rejects 1m" (poloniexIntervalSeconds "1m" == Nothing)
+    assert "poloniex rejects 1m" (isNothing (poloniexIntervalSeconds "1m"))
 
 testMethodSelection :: IO ()
 testMethodSelection = do
@@ -638,6 +787,30 @@ testMethodSelection = do
     assert "kalman-only duplicates kalman" (selectPredictions MethodKalmanOnly w kal lstm == (kal, kal))
     assert "lstm-only duplicates lstm" (selectPredictions MethodLstmOnly w kal lstm == (lstm, lstm))
     assert "blend averages" (selectPredictions MethodBlend w kal lstm == (blend, blend))
+    assert "conf_blend falls back to weighted average when confidence context is unavailable" (selectPredictions MethodConfBlend w kal lstm == (blend, blend))
+    assert "conf_pick falls back to weighted average when confidence context is unavailable" (selectPredictions MethodConfPick w kal lstm == (blend, blend))
+    assert "cost_pick falls back to weighted average when context is unavailable" (selectPredictions MethodCostPick w kal lstm == (blend, blend))
+    assert "harmonic_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodHarmonicBlend w kal lstm == (blend, blend))
+    assert "disagreement_guard falls back to weighted average when context is unavailable" (selectPredictions MethodDisagreementGuard w kal lstm == (blend, blend))
+    assert "median_blend falls back to weighted average when context is unavailable" (selectPredictions MethodMedianBlend w kal lstm == (blend, blend))
+    assert "neutral_guard falls back to weighted average when context is unavailable" (selectPredictions MethodNeutralGuard w kal lstm == (blend, blend))
+    assert "risk_parity_blend falls back to weighted average when context is unavailable" (selectPredictions MethodRiskParityBlend w kal lstm == (blend, blend))
+    assert "consensus_boost falls back to weighted average when context is unavailable" (selectPredictions MethodConsensusBoost w kal lstm == (blend, blend))
+    assert "anchor_blend falls back to weighted average when context is unavailable" (selectPredictions MethodAnchorBlend w kal lstm == (blend, blend))
+    assert "tension_gate falls back to weighted average when context is unavailable" (selectPredictions MethodTensionGate w kal lstm == (blend, blend))
+    assert "entropy_blend falls back to weighted average when context is unavailable" (selectPredictions MethodEntropyBlend w kal lstm == (blend, blend))
+    assert "coherence_gate falls back to weighted average when context is unavailable" (selectPredictions MethodCoherenceGate w kal lstm == (blend, blend))
+    assert "divergence_gate falls back to weighted average when context is unavailable" (selectPredictions MethodDivergenceGate w kal lstm == (blend, blend))
+    assert "fractal_blend falls back to weighted average when context is unavailable" (selectPredictions MethodFractalBlend w kal lstm == (blend, blend))
+    assert "phase_cancel falls back to weighted average when context is unavailable" (selectPredictions MethodPhaseCancel w kal lstm == (blend, blend))
+    assert "softmax_blend falls back to weighted average when context is unavailable" (selectPredictions MethodSoftmaxBlend w kal lstm == (blend, blend))
+    assert "smooth_softmax_blend falls back to weighted average when context is unavailable" (selectPredictions MethodSmoothSoftmaxBlend w kal lstm == (blend, blend))
+    assert "net_softmax_blend falls back to weighted average when context is unavailable" (selectPredictions MethodNetSoftmaxBlend w kal lstm == (blend, blend))
+    assert "edge_blend falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgeBlend w kal lstm == (blend, blend))
+    assert "edge_pick falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgePick w kal lstm == (blend, blend))
+    assert "geo_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodGeoBlend w kal lstm == (blend, blend))
+    assert "regime_switch falls back to weighted average when context is unavailable" (selectPredictions MethodRegimeSwitch w kal lstm == (blend, blend))
+    assert "bandit_router preserves both prediction streams for routing" (selectPredictions MethodBanditRouter w kal lstm == (kal, lstm))
 
 testTrainBacktestSplit :: IO ()
 testTrainBacktestSplit = do
@@ -680,14 +853,19 @@ testOptimizeOperations = do
         case optimizeOperations cfg prices kalPred lstmPred Nothing of
             Left e -> error e
             Right v -> pure v
-    assert "picked kalman-only" (m == MethodKalmanOnly)
+    assert
+        "picked method that follows kalman for this case"
+        ( m == MethodKalmanOnly
+            || m == MethodConfPick
+            || m == MethodEdgePick
+        )
     assertApprox "open thr close to 10%" 1e-6 openThr 0.1
     assertApprox "close thr close to 10%" 1e-6 closeThr 0.1
     assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
 
 assertThrowsContains :: String -> (() -> IO a) -> IO ()
 assertThrowsContains needle mkAction = do
-    r <- (try (mkAction () >> pure ()) :: IO (Either SomeException ()))
+    r <- (try (Control.Monad.void (mkAction ())) :: IO (Either SomeException ()))
     case r of
         Left e -> assert ("missing exception substring: " ++ needle) (needle `isInfixOf` show e)
         Right _ -> error ("expected exception containing: " ++ needle)

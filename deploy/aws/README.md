@@ -68,6 +68,9 @@ aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
 # In zsh, prefer "${VAR}:latest" (not "$VAR:latest") to avoid zsh's ":<modifier>" expansion.
+# If ECR push fails with `403 Forbidden` on `HEAD .../manifests/sha256:...`, your IAM principal likely
+# needs `ecr:BatchGetImage` (Docker checks for existing manifests), or disable Docker attestations
+# (example: `docker build --provenance=false --sbom=false ...`).
 docker build -t "${ECR_REPO}:latest" .
 docker tag "${ECR_REPO}:latest" "${ECR_URI}:latest"
 docker push "${ECR_URI}:latest"
@@ -87,8 +90,10 @@ If `docker push` fails with `403 Forbidden` (often on a `HEAD .../manifests/<tag
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
   - `TRADER_BOT_SYMBOLS` / `TRADER_BOT_TRADE` (optional; used by the cron watchdog to build `/bot/start`)
+  - `TRADER_MULTI_USER=true` (enable tenant-scoped ops/rollups; recommended for multi-user deployments)
   - Required: PostgreSQL persistence for ops/combos:
     - `TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require`
+    - `deploy-aws-quick.sh` runs ops schema updates + performance rollups automatically when `TRADER_DB_URL` is set (requires `psql`; disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`).
   - Required: S3 state persistence (App Runner has no EFS support):
     - `TRADER_STATE_S3_BUCKET=<bucket>`
     - `TRADER_STATE_S3_PREFIX=trader`

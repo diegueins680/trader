@@ -39,9 +39,13 @@ predictGBDT m feats =
             then (base, gmSigma m)
             else
                 let featsV = V.fromList feats
+                    featLen = V.length featsV
                     applySt Stump{stFeature = j, stThreshold = thr, stLeftValue = l, stRightValue = r} =
-                        let x = featsV V.! j
-                         in if x <= thr then l else r
+                        if j < 0 || j >= featLen
+                            then 0
+                            else
+                                let x = featsV V.! j
+                                 in if x <= thr then l else r
                     y = base + lr * sum (map applySt (gmStumps m))
                  in (y, gmSigma m)
 
@@ -50,38 +54,51 @@ featureDimFromDataset dataset =
     case map (length . fst) dataset of
         [] -> 0
         d : ds
-            | d <= 0 -> error "GBDT dataset has empty feature vectors"
-            | any (/= d) ds -> error "GBDT dataset has inconsistent feature dimensions"
+            | d <= 0 -> 0
+            | any (/= d) ds -> 0
             | otherwise -> d
 
 trainGBDT :: Int -> Double -> [([Double], Double)] -> GBDTModel
 trainGBDT nTrees learningRate dataset
-    | nTrees <= 0 = error "nTrees must be > 0"
-    | learningRate <= 0 = error "learningRate must be > 0"
-    | null dataset = error "GBDT dataset is empty"
+    | nTrees <= 0 = emptyGBDTModel
+    | learningRate <= 0 = emptyGBDTModel
+    | null dataset = emptyGBDTModel
     | otherwise =
         let featureDim = featureDimFromDataset dataset
-            featsAll = V.fromList (map (V.fromList . fst) dataset)
-            ys = V.fromList (map snd dataset)
-            base = meanV ys
-            preds0 = V.replicate (V.length ys) base
-            go 0 acc preds = (acc, preds)
-            go k acc preds =
-                let residuals = V.zipWith (-) ys preds
-                    stump = fitStump featsAll residuals
-                    stumpOut = V.map (stumpPredict stump) featsAll
-                    preds' = V.zipWith (+) preds (V.map (* learningRate) stumpOut)
-                 in go (k - 1) (stump : acc) preds'
-            (stumps, predsFinal) = go nTrees [] preds0
-            residuals = V.zipWith (-) ys predsFinal
-            sigma = sqrt (meanV (V.map (\e -> e * e) residuals) + 1e-12)
-         in GBDTModel
-                { gmBase = base
-                , gmLearningRate = learningRate
-                , gmFeatureDim = featureDim
-                , gmStumps = reverse stumps
-                , gmSigma = Just sigma
-                }
+         in if featureDim <= 0
+                then emptyGBDTModel
+                else
+                    let featsAll = V.fromList (map (V.fromList . fst) dataset)
+                        ys = V.fromList (map snd dataset)
+                        base = meanV ys
+                        preds0 = V.replicate (V.length ys) base
+                        go 0 acc preds = (acc, preds)
+                        go k acc preds =
+                            let residuals = V.zipWith (-) ys preds
+                                stump = fitStump featsAll residuals
+                                stumpOut = V.map (stumpPredict stump) featsAll
+                                preds' = V.zipWith (+) preds (V.map (* learningRate) stumpOut)
+                             in go (k - 1) (stump : acc) preds'
+                        (stumps, predsFinal) = go nTrees [] preds0
+                        residuals = V.zipWith (-) ys predsFinal
+                        sigma = sqrt (meanV (V.map (\e -> e * e) residuals) + 1e-12)
+                     in GBDTModel
+                            { gmBase = base
+                            , gmLearningRate = learningRate
+                            , gmFeatureDim = featureDim
+                            , gmStumps = reverse stumps
+                            , gmSigma = Just sigma
+                            }
+
+emptyGBDTModel :: GBDTModel
+emptyGBDTModel =
+    GBDTModel
+        { gmBase = 0
+        , gmLearningRate = 0
+        , gmFeatureDim = 0
+        , gmStumps = []
+        , gmSigma = Nothing
+        }
 
 stumpPredict :: Stump -> V.Vector Double -> Double
 stumpPredict Stump{stFeature = j, stThreshold = thr, stLeftValue = l, stRightValue = r} feats =

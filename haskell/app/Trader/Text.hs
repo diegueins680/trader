@@ -15,7 +15,7 @@ normalizeKey :: String -> String
 normalizeKey = map toLower . filter isAlphaNum
 
 dedupeStable :: (Ord a) => [a] -> [a]
-dedupeStable xs = go Set.empty xs
+dedupeStable = go Set.empty
   where
     go _ [] = []
     go seen (y : ys)

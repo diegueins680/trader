@@ -97,13 +97,10 @@ trainPredictors enabled lookbackBars trainPrices =
                 }
 
         gbdtTrained = useGbdt || useConformal
-        gbdt =
-            if not gbdtTrained
-                then emptyGbdt
-                else
-                    if null trainSet
-                        then emptyGbdt
-                        else trainGBDT 60 0.1 trainSet
+        gbdt
+            | not gbdtTrained = emptyGbdt
+            | null trainSet = emptyGbdt
+            | otherwise = trainGBDT 60 0.1 trainSet
         quant =
             if useQuantile
                 then
@@ -164,7 +161,7 @@ trainPredictors enabled lookbackBars trainPrices =
             }
 
 initHMMFilter :: PredictorBundle -> [Double] -> HMMFilter
-initHMMFilter pb obs = filterPosterior (pbHMM pb) obs
+initHMMFilter pb = filterPosterior (pbHMM pb)
 
 splitCalib :: [a] -> ([a], [a])
 splitCalib xs =

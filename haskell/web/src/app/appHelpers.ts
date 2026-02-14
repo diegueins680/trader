@@ -105,7 +105,7 @@ export function isBinanceKeysStatus(status: KeysStatus): status is BinanceKeysSt
 }
 
 export function isBotStatusMulti(status: BotStatus): status is BotStatusMulti {
-  return "multi" in status && status.multi === true;
+  return ("multi" in status && status.multi === true) || ("bots" in status && Array.isArray(status.bots));
 }
 
 export function botStatusSymbol(status: BotStatusSingle): string | null {
@@ -229,7 +229,31 @@ export const COMPLEX_TIPS = {
   method: [
     "11 requires Kalman + LSTM agreement beyond the open threshold; fewer trades, higher confidence.",
     "blend averages predictions; blend weight sets the Kalman vs LSTM mix.",
+    "conf_blend adjusts Kalman vs LSTM mix per bar using confidence (Kalman z vs LSTM edge confidence).",
+    "conf_pick selects Kalman or LSTM per bar using the stronger confidence score.",
+    "cost_pick selects Kalman or LSTM per bar using post-cost edge (net of round-trip costs).",
+    "harmonic_blend mixes Kalman/LSTM predictions using a harmonic mean in return space (more conservative on outliers).",
+    "disagreement_guard picks higher-edge model when Kalman/LSTM agree, but lower-edge model when they disagree.",
+    "median_blend uses the median of Kalman/LSTM/blend return ratios to damp outlier predictions.",
+    "neutral_guard goes neutral when Kalman/LSTM directions conflict, and otherwise follows the more conservative edge.",
+    "risk_parity_blend down-weights the more extreme edge, blending by inverse edge magnitude to reduce forecast concentration.",
+    "consensus_boost goes flat on model conflict, and on agreement chooses the higher-edge forecast.",
+    "anchor_blend continuously pulls the blend back to current price when Kalman/LSTM conflict or disagree in edge strength.",
+    "tension_gate uses stronger conviction on agreement, but partially neutralizes toward spot on directional conflict.",
+    "entropy_blend uses edge-entropy to adaptively shrink blend predictions toward spot when model uncertainty is high.",
+    "coherence_gate measures return coherence; it amplifies coherent agreement and soft-gates incoherent conflicts toward spot.",
+    "divergence_gate shrinks blended returns toward spot as Kalman/LSTM return divergence grows relative to the open threshold.",
+    "fractal_blend blends signed square-root returns, then maps back to return space to reduce outlier dominance.",
+    "phase_cancel detects anti-phase Kalman/LSTM returns and compresses conflicting edges toward neutral.",
+    "softmax_blend uses a softmax-style edge weighting so the higher-edge model gets more weight (blend weight is a bias/fallback).",
+    "smooth_softmax_blend smooths the softmax edge weights over time (EMA) to reduce twitchy per-bar switching.",
+    "net_softmax_blend is like softmax_blend but uses post-cost edge (net of round-trip costs) in the softmax weighting.",
+    "edge_blend adapts Kalman vs LSTM weights from each model's instantaneous edge magnitude.",
+    "edge_pick selects Kalman or LSTM per bar using the larger absolute edge.",
+    "geo_blend mixes Kalman/LSTM returns in log-space for a multiplicative geometric blend.",
+    "regime_switch prefers LSTM in calm periods, Kalman on strong z-scores, and blend in high-volatility regimes.",
     "router picks the best recent model using router lookback; min score gates to HOLD.",
+    "bandit_router adds an exploration bonus so under-sampled models can still be selected when promising.",
   ],
   thresholds: [
     "Open threshold is the entry deadband; below break-even can churn after costs.",
@@ -240,11 +264,13 @@ export const COMPLEX_TIPS = {
     "Edge buffer adds extra margin above break-even when cost-aware edge is on.",
   ],
   snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
-  blend: ["0 = LSTM only, 1 = Kalman only. Only used with method=blend."],
+  blend: [
+    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch.",
+  ],
   router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
   split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
   lstm: ["Normalization affects scaling for LSTM only; keep consistent with training.", "Epochs/hidden size trade off fit vs runtime and overfitting."],
-  optimization: ["Sweep thresholds searches open/close gates only.", "Optimize operations also tries methods and thresholds; router disables both."],
+  optimization: ["Sweep thresholds searches open/close gates only.", "Optimize operations also tries methods and thresholds; router/bandit_router disable both."],
   tuneObjective: ["Tune objective defines the score used during fit/tune; it can differ from backtest objective."],
   walkForward: [
     "Walk-forward folds split data into sequential folds to estimate stability.",
@@ -403,6 +429,8 @@ export type TradePnlRow = {
   pnl: number;
   entryTime: number | null;
   exitTime: number | null;
+  entryIp: string | null;
+  exitIp: string | null;
 };
 
 export type TradePnlAnalysis = {
@@ -437,6 +465,8 @@ export type BinancePnlRow = {
   tradeId: number;
   orderId: number | null;
   time: number;
+  entryTime: number | null;
+  exitTime: number | null;
   symbol: string;
   side: string;
   price: number;
@@ -446,6 +476,8 @@ export type BinancePnlRow = {
   realizedPnl: number;
   commission: number | null;
   commissionAsset: string | null;
+  entryIp: string | null;
+  exitIp: string | null;
 };
 
 export type BinancePnlAnalysis = {
@@ -484,6 +516,261 @@ export function binanceTradeSideLabel(trade: BinanceTrade): "BUY" | "SELL" | "�
   if (trade.isBuyer === true) return "BUY";
   if (trade.isBuyer === false) return "SELL";
   return "—";
+}
+
+export type BinanceTradeIpMeta = {
+  entryIp: string | null;
+  exitIp: string | null;
+  entryTime: number | null;
+  exitTime: number | null;
+};
+
+type TradeLot = {
+  qty: number;
+  ip: string | null;
+  openedAtMs: number | null;
+  tradeKey: string | null;
+};
+
+type ConsumedTradeLot = {
+  ip: string | null;
+  openedAtMs: number | null;
+  tradeKey: string | null;
+  fullyClosed: boolean;
+};
+
+const BINANCE_TRADE_IP_EPS = 1e-12;
+
+export function binanceTradeKey(trade: BinanceTrade): string {
+  return `${normalizeSymbolKey(trade.symbol)}-${trade.tradeId}`;
+}
+
+export function isLikelyBinanceCloseFill(trade: BinanceTrade): boolean {
+  const pnl = trade.realizedPnl;
+  return typeof pnl === "number" && Number.isFinite(pnl) && Math.abs(pnl) > BINANCE_TRADE_IP_EPS;
+}
+
+function normalizeTradeIp(raw?: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeTradeTime(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function pushLot(
+  store: Map<string, TradeLot[]>,
+  key: string,
+  qty: number,
+  ip: string | null,
+  openedAtMs: number | null,
+  tradeKey: string | null,
+): void {
+  if (!Number.isFinite(qty) || qty <= BINANCE_TRADE_IP_EPS) return;
+  const lots = store.get(key) ?? [];
+  lots.push({ qty, ip, openedAtMs, tradeKey });
+  store.set(key, lots);
+}
+
+function consumeLots(store: Map<string, TradeLot[]>, key: string, qty: number): ConsumedTradeLot[] {
+  if (!Number.isFinite(qty) || qty <= BINANCE_TRADE_IP_EPS) return [];
+  const lots = store.get(key);
+  if (!lots || lots.length === 0) return [];
+  let remaining = qty;
+  const nextLots: TradeLot[] = [];
+  const consumed: ConsumedTradeLot[] = [];
+  for (const lot of lots) {
+    if (remaining <= BINANCE_TRADE_IP_EPS) {
+      nextLots.push(lot);
+      continue;
+    }
+    const take = Math.min(lot.qty, remaining);
+    remaining -= take;
+    const leftover = lot.qty - take;
+    const fullyClosed = leftover <= BINANCE_TRADE_IP_EPS;
+    consumed.push({ ip: lot.ip, openedAtMs: lot.openedAtMs, tradeKey: lot.tradeKey, fullyClosed });
+    if (leftover > BINANCE_TRADE_IP_EPS) {
+      nextLots.push({ ...lot, qty: leftover });
+    }
+  }
+  if (nextLots.length > 0) {
+    store.set(key, nextLots);
+  } else {
+    store.delete(key);
+  }
+  return consumed;
+}
+
+function joinIps(ips: string[]): string | null {
+  if (ips.length === 0) return null;
+  return ips.join(" • ");
+}
+
+function consumedIps(consumed: ConsumedTradeLot[]): string[] {
+  return Array.from(new Set(consumed.map((item) => item.ip).filter((ip): ip is string => Boolean(ip))));
+}
+
+function consumedOpenTime(consumed: ConsumedTradeLot[]): number | null {
+  let out: number | null = null;
+  for (const item of consumed) {
+    const t = item.openedAtMs;
+    if (typeof t !== "number" || !Number.isFinite(t)) continue;
+    out = out === null ? t : Math.min(out, t);
+  }
+  return out;
+}
+
+function applyExitToConsumedLots(
+  meta: Map<string, BinanceTradeIpMeta>,
+  consumed: ConsumedTradeLot[],
+  exitIp: string | null,
+  exitTime: number | null,
+): void {
+  if (!exitIp && exitTime == null) return;
+  for (const item of consumed) {
+    if (!item.fullyClosed) continue;
+    const tradeKey = item.tradeKey;
+    if (!tradeKey) continue;
+    const existing = meta.get(tradeKey);
+    if (!existing) continue;
+    if (existing.exitIp || existing.exitTime != null) continue;
+    meta.set(tradeKey, { ...existing, exitIp: exitIp ?? existing.exitIp, exitTime: exitTime ?? existing.exitTime });
+  }
+}
+
+export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, BinanceTradeIpMeta> {
+  const meta = new Map<string, BinanceTradeIpMeta>();
+  if (trades.length === 0) return meta;
+  const sorted = [...trades].sort((a, b) => {
+    const aTime = Number.isFinite(a.time) ? a.time : Number.POSITIVE_INFINITY;
+    const bTime = Number.isFinite(b.time) ? b.time : Number.POSITIVE_INFINITY;
+    if (aTime !== bTime) return aTime - bTime;
+    const aTradeId = Number.isFinite(a.tradeId) ? a.tradeId : 0;
+    const bTradeId = Number.isFinite(b.tradeId) ? b.tradeId : 0;
+    return aTradeId - bTradeId;
+  });
+  const longLots = new Map<string, TradeLot[]>();
+  const shortLots = new Map<string, TradeLot[]>();
+  const netPos = new Map<string, number>();
+
+  for (const trade of sorted) {
+    const key = binanceTradeKey(trade);
+    const side = binanceTradeSideLabel(trade);
+    const qty = trade.qty;
+    const tradeTime = normalizeTradeTime(trade.time);
+    if (side === "—" || !Number.isFinite(qty) || qty <= BINANCE_TRADE_IP_EPS) {
+      meta.set(key, { entryIp: null, exitIp: null, entryTime: null, exitTime: null });
+      continue;
+    }
+
+    const symbolKey = normalizeSymbolKey(trade.symbol);
+    const posSide = normalizePositionSide(trade.positionSide) ?? "BOTH";
+    const orderIp = normalizeTradeIp(trade.originIp);
+    let entryIp: string | null = null;
+    let exitIp: string | null = null;
+    let entryTime: number | null = null;
+    let exitTime: number | null = null;
+
+    if (posSide === "LONG") {
+      const lotKey = `${symbolKey}::LONG`;
+      if (side === "BUY") {
+        pushLot(longLots, lotKey, qty, orderIp, tradeTime, key);
+        entryIp = orderIp;
+        entryTime = tradeTime;
+      } else if (side === "SELL") {
+        const consumed = consumeLots(longLots, lotKey, qty);
+        entryIp = joinIps(consumedIps(consumed));
+        exitIp = orderIp;
+        entryTime = consumedOpenTime(consumed);
+        exitTime = tradeTime;
+        applyExitToConsumedLots(meta, consumed, orderIp, tradeTime);
+      }
+    } else if (posSide === "SHORT") {
+      const lotKey = `${symbolKey}::SHORT`;
+      if (side === "SELL") {
+        pushLot(shortLots, lotKey, qty, orderIp, tradeTime, key);
+        entryIp = orderIp;
+        entryTime = tradeTime;
+      } else if (side === "BUY") {
+        const consumed = consumeLots(shortLots, lotKey, qty);
+        entryIp = joinIps(consumedIps(consumed));
+        exitIp = orderIp;
+        entryTime = consumedOpenTime(consumed);
+        exitTime = tradeTime;
+        applyExitToConsumedLots(meta, consumed, orderIp, tradeTime);
+      }
+    } else {
+      const netKey = `${symbolKey}::BOTH`;
+      const net = netPos.get(netKey) ?? 0;
+      const longKey = `${symbolKey}::BOTH:LONG`;
+      const shortKey = `${symbolKey}::BOTH:SHORT`;
+
+      if (side === "BUY") {
+        if (net >= 0) {
+          pushLot(longLots, longKey, qty, orderIp, tradeTime, key);
+          entryIp = orderIp;
+          entryTime = tradeTime;
+        } else {
+          const closeQty = Math.min(qty, Math.abs(net));
+          if (closeQty > BINANCE_TRADE_IP_EPS) {
+            const consumed = consumeLots(shortLots, shortKey, closeQty);
+            entryIp = joinIps(consumedIps(consumed));
+            exitIp = orderIp;
+            entryTime = consumedOpenTime(consumed);
+            exitTime = tradeTime;
+            applyExitToConsumedLots(meta, consumed, orderIp, tradeTime);
+          }
+          const openQty = qty - closeQty;
+          if (openQty > BINANCE_TRADE_IP_EPS) {
+            pushLot(longLots, longKey, openQty, orderIp, tradeTime, key);
+            if (!entryIp && entryTime == null) {
+              entryIp = orderIp;
+              entryTime = tradeTime;
+            }
+          }
+        }
+        netPos.set(netKey, net + qty);
+      } else {
+        if (net <= 0) {
+          pushLot(shortLots, shortKey, qty, orderIp, tradeTime, key);
+          entryIp = orderIp;
+          entryTime = tradeTime;
+        } else {
+          const closeQty = Math.min(qty, net);
+          if (closeQty > BINANCE_TRADE_IP_EPS) {
+            const consumed = consumeLots(longLots, longKey, closeQty);
+            entryIp = joinIps(consumedIps(consumed));
+            exitIp = orderIp;
+            entryTime = consumedOpenTime(consumed);
+            exitTime = tradeTime;
+            applyExitToConsumedLots(meta, consumed, orderIp, tradeTime);
+          }
+          const openQty = qty - closeQty;
+          if (openQty > BINANCE_TRADE_IP_EPS) {
+            pushLot(shortLots, shortKey, openQty, orderIp, tradeTime, key);
+            if (!entryIp && entryTime == null) {
+              entryIp = orderIp;
+              entryTime = tradeTime;
+            }
+          }
+        }
+        netPos.set(netKey, net - qty);
+      }
+    }
+
+    // When we cannot pair inventory from the visible window, non-zero realized PnL
+    // still indicates a close fill, so keep its close timestamp/IP.
+    if (exitTime == null && isLikelyBinanceCloseFill(trade)) {
+      exitIp = exitIp ?? orderIp;
+      exitTime = tradeTime;
+    }
+
+    meta.set(key, { entryIp, exitIp, entryTime, exitTime });
+  }
+
+  return meta;
 }
 
 export type PositionOpenTimeEstimate = {
@@ -551,6 +838,8 @@ export function buildBacktestOpsCsv(backtest: BacktestResponse): string {
     "return",
     "holdingPeriods",
     "exitReason",
+    "entryIp",
+    "exitIp",
   ].join(",");
   const prices = backtest.prices ?? [];
   const rows = backtest.trades.map((trade, idx) => {
@@ -569,6 +858,8 @@ export function buildBacktestOpsCsv(backtest: BacktestResponse): string {
       trade.return,
       trade.holdingPeriods,
       trade.exitReason ?? "",
+      trade.entryIp ?? "",
+      trade.exitIp ?? "",
     ]
       .map(csvEscape)
       .join(",");
@@ -600,6 +891,8 @@ export function buildBacktestTradePnlAnalysis(backtest: BacktestResponse): Trade
         pnl: trade.exitEquity - trade.entryEquity,
         entryTime,
         exitTime,
+        entryIp: trade.entryIp ?? null,
+        exitIp: trade.exitIp ?? null,
       };
     })
     .filter((row): row is TradePnlRow => Boolean(row));
@@ -685,6 +978,8 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
     const side = binanceTradeSideLabel(trade);
     const commission = trade.commission;
     const commissionAsset = trade.commissionAsset ?? null;
+    const entryTime = typeof trade.entryTime === "number" && Number.isFinite(trade.entryTime) ? trade.entryTime : null;
+    const exitTime = typeof trade.exitTime === "number" && Number.isFinite(trade.exitTime) ? trade.exitTime : null;
     if (typeof commission === "number" && Number.isFinite(commission)) {
       const assetKey = commissionAsset ?? "unknown";
       const existing = commissionByAsset.get(assetKey);
@@ -700,6 +995,8 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
       tradeId: trade.tradeId,
       orderId: trade.orderId ?? null,
       time: trade.time,
+      entryTime,
+      exitTime,
       symbol: trade.symbol,
       side,
       price: trade.price,
@@ -709,6 +1006,8 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
       realizedPnl: pnl,
       commission: commission ?? null,
       commissionAsset,
+      entryIp: trade.entryIp ?? null,
+      exitIp: trade.exitIp ?? null,
     });
   }
 
@@ -1157,6 +1456,30 @@ export type OptimizerRunForm = {
   trailMin: string;
   trailMax: string;
   methodWeightBlend: string;
+  methodWeightConfBlend: string;
+  methodWeightConfPick: string;
+  methodWeightCostPick: string;
+  methodWeightHarmonicBlend: string;
+  methodWeightDisagreementGuard: string;
+  methodWeightMedianBlend: string;
+  methodWeightNeutralGuard: string;
+  methodWeightRiskParityBlend: string;
+  methodWeightConsensusBoost: string;
+  methodWeightAnchorBlend: string;
+  methodWeightTensionGate: string;
+  methodWeightEntropyBlend: string;
+  methodWeightCoherenceGate: string;
+  methodWeightDivergenceGate: string;
+  methodWeightFractalBlend: string;
+  methodWeightPhaseCancel: string;
+  methodWeightSoftmaxBlend: string;
+  methodWeightSmoothSoftmaxBlend: string;
+  methodWeightNetSoftmaxBlend: string;
+  methodWeightEdgeBlend: string;
+  methodWeightEdgePick: string;
+  methodWeightGeoBlend: string;
+  methodWeightRegimeSwitch: string;
+  methodWeightBanditRouter: string;
   blendWeightMin: string;
   blendWeightMax: string;
   disableLstmPersistence: boolean;
@@ -1295,6 +1618,30 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     trailMin: "",
     trailMax: "",
     methodWeightBlend: "",
+    methodWeightConfBlend: "",
+    methodWeightConfPick: "",
+    methodWeightCostPick: "",
+    methodWeightHarmonicBlend: "",
+    methodWeightDisagreementGuard: "",
+    methodWeightMedianBlend: "",
+    methodWeightNeutralGuard: "",
+    methodWeightRiskParityBlend: "",
+    methodWeightConsensusBoost: "",
+    methodWeightAnchorBlend: "",
+    methodWeightTensionGate: "",
+    methodWeightEntropyBlend: "",
+    methodWeightCoherenceGate: "",
+    methodWeightDivergenceGate: "",
+    methodWeightFractalBlend: "",
+    methodWeightPhaseCancel: "",
+    methodWeightSoftmaxBlend: "",
+    methodWeightSmoothSoftmaxBlend: "",
+    methodWeightNetSoftmaxBlend: "",
+    methodWeightEdgeBlend: "",
+    methodWeightEdgePick: "",
+    methodWeightGeoBlend: "",
+    methodWeightRegimeSwitch: "",
+    methodWeightBanditRouter: "",
     blendWeightMin: "",
     blendWeightMax: "",
     disableLstmPersistence: false,
@@ -1496,6 +1843,54 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
 
   const methodWeightBlend = parseOptionalNumber(form.methodWeightBlend);
   if (methodWeightBlend != null) req.methodWeightBlend = methodWeightBlend;
+  const methodWeightConfBlend = parseOptionalNumber(form.methodWeightConfBlend);
+  if (methodWeightConfBlend != null) req.methodWeightConfBlend = methodWeightConfBlend;
+  const methodWeightConfPick = parseOptionalNumber(form.methodWeightConfPick);
+  if (methodWeightConfPick != null) req.methodWeightConfPick = methodWeightConfPick;
+  const methodWeightCostPick = parseOptionalNumber(form.methodWeightCostPick);
+  if (methodWeightCostPick != null) req.methodWeightCostPick = methodWeightCostPick;
+  const methodWeightHarmonicBlend = parseOptionalNumber(form.methodWeightHarmonicBlend);
+  if (methodWeightHarmonicBlend != null) req.methodWeightHarmonicBlend = methodWeightHarmonicBlend;
+  const methodWeightDisagreementGuard = parseOptionalNumber(form.methodWeightDisagreementGuard);
+  if (methodWeightDisagreementGuard != null) req.methodWeightDisagreementGuard = methodWeightDisagreementGuard;
+  const methodWeightMedianBlend = parseOptionalNumber(form.methodWeightMedianBlend);
+  if (methodWeightMedianBlend != null) req.methodWeightMedianBlend = methodWeightMedianBlend;
+  const methodWeightNeutralGuard = parseOptionalNumber(form.methodWeightNeutralGuard);
+  if (methodWeightNeutralGuard != null) req.methodWeightNeutralGuard = methodWeightNeutralGuard;
+  const methodWeightRiskParityBlend = parseOptionalNumber(form.methodWeightRiskParityBlend);
+  if (methodWeightRiskParityBlend != null) req.methodWeightRiskParityBlend = methodWeightRiskParityBlend;
+  const methodWeightConsensusBoost = parseOptionalNumber(form.methodWeightConsensusBoost);
+  if (methodWeightConsensusBoost != null) req.methodWeightConsensusBoost = methodWeightConsensusBoost;
+  const methodWeightAnchorBlend = parseOptionalNumber(form.methodWeightAnchorBlend);
+  if (methodWeightAnchorBlend != null) req.methodWeightAnchorBlend = methodWeightAnchorBlend;
+  const methodWeightTensionGate = parseOptionalNumber(form.methodWeightTensionGate);
+  if (methodWeightTensionGate != null) req.methodWeightTensionGate = methodWeightTensionGate;
+  const methodWeightEntropyBlend = parseOptionalNumber(form.methodWeightEntropyBlend);
+  if (methodWeightEntropyBlend != null) req.methodWeightEntropyBlend = methodWeightEntropyBlend;
+  const methodWeightCoherenceGate = parseOptionalNumber(form.methodWeightCoherenceGate);
+  if (methodWeightCoherenceGate != null) req.methodWeightCoherenceGate = methodWeightCoherenceGate;
+  const methodWeightDivergenceGate = parseOptionalNumber(form.methodWeightDivergenceGate);
+  if (methodWeightDivergenceGate != null) req.methodWeightDivergenceGate = methodWeightDivergenceGate;
+  const methodWeightFractalBlend = parseOptionalNumber(form.methodWeightFractalBlend);
+  if (methodWeightFractalBlend != null) req.methodWeightFractalBlend = methodWeightFractalBlend;
+  const methodWeightPhaseCancel = parseOptionalNumber(form.methodWeightPhaseCancel);
+  if (methodWeightPhaseCancel != null) req.methodWeightPhaseCancel = methodWeightPhaseCancel;
+  const methodWeightSoftmaxBlend = parseOptionalNumber(form.methodWeightSoftmaxBlend);
+  if (methodWeightSoftmaxBlend != null) req.methodWeightSoftmaxBlend = methodWeightSoftmaxBlend;
+  const methodWeightSmoothSoftmaxBlend = parseOptionalNumber(form.methodWeightSmoothSoftmaxBlend);
+  if (methodWeightSmoothSoftmaxBlend != null) req.methodWeightSmoothSoftmaxBlend = methodWeightSmoothSoftmaxBlend;
+  const methodWeightNetSoftmaxBlend = parseOptionalNumber(form.methodWeightNetSoftmaxBlend);
+  if (methodWeightNetSoftmaxBlend != null) req.methodWeightNetSoftmaxBlend = methodWeightNetSoftmaxBlend;
+  const methodWeightEdgeBlend = parseOptionalNumber(form.methodWeightEdgeBlend);
+  if (methodWeightEdgeBlend != null) req.methodWeightEdgeBlend = methodWeightEdgeBlend;
+  const methodWeightEdgePick = parseOptionalNumber(form.methodWeightEdgePick);
+  if (methodWeightEdgePick != null) req.methodWeightEdgePick = methodWeightEdgePick;
+  const methodWeightGeoBlend = parseOptionalNumber(form.methodWeightGeoBlend);
+  if (methodWeightGeoBlend != null) req.methodWeightGeoBlend = methodWeightGeoBlend;
+  const methodWeightRegimeSwitch = parseOptionalNumber(form.methodWeightRegimeSwitch);
+  if (methodWeightRegimeSwitch != null) req.methodWeightRegimeSwitch = methodWeightRegimeSwitch;
+  const methodWeightBanditRouter = parseOptionalNumber(form.methodWeightBanditRouter);
+  if (methodWeightBanditRouter != null) req.methodWeightBanditRouter = methodWeightBanditRouter;
   const blendWeightMin = parseOptionalNumber(form.blendWeightMin);
   if (blendWeightMin != null) req.blendWeightMin = blendWeightMin;
   const blendWeightMax = parseOptionalNumber(form.blendWeightMax);

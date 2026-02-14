@@ -8,14 +8,17 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   if (v.startsWith("/") || /^https?:\/\//i.test(v)) return v;
   if (v.includes("://")) return v;
 
-  const looksLikeHost = v === "localhost" || v.startsWith("localhost:") || v.includes(".") || v.includes(":");
-  if (!looksLikeHost) return `/${v}`;
-
   const slashIdx = v.indexOf("/");
   const authority = slashIdx === -1 ? v : v.slice(0, slashIdx);
   const rest = slashIdx === -1 ? "" : v.slice(slashIdx);
-
   const lowerAuthority = authority.toLowerCase();
+  const looksLikeHost =
+    lowerAuthority === "localhost" ||
+    lowerAuthority.startsWith("localhost:") ||
+    authority.includes(".") ||
+    authority.includes(":");
+  if (!looksLikeHost) return `/${v}`;
+
   const isLocal =
     lowerAuthority === "localhost" ||
     lowerAuthority.startsWith("localhost:") ||
@@ -33,8 +36,12 @@ export function normalizeApiBaseUrlInput(raw: string): string {
       const m = authority.match(/^\[[^\]]+\]:(\d{1,5})$/);
       return m ? m[1] : null;
     }
-    // For bare IPv6 (multiple ':'), treat as "no port"; port must be provided via brackets.
-    if (authority.split(":").length > 2) return null;
+    const parts = authority.split(":");
+    // Bare IPv6 with a port is ambiguous; only infer for the common loopback shorthand `::1:PORT`.
+    if (parts.length > 2) {
+      const m = authority.match(/^::1:(\d{1,5})$/i);
+      return m ? m[1] : null;
+    }
     const m = authority.match(/:([0-9]{1,5})$/);
     return m ? m[1] : null;
   };
@@ -45,10 +52,9 @@ export function normalizeApiBaseUrlInput(raw: string): string {
     const parts = authority.split(":");
     if (parts.length <= 2) return authority;
 
-    // Likely IPv6 without brackets; bracketize. If a port was detected (bracketed form), keep it.
-    if (port) {
-      const host = parts.slice(0, -1).join(":");
-      return `[${host}]:${port}`;
+    // Likely IPv6 without brackets; bracketize. Preserve inferred loopback port shorthand.
+    if (port && /^::1:\d{1,5}$/i.test(authority)) {
+      return `[::1]:${port}`;
     }
     return `[${authority}]`;
   };
@@ -226,6 +232,8 @@ export function numFromInput(raw: string, fallback: number): number {
   const normalized = (() => {
     if (!trimmed.includes(",")) return trimmed;
     if (trimmed.includes(".")) return trimmed.replace(/,/g, "");
+    // Treat clear thousands grouping when comma placement is unambiguous.
+    if (/^[-+]?\d{1,3}(,\d{3}){2,}$/.test(trimmed)) return trimmed.replace(/,/g, "");
     const parts = trimmed.split(",");
     if (parts.length === 2) {
       const left = parts[0] ?? "";
@@ -233,7 +241,7 @@ export function numFromInput(raw: string, fallback: number): number {
       const leftDigits = left.replace(/\D/g, "");
       const rightDigits = right.replace(/\D/g, "");
       if (leftDigits === "0") return `${left}.${right}`;
-      if (rightDigits.length === 3) return `${left}${right}`;
+      if (/^[-+]?\d{1,3}$/.test(left) && /^\d{3}$/.test(right)) return `${left}${right}`;
       return `${left}.${right}`;
     }
     return trimmed.replace(/,/g, "");
@@ -292,7 +300,7 @@ export function buildRequestIssueDetails(input: RequestIssueDetailsInput): Reque
 }
 
 export function isLocalHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "::1" || hostname === "[::1]";
 }
 
 export function fmtTimeMs(ms: number): string {
@@ -404,8 +412,56 @@ export function methodLabel(method: Method): string {
       return "LSTM only";
     case "blend":
       return "Blend (weighted average)";
+    case "conf_blend":
+      return "Conf blend (confidence-weighted)";
+    case "conf_pick":
+      return "Conf pick (confidence winner)";
+    case "cost_pick":
+      return "Cost pick (net-edge winner)";
+    case "harmonic_blend":
+      return "Harmonic blend (return harmonic mean)";
+    case "disagreement_guard":
+      return "Disagreement guard (lower-edge on conflict)";
+    case "median_blend":
+      return "Median blend (robust middle return)";
+    case "neutral_guard":
+      return "Neutral guard (flat on conflict)";
+    case "risk_parity_blend":
+      return "Risk parity blend (inverse-edge weighted)";
+    case "consensus_boost":
+      return "Consensus boost (flat on conflict, strong on agree)";
+    case "anchor_blend":
+      return "Anchor blend (pulls toward current price on conflict)";
+    case "tension_gate":
+      return "Tension gate (partial neutralization on conflict)";
+    case "entropy_blend":
+      return "Entropy blend (uncertainty-aware spot anchoring)";
+    case "coherence_gate":
+      return "Coherence gate (agreement coherence conflict guard)";
+    case "divergence_gate":
+      return "Divergence gate (shrinks blended return on disagreement)";
+    case "fractal_blend":
+      return "Fractal blend (signed-root nonlinear fusion)";
+    case "phase_cancel":
+      return "Phase cancel (anti-phase conflict neutralization)";
+    case "softmax_blend":
+      return "Softmax blend (softmax edge weights)";
+    case "smooth_softmax_blend":
+      return "Smooth softmax blend (EMA-smooth softmax weights)";
+    case "net_softmax_blend":
+      return "Net softmax blend (post-cost softmax edge weights)";
+    case "edge_blend":
+      return "Edge blend (edge-weighted)";
+    case "edge_pick":
+      return "Edge pick (edge winner)";
+    case "geo_blend":
+      return "Geo blend (geometric)";
+    case "regime_switch":
+      return "Regime switch (vol/z adaptive)";
     case "router":
       return "Router (adaptive)";
+    case "bandit_router":
+      return "Bandit router (UCB adaptive)";
     default:
       return "Unknown";
   }

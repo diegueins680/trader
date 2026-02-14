@@ -7,6 +7,7 @@ module Trader.Predictors.Features (
     buildDataset,
 ) where
 
+import qualified Data.Maybe
 import qualified Data.Vector as V
 
 data FeatureSpec = FeatureSpec
@@ -17,13 +18,11 @@ data FeatureSpec = FeatureSpec
     deriving (Eq, Show)
 
 mkFeatureSpec :: Int -> FeatureSpec
-mkFeatureSpec lookbackBars
-    | lookbackBars <= 1 = error "lookbackBars must be >= 2"
-    | otherwise =
-        let lb = lookbackBars
-            shortB = max 1 (min 12 (lb - 1))
-            midB = max 1 (min 48 (lb - 1))
-         in FeatureSpec{fsLookbackBars = lb, fsShortBars = shortB, fsMidBars = midB}
+mkFeatureSpec lookbackBars =
+    let lb = max 2 lookbackBars
+        shortB = max 1 (min 12 (lb - 1))
+        midB = max 1 (min 48 (lb - 1))
+     in FeatureSpec{fsLookbackBars = lb, fsShortBars = shortB, fsMidBars = midB}
 
 -- | Forward return r_t = p_{t+1}/p_t - 1.
 forwardReturnAt :: V.Vector Double -> Int -> Maybe Double
@@ -100,9 +99,9 @@ buildDatasetWithIndex fs prices =
                 let p0 = prices V.! i
                     p1 = prices V.! (i + 1)
                  in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
-        retVals = V.map (maybe 0 id) returns
+        retVals = V.map (Data.Maybe.fromMaybe 0) returns
         retSqVals = V.map (maybe 0 (\r -> r * r)) returns
-        retInvalid = V.map (\m -> case m of Nothing -> 1; Just _ -> 0) returns
+        retInvalid = V.map (maybe 1 (const 0)) returns
         prefixSum = V.scanl' (+) 0 retVals
         prefixSumSq = V.scanl' (+) 0 retSqVals
         prefixInvalid = V.scanl' (+) 0 retInvalid

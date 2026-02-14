@@ -55,7 +55,7 @@ fitNorm nt xs =
                 case xsFinite of
                     [] -> NSNone
                     _ ->
-                        if any (\v -> v <= 0) xsFinite
+                        if any (<= 0) xsFinite
                             then NSNone
                             else NSLog
 

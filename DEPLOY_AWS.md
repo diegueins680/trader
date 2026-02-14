@@ -105,6 +105,7 @@ Create an AWS App Runner service to run your API.
    ```
    TRADER_API_TOKEN=<your-random-token>
    TRADER_DB_URL=<postgres-connection-url>
+   TRADER_MULTI_USER=true
    TRADER_STATE_S3_BUCKET=<s3-bucket>
    TRADER_STATE_S3_PREFIX=trader
    TRADER_STATE_S3_REGION=ap-northeast-1
@@ -181,6 +182,7 @@ If you didn't set `TRADER_API_TOKEN` during creation, add it now:
    ```
    TRADER_API_TOKEN=<your-random-token>
    TRADER_DB_URL=<postgres-connection-url>
+   TRADER_MULTI_USER=true
    ```
 5. Click **Save changes**
 
@@ -415,7 +417,7 @@ aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
 - Verify ECR login: `aws ecr get-login-password ... | docker login ...`
 - Check AWS credentials: `aws sts get-caller-identity`
 - Ensure ECR repository exists
-- If you see `403 Forbidden` from a `HEAD .../manifests/<tag>` request, the AWS principal can authenticate but likely lacks ECR repo permissions (often missing `ecr:BatchGetImage` / `ecr:GetDownloadUrlForLayer`, and/or `ecr:PutImage`). For cross-account pushes, also add an ECR repository policy in the target account.
+- If you see `403 Forbidden` on a `HEAD .../manifests/<tag|sha256:...>` request, your deploy IAM role likely needs `ecr:BatchGetImage` (Docker checks for existing manifests) and, depending on the client/build, may also need additional ECR permissions (for example `ecr:GetDownloadUrlForLayer`). If your build is producing attestations (provenance/SBOM), either grant the needed permissions or disable attestations (example: `docker build --provenance=false --sbom=false ...`). `deploy-aws-quick.sh` disables attestations by default (set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable). For cross-account pushes, also add an ECR repository policy in the target account.
 
 ---
 

@@ -3,6 +3,7 @@ module Trader.LstmPersistence (
 ) where
 
 import Control.Exception (SomeException, try)
+import Data.Either (fromRight)
 import Data.List (intercalate)
 import System.Directory (canonicalizePath)
 
@@ -13,7 +14,7 @@ import Trader.Platform (Platform (..), platformCode)
 safeCanonicalizePath :: FilePath -> IO FilePath
 safeCanonicalizePath path = do
     r <- try (canonicalizePath path) :: IO (Either SomeException FilePath)
-    pure (either (const path) id r)
+    pure (fromRight path r)
 
 binanceMarketKey :: BinanceMarket -> String
 binanceMarketKey m =

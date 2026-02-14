@@ -1,58 +1,60 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Trader.Binance
-  ( BinanceEnv(..)
-  , BinanceLog(..)
-  , BinanceMarket(..)
-  , BinanceOrderMode(..)
-  , OrderSide(..)
-  , BinanceTrade(..)
-  , Kline(..)
-  , Step(..)
-  , SymbolFilters(..)
-  , Ticker24h(..)
-  , BinanceOpenOrder(..)
-  , FuturesPositionRisk(..)
-  , fetchTickerPrice
-  , fetchTicker24hPrice
-  , fetchFuturesMarkPrice
-  , fetchTickers24h
-  , fetchTopSymbolsByQuoteVolume
-  , binanceBaseUrl
-  , binanceTestnetBaseUrl
-  , binanceFuturesBaseUrl
-  , binanceFuturesTestnetBaseUrl
-  , newBinanceEnv
-  , fetchKlines
-  , fetchCloses
-  , fetchSymbolFilters
-  , quantizeDown
-  , getTimestampMs
-  , signQuery
-  , placeMarketOrder
-  , placeFuturesMarketOrderWithPositionSide
-  , placeFuturesTriggerMarketOrder
-  , placeFuturesAlgoTriggerMarketOrder
-  , fetchFuturesOpenAlgoOrders
-  , cancelFuturesAlgoOrderByClientId
-  , FuturesAlgoOpenOrder(..)
-  , fetchFuturesAccountUid
-  , fetchOrderByClientId
-  , fetchAccountTrades
-  , fetchFreeBalance
-  , fetchFuturesAvailableBalance
-  , fetchFuturesPositionAmt
-  , fetchFuturesPositionRisks
-  , fetchOpenOrders
-  , cancelFuturesOpenOrdersByClientPrefix
-  , BinanceProxyHealth(..)
-  , binanceProxyHealth
-  , createListenKey
-  , keepAliveListenKey
-  , closeListenKey
-  ) where
+
+module Trader.Binance (
+    BinanceEnv (..),
+    BinanceLog (..),
+    BinanceMarket (..),
+    BinanceOrderMode (..),
+    OrderSide (..),
+    BinanceTrade (..),
+    Kline (..),
+    Step (..),
+    SymbolFilters (..),
+    Ticker24h (..),
+    BinanceOpenOrder (..),
+    FuturesPositionRisk (..),
+    fetchTickerPrice,
+    fetchTicker24hPrice,
+    fetchFuturesMarkPrice,
+    fetchTickers24h,
+    fetchTopSymbolsByQuoteVolume,
+    binanceBaseUrl,
+    binanceTestnetBaseUrl,
+    binanceFuturesBaseUrl,
+    binanceFuturesTestnetBaseUrl,
+    newBinanceEnv,
+    fetchKlines,
+    fetchCloses,
+    fetchSymbolFilters,
+    quantizeDown,
+    getTimestampMs,
+    signQuery,
+    placeMarketOrder,
+    placeFuturesMarketOrderWithPositionSide,
+    placeFuturesTriggerMarketOrder,
+    placeFuturesAlgoTriggerMarketOrder,
+    fetchFuturesOpenAlgoOrders,
+    cancelFuturesAlgoOrderByClientId,
+    FuturesAlgoOpenOrder (..),
+    fetchFuturesAccountUid,
+    fetchOrderByClientId,
+    fetchAccountTrades,
+    fetchFreeBalance,
+    fetchFuturesAvailableBalance,
+    fetchFuturesPositionAmt,
+    fetchFuturesPositionRisks,
+    fetchOpenOrders,
+    cancelFuturesOpenOrdersByClientPrefix,
+    BinanceProxyHealth (..),
+    binanceProxyHealth,
+    createListenKey,
+    keepAliveListenKey,
+    closeListenKey,
+) where
 
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, displayException, fromException, throwIO, try)
+import qualified Control.Monad
 import Crypto.Hash.Algorithms (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode, object, withArray, withObject, (.:), (.=))
@@ -64,11 +66,12 @@ import Data.ByteArray.Encoding (Base (Base64), convertToBase)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isSpace, toLower)
+import Data.Char (isAsciiLower, isSpace, toLower)
 import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, isPrefixOf, isSuffixOf, sortBy)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Ord (comparing)
+import qualified Data.Ord
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With)
@@ -116,10 +119,10 @@ data BinanceProxyHealth = BinanceProxyHealth
 
 instance ToJSON BinanceProxyHealth where
     toJSON h =
-        let status =
-                if not (bphConfigured h)
-                    then ("not_configured" :: String)
-                    else if bphOk h then "ok" else "error"
+        let status
+                | not (bphConfigured h) = ("not_configured" :: String)
+                | bphOk h = "ok"
+                | otherwise = "error"
          in object
                 [ "status" .= status
                 , "configured" .= bphConfigured h
@@ -174,6 +177,7 @@ data BinanceTrade = BinanceTrade
     , btSide :: !(Maybe String)
     , btPositionSide :: !(Maybe String)
     , btRealizedPnl :: !(Maybe Double)
+    , btOriginIp :: !(Maybe Text)
     }
     deriving (Eq, Show)
 
@@ -200,6 +204,7 @@ instance FromJSON BinanceTrade where
         sideRaw <- o AT..:? "side"
         positionSide <- o AT..:? "positionSide"
         realizedPnl <- parseMaybeDoubleField o "realizedPnl"
+        originIp <- o AT..:? "originIp"
         let isBuyer = isBuyerRaw <|> buyerRaw
             isMaker = isMakerRaw <|> makerRaw
             sideDerived =
@@ -230,6 +235,7 @@ instance FromJSON BinanceTrade where
                 , btSide = sideDerived
                 , btPositionSide = positionSide
                 , btRealizedPnl = realizedPnl
+                , btOriginIp = originIp
                 }
 
 instance FromJSON BinanceServerTime where
@@ -254,6 +260,7 @@ instance ToJSON BinanceTrade where
             , "side" .= btSide t
             , "positionSide" .= btPositionSide t
             , "realizedPnl" .= btRealizedPnl t
+            , "originIp" .= btOriginIp t
             ]
 
 binanceBaseUrl :: String
@@ -434,6 +441,7 @@ parseUserInfo raw =
             else case break (== ':') trimmed of
                 (u, ':' : p) -> Just (u, p)
                 (u, "") -> Just (u, "")
+                _ -> Nothing
 
 proxyAuthHeader :: (String, String) -> Maybe BS.ByteString
 proxyAuthHeader (user, pass) =
@@ -615,7 +623,7 @@ emptySymbolFilters =
         , sfTickSize = Nothing
         }
 
-data ExchangeInfo = ExchangeInfo [ExchangeSymbol]
+newtype ExchangeInfo = ExchangeInfo [ExchangeSymbol]
 
 data ExchangeSymbol = ExchangeSymbol
     { esSymbol :: !String
@@ -655,8 +663,7 @@ fetchSymbolFilters env symbol = do
                     Just s -> pure (parseSymbolFilters (esFilters s))
 
 parseSymbolFilters :: [Aeson.Object] -> SymbolFilters
-parseSymbolFilters objs =
-    foldl' apply emptySymbolFilters objs
+parseSymbolFilters = foldl' apply emptySymbolFilters
   where
     apply acc o =
         case AT.parseMaybe (Aeson..: "filterType") o :: Maybe Text of
@@ -765,7 +772,7 @@ fetchCloses env symbol interval limit = do
     ks <- fetchKlines env symbol interval limit
     pure (map kClose ks)
 
-data TickerPrice = TickerPrice {tpPrice :: Double}
+newtype TickerPrice = TickerPrice {tpPrice :: Double}
 
 instance FromJSON TickerPrice where
     parseJSON = withObject "TickerPrice" $ \o -> do
@@ -789,7 +796,7 @@ fetchTickerPrice env symbol = do
         Left e -> throwIO (userError ("Failed to decode ticker price: " ++ e))
         Right (TickerPrice p) -> pure p
 
-data Ticker24hPrice = Ticker24hPrice {t24LastPrice :: Double}
+newtype Ticker24hPrice = Ticker24hPrice {t24LastPrice :: Double}
 
 instance FromJSON Ticker24hPrice where
     parseJSON = withObject "Ticker24hPrice" $ \o -> do
@@ -813,7 +820,7 @@ fetchTicker24hPrice env symbol = do
         Left e -> throwIO (userError ("Failed to decode ticker/24hr: " ++ e))
         Right (Ticker24hPrice p) -> pure p
 
-data FuturesMarkPrice = FuturesMarkPrice {fmpMarkPrice :: Double}
+newtype FuturesMarkPrice = FuturesMarkPrice {fmpMarkPrice :: Double}
 
 instance FromJSON FuturesMarkPrice where
     parseJSON = withObject "FuturesMarkPrice" $ \o -> do
@@ -823,9 +830,7 @@ instance FromJSON FuturesMarkPrice where
 
 fetchFuturesMarkPrice :: BinanceEnv -> String -> IO Double
 fetchFuturesMarkPrice env symbol = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesMarkPrice requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesMarkPrice requires MarketFutures")
     req0 <- parseRequest (beBaseUrl env ++ "/fapi/v1/premiumIndex")
     let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
         req = req0{method = "GET", queryString = qs}
@@ -885,7 +890,7 @@ fetchTopSymbolsByQuoteVolume env quote topN = do
                                    isLeveraged = any (`isSuffixOf` base) leveragedSuffixes
                                 in not isStableStable && not isLeveraged
                 ranked =
-                    sortBy (flip (comparing snd)) $
+                    sortBy (comparing (Data.Ord.Down . snd)) $
                         [ (map toUpperAscii (t24Symbol t), max 0 (t24QuoteVolume t))
                         | t <- filter wanted tickers
                         ]
@@ -984,212 +989,202 @@ placeMarketOrder ::
     Maybe String -> -- newClientOrderId (optional; idempotency)
     IO BL.ByteString
 placeMarketOrder env mode symbol side quantity quoteOrderQty reduceOnly mClientOrderId = do
-  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
-  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  let sideTxt = case side of { Buy -> "BUY"; Sell -> "SELL" }
-      baseParams ts =
-        [ ("symbol", BS.pack (map toUpperAscii symbol))
-        , ("side", sideTxt)
-        , ("type", "MARKET")
-        , ("recvWindow", binanceRecvWindowMs)
-        , ("timestamp", BS.pack (show ts))
-        ]
-      clientIdParam =
-        case mClientOrderId of
-          Nothing -> []
-          Just cid | null (trim cid) -> []
-          Just cid -> [("newClientOrderId", BS.pack (trim cid))]
-      qtyParamsSpotOrMargin =
-        case (quantity, quoteOrderQty) of
-          (Just q, _) -> [("quantity", renderDouble q)]
-          (Nothing, Just qq) -> [("quoteOrderQty", renderDouble qq)]
-          _ -> []
-      qtyParamsFutures =
-        case quantity of
-          Just q -> [("quantity", renderDouble q)]
-          Nothing -> []
-      reduceOnlyParams =
-        case reduceOnly of
-          Just True -> [("reduceOnly", "true")]
-          _ -> []
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    let sideTxt = case side of Buy -> "BUY"; Sell -> "SELL"
+        baseParams ts =
+            [ ("symbol", BS.pack (map toUpperAscii symbol))
+            , ("side", sideTxt)
+            , ("type", "MARKET")
+            , ("recvWindow", binanceRecvWindowMs)
+            , ("timestamp", BS.pack (show ts))
+            ]
+        clientIdParam =
+            case mClientOrderId of
+                Nothing -> []
+                Just cid | null (trim cid) -> []
+                Just cid -> [("newClientOrderId", BS.pack (trim cid))]
+        qtyParamsSpotOrMargin =
+            case (quantity, quoteOrderQty) of
+                (Just q, _) -> [("quantity", renderDouble q)]
+                (Nothing, Just qq) -> [("quoteOrderQty", renderDouble qq)]
+                _ -> []
+        qtyParamsFutures =
+            case quantity of
+                Just q -> [("quantity", renderDouble q)]
+                Nothing -> []
+        reduceOnlyParams =
+            case reduceOnly of
+                Just True -> [("reduceOnly", "true")]
+                _ -> []
 
-  (path, label, buildParams) <-
-    case beMarket env of
-      MarketSpot -> do
-        p <-
-          case (quantity, quoteOrderQty) of
-            (Nothing, Nothing) -> throwIO (userError "Provide quantity or quoteOrderQty for MARKET orders")
-            _ -> pure (\ts -> baseParams ts ++ qtyParamsSpotOrMargin ++ clientIdParam)
-        pure
-          ( if mode == OrderTest then "/api/v3/order/test" else "/api/v3/order"
-          , if mode == OrderTest then "order/test" else "order"
-          , p
-          )
-      MarketMargin -> do
-        p <-
-          case (quantity, quoteOrderQty) of
-            (Nothing, Nothing) -> throwIO (userError "Provide quantity or quoteOrderQty for MARKET orders")
-            _ -> pure (\ts -> baseParams ts ++ qtyParamsSpotOrMargin ++ clientIdParam)
-        case mode of
-          OrderTest -> throwIO (userError "Margin does not support order test; rerun with --binance-live")
-          OrderLive -> pure ("/sapi/v1/margin/order", "margin/order", p)
-      MarketFutures -> do
-        p <-
-          case quantity of
-            Nothing -> throwIO (userError "Futures MARKET orders require --order-quantity (or compute it from --order-quote in the caller)")
-            Just _ -> pure (\ts -> baseParams ts ++ qtyParamsFutures ++ reduceOnlyParams ++ clientIdParam)
-        pure
-          ( if mode == OrderTest then "/fapi/v1/order/test" else "/fapi/v1/order"
-          , if mode == OrderTest then "futures/order/test" else "futures/order"
-          , p
-          )
+    (path, label, buildParams) <-
+        case beMarket env of
+            MarketSpot -> do
+                p <-
+                    case (quantity, quoteOrderQty) of
+                        (Nothing, Nothing) -> throwIO (userError "Provide quantity or quoteOrderQty for MARKET orders")
+                        _ -> pure (\ts -> baseParams ts ++ qtyParamsSpotOrMargin ++ clientIdParam)
+                pure
+                    ( if mode == OrderTest then "/api/v3/order/test" else "/api/v3/order"
+                    , if mode == OrderTest then "order/test" else "order"
+                    , p
+                    )
+            MarketMargin -> do
+                p <-
+                    case (quantity, quoteOrderQty) of
+                        (Nothing, Nothing) -> throwIO (userError "Provide quantity or quoteOrderQty for MARKET orders")
+                        _ -> pure (\ts -> baseParams ts ++ qtyParamsSpotOrMargin ++ clientIdParam)
+                case mode of
+                    OrderTest -> throwIO (userError "Margin does not support order test; rerun with --binance-live")
+                    OrderLive -> pure ("/sapi/v1/margin/order", "margin/order", p)
+            MarketFutures -> do
+                p <-
+                    case quantity of
+                        Nothing -> throwIO (userError "Futures MARKET orders require --order-quantity (or compute it from --order-quote in the caller)")
+                        Just _ -> pure (\ts -> baseParams ts ++ qtyParamsFutures ++ reduceOnlyParams ++ clientIdParam)
+                pure
+                    ( if mode == OrderTest then "/fapi/v1/order/test" else "/fapi/v1/order"
+                    , if mode == OrderTest then "futures/order/test" else "futures/order"
+                    , p
+                    )
 
-  let send ts = do
-        let params = buildParams ts
-            queryToSign = renderSimpleQuery False params
-            sig = signQuery secret queryToSign
-            paramsSigned = params ++ [("signature", sig)]
-            qs = renderSimpleQuery True paramsSigned
-        req0 <- parseRequest (beBaseUrl env ++ path)
-        let req =
-              req0
-                { method = "POST"
-                , queryString = qs
-                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                }
-        binanceHttp env label req
+    let send ts = do
+            let params = buildParams ts
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
+            req0 <- parseRequest (beBaseUrl env ++ path)
+            let req =
+                    req0
+                        { method = "POST"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env label req
 
-  resp <- withBinanceTimestampRetry env send
-  ensure2xx label resp
-  pure (responseBody resp)
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx label resp
+    pure (responseBody resp)
 
-placeFuturesMarketOrderWithPositionSide
-  :: BinanceEnv
-  -> BinanceOrderMode
-  -> String      -- symbol
-  -> OrderSide
-  -> Double      -- quantity (base)
-  -> Maybe Bool   -- reduceOnly
-  -> Maybe String -- newClientOrderId (optional; idempotency)
-  -> Maybe String -- positionSide (optional; required in Hedge Mode)
-  -> IO BL.ByteString
+placeFuturesMarketOrderWithPositionSide ::
+    BinanceEnv ->
+    BinanceOrderMode ->
+    String -> -- symbol
+    OrderSide ->
+    Double -> -- quantity (base)
+    Maybe Bool -> -- reduceOnly
+    Maybe String -> -- newClientOrderId (optional; idempotency)
+    Maybe String -> -- positionSide (optional; required in Hedge Mode)
+    IO BL.ByteString
 placeFuturesMarketOrderWithPositionSide env mode symbol side quantity reduceOnly mClientOrderId mPositionSide = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "placeFuturesMarketOrderWithPositionSide requires MarketFutures")
-    else pure ()
-  if quantity <= 0
-    then throwIO (userError "Futures MARKET orders require quantity > 0")
-    else pure ()
-  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
-  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesMarketOrderWithPositionSide requires MarketFutures")
+    Control.Monad.when (quantity <= 0) $ throwIO (userError "Futures MARKET orders require quantity > 0")
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
 
-  let sideTxt = case side of { Buy -> "BUY"; Sell -> "SELL" }
-      baseParams ts =
-        [ ("symbol", BS.pack (map toUpperAscii symbol))
-        , ("side", sideTxt)
-        , ("type", "MARKET")
-        , ("quantity", renderDouble quantity)
-        , ("recvWindow", binanceRecvWindowMs)
-        , ("timestamp", BS.pack (show ts))
-        ]
-      reduceOnlyParams =
-        case reduceOnly of
-          Just True -> [("reduceOnly", "true")]
-          _ -> []
-      clientIdParam =
-        case mClientOrderId of
-          Nothing -> []
-          Just cid | null (trim cid) -> []
-          Just cid -> [("newClientOrderId", BS.pack (trim cid))]
-      positionSideParam =
-        case mPositionSide of
-          Just ps | not (null (trim ps)) -> [("positionSide", BS.pack (map toUpperAscii (trim ps)))]
-          _ -> []
-      (path, label) =
-        if mode == OrderTest
-          then ("/fapi/v1/order/test", "futures/order/test")
-          else ("/fapi/v1/order", "futures/order")
+    let sideTxt = case side of Buy -> "BUY"; Sell -> "SELL"
+        baseParams ts =
+            [ ("symbol", BS.pack (map toUpperAscii symbol))
+            , ("side", sideTxt)
+            , ("type", "MARKET")
+            , ("quantity", renderDouble quantity)
+            , ("recvWindow", binanceRecvWindowMs)
+            , ("timestamp", BS.pack (show ts))
+            ]
+        reduceOnlyParams =
+            case reduceOnly of
+                Just True -> [("reduceOnly", "true")]
+                _ -> []
+        clientIdParam =
+            case mClientOrderId of
+                Nothing -> []
+                Just cid | null (trim cid) -> []
+                Just cid -> [("newClientOrderId", BS.pack (trim cid))]
+        positionSideParam =
+            case mPositionSide of
+                Just ps | not (null (trim ps)) -> [("positionSide", BS.pack (map toUpperAscii (trim ps)))]
+                _ -> []
+        (path, label) =
+            if mode == OrderTest
+                then ("/fapi/v1/order/test", "futures/order/test")
+                else ("/fapi/v1/order", "futures/order")
 
-      send ts = do
-        let params = baseParams ts ++ reduceOnlyParams ++ positionSideParam ++ clientIdParam
-            queryToSign = renderSimpleQuery False params
-            sig = signQuery secret queryToSign
-            paramsSigned = params ++ [("signature", sig)]
-            qs = renderSimpleQuery True paramsSigned
-        req0 <- parseRequest (beBaseUrl env ++ path)
-        let req =
-              req0
-                { method = "POST"
-                , queryString = qs
-                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                }
-        binanceHttp env label req
+        send ts = do
+            let params = baseParams ts ++ reduceOnlyParams ++ positionSideParam ++ clientIdParam
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
+            req0 <- parseRequest (beBaseUrl env ++ path)
+            let req =
+                    req0
+                        { method = "POST"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env label req
 
-  resp <- withBinanceTimestampRetry env send
-  ensure2xx label resp
-  pure (responseBody resp)
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx label resp
+    pure (responseBody resp)
 
-placeFuturesTriggerMarketOrder
-  :: BinanceEnv
-  -> BinanceOrderMode
-  -> String      -- symbol
-  -> OrderSide
-  -> String      -- type (e.g., STOP_MARKET, TAKE_PROFIT_MARKET)
-  -> Double      -- stopPrice
-  -> Maybe String -- newClientOrderId (optional; idempotency)
-  -> IO BL.ByteString
+placeFuturesTriggerMarketOrder ::
+    BinanceEnv ->
+    BinanceOrderMode ->
+    String -> -- symbol
+    OrderSide ->
+    String -> -- type (e.g., STOP_MARKET, TAKE_PROFIT_MARKET)
+    Double -> -- stopPrice
+    Maybe String -> -- newClientOrderId (optional; idempotency)
+    IO BL.ByteString
 placeFuturesTriggerMarketOrder env mode symbol side orderType stopPrice mClientOrderId = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "placeFuturesTriggerMarketOrder requires MarketFutures")
-    else pure ()
-  if stopPrice <= 0
-    then throwIO (userError "stopPrice must be > 0")
-    else pure ()
-  let orderType' = trim orderType
-  if null orderType'
-    then throwIO (userError "orderType must be non-empty")
-    else pure ()
-  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
-  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesTriggerMarketOrder requires MarketFutures")
+    Control.Monad.when (stopPrice <= 0) $ throwIO (userError "stopPrice must be > 0")
+    let orderType' = trim orderType
+    Control.Monad.when (null orderType') $ throwIO (userError "orderType must be non-empty")
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
 
-  let sideTxt = case side of { Buy -> "BUY"; Sell -> "SELL" }
-      baseParams ts =
-        [ ("symbol", BS.pack (map toUpperAscii symbol))
-        , ("side", sideTxt)
-        , ("type", BS.pack orderType')
-        , ("stopPrice", renderDouble stopPrice)
-        , ("closePosition", "true")
-        , ("recvWindow", binanceRecvWindowMs)
-        , ("timestamp", BS.pack (show ts))
-        ]
-      clientIdParam =
-        case mClientOrderId of
-          Nothing -> []
-          Just cid | null (trim cid) -> []
-          Just cid -> [("newClientOrderId", BS.pack (trim cid))]
+    let sideTxt = case side of Buy -> "BUY"; Sell -> "SELL"
+        baseParams ts =
+            [ ("symbol", BS.pack (map toUpperAscii symbol))
+            , ("side", sideTxt)
+            , ("type", BS.pack orderType')
+            , ("stopPrice", renderDouble stopPrice)
+            , ("closePosition", "true")
+            , ("recvWindow", binanceRecvWindowMs)
+            , ("timestamp", BS.pack (show ts))
+            ]
+        clientIdParam =
+            case mClientOrderId of
+                Nothing -> []
+                Just cid | null (trim cid) -> []
+                Just cid -> [("newClientOrderId", BS.pack (trim cid))]
 
-      (path, label) =
-        if mode == OrderTest
-          then ("/fapi/v1/order/test", "futures/order/test(trigger)")
-          else ("/fapi/v1/order", "futures/order(trigger)")
-      send ts = do
-        let params = baseParams ts ++ clientIdParam
-            queryToSign = renderSimpleQuery False params
-            sig = signQuery secret queryToSign
-            paramsSigned = params ++ [("signature", sig)]
-            qs = renderSimpleQuery True paramsSigned
-        req0 <- parseRequest (beBaseUrl env ++ path)
-        let req =
-              req0
-                { method = "POST"
-                , queryString = qs
-                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                }
-        binanceHttp env label req
+        (path, label) =
+            if mode == OrderTest
+                then ("/fapi/v1/order/test", "futures/order/test(trigger)")
+                else ("/fapi/v1/order", "futures/order(trigger)")
+        send ts = do
+            let params = baseParams ts ++ clientIdParam
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
+            req0 <- parseRequest (beBaseUrl env ++ path)
+            let req =
+                    req0
+                        { method = "POST"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env label req
 
-  resp <- withBinanceTimestampRetry env send
-  ensure2xx label resp
-  pure (responseBody resp)
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx label resp
+    pure (responseBody resp)
 
 placeFuturesAlgoTriggerMarketOrder ::
     BinanceEnv ->
@@ -1202,64 +1197,56 @@ placeFuturesAlgoTriggerMarketOrder ::
     Maybe String -> -- positionSide (optional; required in Hedge Mode)
     IO BL.ByteString
 placeFuturesAlgoTriggerMarketOrder env mode symbol side orderType triggerPrice mClientAlgoId mPositionSide = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "placeFuturesAlgoTriggerMarketOrder requires MarketFutures")
-    else pure ()
-  if mode == OrderTest
-    then throwIO (userError "Algo orders are not supported in test mode")
-    else pure ()
-  if triggerPrice <= 0
-    then throwIO (userError "triggerPrice must be > 0")
-    else pure ()
-  let orderType' = trim orderType
-  if null orderType'
-    then throwIO (userError "orderType must be non-empty")
-    else pure ()
-  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
-  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesAlgoTriggerMarketOrder requires MarketFutures")
+    Control.Monad.when (mode == OrderTest) $ throwIO (userError "Algo orders are not supported in test mode")
+    Control.Monad.when (triggerPrice <= 0) $ throwIO (userError "triggerPrice must be > 0")
+    let orderType' = trim orderType
+    Control.Monad.when (null orderType') $ throwIO (userError "orderType must be non-empty")
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
 
-  let sideTxt = case side of { Buy -> "BUY"; Sell -> "SELL" }
-      algoType = "CONDITIONAL"
-      baseParams ts =
-        [ ("symbol", BS.pack (map toUpperAscii symbol))
-        , ("side", sideTxt)
-        , ("algoType", BS.pack algoType)
-        , ("type", BS.pack orderType')
-        , ("triggerPrice", renderDouble triggerPrice)
-        , ("closePosition", "true")
-        , ("recvWindow", "5000")
-        , ("timestamp", BS.pack (show ts))
-        ]
-      positionSideParam =
-        case mPositionSide of
-          Nothing -> []
-          Just ps | null (trim ps) -> []
-          Just ps -> [("positionSide", BS.pack (map toUpperAscii (trim ps)))]
-      clientIdParam =
-        case mClientAlgoId of
-          Nothing -> []
-          Just cid | null (trim cid) -> []
-          Just cid -> [("clientAlgoId", BS.pack (trim cid))]
-      path = "/fapi/v1/algoOrder"
-      label = "futures/algoOrder(trigger)"
-      send ts = do
-        let params = baseParams ts ++ positionSideParam ++ clientIdParam
-            queryToSign = renderSimpleQuery False params
-            sig = signQuery secret queryToSign
-            paramsSigned = params ++ [("signature", sig)]
-            qs = renderSimpleQuery True paramsSigned
-        req0 <- parseRequest (beBaseUrl env ++ path)
-        let req =
-              req0
-                { method = "POST"
-                , queryString = qs
-                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                }
-        binanceHttp env label req
+    let sideTxt = case side of Buy -> "BUY"; Sell -> "SELL"
+        algoType = "CONDITIONAL"
+        baseParams ts =
+            [ ("symbol", BS.pack (map toUpperAscii symbol))
+            , ("side", sideTxt)
+            , ("algoType", BS.pack algoType)
+            , ("type", BS.pack orderType')
+            , ("triggerPrice", renderDouble triggerPrice)
+            , ("closePosition", "true")
+            , ("recvWindow", "5000")
+            , ("timestamp", BS.pack (show ts))
+            ]
+        positionSideParam =
+            case mPositionSide of
+                Nothing -> []
+                Just ps | null (trim ps) -> []
+                Just ps -> [("positionSide", BS.pack (map toUpperAscii (trim ps)))]
+        clientIdParam =
+            case mClientAlgoId of
+                Nothing -> []
+                Just cid | null (trim cid) -> []
+                Just cid -> [("clientAlgoId", BS.pack (trim cid))]
+        path = "/fapi/v1/algoOrder"
+        label = "futures/algoOrder(trigger)"
+        send ts = do
+            let params = baseParams ts ++ positionSideParam ++ clientIdParam
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
+            req0 <- parseRequest (beBaseUrl env ++ path)
+            let req =
+                    req0
+                        { method = "POST"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env label req
 
-  resp <- withBinanceTimestampRetry env send
-  ensure2xx label resp
-  pure (responseBody resp)
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx label resp
+    pure (responseBody resp)
 
 fetchOrderByClientId :: BinanceEnv -> String -> String -> IO BL.ByteString
 fetchOrderByClientId env symbol clientOrderId = do
@@ -1298,62 +1285,62 @@ fetchOrderByClientId env symbol clientOrderId = do
 
 fetchAccountTrades :: BinanceEnv -> Maybe String -> Maybe Int -> Maybe Int64 -> Maybe Int64 -> Maybe Int64 -> IO [BinanceTrade]
 fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
-  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
-  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  symbolParam <-
-    case (beMarket env, mSymbol) of
-      (MarketFutures, Nothing) -> pure []
-      (_, Just sym) -> pure [("symbol", BS.pack (map toUpperAscii sym))]
-      (_, Nothing) -> throwIO (userError "binance trades require symbol for spot/margin markets")
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    symbolParam <-
+        case (beMarket env, mSymbol) of
+            (MarketFutures, Nothing) -> pure []
+            (_, Just sym) -> pure [("symbol", BS.pack (map toUpperAscii sym))]
+            (_, Nothing) -> throwIO (userError "binance trades require symbol for spot/margin markets")
 
-  let clampLimit n = max 1 (min 1000 n)
-      limitParam =
-        case mLimit of
-          Nothing -> []
-          Just lim -> [("limit", BS.pack (show (clampLimit lim)))]
-      startTimeParam =
-        case mStartTime of
-          Nothing -> []
-          Just t -> [("startTime", BS.pack (show (max 0 t)))]
-      endTimeParam =
-        case mEndTime of
-          Nothing -> []
-          Just t -> [("endTime", BS.pack (show (max 0 t)))]
-      fromIdParam =
-        case mFromId of
-          Nothing -> []
-          Just v -> [("fromId", BS.pack (show (max 0 v)))]
-      (path, label) =
-        case beMarket env of
-          MarketSpot -> ("/api/v3/myTrades", "account/myTrades")
-          MarketMargin -> ("/sapi/v1/margin/myTrades", "margin/myTrades")
-          MarketFutures -> ("/fapi/v1/userTrades", "futures/userTrades")
-      send ts = do
-        let baseParams =
-              [ ("timestamp", BS.pack (show ts))
-              , ("recvWindow", binanceRecvWindowMs)
-              ]
-            params = symbolParam ++ limitParam ++ startTimeParam ++ endTimeParam ++ fromIdParam ++ baseParams
-            queryToSign = renderSimpleQuery False params
-            sig = signQuery secret queryToSign
-            paramsSigned = params ++ [("signature", sig)]
-            qs = renderSimpleQuery True paramsSigned
-        req0 <- parseRequest (beBaseUrl env ++ path)
-        let req =
-              req0
-                { method = "GET"
-                , queryString = qs
-                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                }
-        binanceHttp env label req
+    let clampLimit n = max 1 (min 1000 n)
+        limitParam =
+            case mLimit of
+                Nothing -> []
+                Just lim -> [("limit", BS.pack (show (clampLimit lim)))]
+        startTimeParam =
+            case mStartTime of
+                Nothing -> []
+                Just t -> [("startTime", BS.pack (show (max 0 t)))]
+        endTimeParam =
+            case mEndTime of
+                Nothing -> []
+                Just t -> [("endTime", BS.pack (show (max 0 t)))]
+        fromIdParam =
+            case mFromId of
+                Nothing -> []
+                Just v -> [("fromId", BS.pack (show (max 0 v)))]
+        (path, label) =
+            case beMarket env of
+                MarketSpot -> ("/api/v3/myTrades", "account/myTrades")
+                MarketMargin -> ("/sapi/v1/margin/myTrades", "margin/myTrades")
+                MarketFutures -> ("/fapi/v1/userTrades", "futures/userTrades")
+        send ts = do
+            let baseParams =
+                    [ ("timestamp", BS.pack (show ts))
+                    , ("recvWindow", binanceRecvWindowMs)
+                    ]
+                params = symbolParam ++ limitParam ++ startTimeParam ++ endTimeParam ++ fromIdParam ++ baseParams
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
+            req0 <- parseRequest (beBaseUrl env ++ path)
+            let req =
+                    req0
+                        { method = "GET"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env label req
 
-  resp <- withBinanceTimestampRetry env send
-  ensure2xx label resp
-  case eitherDecode (responseBody resp) of
-    Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
-    Right trades -> pure trades
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx label resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
+        Right trades -> pure trades
 
-data FuturesOpenOrder = FuturesOpenOrder
+newtype FuturesOpenOrder = FuturesOpenOrder
     { fooClientOrderId :: String
     }
     deriving (Eq, Show)
@@ -1440,16 +1427,12 @@ fetchOpenOrders env symbol =
 
 fetchFuturesOpenOrders :: BinanceEnv -> String -> IO [FuturesOpenOrder]
 fetchFuturesOpenOrders env symbol = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesOpenOrders requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesOpenOrders requires MarketFutures")
     fetchOpenOrdersWith env "futures/openOrders" "/fapi/v1/openOrders" symbol
 
 cancelFuturesOrderByClientId :: BinanceEnv -> String -> String -> IO BL.ByteString
 cancelFuturesOrderByClientId env symbol clientOrderId = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "cancelFuturesOrderByClientId requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "cancelFuturesOrderByClientId requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     ts <- getBinanceTimestampMs env
@@ -1496,59 +1479,59 @@ cancelFuturesOpenOrdersByClientPrefix env symbol prefix0 = do
 
 fetchFreeBalance :: BinanceEnv -> String -> IO Double
 fetchFreeBalance env asset = do
-  case beMarket env of
-    MarketFutures -> throwIO (userError "fetchFreeBalance is not supported for futures; use fetchFuturesPositionAmt")
-    _ -> pure ()
-  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
-  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  let path =
-        case beMarket env of
-          MarketSpot -> "/api/v3/account"
-          MarketMargin -> "/sapi/v1/margin/account"
-          MarketFutures -> "/api/v3/account"
-      label =
-        if beMarket env == MarketMargin then "margin/account" else "account"
-      send ts = do
-        let params =
-              [ ("timestamp", BS.pack (show ts))
-              , ("recvWindow", binanceRecvWindowMs)
-              ]
-            queryToSign = renderSimpleQuery False params
-            sig = signQuery secret queryToSign
-            paramsSigned = params ++ [("signature", sig)]
-            qs = renderSimpleQuery True paramsSigned
-        req0 <- parseRequest (beBaseUrl env ++ path)
-        let req =
-              req0
-                { method = "GET"
-                , queryString = qs
-                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                }
-        binanceHttp env label req
-  resp <- withBinanceTimestampRetry env send
-  ensure2xx label resp
-  case beMarket env of
-    MarketSpot ->
-      case eitherDecode (responseBody resp) of
-        Left e -> throwIO (userError ("Failed to decode account: " ++ e))
-        Right (Account balances) ->
-          let sym = map toUpperAscii asset
-              match b = map toUpperAscii (baAsset b) == sym
-           in case filter match balances of
-                (b:_) -> pure (baFree b)
-                [] -> pure 0
-    MarketMargin ->
-      case eitherDecode (responseBody resp) of
-        Left e -> throwIO (userError ("Failed to decode margin account: " ++ e))
-        Right (MarginAccount balances) ->
-          let sym = map toUpperAscii asset
-              match b = map toUpperAscii (mbaAsset b) == sym
-           in case filter match balances of
-                (b:_) -> pure (mbaNetAsset b)
-                [] -> pure 0
-    MarketFutures -> pure 0
+    case beMarket env of
+        MarketFutures -> throwIO (userError "fetchFreeBalance is not supported for futures; use fetchFuturesPositionAmt")
+        _ -> pure ()
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    let path =
+            case beMarket env of
+                MarketSpot -> "/api/v3/account"
+                MarketMargin -> "/sapi/v1/margin/account"
+                MarketFutures -> "/api/v3/account"
+        label =
+            if beMarket env == MarketMargin then "margin/account" else "account"
+        send ts = do
+            let params =
+                    [ ("timestamp", BS.pack (show ts))
+                    , ("recvWindow", binanceRecvWindowMs)
+                    ]
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
+            req0 <- parseRequest (beBaseUrl env ++ path)
+            let req =
+                    req0
+                        { method = "GET"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env label req
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx label resp
+    case beMarket env of
+        MarketSpot ->
+            case eitherDecode (responseBody resp) of
+                Left e -> throwIO (userError ("Failed to decode account: " ++ e))
+                Right (Account balances) ->
+                    let sym = map toUpperAscii asset
+                        match b = map toUpperAscii (baAsset b) == sym
+                     in case filter match balances of
+                            (b : _) -> pure (baFree b)
+                            [] -> pure 0
+        MarketMargin ->
+            case eitherDecode (responseBody resp) of
+                Left e -> throwIO (userError ("Failed to decode margin account: " ++ e))
+                Right (MarginAccount balances) ->
+                    let sym = map toUpperAscii asset
+                        match b = map toUpperAscii (mbaAsset b) == sym
+                     in case filter match balances of
+                            (b : _) -> pure (mbaNetAsset b)
+                            [] -> pure 0
+        MarketFutures -> pure 0
 
-data Account = Account [Balance]
+newtype Account = Account [Balance]
 
 data Balance = Balance
     { baAsset :: String
@@ -1567,7 +1550,7 @@ instance FromJSON Balance where
         free <- parseDoubleText freeTxt
         pure Balance{baAsset = asset, baFree = free}
 
-data MarginAccount = MarginAccount [MarginBalance]
+newtype MarginAccount = MarginAccount [MarginBalance]
 
 data MarginBalance = MarginBalance
     { mbaAsset :: String
@@ -1588,39 +1571,37 @@ instance FromJSON MarginBalance where
 
 fetchFuturesAvailableBalance :: BinanceEnv -> String -> IO Double
 fetchFuturesAvailableBalance env asset = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "fetchFuturesAvailableBalance requires MarketFutures")
-    else pure ()
-  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
-  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  let send ts = do
-        let params =
-              [ ("timestamp", BS.pack (show ts))
-              , ("recvWindow", binanceRecvWindowMs)
-              ]
-            queryToSign = renderSimpleQuery False params
-            sig = signQuery secret queryToSign
-            paramsSigned = params ++ [("signature", sig)]
-            qs = renderSimpleQuery True paramsSigned
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesAvailableBalance requires MarketFutures")
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    let send ts = do
+            let params =
+                    [ ("timestamp", BS.pack (show ts))
+                    , ("recvWindow", binanceRecvWindowMs)
+                    ]
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
 
-        req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/balance")
-        let req =
-              req0
-                { method = "GET"
-                , queryString = qs
-                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                }
-        binanceHttp env "futures/balance" req
-  resp <- withBinanceTimestampRetry env send
-  ensure2xx "futures/balance" resp
-  case eitherDecode (responseBody resp) of
-    Left e -> throwIO (userError ("Failed to decode futures balance: " ++ e))
-    Right bals ->
-      let sym = map toUpperAscii asset
-          match b = map toUpperAscii (fbAsset b) == sym
-       in case filter match bals of
-            (b:_) -> pure (fbAvailableBalance b)
-            [] -> pure 0
+            req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/balance")
+            let req =
+                    req0
+                        { method = "GET"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env "futures/balance" req
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx "futures/balance" resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode futures balance: " ++ e))
+        Right bals ->
+            let sym = map toUpperAscii asset
+                match b = map toUpperAscii (fbAsset b) == sym
+             in case filter match bals of
+                    (b : _) -> pure (fbAvailableBalance b)
+                    [] -> pure 0
 
 data FuturesBalance = FuturesBalance
     { fbAsset :: String
@@ -1634,8 +1615,8 @@ instance FromJSON FuturesBalance where
         avail <- parseDoubleText availTxt
         pure FuturesBalance{fbAsset = sym, fbAvailableBalance = avail}
 
-data FuturesAccountInfo = FuturesAccountInfo
-    { faiUid :: !(Maybe Int64)
+newtype FuturesAccountInfo = FuturesAccountInfo
+    { faiUid :: Maybe Int64
     }
 
 instance FromJSON FuturesAccountInfo where
@@ -1645,40 +1626,36 @@ instance FromJSON FuturesAccountInfo where
 
 fetchFuturesAccountUid :: BinanceEnv -> IO (Maybe Int64)
 fetchFuturesAccountUid env = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "fetchFuturesAccountUid requires MarketFutures")
-    else pure ()
-  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
-  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  let send ts = do
-        let params =
-              [ ("timestamp", BS.pack (show ts))
-              , ("recvWindow", "5000")
-              ]
-            queryToSign = renderSimpleQuery False params
-            sig = signQuery secret queryToSign
-            paramsSigned = params ++ [("signature", sig)]
-            qs = renderSimpleQuery True paramsSigned
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesAccountUid requires MarketFutures")
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    let send ts = do
+            let params =
+                    [ ("timestamp", BS.pack (show ts))
+                    , ("recvWindow", "5000")
+                    ]
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
 
-        req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/account")
-        let req =
-              req0
-                { method = "GET"
-                , queryString = qs
-                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                }
-        binanceHttp env "futures/account" req
-  resp <- withBinanceTimestampRetry env send
-  ensure2xx "futures/account" resp
-  case eitherDecode (responseBody resp) of
-    Left e -> throwIO (userError ("Failed to decode futures account: " ++ e))
-    Right info -> pure (faiUid info)
+            req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/account")
+            let req =
+                    req0
+                        { method = "GET"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env "futures/account" req
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx "futures/account" resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode futures account: " ++ e))
+        Right info -> pure (faiUid info)
 
 fetchFuturesPositionAmt :: BinanceEnv -> String -> IO Double
 fetchFuturesPositionAmt env symbol = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesPositionAmt requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesPositionAmt requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     let send ts = do
@@ -1756,9 +1733,7 @@ instance FromJSON FuturesPositionRisk where
 
 fetchFuturesPositionRisks :: BinanceEnv -> IO [FuturesPositionRisk]
 fetchFuturesPositionRisks env = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesPositionRisks requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesPositionRisks requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     let send ts = do
@@ -1808,9 +1783,7 @@ instance FromJSON FuturesAlgoOpenOrder where
 
 fetchFuturesOpenAlgoOrders :: BinanceEnv -> String -> IO [FuturesAlgoOpenOrder]
 fetchFuturesOpenAlgoOrders env symbol = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesOpenAlgoOrders requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesOpenAlgoOrders requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     ts <- getTimestampMs
@@ -1840,9 +1813,7 @@ fetchFuturesOpenAlgoOrders env symbol = do
 
 cancelFuturesAlgoOrderByClientId :: BinanceEnv -> String -> IO BL.ByteString
 cancelFuturesAlgoOrderByClientId env clientAlgoId = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "cancelFuturesAlgoOrderByClientId requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "cancelFuturesAlgoOrderByClientId requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     ts <- getTimestampMs
@@ -1884,7 +1855,7 @@ trimTrailingZeros s =
 
 toUpperAscii :: Char -> Char
 toUpperAscii c =
-    if 'a' <= c && c <= 'z'
+    if isAsciiLower c
         then toEnum (fromEnum c - 32)
         else c
 
@@ -1939,7 +1910,7 @@ instance FromJSON BinanceErrorBody where
         msg <- o Aeson..:? "msg"
         pure BinanceErrorBody{bebCode = code, bebMsg = msg}
 
-data ListenKeyResponse = ListenKeyResponse {lkrListenKey :: String}
+newtype ListenKeyResponse = ListenKeyResponse {lkrListenKey :: String}
 
 instance FromJSON ListenKeyResponse where
     parseJSON = withObject "ListenKeyResponse" $ \o -> do

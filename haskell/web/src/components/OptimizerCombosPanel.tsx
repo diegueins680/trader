@@ -181,9 +181,16 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
   return (
   <div className="row" style={{ gridTemplateColumns: "1fr" }}>
     <div className="field">
-      <div className="label">Optimizer combos</div>
-      <div className="hint" style={{ marginTop: 4 }}>
-        Auto-apply is off by default to prevent the top combo from resetting your symbol.
+      <div className="labelRow">
+        <div className="label">Optimizer combos</div>
+        <InfoPopover label="Optimizer combo tips">
+          <InfoList
+            items={[
+              "Auto-apply is off by default to prevent the top combo from resetting your symbol.",
+              "When enabled, the top combo overwrites the form (including symbol) on refresh until you edit combo-driven fields.",
+            ]}
+          />
+        </InfoPopover>
       </div>
       {(() => {
         const updatedAtMs = topCombosMeta.generatedAtMs;
@@ -262,9 +269,6 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           />
           Auto-apply top combo
         </label>
-        <span className="hint" style={{ marginLeft: 4 }}>
-          When enabled, the top combo overwrites the form (including symbol) on refresh until you edit combo-driven fields.
-        </span>
         {manualOverrideLabels.length > 0 ? (
           <>
             <span
@@ -1747,7 +1751,7 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               </div>
             </div>
           </div>
-          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightBlend">
                 Blend method weight
@@ -1763,6 +1767,384 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 placeholder="0.0"
               />
             </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightConfBlend">
+                Conf blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightConfBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightConfBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightConfBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightEdgeBlend">
+                Edge blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightEdgeBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightEdgeBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightEdgeBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightConfPick">
+                Conf pick method weight
+              </label>
+              <input
+                id="optimizerMethodWeightConfPick"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightConfPick}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightConfPick: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightCostPick">
+                Cost pick method weight
+              </label>
+              <input
+                id="optimizerMethodWeightCostPick"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightCostPick}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightCostPick: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightEdgePick">
+                Edge pick method weight
+              </label>
+              <input
+                id="optimizerMethodWeightEdgePick"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightEdgePick}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightEdgePick: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightHarmonicBlend">
+                Harmonic blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightHarmonicBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightHarmonicBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightHarmonicBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightDisagreementGuard">
+                Disagreement guard method weight
+              </label>
+              <input
+                id="optimizerMethodWeightDisagreementGuard"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightDisagreementGuard}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightDisagreementGuard: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightMedianBlend">
+                Median blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightMedianBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightMedianBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightMedianBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightNeutralGuard">
+                Neutral guard method weight
+              </label>
+              <input
+                id="optimizerMethodWeightNeutralGuard"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightNeutralGuard}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightNeutralGuard: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightRiskParityBlend">
+                Risk parity blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightRiskParityBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightRiskParityBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightRiskParityBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightConsensusBoost">
+                Consensus boost method weight
+              </label>
+              <input
+                id="optimizerMethodWeightConsensusBoost"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightConsensusBoost}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightConsensusBoost: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightAnchorBlend">
+                Anchor blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightAnchorBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightAnchorBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightAnchorBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightTensionGate">
+                Tension gate method weight
+              </label>
+              <input
+                id="optimizerMethodWeightTensionGate"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightTensionGate}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightTensionGate: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightEntropyBlend">
+                Entropy blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightEntropyBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightEntropyBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightEntropyBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightCoherenceGate">
+                Coherence gate method weight
+              </label>
+              <input
+                id="optimizerMethodWeightCoherenceGate"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightCoherenceGate}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightCoherenceGate: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightFractalBlend">
+                Fractal blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightFractalBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightFractalBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightFractalBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightPhaseCancel">
+                Phase cancel method weight
+              </label>
+              <input
+                id="optimizerMethodWeightPhaseCancel"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightPhaseCancel}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightPhaseCancel: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightDivergenceGate">
+                Divergence gate method weight
+              </label>
+              <input
+                id="optimizerMethodWeightDivergenceGate"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightDivergenceGate}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightDivergenceGate: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightSoftmaxBlend">
+                Softmax blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightSoftmaxBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightSoftmaxBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightSoftmaxBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightSmoothSoftmaxBlend">
+                Smooth softmax blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightSmoothSoftmaxBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightSmoothSoftmaxBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightSmoothSoftmaxBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightNetSoftmaxBlend">
+                Net softmax blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightNetSoftmaxBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightNetSoftmaxBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightNetSoftmaxBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightRegimeSwitch">
+                Regime switch method weight
+              </label>
+              <input
+                id="optimizerMethodWeightRegimeSwitch"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightRegimeSwitch}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightRegimeSwitch: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightBanditRouter">
+                Bandit router method weight
+              </label>
+              <input
+                id="optimizerMethodWeightBanditRouter"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightBanditRouter}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightBanditRouter: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
+                Geo blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightGeoBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightGeoBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightGeoBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerBlendWeightMin">
                 Blend weight range

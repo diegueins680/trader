@@ -11,6 +11,7 @@ module Trader.LSTM (
     predictSeriesNext,
 ) where
 
+import qualified Data.Bifunctor
 import Data.List (foldl')
 import qualified Data.Vector as V
 import Numeric.AD (grad)
@@ -48,16 +49,16 @@ paramCount h =
 
 buildSequences :: Int -> [Double] -> [([Double], Double)]
 buildSequences lookback xs
-    | lookback <= 0 = error "lookback must be positive"
-    | length xs <= lookback = error "not enough data for lookback"
+    | lookback <= 0 = []
+    | length xs <= lookback = []
     | otherwise =
         let xsV = V.fromList xs
-         in map (\(w, y) -> (V.toList w, y)) (buildSequencesV lookback xsV)
+         in map (Data.Bifunctor.first V.toList) (buildSequencesV lookback xsV)
 
 buildSequencesV :: Int -> V.Vector Double -> [(V.Vector Double, Double)]
 buildSequencesV lookback xsV
-    | lookback <= 0 = error "lookback must be positive"
-    | V.length xsV <= lookback = error "not enough data for lookback"
+    | lookback <= 0 = []
+    | V.length xsV <= lookback = []
     | otherwise =
         let count = V.length xsV - lookback
          in [ (V.slice i lookback xsV, xsV V.! (i + lookback))
@@ -66,7 +67,7 @@ buildSequencesV lookback xsV
 
 evaluateLoss :: Int -> Int -> [([Double], Double)] -> [Double] -> Double
 evaluateLoss lookback hidden dataset flat =
-    let datasetV = map (\(w, y) -> (V.fromList w, y)) dataset
+    let datasetV = map (Data.Bifunctor.first V.fromList) dataset
      in realToFrac (lossFromFlatV lookback hidden datasetV flat)
 
 evaluateLossV :: Int -> Int -> [(V.Vector Double, Double)] -> [Double] -> Double
@@ -76,24 +77,25 @@ evaluateLossV lookback hidden dataset flat =
 trainLSTM :: LSTMConfig -> [Double] -> (LSTMModel, [EpochStats])
 trainLSTM cfg series =
     let lookback = lcLookback cfg
-        hidden = lcHiddenSize cfg
+        hidden = max 0 (lcHiddenSize cfg)
         dataset = buildSequencesV lookback (V.fromList series)
-        (trainSet, valSet) = splitTrainVal (lcValRatio cfg) dataset
-
-        initFlat = initParams (paramCount hidden) (lcSeed cfg)
-
-        (bestFlat, history) = trainLoop cfg lookback hidden trainSet valSet initFlat
-     in (LSTMModel{lmHiddenSize = hidden, lmParams = bestFlat}, history)
+     in if lookback <= 0 || hidden <= 0 || null dataset
+            then (LSTMModel{lmHiddenSize = hidden, lmParams = replicate (paramCount hidden) 0}, [])
+            else
+                let (trainSet, valSet) = splitTrainVal (lcValRatio cfg) dataset
+                    initFlat = initParams (paramCount hidden) (lcSeed cfg)
+                    (bestFlat, history) = trainLoop cfg lookback hidden trainSet valSet initFlat
+                 in (LSTMModel{lmHiddenSize = hidden, lmParams = bestFlat}, history)
 
 fineTuneLSTM :: LSTMConfig -> LSTMModel -> [Double] -> (LSTMModel, [EpochStats])
 fineTuneLSTM cfg model series =
     let lookback = lcLookback cfg
         hidden = lcHiddenSize cfg
-     in if hidden /= lmHiddenSize model
-            then error "fineTuneLSTM: hidden size mismatch"
+        dataset = buildSequencesV lookback (V.fromList series)
+     in if hidden /= lmHiddenSize model || hidden <= 0 || lookback <= 0 || null dataset || lcEpochs cfg <= 0
+            then (model, [])
             else
-                let dataset = buildSequencesV lookback (V.fromList series)
-                    (trainSet, valSet) = splitTrainVal (lcValRatio cfg) dataset
+                let (trainSet, valSet) = splitTrainVal (lcValRatio cfg) dataset
                     initFlat = lmParams model
                     (bestFlat, history) = trainLoop cfg lookback hidden trainSet valSet initFlat
                  in (LSTMModel{lmHiddenSize = hidden, lmParams = bestFlat}, history)
@@ -193,7 +195,7 @@ data LSTMParams a = LSTMParams
     , pBy :: a
     }
 
-unflattenParams :: Int -> [a] -> LSTMParams a
+unflattenParams :: (Num a) => Int -> [a] -> LSTMParams a
 unflattenParams h xs =
     let wSize = h * (h + 1)
         splitN n ys = let (a, b) = splitAt n ys in (a, b)
@@ -211,7 +213,7 @@ unflattenParams h xs =
         by =
             case r9 of
                 (v : _) -> v
-                [] -> error "missing output bias"
+                [] -> 0
      in LSTMParams
             { pWi = chunk (h + 1) wiFlat
             , pBi = bi

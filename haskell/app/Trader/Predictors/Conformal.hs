@@ -15,16 +15,18 @@ data ConformalModel = ConformalModel
     deriving (Eq, Show)
 
 fitConformal :: Double -> [Double] -> ConformalModel
-fitConformal alpha absResiduals
-    | alpha <= 0 || alpha >= 1 = error "alpha must be in (0,1)"
-    | otherwise =
-        let cleaned = filter (\v -> isFinite v && v >= 0) absResiduals
-            count = length cleaned
-         in if null cleaned
-                then ConformalModel{cmAlpha = alpha, cmRadius = 0, cmCount = 0}
-                else
-                    let q = conformalRadius alpha cleaned
-                     in ConformalModel{cmAlpha = alpha, cmRadius = q, cmCount = count}
+fitConformal alpha absResiduals =
+    let alpha' = clampAlpha alpha
+        cleaned = filter (\v -> isFinite v && v >= 0) absResiduals
+        count = length cleaned
+     in if null cleaned
+            then ConformalModel{cmAlpha = alpha', cmRadius = 0, cmCount = 0}
+            else
+                let q = conformalRadius alpha' cleaned
+                 in ConformalModel{cmAlpha = alpha', cmRadius = q, cmCount = count}
+
+clampAlpha :: Double -> Double
+clampAlpha a = min 0.999999 (max 1e-6 a)
 
 predictInterval :: ConformalModel -> Double -> (Double, Double, Maybe Double)
 predictInterval cm mu =
@@ -62,16 +64,17 @@ isFinite x = not (isNaN x || isInfinite x)
 -- Approximation of the standard normal inverse CDF.
 normalInv :: Double -> Double
 normalInv p
-    | p <= 0 = -1 / 0
+    | p <= 0 = -(1 / 0)
     | p >= 1 = 1 / 0
     | p < plow =
-        let q = sqrt (-2 * log p)
+        let q = sqrt (-(2 * log p))
          in (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
                 / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1)
     | p > phigh =
-        let q = sqrt (-2 * log (1 - p))
-         in -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
+        let q = sqrt (-(2 * log (1 - p)))
+         in -( (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
                 / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1)
+             )
     | otherwise =
         let q = p - 0.5
             r = q * q

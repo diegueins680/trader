@@ -10,6 +10,7 @@ module Trader.MarketContext (
 import Control.Concurrent (QSem, forkIO, modifyMVar, newEmptyMVar, newMVar, newQSem, putMVar, signalQSem, takeMVar, threadDelay, waitQSem)
 import Control.Exception (SomeException, finally, try)
 import Control.Monad (forM)
+import Data.Char (isAsciiLower)
 import Data.List (foldl')
 import Data.Maybe (catMaybes)
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -33,7 +34,7 @@ isBad x = isNaN x || isInfinite x
 
 toUpperAscii :: Char -> Char
 toUpperAscii c =
-    if 'a' <= c && c <= 'z'
+    if isAsciiLower c
         then toEnum (fromEnum c - 32)
         else c
 
@@ -164,8 +165,7 @@ buildMarketModel args env targetSymbol fitEnd pricesV = do
                                     rets = returnsFromCloses v
                                 pure (Just (sym, max 0 w, rets))
             fetched <-
-                fmap catMaybes $
-                    mapConcurrentlyBounded maxConcurrent fetchOne (take topN ranked')
+                catMaybes <$> mapConcurrentlyBounded maxConcurrent fetchOne (take topN ranked')
             let usedSyms = [s | (s, _w, _r) <- fetched]
                 wrets = [(w, r) | (_s, w, r) <- fetched]
                 minSymbols = max 1 (min topN 5)

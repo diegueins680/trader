@@ -54,3 +54,11 @@ Short.csv
 .tmp/
 tmp/
 AWS_DEPLOYMENT_SUMMARY.txt
+config.yaml
+directory_tree.txt
+data/BNBUSDT-5m-2020-06.csv
+data/sample_prices0.csv
+haskell/app/Trader/TestMain.hs
+haskell/cabal.project
+haskell/hie.yaml
+haskell/package-lock.json

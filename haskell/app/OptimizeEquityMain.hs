@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Data.Char (isSpace, toLower)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe, isJust)
@@ -80,10 +80,10 @@ optimizerArgsParser =
         <*> option auto (long "min-annualized-return" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "min-calmar" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "max-turnover" <> value 0.0 <> metavar "FLOAT")
-        <*> option auto (long "min-round-trips" <> value 0 <> metavar "INT")
+        <*> option auto (long "min-round-trips" <> value 3 <> metavar "INT")
         <*> option auto (long "min-win-rate" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "min-profit-factor" <> value 0.0 <> metavar "FLOAT")
-        <*> option auto (long "min-exposure" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "min-exposure" <> value 0.02 <> metavar "FLOAT")
         <*> option auto (long "min-sharpe" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "min-wf-sharpe-mean" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "max-wf-sharpe-std" <> value 0.0 <> metavar "FLOAT")
@@ -194,6 +194,8 @@ optimizerArgsParser =
         <*> option auto (long "lstm-confidence-soft-max" <> value 0.6 <> metavar "FLOAT")
         <*> option auto (long "lstm-confidence-hard-min" <> value 0.8 <> metavar "FLOAT")
         <*> option auto (long "lstm-confidence-hard-max" <> value 0.8 <> metavar "FLOAT")
+        <*> option auto (long "protection-min-confidence-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "protection-min-confidence-max" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-dt-min" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "kalman-dt-max" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-process-var-min" <> value 1e-7 <> metavar "FLOAT")
@@ -257,6 +259,9 @@ optimizerArgsParser =
         <*> option auto (long "p-disable-stop-vol-mult" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "p-disable-tp-vol-mult" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "p-disable-trail-vol-mult" <> value 0.6 <> metavar "FLOAT")
+        <*> option auto (long "risk-per-trade-min" <> value 0.005 <> metavar "FLOAT")
+        <*> option auto (long "risk-per-trade-max" <> value 0.02 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-risk-per-trade" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "p-disable-max-dd" <> value 0.9 <> metavar "FLOAT")
         <*> option auto (long "p-disable-max-dl" <> value 0.9 <> metavar "FLOAT")
         <*> option auto (long "p-disable-max-oe" <> value 0.95 <> metavar "FLOAT")
@@ -266,10 +271,34 @@ optimizerArgsParser =
         <*> option auto (long "max-dl-max" <> value 0.30 <> metavar "FLOAT")
         <*> option auto (long "max-oe-min" <> value 1 <> metavar "INT")
         <*> option auto (long "max-oe-max" <> value 10 <> metavar "INT")
-        <*> option auto (long "method-weight-11" <> value 1.0 <> metavar "FLOAT")
-        <*> option auto (long "method-weight-10" <> value 2.0 <> metavar "FLOAT")
-        <*> option auto (long "method-weight-01" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-11" <> value 0.25 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-10" <> value 4.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-01" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "method-weight-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-conf-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-conf-pick" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-cost-pick" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-harmonic-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-disagreement-guard" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-median-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-neutral-guard" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-risk-parity-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-consensus-boost" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-anchor-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-tension-gate" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-entropy-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-coherence-gate" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-divergence-gate" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-fractal-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-phase-cancel" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-softmax-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-smooth-softmax-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-net-softmax-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-edge-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-edge-pick" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-geo-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-regime-switch" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-bandit-router" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "blend-weight-min" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "blend-weight-max" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "router-score-pnl-weight-min" <> value 0.5 <> metavar "FLOAT")
@@ -312,9 +341,9 @@ validateArgs args = do
         Left "Provide only one of --platform or --platforms."
     when (oaBinanceFutures args' && maybe False (\p -> map toLower (trim p) /= "binance") platformVal) $
         Left "--futures requires --platform binance (or omit --platform to use the default)."
-    when (oaObjective args `notElem` objectiveChoices) $
+    unless (oaObjective args `elem` objectiveChoices) $
         Left ("Invalid objective: " ++ show (oaObjective args) ++ " (expected one of: " ++ intercalate ", " objectiveChoices ++ ")")
-    when (oaTuneObjective args `notElem` objectiveChoices) $
+    unless (oaTuneObjective args `elem` objectiveChoices) $
         Left ("Invalid tune objective: " ++ show (oaTuneObjective args) ++ " (expected one of: " ++ intercalate ", " objectiveChoices ++ ")")
     when (maybe False (< 0) (oaSeedTrials args)) $
         Left "--seed-trials must be >= 0."
@@ -328,7 +357,7 @@ validateArgs args = do
         Left "--perturb-scale-int must be >= 0."
     when (oaEarlyStopNoImprove args < 0) $
         Left "--early-stop-no-improve must be >= 0."
-    when (oaBarsDistribution args `notElem` barsDistributionChoices) $
+    unless (oaBarsDistribution args `elem` barsDistributionChoices) $
         Left
             ( "Invalid bars distribution: "
                 ++ show (oaBarsDistribution args)

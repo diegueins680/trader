@@ -5,6 +5,7 @@ module Trader.Predictors.Transformer (
 ) where
 
 import Data.List (foldl')
+import qualified Data.Maybe
 
 data TransformerModel = TransformerModel
     { trKeys :: [[Double]]
@@ -19,14 +20,14 @@ featureDimFromDataset dataset =
     case map (length . fst) dataset of
         [] -> Nothing
         d : ds
-            | d <= 0 -> error "transformer dataset has empty feature vectors"
-            | any (/= d) ds -> error "transformer dataset has inconsistent feature dimensions"
+            | d <= 0 -> Nothing
+            | any (/= d) ds -> Nothing
             | otherwise -> Just d
 
 trainTransformer :: Double -> Int -> [([Double], Double)] -> TransformerModel
 trainTransformer temperature maxExamples dataset =
     let ds = take (max 1 maxExamples) dataset
-        featureDim = maybe 0 id (featureDimFromDataset ds)
+        featureDim = Data.Maybe.fromMaybe 0 (featureDimFromDataset ds)
      in TransformerModel
             { trKeys = map fst ds
             , trTargets = map snd ds

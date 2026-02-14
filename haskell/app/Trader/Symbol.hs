@@ -7,8 +7,8 @@ module Trader.Symbol (
 ) where
 
 import Control.Applicative ((<|>))
-import Data.Char (isDigit, isSpace, toLower)
-import Data.List (dropWhileEnd, foldl', isPrefixOf, isSuffixOf, maximumBy)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
+import Data.List (dropWhileEnd, find, foldl', isPrefixOf, isSuffixOf, maximumBy)
 import Data.Maybe (listToMaybe)
 import Data.Ord (comparing)
 
@@ -31,11 +31,11 @@ splitSymbol symbol =
             (q : _) -> (take (length sym - length q) sym, q)
             [] ->
                 let n = length sym
-                 in (take (max 0 (n - 3)) sym, drop (max 0 (n - 3)) sym)
+                 in splitAt (max 0 (n - 3)) sym
 
 toUpperAscii :: Char -> Char
 toUpperAscii c =
-    if 'a' <= c && c <= 'z'
+    if isAsciiLower c
         then toEnum (fromEnum c - 32)
         else c
 
@@ -50,28 +50,46 @@ normalizePlatform raw =
             let s = map toLower (trim v)
              in if null s then Nothing else Just s
 
+isDexPlatformKey :: String -> Bool
+isDexPlatformKey key =
+    key == "uniswap"
+        || key == "curve"
+        || key == "sushiswap"
+        || key == "balancer"
+        || key == "pancakeswap"
+        || key == "1inch"
+        || key == "oneinch"
+
+normalizeSymbolForPlatform :: Maybe String -> String -> String
+normalizeSymbolForPlatform platform raw =
+    case normalizePlatform platform of
+        Just key | isDexPlatformKey key -> trim raw
+        _ -> normalizeSymbolText raw
+
 normalizeSymbolText :: String -> String
 normalizeSymbolText = map toUpperAscii . trim
 
 isAsciiAlphaNum :: Char -> Bool
 isAsciiAlphaNum c =
-    ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+    isAsciiUpper c || isDigit c
 
 isValidSymbolForPlatform :: Maybe String -> String -> Bool
 isValidSymbolForPlatform platform raw =
     case normalizePlatform platform of
+        Just key | isDexPlatformKey key -> not (null s)
         Just "coinbase" -> isValidDelimitedSymbol '-' s
         Just "poloniex" -> isValidDelimitedSymbol '_' s
         _ -> isValidBinanceSymbol s
   where
-    s = normalizeSymbolText raw
+    s = normalizeSymbolForPlatform platform raw
 
 sanitizeSymbolForPlatform :: Maybe String -> String -> Maybe String
 sanitizeSymbolForPlatform platform raw =
-    let s = normalizeSymbolText raw
+    let s = normalizeSymbolForPlatform platform raw
      in if null s
             then Nothing
             else case normalizePlatform platform of
+                Just key | isDexPlatformKey key -> Just s
                 Just "coinbase" -> sanitizeDelimitedSymbol '-' '_' s
                 Just "poloniex" -> sanitizeDelimitedSymbol '_' '-' s
                 _ ->
@@ -113,14 +131,12 @@ salvageBinanceSymbol :: String -> Maybe String
 salvageBinanceSymbol raw =
     let tokens = splitAlphaNumTokens raw
         quoteCandidates = filter endsWithQuote tokens
-        pickFromQuotes = listToMaybe (filter isValidBinanceSymbol quoteCandidates)
+        pickFromQuotes = find isValidBinanceSymbol quoteCandidates
         pickLongest =
             case filter isValidBinanceSymbol tokens of
                 [] -> Nothing
                 xs -> Just (maximumBy (comparing length) xs)
-     in case pickFromQuotes of
-            Just sym -> Just sym
-            Nothing -> pickLongest
+     in pickFromQuotes <|> pickLongest
 
 splitAlphaNumTokens :: String -> [String]
 splitAlphaNumTokens =
@@ -141,7 +157,6 @@ sanitizeBinanceComboSymbol raw =
         isValid sym =
             let n = length sym
              in n >= 3 && n <= 30 && sym `notElem` commonQuotes && all isAsciiAlphaNum sym
-        isSuffixToken token = any isDigit token
         pickTokenCandidate =
             case tokens of
                 [] -> Nothing
@@ -158,6 +173,7 @@ sanitizeBinanceComboSymbol raw =
                                             then Just a
                                             else Nothing
         pickQuoteSuffix = trimBinanceComboSuffix s
+        isSuffixToken = any isDigit
      in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
 
 trimBinanceComboSuffix :: String -> Maybe String
@@ -184,7 +200,7 @@ trimQuoteCandidates compact quote =
         , any isDigit suffix
         , let candidate = take end compact
         , isValidBinanceSymbol candidate
-        , notElem candidate commonQuotes
+        , candidate `notElem` commonQuotes
         ]
 
 findSubstrPositions :: String -> String -> [Int]

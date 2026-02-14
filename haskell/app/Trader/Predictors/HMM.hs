@@ -23,17 +23,17 @@ data HMM3 = HMM3
     }
     deriving (Eq, Show)
 
-data HMMFilter = HMMFilter
+newtype HMMFilter = HMMFilter
     { hfPosterior :: [Double] -- posterior over last observed state
     }
     deriving (Eq, Show)
 
 fitHMM3 :: Int -> [Double] -> HMM3
 fitHMM3 iters obs
-    | iters < 0 = error "iters must be >= 0"
     | null obs = defaultHMM
     | otherwise =
-        let mu0 = mean obs
+        let iters' = max 0 iters
+            mu0 = mean obs
             s0 = std obs
             pi0 = replicate 3 (1 / 3)
             a0 =
@@ -44,8 +44,8 @@ fitHMM3 iters obs
             mus0 = [mu0 - s0, mu0, mu0 + s0]
             vars0 = [s0 * s0, s0 * s0, max 1e-8 (4 * s0 * s0)]
             base0 = HMM3{hmmPi = pi0, hmmA = a0, hmmMu = mus0, hmmVar = vars0, hmmTrendIx = 0, hmmMrIx = 1, hmmHighVolIx = 2}
-            fitted = applyN iters (emStep obs) base0
-         in remapRegimes fitted
+            fitted = applyN iters' (emStep obs) base0
+         in normalizeHMM3 fitted
 
 defaultHMM :: HMM3
 defaultHMM =
@@ -54,6 +54,20 @@ defaultHMM =
         mus0 = [0, 0, 0]
         vars0 = [1e-4, 1e-4, 1e-3]
      in HMM3{hmmPi = pi0, hmmA = a0, hmmMu = mus0, hmmVar = vars0, hmmTrendIx = 0, hmmMrIx = 1, hmmHighVolIx = 2}
+
+normalizeHMM3 :: HMM3 -> HMM3
+normalizeHMM3 hmm =
+    let pad3 def xs = take 3 (xs ++ repeat def)
+        pi0 = normalize (pad3 (1 / 3) (hmmPi hmm))
+        mu0 = pad3 0 (hmmMu hmm)
+        var0 = map (max 1e-8) (pad3 1e-4 (hmmVar hmm))
+        rowDef = [0.90, 0.05, 0.05]
+        rows =
+            take
+                3
+                (map (normalize . pad3 (1 / 3)) (hmmA hmm) ++ repeat rowDef)
+        hmm' = hmm{hmmPi = pi0, hmmA = rows, hmmMu = mu0, hmmVar = var0}
+     in remapRegimes hmm'
 
 remapRegimes :: HMM3 -> HMM3
 remapRegimes hmm =
@@ -65,38 +79,44 @@ remapRegimes hmm =
             case remaining of
                 [i, j] -> if abs (mus !! i) >= abs (mus !! j) then i else j
                 _ -> 0
-        mr = head (filter (\k -> k /= highVol && k /= trend) [0, 1, 2])
+        mr =
+            case filter (\k -> k /= highVol && k /= trend) [0, 1, 2] of
+                (k : _) -> k
+                [] -> highVol
      in hmm{hmmTrendIx = trend, hmmMrIx = mr, hmmHighVolIx = highVol}
 
 -- | Posterior after filtering through a sequence of observations.
 filterPosterior :: HMM3 -> [Double] -> HMMFilter
 filterPosterior hmm obs =
-    case obs of
-        [] -> HMMFilter{hfPosterior = hmmPi hmm}
-        (o0 : os) ->
-            let alpha0Un = zipWith (*) (hmmPi hmm) (emissions hmm o0)
-                c0 = sum alpha0Un
-                alpha0 = if c0 == 0 then hmmPi hmm else map (/ c0) alpha0Un
-                go alphaPrev [] = alphaPrev
-                go alphaPrev (o : rest) =
-                    let alphaPred = vecMat alphaPrev (hmmA hmm)
-                        alphaUn = zipWith (*) alphaPred (emissions hmm o)
-                        ct = sum alphaUn
-                        alpha = if ct == 0 then alphaPred else map (/ ct) alphaUn
-                     in go alpha rest
-             in HMMFilter{hfPosterior = go alpha0 os}
+    let hmm' = normalizeHMM3 hmm
+     in case obs of
+            [] -> HMMFilter{hfPosterior = hmmPi hmm'}
+            (o0 : os) ->
+                let alpha0Un = zipWith (*) (hmmPi hmm') (emissions hmm' o0)
+                    c0 = sum alpha0Un
+                    alpha0 = if c0 == 0 then hmmPi hmm' else map (/ c0) alpha0Un
+                    go alphaPrev [] = alphaPrev
+                    go alphaPrev (o : rest) =
+                        let alphaPred = vecMat alphaPrev (hmmA hmm')
+                            alphaUn = zipWith (*) alphaPred (emissions hmm' o)
+                            ct = sum alphaUn
+                            alpha = if ct == 0 then alphaPred else map (/ ct) alphaUn
+                         in go alpha rest
+                 in HMMFilter{hfPosterior = go alpha0 os}
 
 {- | Predict regime probabilities and return distribution for the next step given
 posterior over the last observed state.
 -}
 predictNextFromPosterior :: HMM3 -> HMMFilter -> (RegimeProbs, Double, Double, [Double])
 predictNextFromPosterior hmm filt =
-    let predState = vecMat (hfPosterior filt) (hmmA hmm)
-        pTrend = predState !! hmmTrendIx hmm
-        pMr = predState !! hmmMrIx hmm
-        pHv = predState !! hmmHighVolIx hmm
-        mu = sum (zipWith (*) predState (hmmMu hmm))
-        var = sum (zipWith3 (\w m v -> w * (v + m * m)) predState (hmmMu hmm) (hmmVar hmm)) - mu * mu
+    let hmm' = normalizeHMM3 hmm
+        post = normalizePosterior (hfPosterior filt)
+        predState = vecMat post (hmmA hmm')
+        pTrend = predState !! hmmTrendIx hmm'
+        pMr = predState !! hmmMrIx hmm'
+        pHv = predState !! hmmHighVolIx hmm'
+        mu = sum (zipWith (*) predState (hmmMu hmm'))
+        var = sum (zipWith3 (\w m v -> w * (v + m * m)) predState (hmmMu hmm') (hmmVar hmm')) - mu * mu
         sigma = sqrt (max 1e-12 var)
      in (RegimeProbs pTrend pMr pHv, mu, sigma, predState)
 
@@ -105,10 +125,12 @@ an observed return.
 -}
 updatePosterior :: HMM3 -> [Double] -> Double -> HMMFilter
 updatePosterior hmm predState obs =
-    let like = emissions hmm obs
-        un = zipWith (*) predState like
+    let hmm' = normalizeHMM3 hmm
+        predState' = normalizePosterior predState
+        like = emissions hmm' obs
+        un = zipWith (*) predState' like
         z = sum un
-        post = if z == 0 then predState else map (/ z) un
+        post = if z == 0 then predState' else map (/ z) un
      in HMMFilter{hfPosterior = post}
 
 -- EM training (Baum-Welch) with scaling
@@ -222,7 +244,7 @@ normalPdf x mu var =
     let v = max 1e-12 var
         c = 1 / sqrt (2 * pi * v)
         z = (x - mu)
-     in c * exp (-(z * z) / (2 * v))
+     in c * exp (-((z * z) / (2 * v)))
 
 vecMat :: [Double] -> [[Double]] -> [Double]
 vecMat v m =
@@ -235,6 +257,11 @@ normalize :: [Double] -> [Double]
 normalize xs =
     let s = sum xs
      in if s == 0 then replicate (length xs) (1 / fromIntegral (length xs)) else map (/ s) xs
+
+normalizePosterior :: [Double] -> [Double]
+normalizePosterior xs =
+    let xs' = take 3 (xs ++ repeat 0)
+     in normalize xs'
 
 mean :: [Double] -> Double
 mean xs = sum xs / fromIntegral (length xs)
@@ -257,7 +284,7 @@ argmax xs =
                     (zip [0 ..] xs)
 
 applyN :: Int -> (a -> a) -> a -> a
-applyN n f x0 = go n x0
+applyN n f = go n
   where
     go k x
         | k <= 0 = x

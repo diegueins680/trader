@@ -37,6 +37,10 @@ TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
 TRADER_API_MAX_EPOCHS="${TRADER_API_MAX_EPOCHS:-}"
 TRADER_API_MAX_HIDDEN_SIZE="${TRADER_API_MAX_HIDDEN_SIZE:-50}"
 TRADER_DB_URL="${TRADER_DB_URL:-${DATABASE_URL:-}}"
+TRADER_MULTI_USER="${TRADER_MULTI_USER:-true}"
+TRADER_OPS_ROLLUP_ON_DEPLOY="${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}"
+TRADER_OPS_ROLLUP_STRICT="${TRADER_OPS_ROLLUP_STRICT:-false}"
+TRADER_STATE_SYNC_TENANT_KEY="${TRADER_STATE_SYNC_TENANT_KEY:-}"
 TRADER_STATE_S3_BUCKET_SET="${TRADER_STATE_S3_BUCKET+true}"
 TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
@@ -45,6 +49,9 @@ TRADER_BINANCE_PROXY_URL="${TRADER_BINANCE_PROXY_URL:-}"
 TRADER_BINANCE_PROXY_CLEAR="${TRADER_BINANCE_PROXY_CLEAR:-false}"
 TRADER_BINANCE_PROXY_HEALTHCHECK="${TRADER_BINANCE_PROXY_HEALTHCHECK:-true}"
 TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT="${TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT:-false}"
+APP_RUNNER_EGRESS_EIP="${TRADER_APP_RUNNER_EGRESS_EIP:-false}"
+APP_RUNNER_EGRESS_PREFIX="${TRADER_APP_RUNNER_EGRESS_PREFIX:-}"
+APP_RUNNER_EGRESS_TEARDOWN="${TRADER_APP_RUNNER_EGRESS_TEARDOWN:-false}"
 TRADER_BOT_SYMBOLS="${TRADER_BOT_SYMBOLS:-}"
 TRADER_BOT_SYMBOL="${TRADER_BOT_SYMBOL:-}"
 TRADER_BOT_TRADE="${TRADER_BOT_TRADE:-true}"
@@ -63,6 +70,9 @@ TRADER_OPTIMIZER_SYMBOLS="${TRADER_OPTIMIZER_SYMBOLS:-}"
 TRADER_OPTIMIZER_INTERVALS="${TRADER_OPTIMIZER_INTERVALS:-}"
 BINANCE_API_KEY="${BINANCE_API_KEY:-}"
 BINANCE_API_SECRET="${BINANCE_API_SECRET:-}"
+COINBASE_API_KEY="${COINBASE_API_KEY:-}"
+COINBASE_API_SECRET="${COINBASE_API_SECRET:-}"
+COINBASE_API_PASSPHRASE="${COINBASE_API_PASSPHRASE:-}"
 UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
 UI_DISTRIBUTION_ID="${TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID:-${CLOUDFRONT_DISTRIBUTION_ID:-}}"
 UI_CLOUDFRONT_DOMAIN="${TRADER_UI_CLOUDFRONT_DOMAIN:-}"
@@ -120,6 +130,7 @@ Flags:
   --region <region>                 AWS region (e.g. ap-northeast-1)
   --api-token <token>               API token (TRADER_API_TOKEN)
   --db-url <url>                    Database URL for ops persistence (TRADER_DB_URL / DATABASE_URL)
+  --skip-ops-rollup                Skip ops schema/rollup updates on deploy when TRADER_DB_URL is set
   --state-dir <path>                State dir (default: /var/lib/trader/state; mount durable storage)
   --state-s3-bucket <bucket>        S3 bucket for App Runner state (required unless TRADER_DB_URL is set)
   --state-s3-prefix <prefix>        S3 key prefix for state (TRADER_STATE_S3_PREFIX)
@@ -129,6 +140,9 @@ Flags:
   --skip-binance-proxy-check        Skip Binance proxy connectivity check
   --instance-role-arn <arn>         App Runner instance role ARN (for S3 access)
   --ensure-resources                Create/reuse AWS resources (defaults state bucket; CloudFront when --cloudfront or --distribution-id)
+  --setup-egress-eip                Provision a fixed App Runner egress IP (VPC connector + NAT + EIP)
+  --egress-prefix <prefix>          Resource name prefix for egress resources
+  --teardown-egress-eip             Tear down fixed egress resources (prompts for confirmation)
   --api-only                         Deploy API only
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
@@ -149,14 +163,21 @@ Environment variables (equivalents):
   TRADER_API_TOKEN
   TRADER_CORS_ORIGIN
   TRADER_DB_URL / DATABASE_URL
+  TRADER_MULTI_USER
+  TRADER_OPS_ROLLUP_ON_DEPLOY
+  TRADER_OPS_ROLLUP_STRICT
   TRADER_STATE_DIR
   TRADER_STATE_S3_BUCKET
   TRADER_STATE_S3_PREFIX
   TRADER_STATE_S3_REGION
+  TRADER_STATE_SYNC_TENANT_KEY
   TRADER_BINANCE_PROXY_URL
   TRADER_BINANCE_PROXY_CLEAR
   TRADER_BINANCE_PROXY_HEALTHCHECK
   TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT
+  TRADER_APP_RUNNER_EGRESS_EIP
+  TRADER_APP_RUNNER_EGRESS_PREFIX
+  TRADER_APP_RUNNER_EGRESS_TEARDOWN
   TRADER_API_MAX_BARS_LSTM
   TRADER_API_MAX_EPOCHS
   TRADER_API_MAX_HIDDEN_SIZE
@@ -190,6 +211,8 @@ Environment variables (equivalents):
   TRADER_UI_API_FALLBACK_URL
   TRADER_UI_API_MODE (direct|proxy)
   TRADER_UI_SERVICE_ARN
+  TRADER_DOCKER_PROVENANCE (true to enable provenance attestations during docker build)
+  TRADER_DOCKER_SBOM (true to enable SBOM attestations during docker build)
   TRADER_DEPLOY_ENV_FILE
   TRADER_APP_RUNNER_INSTANCE_ROLE_NAME
   TRADER_APP_RUNNER_STATE_POLICY_NAME
@@ -209,6 +232,131 @@ mask_token() {
     return 0
   fi
   echo "${tok:0:6}…${tok:n-4:4}"
+}
+
+sha256_hex() {
+  local payload="${1:-}"
+  if [[ -z "$payload" ]]; then
+    echo ""
+    return 0
+  fi
+  if command -v openssl >/dev/null 2>&1; then
+    printf '%s' "$payload" | openssl dgst -sha256 -hex 2>/dev/null | awk '{print $2}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$payload" | shasum -a 256 2>/dev/null | awk '{print $1}'
+    return 0
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$payload" | sha256sum 2>/dev/null | awk '{print $1}'
+    return 0
+  fi
+  echo ""
+}
+
+resolve_state_sync_tenant_key() {
+  if [[ -n "${TRADER_STATE_SYNC_TENANT_KEY:-}" ]]; then
+    echo "$TRADER_STATE_SYNC_TENANT_KEY"
+    return 0
+  fi
+  if [[ -n "${BINANCE_API_KEY:-}" && -n "${BINANCE_API_SECRET:-}" ]]; then
+    local hash=""
+    hash="$(sha256_hex "${BINANCE_API_KEY}:${BINANCE_API_SECRET}")"
+    if [[ -n "$hash" ]]; then
+      echo "binance:${hash}"
+      return 0
+    fi
+  fi
+  if [[ -n "${COINBASE_API_KEY:-}" && -n "${COINBASE_API_SECRET:-}" && -n "${COINBASE_API_PASSPHRASE:-}" ]]; then
+    local hash=""
+    hash="$(sha256_hex "${COINBASE_API_KEY}:${COINBASE_API_SECRET}:${COINBASE_API_PASSPHRASE}")"
+    if [[ -n "$hash" ]]; then
+      echo "coinbase:${hash}"
+      return 0
+    fi
+  fi
+  echo ""
+}
+
+state_sync_endpoint() {
+  local base="${1:-}"
+  if [[ -z "$base" ]]; then
+    echo ""
+    return 1
+  fi
+  if [[ "$base" == *"/state/sync" ]]; then
+    echo "$base"
+    return 0
+  fi
+  echo "${base%/}/state/sync"
+}
+
+state_sync_export() {
+  local base_url="${1:-}"
+  local api_token="${2:-}"
+  local tenant_key="${3:-}"
+  local out_path="${4:-}"
+
+  if [[ -z "$base_url" || -z "$tenant_key" || -z "$out_path" ]]; then
+    return 1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Warning: curl not found; skipping /state/sync export${NC}" >&2
+    return 1
+  fi
+
+  local endpoint=""
+  endpoint="$(state_sync_endpoint "$base_url")" || true
+  if [[ -z "$endpoint" ]]; then
+    return 1
+  fi
+
+  local auth_header=()
+  if [[ -n "$api_token" ]]; then
+    auth_header=(-H "Authorization: Bearer ${api_token}")
+  fi
+
+  local body=""
+  if body="$(curl -fsS --connect-timeout 5 --max-time 20 "${auth_header[@]}" -H "X-Tenant-Key: ${tenant_key}" "$endpoint" 2>/dev/null)"; then
+    printf '%s\n' "$body" >"$out_path"
+    return 0
+  fi
+  return 1
+}
+
+state_sync_import() {
+  local base_url="${1:-}"
+  local api_token="${2:-}"
+  local tenant_key="${3:-}"
+  local payload_path="${4:-}"
+
+  if [[ -z "$base_url" || -z "$tenant_key" || -z "$payload_path" ]]; then
+    return 1
+  fi
+  if [[ ! -s "$payload_path" ]]; then
+    return 1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Warning: curl not found; skipping /state/sync import${NC}" >&2
+    return 1
+  fi
+
+  local endpoint=""
+  endpoint="$(state_sync_endpoint "$base_url")" || true
+  if [[ -z "$endpoint" ]]; then
+    return 1
+  fi
+
+  local auth_header=()
+  if [[ -n "$api_token" ]]; then
+    auth_header=(-H "Authorization: Bearer ${api_token}")
+  fi
+
+  if curl -fsS --connect-timeout 5 --max-time 20 "${auth_header[@]}" -H "X-Tenant-Key: ${tenant_key}" -H "Content-Type: application/json" -X POST --data-binary @"$payload_path" "$endpoint" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
 }
 
 mask_proxy_url() {
@@ -299,6 +447,61 @@ health_check_api() {
   done
 
   echo -e "${YELLOW}Warning: API /health check failed after ${max_attempts} attempts (${health_url})${NC}"
+}
+
+run_ops_migrations() {
+  local db_url="${1:-}"
+  if [[ -z "$db_url" ]]; then
+    return 1
+  fi
+  psql "$db_url" -v ON_ERROR_STOP=1 <<'SQL'
+ALTER TABLE ops ADD COLUMN IF NOT EXISTS tenant_key TEXT;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS tenant_key TEXT;
+ALTER TABLE bots DROP CONSTRAINT IF EXISTS bots_platform_id_symbol_market_interval_key;
+CREATE UNIQUE INDEX IF NOT EXISTS bots_tenant_platform_symbol_interval_idx ON bots(tenant_key, platform_id, symbol, market, interval);
+CREATE INDEX IF NOT EXISTS ops_tenant_key_idx ON ops(tenant_key);
+SQL
+}
+
+run_ops_rollup() {
+  local db_url="${1:-}"
+  if [[ -z "$db_url" ]]; then
+    return 1
+  fi
+  TRADER_DB_URL="$db_url" haskell/scripts/rollup_performance.sh
+}
+
+maybe_run_ops_rollup() {
+  local db_url="${TRADER_DB_URL:-}"
+  if [[ -z "$db_url" ]]; then
+    return 0
+  fi
+  if ! is_true "${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}"; then
+    return 0
+  fi
+  echo -e "${YELLOW}→ Ops rollup: ensuring tenant schema...${NC}" >&2
+  if ! run_ops_migrations "$db_url"; then
+    local msg="Ops rollup: schema update failed."
+    if is_true "${TRADER_OPS_ROLLUP_STRICT:-false}"; then
+      echo -e "${RED}✗ ${msg}${NC}" >&2
+      exit 1
+    else
+      echo -e "${YELLOW}⚠ ${msg} Skipping rollup.${NC}" >&2
+      return 0
+    fi
+  fi
+  echo -e "${YELLOW}→ Ops rollup: rebuilding performance rollups...${NC}" >&2
+  if ! run_ops_rollup "$db_url"; then
+    local msg="Ops rollup: performance rollup failed."
+    if is_true "${TRADER_OPS_ROLLUP_STRICT:-false}"; then
+      echo -e "${RED}✗ ${msg}${NC}" >&2
+      exit 1
+    else
+      echo -e "${YELLOW}⚠ ${msg}${NC}" >&2
+    fi
+  else
+    echo -e "${GREEN}✓ Ops rollup complete${NC}" >&2
+  fi
 }
 
 get_cloudfront_domain() {
@@ -438,6 +641,10 @@ while [[ $# -gt 0 ]]; do
       TRADER_DB_URL="${2:-}"
       shift 2
       ;;
+    --skip-ops-rollup)
+      TRADER_OPS_ROLLUP_ON_DEPLOY="false"
+      shift
+      ;;
     --state-dir)
       TRADER_STATE_DIR="${2:-}"
       shift 2
@@ -475,6 +682,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ensure-resources)
       ENSURE_RESOURCES="true"
+      shift
+      ;;
+    --setup-egress-eip)
+      APP_RUNNER_EGRESS_EIP="true"
+      shift
+      ;;
+    --egress-prefix)
+      APP_RUNNER_EGRESS_PREFIX="${2:-}"
+      shift 2
+      ;;
+    --teardown-egress-eip)
+      APP_RUNNER_EGRESS_TEARDOWN="true"
       shift
       ;;
     --api-only)
@@ -561,6 +780,10 @@ if [[ "$UI_ONLY" == "true" ]]; then
   DEPLOY_API="false"
   DEPLOY_UI="true"
 fi
+if is_true "$APP_RUNNER_EGRESS_TEARDOWN"; then
+  DEPLOY_API="false"
+  DEPLOY_UI="false"
+fi
 
 echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
 
@@ -612,6 +835,19 @@ check_prerequisites() {
     fi
     echo -e "${GREEN}✓ npm found${NC}"
   fi
+
+  if [[ -n "${TRADER_DB_URL:-}" ]] && is_true "${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}"; then
+    if ! command -v psql >/dev/null 2>&1; then
+      echo -e "${YELLOW}⚠ psql not found; ops rollup on deploy will be skipped${NC}" >&2
+      echo "Install postgresql-client (psql) or set TRADER_OPS_ROLLUP_ON_DEPLOY=false to silence this warning." >&2
+      if is_true "${TRADER_OPS_ROLLUP_STRICT:-false}"; then
+        exit 1
+      fi
+      TRADER_OPS_ROLLUP_ON_DEPLOY="false"
+    else
+      echo -e "${GREEN}✓ psql found (ops rollup)${NC}"
+    fi
+  fi
   
   # Check AWS credentials
   if ! aws sts get-caller-identity --region "$AWS_REGION" >/dev/null 2>&1; then
@@ -648,11 +884,20 @@ ensure_s3_bucket() {
     args+=(--create-bucket-configuration "LocationConstraint=${region}")
   fi
 
-  if aws s3api create-bucket "${args[@]}" >/dev/null; then
+  local create_err
+  create_err="$(mktemp)"
+  if aws s3api create-bucket "${args[@]}" >/dev/null 2>"$create_err"; then
     LAST_S3_BUCKET_CREATED="true"
     echo -e "${GREEN}✓ S3 bucket created: ${bucket}${NC}" >&2
+    rm -f "$create_err"
     return 0
   fi
+  if grep -q "BucketAlreadyOwnedByYou" "$create_err"; then
+    echo -e "${YELLOW}✓ S3 bucket already owned: ${bucket}${NC}" >&2
+    rm -f "$create_err"
+    return 0
+  fi
+  rm -f "$create_err"
 
   echo -e "${RED}✗ Unable to create S3 bucket: ${bucket}${NC}" >&2
   echo "Ensure the bucket name is available and you have permissions." >&2
@@ -1365,7 +1610,36 @@ build_and_push() {
   check_ecr_push_permissions "$repo" "$AWS_REGION"
   
   echo "Building Docker image..."
-  docker build -t "${ECR_REPO}:latest" .
+  local docker_build_args=()
+  local docker_build_env=()
+  local docker_build_help=""
+  docker_build_help="$(docker build --help 2>/dev/null || true)"
+  # Newer Docker/BuildKit versions can generate default attestations (provenance/SBOM), which can turn
+  # the build output into an OCI index (manifest list) and cause `docker push` to require extra ECR
+  # permissions (notably `ecr:BatchGetImage` for manifest HEAD checks). Default to disabling
+  # attestations for compatibility; set TRADER_DOCKER_PROVENANCE=true / TRADER_DOCKER_SBOM=true to
+  # re-enable.
+  if echo "$docker_build_help" | grep -q -- '--attest'; then
+    if ! is_true "${TRADER_DOCKER_PROVENANCE:-false}" && ! is_true "${TRADER_DOCKER_SBOM:-false}"; then
+      docker_build_env+=(BUILDX_NO_DEFAULT_ATTESTATIONS=1)
+    fi
+  fi
+  if echo "$docker_build_help" | grep -q -- '--provenance'; then
+    if is_true "${TRADER_DOCKER_PROVENANCE:-false}"; then
+      docker_build_args+=(--provenance=true)
+    else
+      docker_build_args+=(--provenance=false)
+    fi
+  fi
+  if echo "$docker_build_help" | grep -q -- '--sbom'; then
+    if is_true "${TRADER_DOCKER_SBOM:-false}"; then
+      docker_build_args+=(--sbom=true)
+    else
+      docker_build_args+=(--sbom=false)
+    fi
+  fi
+
+  env "${docker_build_env[@]}" docker build "${docker_build_args[@]}" -t "${ECR_REPO}:latest" .
   echo -e "${GREEN}✓ Image built${NC}"
 
   # Helpful for debugging ECR push permissions (common failure mode: 403 on manifest HEAD).
@@ -1417,11 +1691,82 @@ EOF
   echo -e "${GREEN}✓ Image pushed to ${ecr_uri}:latest${NC}\n"
 }
 
+maybe_teardown_apprunner_egress_eip() {
+  if ! is_true "$APP_RUNNER_EGRESS_TEARDOWN"; then
+    return
+  fi
+
+  local script_path="deploy/aws/teardown-apprunner-egress-eip.sh"
+  if [[ ! -x "$script_path" ]]; then
+    echo -e "${RED}[ERR] Missing ${script_path}. Ensure the repo is up to date.${NC}" >&2
+    exit 1
+  fi
+
+  if [[ ! -t 0 ]]; then
+    echo -e "${RED}[ERR] Teardown requires interactive confirmation. Re-run in a TTY.${NC}" >&2
+    exit 1
+  fi
+
+  echo -e "${YELLOW}This will delete VPC/NAT/EIP resources created for App Runner fixed egress.${NC}" >&2
+  echo -n "Type DELETE to confirm: " >&2
+  local confirm=""
+  read -r confirm
+  if [[ "$confirm" != "DELETE" ]]; then
+    echo -e "${YELLOW}[WARN] Teardown aborted.${NC}" >&2
+    exit 0
+  fi
+
+  local service_arn=""
+  if [[ -n "${UI_SERVICE_ARN:-}" ]]; then
+    service_arn="$UI_SERVICE_ARN"
+  fi
+  if [[ -z "$service_arn" ]]; then
+    service_arn="$(discover_apprunner_service_arn_by_name "$APP_RUNNER_SERVICE_NAME" || true)"
+  fi
+
+  local args=(--confirm --region "$AWS_REGION")
+  if [[ -n "${APP_RUNNER_EGRESS_PREFIX:-}" ]]; then
+    args+=(--resource-prefix "$APP_RUNNER_EGRESS_PREFIX")
+  fi
+  if [[ -n "$service_arn" ]]; then
+    args+=(--service-arn "$service_arn")
+  elif [[ -n "${APP_RUNNER_SERVICE_NAME:-}" ]]; then
+    args+=(--service-name "$APP_RUNNER_SERVICE_NAME")
+  fi
+
+  echo "Tearing down App Runner fixed egress IP resources..." >&2
+  bash "$script_path" "${args[@]}"
+}
+
+maybe_setup_apprunner_egress_eip() {
+  local service_arn="$1"
+
+  if ! is_true "$APP_RUNNER_EGRESS_EIP"; then
+    return
+  fi
+
+  local script_path="deploy/aws/setup-apprunner-egress-eip.sh"
+  if [[ ! -x "$script_path" ]]; then
+    echo -e "${RED}[ERR] Missing ${script_path}. Ensure the repo is up to date.${NC}" >&2
+    exit 1
+  fi
+
+  local args=(--service-arn "$service_arn" --region "$AWS_REGION")
+  if [[ -n "${APP_RUNNER_EGRESS_PREFIX:-}" ]]; then
+    args+=(--resource-prefix "$APP_RUNNER_EGRESS_PREFIX")
+  fi
+
+  echo "Setting up App Runner fixed egress IP..." >&2
+  bash "$script_path" "${args[@]}"
+}
+
 # Create App Runner service
 create_app_runner() {
   set -euo pipefail
   local ecr_uri="$1"
   local image_identifier="${ecr_uri}:latest"
+  local state_sync_payload=""
+  local state_sync_tenant_key=""
   
   echo "Creating App Runner service..." >&2
   
@@ -1618,6 +1963,10 @@ create_app_runner() {
   fi
 
   if [[ -n "$existing_service_arn" ]]; then
+    state_sync_tenant_key="$(resolve_state_sync_tenant_key)"
+  fi
+
+  if [[ -n "$existing_service_arn" ]]; then
     if [[ -z "${APP_RUNNER_INSTANCE_ROLE_ARN:-}" ]]; then
       local existing_instance_role=""
       existing_instance_role="$(
@@ -1748,6 +2097,9 @@ create_app_runner() {
   if [[ -n "${TRADER_DB_URL:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_DB_URL\":\"${TRADER_DB_URL}\""
   fi
+  if [[ -n "${TRADER_MULTI_USER:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_MULTI_USER\":\"${TRADER_MULTI_USER}\""
+  fi
   if is_true "${TRADER_BINANCE_PROXY_CLEAR:-false}"; then
     runtime_env_json="${runtime_env_json},\"TRADER_BINANCE_PROXY_URL\":\"\""
   elif [[ -n "${TRADER_BINANCE_PROXY_URL:-}" ]]; then
@@ -1848,6 +2200,20 @@ EOF
     echo "Waiting for any in-progress operation to finish..." >&2
     wait_for_apprunner_running "$service_arn" >/dev/null
 
+    if [[ -n "$state_sync_tenant_key" ]]; then
+      local existing_url=""
+      existing_url="$(discover_apprunner_service_url "$existing_service_arn" || true)"
+      if [[ -n "$existing_url" ]]; then
+        state_sync_payload="$(mktemp)"
+        if state_sync_export "$existing_url" "$TRADER_API_TOKEN" "$state_sync_tenant_key" "$state_sync_payload"; then
+          echo -e "${YELLOW}✓ Backed up /state/sync before update${NC}" >&2
+        else
+          rm -f "$state_sync_payload"
+          state_sync_payload=""
+        fi
+      fi
+    fi
+
     echo "Updating service configuration..." >&2
     aws apprunner update-service \
       --region "$AWS_REGION" \
@@ -1885,12 +2251,23 @@ EOF
   echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
   wait_for_apprunner_running "$service_arn" >/dev/null
 
+  maybe_setup_apprunner_egress_eip "$service_arn"
+
   local service_host
   service_host="$(aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.ServiceUrl' --output text)"
   if [[ "$service_host" == http* ]]; then
     APP_RUNNER_SERVICE_URL="$service_host"
   else
     APP_RUNNER_SERVICE_URL="https://${service_host}"
+  fi
+
+  if [[ -n "$state_sync_payload" ]]; then
+    if state_sync_import "$APP_RUNNER_SERVICE_URL" "$TRADER_API_TOKEN" "$state_sync_tenant_key" "$state_sync_payload"; then
+      echo -e "${GREEN}✓ Restored /state/sync after update${NC}" >&2
+    else
+      echo -e "${YELLOW}Warning: failed to restore /state/sync after update${NC}" >&2
+    fi
+    rm -f "$state_sync_payload"
   fi
 }
 
@@ -2267,6 +2644,12 @@ main() {
 
   check_prerequisites "$need_docker" "$need_npm"
 
+  if is_true "$APP_RUNNER_EGRESS_TEARDOWN"; then
+    maybe_teardown_apprunner_egress_eip
+    echo -e "${GREEN}=== Egress Teardown Complete ===${NC}\n"
+    return
+  fi
+
   if [[ -z "${UI_DISTRIBUTION_ID:-}" && -n "${UI_CLOUDFRONT_DOMAIN:-}" ]]; then
     UI_DISTRIBUTION_ID="$(discover_cloudfront_distribution_id_for_domain "$UI_CLOUDFRONT_DOMAIN" || true)"
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
@@ -2368,6 +2751,7 @@ main() {
   echo "  CORS Origin: ${TRADER_CORS_ORIGIN:-"(not set)"}"
   if [[ -n "${TRADER_DB_URL:-}" ]]; then
     echo "  Ops DB URL: (set)"
+    echo "  Ops Rollup on Deploy: ${TRADER_OPS_ROLLUP_ON_DEPLOY}"
   else
     echo "  Ops DB URL: (not set)"
   fi
@@ -2485,6 +2869,10 @@ main() {
       fi
     fi
     deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
+  fi
+
+  if [[ "$DEPLOY_API" == "true" ]]; then
+    maybe_run_ops_rollup
   fi
 
   echo -e "${GREEN}=== Deployment Complete ===${NC}\n"

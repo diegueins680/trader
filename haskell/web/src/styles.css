@@ -843,32 +843,10 @@ body.panelMaximized .cardMaximized {
   overflow: auto;
 }
 
-.combosCard .cardBody {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
 .combosScroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-right: 4px;
-  scrollbar-gutter: stable;
-}
-
-.combosCard .cardBody > .row {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.combosCard .cardBody > .row > .field {
-  flex: 1 1 auto;
-  min-height: 0;
 }
 
 .combosList {
@@ -876,49 +854,37 @@ body.panelMaximized .cardMaximized {
   gap: 12px;
 }
 
-.combosCard.cardMaximized .cardBody {
-  overflow: visible;
-}
-
-.combosCard.cardMaximized .combosScroll {
-  flex: 0 0 auto;
-  overflow: visible;
-  padding-right: 0;
-}
-
-.combosCard.cardMaximized .cardBody > .row,
-.combosCard.cardMaximized .cardBody > .row > .field {
-  flex: 0 0 auto;
-  min-height: auto;
-}
-
 .combosCard.cardMaximized {
   overflow: auto;
   scrollbar-gutter: stable;
 }
 
+.combosCard.cardMaximized .cardBody {
+  overflow: visible;
+}
+
 .combosCard.cardMaximized > .cardHeader {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 4;
   background: var(--card-solid);
   padding-bottom: 12px;
 }
 
-.card[data-panel="panel-live-bot"]:not(.cardMaximized):not(.chartCard),
-.card[data-panel^="panel-bot-"]:not(.cardMaximized):not(.chartCard) {
+.dockMain .card[data-panel="panel-live-bot"]:not(.cardMaximized):not(.chartCard),
+.dockMain .card[data-panel^="panel-bot-"]:not(.cardMaximized):not(.chartCard) {
   height: var(--dock-main-height);
   max-height: var(--dock-main-height);
   overflow: hidden;
 }
 
-.card[data-panel="panel-live-bot"],
-.card[data-panel^="panel-bot-"] {
+.dockMain .card[data-panel="panel-live-bot"],
+.dockMain .card[data-panel^="panel-bot-"] {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.card[data-panel="panel-live-bot"] .cardBody,
-.card[data-panel^="panel-bot-"] .cardBody {
+.dockMain .card[data-panel="panel-live-bot"] .cardBody,
+.dockMain .card[data-panel^="panel-bot-"] .cardBody {
   overflow: auto;
 }
 
@@ -952,6 +918,10 @@ body.panelMaximized .cardMaximized {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  position: relative;
+  z-index: 3;
 }
 
 .cardControl {
@@ -1076,6 +1046,40 @@ body.panelMaximized .cardMaximized {
 
 .menuBarActions {
   justify-content: center;
+}
+
+.menuHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px dashed var(--stroke);
+  cursor: default;
+}
+
+.menuHintClose {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.menuHintClose:hover {
+  color: var(--text);
+}
+
+.menuHintClose:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 999px;
 }
 
 .menuItem {
@@ -2762,7 +2766,8 @@ body.panelMaximized .cardMaximized {
 
   .btn,
   .btnSmall,
-  .comboRow {
+  .comboRow,
+  .botPanelToggle {
     transition: none;
   }
 
@@ -2784,6 +2789,7 @@ body.panelMaximized .cardMaximized {
   flex-direction: column;
   gap: 10px;
   overflow: hidden;
+  will-change: transform;
 }
 
 .botPanelHeader {
@@ -2791,6 +2797,21 @@ body.panelMaximized .cardMaximized {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.botPanel.botPanelDragging .botPanelHeader {
+  cursor: grabbing;
+}
+
+.botPanelHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .botPanelTitle {
@@ -2807,9 +2828,111 @@ body.panelMaximized .cardMaximized {
   font-size: 12px;
 }
 
+.botPanelToggle {
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.botPanelToggle:hover {
+  transform: translateY(-1px);
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.3);
+}
+
+.botPanelToggle:active {
+  transform: translateY(0);
+}
+
+.botPanelToggle:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-color: rgba(var(--accent-rgb), 0.55);
+}
+
+.botSwitcherRow {
+  gap: 8px;
+}
+
+.botSwitcher {
+  position: relative;
+}
+
+.botSwitcherSummary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.botSwitcherSummary::-webkit-details-marker {
+  display: none;
+}
+
+.botSwitcherSummary::marker {
+  content: "";
+}
+
+.botSwitcherIcon {
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 140ms ease;
+}
+
+.botSwitcher[open] .botSwitcherIcon {
+  transform: rotate(-135deg);
+}
+
+.botSwitcherMenu {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.botSwitcherLabel {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.botSwitcherMeta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .botPanelBadges {
   gap: 6px;
   margin-top: 2px;
+}
+
+.botPanelDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.botPanelDetails[hidden] {
+  display: none;
 }
 
 .botPanelBody {

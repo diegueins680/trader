@@ -1,6 +1,35 @@
 export type Market = "spot" | "margin" | "futures";
 export type Platform = "binance" | "coinbase" | "kraken" | "poloniex";
-export type Method = "11" | "10" | "01" | "blend" | "router";
+export type Method =
+  | "11"
+  | "10"
+  | "01"
+  | "blend"
+  | "conf_blend"
+  | "conf_pick"
+  | "cost_pick"
+  | "harmonic_blend"
+  | "disagreement_guard"
+  | "median_blend"
+  | "neutral_guard"
+  | "risk_parity_blend"
+  | "consensus_boost"
+  | "anchor_blend"
+  | "tension_gate"
+  | "entropy_blend"
+  | "coherence_gate"
+  | "divergence_gate"
+  | "fractal_blend"
+  | "phase_cancel"
+  | "softmax_blend"
+  | "smooth_softmax_blend"
+  | "net_softmax_blend"
+  | "edge_blend"
+  | "edge_pick"
+  | "geo_blend"
+  | "regime_switch"
+  | "router"
+  | "bandit_router";
 export type Normalization = "none" | "minmax" | "standard" | "log";
 export type Positioning = "long-flat" | "long-short";
 export type IntrabarFill = "stop-first" | "take-profit-first";
@@ -57,6 +86,12 @@ export type ApiParams = {
   fee?: number;
   slippage?: number;
   spread?: number;
+  feeFixed?: number;
+  feeMin?: number;
+  slippageVolMult?: number;
+  slippageImpact?: number;
+  slippageImpactPower?: number;
+  spreadVolMult?: number;
   intrabarFill?: IntrabarFill;
   stopLoss?: number;
   takeProfit?: number;
@@ -76,6 +111,11 @@ export type ApiParams = {
   edgeBuffer?: number;
   trendLookback?: number;
   maxPositionSize?: number;
+  maxOpenPositions?: number;
+  maxOpenPerBase?: number;
+  maxGrossExposure?: number;
+  maxNetExposure?: number;
+  maxExposurePerBase?: number;
   volTarget?: number;
   volLookback?: number;
   volEwmaAlpha?: number;
@@ -143,6 +183,7 @@ export type LatestSignal = {
   positionSize?: number | null;
   kalmanDirection: DirectionLabel;
   lstmNext: number | null;
+  sizingNext?: number | null;
   lstmDirection: DirectionLabel;
   chosenDirection: DirectionLabel;
   closeDirection?: DirectionLabel;
@@ -168,6 +209,7 @@ export type ApiOrderResult = {
 export type ApiTradeResponse = {
   signal: LatestSignal;
   order: ApiOrderResult;
+  originIp?: string | null;
 };
 
 export type BinanceProbe = {
@@ -223,6 +265,11 @@ export type BinanceTrade = {
   side?: string | null;
   positionSide?: string | null;
   realizedPnl?: number | null;
+  originIp?: string | null;
+  entryIp?: string | null;
+  exitIp?: string | null;
+  entryTime?: number | null;
+  exitTime?: number | null;
 };
 
 export type BinancePosition = {
@@ -263,6 +310,7 @@ export type ApiBinanceClosePositionRequest = {
   tenantKey?: string;
   symbol: string;
   positionSide?: string;
+  positionAmt?: number;
 };
 
 export type ApiBinancePositionsResponse = {
@@ -305,6 +353,11 @@ export type BacktestMetrics = {
   annualizedReturn: number;
   annualizedVolatility: number;
   sharpe: number;
+  sortino: number;
+  calmar: number;
+  downsideVolatility: number;
+  var95: number;
+  cvar95: number;
   maxDrawdown: number;
   tradeCount: number;
   positionChanges: number;
@@ -327,7 +380,10 @@ export type Trade = {
   exitEquity: number;
   return: number;
   holdingPeriods: number;
+  entryHighVolProb?: number | null;
   exitReason?: string | null;
+  entryIp?: string | null;
+  exitIp?: string | null;
 };
 
 export type BacktestResponse = {
@@ -389,6 +445,12 @@ export type BacktestResponse = {
     fee: number;
     slippage: number;
     spread: number;
+    feeFixed: number;
+    feeMin: number;
+    slippageVolMult: number;
+    slippageImpact: number;
+    slippageImpactPower: number;
+    spreadVolMult: number;
     perSideCost: number;
     roundTripCost: number;
     breakEvenThreshold: number;
@@ -546,7 +608,7 @@ export type StateSyncImportResponse = {
     skipped: number;
   };
   topCombos?: {
-    action: "replaced" | "kept" | "skipped";
+    action: "replaced" | "kept" | "skipped" | "merged";
     incomingGeneratedAtMs?: number;
     localGeneratedAtMs?: number;
   };
@@ -719,6 +781,30 @@ export type OptimizerRunRequest = {
   trailMin?: number;
   trailMax?: number;
   methodWeightBlend?: number;
+  methodWeightConfBlend?: number;
+  methodWeightConfPick?: number;
+  methodWeightCostPick?: number;
+  methodWeightHarmonicBlend?: number;
+  methodWeightDisagreementGuard?: number;
+  methodWeightMedianBlend?: number;
+  methodWeightNeutralGuard?: number;
+  methodWeightRiskParityBlend?: number;
+  methodWeightConsensusBoost?: number;
+  methodWeightAnchorBlend?: number;
+  methodWeightTensionGate?: number;
+  methodWeightEntropyBlend?: number;
+  methodWeightCoherenceGate?: number;
+  methodWeightDivergenceGate?: number;
+  methodWeightFractalBlend?: number;
+  methodWeightPhaseCancel?: number;
+  methodWeightSoftmaxBlend?: number;
+  methodWeightSmoothSoftmaxBlend?: number;
+  methodWeightNetSoftmaxBlend?: number;
+  methodWeightEdgeBlend?: number;
+  methodWeightEdgePick?: number;
+  methodWeightGeoBlend?: number;
+  methodWeightRegimeSwitch?: number;
+  methodWeightBanditRouter?: number;
   blendWeightMin?: number;
   blendWeightMax?: number;
   disableLstmPersistence?: boolean;

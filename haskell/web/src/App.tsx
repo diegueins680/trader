@@ -10,6 +10,7 @@ import type {
   BacktestResponse,
   BinanceKeysStatus,
   BinanceListenKeyResponse,
+  BinancePosition,
   BinancePositionChart,
   BinanceTrade,
   BotOrderEvent,
@@ -37,7 +38,6 @@ import {
   HttpError,
   backtest,
   binanceClosePosition,
-  binancePositionsAll,
   binancePositions,
   binanceTrades,
   binanceKeysStatus,
@@ -112,13 +112,16 @@ import {
   RATE_LIMIT_TOAST_MIN_MS,
   SESSION_BINANCE_KEY_KEY,
   SESSION_BINANCE_SECRET_KEY,
+  SESSION_BOT_PANEL_HINT_KEY,
   SESSION_COINBASE_KEY_KEY,
   SESSION_COINBASE_SECRET_KEY,
   SESSION_COINBASE_PASSPHRASE_KEY,
   SIGNAL_TIMEOUT_MS,
+  STORAGE_BOT_PANEL_VISIBLE_KEY,
   STORAGE_CONFIG_PANEL_ORDER_KEY,
   STORAGE_CONFIG_PAGE_KEY,
   STORAGE_CONFIG_TAB_KEY,
+  STORAGE_BOT_PANEL_POS_KEY,
   STORAGE_DATA_LOG_KEY,
   STORAGE_DATA_LOG_PREFS_KEY,
   STORAGE_KEY,
@@ -187,12 +190,14 @@ import {
   TRADE_PNL_TOP_N,
   applyComboToForm,
   backtestTradePhase,
+  binanceTradeKey,
   binanceTradeSideLabel,
   botStatusKey,
   botStatusKeyFromSingle,
   botStatusSymbol,
   buildBacktestOpsCsv,
   buildBacktestTradePnlAnalysis,
+  buildBinanceTradeIpMap,
   buildBinanceTradePnlAnalysis,
   buildDefaultOptimizerRunForm,
   buildEquityCurve,
@@ -222,6 +227,7 @@ import {
   inferPeriodsPerYear,
   invalidSymbolsForPlatform,
   isBinanceKeysStatus,
+  isLikelyBinanceCloseFill,
   isBotStatusMulti,
   isCoinbaseKeysStatus,
   isFiniteNumber,
@@ -322,6 +328,15 @@ const OptimizerCombosPanel = lazy(() =>
   import("./components/OptimizerCombosPanel").then((mod) => ({ default: mod.OptimizerCombosPanel })),
 );
 
+type BotPanelOffset = { x: number; y: number };
+type BotPanelDragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startOffset: BotPanelOffset;
+  rect: DOMRect;
+};
+
 const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
@@ -329,8 +344,12 @@ const BINANCE_POSITIONS_OPEN_TIME_LIMIT = 200;
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
+const BOT_PANEL_DRAG_PADDING = 12;
 const STATE_SYNC_CHUNK_DEFAULT_BYTES = 900_000;
 const STATE_SYNC_CHUNK_MAX_BYTES = 50_000_000;
+const MIN_BACKTEST_PNL_ROWS_PER_PAGE = 1;
+const MAX_BACKTEST_PNL_ROWS_PER_PAGE = 1000;
+const DEFAULT_BACKTEST_PNL_ROWS_PER_PAGE = 50;
 const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
 const textByteLength = (raw: string): number => {
   if (textEncoder) return textEncoder.encode(raw).length;
@@ -348,6 +367,129 @@ type BotChartOverlay = {
   operations: BotOperation[];
   positions: number[];
 };
+
+type TablePagination<T> = {
+  pageRows: T[];
+  pageCount: number;
+  safePage: number;
+  from: number;
+  to: number;
+  totalCount: number;
+};
+
+function clampBacktestPnlRowsPerPage(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_BACKTEST_PNL_ROWS_PER_PAGE;
+  return Math.min(MAX_BACKTEST_PNL_ROWS_PER_PAGE, Math.max(MIN_BACKTEST_PNL_ROWS_PER_PAGE, Math.trunc(value)));
+}
+
+function paginateTableRows<T>(rows: T[], page: number, rowsPerPage: number): TablePagination<T> {
+  const safeRowsPerPage = clampBacktestPnlRowsPerPage(rowsPerPage);
+  const totalCount = rows.length;
+  const pageCount = Math.max(1, Math.ceil(totalCount / safeRowsPerPage));
+  const safePage = Math.min(pageCount, Math.max(1, Math.trunc(page)));
+  const offset = (safePage - 1) * safeRowsPerPage;
+  const pageRows = rows.slice(offset, offset + safeRowsPerPage);
+  return {
+    pageRows,
+    pageCount,
+    safePage,
+    from: totalCount === 0 ? 0 : offset + 1,
+    to: totalCount === 0 ? 0 : offset + pageRows.length,
+    totalCount,
+  };
+}
+
+type BacktestTablePagerProps = {
+  itemLabel: string;
+  pagination: TablePagination<unknown>;
+  onPageChange: (page: number) => void;
+};
+
+function BacktestTablePager({ itemLabel, pagination, onPageChange }: BacktestTablePagerProps) {
+  if (pagination.totalCount === 0) return null;
+  return (
+    <div className="pillRow" style={{ marginTop: 8, marginBottom: 8 }}>
+      <span className="badge">
+        Showing {pagination.from}-{pagination.to} of {pagination.totalCount} {itemLabel}
+      </span>
+      {pagination.pageCount > 1 ? <span className="badge">Page {pagination.safePage} / {pagination.pageCount}</span> : null}
+      {pagination.pageCount > 1 ? (
+        <>
+          <button
+            className="btnSmall"
+            type="button"
+            disabled={pagination.safePage <= 1}
+            onClick={() => onPageChange(Math.max(1, pagination.safePage - 1))}
+          >
+            Prev
+          </button>
+          <button
+            className="btnSmall"
+            type="button"
+            disabled={pagination.safePage >= pagination.pageCount}
+            onClick={() => onPageChange(Math.min(pagination.pageCount, pagination.safePage + 1))}
+          >
+            Next
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function buildFallbackLatestSignal(status: BotStatusRunning): LatestSignal {
+  const lastPrice = status.prices[status.prices.length - 1];
+  const currentPrice = typeof lastPrice === "number" && Number.isFinite(lastPrice) ? lastPrice : 0;
+  return {
+    method: status.method,
+    currentPrice,
+    threshold: status.threshold,
+    openThreshold: status.openThreshold,
+    closeThreshold: status.closeThreshold,
+    kalmanNext: null,
+    kalmanReturn: null,
+    kalmanStd: null,
+    kalmanZ: null,
+    volatility: null,
+    regimes: null,
+    quantiles: null,
+    conformalInterval: null,
+    confidence: null,
+    positionSize: null,
+    kalmanDirection: null,
+    lstmNext: null,
+    lstmDirection: null,
+    chosenDirection: null,
+    closeDirection: null,
+    action: "—",
+  };
+}
+
+function latestSignalOrFallback(status: BotStatusRunning): LatestSignal {
+  return status.latestSignal ?? buildFallbackLatestSignal(status);
+}
+
+function normalizeBotStatusRunning(status: BotStatusRunning): BotStatusRunning {
+  const latest = (status as { latestSignal?: LatestSignal | null }).latestSignal;
+  if (latest && typeof latest === "object") return status;
+  return { ...status, latestSignal: buildFallbackLatestSignal(status) };
+}
+
+function normalizeBotStatusSingle(status: BotStatusSingle): BotStatusSingle {
+  if (status.running) return normalizeBotStatusRunning(status);
+  if (!status.snapshot) return status;
+  const snapshot = normalizeBotStatusRunning(status.snapshot);
+  return snapshot === status.snapshot ? status : { ...status, snapshot };
+}
+
+function normalizeBotStatus(status: BotStatus): BotStatus {
+  if (isBotStatusMulti(status)) {
+    const bots = status.bots.map(normalizeBotStatusSingle);
+    const changed = bots.some((bot, i) => bot !== status.bots[i]);
+    return changed ? { ...status, bots } : status;
+  }
+  return normalizeBotStatusSingle(status);
+}
 
 function buildBotOrderOverlay(
   openTimes: number[] | null | undefined,
@@ -421,6 +563,7 @@ function buildBotOrderOverlay(
 
   return { operations, positions };
 }
+
 type ComboImportSummary = {
   comboCount: number;
   generatedAtMs: number | null;
@@ -430,6 +573,11 @@ type ComboImportSummary = {
 type ComboImportParseResult = {
   payload: Record<string, unknown> | null;
   summary: ComboImportSummary | null;
+  error: string | null;
+};
+
+type StateSyncCombosImportResult = {
+  payload: StateSyncPayload | null;
   error: string | null;
 };
 
@@ -493,6 +641,36 @@ const parseTopCombosJson = (rawText: string): ComboImportParseResult => {
   }
 };
 
+const parseStateSyncCombosJson = (rawText: string): StateSyncCombosImportResult => {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return { payload: null, error: "Select combos JSON first." };
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const result = parseTopCombosPayload(parsed);
+    if (!result.payload) {
+      return { payload: null, error: result.error ?? "Invalid combos JSON." };
+    }
+    const payload: StateSyncPayload = { topCombos: result.payload };
+    if (parsed && typeof parsed === "object") {
+      const root = parsed as Record<string, unknown>;
+      const generatedAtMsRaw = root.generatedAtMs;
+      if (typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw)) {
+        payload.generatedAtMs = Math.trunc(generatedAtMsRaw);
+      } else if (result.summary?.generatedAtMs != null) {
+        payload.generatedAtMs = result.summary.generatedAtMs;
+      }
+    } else if (result.summary?.generatedAtMs != null) {
+      payload.generatedAtMs = result.summary.generatedAtMs;
+    }
+    return { payload, error: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid JSON.";
+    return { payload: null, error: `Invalid JSON: ${msg}` };
+  }
+};
+
 type SanitizedTopCombosPayload = {
   combos: OptimizationCombo[];
   payload: Record<string, unknown>;
@@ -511,7 +689,37 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
   const generatedAtMsRaw = payloadRec.generatedAtMs;
   const generatedAtMs =
     typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
-  const methods: Method[] = ["11", "10", "01", "blend", "router"];
+  const methods: Method[] = [
+    "11",
+    "10",
+    "01",
+    "blend",
+    "conf_blend",
+    "conf_pick",
+    "cost_pick",
+    "harmonic_blend",
+    "disagreement_guard",
+    "median_blend",
+    "neutral_guard",
+    "risk_parity_blend",
+    "consensus_boost",
+    "anchor_blend",
+    "tension_gate",
+    "entropy_blend",
+    "coherence_gate",
+    "divergence_gate",
+    "fractal_blend",
+    "phase_cancel",
+    "softmax_blend",
+    "smooth_softmax_blend",
+    "net_softmax_blend",
+    "edge_blend",
+    "edge_pick",
+    "geo_blend",
+    "regime_switch",
+    "router",
+    "bandit_router",
+  ];
   const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
   const positionings: Positioning[] = ["long-flat", "long-short"];
   const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
@@ -1029,6 +1237,8 @@ type StateSyncUiState = {
   exportError: string | null;
   payload: StateSyncPayload | null;
   exportedAtMs: number | null;
+  importError: string | null;
+  importedAtMs: number | null;
   pushing: boolean;
   pushError: string | null;
   pushResult: StateSyncImportResponse | null;
@@ -1281,6 +1491,21 @@ export function App() {
   const [draggingConfigPanel, setDraggingConfigPanel] = useState<ConfigPanelId | null>(null);
   const [dragOverConfigPanel, setDragOverConfigPanel] = useState<ConfigPanelId | null>(null);
   const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
+  const lastMaximizedPanelId = useRef<string | null>(null);
+  const [botPanelOffset, setBotPanelOffset] = useState<BotPanelOffset>(() => {
+    const stored = readJson<BotPanelOffset>(STORAGE_BOT_PANEL_POS_KEY);
+    if (!stored || typeof stored.x !== "number" || typeof stored.y !== "number") {
+      return { x: 0, y: 0 };
+    }
+    if (!Number.isFinite(stored.x) || !Number.isFinite(stored.y)) {
+      return { x: 0, y: 0 };
+    }
+    return { x: stored.x, y: stored.y };
+  });
+  const [showBotPanelHint, setShowBotPanelHint] = useState(() => !readSessionString(SESSION_BOT_PANEL_HINT_KEY));
+  const [botPanelDragging, setBotPanelDragging] = useState(false);
+  const botPanelRef = useRef<HTMLElement | null>(null);
+  const botPanelDragRef = useRef<BotPanelDragState | null>(null);
   const [state, setState] = useState<UiState>({
     loading: false,
     error: null,
@@ -1303,6 +1528,11 @@ export function App() {
     loading: false,
     error: null,
     status: { running: false },
+  });
+  const [botPanelVisible, setBotPanelVisible] = useState(() => {
+    const stored = readLocalString(STORAGE_BOT_PANEL_VISIBLE_KEY);
+    if (!stored) return false;
+    return stored !== "false";
   });
   const [botSelectedSymbol, setBotSelectedSymbol] = useState<string | null>(null);
   const [botStatusOps, setBotStatusOps] = useState<OpsUiState>({
@@ -1340,6 +1570,8 @@ export function App() {
     exportError: null,
     payload: null,
     exportedAtMs: null,
+    importError: null,
+    importedAtMs: null,
     pushing: false,
     pushError: null,
     pushResult: null,
@@ -1367,6 +1599,9 @@ export function App() {
   const [binanceTradesFilterSide, setBinanceTradesFilterSide] = useState<OrderSideFilter>("ALL");
   const [binanceTradesFilterStartInput, setBinanceTradesFilterStartInput] = useState("");
   const [binanceTradesFilterEndInput, setBinanceTradesFilterEndInput] = useState("");
+  const [backtestPnlRowsPerPage, setBacktestPnlRowsPerPage] = useState(DEFAULT_BACKTEST_PNL_ROWS_PER_PAGE);
+  const [backtestTopWinsPage, setBacktestTopWinsPage] = useState(1);
+  const [backtestTopLossesPage, setBacktestTopLossesPage] = useState(1);
 
   const [binancePositionsUi, setBinancePositionsUi] = useState<BinancePositionsUiState>({
     loading: false,
@@ -1583,7 +1818,37 @@ export function App() {
     }
     const intervalList = Array.from(intervals).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const symbolList = Array.from(symbols).sort((a, b) => a.localeCompare(b));
-    const methodOrder: Method[] = ["11", "10", "01", "blend", "router"];
+    const methodOrder: Method[] = [
+      "11",
+      "10",
+      "01",
+      "blend",
+      "conf_blend",
+      "conf_pick",
+      "cost_pick",
+      "harmonic_blend",
+      "disagreement_guard",
+      "median_blend",
+      "neutral_guard",
+      "risk_parity_blend",
+      "consensus_boost",
+      "anchor_blend",
+      "tension_gate",
+      "entropy_blend",
+      "coherence_gate",
+      "divergence_gate",
+      "fractal_blend",
+      "phase_cancel",
+      "softmax_blend",
+      "smooth_softmax_blend",
+      "net_softmax_blend",
+      "edge_blend",
+      "edge_pick",
+      "geo_blend",
+      "regime_switch",
+      "router",
+      "bandit_router",
+    ];
     const methodList = methodOrder.filter((method) => methods.has(method));
     const marketOrder: ComboMarketValue[] = [...PLATFORMS, "csv", "unknown"];
     const marketList = marketOrder.filter((market) => markets.has(market));
@@ -1857,12 +2122,34 @@ export function App() {
   }, [panelPrefs]);
 
   useEffect(() => {
+    if (!Number.isFinite(botPanelOffset.x) || !Number.isFinite(botPanelOffset.y)) return;
+    writeJson(STORAGE_BOT_PANEL_POS_KEY, botPanelOffset);
+  }, [botPanelOffset]);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     document.body.classList.toggle("panelMaximized", Boolean(maximizedPanelId));
     return () => {
       document.body.classList.remove("panelMaximized");
     };
   }, [maximizedPanelId]);
+
+  const resetPanelScroll = useCallback((panelId: string) => {
+    if (typeof document === "undefined") return;
+    const panel = document.querySelector(`[data-panel="${panelId}"]`) as HTMLElement | null;
+    if (!panel) return;
+    panel.scrollTop = 0;
+    const body = panel.querySelector(".cardBody") as HTMLElement | null;
+    if (body) body.scrollTop = 0;
+  }, []);
+
+  useEffect(() => {
+    const prev = lastMaximizedPanelId.current;
+    if (prev && prev !== maximizedPanelId) {
+      resetPanelScroll(prev);
+    }
+    lastMaximizedPanelId.current = maximizedPanelId;
+  }, [maximizedPanelId, resetPanelScroll]);
 
   useEffect(() => {
     if (!maximizedPanelId || typeof window === "undefined") return;
@@ -1988,7 +2275,7 @@ export function App() {
 
   const collectPanelIds = useCallback((): string[] => {
     if (typeof document === "undefined") return [];
-    const nodes = Array.from(document.querySelectorAll<HTMLElement>("details[data-panel]"));
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>("details[data-panel], aside[data-panel]"));
     const ids = nodes
       .map((node) => node.getAttribute("data-panel"))
       .filter((id): id is string => Boolean(id));
@@ -2018,17 +2305,116 @@ export function App() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
 
+  const toggleBotPanelVisible = useCallback(() => {
+    setBotPanelVisible((prev) => {
+      const next = !prev;
+      writeLocalString(STORAGE_BOT_PANEL_VISIBLE_KEY, next ? "true" : "false");
+      return next;
+    });
+  }, []);
+
   const resetLayout = useCallback(() => {
     removeLocalKey(STORAGE_PANEL_PREFS_KEY);
     removeLocalKey(STORAGE_CONFIG_PANEL_ORDER_KEY);
     removeLocalKey(STORAGE_CONFIG_PAGE_KEY);
     removeLocalKey(STORAGE_CONFIG_TAB_KEY);
+    removeLocalKey(STORAGE_BOT_PANEL_POS_KEY);
+    removeLocalKey(STORAGE_BOT_PANEL_VISIBLE_KEY);
     setPanelPrefs({});
     setConfigPanelOrder(CONFIG_PANEL_IDS);
     setConfigPage("section-api");
     setMaximizedPanelId(null);
+    setBotPanelOffset({ x: 0, y: 0 });
+    setBotPanelVisible(false);
     showToast("Layout reset");
   }, [showToast]);
+
+  const handleBotPanelPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-no-drag="true"]')) return;
+      const panel = botPanelRef.current;
+      if (!panel || typeof window === "undefined") return;
+      const rect = panel.getBoundingClientRect();
+      botPanelDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startOffset: botPanelOffset,
+        rect,
+      };
+      setBotPanelDragging(true);
+      event.preventDefault();
+    },
+    [botPanelOffset],
+  );
+
+  const botPanelOpen = isPanelOpen("panel-bot-activity", true);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = botPanelDragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const dxRaw = event.clientX - drag.startX;
+      const dyRaw = event.clientY - drag.startY;
+      const minDx = BOT_PANEL_DRAG_PADDING - drag.rect.left;
+      const maxDx = window.innerWidth - BOT_PANEL_DRAG_PADDING - drag.rect.right;
+      const minDy = BOT_PANEL_DRAG_PADDING - drag.rect.top;
+      const maxDy = window.innerHeight - BOT_PANEL_DRAG_PADDING - drag.rect.bottom;
+      const dx = clamp(dxRaw, minDx, maxDx);
+      const dy = clamp(dyRaw, minDy, maxDy);
+      const next = { x: drag.startOffset.x + dx, y: drag.startOffset.y + dy };
+      setBotPanelOffset((prev) => (prev.x === next.x && prev.y === next.y ? prev : next));
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      const drag = botPanelDragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      botPanelDragRef.current = null;
+      setBotPanelDragging(false);
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const clampPanelToViewport = () => {
+      const panel = botPanelRef.current;
+      if (!panel) return;
+      const rect = panel.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+      let dx = 0;
+      let dy = 0;
+      if (rect.left < BOT_PANEL_DRAG_PADDING) {
+        dx = BOT_PANEL_DRAG_PADDING - rect.left;
+      } else if (rect.right > window.innerWidth - BOT_PANEL_DRAG_PADDING) {
+        dx = window.innerWidth - BOT_PANEL_DRAG_PADDING - rect.right;
+      }
+      if (rect.top < BOT_PANEL_DRAG_PADDING) {
+        dy = BOT_PANEL_DRAG_PADDING - rect.top;
+      } else if (rect.bottom > window.innerHeight - BOT_PANEL_DRAG_PADDING) {
+        dy = window.innerHeight - BOT_PANEL_DRAG_PADDING - rect.bottom;
+      }
+      if (dx !== 0 || dy !== 0) {
+        setBotPanelOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+      }
+    };
+    const handleResize = () => {
+      if (!botPanelOpen) return;
+      clampPanelToViewport();
+    };
+    if (botPanelOpen) clampPanelToViewport();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [botPanelOpen]);
 
   const openPanelAncestors = useCallback(
     (el: HTMLElement) => {
@@ -2406,15 +2792,7 @@ export function App() {
     const trimmedFallback = apiFallbackBase.trim();
     if (!trimmedFallback) return trimmedBase;
     if (/^https?:\/\//i.test(trimmedFallback)) {
-      if (typeof window === "undefined") return trimmedBase;
-      try {
-        if (new URL(trimmedFallback).origin === window.location.origin) {
-          return trimmedFallback.replace(/\/+$/, "");
-        }
-      } catch {
-        return trimmedBase;
-      }
-      return trimmedBase;
+      return trimmedFallback.replace(/\/+$/, "");
     }
     return trimmedFallback.startsWith("/") ? trimmedFallback.replace(/\/+$/, "") : trimmedBase;
   }, [apiBase, apiFallbackBase]);
@@ -2540,8 +2918,59 @@ export function App() {
     return data;
   }, []);
 
+  const handleStateSyncCombosFile = useCallback((file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === "string" ? reader.result : "";
+      const result = parseStateSyncCombosJson(text);
+      if (!result.payload) {
+        setStateSyncUi((prev) => ({
+          ...prev,
+          payload: null,
+          exportedAtMs: null,
+          exportError: null,
+          importError: result.error ?? "Invalid combos JSON.",
+          importedAtMs: null,
+          pushError: null,
+          pushResult: null,
+          pushChunkCount: null,
+          pushedAtMs: null,
+        }));
+        return;
+      }
+      setStateSyncUi((prev) => ({
+        ...prev,
+        payload: result.payload,
+        exportedAtMs: null,
+        exportError: null,
+        importError: null,
+        importedAtMs: Date.now(),
+        pushError: null,
+        pushResult: null,
+        pushChunkCount: null,
+        pushedAtMs: null,
+      }));
+    };
+    reader.onerror = () => {
+      setStateSyncUi((prev) => ({
+        ...prev,
+        payload: null,
+        exportedAtMs: null,
+        exportError: null,
+        importError: "Failed to read file.",
+        importedAtMs: null,
+        pushError: null,
+        pushResult: null,
+        pushChunkCount: null,
+        pushedAtMs: null,
+      }));
+    };
+    reader.readAsText(file);
+  }, []);
+
   const exportStateSync = useCallback(async (): Promise<StateSyncPayload | null> => {
-    setStateSyncUi((prev) => ({ ...prev, exporting: true, exportError: null }));
+    setStateSyncUi((prev) => ({ ...prev, exporting: true, exportError: null, importError: null, importedAtMs: null }));
     try {
       if (stateSyncSelectionEmpty) {
         const msg = "Select bot snapshots and/or combos to export.";
@@ -2557,7 +2986,15 @@ export function App() {
       const filtered = pruneStateSyncPayload(out, { includeBots: stateSyncIncludeBots, includeCombos: stateSyncIncludeCombos });
       if (isStateSyncPayloadEmpty(filtered)) {
         const msg = "Nothing to export for the selected payload options.";
-        setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: msg, payload: null, exportedAtMs: null }));
+        setStateSyncUi((prev) => ({
+          ...prev,
+          exporting: false,
+          exportError: msg,
+          payload: null,
+          exportedAtMs: null,
+          importError: null,
+          importedAtMs: null,
+        }));
         return null;
       }
       setStateSyncUi((prev) => ({
@@ -2566,6 +3003,8 @@ export function App() {
         exportError: null,
         payload: filtered,
         exportedAtMs: Date.now(),
+        importError: null,
+        importedAtMs: null,
         pushChunkCount: null,
       }));
       appendDataLog("State Sync Export", filtered);
@@ -3373,7 +3812,7 @@ export function App() {
     if (form.lookbackBars >= 2) base.lookbackBars = Math.trunc(form.lookbackBars);
     else if (form.lookbackWindow.trim()) base.lookbackWindow = form.lookbackWindow.trim();
 
-    if (form.method !== "router") {
+    if (form.method !== "router" && form.method !== "bandit_router") {
       if (form.optimizeOperations) base.optimizeOperations = true;
       if (form.sweepThreshold) base.sweepThreshold = true;
     }
@@ -3388,7 +3827,7 @@ export function App() {
   }, [apiComputeLimits, form]);
 
   useEffect(() => {
-    if (form.method !== "router") return;
+    if (form.method !== "router" && form.method !== "bandit_router") return;
     if (!form.optimizeOperations && !form.sweepThreshold) return;
     setForm((f) => ({ ...f, optimizeOperations: false, sweepThreshold: false }));
   }, [form.method, form.optimizeOperations, form.sweepThreshold]);
@@ -3572,6 +4011,11 @@ export function App() {
       }),
     [botEntriesWithSymbol],
   );
+  const botSelectedLabel = useMemo(() => {
+    if (botSymbolOptions.length === 0) return "—";
+    const target = botSelectedSymbol ?? botSymbolOptions[0]!.symbol;
+    return botSymbolOptions.find((entry) => entry.symbol === target)?.label ?? botSymbolOptions[0]!.label;
+  }, [botSelectedSymbol, botSymbolOptions]);
   const botActiveSymbols = useMemo(
     () =>
       botEntriesWithSymbol
@@ -3644,6 +4088,7 @@ export function App() {
   const botDisplayStale =
     botDisplayCandidate == null && botDisplayCacheAgeMs != null && botDisplayCacheAgeMs <= botDisplayStaleLimitMs;
   const botDisplay = botDisplayCandidate ?? (botDisplayStale && botDisplayCacheEntry ? botDisplayCacheEntry.data : null);
+  const botDisplayLatestSignal = botDisplay ? latestSignalOrFallback(botDisplay) : null;
   const botSnapshotAtMs = botSelectedStatus?.running ? null : botSelectedStatus?.snapshotAtMs ?? null;
   const botHasSnapshot = botSnapshot !== null;
   const botDisplayStaleLabel =
@@ -3891,10 +4336,10 @@ export function App() {
   }, [binanceTradesFilterEndInput]);
   const binanceTradesFilterError = useMemo(() => {
     if (binanceTradesFilterStartInput.trim() && binanceTradesFilterStartMs === null) {
-      return "Filter start date must be a unix ms timestamp or ISO date.";
+      return "Filter start date must be a valid date (YYYY-MM-DD).";
     }
     if (binanceTradesFilterEndInput.trim() && binanceTradesFilterEndMs === null) {
-      return "Filter end date must be a unix ms timestamp or ISO date.";
+      return "Filter end date must be a valid date (YYYY-MM-DD).";
     }
     if (
       binanceTradesFilterStartMs !== null &&
@@ -3910,10 +4355,27 @@ export function App() {
     binanceTradesFilterStartInput,
     binanceTradesFilterStartMs,
   ]);
+  const binanceTradesIpMap = useMemo(() => {
+    const trades = binanceTradesUi.response?.trades ?? [];
+    return buildBinanceTradeIpMap(trades);
+  }, [binanceTradesUi.response]);
   const binanceTradesFiltered = useMemo(() => {
     const trades = binanceTradesUi.response?.trades ?? [];
     if (trades.length === 0) return trades;
-    let filtered = trades;
+    const withIps = trades.map((trade) => {
+      const ipMeta = binanceTradesIpMap.get(binanceTradeKey(trade));
+      const ownOriginIp = typeof trade.originIp === "string" && trade.originIp.trim() ? trade.originIp.trim() : null;
+      const tradeTime = Number.isFinite(trade.time) ? trade.time : null;
+      const likelyClose = isLikelyBinanceCloseFill(trade);
+      return {
+        ...trade,
+        entryIp: ipMeta?.entryIp ?? ownOriginIp,
+        exitIp: ipMeta?.exitIp ?? (likelyClose ? ownOriginIp : null),
+        entryTime: ipMeta?.entryTime ?? tradeTime,
+        exitTime: ipMeta?.exitTime ?? (likelyClose ? tradeTime : null),
+      };
+    });
+    let filtered = withIps;
     if (binanceTradesFilterSymbols.length > 0) {
       const symbols = new Set(binanceTradesFilterSymbols);
       filtered = filtered.filter((trade) => symbols.has(trade.symbol.toUpperCase()));
@@ -3933,6 +4395,7 @@ export function App() {
     binanceTradesFilterSide,
     binanceTradesFilterStartMs,
     binanceTradesFilterSymbols,
+    binanceTradesIpMap,
     binanceTradesUi.response,
   ]);
   const binanceTradesFilteredTotals = useMemo(() => {
@@ -3982,9 +4445,18 @@ export function App() {
     return trades
       .map((trade) => {
         const side = binanceTradeSideLabel(trade);
+        const openedAt =
+          typeof trade.entryTime === "number" && Number.isFinite(trade.entryTime)
+            ? trade.entryTime
+            : Number.isFinite(trade.time)
+              ? trade.time
+              : null;
+        const closedAt = typeof trade.exitTime === "number" && Number.isFinite(trade.exitTime) ? trade.exitTime : null;
+        const openedTxt = openedAt != null ? fmtTimeMsWithMs(openedAt) : "—";
+        const closedTxt = closedAt != null ? fmtTimeMsWithMs(closedAt) : "—";
         const qty = typeof trade.qty === "number" && Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
         const quote = typeof trade.quoteQty === "number" && Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
-        return `${fmtTimeMsWithMs(trade.time)} | ${trade.symbol} | ${side} | ${fmtMoney(trade.price, 4)} | ${qty} | ${quote}`;
+        return `${openedTxt} -> ${closedTxt} | ${trade.symbol} | ${side} | ${fmtMoney(trade.price, 4)} | ${qty} | ${quote}`;
       })
       .join("\n");
   }, [binanceTradesFiltered, binanceTradesUi.response]);
@@ -4528,7 +5000,9 @@ export function App() {
 
         setApiOk((prev) => {
           if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
-          const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500) || isTimeoutError(e);
+          const msgLower = msg.toLowerCase();
+          const looksDown =
+            msgLower.includes("backend unreachable") || msgLower.includes("fetch") || (e instanceof HttpError && e.status >= 500);
           return looksDown ? "down" : prev;
         });
 
@@ -4890,7 +5364,8 @@ export function App() {
         const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
         botStatusFetchedRef.current = true;
-        const botStatuses = isBotStatusMulti(out) ? out.bots : [out];
+        const normalizedOut = normalizeBotStatus(out);
+        const botStatuses = isBotStatusMulti(normalizedOut) ? normalizedOut.bots : [normalizedOut];
         const runningStatuses = botStatuses.filter((status): status is BotStatusRunning => status.running);
         setBotRtByKey((prev) => {
           if (runningStatuses.length === 0) {
@@ -4931,7 +5406,7 @@ export function App() {
               const lastNew = newTimes[newTimes.length - 1]!;
               const idx = openTimes.lastIndexOf(lastNew);
               const closePx = idx >= 0 ? st.prices[idx] : null;
-              const action = st.latestSignal.action;
+              const action = latestSignalOrFallback(st).action;
               const pollMs =
                 typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? Math.max(0, Math.round(st.pollLatencyMs)) : null;
               const batchMs =
@@ -5049,7 +5524,7 @@ export function App() {
           botRtRef.current = nextRef;
           return next;
         });
-        setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+        setBot((s) => ({ ...s, loading: false, error: null, status: normalizedOut }));
         setApiOk("ok");
       } catch (e) {
         if (requestId !== botRequestSeqRef.current) return;
@@ -5191,7 +5666,7 @@ export function App() {
           ...tradeParams,
           botTrade: form.tradeArmed,
           ...(form.botProtectionOrders ? { botProtectionOrders: true } : {}),
-          botAdoptExistingPosition: true,
+          botAdoptExistingPosition: adoptOverride || form.botAdoptExistingPosition,
           ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
           botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
           botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
@@ -5200,8 +5675,9 @@ export function App() {
         if (primarySymbol) payload.binanceSymbol = primarySymbol;
         if (startSymbols.length > 0) payload.botSymbols = startSymbols;
         const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
-        setBot((s) => ({ ...s, loading: false, error: null, status: out }));
-        appendDataLog(`Bot Start Response${silent ? " (auto)" : ""}`, out, { background: silent });
+        const normalizedOut = normalizeBotStatus(out);
+        setBot((s) => ({ ...s, loading: false, error: null, status: normalizedOut }));
+        appendDataLog(`Bot Start Response${silent ? " (auto)" : ""}`, normalizedOut, { background: silent });
         if (symbolsOverride.length > 0) {
           if (shouldSelectPrimary) setBotSelectedSymbol(primarySymbol || null);
         }
@@ -5210,11 +5686,11 @@ export function App() {
         }
         if (!silent) {
           showToast(
-            out.running
+            normalizedOut.running
               ? form.tradeArmed
                 ? "Live bot started (trading armed)"
                 : "Live bot started (paper mode)"
-              : out.starting
+              : normalizedOut.starting
                 ? "Live bot starting…"
                 : "Bot not running",
           );
@@ -5312,7 +5788,7 @@ export function App() {
             : undefined;
         const out = await ops(
           apiBase,
-          { kind: "bot.status", limit, ...(since ? { since } : {}) },
+          { kind: "bot.status", limit, ...(since ? { since } : {}), tenantKey: activeTenantKey ?? undefined },
           { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
         );
         const incoming = Array.isArray(out.ops) ? out.ops : [];
@@ -5342,7 +5818,7 @@ export function App() {
             const fallbackLimit = BOT_STATUS_OPS_FALLBACK_LIMIT;
             const out = await ops(
               apiBase,
-              { kind: "bot.status", limit: fallbackLimit },
+              { kind: "bot.status", limit: fallbackLimit, tenantKey: activeTenantKey ?? undefined },
               { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
             );
             const incoming = Array.isArray(out.ops) ? out.ops : [];
@@ -5386,7 +5862,7 @@ export function App() {
         botStatusOpsInFlightRef.current = false;
       }
     },
-    [apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
+    [activeTenantKey, apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
   );
 
   const fetchBotOrderOps = useCallback(
@@ -5406,7 +5882,7 @@ export function App() {
         const limit = botStatusOpsLimitRef.current;
         const out = await ops(
           apiBase,
-          { kind: "bot.order", limit, fromMs: range.startMs, toMs: range.endMs },
+          { kind: "bot.order", limit, fromMs: range.startMs, toMs: range.endMs, tenantKey: activeTenantKey ?? undefined },
           { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
         );
         const incoming = Array.isArray(out.ops) ? out.ops : [];
@@ -5435,7 +5911,7 @@ export function App() {
         botOrderOpsInFlightRef.current = false;
       }
     },
-    [apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
+    [activeTenantKey, apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
   );
 
   const fetchOpsPerformance = useCallback(
@@ -5457,6 +5933,7 @@ export function App() {
             comboLimit: opsPerformanceComboLimit,
             comboScope: opsPerformanceComboScope,
             comboOrder: opsPerformanceComboOrder,
+            tenantKey: activeTenantKey ?? undefined,
           },
           { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
         );
@@ -5487,6 +5964,7 @@ export function App() {
       }
     },
     [
+      activeTenantKey,
       apiBase,
       apiOk,
       appendDataLog,
@@ -5555,8 +6033,9 @@ export function App() {
         return;
       }
       const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 }, symbol, activeTenantKey);
-      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
-      appendDataLog("Bot Stop Response", out);
+      const normalizedOut = normalizeBotStatus(out);
+      setBot((s) => ({ ...s, loading: false, error: null, status: normalizedOut }));
+      appendDataLog("Bot Stop Response", normalizedOut);
       botAutoStartSuppressedRef.current = true;
       showToast(symbol ? `Bot stopped (${symbol})` : "Bot stopped");
     } catch (e) {
@@ -5622,6 +6101,7 @@ export function App() {
     () => clamp(Math.trunc(binancePositionsBars), 10, 1000),
     [binancePositionsBars],
   );
+
   const binancePositionsInputError = useMemo(
     () =>
       firstReason(
@@ -5844,34 +6324,17 @@ export function App() {
     withBinanceKeys,
   ]);
 
-  const fetchBinancePositionsAll = useCallback(async () => {
-    binancePositionsAbortRef.current?.abort();
-    const controller = new AbortController();
-    binancePositionsAbortRef.current = controller;
-    setBinancePositionsUi((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const out = await binancePositionsAll(apiBase, {
-        headers: authHeaders,
-        timeoutMs: 30_000,
-        signal: controller.signal,
-      });
-      setBinancePositionsUi({ loading: false, error: null, response: out });
-      void fetchBinancePositionTrades(out.positions);
-    } catch (e) {
-      if (isAbortError(e)) return;
-      const msg = e instanceof Error ? e.message : String(e);
-      const isTimestampError = isBinanceTimestampErrorMessage(msg);
-      const finalMsg = isTimestampError
-        ? "Binance timestamp out of sync (code -1021). Ensure system time is synced and the Binance time endpoint is reachable, then retry."
-        : msg;
-      setBinancePositionsUi((s) => ({ ...s, loading: false, error: finalMsg }));
-    } finally {
-      if (binancePositionsAbortRef.current === controller) binancePositionsAbortRef.current = null;
-    }
-  }, [apiBase, authHeaders, fetchBinancePositionTrades]);
+  // Auto-refresh positions every 5 minutes when API is healthy.
+  useEffect(() => {
+    if (apiOk !== "ok") return;
+    const id = window.setInterval(() => {
+      void fetchBinancePositions();
+    }, 5 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, [apiOk, fetchBinancePositions]);
 
   const closeBinancePosition = useCallback(
-    async (pos: { symbol: string; positionSide?: string | null }) => {
+    async (pos: Pick<BinancePosition, "symbol" | "positionSide" | "positionAmt">) => {
       if (apiOk !== "ok") {
         showToast("API unreachable");
         return;
@@ -5896,6 +6359,7 @@ export function App() {
           binanceTestnet: form.binanceTestnet,
           binanceLive: form.binanceLive,
           symbol: pos.symbol,
+          positionAmt: pos.positionAmt,
           ...(positionSide ? { positionSide } : {}),
         };
         const out = await binanceClosePosition(apiBase, withBinanceKeys(params), {
@@ -6198,19 +6662,13 @@ export function App() {
           ? "API unreachable"
           : "API status unknown";
   const botPanel = (() => {
-    const status = bot.status;
-    let multiStatus: BotStatusMulti | null = null;
-    let st: BotStatusSingle;
-    if (isBotStatusMulti(status)) {
-      multiStatus = status;
-      st = multiStatus.bots.find((b): b is BotStatusRunning => b.running) ?? multiStatus.bots[0] ?? { running: false };
-    } else {
-      st = status;
-    }
-
+    const fallbackStatus: BotStatusSingle = { running: false };
+    const multiStatus: BotStatusMulti | null = isBotStatusMulti(bot.status) ? bot.status : null;
+    const st =
+      botSelectedStatus ?? (multiStatus ? multiStatus.bots[0] : (bot.status as BotStatusSingle)) ?? fallbackStatus;
     const running = st.running;
-    const starting = !running && (multiStatus ? multiStatus.starting === true : st.starting === true);
-    const halted = running ? st.halted : false;
+    const starting = !running && st.starting === true;
+    const halted = st.running ? st.halted : false;
     const multiError = multiStatus ? (multiStatus.errors?.[0]?.error ?? null) : null;
     const error = bot.error ?? st.error ?? multiError ?? null;
 
@@ -6230,14 +6688,15 @@ export function App() {
     let lastOrderLabel: string | null = null;
 
     if (st.running) {
+      const latestSignal = st.latestSignal ?? buildFallbackLatestSignal(st);
       symbol = st.symbol;
       interval = st.interval;
       market = st.market;
       method = st.method;
       tradeEnabled = typeof st.settings?.tradeEnabled === "boolean" ? st.settings.tradeEnabled : null;
 
-      if (st.latestSignal.action) {
-        badges.push({ key: "action", label: st.latestSignal.action, className: actionBadgeClass(st.latestSignal.action) });
+      if (latestSignal.action) {
+        badges.push({ key: "action", label: latestSignal.action, className: actionBadgeClass(latestSignal.action) });
       }
 
       phaseLabel = halted
@@ -6245,7 +6704,13 @@ export function App() {
         : typeof st.cooldownLeft === "number" && Number.isFinite(st.cooldownLeft) && st.cooldownLeft > 0
           ? `Cooldown (${Math.max(0, Math.trunc(st.cooldownLeft))} bars)`
           : "Active";
-      actionLabel = `${st.latestSignal.action} @ ${fmtMoney(st.latestSignal.currentPrice, 4)}`;
+      if (latestSignal.action) {
+        if (latestSignal.action === "—") {
+          actionLabel = "—";
+        } else {
+          actionLabel = `${latestSignal.action} @ ${fmtMoney(latestSignal.currentPrice, 4)}`;
+        }
+      }
       nextPollLabel = fmtEtaMs(botRealtime?.nextPollEtaMs);
       lastOrderLabel = st.lastOrder?.message ?? null;
     } else {
@@ -7146,9 +7611,107 @@ export function App() {
         edgeForMethod = blendEdge;
         edgeSource = "blend";
         break;
+      case "conf_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "conf_blend";
+        break;
+      case "conf_pick":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "conf_pick";
+        break;
+      case "cost_pick":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "cost_pick";
+        break;
+      case "harmonic_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "harmonic_blend";
+        break;
+      case "disagreement_guard":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "disagreement_guard";
+        break;
+      case "median_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "median_blend";
+        break;
+      case "neutral_guard":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "neutral_guard";
+        break;
+      case "risk_parity_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "risk_parity_blend";
+        break;
+      case "consensus_boost":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "consensus_boost";
+        break;
+      case "anchor_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "anchor_blend";
+        break;
+      case "tension_gate":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "tension_gate";
+        break;
+      case "entropy_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "entropy_blend";
+        break;
+      case "coherence_gate":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "coherence_gate";
+        break;
+      case "divergence_gate":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "divergence_gate";
+        break;
+      case "fractal_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "fractal_blend";
+        break;
+      case "phase_cancel":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "phase_cancel";
+        break;
+      case "softmax_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "softmax_blend";
+        break;
+      case "smooth_softmax_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "smooth_softmax_blend";
+        break;
+      case "net_softmax_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "net_softmax_blend";
+        break;
+      case "edge_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "edge_blend";
+        break;
+      case "edge_pick":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "edge_pick";
+        break;
+      case "geo_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "geo_blend";
+        break;
+      case "regime_switch":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "regime_switch";
+        break;
       case "router":
         edgeForMethod = null;
         edgeSource = `router (kal ${kalEdge != null ? fmtPct(kalEdge, 3) : "n/a"}, lstm ${
+          lstmEdge != null ? fmtPct(lstmEdge, 3) : "n/a"
+        }, blend ${blendEdge != null ? fmtPct(blendEdge, 3) : "n/a"})`;
+        break;
+      case "bandit_router":
+        edgeForMethod = null;
+        edgeSource = `bandit_router (kal ${kalEdge != null ? fmtPct(kalEdge, 3) : "n/a"}, lstm ${
           lstmEdge != null ? fmtPct(lstmEdge, 3) : "n/a"
         }, blend ${blendEdge != null ? fmtPct(blendEdge, 3) : "n/a"})`;
         break;
@@ -7393,7 +7956,7 @@ export function App() {
       const snrLabel = snr != null && Number.isFinite(snr) ? fmtNum(snr, 2) : "—";
       const detail = `edge ${edgeLabel} (${edgeSource}) / vol ${volLabel} = ${snrLabel} (min ${fmtNum(form.minSignalToNoise, 2)})`;
       let status: DecisionCheckStatus = "bad";
-      if (sig.method === "router" && edgeForMethod == null) {
+      if ((sig.method === "router" || sig.method === "bandit_router") && edgeForMethod == null) {
         status = "warn";
       } else if (edgeForMethod != null && volPerBar != null) {
         status = snr != null && Number.isFinite(snr) && snr >= form.minSignalToNoise ? "ok" : "bad";
@@ -7550,6 +8113,32 @@ export function App() {
     () => (state.backtest ? buildBacktestTradePnlAnalysis(state.backtest) : null),
     [state.backtest],
   );
+  const backtestTopWins = backtestTradeAnalysis?.topWins ?? [];
+  const backtestTopLosses = backtestTradeAnalysis?.topLosses ?? [];
+  const backtestTopWinsPagination = useMemo(
+    () => paginateTableRows(backtestTopWins, backtestTopWinsPage, backtestPnlRowsPerPage),
+    [backtestTopWins, backtestTopWinsPage, backtestPnlRowsPerPage],
+  );
+  const backtestTopLossesPagination = useMemo(
+    () => paginateTableRows(backtestTopLosses, backtestTopLossesPage, backtestPnlRowsPerPage),
+    [backtestTopLosses, backtestTopLossesPage, backtestPnlRowsPerPage],
+  );
+
+  useEffect(() => {
+    if (backtestTopWinsPage === backtestTopWinsPagination.safePage) return;
+    setBacktestTopWinsPage(backtestTopWinsPagination.safePage);
+  }, [backtestTopWinsPage, backtestTopWinsPagination.safePage]);
+
+  useEffect(() => {
+    if (backtestTopLossesPage === backtestTopLossesPagination.safePage) return;
+    setBacktestTopLossesPage(backtestTopLossesPagination.safePage);
+  }, [backtestTopLossesPage, backtestTopLossesPagination.safePage]);
+
+  useEffect(() => {
+    setBacktestTopWinsPage(1);
+    setBacktestTopLossesPage(1);
+  }, [backtestTradeAnalysis]);
+
   const backtestSummary = state.backtest
     ? {
         equity: fmtRatio(state.backtest.metrics.finalEquity, 4),
@@ -7558,6 +8147,14 @@ export function App() {
       }
     : null;
   const tradeOrder = state.trade?.order ?? null;
+  const botPanelDetailsId = "bot-panel-details";
+  const botPanelStyle = useMemo(
+    () =>
+      ({
+        transform: `translate3d(${botPanelOffset.x}px, ${botPanelOffset.y}px, 0)`,
+      }) as React.CSSProperties,
+    [botPanelOffset],
+  );
   const combosOpen = isPanelOpen("panel-combos", true);
   const configOpen = isPanelOpen("panel-config", true);
   const dockLayoutClass = `dockLayout dockLayoutConfigPage${combosOpen ? "" : " dockLayoutCompactBottom"}${configOpen ? "" : " dockLayoutCompactTop"}`;
@@ -7872,7 +8469,6 @@ export function App() {
                 </div>
               </div>
               <nav className="menuBar menuBarHeader" aria-label="Configuration pages">
-                <span className="jumpLabel">Menu</span>
                 {configPageList.map((page) => (
                   <button
                     key={page.id}
@@ -7902,6 +8498,25 @@ export function App() {
                   <button className="menuItem" type="button" onClick={resetLayout}>
                     Reset layout
                   </button>
+                  <button className="menuItem" type="button" onClick={toggleBotPanelVisible}>
+                    {botPanelVisible ? "Hide bot activity" : "Show bot activity"}
+                  </button>
+                  {botPanelVisible && showBotPanelHint ? (
+                    <span className="menuHint" title="Expand/Collapse all also affects the Bot activity panel.">
+                      Includes Bot activity
+                      <button
+                        className="menuHintClose"
+                        type="button"
+                        aria-label="Dismiss hint"
+                        onClick={() => {
+                          setShowBotPanelHint(false);
+                          writeSessionString(SESSION_BOT_PANEL_HINT_KEY, "1");
+                        }}
+                      >
+                        x
+                      </button>
+                    </span>
+                  ) : null}
                 </div>
                 {requestIssueDetails.length > 0 ? (
                   <details className="menuIssues">
@@ -7929,53 +8544,97 @@ export function App() {
           </details>
           <ConfigDock {...configDockProps} />
       </div>
-      <aside className="botPanel card" aria-label="Bot activity">
-        <div className="botPanelHeader">
-          <div className="botPanelTitle">Bot activity</div>
-          <div className="botPanelStatus">
-            <span className={botPanel.dotClass} aria-hidden="true" />
-            {botPanel.statusLabel}
-          </div>
-        </div>
-        {botPanel.badges.length > 0 ? (
-          <div className="pillRow botPanelBadges">
-            {botPanel.badges.map((badge) => (
-              <span key={badge.key} className={badge.className}>
-                {badge.label}
-              </span>
-            ))}
-          </div>
-        ) : null}
-        <div className="botPanelBody">
-          <div className="kv">
-            <div className="k">Phase</div>
-            <div className="v">{botPanel.phaseLabel}</div>
-          </div>
-          <div className="kv">
-            <div className="k">Action</div>
-            <div className="v">{botPanel.actionLabel}</div>
-          </div>
-          <div className="kv">
-            <div className="k">Next poll</div>
-            <div className="v">{botPanel.nextPollLabel}</div>
-          </div>
-          <div className="kv">
-            <div className="k">Updated</div>
-            <div className="v">{botPanel.updatedLabel}</div>
-          </div>
-          <div className="kv">
-            <div className="k">Last event</div>
-            <div className="v botPanelEvent">{botPanel.lastEventLabel}</div>
-          </div>
-          {botPanel.lastOrderLabel ? (
-            <div className="kv">
-              <div className="k">Last order</div>
-              <div className="v">{botPanel.lastOrderLabel}</div>
+      {botPanelVisible ? (
+        <aside
+          className={`botPanel card${botPanelDragging ? " botPanelDragging" : ""}`}
+          aria-label="Bot activity"
+          data-panel="panel-bot-activity"
+          ref={botPanelRef}
+          style={botPanelStyle}
+        >
+          <div className="botPanelHeader" onPointerDown={handleBotPanelPointerDown}>
+            <div className="botPanelTitle">Bot activity</div>
+            <div className="botPanelHeaderActions">
+              <div className="botPanelStatus">
+                <span className={botPanel.dotClass} aria-hidden="true" />
+                {botPanel.statusLabel}
+              </div>
+              {botPanel.badges.length > 0 ? (
+                <div data-no-drag="true">
+                  <InfoPopover label="Bot details">
+                    <InfoList items={botPanel.badges.map((badge) => badge.label)} />
+                  </InfoPopover>
+                </div>
+              ) : null}
+              <button
+                className="botPanelToggle"
+                type="button"
+                aria-expanded={botPanelOpen}
+                aria-controls={botPanelDetailsId}
+                data-no-drag="true"
+                onClick={() => setPanelOpen("panel-bot-activity", !botPanelOpen)}
+              >
+                {botPanelOpen ? "Minimize" : "Expand"}
+              </button>
             </div>
-          ) : null}
-        </div>
-        {botPanel.error ? <div className="botPanelAlert">{botPanel.error}</div> : null}
-      </aside>
+          </div>
+          <div className="botPanelDetails" id={botPanelDetailsId} hidden={!botPanelOpen}>
+            {botSymbolOptions.length > 0 ? (
+              <div className="pillRow botSwitcherRow">
+                <span className="badge">Bot</span>
+                {botSymbolOptions.length > 1 ? (
+                  <details className="botSwitcher" data-no-drag="true">
+                    <summary className="botSwitcherSummary">
+                      <span>{botSelectedLabel}</span>
+                      <span className="botSwitcherIcon" aria-hidden="true" />
+                    </summary>
+                    <div className="botSwitcherMenu">
+                      <select className="select" value={botSelectedSymbol ?? ""} onChange={(e) => setBotSelectedSymbol(e.target.value)}>
+                        {botSymbolOptions.map((entry) => (
+                          <option key={entry.symbol} value={entry.symbol}>
+                            {entry.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="botSwitcherMeta">
+                        {botActiveSymbols.length}/{botSymbolOptions.length} active
+                      </span>
+                    </div>
+                  </details>
+                ) : (
+                  <span className="botSwitcherLabel">{botSelectedLabel}</span>
+                )}
+              </div>
+            ) : null}
+            <div className="botPanelBody">
+              <div className="kv">
+                <div className="k">Phase</div>
+                <div className="v">{botPanel.phaseLabel}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Action</div>
+                <div className="v">{botPanel.actionLabel}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Next poll</div>
+                <div className="v">{botPanel.nextPollLabel}</div>
+              </div>
+              {botPanel.lastOrderLabel ? (
+                <div className="kv">
+                  <div className="k">Last order</div>
+                  <div className="v">{botPanel.lastOrderLabel}</div>
+                </div>
+              ) : (
+                <div className="kv">
+                  <div className="k">Last event</div>
+                  <div className="v botPanelEvent">{botPanel.lastEventLabel}</div>
+                </div>
+              )}
+            </div>
+            {botPanel.error ? <div className="botPanelAlert">{botPanel.error}</div> : null}
+          </div>
+        </aside>
+      ) : null}
       <main className="dockMain">
         <section className="resultGrid">
           {state.error ? (
@@ -8137,23 +8796,35 @@ export function App() {
           >
               {botDisplay ? (
                 <>
-                  {botSymbolOptions.length > 1 ? (
-                    <div className="pillRow" style={{ marginBottom: 10 }}>
-                      <span className="badge">Bots</span>
-                      <select
-                        className="select"
-                        value={botSelectedSymbol ?? ""}
-                        onChange={(e) => setBotSelectedSymbol(e.target.value)}
-                      >
-                        {botSymbolOptions.map((entry) => (
-                          <option key={entry.symbol} value={entry.symbol}>
-                            {entry.label}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="badge">
-                        {botActiveSymbols.length}/{botSymbolOptions.length} active
-                      </span>
+                  {botSymbolOptions.length > 0 ? (
+                    <div className="pillRow botSwitcherRow" style={{ marginBottom: 10 }}>
+                      <span className="badge">Bot</span>
+                      {botSymbolOptions.length > 1 ? (
+                        <details className="botSwitcher">
+                          <summary className="botSwitcherSummary">
+                            <span>{botSelectedLabel}</span>
+                            <span className="botSwitcherIcon" aria-hidden="true" />
+                          </summary>
+                          <div className="botSwitcherMenu">
+                            <select
+                              className="select"
+                              value={botSelectedSymbol ?? ""}
+                              onChange={(e) => setBotSelectedSymbol(e.target.value)}
+                            >
+                              {botSymbolOptions.map((entry) => (
+                                <option key={entry.symbol} value={entry.symbol}>
+                                  {entry.label}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="botSwitcherMeta">
+                              {botActiveSymbols.length}/{botSymbolOptions.length} active
+                            </span>
+                          </div>
+                        </details>
+                      ) : (
+                        <span className="botSwitcherLabel">{botSelectedLabel}</span>
+                      )}
                     </div>
                   ) : null}
                   {botStartErrors.length > 0 ? (
@@ -8189,7 +8860,7 @@ export function App() {
                     <Suspense fallback={<PanelFallback label="Loading live visuals…" />}>
                       <LiveVisuals
                         prices={botDisplay.prices}
-                        signal={botDisplay.latestSignal}
+                        signal={botDisplayLatestSignal ?? buildFallbackLatestSignal(botDisplay)}
                         position={botLastPosition}
                         risk={botRisk}
                         halted={botDisplay.halted}
@@ -8500,30 +9171,33 @@ export function App() {
                   ) : null}
                   <div className="kv">
                     <div className="k">Latest signal</div>
-                    <div className="v">{botDisplay.latestSignal.action}</div>
+                    <div className="v">{botDisplayLatestSignal?.action ?? "—"}</div>
                   </div>
                   <div className="kv">
                     <div className="k">Current price</div>
-                    <div className="v">{fmtMoney(botDisplay.latestSignal.currentPrice, 4)}</div>
+                    <div className="v">
+                      {botDisplayLatestSignal ? fmtMoney(botDisplayLatestSignal.currentPrice, 4) : "—"}
+                    </div>
                   </div>
                   <div className="kv">
                     <div className="k">Kalman</div>
                     <div className="v">
                       {(() => {
-                        const cur = botDisplay.latestSignal.currentPrice;
-                        const next = botDisplay.latestSignal.kalmanNext;
-                        const ret = botDisplay.latestSignal.kalmanReturn;
-                        const z = botDisplay.latestSignal.kalmanZ;
+                        const sig = botDisplayLatestSignal;
+                        const cur = sig?.currentPrice;
+                        const next = sig?.kalmanNext;
+                        const ret = sig?.kalmanReturn;
+                        const z = sig?.kalmanZ;
                         const ret2 =
                           typeof ret === "number" && Number.isFinite(ret)
                             ? ret
-                            : typeof next === "number" && Number.isFinite(next) && cur !== 0
+                            : typeof next === "number" && Number.isFinite(next) && typeof cur === "number" && cur !== 0
                               ? (next - cur) / cur
                               : null;
                         const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
                         const retTxt = typeof ret2 === "number" && Number.isFinite(ret2) ? fmtPct(ret2, 3) : "—";
                         const zTxt = typeof z === "number" && Number.isFinite(z) ? fmtNum(z, 3) : "—";
-                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${botDisplay.latestSignal.kalmanDirection ?? "—"}`;
+                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${sig?.kalmanDirection ?? "—"}`;
                       })()}
                     </div>
                   </div>
@@ -8531,31 +9205,32 @@ export function App() {
                     <div className="k">LSTM</div>
                     <div className="v">
                       {(() => {
-                        const cur = botDisplay.latestSignal.currentPrice;
-                        const next = botDisplay.latestSignal.lstmNext;
+                        const sig = botDisplayLatestSignal;
+                        const cur = sig?.currentPrice;
+                        const next = sig?.lstmNext;
                         const ret =
-                          typeof next === "number" && Number.isFinite(next) && cur !== 0 ? (next - cur) / cur : null;
+                          typeof next === "number" && Number.isFinite(next) && typeof cur === "number" && cur !== 0 ? (next - cur) / cur : null;
                         const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
                         const retTxt = typeof ret === "number" && Number.isFinite(ret) ? fmtPct(ret, 3) : "—";
-                        return `${nextTxt} (${retTxt}) • ${botDisplay.latestSignal.lstmDirection ?? "—"}`;
+                        return `${nextTxt} (${retTxt}) • ${sig?.lstmDirection ?? "—"}`;
                       })()}
                     </div>
                   </div>
                   <div className="kv">
                     <div className="k">Chosen</div>
-                    <div className="v">{botDisplay.latestSignal.chosenDirection ?? "—"}</div>
+                    <div className="v">{botDisplayLatestSignal?.chosenDirection ?? "—"}</div>
                   </div>
                   <div className="kv">
                     <div className="k">Close dir</div>
-                    <div className="v">{formatDirectionLabel(botDisplay.latestSignal.closeDirection)}</div>
+                    <div className="v">{formatDirectionLabel(botDisplayLatestSignal?.closeDirection ?? null)}</div>
                   </div>
-	                  {typeof botDisplay.latestSignal.confidence === "number" && Number.isFinite(botDisplay.latestSignal.confidence) ? (
+	                  {typeof botDisplayLatestSignal?.confidence === "number" && Number.isFinite(botDisplayLatestSignal.confidence) ? (
 	                    <div className="kv">
 	                      <div className="k">Confidence / Size</div>
 	                      <div className="v">
-	                        {fmtPct(botDisplay.latestSignal.confidence, 1)}
-	                        {typeof botDisplay.latestSignal.positionSize === "number" && Number.isFinite(botDisplay.latestSignal.positionSize)
-	                          ? ` • ${fmtPct(botDisplay.latestSignal.positionSize, 1)}`
+	                        {fmtPct(botDisplayLatestSignal.confidence, 1)}
+	                        {typeof botDisplayLatestSignal.positionSize === "number" && Number.isFinite(botDisplayLatestSignal.positionSize)
+	                          ? ` • ${fmtPct(botDisplayLatestSignal.positionSize, 1)}`
 	                          : ""}
 	                      </div>
 	                    </div>
@@ -8565,7 +9240,8 @@ export function App() {
 	                    <summary>Signal details</summary>
 	                    <div style={{ marginTop: 10 }}>
 	                      {(() => {
-	                        const sig = botDisplay.latestSignal;
+	                        const sig = botDisplayLatestSignal;
+	                        if (!sig) return null;
 	                        const r = sig.regimes;
 	                        if (!r) return null;
 	                        const trend = typeof r.trend === "number" && Number.isFinite(r.trend) ? fmtPct(r.trend, 1) : "—";
@@ -8582,7 +9258,7 @@ export function App() {
 	                      })()}
 
 	                      {(() => {
-	                        const q = botDisplay.latestSignal.quantiles;
+	                        const q = botDisplayLatestSignal?.quantiles;
 	                        if (!q) return null;
 	                        const q10 = typeof q.q10 === "number" && Number.isFinite(q.q10) ? fmtPct(q.q10, 3) : "—";
 	                        const q50 = typeof q.q50 === "number" && Number.isFinite(q.q50) ? fmtPct(q.q50, 3) : "—";
@@ -8599,7 +9275,7 @@ export function App() {
 	                      })()}
 
 	                      {(() => {
-	                        const i = botDisplay.latestSignal.conformalInterval;
+	                        const i = botDisplayLatestSignal?.conformalInterval;
 	                        if (!i) return null;
 	                        const lo = typeof i.lo === "number" && Number.isFinite(i.lo) ? fmtPct(i.lo, 3) : "—";
 	                        const hi = typeof i.hi === "number" && Number.isFinite(i.hi) ? fmtPct(i.hi, 3) : "—";
@@ -8615,7 +9291,7 @@ export function App() {
 	                      })()}
 
 	                      {(() => {
-	                        const std = botDisplay.latestSignal.kalmanStd;
+	                        const std = botDisplayLatestSignal?.kalmanStd;
 	                        if (typeof std !== "number" || !Number.isFinite(std)) return null;
 	                        return (
 	                          <div className="kv">
@@ -9355,15 +10031,6 @@ export function App() {
                     >
                       {binancePositionsUi.loading ? "Refreshing…" : "Refresh positions"}
                     </button>
-                    <button
-                      className="btn"
-                      type="button"
-                      onClick={() => void fetchBinancePositionsAll()}
-                      disabled={binancePositionsUi.loading || apiOk !== "ok"}
-                      title="Fetch all open futures positions via GET /binance/positions (all symbols)."
-                    >
-                      Fetch all (GET)
-                    </button>
                     {binancePositionsUi.response ? (
                       <>
                         <span className="badge">Updated {fmtTimeMs(binancePositionsUi.response.fetchedAtMs)}</span>
@@ -9965,54 +10632,90 @@ export function App() {
                                   </div>
                                 </div>
                               </div>
+                              <div className="row rowSingle" style={{ marginTop: 12 }}>
+                                <div className="field" style={{ maxWidth: 170 }}>
+                                  <label className="label" htmlFor="backtestTradePnlRowsPerPage">
+                                    Rows per page
+                                  </label>
+                                  <input
+                                    id="backtestTradePnlRowsPerPage"
+                                    className="input"
+                                    type="number"
+                                    min={MIN_BACKTEST_PNL_ROWS_PER_PAGE}
+                                    max={MAX_BACKTEST_PNL_ROWS_PER_PAGE}
+                                    value={backtestPnlRowsPerPage}
+                                    onChange={(e) => {
+                                      const next = clampBacktestPnlRowsPerPage(
+                                        numFromInput(e.target.value, backtestPnlRowsPerPage),
+                                      );
+                                      setBacktestPnlRowsPerPage(next);
+                                      setBacktestTopWinsPage(1);
+                                      setBacktestTopLossesPage(1);
+                                    }}
+                                  />
+                                </div>
+                              </div>
                               <div className="chartBlock" style={{ marginTop: 12 }}>
                                 <div className="hint">Top winners</div>
                                 {stats.topWins.length > 0 ? (
-                                  <div className="tableWrap" role="region" aria-label="Top winning trades">
-                                    <table className="table">
-                                      <thead>
-                                        <tr>
-                                          <th>#</th>
-                                          <th>Phase</th>
-                                          <th>Entry</th>
-                                          <th>Exit</th>
-                                          <th>Hold</th>
-                                          <th>Return</th>
-                                          <th>P&amp;L</th>
-                                          <th>Exit reason</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {stats.topWins.map((row) => {
-                                          const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
-                                          const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
-                                          const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
-                                          return (
-                                            <tr key={`bt-win-${row.idx}`}>
-                                              <td className="tdMono">{row.idx}</td>
-                                              <td>
-                                                <span className="badge">{row.phase}</span>
-                                              </td>
-                                              <td className="tdMono" title={entryTitle}>
-                                                {row.entryIndex}
-                                              </td>
-                                              <td className="tdMono" title={exitTitle}>
-                                                {row.exitIndex}
-                                              </td>
-                                              <td className="tdMono">{row.holdingPeriods}</td>
-                                              <td>
-                                                <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
-                                              </td>
-                                              <td>
-                                                <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
-                                              </td>
-                                              <td>{row.exitReason ?? "—"}</td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
+                                  <>
+                                    <BacktestTablePager
+                                      itemLabel="winning trades"
+                                      pagination={backtestTopWinsPagination}
+                                      onPageChange={(page) => setBacktestTopWinsPage(page)}
+                                    />
+                                    <div className="tableWrap" role="region" aria-label="Top winning trades">
+                                      <table className="table">
+                                        <thead>
+                                          <tr>
+                                            <th>#</th>
+                                            <th>Phase</th>
+                                            <th>Entry</th>
+                                            <th>Exit</th>
+                                            <th>Hold</th>
+                                            <th>Return</th>
+                                            <th>P&amp;L</th>
+                                            <th>Exit reason</th>
+                                            <th>Open IP</th>
+                                            <th>Close IP</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {backtestTopWinsPagination.pageRows.map((row) => {
+                                            const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
+                                            const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
+                                            const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
+                                            const entryIp = row.entryIp ?? "—";
+                                            const exitIp = row.exitIp ?? "—";
+                                            return (
+                                              <tr key={`bt-win-${row.idx}`}>
+                                                <td className="tdMono">{row.idx}</td>
+                                                <td>
+                                                  <span className="badge">{row.phase}</span>
+                                                </td>
+                                                <td className="tdMono" title={entryTitle}>
+                                                  {row.entryIndex}
+                                                </td>
+                                                <td className="tdMono" title={exitTitle}>
+                                                  {row.exitIndex}
+                                                </td>
+                                                <td className="tdMono">{row.holdingPeriods}</td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
+                                                </td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
+                                                </td>
+                                                <td>{row.exitReason ?? "—"}</td>
+                                                <td className="tdMono">{entryIp}</td>
+                                                <td className="tdMono">{exitIp}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </>
                                 ) : (
                                   <div className="hint">No winning trades.</div>
                                 )}
@@ -10020,51 +10723,64 @@ export function App() {
                               <div className="chartBlock" style={{ marginTop: 12 }}>
                                 <div className="hint">Top losers</div>
                                 {stats.topLosses.length > 0 ? (
-                                  <div className="tableWrap" role="region" aria-label="Top losing trades">
-                                    <table className="table">
-                                      <thead>
-                                        <tr>
-                                          <th>#</th>
-                                          <th>Phase</th>
-                                          <th>Entry</th>
-                                          <th>Exit</th>
-                                          <th>Hold</th>
-                                          <th>Return</th>
-                                          <th>P&amp;L</th>
-                                          <th>Exit reason</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {stats.topLosses.map((row) => {
-                                          const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
-                                          const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
-                                          const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
-                                          return (
-                                            <tr key={`bt-loss-${row.idx}`}>
-                                              <td className="tdMono">{row.idx}</td>
-                                              <td>
-                                                <span className="badge">{row.phase}</span>
-                                              </td>
-                                              <td className="tdMono" title={entryTitle}>
-                                                {row.entryIndex}
-                                              </td>
-                                              <td className="tdMono" title={exitTitle}>
-                                                {row.exitIndex}
-                                              </td>
-                                              <td className="tdMono">{row.holdingPeriods}</td>
-                                              <td>
-                                                <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
-                                              </td>
-                                              <td>
-                                                <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
-                                              </td>
-                                              <td>{row.exitReason ?? "—"}</td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
+                                  <>
+                                    <BacktestTablePager
+                                      itemLabel="losing trades"
+                                      pagination={backtestTopLossesPagination}
+                                      onPageChange={(page) => setBacktestTopLossesPage(page)}
+                                    />
+                                    <div className="tableWrap" role="region" aria-label="Top losing trades">
+                                      <table className="table">
+                                        <thead>
+                                          <tr>
+                                            <th>#</th>
+                                            <th>Phase</th>
+                                            <th>Entry</th>
+                                            <th>Exit</th>
+                                            <th>Hold</th>
+                                            <th>Return</th>
+                                            <th>P&amp;L</th>
+                                            <th>Exit reason</th>
+                                            <th>Open IP</th>
+                                            <th>Close IP</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {backtestTopLossesPagination.pageRows.map((row) => {
+                                            const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
+                                            const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
+                                            const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
+                                            const entryIp = row.entryIp ?? "—";
+                                            const exitIp = row.exitIp ?? "—";
+                                            return (
+                                              <tr key={`bt-loss-${row.idx}`}>
+                                                <td className="tdMono">{row.idx}</td>
+                                                <td>
+                                                  <span className="badge">{row.phase}</span>
+                                                </td>
+                                                <td className="tdMono" title={entryTitle}>
+                                                  {row.entryIndex}
+                                                </td>
+                                                <td className="tdMono" title={exitTitle}>
+                                                  {row.exitIndex}
+                                                </td>
+                                                <td className="tdMono">{row.holdingPeriods}</td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
+                                                </td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
+                                                </td>
+                                                <td>{row.exitReason ?? "—"}</td>
+                                                <td className="tdMono">{entryIp}</td>
+                                                <td className="tdMono">{exitIp}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </>
                                 ) : (
                                   <div className="hint">No losing trades.</div>
                                 )}
@@ -10523,6 +11239,8 @@ export function App() {
                       payload: null,
                       exportError: null,
                       exportedAtMs: null,
+                      importError: null,
+                      importedAtMs: null,
                       pushError: null,
                       pushResult: null,
                       pushChunkCount: null,
@@ -10532,6 +11250,26 @@ export function App() {
                 >
                   Clear
                 </button>
+              </div>
+
+              <div className="row" style={{ marginTop: 10, alignItems: "end" }}>
+                <div className="field" style={{ flex: "1 1 280px" }}>
+                  <label className="label" htmlFor="stateSyncCombosFile">
+                    Import combos JSON
+                  </label>
+                  <input
+                    id="stateSyncCombosFile"
+                    className="input"
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      handleStateSyncCombosFile(file);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <div className="hint">Accepts a /state/sync export or top-combos.json; only optimizer combos are used.</div>
+                </div>
               </div>
 
               <div className="pillRow" style={{ marginTop: 8 }}>
@@ -10587,6 +11325,11 @@ export function App() {
                   {stateSyncUi.pushError}
                 </div>
               ) : null}
+              {stateSyncUi.importError ? (
+                <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.9)" }}>
+                  {stateSyncUi.importError}
+                </div>
+              ) : null}
 
               {stateSyncPayloadSummary ? (
                 <div className="pillRow" style={{ marginTop: 10 }}>
@@ -10598,6 +11341,7 @@ export function App() {
                     <span className="badge">Generated {fmtTimeMs(stateSyncPayloadSummary.generatedAtMs)}</span>
                   ) : null}
                   {stateSyncUi.exportedAtMs ? <span className="badge">Exported {fmtTimeMs(stateSyncUi.exportedAtMs)}</span> : null}
+                  {stateSyncUi.importedAtMs ? <span className="badge">Imported {fmtTimeMs(stateSyncUi.importedAtMs)}</span> : null}
                 </div>
               ) : (
                 <div className="hint" style={{ marginTop: 10 }}>

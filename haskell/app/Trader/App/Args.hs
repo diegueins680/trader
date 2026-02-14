@@ -17,8 +17,9 @@ module Trader.App.Args (
 ) where
 
 import Control.Applicative ((<|>))
+import Control.Monad (when)
 import Data.Char (isAlphaNum, toLower, toUpper)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Text.Read (readMaybe)
 
 import Options.Applicative
@@ -35,6 +36,7 @@ import Trader.Platform (
     platformCode,
     platformDefaultBars,
     platformIntervalsCsv,
+    platformSupportsTrading,
  )
 import Trader.Predictors.Types (
     PredictorSet,
@@ -71,6 +73,13 @@ data Args = Args
     , argOrderQuoteFraction :: Maybe Double
     , argMaxOrderQuote :: Maybe Double
     , argIdempotencyKey :: Maybe String
+    , argDexChainId :: Maybe Int
+    , argDexBaseToken :: Maybe String
+    , argDexQuoteToken :: Maybe String
+    , argDexBaseDecimals :: Maybe Int
+    , argDexQuoteDecimals :: Maybe Int
+    , argDexProtocols :: Maybe String
+    , argDexAutoApprove :: Bool
     , argNormalization :: NormType
     , argHiddenSize :: Int
     , argEpochs :: Int
@@ -102,6 +111,12 @@ data Args = Args
     , argFee :: Double
     , argSlippage :: Double
     , argSpread :: Double
+    , argFeeFixed :: Double
+    , argFeeMin :: Double
+    , argSlippageVolMult :: Double
+    , argSlippageImpact :: Double
+    , argSlippageImpactPower :: Double
+    , argSpreadVolMult :: Double
     , argIntrabarFill :: IntrabarFill
     , argStopLoss :: Maybe Double
     , argTakeProfit :: Maybe Double
@@ -128,6 +143,9 @@ data Args = Args
     , argNoTradeWindows :: [TimeWindow]
     , argMaxOpenPositions :: Maybe Int
     , argMaxOpenPerBase :: Maybe Int
+    , argMaxGrossExposure :: Maybe Double
+    , argMaxNetExposure :: Maybe Double
+    , argMaxExposurePerBase :: Maybe Double
     , argMinEdge :: Double
     , argMinSignalToNoise :: Double
     , argSnrSizeWeight :: Double
@@ -201,6 +219,7 @@ data Args = Args
     , argConfirmConformal :: Bool
     , argConfirmQuantiles :: Bool
     , argConfidenceSizing :: Bool
+    , argProtectionMinConfidence :: Double
     , argLstmConfidenceSoft :: Double
     , argLstmConfidenceHard :: Double
     , argMinPositionSize :: Double
@@ -215,9 +234,7 @@ defaultBinanceBars = 500
 
 resolveBarsForCsv :: Args -> Int
 resolveBarsForCsv args =
-    case argBars args of
-        Nothing -> 0
-        Just n -> n
+    fromMaybe 0 (argBars args)
 
 resolveBarsForBinance :: Args -> Int
 resolveBarsForBinance args =
@@ -305,7 +322,7 @@ opts = do
             ( long "platform"
                 <> value PlatformBinance
                 <> showDefaultWith platformCode
-                <> help "Exchange platform for --binance-symbol (binance|coinbase|kraken|poloniex)"
+                <> help "Exchange platform for --binance-symbol (binance|coinbase|kraken|poloniex|uniswap|curve|sushiswap|balancer|pancakeswap|1inch)"
             )
     argBinanceFutures <- switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders (Binance only)")
     argBinanceMargin <- switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance (Binance only)")
@@ -317,8 +334,8 @@ opts = do
                 <> long "binance-limit"
                 <> metavar "N|auto"
                 <> value Nothing
-                <> showDefaultWith (\mb -> maybe "auto" show mb)
-                <> help "Number of bars/klines to use (auto/0=all CSV, exchange default=500; Binance supports 2..1000)"
+                <> showDefaultWith (maybe "auto" show)
+                <> help "Number of bars/klines to use (auto/0=all CSV, exchange default depends on platform: Binance=500, Coinbase=300; Binance supports 2..1000)"
             )
     argLookbackWindow <- strOption (long "lookback-window" <> value "7d" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
     argLookbackBars <- optional (option auto (long "lookback-bars" <> long "lookback" <> help "Override lookback bars (disables --lookback-window conversion)"))
@@ -328,9 +345,9 @@ opts = do
     argCoinbaseApiKey <- optional (strOption (long "coinbase-api-key" <> help "Coinbase API key (or env COINBASE_API_KEY; Coinbase only)"))
     argCoinbaseApiSecret <- optional (strOption (long "coinbase-api-secret" <> help "Coinbase API secret (or env COINBASE_API_SECRET; Coinbase only)"))
     argCoinbaseApiPassphrase <- optional (strOption (long "coinbase-api-passphrase" <> help "Coinbase API passphrase (or env COINBASE_API_PASSPHRASE; Coinbase only)"))
-    argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance/Coinbase spot)")
+    argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance/Coinbase/DEX)")
     argBinanceLive <-
-        defaultOnSwitch
+        defaultOffSwitch
             "binance-live"
             "no-binance-live"
             "Send LIVE orders (Binance/Coinbase; Coinbase has no test endpoint)."
@@ -340,6 +357,18 @@ opts = do
     argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0 < F <= 1) when --order-quote/--order-quantity not set"))
     argMaxOrderQuote <- optional (option auto (long "max-order-quote" <> help "Cap the computed quote amount when using --order-quote-fraction"))
     argIdempotencyKey <- optional (strOption (long "idempotency-key" <> metavar "ID" <> help "Optional Binance newClientOrderId for idempotent orders"))
+    argDexChainId <- optional (option auto (long "dex-chain-id" <> help "DEX chain id for on-chain swaps (e.g., 1 for Ethereum, 56 for BSC)"))
+    argDexBaseToken <- optional (strOption (long "dex-base-token" <> metavar "TOKEN" <> help "DEX base token address or symbol (asset you buy when LONG)"))
+    argDexQuoteToken <- optional (strOption (long "dex-quote-token" <> metavar "TOKEN" <> help "DEX quote token address or symbol (asset you sell to BUY base)"))
+    argDexBaseDecimals <- optional (option auto (long "dex-base-decimals" <> help "Override base token decimals when token metadata lookup fails"))
+    argDexQuoteDecimals <- optional (option auto (long "dex-quote-decimals" <> help "Override quote token decimals when token metadata lookup fails"))
+    argDexProtocols <- optional (strOption (long "dex-protocols" <> metavar "LIST" <> help "Comma-separated 1inch protocols to restrict routing (optional)"))
+    argDexAutoApprove <-
+        defaultOnSwitch
+            "dex-auto-approve"
+            "no-dex-auto-approve"
+            "Auto-approve ERC-20 allowance for DEX swaps when needed."
+            "Do not auto-approve; fail if allowance is insufficient."
     argNormalization <- option (maybeReader parseNormType) (long "normalization" <> value NormStandard <> help "none|minmax|standard|log")
     argHiddenSize <- option auto (long "hidden-size" <> value 16 <> help "LSTM hidden size")
     argEpochs <- option auto (long "epochs" <> value 30 <> help "LSTM training epochs (Adam)")
@@ -416,11 +445,11 @@ opts = do
     argMethod <-
         option
             (eitherReader parseMethod)
-            ( long "method"
+                ( long "method"
                 <> value MethodBoth
                 <> showDefaultWith methodCode
-                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, router=adaptive model selection, 10|kalman=Kalman only, 01|lstm=LSTM only"
-            )
+                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, conf_pick=confidence winner-take-all, cost_pick=cost-aware winner-take-all, harmonic_blend=harmonic-return blend, disagreement_guard=disagreement-aware model pick, median_blend=median-robust blend, neutral_guard=neutral-on-disagreement guard, risk_parity_blend=inverse-edge risk-parity blend, consensus_boost=consensus-strength guard, anchor_blend=disagreement-aware anchor blend, tension_gate=partial-neutral conflict gate, entropy_blend=uncertainty-aware blend shrink, coherence_gate=coherence-aware conflict gate, divergence_gate=shrink blend when model returns diverge, fractal_blend=signed-root nonlinear blend, phase_cancel=anti-phase cancellation gate, softmax_blend=softmax edge-weighted blend, smooth_softmax_blend=EMA-smoothed softmax blend, net_softmax_blend=post-cost softmax edge-weighted blend, edge_blend=edge-weighted blend, edge_pick=edge winner-take-all, geo_blend=geometric blend, regime_switch=volatility/z-score model switch, router=adaptive model selection, bandit_router=UCB-style adaptive router, 10|kalman=Kalman only, 01|lstm=LSTM only"
+        )
     argPositioning <-
         option
             (eitherReader parsePositioning)
@@ -429,12 +458,18 @@ opts = do
                 <> showDefaultWith positioningCode
                 <> help "Positioning: long-flat (default), long-only/long (alias), or long-short (futures-only when trading)"
             )
-    argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
+    argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01/blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch/router/bandit_router), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
     argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
     argTradeOnly <- switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     argFee <- option auto (long "fee" <> value 0.0008 <> help "Fee applied when switching position")
     argSlippage <- option auto (long "slippage" <> value 0.0002 <> help "Slippage per side (fractional, e.g. 0.0002)")
     argSpread <- option auto (long "spread" <> value 0.0002 <> help "Bid-ask spread (fractional total; half applied per side)")
+    argFeeFixed <- option auto (long "fee-fixed" <> value 0 <> help "Fixed fee per side as a fraction of equity (0 disables)")
+    argFeeMin <- option auto (long "fee-min" <> value 0 <> help "Minimum fee per side as a fraction of equity (0 disables)")
+    argSlippageVolMult <- option auto (long "slippage-vol-mult" <> value 0 <> help "Extra slippage per-bar sigma multiple (0 disables)")
+    argSlippageImpact <- option auto (long "slippage-impact" <> value 0 <> help "Slippage impact coefficient applied to size^power (0 disables)")
+    argSlippageImpactPower <- option auto (long "slippage-impact-power" <> value 1 <> help "Exponent for slippage impact scaling (>=0)")
+    argSpreadVolMult <- option auto (long "spread-vol-mult" <> value 0 <> help "Extra spread per-bar sigma multiple (0 disables)")
     argIntrabarFill <-
         option
             (eitherReader parseIntrabarFill)
@@ -492,6 +527,9 @@ opts = do
             )
     argMaxOpenPositions <- optional (option auto (long "max-open-positions" <> help "Max open positions across all running bots (0 disables)"))
     argMaxOpenPerBase <- optional (option auto (long "max-open-per-base" <> help "Max open positions per base asset across running bots (0 disables)"))
+    argMaxGrossExposure <- optional (option auto (long "max-gross-exposure" <> help "Max gross exposure across running bots (sum of abs sizes; 0 disables)"))
+    argMaxNetExposure <- optional (option auto (long "max-net-exposure" <> help "Max net exposure across running bots (abs sum of signed sizes; 0 disables)"))
+    argMaxExposurePerBase <- optional (option auto (long "max-exposure-per-base" <> help "Max gross exposure per base asset across running bots (0 disables)"))
     argMinEdge <- option auto (long "min-edge" <> value 0.0004 <> help "Minimum predicted return magnitude required to enter (0 disables)")
     argMinSignalToNoise <- option auto (long "min-signal-to-noise" <> value 0.8 <> help "Minimum edge/vol (per-bar sigma) required to enter (0 disables)")
     argSnrSizeWeight <-
@@ -580,8 +618,8 @@ opts = do
     argFundingRate <- option auto (long "funding-rate" <> long "financing-rate" <> value 0.1 <> showDefault <> help "Annualized funding/borrow rate applied per bar in backtests (fraction; negative allowed; side-agnostic unless --funding-by-side)")
     argFundingBySide <- switch (long "funding-by-side" <> help "Apply funding sign by side (long pays positive, short receives)")
     argFundingOnOpen <- switch (long "funding-on-open" <> help "Charge funding for bars opened with a position (even if exited intrabar)")
-    argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend (0..1)")
-    argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router scoring (>= 2)")
+    argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch (0..1)")
+    argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router/bandit_router scoring (>= 2)")
     argRouterMinScore <- option auto (long "router-min-score" <> value 0.25 <> help "Minimum router score (blend of accuracy*coverage and return) to accept a model (0..1)")
     argRouterScorePnlWeight <-
         option
@@ -639,6 +677,14 @@ opts = do
             "no-confidence-sizing"
             "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled (default on)."
             "Disable confidence sizing for entries."
+    argProtectionMinConfidence <-
+        option
+            auto
+            ( long "protection-min-confidence"
+                <> value 0
+                <> showDefault
+                <> help "Min confidence required to place exchange protection orders (stop-loss / take-profit) when enabled (0 disables)."
+            )
     argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (linear ramp to --lstm-confidence-hard; requires --confidence-sizing)")
     argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
     argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "Minimum entry size after sizing/vol scaling; skip if below this (0..1)")
@@ -651,7 +697,7 @@ opts = do
 argBinanceMarket :: Args -> BinanceMarket
 argBinanceMarket args =
     case (argBinanceFutures args, argBinanceMargin args) of
-        (True, True) -> error "Choose only one of --futures or --margin"
+        (True, True) -> MarketSpot
         (True, False) -> MarketFutures
         (False, True) -> MarketMargin
         (False, False) -> MarketSpot
@@ -660,32 +706,32 @@ argLookback :: Args -> Int
 argLookback args =
     case argLookbackBars args of
         Just n ->
-            if n < 2
-                then error "--lookback-bars must be >= 2"
-                else n
+            max 2 n
         Nothing ->
             case lookbackBarsFrom (argInterval args) (argLookbackWindow args) of
-                Left err -> error err
+                Left _ -> 2
                 Right n ->
-                    if n < 2
-                        then
-                            error
-                                ( "Lookback window too small: "
-                                    ++ show (argLookbackWindow args)
-                                    ++ " at interval "
-                                    ++ show (argInterval args)
-                                    ++ " yields "
-                                    ++ show n
-                                    ++ " bars; need at least 2 bars."
-                                )
-                        else n
+                    max 2 n
 
 validateArgs :: Args -> Either String Args
 validateArgs args0 = do
+    let isDexPlatform p =
+            case p of
+                PlatformUniswap -> True
+                PlatformCurve -> True
+                PlatformSushiswap -> True
+                PlatformBalancer -> True
+                PlatformPancakeswap -> True
+                PlatformOneInch -> True
+                _ -> False
+        symbolNormalizer =
+            if isDexPlatform (argPlatform args0)
+                then trim
+                else map toUpper . trim
     let args =
             args0
                 { argData = fmap trim (argData args0)
-                , argBinanceSymbol = fmap (map toUpper . trim) (argBinanceSymbol args0)
+                , argBinanceSymbol = fmap symbolNormalizer (argBinanceSymbol args0)
                 , argInterval = trim (argInterval args0)
                 , argPriceCol = trim (argPriceCol args0)
                 , argHighCol = fmap trim (argHighCol args0)
@@ -698,7 +744,10 @@ validateArgs args0 = do
     case argBinanceSymbol args of
         Just "" -> Left "--binance-symbol cannot be empty"
         _ -> pure ()
-    ensure "Provide only one of --data or --binance-symbol" (not (present (argData args) && present (argBinanceSymbol args)))
+    let isDex = isDexPlatform (argPlatform args)
+    ensure
+        "Provide only one of --data or --binance-symbol (unless using a DEX platform with --data)"
+        (not (present (argData args) && present (argBinanceSymbol args) && not isDex))
     ensure
         "Provide a data source: --data or --binance-symbol (unless using --serve or --ops-backfill-commits)"
         (argServe args || argOpsBackfillCommits args || present (argData args) || present (argBinanceSymbol args))
@@ -708,11 +757,16 @@ validateArgs args0 = do
     ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)
     let isBinance = argPlatform args == PlatformBinance
         isCoinbase = argPlatform args == PlatformCoinbase
-        supportsTrading = isBinance || isCoinbase
+        supportsTrading = platformSupportsTrading (argPlatform args)
+        supportsLiveMode = isBinance || isCoinbase
+        hasDexTokens = isJust (argDexBaseToken args) && isJust (argDexQuoteToken args)
     ensure "--futures/--margin are only supported on Binance" (isBinance || not (argBinanceFutures args || argBinanceMargin args))
     ensure "--binance-testnet is only supported on Binance" (isBinance || not (argBinanceTestnet args))
-    ensure "--binance-live is only supported on Binance/Coinbase" (supportsTrading || not (argBinanceLive args))
-    ensure "--binance-trade is only supported on Binance/Coinbase" (supportsTrading || not (argBinanceTrade args))
+    ensure "--binance-live is only supported on Binance/Coinbase" (supportsLiveMode || not (argBinanceLive args))
+    ensure "--binance-trade is only supported on trading platforms" (supportsTrading || not (argBinanceTrade args))
+    ensure
+        "--binance-trade requires --symbol/--binance-symbol (or --dex-base-token/--dex-quote-token for DEX platforms)"
+        (not (argBinanceTrade args) || present (argBinanceSymbol args) || (isDex && hasDexTokens))
 
     case argHighCol args of
         Nothing -> pure ()
@@ -777,17 +831,15 @@ validateArgs args0 = do
             case argBinanceSymbol args of
                 Just _ -> barsPlatform
                 Nothing -> barsCsv
-    if hasDataSource && barsForLookback > 0
-        then
-            ensure
-                ( "--bars must be >= lookback+1 (need at least "
-                    ++ show (lookback + 1)
-                    ++ " bars for lookback="
-                    ++ show lookback
-                    ++ ")"
-                )
-                (barsForLookback > lookback)
-        else pure ()
+    when (hasDataSource && barsForLookback > 0) $
+        ensure
+            ( "--bars must be >= lookback+1 (need at least "
+                ++ show (lookback + 1)
+                ++ " bars for lookback="
+                ++ show lookback
+                ++ ")"
+            )
+            (barsForLookback > lookback)
 
     ensure "--hidden-size must be >= 1" (argHiddenSize args >= 1)
     ensure "--epochs must be >= 0" (argEpochs args >= 0)
@@ -812,14 +864,20 @@ validateArgs args0 = do
     ensure "--router-lookback must be >= 2" (argRouterLookback args >= 2)
     ensure "--router-min-score must be between 0 and 1" (argRouterMinScore args >= 0 && argRouterMinScore args <= 1)
     ensure "--router-score-pnl-weight must be between 0 and 1" (argRouterScorePnlWeight args >= 0 && argRouterScorePnlWeight args <= 1)
-    ensure "--method router cannot be used with --optimize-operations/--sweep-threshold" $
+    ensure "--method router/bandit_router cannot be used with --optimize-operations/--sweep-threshold" $
         not
-            ( argMethod args == MethodRouter
+            ( (argMethod args == MethodRouter || argMethod args == MethodBanditRouter)
                 && (argOptimizeOperations args || argSweepThreshold args)
             )
     ensure "--fee must be >= 0" (argFee args >= 0)
     ensure "--slippage must be >= 0" (argSlippage args >= 0)
     ensure "--spread must be >= 0" (argSpread args >= 0)
+    ensure "--fee-fixed must be >= 0" (argFeeFixed args >= 0)
+    ensure "--fee-min must be >= 0" (argFeeMin args >= 0)
+    ensure "--slippage-vol-mult must be >= 0" (argSlippageVolMult args >= 0)
+    ensure "--slippage-impact must be >= 0" (argSlippageImpact args >= 0)
+    ensure "--slippage-impact-power must be >= 0" (argSlippageImpactPower args >= 0)
+    ensure "--spread-vol-mult must be >= 0" (argSpreadVolMult args >= 0)
     case argStopLoss args of
         Nothing -> pure ()
         Just v -> ensure "--stop-loss must be > 0 and < 1" (v > 0 && v < 1)
@@ -880,6 +938,15 @@ validateArgs args0 = do
     case argMaxOpenPerBase args of
         Nothing -> pure ()
         Just n -> ensure "--max-open-per-base must be >= 0" (n >= 0)
+    case argMaxGrossExposure args of
+        Nothing -> pure ()
+        Just v -> ensure "--max-gross-exposure must be >= 0" (v >= 0)
+    case argMaxNetExposure args of
+        Nothing -> pure ()
+        Just v -> ensure "--max-net-exposure must be >= 0" (v >= 0)
+    case argMaxExposurePerBase args of
+        Nothing -> pure ()
+        Just v -> ensure "--max-exposure-per-base must be >= 0" (v >= 0)
     ensure "--min-edge must be >= 0" (argMinEdge args >= 0)
     ensure "--min-signal-to-noise must be >= 0" (argMinSignalToNoise args >= 0)
     ensure "--snr-size-weight must be between 0 and 1" (argSnrSizeWeight args >= 0 && argSnrSizeWeight args <= 1)
@@ -935,6 +1002,7 @@ validateArgs args0 = do
     ensure "--lstm-exit-flip-grace-bars must be >= 0" (argLstmExitFlipGraceBars args >= 0)
     ensure "--lstm-confidence-soft must be between 0 and 1" (argLstmConfidenceSoft args >= 0 && argLstmConfidenceSoft args <= 1)
     ensure "--lstm-confidence-hard must be between 0 and 1" (argLstmConfidenceHard args >= 0 && argLstmConfidenceHard args <= 1)
+    ensure "--protection-min-confidence must be between 0 and 1" (argProtectionMinConfidence args >= 0 && argProtectionMinConfidence args <= 1)
     ensure
         "--lstm-confidence-soft must be <= --lstm-confidence-hard (unless hard=0 to disable)"
         (argLstmConfidenceHard args <= 0 || argLstmConfidenceSoft args <= argLstmConfidenceHard args)
@@ -968,7 +1036,6 @@ validateArgs args0 = do
         Just q | q > 0 -> ensure "--max-order-quote requires --order-quote-fraction" fracOn
         _ -> pure ()
 
-    ensure "--binance-trade requires --binance-symbol" (not (argBinanceTrade args && argBinanceSymbol args == Nothing))
     let market = argBinanceMarket args
     ensure "--positioning long-short requires --futures when trading" (not (argBinanceTrade args && argPositioning args == LongShort && market /= MarketFutures))
     ensure
@@ -982,6 +1049,15 @@ validateArgs args0 = do
                 okLen = not (null k) && length k <= 36
                 okChars = all (\c -> isAlphaNum c || c == '-' || c == '_') k
              in ensure "--idempotency-key must be 1..36 chars of [A-Za-z0-9_-]" (okLen && okChars)
+    case argDexChainId args of
+        Nothing -> pure ()
+        Just cid -> ensure "--dex-chain-id must be > 0" (cid > 0)
+    case argDexBaseDecimals args of
+        Nothing -> pure ()
+        Just d -> ensure "--dex-base-decimals must be >= 0" (d >= 0)
+    case argDexQuoteDecimals args of
+        Nothing -> pure ()
+        Just d -> ensure "--dex-quote-decimals must be >= 0" (d >= 0)
 
     ensure "--kalman-z-min must be >= 0" (argKalmanZMin args >= 0)
     ensure "--kalman-z-max must be >= --kalman-z-min" (argKalmanZMax args >= argKalmanZMin args)

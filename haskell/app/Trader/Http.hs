@@ -94,27 +94,37 @@ httpLbsWithRetry cfg mLabel mgr req0 = go 0
         let latencyMs = max 0 (fromIntegral (t1 - t0) :: Int)
         case respOrErr of
             Left ex ->
-                case shouldRetryException cfg req attempt of
-                    False -> do
-                        logHttpAttempt labelTxt methodBs hostBs pathBs (Left ex) latencyMs attempt False
-                        throwIO ex
-                    True -> do
-                        delayMs <- computeDelay cfg attempt Nothing
-                        logHttpAttempt labelTxt methodBs hostBs pathBs (Left ex) latencyMs attempt True
-                        sleepMs delayMs
-                        go (attempt + 1)
+                ( if shouldRetryException cfg req attempt
+                    then
+                        ( do
+                            delayMs <- computeDelay cfg attempt Nothing
+                            logHttpAttempt labelTxt methodBs hostBs pathBs (Left ex) latencyMs attempt True
+                            sleepMs delayMs
+                            go (attempt + 1)
+                        )
+                    else
+                        ( do
+                            logHttpAttempt labelTxt methodBs hostBs pathBs (Left ex) latencyMs attempt False
+                            throwIO ex
+                        )
+                )
             Right resp -> do
                 let code = statusCode (responseStatus resp)
                     retryable = shouldRetryStatus cfg req code attempt
-                case retryable of
-                    False -> do
-                        logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt False
-                        pure resp
-                    True -> do
-                        delayMs <- computeDelay cfg attempt (retryAfterMs resp)
-                        logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt True
-                        sleepMs delayMs
-                        go (attempt + 1)
+                ( if retryable
+                        then
+                            ( do
+                                delayMs <- computeDelay cfg attempt (retryAfterMs resp)
+                                logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt True
+                                sleepMs delayMs
+                                go (attempt + 1)
+                            )
+                        else
+                            ( do
+                                logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt False
+                                pure resp
+                            )
+                    )
 
 shouldRetryException :: RetryConfig -> Request -> Int -> Bool
 shouldRetryException cfg req attempt =
@@ -209,15 +219,14 @@ rateLimitMsForHost host =
                 if "coinbase" `isInfixOf` h
                     then 150
                     else
-                        if "kraken" `isInfixOf` h
+                        ( if ("kraken" `isInfixOf` h) || ("poloniex" `isInfixOf` h)
                             then 200
                             else
-                                if "poloniex" `isInfixOf` h
-                                    then 200
-                                    else
-                                        if ".s3." `isInfixOf` h
-                                            then 50
-                                            else 0
+                                ( if ".s3." `isInfixOf` h
+                                    then 50
+                                    else 0
+                                )
+                        )
 
 {-# NOINLINE httpLogFlag #-}
 httpLogFlag :: IORef (Maybe Bool)
@@ -321,25 +330,19 @@ readEnvInt :: String -> Int -> IO Int
 readEnvInt key fallback = do
     raw <- lookupEnv key
     pure $
-        case raw >>= readMaybe of
-            Just v -> v
-            Nothing -> fallback
+        fromMaybe fallback (raw >>= readMaybe)
 
 readEnvDouble :: String -> Double -> IO Double
 readEnvDouble key fallback = do
     raw <- lookupEnv key
     pure $
-        case raw >>= readMaybe of
-            Just v -> v
-            Nothing -> fallback
+        fromMaybe fallback (raw >>= readMaybe)
 
 readEnvBool :: String -> Bool -> IO Bool
 readEnvBool key fallback = do
     raw <- lookupEnv key
     pure $
-        case raw of
-            Nothing -> fallback
-            Just v -> isTruthy v
+        maybe fallback isTruthy raw
 
 clampDouble :: Double -> Double -> Double -> Double
 clampDouble lo hi v = max lo (min hi v)

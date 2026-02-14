@@ -40,7 +40,8 @@ The script will:
 3. ✅ Push to ECR
 4. ✅ Create (or reuse) the App Runner ECR access IAM role
 5. ✅ Create/update App Runner service (single-instance)
-6. ✅ Return the public API URL
+6. ✅ Enable multi-user mode (`TRADER_MULTI_USER=true`)
+7. ✅ Return the public API URL
 
 With `--ensure-resources`, it also creates or reuses the state S3 bucket and App Runner instance role (and `--cloudfront` will create or reuse the UI bucket + CloudFront distribution).
 
@@ -94,6 +95,8 @@ aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
 # Build
+# If ECR push fails with `403 Forbidden` on `HEAD .../manifests/sha256:...`, add `ecr:BatchGetImage`
+# to your deploy IAM policy or disable Docker attestations (example: `docker build --provenance=false --sbom=false ...`).
 docker build -t "${ECR_REPO}:latest" .
 
 # Tag
@@ -112,6 +115,7 @@ docker push "${ECR_URI}:latest"
    ```
    TRADER_API_TOKEN=<your-api-token>
    TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require
+   TRADER_MULTI_USER=true
    TRADER_STATE_DIR=/var/lib/trader/state
    TRADER_STATE_S3_BUCKET=<s3-bucket>
    TRADER_STATE_S3_PREFIX=trader

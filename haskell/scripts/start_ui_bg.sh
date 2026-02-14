@@ -13,10 +13,41 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 TRADER_API_TARGET="${TRADER_API_TARGET:-http://127.0.0.1:8080}"
-TRADER_UI_PORT="${TRADER_UI_PORT:-5173}"
+TRADER_API_LOG_FILE="${TRADER_API_LOG_FILE:-/tmp/trader-api.log}"
+TRADER_UI_PORT="${TRADER_UI_PORT:-5174}"
 TRADER_UI_HOST="${TRADER_UI_HOST:-127.0.0.1}"
 TRADER_UI_LOG_FILE="${TRADER_UI_LOG_FILE:-/tmp/trader-ui.log}"
 TRADER_UI_WAIT_TIMEOUT_SEC="${TRADER_UI_WAIT_TIMEOUT_SEC:-30}"
+
+api_port_from_target() {
+  local target="$1"
+  local port="${target##*:}"
+  case "$port" in
+    '' | *[!0-9]*)
+      return 0
+      ;;
+    *)
+      echo "$port"
+      ;;
+  esac
+}
+
+report_api_debug() {
+  local port
+  port="$(api_port_from_target "${TRADER_API_TARGET}")"
+  if [ -n "${port}" ] && command -v lsof >/dev/null 2>&1; then
+    if lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "NOTE: Port ${port} is listening, but /health did not respond."
+    else
+      echo "NOTE: No process is listening on port ${port}."
+    fi
+  fi
+
+  if [ -f "${TRADER_API_LOG_FILE}" ]; then
+    echo "Last 20 lines of ${TRADER_API_LOG_FILE}:"
+    tail -n 20 "${TRADER_API_LOG_FILE}" || true
+  fi
+}
 
 wait_for_api() {
   local start
@@ -38,6 +69,7 @@ wait_for_api() {
 
 if ! wait_for_api; then
   echo "WARN: API not reachable at ${TRADER_API_TARGET}/health after ${TRADER_UI_WAIT_TIMEOUT_SEC}s. Starting UI anyway."
+  report_api_debug
 fi
 
 cd "$WEB_DIR"

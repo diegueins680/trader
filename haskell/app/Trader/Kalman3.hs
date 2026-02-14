@@ -111,42 +111,41 @@ step z k =
 State: [position, velocity, acceleration]
 -}
 constantAcceleration1D :: Double -> Double -> Double -> Double -> Kalman3
-constantAcceleration1D dt processVar measurementVar initialPosition
-    | dt <= 0 = error "dt must be > 0"
-    | processVar < 0 = error "processVar must be >= 0"
-    | measurementVar <= 0 = error "measurementVar must be > 0"
-    | otherwise =
-        let dt2 = dt * dt
-            dt3 = dt2 * dt
-            dt4 = dt2 * dt2
-            dt5 = dt4 * dt
-            f =
+constantAcceleration1D dt processVar measurementVar initialPosition =
+    let dtSafe = max 1e-6 dt
+        processVarSafe = max 0 processVar
+        measVarSafe = max 1e-12 measurementVar
+        dt2 = dtSafe * dtSafe
+        dt3 = dt2 * dtSafe
+        dt4 = dt2 * dt2
+        dt5 = dt4 * dtSafe
+        f =
+            mat3
+                1
+                dtSafe
+                (0.5 * dt2)
+                0
+                1
+                dtSafe
+                0
+                0
+                1
+        q =
+            matScale processVarSafe $
                 mat3
-                    1
-                    dt
-                    (0.5 * dt2)
-                    0
-                    1
-                    dt
-                    0
-                    0
-                    1
-            q =
-                matScale processVar $
-                    mat3
-                        (dt5 / 20)
-                        (dt4 / 8)
-                        (dt3 / 6)
-                        (dt4 / 8)
-                        (dt3 / 3)
-                        (dt2 / 2)
-                        (dt3 / 6)
-                        (dt2 / 2)
-                        dt
-            h = Vec3 1 0 0
-            x0 = Vec3 initialPosition 0 0
-            p0 = identity3
-         in Kalman3{kF = f, kH = h, kQ = q, kR = measurementVar, kx = x0, kP = p0}
+                    (dt5 / 20)
+                    (dt4 / 8)
+                    (dt3 / 6)
+                    (dt4 / 8)
+                    (dt3 / 3)
+                    (dt2 / 2)
+                    (dt3 / 6)
+                    (dt2 / 2)
+                    dtSafe
+        h = Vec3 1 0 0
+        x0 = Vec3 initialPosition 0 0
+        p0 = identity3
+     in Kalman3{kF = f, kH = h, kQ = q, kR = measVarSafe, kx = x0, kP = p0}
 
 data KalmanRun = KalmanRun
     { krPredicted :: [Double] -- length n-1
@@ -163,8 +162,8 @@ data KalmanRunV = KalmanRunV
 runConstantAcceleration1D :: Double -> Double -> Double -> [Double] -> KalmanRun
 runConstantAcceleration1D dt processVar measurementVar values =
     case values of
-        [] -> error "Need at least 2 values"
-        [_] -> error "Need at least 2 values"
+        [] -> KalmanRun{krPredicted = [], krFiltered = []}
+        [x0] -> KalmanRun{krPredicted = [], krFiltered = [x0]}
         (x0 : xs) ->
             let k0 = constantAcceleration1D dt processVar measurementVar x0
                 stepFn (k, preds, filts) z =
@@ -177,34 +176,37 @@ runConstantAcceleration1D dt processVar measurementVar values =
 runConstantAcceleration1DVec :: Double -> Double -> Double -> V.Vector Double -> KalmanRunV
 runConstantAcceleration1DVec dt processVar measurementVar valuesV =
     let n = V.length valuesV
-     in if n < 2
-            then error "Need at least 2 values"
-            else runST $ do
-                preds <- MV.new (n - 1)
-                filts <- MV.new n
-                let x0 = valuesV V.! 0
-                    k0 = constantAcceleration1D dt processVar measurementVar x0
-                MV.write filts 0 x0
-                let go i k =
-                        if i >= n
-                            then pure ()
-                            else do
-                                let z = valuesV V.! i
-                                    (pred, k') = step z k
-                                    Vec3 pos _ _ = kx k'
-                                MV.write preds (i - 1) pred
-                                MV.write filts i pos
-                                go (i + 1) k'
-                go 1 k0
-                predsV <- V.unsafeFreeze preds
-                filtsV <- V.unsafeFreeze filts
-                pure KalmanRunV{krPredictedV = predsV, krFilteredV = filtsV}
+     in if n <= 0
+            then KalmanRunV{krPredictedV = V.empty, krFilteredV = V.empty}
+            else
+                if n == 1
+                    then KalmanRunV{krPredictedV = V.empty, krFilteredV = valuesV}
+                    else runST $ do
+                        preds <- MV.new (n - 1)
+                        filts <- MV.new n
+                        let x0 = valuesV V.! 0
+                            k0 = constantAcceleration1D dt processVar measurementVar x0
+                        MV.write filts 0 x0
+                        let go i k =
+                                if i >= n
+                                    then pure ()
+                                    else do
+                                        let z = valuesV V.! i
+                                            (pred, k') = step z k
+                                            Vec3 pos _ _ = kx k'
+                                        MV.write preds (i - 1) pred
+                                        MV.write filts i pos
+                                        go (i + 1) k'
+                        go 1 k0
+                        predsV <- V.unsafeFreeze preds
+                        filtsV <- V.unsafeFreeze filts
+                        pure KalmanRunV{krPredictedV = predsV, krFilteredV = filtsV}
 
 forecastNextConstantAcceleration1D :: Double -> Double -> Double -> [Double] -> Double
 forecastNextConstantAcceleration1D dt processVar measurementVar values =
     case values of
-        [] -> error "Need at least 2 values"
-        [_] -> error "Need at least 2 values"
+        [] -> 0
+        [x0] -> x0
         (x0 : xs) ->
             let k0 = constantAcceleration1D dt processVar measurementVar x0
                 kFinal = foldl' (\k z -> snd (step z k)) k0 xs

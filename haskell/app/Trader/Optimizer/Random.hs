@@ -76,13 +76,17 @@ nextUniform lo hi rng =
      in (lo + (hi - lo) * r, rng')
 
 nextLogUniform :: Double -> Double -> Rng -> (Double, Rng)
-nextLogUniform lo hi rng
-    | lo <= 0 || hi <= 0 || hi < lo =
-        error "log_uniform requires 0 < lo <= hi"
-    | lo == hi = (lo, rng)
-    | otherwise =
-        let (r, rng') = nextUniform (log lo) (log hi) rng
-         in (exp r, rng')
+nextLogUniform lo hi rng =
+    let lo0 = min lo hi
+        hi0 = max lo hi
+        minPos = 1e-12
+        lo' = max minPos lo0
+        hi' = max minPos hi0
+     in if lo' == hi'
+            then (lo', rng)
+            else
+                let (r, rng') = nextUniform (log lo') (log hi') rng
+                 in (exp r, rng')
 
 nextMaybe :: Double -> (Rng -> (a, Rng)) -> Rng -> (Maybe a, Rng)
 nextMaybe pNone sampler rng
@@ -116,7 +120,7 @@ nextChoice xs rng =
 
 randBelow :: Word64 -> Rng -> (Word64, Rng)
 randBelow n rng
-    | n <= 0 = error "randBelow: n must be > 0"
+    | n <= 0 = (0, rng)
     | otherwise =
         let k = bitLength n
          in go k rng
