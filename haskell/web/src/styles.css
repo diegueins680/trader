@@ -2612,6 +2612,8 @@ body.panelMaximized .cardMaximized {
   background: linear-gradient(90deg, rgba(245, 158, 11, 0.92), rgba(251, 191, 36, 0.72));
 }
 
+
+
 .btLegendEquity {
   background: linear-gradient(90deg, rgba(var(--accent-alt-rgb), 0.85), rgba(255, 255, 255, 0.68));
 }
@@ -2766,5 +2768,91 @@ body.panelMaximized .cardMaximized {
 
   .sectionFlash {
     animation: none;
+  }
+}
+
+
+.botPanel {
+  position: fixed;
+  right: 18px;
+  top: 92px;
+  width: min(320px, calc(100% - 36px));
+  max-height: calc(100vh - 120px);
+  z-index: 40;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.botPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.botPanelTitle {
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.botPanelStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.botPanelBadges {
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.botPanelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.botPanel .kv {
+  grid-template-columns: 96px 1fr;
+  padding: 6px 0;
+}
+
+.botPanel .k {
+  font-size: 11px;
+}
+
+.botPanel .v {
+  font-size: 12px;
+}
+
+.botPanelEvent {
+  line-height: 1.35;
+}
+
+.botPanelAlert {
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+  color: rgba(239, 68, 68, 0.9);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-width: 980px) {
+  .botPanel {
+    top: 72px;
+    right: 12px;
   }
 }

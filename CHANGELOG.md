@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - Dev: add `haskell/scripts/start_ui_bg.sh` helper to wait for API health before starting the UI dev server.
 - ListenKey: add retry/backoff for listenKey create/keepAlive to reduce transient timeouts.
 - ListenKey: auto-expire user-data streams when Binance returns `-1125` so the UI can restart cleanly after idle/expired listen keys.
+- Trading/Backtests: apply bracket exits using candle high/low (intrabar) for stop loss / trailing stop / take profit, and track per-bar positions after intrabar exits.
 - Dev: `start_api_bg.sh` now defaults `TRADER_API_BIND_HOST` to `127.0.0.1` for local stability.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
 - Dev: add `haskell/scripts/run_api_with_db.sh` helper to start the API with local Postgres persistence.
@@ -35,6 +36,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: Binance listenKey stream uses a direct fallback API base when configured to avoid CDN streaming errors.
 - Web UI: allow /api proxy requests to retry the configured direct fallback even if it was previously blocked.
 - Web UI: auto-reconnect Binance listenKey streams with backoff after unexpected disconnects.
+- Web UI: add a bot activity side panel, guard backtest runs when ratios leave too few bars, and auto-restart the listenKey stream when the backend reports it is not running.
 - Web UI: fix layout reset toast initialization order to avoid a startup crash.
 - Web UI: ignore cross-origin fallbacks when `apiBaseUrl` is `/api` so proxy mode does not loop into CORS errors (use direct API mode for cross-origin failover).
 - Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.

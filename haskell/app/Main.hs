@@ -7203,6 +7203,18 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
     let prevPrice = pricesPrev V.! (nPrev - 1)
         prevEq = botEquityCurve st V.! (nPrev - 1)
         prevPos = botPositions st V.! (nPrev - 1)
+        barHigh0 = kHigh k
+        barLow0 = kLow k
+        barHigh1 =
+            if isNaN barHigh0 || isInfinite barHigh0
+                then priceNew
+                else barHigh0
+        barLow1 =
+            if isNaN barLow0 || isInfinite barLow0
+                then priceNew
+                else barLow0
+        barHigh = max priceNew (max barHigh1 barLow1)
+        barLow = min priceNew (min barHigh1 barLow1)
         prevSize =
             case botOpenTrade st of
                 Just ot | prevPos /= 0 -> max 0 (botOpenSize ot)
@@ -7236,8 +7248,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             else
                                 let trail1 =
                                         case side of
-                                            SideLong -> max (botOpenTrail ot) priceNew
-                                            SideShort -> min (botOpenTrail ot) priceNew
+                                            SideLong -> max (botOpenTrail ot) barHigh
+                                            SideShort -> min (botOpenTrail ot) barLow
                                  in Just
                                         ot
                                             { botOpenHoldingPeriods = botOpenHoldingPeriods ot + 1
@@ -7463,59 +7475,87 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                         _ -> Nothing
 
         bracketExitReason side entryPx trail =
-            let (tpHit, stopHit, stopWhy) =
-                    case side of
-                        SideLong ->
-                            let mTp =
-                                    case takeProfit0 of
-                                        Just tp -> Just (entryPx * (1 + tp))
-                                        Nothing -> Nothing
-                                mSl =
-                                    case stopLoss0 of
-                                        Just sl -> Just (entryPx * (1 - sl))
-                                        Nothing -> Nothing
-                                mTs =
+            case side of
+                SideLong ->
+                    let mTp =
+                            case takeProfit0 of
+                                Just tp -> Just (entryPx * (1 + tp))
+                                Nothing -> Nothing
+                        mSl =
+                            case stopLoss0 of
+                                Just sl -> Just (entryPx * (1 - sl))
+                                Nothing -> Nothing
+                        stopPx trailHigh0 =
+                            let mTs =
                                     case trailingStop0 of
-                                        Just ts -> Just (trail * (1 - ts))
+                                        Just ts -> Just (trailHigh0 * (1 - ts))
                                         Nothing -> Nothing
-                                (mStop, why) =
-                                    case (mSl, mTs) of
-                                        (Nothing, Nothing) -> (Nothing, Nothing)
-                                        (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
-                                        (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
-                                        (Just slPx, Just tsPx) ->
-                                            if tsPx > slPx
-                                                then (Just tsPx, Just "TRAILING_STOP")
-                                                else (Just slPx, Just "STOP_LOSS")
-                                tpOk = maybe False (\tpPx -> priceNew >= tpPx) mTp
-                                stopOk = maybe False (\stPx -> priceNew <= stPx) mStop
-                             in (tpOk, stopOk, why)
-                        SideShort ->
-                            let mTp =
-                                    case takeProfit0 of
-                                        Just tp -> Just (entryPx * (1 - tp))
-                                        Nothing -> Nothing
-                                mSl =
-                                    case stopLoss0 of
-                                        Just sl -> Just (entryPx * (1 + sl))
-                                        Nothing -> Nothing
-                                mTs =
+                             in case (mSl, mTs) of
+                                    (Nothing, Nothing) -> (Nothing, Nothing)
+                                    (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                                    (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                                    (Just slPx, Just tsPx) ->
+                                        if tsPx > slPx
+                                            then (Just tsPx, Just "TRAILING_STOP")
+                                            else (Just slPx, Just "STOP_LOSS")
+                        tpHit = maybe False (\tpPx -> barHigh >= tpPx) mTp
+                     in case argIntrabarFill args of
+                            StopFirst ->
+                                let (mStop, stopWhy) = stopPx trail
+                                    stopHit = maybe False (\stPx -> barLow <= stPx) mStop
+                                 in if stopHit
+                                        then stopWhy
+                                        else if tpHit
+                                            then Just "TAKE_PROFIT"
+                                            else Nothing
+                            TakeProfitFirst ->
+                                if tpHit
+                                    then Just "TAKE_PROFIT"
+                                    else
+                                        let trailHigh1 = max trail barHigh
+                                            (mStop, stopWhy) = stopPx trailHigh1
+                                            stopHit = maybe False (\stPx -> barLow <= stPx) mStop
+                                         in if stopHit then stopWhy else Nothing
+                SideShort ->
+                    let mTp =
+                            case takeProfit0 of
+                                Just tp -> Just (entryPx * (1 - tp))
+                                Nothing -> Nothing
+                        mSl =
+                            case stopLoss0 of
+                                Just sl -> Just (entryPx * (1 + sl))
+                                Nothing -> Nothing
+                        stopPx trailLow0 =
+                            let mTs =
                                     case trailingStop0 of
-                                        Just ts -> Just (trail * (1 + ts))
+                                        Just ts -> Just (trailLow0 * (1 + ts))
                                         Nothing -> Nothing
-                                (mStop, why) =
-                                    case (mSl, mTs) of
-                                        (Nothing, Nothing) -> (Nothing, Nothing)
-                                        (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
-                                        (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
-                                        (Just slPx, Just tsPx) ->
-                                            if tsPx < slPx
-                                                then (Just tsPx, Just "TRAILING_STOP")
-                                                else (Just slPx, Just "STOP_LOSS")
-                                tpOk = maybe False (\tpPx -> priceNew <= tpPx) mTp
-                                stopOk = maybe False (\stPx -> priceNew >= stPx) mStop
-                             in (tpOk, stopOk, why)
-             in if tpHit then Just "TAKE_PROFIT" else if stopHit then stopWhy else Nothing
+                             in case (mSl, mTs) of
+                                    (Nothing, Nothing) -> (Nothing, Nothing)
+                                    (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                                    (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                                    (Just slPx, Just tsPx) ->
+                                        if tsPx < slPx
+                                            then (Just tsPx, Just "TRAILING_STOP")
+                                            else (Just slPx, Just "STOP_LOSS")
+                        tpHit = maybe False (\tpPx -> barLow <= tpPx) mTp
+                     in case argIntrabarFill args of
+                            StopFirst ->
+                                let (mStop, stopWhy) = stopPx trail
+                                    stopHit = maybe False (\stPx -> barHigh >= stPx) mStop
+                                 in if stopHit
+                                        then stopWhy
+                                        else if tpHit
+                                            then Just "TAKE_PROFIT"
+                                            else Nothing
+                            TakeProfitFirst ->
+                                if tpHit
+                                    then Just "TAKE_PROFIT"
+                                    else
+                                        let trailLow1 = min trail barLow
+                                            (mStop, stopWhy) = stopPx trailLow1
+                                            stopHit = maybe False (\stPx -> barHigh >= stPx) mStop
+                                         in if stopHit then stopWhy else Nothing
 
         mBracketExit =
             case openTrade1 of
@@ -17103,7 +17143,6 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsAgreementOk = brAgreementOk backtest
             , bsTrades = brTrades backtest
             }
-
 computeBaselines :: Double -> Double -> [Double] -> [Baseline]
 computeBaselines periodsPerYear perSideCost prices =
     let ppy = max 1e-12 periodsPerYear
