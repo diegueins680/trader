@@ -73,6 +73,8 @@ docker tag "${ECR_REPO}:latest" "${ECR_URI}:latest"
 docker push "${ECR_URI}:latest"
 ```
 
+If `docker push` fails with `403 Forbidden` (often on a `HEAD .../manifests/<tag>` request), the AWS role/user can authenticate but is missing ECR repository permissions (commonly `ecr:BatchGetImage` / `ecr:GetDownloadUrlForLayer`, and/or `ecr:PutImage`).
+
 ### 3) Create the App Runner service
 
 - AWS Console → **App Runner** → **Create service**

@@ -1289,13 +1289,90 @@ create_ecr_repo() {
   ECR_URI="$ecr_uri"
 }
 
+# Check that the current AWS principal can read/push to the target ECR repo.
+# `docker push` begins with a registry `HEAD /manifests/<tag>`, which maps to `ecr:BatchGetImage`.
+check_ecr_push_permissions() {
+  local repo="$1"
+  local region="$2"
+
+  # We only care about authorization. Use a tag that should not exist to avoid
+  # depending on the presence of any real image tag.
+  local tag="__trader_ecr_permission_check__"
+
+  local err=""
+  if ! err="$(
+    aws ecr batch-get-image \
+      --region "$region" \
+      --repository-name "$repo" \
+      --image-ids "imageTag=${tag}" \
+      2>&1 >/dev/null
+  )"; then
+    local account_id=""
+    account_id="$(get_account_id 2>/dev/null || true)"
+    local principal_arn=""
+    principal_arn="$(
+      aws sts get-caller-identity \
+        --region "$region" \
+        --query Arn \
+        --output text 2>/dev/null || true
+    )"
+
+    echo -e "${RED}✗ ECR permission check failed (ecr:BatchGetImage)${NC}" >&2
+    if [[ -n "$principal_arn" ]]; then
+      echo "AWS principal: ${principal_arn}" >&2
+    fi
+    if [[ -n "$account_id" ]]; then
+      echo "AWS account: ${account_id}" >&2
+    fi
+    echo "ECR repo: ${repo}" >&2
+    echo "AWS region: ${region}" >&2
+    if [[ -n "$err" ]]; then
+      echo "" >&2
+      echo "$err" >&2
+    fi
+
+    if [[ -n "$account_id" ]]; then
+      cat >&2 <<EOF
+
+This deploy needs permission to push to:
+  ${account_id}.dkr.ecr.${region}.amazonaws.com/${repo}
+
+Ensure the IAM role/user used by this deploy allows:
+  - ecr:GetAuthorizationToken (Resource: *)
+  - ecr:BatchGetImage
+  - ecr:BatchCheckLayerAvailability
+  - ecr:GetDownloadUrlForLayer
+  - ecr:InitiateLayerUpload
+  - ecr:UploadLayerPart
+  - ecr:CompleteLayerUpload
+  - ecr:PutImage
+    (Resource: arn:aws:ecr:${region}:${account_id}:repository/${repo})
+
+If the repository is in a different AWS account, also add an ECR repository policy granting these actions.
+EOF
+    fi
+
+    return 1
+  fi
+}
+
 # Build and push Docker image
 build_and_push() {
   local ecr_uri="$1"
+  local repo="${ecr_uri##*/}"
+
+  echo "Checking ECR permissions..."
+  check_ecr_push_permissions "$repo" "$AWS_REGION"
   
   echo "Building Docker image..."
   docker build -t "${ECR_REPO}:latest" .
   echo -e "${GREEN}✓ Image built${NC}"
+
+  # Helpful for debugging ECR push permissions (common failure mode: 403 on manifest HEAD).
+  echo "AWS identity:"
+  if ! aws sts get-caller-identity --query 'Arn' --output text 2>/dev/null; then
+    echo "(unable to resolve; check AWS credentials)"
+  fi
   
   echo "Logging in to ECR..."
   aws ecr get-login-password --region "$AWS_REGION" \
@@ -1304,7 +1381,39 @@ build_and_push() {
   
   echo "Tagging and pushing image..."
   docker tag "${ECR_REPO}:latest" "${ecr_uri}:latest"
-  docker push "${ecr_uri}:latest" >/dev/null
+
+  local push_err
+  push_err="$(mktemp)"
+  if ! docker push "${ecr_uri}:latest" >/dev/null 2>"$push_err"; then
+    echo -e "${RED}Error: Docker push failed${NC}" >&2
+    cat "$push_err" >&2
+
+    if grep -q "403 Forbidden" "$push_err"; then
+      cat >&2 <<'EOF'
+
+Hint: a 403 on a registry HEAD request usually means the AWS role/user can authenticate
+(ecr:GetAuthorizationToken) but is missing ECR repository permissions (often
+ecr:BatchGetImage / ecr:GetDownloadUrlForLayer, and/or ecr:PutImage).
+
+Ensure your CI role policy includes:
+  - ecr:GetAuthorizationToken (Resource: *)
+  - ecr:BatchCheckLayerAvailability
+  - ecr:BatchGetImage
+  - ecr:CompleteLayerUpload
+  - ecr:GetDownloadUrlForLayer
+  - ecr:InitiateLayerUpload
+  - ecr:PutImage
+  - ecr:UploadLayerPart
+
+If pushing cross-account, you also need an ECR repository policy in the target
+account granting this principal access.
+EOF
+    fi
+
+    rm -f "$push_err"
+    return 1
+  fi
+  rm -f "$push_err"
   echo -e "${GREEN}✓ Image pushed to ${ecr_uri}:latest${NC}\n"
 }
 

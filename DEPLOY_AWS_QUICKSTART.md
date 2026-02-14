@@ -251,6 +251,7 @@ aws s3 rb "s3://${S3_BUCKET}" --force
 **Docker push fails:**
 - Check ECR login: `aws ecr get-login-password --region ap-northeast-1 | docker login ...`
 - Verify credentials: `aws sts get-caller-identity`
+- If you see `403 Forbidden` from `HEAD .../manifests/<tag>`, your AWS role/user is missing ECR repo permissions (often `ecr:BatchGetImage` / `ecr:GetDownloadUrlForLayer`, and/or `ecr:PutImage`).
 
 **Service stays in CREATING state:**
 - Check logs in App Runner console

@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
 - Dev: add `haskell/scripts/run_api_with_db.sh` helper to start the API with local Postgres persistence.
 - Deploy: include `libpq` in the runtime image so Postgres ops persistence starts cleanly.
+- Deploy: improve ECR push failure diagnostics in `deploy-aws-quick.sh` (prints AWS identity; adds hints for common `403 Forbidden` manifest errors).
 - Deploy/UI: when CloudFront is configured, `deploy-aws-quick.sh` now defaults UI `apiBaseUrl` to `/api` unless `TRADER_UI_API_MODE` is set (use `direct` for full API URL/CORS).
 - Deploy/UI: quick AWS deploy now uploads `index.html` with no-cache headers so clients pick up new bundles promptly.
 - Deploy/UI: quick AWS deploy auto-fills `TRADER_CORS_ORIGIN` from the CloudFront domain when using direct UI API mode.

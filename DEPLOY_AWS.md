@@ -415,6 +415,7 @@ aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
 - Verify ECR login: `aws ecr get-login-password ... | docker login ...`
 - Check AWS credentials: `aws sts get-caller-identity`
 - Ensure ECR repository exists
+- If you see `403 Forbidden` from a `HEAD .../manifests/<tag>` request, the AWS principal can authenticate but likely lacks ECR repo permissions (often missing `ecr:BatchGetImage` / `ecr:GetDownloadUrlForLayer`, and/or `ecr:PutImage`). For cross-account pushes, also add an ECR repository policy in the target account.
 
 ---
 
