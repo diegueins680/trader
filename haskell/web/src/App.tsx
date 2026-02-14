@@ -6198,16 +6198,27 @@ export function App() {
           ? "API unreachable"
           : "API status unknown";
   const botPanel = (() => {
-    const st = bot.status;
+    const status = bot.status;
+    let multiStatus: BotStatusMulti | null = null;
+    let st: BotStatusSingle;
+    if (isBotStatusMulti(status)) {
+      multiStatus = status;
+      st = multiStatus.bots.find((b): b is BotStatusRunning => b.running) ?? multiStatus.bots[0] ?? { running: false };
+    } else {
+      st = status;
+    }
+
     const running = st.running;
-    const starting = !running && st.starting === true;
-    const halted = st.running ? st.halted : false;
-    const error = bot.error ?? st.error ?? null;
+    const starting = !running && (multiStatus ? multiStatus.starting === true : st.starting === true);
+    const halted = running ? st.halted : false;
+    const multiError = multiStatus ? (multiStatus.errors?.[0]?.error ?? null) : null;
+    const error = bot.error ?? st.error ?? multiError ?? null;
 
     const dotClass = error || halted ? "dot dotBad" : running ? "dot dotOk" : starting ? "dot dotWarn" : "dot";
     const statusLabel = error ? "Status error" : running ? (halted ? "Halted" : "Running") : starting ? "Starting" : "Stopped";
 
     const badges: Array<{ key: string; label: string; className: string }> = [];
+    if (multiStatus) badges.push({ key: "multi", label: `multi (${multiStatus.bots.length})`, className: "badge" });
     let symbol = "";
     let interval = "";
     let market: Market | null = null;

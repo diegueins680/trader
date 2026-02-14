@@ -183,7 +183,6 @@ export const BacktestChart = React.memo(function BacktestChart({
   agreementOk,
   trades,
   operations,
-  kalmanPredNext,
   backtestStartIndex = 0,
   height = DEFAULT_CHART_HEIGHT,
   actions,
@@ -842,7 +841,7 @@ export const BacktestChart = React.memo(function BacktestChart({
     const left = clamp(pointer.x + 12, pad, size.w - w - pad);
     const top = clamp(pointer.y + 12, pad, size.h - h - pad);
     return { left, top, width: w } as React.CSSProperties;
-  }, [hasKalPred, pointer, size.h, size.w]);
+  }, [pointer, size.h, size.w]);
 
   const resetView = () => {
     setView({ start: 0, end: Math.max(1, n - 1) });

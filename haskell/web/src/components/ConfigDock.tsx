@@ -110,6 +110,8 @@ export type ConfigDockProps = {
   extraIssueCount: number;
   requestDisabled: boolean;
   requestDisabledReason: string | null;
+  backtestDisabled: boolean;
+  backtestDisabledReason: string | null;
   run: (kind: RequestKind, overrideParams?: ApiParams, opts?: RunOptions) => Promise<void>;
   state: UiState;
   commonParams: ApiParams;
@@ -427,6 +429,8 @@ export const ConfigDock = (props: ConfigDockProps) => {
     refreshKeys,
     requestDisabled,
     requestDisabledReason,
+    backtestDisabled,
+    backtestDisabledReason,
     requestIssueDetails,
     requestIssues,
     requestLoadProfile,
@@ -539,13 +543,13 @@ export const ConfigDock = (props: ConfigDockProps) => {
             >
               {state.loading && state.lastKind === "signal" ? "Getting signal…" : "Get signal"}
             </button>
-            <button className="btn" disabled={requestDisabled} onClick={() => run("backtest")} title={requestDisabledReason ?? undefined}>
+            <button className="btn" disabled={backtestDisabled} onClick={() => run("backtest")} title={backtestDisabledReason ?? undefined}>
               {state.loading && state.lastKind === "backtest" ? "Running backtest…" : "Run backtest"}
             </button>
             <button
               className="btn"
-              disabled={requestDisabled}
-              title={requestDisabledReason ?? undefined}
+              disabled={backtestDisabled}
+              title={backtestDisabledReason ?? undefined}
               onClick={() => {
                 const p = { ...commonParams, sweepThreshold: true, optimizeOperations: false };
                 setForm((f) => ({ ...f, sweepThreshold: true, optimizeOperations: false }));
@@ -556,8 +560,8 @@ export const ConfigDock = (props: ConfigDockProps) => {
             </button>
             <button
               className="btn"
-              disabled={requestDisabled}
-              title={requestDisabledReason ?? undefined}
+              disabled={backtestDisabled}
+              title={backtestDisabledReason ?? undefined}
               onClick={() => {
                 const p = { ...commonParams, optimizeOperations: true, sweepThreshold: false };
                 setForm((f) => ({ ...f, optimizeOperations: true, sweepThreshold: false }));
@@ -573,6 +577,10 @@ export const ConfigDock = (props: ConfigDockProps) => {
           {requestDisabledReason ? (
             <div className="hint hintWarn" role="status" style={{ marginTop: 6 }}>
               Actions disabled: {requestDisabledReason}
+            </div>
+          ) : backtestDisabledReason ? (
+            <div className="hint hintWarn" role="status" style={{ marginTop: 6 }}>
+              Backtest disabled: {backtestDisabledReason}
             </div>
           ) : null}
           {requestIssueDetails.length > 1 ? (
