@@ -1,0 +1,18 @@
+Configuring library for http-date-0.0.11...
+Preprocessing library for http-date-0.0.11...
+Building library for http-date-0.0.11...
+[1 of 5] Compiling Network.HTTP.Date.Types ( Network/HTTP/Date/Types.hs, dist/build/Network/HTTP/Date/Types.o, dist/build/Network/HTTP/Date/Types.dyn_o )
+[2 of 5] Compiling Network.HTTP.Date.Parser ( Network/HTTP/Date/Parser.hs, dist/build/Network/HTTP/Date/Parser.o, dist/build/Network/HTTP/Date/Parser.dyn_o )
+[3 of 5] Compiling Network.HTTP.Date.Formatter ( Network/HTTP/Date/Formatter.hs, dist/build/Network/HTTP/Date/Formatter.o, dist/build/Network/HTTP/Date/Formatter.dyn_o )
+
+Network/HTTP/Date/Formatter.hs:51:7: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+   |
+51 |       memcpy ptr (fp `plusPtr` o) 3
+   |       ^^^^^^
+[4 of 5] Compiling Network.HTTP.Date.Converter ( Network/HTTP/Date/Converter.hs, dist/build/Network/HTTP/Date/Converter.o, dist/build/Network/HTTP/Date/Converter.dyn_o )
+[5 of 5] Compiling Network.HTTP.Date ( Network/HTTP/Date.hs, dist/build/Network/HTTP/Date.o, dist/build/Network/HTTP/Date.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41764/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/http-dt-0.0.11-cf91b9be/lib

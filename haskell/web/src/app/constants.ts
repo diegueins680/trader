@@ -1,3 +1,4 @@
+import type { Platform } from "../lib/types";
 import { TRADER_UI_CONFIG } from "../lib/deployConfig";
 
 export const STORAGE_KEY = "trader.ui.form.v1";
@@ -5,17 +6,61 @@ export const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
 export const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
 export const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
 export const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
+export const SESSION_COINBASE_KEY_KEY = "trader.ui.coinbaseApiKey.v1";
+export const SESSION_COINBASE_SECRET_KEY = "trader.ui.coinbaseApiSecret.v1";
+export const SESSION_COINBASE_PASSPHRASE_KEY = "trader.ui.coinbaseApiPassphrase.v1";
+export const SESSION_BOT_PANEL_HINT_KEY = "trader.ui.botPanelHint.v1";
 export const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";
+export const STORAGE_PANEL_PREFS_KEY = "trader.ui.panelPrefs.v1";
+export const STORAGE_CONFIG_PANEL_ORDER_KEY = "trader.ui.configPanelOrder.v1";
+export const STORAGE_CONFIG_PAGE_KEY = "trader.ui.configPage.v1";
+export const STORAGE_CONFIG_TAB_KEY = "trader.ui.configTab.v1";
+export const STORAGE_DATA_LOG_KEY = "trader.ui.dataLog.v1";
+export const STORAGE_DATA_LOG_PREFS_KEY = "trader.ui.dataLogPrefs.v1";
+export const STORAGE_BOT_PANEL_POS_KEY = "trader.ui.botPanelPos.v1";
+export const STORAGE_BOT_PANEL_VISIBLE_KEY = "trader.ui.botPanelVisible.v1";
+export const STORAGE_STATE_SYNC_TARGET_KEY = "trader.ui.stateSyncTarget.v1";
+export const STORAGE_STATE_SYNC_TOKEN_KEY = "trader.ui.stateSyncToken.v1";
+export const STORAGE_TOP_COMBOS_KEY = "trader.ui.topCombos.v1";
 
-const timeoutsMs = TRADER_UI_CONFIG.timeoutsMs;
+const DEFAULT_SIGNAL_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_BACKTEST_TIMEOUT_MS = 20 * 60_000;
+const DEFAULT_TRADE_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_BOT_START_TIMEOUT_MS = 20 * 60_000;
+const DEFAULT_BOT_STATUS_TIMEOUT_MS = 60_000;
 
-export const SIGNAL_TIMEOUT_MS = timeoutsMs?.signalMs ?? 10 * 60_000;
-export const BACKTEST_TIMEOUT_MS = timeoutsMs?.backtestMs ?? 20 * 60_000;
-export const TRADE_TIMEOUT_MS = timeoutsMs?.tradeMs ?? 10 * 60_000;
-export const BOT_START_TIMEOUT_MS = timeoutsMs?.botStartMs ?? 20 * 60_000;
-export const BOT_STATUS_TIMEOUT_MS = timeoutsMs?.botStatusMs ?? 60_000;
+function resolveTimeoutMs(key: "signalMs" | "backtestMs" | "tradeMs" | "botStartMs" | "botStatusMs", fallback: number): number {
+  const v = TRADER_UI_CONFIG.timeoutsMs?.[key];
+  return typeof v === "number" && Number.isFinite(v) && v >= 1000 ? v : fallback;
+}
+
+export const SIGNAL_TIMEOUT_MS = resolveTimeoutMs("signalMs", DEFAULT_SIGNAL_TIMEOUT_MS);
+export const BACKTEST_TIMEOUT_MS = resolveTimeoutMs("backtestMs", DEFAULT_BACKTEST_TIMEOUT_MS);
+export const TRADE_TIMEOUT_MS = resolveTimeoutMs("tradeMs", DEFAULT_TRADE_TIMEOUT_MS);
+export const BOT_START_TIMEOUT_MS = resolveTimeoutMs("botStartMs", DEFAULT_BOT_START_TIMEOUT_MS);
+export const BOT_STATUS_TIMEOUT_MS = resolveTimeoutMs("botStatusMs", DEFAULT_BOT_STATUS_TIMEOUT_MS);
+export const BOT_STATUS_POLL_MS = 5_000;
 export const BOT_STATUS_TAIL_POINTS = 5000;
+export const BOT_STATUS_TAIL_FALLBACK_POINTS = 500;
+export const BOT_STATUS_OPS_LIMIT = 5000;
+export const BOT_STATUS_OPS_FALLBACK_LIMIT = 1000;
+export const OPTIMIZER_UI_MAX_TRIALS = 30;
+export const OPTIMIZER_UI_MAX_TIMEOUT_SEC = 1200;
+export const OPTIMIZER_UI_MAX_BARS = 1500;
 export const BOT_TELEMETRY_POINTS = 240;
+export const BOT_AUTOSTART_RETRY_MS = 15_000;
+export const RATE_LIMIT_BASE_MS = 10_000;
+export const RATE_LIMIT_MAX_MS = 120_000;
+export const RATE_LIMIT_TOAST_MIN_MS = 12_000;
+
+export const PLATFORMS: Platform[] = ["binance", "coinbase", "kraken", "poloniex"];
+
+export const PLATFORM_LABELS: Record<Platform, string> = {
+  binance: "Binance",
+  coinbase: "Coinbase",
+  kraken: "Kraken",
+  poloniex: "Poloniex",
+};
 
 export const BINANCE_INTERVALS = [
   "1m",
@@ -37,6 +82,24 @@ export const BINANCE_INTERVALS = [
 
 export const BINANCE_INTERVAL_SET = new Set<string>(BINANCE_INTERVALS);
 
+export const COINBASE_INTERVALS = ["1m", "5m", "15m", "1h", "6h", "1d"] as const;
+export const KRAKEN_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"] as const;
+export const POLONIEX_INTERVALS = ["5m", "15m", "30m", "2h", "4h", "1d"] as const;
+
+export const PLATFORM_INTERVALS: Record<Platform, readonly string[]> = {
+  binance: BINANCE_INTERVALS,
+  coinbase: COINBASE_INTERVALS,
+  kraken: KRAKEN_INTERVALS,
+  poloniex: POLONIEX_INTERVALS,
+};
+
+export const PLATFORM_INTERVAL_SET: Record<Platform, Set<string>> = {
+  binance: BINANCE_INTERVAL_SET,
+  coinbase: new Set<string>(COINBASE_INTERVALS),
+  kraken: new Set<string>(KRAKEN_INTERVALS),
+  poloniex: new Set<string>(POLONIEX_INTERVALS),
+};
+
 export const BINANCE_INTERVAL_SECONDS: Record<string, number> = {
   "1m": 60,
   "3m": 3 * 60,
@@ -55,8 +118,105 @@ export const BINANCE_INTERVAL_SECONDS: Record<string, number> = {
   "1M": 30 * 24 * 60 * 60,
 };
 
-export const TUNE_OBJECTIVES = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"] as const;
+export const BINANCE_SYMBOLS = [
+  "BTCUSDT",
+  "ETHUSDT",
+  "BNBUSDT",
+  "SOLUSDT",
+  "XRPUSDT",
+  "ADAUSDT",
+  "DOGEUSDT",
+  "MATICUSDT",
+  "AVAXUSDT",
+  "LINKUSDT",
+  "DOTUSDT",
+  "LTCUSDT",
+  "BCHUSDT",
+  "TRXUSDT",
+  "ATOMUSDT",
+  "ETCUSDT",
+  "UNIUSDT",
+  "AAVEUSDT",
+  "FILUSDT",
+  "NEARUSDT",
+  "OPUSDT",
+  "ARBUSDT",
+  "SUIUSDT",
+] as const;
+
+export const BINANCE_SYMBOL_SET = new Set<string>(BINANCE_SYMBOLS);
+
+export const COINBASE_SYMBOLS = [
+  "BTC-USD",
+  "ETH-USD",
+  "SOL-USD",
+  "XRP-USD",
+  "ADA-USD",
+  "DOGE-USD",
+  "AVAX-USD",
+  "LINK-USD",
+  "DOT-USD",
+  "LTC-USD",
+] as const;
+
+export const KRAKEN_SYMBOLS = [
+  "XBTUSD",
+  "ETHUSD",
+  "XBTUSDT",
+  "ETHUSDT",
+  "SOLUSD",
+  "XRPUSD",
+  "ADAUSD",
+] as const;
+
+export const POLONIEX_SYMBOLS = [
+  "BTC_USDT",
+  "ETH_USDT",
+  "SOL_USDT",
+  "XRP_USDT",
+  "DOGE_USDT",
+  "ADA_USDT",
+] as const;
+
+export const PLATFORM_SYMBOLS: Record<Platform, readonly string[]> = {
+  binance: BINANCE_SYMBOLS,
+  coinbase: COINBASE_SYMBOLS,
+  kraken: KRAKEN_SYMBOLS,
+  poloniex: POLONIEX_SYMBOLS,
+};
+
+export const PLATFORM_SYMBOL_SET: Record<Platform, Set<string>> = {
+  binance: BINANCE_SYMBOL_SET,
+  coinbase: new Set<string>(COINBASE_SYMBOLS),
+  kraken: new Set<string>(KRAKEN_SYMBOLS),
+  poloniex: new Set<string>(POLONIEX_SYMBOLS),
+};
+
+export const PLATFORM_DEFAULT_SYMBOL: Record<Platform, string> = {
+  binance: "BTCUSDT",
+  coinbase: "BTC-USD",
+  kraken: "XBTUSD",
+  poloniex: "BTC_USDT",
+};
+
+export const PLATFORM_DEFAULT_BARS: Record<Platform, number> = {
+  binance: 500,
+  coinbase: 300,
+  kraken: 500,
+  poloniex: 500,
+};
+
+export const TUNE_OBJECTIVES = [
+  "annualized-equity",
+  "final-equity",
+  "sharpe",
+  "calmar",
+  "equity-dd",
+  "equity-dd-turnover",
+] as const;
 export const TUNE_OBJECTIVE_SET = new Set<string>(TUNE_OBJECTIVES);
 
 export const DATA_LOG_COLLAPSED_MAX_LINES = 50;
-export const DATA_LOG_BAR_SERIES_KEYS = new Set(["prices", "positions", "equityCurve", "agreementOk"]);
+export const DATA_LOG_MAX_ENTRIES = 100;
+export const DATA_LOG_AUTO_SCROLL_SLOP_PX = 24;
+export const DATA_LOG_BAR_SERIES_KEYS = new Set(["prices", "positions", "equityCurve", "agreementOk", "kalmanPredNext", "lstmPredNext"]);

@@ -1,0 +1,35 @@
+Configuring library for cborg-0.2.10.0...
+Preprocessing library for cborg-0.2.10.0...
+Building library for cborg-0.2.10.0...
+[ 1 of 14] Compiling Codec.CBOR.ByteArray.Internal ( src/Codec/CBOR/ByteArray/Internal.hs, dist/build/Codec/CBOR/ByteArray/Internal.o, dist/build/Codec/CBOR/ByteArray/Internal.dyn_o )
+[ 2 of 14] Compiling Codec.CBOR.ByteArray.Sliced ( src/Codec/CBOR/ByteArray/Sliced.hs, dist/build/Codec/CBOR/ByteArray/Sliced.o, dist/build/Codec/CBOR/ByteArray/Sliced.dyn_o )
+
+src/Codec/CBOR/ByteArray/Sliced.hs:44:1: warning: [-Wunused-imports]
+    The qualified import of ‘Data.ByteString.Short.Internal’ is redundant
+      except perhaps to import instances from ‘Data.ByteString.Short.Internal’
+    To import instances alone, use: import Data.ByteString.Short.Internal()
+   |
+44 | import qualified Data.ByteString.Short.Internal as BSS
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 3 of 14] Compiling Codec.CBOR.ByteArray ( src/Codec/CBOR/ByteArray.hs, dist/build/Codec/CBOR/ByteArray.o, dist/build/Codec/CBOR/ByteArray.dyn_o )
+
+src/Codec/CBOR/ByteArray.hs:39:1: warning: [-Wunused-imports]
+    The qualified import of ‘Data.ByteString.Short.Internal’ is redundant
+      except perhaps to import instances from ‘Data.ByteString.Short.Internal’
+    To import instances alone, use: import Data.ByteString.Short.Internal()
+   |
+39 | import qualified Data.ByteString.Short.Internal as BSS
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 4 of 14] Compiling Codec.CBOR.Decoding ( src/Codec/CBOR/Decoding.hs, dist/build/Codec/CBOR/Decoding.o, dist/build/Codec/CBOR/Decoding.dyn_o )
+[ 5 of 14] Compiling Codec.CBOR.Magic ( src/Codec/CBOR/Magic.hs, dist/build/Codec/CBOR/Magic.o, dist/build/Codec/CBOR/Magic.dyn_o )
+[ 6 of 14] Compiling Codec.CBOR.Read  ( src/Codec/CBOR/Read.hs, dist/build/Codec/CBOR/Read.o, dist/build/Codec/CBOR/Read.dyn_o )
+[ 7 of 14] Compiling Codec.CBOR.Encoding[boot] ( src/Codec/CBOR/Encoding.hs-boot, dist/build/Codec/CBOR/Encoding.o-boot, dist/build/Codec/CBOR/Encoding.dyn_o-boot )
+[ 8 of 14] Compiling Codec.CBOR.FlatTerm[boot] ( src/Codec/CBOR/FlatTerm.hs-boot, dist/build/Codec/CBOR/FlatTerm.o-boot, dist/build/Codec/CBOR/FlatTerm.dyn_o-boot )
+[ 9 of 14] Compiling Codec.CBOR.Encoding ( src/Codec/CBOR/Encoding.hs, dist/build/Codec/CBOR/Encoding.o, dist/build/Codec/CBOR/Encoding.dyn_o )
+[10 of 14] Compiling Codec.CBOR.FlatTerm ( src/Codec/CBOR/FlatTerm.hs, dist/build/Codec/CBOR/FlatTerm.o, dist/build/Codec/CBOR/FlatTerm.dyn_o )
+[11 of 14] Compiling Codec.CBOR.Term  ( src/Codec/CBOR/Term.hs, dist/build/Codec/CBOR/Term.o, dist/build/Codec/CBOR/Term.dyn_o )
+[12 of 14] Compiling Codec.CBOR       ( src/Codec/CBOR.hs, dist/build/Codec/CBOR.o, dist/build/Codec/CBOR.dyn_o )
+[13 of 14] Compiling Codec.CBOR.Write ( src/Codec/CBOR/Write.hs, dist/build/Codec/CBOR/Write.o, dist/build/Codec/CBOR/Write.dyn_o )
+[14 of 14] Compiling Codec.CBOR.Pretty ( src/Codec/CBOR/Pretty.hs, dist/build/Codec/CBOR/Pretty.o, dist/build/Codec/CBOR/Pretty.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/cbrg-0.2.10.0-a263a54e/lib

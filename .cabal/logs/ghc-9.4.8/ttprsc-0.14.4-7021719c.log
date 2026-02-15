@@ -1,0 +1,66 @@
+Configuring library for attoparsec-0.14.4...
+Preprocessing library for attoparsec-0.14.4...
+Building library for attoparsec-0.14.4...
+[ 1 of 16] Compiling Data.Attoparsec.Internal.Types ( Data/Attoparsec/Internal/Types.hs, dist/build/Data/Attoparsec/Internal/Types.o, dist/build/Data/Attoparsec/Internal/Types.dyn_o )
+
+Data/Attoparsec/Internal/Types.hs:28:53: warning: [-Wunused-imports]
+    The import of ‘<$>’ from module ‘Control.Applicative’ is redundant
+   |
+28 | import Control.Applicative as App (Applicative(..), (<$>))
+   |                                                     ^^^^^
+
+Data/Attoparsec/Internal/Types.hs:34:1: warning: [-Wunused-imports]
+    The import of ‘Data.Semigroup’ is redundant
+      except perhaps to import instances from ‘Data.Semigroup’
+    To import instances alone, use: import Data.Semigroup()
+   |
+34 | import Data.Semigroup  (Semigroup(..))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 2 of 16] Compiling Data.Attoparsec.Internal ( Data/Attoparsec/Internal.hs, dist/build/Data/Attoparsec/Internal.o, dist/build/Data/Attoparsec/Internal.dyn_o )
+[ 3 of 16] Compiling Data.Attoparsec.Number ( Data/Attoparsec/Number.hs, dist/build/Data/Attoparsec/Number.o, dist/build/Data/Attoparsec/Number.dyn_o )
+[ 4 of 16] Compiling Data.Attoparsec.Types ( Data/Attoparsec/Types.hs, dist/build/Data/Attoparsec/Types.o, dist/build/Data/Attoparsec/Types.dyn_o )
+[ 5 of 16] Compiling Data.Attoparsec.Zepto ( Data/Attoparsec/Zepto.hs, dist/build/Data/Attoparsec/Zepto.o, dist/build/Data/Attoparsec/Zepto.dyn_o )
+
+Data/Attoparsec/Zepto.hs:46:1: warning: [-Wunused-imports]
+    The import of ‘Data.Semigroup’ is redundant
+      except perhaps to import instances from ‘Data.Semigroup’
+    To import instances alone, use: import Data.Semigroup()
+   |
+46 | import Data.Semigroup (Semigroup(..))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 6 of 16] Compiling Data.Attoparsec.Combinator ( Data/Attoparsec/Combinator.hs, dist/build/Data/Attoparsec/Combinator.o, dist/build/Data/Attoparsec/Combinator.dyn_o )
+[ 7 of 16] Compiling Data.Attoparsec.Text.Internal ( Data/Attoparsec/Text/Internal.hs, dist/build/Data/Attoparsec/Text/Internal.o, dist/build/Data/Attoparsec/Text/Internal.dyn_o )
+
+Data/Attoparsec/Text/Internal.hs:68:1: warning: [-Wunused-imports]
+    The import of ‘*>, <$>, pure’
+    from module ‘Control.Applicative’ is redundant
+   |
+68 | import Control.Applicative ((<|>), (<$>), pure, (*>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Data/Attoparsec/Text/Internal.hs:91:13: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+   |
+91 | instance (a ~ Text) => IsString (Parser a) where
+   |             ^
+[ 8 of 16] Compiling Data.Attoparsec.Text ( Data/Attoparsec/Text.hs, dist/build/Data/Attoparsec/Text.o, dist/build/Data/Attoparsec/Text.dyn_o )
+[ 9 of 16] Compiling Data.Attoparsec.Text.Lazy ( Data/Attoparsec/Text/Lazy.hs, dist/build/Data/Attoparsec/Text/Lazy.o, dist/build/Data/Attoparsec/Text/Lazy.dyn_o )
+[10 of 16] Compiling Data.Attoparsec.ByteString.Internal ( Data/Attoparsec/ByteString/Internal.hs, dist/build/Data/Attoparsec/ByteString/Internal.o, dist/build/Data/Attoparsec/ByteString/Internal.dyn_o )
+[11 of 16] Compiling Data.Attoparsec.ByteString ( Data/Attoparsec/ByteString.hs, dist/build/Data/Attoparsec/ByteString.o, dist/build/Data/Attoparsec/ByteString.dyn_o )
+[12 of 16] Compiling Data.Attoparsec.ByteString.Lazy ( Data/Attoparsec/ByteString/Lazy.hs, dist/build/Data/Attoparsec/ByteString/Lazy.o, dist/build/Data/Attoparsec/ByteString/Lazy.dyn_o )
+[13 of 16] Compiling Data.Attoparsec.Lazy ( Data/Attoparsec/Lazy.hs, dist/build/Data/Attoparsec/Lazy.o, dist/build/Data/Attoparsec/Lazy.dyn_o )
+[14 of 16] Compiling Data.Attoparsec.ByteString.Char8 ( Data/Attoparsec/ByteString/Char8.hs, dist/build/Data/Attoparsec/ByteString/Char8.o, dist/build/Data/Attoparsec/ByteString/Char8.dyn_o )
+
+Data/Attoparsec/ByteString/Char8.hs:154:13: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+154 | instance (a ~ B.ByteString) => IsString (Parser a) where
+    |             ^
+[15 of 16] Compiling Data.Attoparsec.Char8 ( Data/Attoparsec/Char8.hs, dist/build/Data/Attoparsec/Char8.o, dist/build/Data/Attoparsec/Char8.dyn_o )
+[16 of 16] Compiling Data.Attoparsec  ( Data/Attoparsec.hs, dist/build/Data/Attoparsec.o, dist/build/Data/Attoparsec.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ttprsc-0.14.4-7021719c/lib

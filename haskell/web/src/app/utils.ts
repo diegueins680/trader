@@ -1,4 +1,4 @@
-import type { Market, Method } from "../lib/types";
+import type { BotStatusSingle, Market, Method } from "../lib/types";
 import { fmtNum } from "../lib/format";
 import { DATA_LOG_BAR_SERIES_KEYS } from "./constants";
 
@@ -8,14 +8,17 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   if (v.startsWith("/") || /^https?:\/\//i.test(v)) return v;
   if (v.includes("://")) return v;
 
-  const looksLikeHost = v === "localhost" || v.startsWith("localhost:") || v.includes(".") || v.includes(":");
-  if (!looksLikeHost) return `/${v}`;
-
   const slashIdx = v.indexOf("/");
   const authority = slashIdx === -1 ? v : v.slice(0, slashIdx);
   const rest = slashIdx === -1 ? "" : v.slice(slashIdx);
-
   const lowerAuthority = authority.toLowerCase();
+  const looksLikeHost =
+    lowerAuthority === "localhost" ||
+    lowerAuthority.startsWith("localhost:") ||
+    authority.includes(".") ||
+    authority.includes(":");
+  if (!looksLikeHost) return `/${v}`;
+
   const isLocal =
     lowerAuthority === "localhost" ||
     lowerAuthority.startsWith("localhost:") ||
@@ -33,8 +36,12 @@ export function normalizeApiBaseUrlInput(raw: string): string {
       const m = authority.match(/^\[[^\]]+\]:(\d{1,5})$/);
       return m ? m[1] : null;
     }
-    // For bare IPv6 (multiple ':'), treat as "no port"; port must be provided via brackets.
-    if (authority.split(":").length > 2) return null;
+    const parts = authority.split(":");
+    // Bare IPv6 with a port is ambiguous; only infer for the common loopback shorthand `::1:PORT`.
+    if (parts.length > 2) {
+      const m = authority.match(/^::1:(\d{1,5})$/i);
+      return m ? m[1] : null;
+    }
     const m = authority.match(/:([0-9]{1,5})$/);
     return m ? m[1] : null;
   };
@@ -45,10 +52,9 @@ export function normalizeApiBaseUrlInput(raw: string): string {
     const parts = authority.split(":");
     if (parts.length <= 2) return authority;
 
-    // Likely IPv6 without brackets; bracketize. If a port was detected (bracketed form), keep it.
-    if (port) {
-      const host = parts.slice(0, -1).join(":");
-      return `[${host}]:${port}`;
+    // Likely IPv6 without brackets; bracketize. Preserve inferred loopback port shorthand.
+    if (port && /^::1:\d{1,5}$/i.test(authority)) {
+      return `[::1]:${port}`;
     }
     return `[${authority}]`;
   };
@@ -57,13 +63,190 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   return `${scheme}://${normalizeAuthority()}${rest}`;
 }
 
+export function normalizeSymbolKey(raw: string): string {
+  return raw.trim().toUpperCase();
+}
+
+export function normalizePositionSide(raw: string | null | undefined): "LONG" | "SHORT" | "BOTH" | null {
+  if (!raw) return null;
+  const value = raw.trim().toUpperCase();
+  if (value === "LONG" || value === "SHORT" || value === "BOTH") return value;
+  return null;
+}
+
+export function positionSideFromAmount(amount: number): "LONG" | "SHORT" | null {
+  if (!Number.isFinite(amount) || amount === 0) return null;
+  return amount > 0 ? "LONG" : "SHORT";
+}
+
+export function botPositionSide(status: BotStatusSingle): "LONG" | "SHORT" | null {
+  const positions = status.running ? status.positions : status.snapshot?.positions;
+  if (!positions || positions.length === 0) return null;
+  const last = positions[positions.length - 1];
+  if (typeof last !== "number" || !Number.isFinite(last) || Math.abs(last) <= 1e-12) return null;
+  return last > 0 ? "LONG" : "SHORT";
+}
+
+export function shortCommitHash(hash?: string | null, size = 8): string {
+  if (!hash) return "—";
+  const trimmed = hash.trim();
+  if (!trimmed) return "—";
+  return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
+}
+
+export function shortComboUuid(uuid?: string | null, size = 6): string {
+  if (!uuid) return "—";
+  const trimmed = uuid.trim();
+  if (!trimmed) return "—";
+  return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
+}
+
+export function botTradeEnabled(status: BotStatusSingle): boolean | null {
+  if (status.running) return status.settings?.tradeEnabled ?? null;
+  return status.snapshot?.settings?.tradeEnabled ?? null;
+}
+
+export function downsampleIndices(total: number, maxPoints: number): number[] {
+  const n = Math.max(0, Math.trunc(total));
+  const max = Math.max(1, Math.trunc(maxPoints));
+  if (n === 0) return [];
+  if (n <= max) return Array.from({ length: n }, (_, i) => i);
+  if (max === 1) return [0];
+  const step = (n - 1) / (max - 1);
+  const out: number[] = [];
+  let last = -1;
+  for (let i = 0; i < max; i += 1) {
+    const idx = Math.min(n - 1, Math.round(i * step));
+    if (idx <= last) continue;
+    out.push(idx);
+    last = idx;
+  }
+  if (out[out.length - 1] !== n - 1) out.push(n - 1);
+  return out;
+}
+
+export function downsampleArray<T>(arr: T[], indices: number[]): T[] {
+  if (indices.length === 0) return [];
+  return indices.map((idx) => arr[idx] as T);
+}
+
+export function downsampleOptionalArray<T>(arr: Array<T> | null | undefined, indices: number[]): Array<T> | undefined {
+  if (!arr) return arr ?? undefined;
+  return downsampleArray(arr, indices);
+}
+
+export function remapIndexToSample(indices: number[], idx: number): number {
+  if (indices.length === 0) return 0;
+  let lo = 0;
+  let hi = indices.length - 1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const v = indices[mid]!;
+    if (v === idx) return mid;
+    if (v < idx) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  const prev = Math.max(0, hi);
+  const next = Math.min(indices.length - 1, lo);
+  const prevIdx = indices[prev]!;
+  const nextIdx = indices[next]!;
+  return Math.abs(idx - prevIdx) <= Math.abs(nextIdx - idx) ? prev : next;
+}
+
+export type OrphanedPosition<T> = { pos: T; status: BotStatusSingle | null; reason: string };
+
+type OrphanedPositionsOptions = { market?: Market | null };
+
+function botStatusMarket(status: BotStatusSingle): Market | null {
+  if (status.running) return status.market;
+  return status.market ?? status.snapshot?.market ?? null;
+}
+
+function uniqueSides(sides: Array<"LONG" | "SHORT">): Array<"LONG" | "SHORT"> {
+  return Array.from(new Set(sides));
+}
+
+export function buildOrphanedPositions<T extends { symbol: string; positionAmt: number; positionSide?: string | null }>(
+  positions: T[],
+  botEntries: Array<{ symbol: string; status: BotStatusSingle }>,
+  opts?: OrphanedPositionsOptions,
+): Array<OrphanedPosition<T>> {
+  if (positions.length === 0) return [];
+  const targetMarket = opts?.market ?? null;
+  const statusesBySymbol = new Map<string, BotStatusSingle[]>();
+  const otherMarketSymbols = new Set<string>();
+  for (const entry of botEntries) {
+    const market = botStatusMarket(entry.status);
+    const key = normalizeSymbolKey(entry.symbol);
+    if (targetMarket && market && market !== targetMarket) otherMarketSymbols.add(key);
+    if (targetMarket && market !== targetMarket) continue;
+    const list = statusesBySymbol.get(key);
+    if (list) list.push(entry.status);
+    else statusesBySymbol.set(key, [entry.status]);
+  }
+
+  return positions
+    .map((pos): OrphanedPosition<T> | null => {
+      const statuses = statusesBySymbol.get(normalizeSymbolKey(pos.symbol)) ?? [];
+      const activeStatuses = statuses.filter((status) => status.running || status.starting === true);
+      const activeTradingStatuses = activeStatuses.filter((status) => botTradeEnabled(status) !== false);
+      const hasStarting = activeTradingStatuses.some((status) => !status.running && status.starting === true);
+      const sideRaw = normalizePositionSide(pos.positionSide);
+      const posSide = sideRaw && sideRaw !== "BOTH" ? sideRaw : positionSideFromAmount(pos.positionAmt);
+      const activeSides = uniqueSides(
+        activeTradingStatuses
+          .map((status) => botPositionSide(status))
+          .filter((side): side is "LONG" | "SHORT" => Boolean(side)),
+      );
+      const adopted =
+        posSide != null &&
+        (activeSides.some((side) => side === posSide) || (activeSides.length === 0 && hasStarting));
+      if (adopted) return null;
+      let reason = "no bot";
+      if (targetMarket && statuses.length === 0 && otherMarketSymbols.has(normalizeSymbolKey(pos.symbol))) reason = "market mismatch";
+      else if (statuses.length > 0 && activeStatuses.length === 0) reason = "bot stopped";
+      else if (statuses.length > 0 && activeStatuses.length > 0 && activeTradingStatuses.length === 0) reason = "trading disabled";
+      else if (statuses.length > 0 && activeStatuses.length > 0 && posSide == null) reason = "position side unknown";
+      else if (statuses.length > 0 && activeStatuses.length > 0 && activeSides.length === 0) reason = "bot side unknown";
+      else if (activeSides.length > 0) reason = `side mismatch (bot ${activeSides.join("/")})`;
+      let status: BotStatusSingle | null = null;
+      if (activeStatuses.length > 0) {
+        const running = activeStatuses.find((entry) => entry.running);
+        if (running) status = running;
+        else status = activeStatuses[0] ?? null;
+      } else if (statuses.length > 0) {
+        status = statuses[0] ?? null;
+      }
+      return { pos, status, reason };
+    })
+    .filter((entry): entry is OrphanedPosition<T> => Boolean(entry));
+}
+
 export function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
 
 export function numFromInput(raw: string, fallback: number): number {
-  if (raw.trim() === "") return fallback;
-  const n = Number(raw);
+  const trimmed = raw.trim();
+  if (trimmed === "") return fallback;
+  const normalized = (() => {
+    if (!trimmed.includes(",")) return trimmed;
+    if (trimmed.includes(".")) return trimmed.replace(/,/g, "");
+    // Treat clear thousands grouping when comma placement is unambiguous.
+    if (/^[-+]?\d{1,3}(,\d{3}){2,}$/.test(trimmed)) return trimmed.replace(/,/g, "");
+    const parts = trimmed.split(",");
+    if (parts.length === 2) {
+      const left = parts[0] ?? "";
+      const right = parts[1] ?? "";
+      const leftDigits = left.replace(/\D/g, "");
+      const rightDigits = right.replace(/\D/g, "");
+      if (leftDigits === "0") return `${left}.${right}`;
+      if (/^[-+]?\d{1,3}$/.test(left) && /^\d{3}$/.test(right)) return `${left}${right}`;
+      return `${left}.${right}`;
+    }
+    return trimmed.replace(/,/g, "");
+  })();
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : fallback;
 }
 
@@ -76,14 +259,67 @@ export function firstReason(...reasons: Array<string | null | undefined>): strin
   return null;
 }
 
+export type RequestIssueDetail = {
+  message: string;
+  targetId?: string;
+  disabledMessage?: string;
+};
+
+export type RequestIssueDetailsInput = {
+  rateLimitReason?: string | null;
+  apiStatusIssue?: string | null;
+  apiBlockedReason?: string | null;
+  apiTargetId?: string;
+  missingSymbol?: boolean;
+  symbolError?: string | null;
+  symbolTargetId?: string;
+  missingInterval?: boolean;
+  intervalTargetId?: string;
+  lookbackError?: string | null;
+  lookbackTargetId?: string;
+  apiLimitsReason?: string | null;
+  apiLimitsTargetId?: string;
+};
+
+export function buildRequestIssueDetails(input: RequestIssueDetailsInput): RequestIssueDetail[] {
+  const issues: RequestIssueDetail[] = [];
+  if (input.rateLimitReason) issues.push({ message: input.rateLimitReason });
+  if (input.apiStatusIssue) {
+    issues.push({
+      message: input.apiStatusIssue,
+      targetId: input.apiTargetId,
+      disabledMessage: input.apiBlockedReason ?? input.apiStatusIssue,
+    });
+  }
+  if (input.missingSymbol) issues.push({ message: "Symbol is required.", targetId: input.symbolTargetId });
+  else if (input.symbolError) issues.push({ message: input.symbolError, targetId: input.symbolTargetId });
+  if (input.missingInterval) issues.push({ message: "Interval is required.", targetId: input.intervalTargetId });
+  if (input.lookbackError) issues.push({ message: input.lookbackError, targetId: input.lookbackTargetId });
+  if (input.apiLimitsReason) issues.push({ message: input.apiLimitsReason, targetId: input.apiLimitsTargetId });
+  return issues;
+}
+
 export function isLocalHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "::1" || hostname === "[::1]";
 }
 
 export function fmtTimeMs(ms: number): string {
   if (!Number.isFinite(ms)) return "—";
   try {
     return new Date(ms).toLocaleString();
+  } catch {
+    return String(ms);
+  }
+}
+
+export function fmtTimeMsWithMs(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  try {
+    const d = new Date(ms);
+    if (!Number.isFinite(d.getTime())) return String(ms);
+    const pad2 = (v: number) => String(v).padStart(2, "0");
+    const pad3 = (v: number) => String(v).padStart(3, "0");
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
   } catch {
     return String(ms);
   }
@@ -174,6 +410,64 @@ export function methodLabel(method: Method): string {
       return "Kalman only";
     case "01":
       return "LSTM only";
+    case "blend":
+      return "Blend (weighted average)";
+    case "conf_blend":
+      return "Conf blend (confidence-weighted)";
+    case "conf_pick":
+      return "Conf pick (confidence winner)";
+    case "conformal_clip":
+      return "Conformal clip (clips blended return to conformal/quantile band)";
+    case "cost_pick":
+      return "Cost pick (net-edge winner)";
+    case "harmonic_blend":
+      return "Harmonic blend (return harmonic mean)";
+    case "disagreement_guard":
+      return "Disagreement guard (lower-edge on conflict)";
+    case "median_blend":
+      return "Median blend (robust middle return)";
+    case "neutral_guard":
+      return "Neutral guard (flat on conflict)";
+    case "risk_parity_blend":
+      return "Risk parity blend (inverse-edge weighted)";
+    case "consensus_boost":
+      return "Consensus boost (flat on conflict, strong on agree)";
+    case "anchor_blend":
+      return "Anchor blend (pulls toward current price on conflict)";
+    case "tension_gate":
+      return "Tension gate (partial neutralization on conflict)";
+    case "entropy_blend":
+      return "Entropy blend (uncertainty-aware spot anchoring)";
+    case "coherence_gate":
+      return "Coherence gate (agreement coherence conflict guard)";
+    case "divergence_gate":
+      return "Divergence gate (shrinks blended return on disagreement)";
+    case "fractal_blend":
+      return "Fractal blend (signed-root nonlinear fusion)";
+    case "phase_cancel":
+      return "Phase cancel (anti-phase conflict neutralization)";
+    case "softmax_blend":
+      return "Softmax blend (softmax edge weights)";
+    case "smooth_softmax_blend":
+      return "Smooth softmax blend (EMA-smooth softmax weights)";
+    case "hedge_blend":
+      return "Hedge blend (online exp-weights mix)";
+    case "net_softmax_blend":
+      return "Net softmax blend (post-cost softmax edge weights)";
+    case "edge_blend":
+      return "Edge blend (edge-weighted)";
+    case "edge_pick":
+      return "Edge pick (edge winner)";
+    case "geo_blend":
+      return "Geo blend (geometric)";
+    case "regime_switch":
+      return "Regime switch (vol/z adaptive)";
+    case "router":
+      return "Router (adaptive)";
+    case "bandit_router":
+      return "Bandit router (UCB adaptive)";
+    default:
+      return "Unknown";
   }
 }
 
@@ -185,6 +479,8 @@ export function marketLabel(m: Market): string {
       return "Margin";
     case "futures":
       return "Futures";
+    default:
+      return "Unknown";
   }
 }
 

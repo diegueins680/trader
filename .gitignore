@@ -3,6 +3,7 @@
 # Env / secrets
 .env
 .env.*
+.tmp-ui-deploy/
 !.env.example
 
 # Python
@@ -24,9 +25,12 @@ pnpm-debug.log*
 dist/
 dist-newstyle/
 haskell/dist-newstyle/
+haskell/dist-newstyle-alt/
 haskell/.stack-work/
+haskell/.stack-root/
 haskell/stack.yaml.lock
 haskell/.cabal-config
+haskell/.cabal/
 .cabal-sandbox/
 cabal.sandbox.config
 .ghc.environment.*
@@ -48,3 +52,13 @@ cabal.sandbox.config
 Long.csv
 Short.csv
 .tmp/
+tmp/
+AWS_DEPLOYMENT_SUMMARY.txt
+config.yaml
+directory_tree.txt
+data/BNBUSDT-5m-2020-06.csv
+data/sample_prices0.csv
+haskell/app/Trader/TestMain.hs
+haskell/cabal.project
+haskell/hie.yaml
+haskell/package-lock.json

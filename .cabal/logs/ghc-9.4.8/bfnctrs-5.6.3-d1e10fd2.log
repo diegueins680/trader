@@ -1,0 +1,20 @@
+Configuring library for bifunctors-5.6.3...
+Preprocessing library for bifunctors-5.6.3...
+Building library for bifunctors-5.6.3...
+[ 1 of 15] Compiling Data.Biapplicative ( src/Data/Biapplicative.hs, dist/build/Data/Biapplicative.o, dist/build/Data/Biapplicative.dyn_o )
+[ 2 of 15] Compiling Data.Bifunctor.Biap ( src/Data/Bifunctor/Biap.hs, dist/build/Data/Bifunctor/Biap.o, dist/build/Data/Bifunctor/Biap.dyn_o )
+[ 3 of 15] Compiling Data.Bifunctor.Biff ( src/Data/Bifunctor/Biff.hs, dist/build/Data/Bifunctor/Biff.o, dist/build/Data/Bifunctor/Biff.dyn_o )
+[ 4 of 15] Compiling Data.Bifunctor.Clown ( src/Data/Bifunctor/Clown.hs, dist/build/Data/Bifunctor/Clown.o, dist/build/Data/Bifunctor/Clown.dyn_o )
+[ 5 of 15] Compiling Data.Bifunctor.Fix ( src/Data/Bifunctor/Fix.hs, dist/build/Data/Bifunctor/Fix.o, dist/build/Data/Bifunctor/Fix.dyn_o )
+[ 6 of 15] Compiling Data.Bifunctor.Functor ( src/Data/Bifunctor/Functor.hs, dist/build/Data/Bifunctor/Functor.o, dist/build/Data/Bifunctor/Functor.dyn_o )
+[ 7 of 15] Compiling Data.Bifunctor.Flip ( src/Data/Bifunctor/Flip.hs, dist/build/Data/Bifunctor/Flip.o, dist/build/Data/Bifunctor/Flip.dyn_o )
+[ 8 of 15] Compiling Data.Bifunctor.Join ( src/Data/Bifunctor/Join.hs, dist/build/Data/Bifunctor/Join.o, dist/build/Data/Bifunctor/Join.dyn_o )
+[ 9 of 15] Compiling Data.Bifunctor.Joker ( src/Data/Bifunctor/Joker.hs, dist/build/Data/Bifunctor/Joker.o, dist/build/Data/Bifunctor/Joker.dyn_o )
+[10 of 15] Compiling Data.Bifunctor.Product ( src/Data/Bifunctor/Product.hs, dist/build/Data/Bifunctor/Product.o, dist/build/Data/Bifunctor/Product.dyn_o )
+[11 of 15] Compiling Data.Bifunctor.Sum ( src/Data/Bifunctor/Sum.hs, dist/build/Data/Bifunctor/Sum.o, dist/build/Data/Bifunctor/Sum.dyn_o )
+[12 of 15] Compiling Data.Bifunctor.TH.Internal ( src/Data/Bifunctor/TH/Internal.hs, dist/build/Data/Bifunctor/TH/Internal.o, dist/build/Data/Bifunctor/TH/Internal.dyn_o )
+[13 of 15] Compiling Data.Bifunctor.TH ( src/Data/Bifunctor/TH.hs, dist/build/Data/Bifunctor/TH.o, dist/build/Data/Bifunctor/TH.dyn_o )
+[14 of 15] Compiling Data.Bifunctor.Tannen ( src/Data/Bifunctor/Tannen.hs, dist/build/Data/Bifunctor/Tannen.o, dist/build/Data/Bifunctor/Tannen.dyn_o )
+[15 of 15] Compiling Data.Bifunctor.Wrapped ( src/Data/Bifunctor/Wrapped.hs, dist/build/Data/Bifunctor/Wrapped.o, dist/build/Data/Bifunctor/Wrapped.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/bfnctrs-5.6.3-d1e10fd2/lib

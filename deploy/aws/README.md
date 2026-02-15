@@ -17,7 +17,8 @@ curl -s http://127.0.0.1:8080/health
 ```
 
 Async job persistence (recommended if you use the `*/async` endpoints behind a non-sticky load balancer):
-- Mount a shared volume at `/var/lib/trader/async` (the Docker image defaults `TRADER_API_ASYNC_DIR` to this path), or override `TRADER_API_ASYNC_DIR` to your shared mount.
+- Mount a shared volume and set `TRADER_STATE_DIR` (recommended) or `TRADER_API_ASYNC_DIR` to your shared mount.
+- If you only want async persistence, point `TRADER_API_ASYNC_DIR` at your shared mount; otherwise, use `TRADER_STATE_DIR` to persist journal/bot state/optimizer combos/LSTM weights alongside async jobs.
 
 Example (named Docker volume):
 
@@ -46,12 +47,6 @@ Build info:
 - Option B (AWS CLI):
   - Note: ECR uses regions (Tokyo is `ap-northeast-1`), not availability zones (like `ap-northeast-1a`).
 
-```bash
-AWS_REGION=ap-northeast-1
-ECR_REPO=trader-api
-bash deploy/aws/create-ecr-repo.sh
-```
-
 Or directly:
 
 ```bash
@@ -73,10 +68,15 @@ aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
 # In zsh, prefer "${VAR}:latest" (not "$VAR:latest") to avoid zsh's ":<modifier>" expansion.
+# If ECR push fails with `403 Forbidden` on `HEAD .../manifests/sha256:...`, your IAM principal likely
+# needs `ecr:BatchGetImage` (Docker checks for existing manifests), or disable Docker attestations
+# (example: `docker build --provenance=false --sbom=false ...`).
 docker build -t "${ECR_REPO}:latest" .
 docker tag "${ECR_REPO}:latest" "${ECR_URI}:latest"
 docker push "${ECR_URI}:latest"
 ```
+
+If `docker push` fails with `403 Forbidden` (often on a `HEAD .../manifests/<tag>` request), the AWS role/user can authenticate but is missing ECR repository permissions (commonly `ecr:BatchGetImage` / `ecr:GetDownloadUrlForLayer`, and/or `ecr:PutImage`).
 
 ### 3) Create the App Runner service
 
@@ -89,21 +89,32 @@ docker push "${ECR_URI}:latest"
 - Environment variables:
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
-  - Optional: operation persistence (append-only JSONL) for `GET /ops`:
-    - `TRADER_OPS_DIR=/tmp/trader-ops` (ephemeral unless you mount durable storage)
-    - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`)
+  - `TRADER_BOT_SYMBOLS` / `TRADER_BOT_TRADE` (optional; used by the cron watchdog to build `/bot/start`)
+  - `TRADER_MULTI_USER=true` (enable tenant-scoped ops/rollups; recommended for multi-user deployments)
+  - Required: PostgreSQL persistence for ops/combos:
+    - `TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require`
+    - `deploy-aws-quick.sh` runs ops schema updates + performance rollups automatically when `TRADER_DB_URL` is set (requires `psql`; disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`).
+  - Required: S3 state persistence (App Runner has no EFS support):
+    - `TRADER_STATE_S3_BUCKET=<bucket>`
+    - `TRADER_STATE_S3_PREFIX=trader`
+    - `TRADER_STATE_S3_REGION=ap-northeast-1`
+  - Required: shared state directory (ECS/EKS/Docker) to persist across deploys:
+    - `TRADER_STATE_DIR=/var/lib/trader/state` (mount durable storage)
   - Optional safety limits (to avoid OOM / timeouts on small instances):
     - `TRADER_API_MAX_ASYNC_RUNNING` (default: `1`)
-    - `TRADER_API_MAX_BARS_LSTM` (default: `300`)
+    - `TRADER_API_MAX_BARS_LSTM` (default: `1000`)
     - `TRADER_API_MAX_EPOCHS` (default: `100`)
-    - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`)
+    - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`; set to `50` to allow larger LSTM hidden sizes)
   - Async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
-    - `TRADER_API_ASYNC_DIR` (e.g. an EFS-mounted path). Docker image default: `/var/lib/trader/async`.
+    - `TRADER_API_ASYNC_DIR` (shared mount; App Runner has no volume support). Docker image default: `/var/lib/trader/async`.
+    - Or set `TRADER_STATE_DIR` to a shared mount to persist async jobs plus journal/bot state/optimizer combos/LSTM weights.
       - For multi-instance deployments, ensure this path is a shared writable mount across all instances (otherwise polling can still return “Not found”).
+
+App Runner note: EFS volumes are not supported; use S3 (`TRADER_STATE_S3_BUCKET`) for persistence on App Runner.
 
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).
 
-Note (AWS CLI): when creating an App Runner service from a **private ECR** image, you must provide `AuthenticationConfiguration.AccessRoleArn` (an IAM role trusted by `build.apprunner.amazonaws.com` with the managed policy `AWSAppRunnerServicePolicyForECRAccess`). The repo’s `deploy-aws-quick.sh` script creates/reuses this role automatically.
+Note (AWS CLI): when creating an App Runner service from a **private ECR** image, you must provide `AuthenticationConfiguration.AccessRoleArn` (an IAM role trusted by `build.apprunner.amazonaws.com` with the managed policy `AWSAppRunnerServicePolicyForECRAccess`). The repo’s `deploy-aws-quick.sh` script creates/reuses this role automatically. It can also create or reuse the S3 state bucket + App Runner instance role (`--ensure-resources`) and, if requested, the UI bucket + CloudFront distribution (`--cloudfront`).
 
 ### Scaling note (important)
 
@@ -117,11 +128,7 @@ Recommendation: run **single-instance** (min=1 / max=1) unless you have shared a
 
 Helper (AWS CLI):
 
-```bash
-AWS_REGION=ap-northeast-1
-APP_RUNNER_SERVICE_ARN="arn:aws:apprunner:..."
-bash deploy/aws/set-app-runner-single-instance.sh --service-arn "$APP_RUNNER_SERVICE_ARN" --min 1 --max 1
-```
+`deploy-aws-quick.sh` sets min=1/max=1 automatically on API deploy. If you need to adjust it later, use the App Runner console.
 
 ## Web UI (S3/CloudFront)
 
@@ -146,7 +153,7 @@ S3_BUCKET="trader-ui-..."
 APP_RUNNER_SERVICE_ARN="arn:aws:apprunner:..."
 CLOUDFRONT_DISTRIBUTION_ID="E123..."
 
-bash deploy/aws/deploy-ui.sh \
+bash deploy-aws-quick.sh --ui-only \
   --region "$AWS_REGION" \
   --bucket "$S3_BUCKET" \
   --service-arn "$APP_RUNNER_SERVICE_ARN" \
@@ -157,6 +164,8 @@ The script:
 - Builds `haskell/web`
 - Writes `haskell/web/dist/trader-config.js` (apiBaseUrl + apiToken)
 - Syncs `dist/` to S3 and (optionally) invalidates CloudFront
+- Tip: use `--cloudfront-domain d123.cloudfront.net` (or `TRADER_UI_CLOUDFRONT_DOMAIN`) to reuse an existing distribution without manually supplying the S3 bucket.
+- The script loads `.env.deploy` (or `TRADER_DEPLOY_ENV_FILE`) for persistent deploy defaults.
 
 ### What’s the “API host”?
 
@@ -192,7 +201,8 @@ If you prefer the UI calling `/api/*` on the same domain, configure a CloudFront
 - Cache: disable caching for `/api/*`
 
 Notes:
-- You can set the API base URL at deploy time via `haskell/web/public/trader-config.js` (`apiBaseUrl`). If you use the same-origin CloudFront `/api/*` behavior, leave it as `/api`.
+- The UI config defaults `apiBaseUrl` to `/api` when a CloudFront distribution is set. Use `--ui-api-direct` (or `TRADER_UI_API_MODE=direct`) to keep the direct API URL (CORS required; the quick deploy script can auto-fill `TRADER_CORS_ORIGIN` from the CloudFront domain, and defaults `apiFallbackUrl` to `/api` for same-origin fallback).
+- You can set the API base URL at deploy time via `haskell/web/public/trader-config.js` (`apiBaseUrl`). Set it to `/api` only when using the same-origin CloudFront `/api/*` behavior.
 - If you run multiple backend instances, either keep it single-instance or ensure `TRADER_API_ASYNC_DIR` points to a shared writable directory (CloudFront itself is not sticky, so async jobs can return “Not found” when polling hits a different instance).
 - If you *do* prefer same-origin `/api/*` routing, see “CloudFront `/api/*` proxy (optional)” above.
 - After uploading a new UI build to S3, invalidate CloudFront so clients fetch the new hashed JS/CSS assets.

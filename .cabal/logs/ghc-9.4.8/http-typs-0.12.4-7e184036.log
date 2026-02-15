@@ -1,0 +1,12 @@
+Configuring library for http-types-0.12.4...
+Preprocessing library for http-types-0.12.4...
+Building library for http-types-0.12.4...
+[1 of 7] Compiling Network.HTTP.Types.Header ( Network/HTTP/Types/Header.hs, dist/build/Network/HTTP/Types/Header.o, dist/build/Network/HTTP/Types/Header.dyn_o )
+[2 of 7] Compiling Network.HTTP.Types.Method ( Network/HTTP/Types/Method.hs, dist/build/Network/HTTP/Types/Method.o, dist/build/Network/HTTP/Types/Method.dyn_o )
+[3 of 7] Compiling Network.HTTP.Types.Status ( Network/HTTP/Types/Status.hs, dist/build/Network/HTTP/Types/Status.o, dist/build/Network/HTTP/Types/Status.dyn_o )
+[4 of 7] Compiling Network.HTTP.Types.URI ( Network/HTTP/Types/URI.hs, dist/build/Network/HTTP/Types/URI.o, dist/build/Network/HTTP/Types/URI.dyn_o )
+[5 of 7] Compiling Network.HTTP.Types.QueryLike ( Network/HTTP/Types/QueryLike.hs, dist/build/Network/HTTP/Types/QueryLike.o, dist/build/Network/HTTP/Types/QueryLike.dyn_o )
+[6 of 7] Compiling Network.HTTP.Types.Version ( Network/HTTP/Types/Version.hs, dist/build/Network/HTTP/Types/Version.o, dist/build/Network/HTTP/Types/Version.dyn_o )
+[7 of 7] Compiling Network.HTTP.Types ( Network/HTTP/Types.hs, dist/build/Network/HTTP/Types.o, dist/build/Network/HTTP/Types.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/http-typs-0.12.4-7e184036/lib

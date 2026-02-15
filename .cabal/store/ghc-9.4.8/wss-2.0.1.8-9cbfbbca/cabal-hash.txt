@@ -1,0 +1,12 @@
+pkgid: wuss-2.0.1.8
+component: ComponentLib
+src: f3b68294968e7fd67d7f0c57a85d02539faa33434251b4fc93befb103221b0dd
+pkg-config-deps: 
+deps: base-4.17.2.1, bytestring-0.11.5.3, cryptn-cnnctn-0.3.2-3032a3d5, exceptions-0.10.5, ntwrk-3.2.8.0-948adf32, wbsckts-0.13.0.0-dd75b8fa
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+flags: -pedantic
+shared-lib: True
+stripped-exe: False
+debug-info: 0

@@ -1,0 +1,9 @@
+Configuring library for network-control-0.1.7...
+Preprocessing library for network-control-0.1.7...
+Building library for network-control-0.1.7...
+[1 of 4] Compiling Network.Control.Flow ( Network/Control/Flow.hs, dist/build/Network/Control/Flow.o, dist/build/Network/Control/Flow.dyn_o )
+[2 of 4] Compiling Network.Control.LRUCache ( Network/Control/LRUCache.hs, dist/build/Network/Control/LRUCache.o, dist/build/Network/Control/LRUCache.dyn_o )
+[3 of 4] Compiling Network.Control.Rate ( Network/Control/Rate.hs, dist/build/Network/Control/Rate.o, dist/build/Network/Control/Rate.dyn_o )
+[4 of 4] Compiling Network.Control  ( Network/Control.hs, dist/build/Network/Control.o, dist/build/Network/Control.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41763/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ntwrk-cntrl-0.1.7-e0ad2046/lib

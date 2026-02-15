@@ -1,0 +1,27 @@
+Configuring library for cereal-0.5.8.3...
+Preprocessing library for cereal-0.5.8.3...
+Building library for cereal-0.5.8.3...
+[1 of 4] Compiling Data.Serialize.Get ( src/Data/Serialize/Get.hs, dist/build/Data/Serialize/Get.o, dist/build/Data/Serialize/Get.dyn_o )
+[2 of 4] Compiling Data.Serialize.Put ( src/Data/Serialize/Put.hs, dist/build/Data/Serialize/Put.o, dist/build/Data/Serialize/Put.dyn_o )
+[3 of 4] Compiling Data.Serialize.IEEE754 ( src/Data/Serialize/IEEE754.hs, dist/build/Data/Serialize/IEEE754.o, dist/build/Data/Serialize/IEEE754.dyn_o )
+[4 of 4] Compiling Data.Serialize   ( src/Data/Serialize.hs, dist/build/Data/Serialize.o, dist/build/Data/Serialize.dyn_o )
+
+src/Data/Serialize.hs:702:22: warning: [-Wstar-is-type]
+    Using ‘*’ (or its Unicode variant) to mean ‘Data.Kind.Type’
+    relies on the StarIsType extension, which will become
+    deprecated in the future.
+    Suggested fix: Use ‘Type’ from ‘Data.Kind’ instead.
+    |
+702 | newtype Tagged (s :: * -> *) b = Tagged {unTagged :: b}
+    |                      ^
+
+src/Data/Serialize.hs:702:27: warning: [-Wstar-is-type]
+    Using ‘*’ (or its Unicode variant) to mean ‘Data.Kind.Type’
+    relies on the StarIsType extension, which will become
+    deprecated in the future.
+    Suggested fix: Use ‘Type’ from ‘Data.Kind’ instead.
+    |
+702 | newtype Tagged (s :: * -> *) b = Tagged {unTagged :: b}
+    |                           ^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67506/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/crl-0.5.8.3-cdc34e90/lib

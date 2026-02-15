@@ -1,0 +1,25 @@
+Configuring library for time-compat-1.9.8...
+Preprocessing library for time-compat-1.9.8...
+Building library for time-compat-1.9.8...
+[ 1 of 20] Compiling Data.Format      ( src/Data/Format.hs, dist/build/Data/Format.o, dist/build/Data/Format.dyn_o )
+[ 2 of 20] Compiling Data.Time.Calendar.Month.Compat ( src/Data/Time/Calendar/Month/Compat.hs, dist/build/Data/Time/Calendar/Month/Compat.o, dist/build/Data/Time/Calendar/Month/Compat.dyn_o )
+[ 3 of 20] Compiling Data.Time.Calendar.Quarter.Compat ( src/Data/Time/Calendar/Quarter/Compat.hs, dist/build/Data/Time/Calendar/Quarter/Compat.o, dist/build/Data/Time/Calendar/Quarter/Compat.dyn_o )
+[ 4 of 20] Compiling Data.Time.Calendar.Types ( src/Data/Time/Calendar/Types.hs, dist/build/Data/Time/Calendar/Types.o, dist/build/Data/Time/Calendar/Types.dyn_o )
+[ 5 of 20] Compiling Data.Time.Orphans ( src/Data/Time/Orphans.hs, dist/build/Data/Time/Orphans.o, dist/build/Data/Time/Orphans.dyn_o )
+[ 6 of 20] Compiling Data.Time.Format.ISO8601.Compat ( src/Data/Time/Format/ISO8601/Compat.hs, dist/build/Data/Time/Format/ISO8601/Compat.o, dist/build/Data/Time/Format/ISO8601/Compat.dyn_o )
+[ 7 of 20] Compiling Data.Time.Format.Compat ( src/Data/Time/Format/Compat.hs, dist/build/Data/Time/Format/Compat.o, dist/build/Data/Time/Format/Compat.dyn_o )
+[ 8 of 20] Compiling Data.Time.Clock.System.Compat ( src/Data/Time/Clock/System/Compat.hs, dist/build/Data/Time/Clock/System/Compat.o, dist/build/Data/Time/Clock/System/Compat.dyn_o )
+[ 9 of 20] Compiling Data.Time.Clock.POSIX.Compat ( src/Data/Time/Clock/POSIX/Compat.hs, dist/build/Data/Time/Clock/POSIX/Compat.o, dist/build/Data/Time/Clock/POSIX/Compat.dyn_o )
+[10 of 20] Compiling Data.Time.Clock.Compat ( src/Data/Time/Clock/Compat.hs, dist/build/Data/Time/Clock/Compat.o, dist/build/Data/Time/Clock/Compat.dyn_o )
+[11 of 20] Compiling Data.Time.Calendar.WeekDate.Compat ( src/Data/Time/Calendar/WeekDate/Compat.hs, dist/build/Data/Time/Calendar/WeekDate/Compat.o, dist/build/Data/Time/Calendar/WeekDate/Compat.dyn_o )
+[12 of 20] Compiling Data.Time.Calendar.Private ( src/Data/Time/Calendar/Private.hs, dist/build/Data/Time/Calendar/Private.o, dist/build/Data/Time/Calendar/Private.dyn_o )
+[13 of 20] Compiling Data.Time.Calendar.OrdinalDate.Compat ( src/Data/Time/Calendar/OrdinalDate/Compat.hs, dist/build/Data/Time/Calendar/OrdinalDate/Compat.o, dist/build/Data/Time/Calendar/OrdinalDate/Compat.dyn_o )
+[14 of 20] Compiling Data.Time.Calendar.MonthDay.Compat ( src/Data/Time/Calendar/MonthDay/Compat.hs, dist/build/Data/Time/Calendar/MonthDay/Compat.o, dist/build/Data/Time/Calendar/MonthDay/Compat.dyn_o )
+[15 of 20] Compiling Data.Time.Calendar.Easter.Compat ( src/Data/Time/Calendar/Easter/Compat.hs, dist/build/Data/Time/Calendar/Easter/Compat.o, dist/build/Data/Time/Calendar/Easter/Compat.dyn_o )
+[16 of 20] Compiling Data.Time.Calendar.Compat ( src/Data/Time/Calendar/Compat.hs, dist/build/Data/Time/Calendar/Compat.o, dist/build/Data/Time/Calendar/Compat.dyn_o )
+[17 of 20] Compiling Data.Time.LocalTime.Compat ( src/Data/Time/LocalTime/Compat.hs, dist/build/Data/Time/LocalTime/Compat.o, dist/build/Data/Time/LocalTime/Compat.dyn_o )
+[18 of 20] Compiling Data.Time.Compat ( src/Data/Time/Compat.hs, dist/build/Data/Time/Compat.o, dist/build/Data/Time/Compat.dyn_o )
+[19 of 20] Compiling Data.Time.Clock.TAI.Compat ( src/Data/Time/Clock/TAI/Compat.hs, dist/build/Data/Time/Clock/TAI/Compat.o, dist/build/Data/Time/Clock/TAI/Compat.dyn_o )
+[20 of 20] Compiling Data.Time.Calendar.Julian.Compat ( src/Data/Time/Calendar/Julian/Compat.hs, dist/build/Data/Time/Calendar/Julian/Compat.o, dist/build/Data/Time/Calendar/Julian/Compat.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/tm-cmpt-1.9.8-611e216d/lib

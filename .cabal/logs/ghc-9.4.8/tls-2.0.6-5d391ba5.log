@@ -1,0 +1,113 @@
+Configuring library for tls-2.0.6...
+Preprocessing library for tls-2.0.6...
+Building library for tls-2.0.6...
+[ 1 of 76] Compiling Network.TLS.Crypto.Types ( Network/TLS/Crypto/Types.hs, dist/build/Network/TLS/Crypto/Types.o, dist/build/Network/TLS/Crypto/Types.dyn_o )
+[ 2 of 76] Compiling Network.TLS.ErrT ( Network/TLS/ErrT.hs, dist/build/Network/TLS/ErrT.o, dist/build/Network/TLS/ErrT.dyn_o )
+[ 3 of 76] Compiling Network.TLS.Imports ( Network/TLS/Imports.hs, dist/build/Network/TLS/Imports.o, dist/build/Network/TLS/Imports.dyn_o )
+[ 4 of 76] Compiling Network.TLS.Backend ( Network/TLS/Backend.hs, dist/build/Network/TLS/Backend.o, dist/build/Network/TLS/Backend.dyn_o )
+[ 5 of 76] Compiling Network.TLS.Measurement ( Network/TLS/Measurement.hs, dist/build/Network/TLS/Measurement.o, dist/build/Network/TLS/Measurement.dyn_o )
+[ 6 of 76] Compiling Network.TLS.RNG  ( Network/TLS/RNG.hs, dist/build/Network/TLS/RNG.o, dist/build/Network/TLS/RNG.dyn_o )
+[ 7 of 76] Compiling Network.TLS.Crypto.DH ( Network/TLS/Crypto/DH.hs, dist/build/Network/TLS/Crypto/DH.o, dist/build/Network/TLS/Crypto/DH.dyn_o )
+[ 8 of 76] Compiling Network.TLS.Extra.FFDHE ( Network/TLS/Extra/FFDHE.hs, dist/build/Network/TLS/Extra/FFDHE.o, dist/build/Network/TLS/Extra/FFDHE.dyn_o )
+[ 9 of 76] Compiling Network.TLS.Util ( Network/TLS/Util.hs, dist/build/Network/TLS/Util.o, dist/build/Network/TLS/Util.dyn_o )
+[10 of 76] Compiling Network.TLS.Util.ASN1 ( Network/TLS/Util/ASN1.hs, dist/build/Network/TLS/Util/ASN1.o, dist/build/Network/TLS/Util/ASN1.dyn_o )
+[11 of 76] Compiling Network.TLS.Util.Serialization ( Network/TLS/Util/Serialization.hs, dist/build/Network/TLS/Util/Serialization.o, dist/build/Network/TLS/Util/Serialization.dyn_o )
+[12 of 76] Compiling Network.TLS.Crypto.IES ( Network/TLS/Crypto/IES.hs, dist/build/Network/TLS/Crypto/IES.o, dist/build/Network/TLS/Crypto/IES.dyn_o )
+[13 of 76] Compiling Network.TLS.Crypto ( Network/TLS/Crypto.hs, dist/build/Network/TLS/Crypto.o, dist/build/Network/TLS/Crypto.dyn_o )
+[14 of 76] Compiling Network.TLS.Types ( Network/TLS/Types.hs, dist/build/Network/TLS/Types.o, dist/build/Network/TLS/Types.dyn_o )
+[15 of 76] Compiling Network.TLS.Session ( Network/TLS/Session.hs, dist/build/Network/TLS/Session.o, dist/build/Network/TLS/Session.dyn_o )
+[16 of 76] Compiling Network.TLS.Compression ( Network/TLS/Compression.hs, dist/build/Network/TLS/Compression.o, dist/build/Network/TLS/Compression.dyn_o )
+[17 of 76] Compiling Network.TLS.Struct ( Network/TLS/Struct.hs, dist/build/Network/TLS/Struct.o, dist/build/Network/TLS/Struct.dyn_o )
+[18 of 76] Compiling Network.TLS.Struct13 ( Network/TLS/Struct13.hs, dist/build/Network/TLS/Struct13.o, dist/build/Network/TLS/Struct13.dyn_o )
+[19 of 76] Compiling Network.TLS.MAC  ( Network/TLS/MAC.hs, dist/build/Network/TLS/MAC.o, dist/build/Network/TLS/MAC.dyn_o )
+[20 of 76] Compiling Network.TLS.Cipher ( Network/TLS/Cipher.hs, dist/build/Network/TLS/Cipher.o, dist/build/Network/TLS/Cipher.dyn_o )
+[21 of 76] Compiling Network.TLS.Handshake.Control ( Network/TLS/Handshake/Control.hs, dist/build/Network/TLS/Handshake/Control.o, dist/build/Network/TLS/Handshake/Control.dyn_o )
+[22 of 76] Compiling Network.TLS.Extra.Cipher ( Network/TLS/Extra/Cipher.hs, dist/build/Network/TLS/Extra/Cipher.o, dist/build/Network/TLS/Extra/Cipher.dyn_o )
+[23 of 76] Compiling Network.TLS.Extra ( Network/TLS/Extra.hs, dist/build/Network/TLS/Extra.o, dist/build/Network/TLS/Extra.dyn_o )
+[24 of 76] Compiling Network.TLS.Wire ( Network/TLS/Wire.hs, dist/build/Network/TLS/Wire.o, dist/build/Network/TLS/Wire.dyn_o )
+[25 of 76] Compiling Network.TLS.Packet ( Network/TLS/Packet.hs, dist/build/Network/TLS/Packet.o, dist/build/Network/TLS/Packet.dyn_o )
+[26 of 76] Compiling Network.TLS.Record.State ( Network/TLS/Record/State.hs, dist/build/Network/TLS/Record/State.o, dist/build/Network/TLS/Record/State.dyn_o )
+[27 of 76] Compiling Network.TLS.Record.Types ( Network/TLS/Record/Types.hs, dist/build/Network/TLS/Record/Types.o, dist/build/Network/TLS/Record/Types.dyn_o )
+[28 of 76] Compiling Network.TLS.Record.Engage ( Network/TLS/Record/Engage.hs, dist/build/Network/TLS/Record/Engage.o, dist/build/Network/TLS/Record/Engage.dyn_o )
+[29 of 76] Compiling Network.TLS.Record.Disengage ( Network/TLS/Record/Disengage.hs, dist/build/Network/TLS/Record/Disengage.o, dist/build/Network/TLS/Record/Disengage.dyn_o )
+[30 of 76] Compiling Network.TLS.Record ( Network/TLS/Record.hs, dist/build/Network/TLS/Record.o, dist/build/Network/TLS/Record.dyn_o )
+[31 of 76] Compiling Network.TLS.Packet13 ( Network/TLS/Packet13.hs, dist/build/Network/TLS/Packet13.o, dist/build/Network/TLS/Packet13.dyn_o )
+[32 of 76] Compiling Network.TLS.Handshake.State ( Network/TLS/Handshake/State.hs, dist/build/Network/TLS/Handshake/State.o, dist/build/Network/TLS/Handshake/State.dyn_o )
+[33 of 76] Compiling Network.TLS.KeySchedule ( Network/TLS/KeySchedule.hs, dist/build/Network/TLS/KeySchedule.o, dist/build/Network/TLS/KeySchedule.dyn_o )
+[34 of 76] Compiling Network.TLS.Extension ( Network/TLS/Extension.hs, dist/build/Network/TLS/Extension.o, dist/build/Network/TLS/Extension.dyn_o )
+[35 of 76] Compiling Network.TLS.State ( Network/TLS/State.hs, dist/build/Network/TLS/State.o, dist/build/Network/TLS/State.dyn_o )
+[36 of 76] Compiling Network.TLS.X509 ( Network/TLS/X509.hs, dist/build/Network/TLS/X509.o, dist/build/Network/TLS/X509.dyn_o )
+[37 of 76] Compiling Network.TLS.Hooks ( Network/TLS/Hooks.hs, dist/build/Network/TLS/Hooks.o, dist/build/Network/TLS/Hooks.dyn_o )
+[38 of 76] Compiling Network.TLS.Credentials ( Network/TLS/Credentials.hs, dist/build/Network/TLS/Credentials.o, dist/build/Network/TLS/Credentials.dyn_o )
+[39 of 76] Compiling Network.TLS.Parameters ( Network/TLS/Parameters.hs, dist/build/Network/TLS/Parameters.o, dist/build/Network/TLS/Parameters.dyn_o )
+[40 of 76] Compiling Network.TLS.Context.Internal ( Network/TLS/Context/Internal.hs, dist/build/Network/TLS/Context/Internal.o, dist/build/Network/TLS/Context/Internal.dyn_o )
+[41 of 76] Compiling Network.TLS.Record.Writing ( Network/TLS/Record/Writing.hs, dist/build/Network/TLS/Record/Writing.o, dist/build/Network/TLS/Record/Writing.dyn_o )
+[42 of 76] Compiling Network.TLS.Record.Reading ( Network/TLS/Record/Reading.hs, dist/build/Network/TLS/Record/Reading.o, dist/build/Network/TLS/Record/Reading.dyn_o )
+[43 of 76] Compiling Network.TLS.Receiving ( Network/TLS/Receiving.hs, dist/build/Network/TLS/Receiving.o, dist/build/Network/TLS/Receiving.dyn_o )
+[44 of 76] Compiling Network.TLS.Handshake.State13 ( Network/TLS/Handshake/State13.hs, dist/build/Network/TLS/Handshake/State13.o, dist/build/Network/TLS/Handshake/State13.dyn_o )
+[45 of 76] Compiling Network.TLS.Handshake.Random ( Network/TLS/Handshake/Random.hs, dist/build/Network/TLS/Handshake/Random.o, dist/build/Network/TLS/Handshake/Random.dyn_o )
+[46 of 76] Compiling Network.TLS.Sending ( Network/TLS/Sending.hs, dist/build/Network/TLS/Sending.o, dist/build/Network/TLS/Sending.dyn_o )
+[47 of 76] Compiling Network.TLS.IO   ( Network/TLS/IO.hs, dist/build/Network/TLS/IO.o, dist/build/Network/TLS/IO.dyn_o )
+[48 of 76] Compiling Network.TLS.Handshake.Process ( Network/TLS/Handshake/Process.hs, dist/build/Network/TLS/Handshake/Process.o, dist/build/Network/TLS/Handshake/Process.dyn_o )
+[49 of 76] Compiling Network.TLS.Handshake.Key ( Network/TLS/Handshake/Key.hs, dist/build/Network/TLS/Handshake/Key.o, dist/build/Network/TLS/Handshake/Key.dyn_o )
+[50 of 76] Compiling Network.TLS.Handshake.Signature ( Network/TLS/Handshake/Signature.hs, dist/build/Network/TLS/Handshake/Signature.o, dist/build/Network/TLS/Handshake/Signature.dyn_o )
+[51 of 76] Compiling Network.TLS.Handshake.Common ( Network/TLS/Handshake/Common.hs, dist/build/Network/TLS/Handshake/Common.o, dist/build/Network/TLS/Handshake/Common.dyn_o )
+[52 of 76] Compiling Network.TLS.Handshake.Server.ClientHello ( Network/TLS/Handshake/Server/ClientHello.hs, dist/build/Network/TLS/Handshake/Server/ClientHello.o, dist/build/Network/TLS/Handshake/Server/ClientHello.dyn_o )
+[53 of 76] Compiling Network.TLS.Handshake.Certificate ( Network/TLS/Handshake/Certificate.hs, dist/build/Network/TLS/Handshake/Certificate.o, dist/build/Network/TLS/Handshake/Certificate.dyn_o )
+
+Network/TLS/Handshake/Certificate.hs:10:1: warning: [-Wunused-imports]
+    The import of ‘Control.Monad’ is redundant
+      except perhaps to import instances from ‘Control.Monad’
+    To import instances alone, use: import Control.Monad()
+   |
+10 | import Control.Monad (unless)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[54 of 76] Compiling Network.TLS.Handshake.Common13 ( Network/TLS/Handshake/Common13.hs, dist/build/Network/TLS/Handshake/Common13.o, dist/build/Network/TLS/Handshake/Common13.dyn_o )
+[55 of 76] Compiling Network.TLS.Handshake.Server.ClientHello13 ( Network/TLS/Handshake/Server/ClientHello13.hs, dist/build/Network/TLS/Handshake/Server/ClientHello13.o, dist/build/Network/TLS/Handshake/Server/ClientHello13.dyn_o )
+[56 of 76] Compiling Network.TLS.Handshake.Server.Common ( Network/TLS/Handshake/Server/Common.hs, dist/build/Network/TLS/Handshake/Server/Common.o, dist/build/Network/TLS/Handshake/Server/Common.dyn_o )
+
+Network/TLS/Handshake/Server/Common.hs:25:1: warning: [-Wunused-imports]
+    The import of ‘Network.TLS.Imports’ is redundant
+      except perhaps to import instances from ‘Network.TLS.Imports’
+    To import instances alone, use: import Network.TLS.Imports()
+   |
+25 | import Network.TLS.Imports
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[57 of 76] Compiling Network.TLS.Handshake.Server.TLS13 ( Network/TLS/Handshake/Server/TLS13.hs, dist/build/Network/TLS/Handshake/Server/TLS13.o, dist/build/Network/TLS/Handshake/Server/TLS13.dyn_o )
+[58 of 76] Compiling Network.TLS.Handshake.Server.TLS12 ( Network/TLS/Handshake/Server/TLS12.hs, dist/build/Network/TLS/Handshake/Server/TLS12.o, dist/build/Network/TLS/Handshake/Server/TLS12.dyn_o )
+[59 of 76] Compiling Network.TLS.Handshake.Server.ServerHello13 ( Network/TLS/Handshake/Server/ServerHello13.hs, dist/build/Network/TLS/Handshake/Server/ServerHello13.o, dist/build/Network/TLS/Handshake/Server/ServerHello13.dyn_o )
+[60 of 76] Compiling Network.TLS.Handshake.Server.ServerHello12 ( Network/TLS/Handshake/Server/ServerHello12.hs, dist/build/Network/TLS/Handshake/Server/ServerHello12.o, dist/build/Network/TLS/Handshake/Server/ServerHello12.dyn_o )
+[61 of 76] Compiling Network.TLS.Handshake.Server.ClientHello12 ( Network/TLS/Handshake/Server/ClientHello12.hs, dist/build/Network/TLS/Handshake/Server/ClientHello12.o, dist/build/Network/TLS/Handshake/Server/ClientHello12.dyn_o )
+[62 of 76] Compiling Network.TLS.Handshake.Server ( Network/TLS/Handshake/Server.hs, dist/build/Network/TLS/Handshake/Server.o, dist/build/Network/TLS/Handshake/Server.dyn_o )
+
+Network/TLS/Handshake/Server.hs:24:1: warning: [-Wunused-imports]
+    The import of ‘Network.TLS.Imports’ is redundant
+      except perhaps to import instances from ‘Network.TLS.Imports’
+    To import instances alone, use: import Network.TLS.Imports()
+   |
+24 | import Network.TLS.Imports
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[63 of 76] Compiling Network.TLS.Handshake.Client.Common ( Network/TLS/Handshake/Client/Common.hs, dist/build/Network/TLS/Handshake/Client/Common.o, dist/build/Network/TLS/Handshake/Client/Common.dyn_o )
+[64 of 76] Compiling Network.TLS.Handshake.Client.TLS12 ( Network/TLS/Handshake/Client/TLS12.hs, dist/build/Network/TLS/Handshake/Client/TLS12.o, dist/build/Network/TLS/Handshake/Client/TLS12.dyn_o )
+[65 of 76] Compiling Network.TLS.Handshake.Client.ServerHello ( Network/TLS/Handshake/Client/ServerHello.hs, dist/build/Network/TLS/Handshake/Client/ServerHello.o, dist/build/Network/TLS/Handshake/Client/ServerHello.dyn_o )
+[66 of 76] Compiling Network.TLS.Handshake.Client.TLS13 ( Network/TLS/Handshake/Client/TLS13.hs, dist/build/Network/TLS/Handshake/Client/TLS13.o, dist/build/Network/TLS/Handshake/Client/TLS13.dyn_o )
+[67 of 76] Compiling Network.TLS.Handshake.Client.ClientHello ( Network/TLS/Handshake/Client/ClientHello.hs, dist/build/Network/TLS/Handshake/Client/ClientHello.o, dist/build/Network/TLS/Handshake/Client/ClientHello.dyn_o )
+[68 of 76] Compiling Network.TLS.Handshake.Client ( Network/TLS/Handshake/Client.hs, dist/build/Network/TLS/Handshake/Client.o, dist/build/Network/TLS/Handshake/Client.dyn_o )
+[69 of 76] Compiling Network.TLS.PostHandshake ( Network/TLS/PostHandshake.hs, dist/build/Network/TLS/PostHandshake.o, dist/build/Network/TLS/PostHandshake.dyn_o )
+[70 of 76] Compiling Network.TLS.Handshake ( Network/TLS/Handshake.hs, dist/build/Network/TLS/Handshake.o, dist/build/Network/TLS/Handshake.dyn_o )
+[71 of 76] Compiling Network.TLS.Context ( Network/TLS/Context.hs, dist/build/Network/TLS/Context.o, dist/build/Network/TLS/Context.dyn_o )
+[72 of 76] Compiling Network.TLS.Record.Layer ( Network/TLS/Record/Layer.hs, dist/build/Network/TLS/Record/Layer.o, dist/build/Network/TLS/Record/Layer.dyn_o )
+[73 of 76] Compiling Network.TLS.Core ( Network/TLS/Core.hs, dist/build/Network/TLS/Core.o, dist/build/Network/TLS/Core.dyn_o )
+
+Network/TLS/Core.hs:31:1: warning: [-Wunused-imports]
+    The import of ‘Control.Monad’ is redundant
+      except perhaps to import instances from ‘Control.Monad’
+    To import instances alone, use: import Control.Monad()
+   |
+31 | import Control.Monad (unless, void, when)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[74 of 76] Compiling Network.TLS.QUIC ( Network/TLS/QUIC.hs, dist/build/Network/TLS/QUIC.o, dist/build/Network/TLS/QUIC.dyn_o )
+[75 of 76] Compiling Network.TLS.Internal ( Network/TLS/Internal.hs, dist/build/Network/TLS/Internal.o, dist/build/Network/TLS/Internal.dyn_o )
+[76 of 76] Compiling Network.TLS      ( Network/TLS.hs, dist/build/Network/TLS.o, dist/build/Network/TLS.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/tls-2.0.6-5d391ba5/lib

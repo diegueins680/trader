@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/app/utils.ts",
+    "src/app/constants.ts",
+    "src/lib/format.ts",
+    "src/lib/types.ts",
+    "src/lib/deployConfig.ts",
+    "src/vite-env.d.ts"
+  ]
+}
