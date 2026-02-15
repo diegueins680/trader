@@ -5709,7 +5709,9 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
                                             (posSign > 0 && poriSide o == "long")
                                                 || (posSign < 0 && poriSide o == "short")
                                     if posSign == 0
-                                        then pure (baseArgs, Nothing)
+                                        then do
+                                            deletePositionOrigin store tenantKey baseArgs sym
+                                            pure (baseArgs, Nothing)
                                         else
                                             if not sideOk
                                                 then do
@@ -9073,7 +9075,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             (botComboUuid st)
                             (Just (T.pack (botSymbol st)))
                             (orderIdFromOrderResult o)
-                        when switchedApplied1 $
+                        when (tradeEnabled && switchedApplied1 && aorSent o) $
                             persistPositionOriginMaybe
                                 mOps
                                 (botTenantKey st)
