@@ -1,0 +1,2536 @@
+
+package:         OneTuple-0.4.2.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    ghc-prim-0.9.1
+    template-haskell-2.19.0.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         Only-0.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         QuickCheck-2.16.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -old-random +templatehaskell
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+    deepseq-1.4.8.0
+    random-1.3.1
+    splitmix-0.1.3.2
+    template-haskell-2.19.0.0
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         StateVar-1.2.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    stm-2.5.1.0
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         bifunctors-5.6.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +tagged
+dependencies:
+    assoc-1.1.1
+    base-4.17.2.1
+    comonad-5.0.10
+    containers-0.6.7
+    foldable1-classes-compat-0.1.3
+    tagged-0.8.10
+    template-haskell-2.19.0.0
+    th-abstraction-0.7.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         blaze-builder-0.4.4.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         base-orphans-0.9.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         base16-bytestring-1.0.2.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         base64-bytestring-1.2.1.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         basement-0.0.16
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    ghc-prim-0.9.1
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         byteorder-1.0.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         cborg-0.2.10.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +optimize-gmp
+dependencies:
+    array-0.5.4.0
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    deepseq-1.4.8.0
+    ghc-bignum-1.3
+    ghc-prim-0.9.1
+    half-0.3.3
+    primitive-0.9.1.0
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         character-ps-0.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         cookie-0.5.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    data-default-class-0.2.0.0
+    deepseq-1.4.8.0
+    text-2.0.2
+    time-1.12.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         colour-2.3.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         comonad-5.0.10
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +containers +distributive +indexed-traversable
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+    distributive-0.6.3
+    indexed-traversable-0.1.4
+    tagged-0.8.10
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         contravariant-1.5.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +statevar
+dependencies:
+    StateVar-1.2.2
+    base-4.17.2.1
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         cereal-0.5.8.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -bytestring-builder
+dependencies:
+    array-0.5.4.0
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    ghc-prim-0.9.1
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         crypton-1.0.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:
+    -check_alignment +integer-gmp -old_toolchain_inliner +support_aesni +support_deepseq +support_pclmuldq +support_rdrand -support_sse +use_target_attributes
+
+dependencies:
+    base-4.17.2.1
+    basement-0.0.16
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    integer-gmp-1.1
+    memory-0.18.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         crypton-connection-0.3.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    basement-0.0.16
+    bytestring-0.11.5.3
+    containers-0.6.7
+    crypton-x509-1.7.7
+    crypton-x509-store-1.6.14
+    crypton-x509-system-1.6.8
+    crypton-x509-validation-1.6.14
+    data-default-class-0.2.0.0
+    network-3.2.8.0
+    socks-0.6.1
+    tls-2.0.6
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         crypton-x509-1.7.7
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    asn1-encoding-0.9.6
+    asn1-parse-0.9.5
+    asn1-types-0.3.4
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    crypton-1.0.6
+    hourglass-0.2.12
+    memory-0.18.0
+    pem-0.2.4
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         crypton-x509-store-1.6.14
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    asn1-encoding-0.9.6
+    asn1-types-0.3.4
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    crypton-1.0.6
+    crypton-x509-1.7.7
+    directory-1.3.7.1
+    filepath-1.4.2.2
+    mtl-2.2.2
+    pem-0.2.4
+    unix-2.7.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         crypton-x509-system-1.6.8
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    crypton-x509-1.7.7
+    crypton-x509-store-1.6.14
+    directory-1.3.7.1
+    filepath-1.4.2.2
+    mtl-2.2.2
+    pem-0.2.4
+    process-1.6.18.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         crypton-x509-validation-1.6.14
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    asn1-encoding-0.9.6
+    asn1-types-0.3.4
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    crypton-1.0.6
+    crypton-x509-1.7.7
+    crypton-x509-store-1.6.14
+    data-default-0.8.0.2
+    hourglass-0.2.12
+    iproute-1.7.15
+    memory-0.18.0
+    mtl-2.2.2
+    pem-0.2.4
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         cryptonite-0.30
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:
+    -check_alignment +integer-gmp -old_toolchain_inliner +support_aesni +support_deepseq -support_pclmuldq +support_rdrand -support_sse +use_target_attributes
+
+dependencies:
+    base-4.17.2.1
+    basement-0.0.16
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    ghc-prim-0.9.1
+    integer-gmp-1.1
+    memory-0.18.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         case-insensitive-1.2.1.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    hashable-1.4.7.0
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         cassava-0.5.4.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    Only-0.1
+    array-0.5.4.0
+    attoparsec-0.14.4
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    deepseq-1.4.8.0
+    hashable-1.4.7.0
+    scientific-0.3.8.1
+    text-2.0.2
+    text-short-0.1.6.1
+    unordered-containers-0.2.21
+    vector-0.13.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         ad-4.5.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -ffi -herbie
+dependencies:
+    adjunctions-4.4.4
+    array-0.5.4.0
+    base-4.17.2.1
+    comonad-5.0.10
+    containers-0.6.7
+    data-reify-0.6.4
+    erf-2.0.0.0
+    free-5.2
+    nats-1.1.2
+    reflection-2.1.9
+    semigroups-0.20.1
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         uuid-types-1.0.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    binary-0.8.9.1
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    hashable-1.4.7.0
+    random-1.3.1
+    template-haskell-2.19.0.0
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         adjunctions-4.4.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    comonad-5.0.10
+    containers-0.6.7
+    distributive-0.6.3
+    free-5.2
+    mtl-2.2.2
+    profunctors-5.6.3
+    semigroupoids-6.0.2
+    tagged-0.8.10
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         dlist-1.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -werror
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         distributive-0.6.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +tagged
+dependencies:
+    base-4.17.2.1
+    tagged-0.8.10
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         data-default-0.8.0.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         data-default-class-0.2.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    data-default-0.8.0.2
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         data-fix-0.3.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+    hashable-1.4.7.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         data-reify-0.6.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -tests
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+    hashable-1.4.7.0
+    unordered-containers-0.2.21
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         foldable1-classes-compat-0.1.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +tagged
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+    ghc-prim-0.9.1
+    tagged-0.8.10
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         free-5.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    comonad-5.0.10
+    containers-0.6.7
+    distributive-0.6.3
+    exceptions-0.10.5
+    indexed-traversable-0.1.4
+    mtl-2.2.2
+    profunctors-5.6.3
+    semigroupoids-6.0.2
+    template-haskell-2.19.0.0
+    th-abstraction-0.7.2.0
+    transformers-0.5.6.2
+    transformers-base-0.4.6
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         generically-0.1.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    base-orphans-0.9.4
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         half-0.3.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    binary-0.8.9.1
+    deepseq-1.4.8.0
+    template-haskell-2.19.0.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         hourglass-0.2.12
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         hsc2hs-0.68.10
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -in-ghc-tree
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+    directory-1.3.7.1
+    filepath-1.4.2.2
+    process-1.6.18.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         hashable-1.4.7.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -arch-native +integer-gmp -random-initial-seed
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    deepseq-1.4.8.0
+    filepath-1.4.2.2
+    ghc-bignum-1.3
+    ghc-prim-0.9.1
+    os-string-2.0.10
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         http-client-0.7.19
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +network-uri
+dependencies:
+    array-0.5.4.0
+    async-2.2.6
+    base-4.17.2.1
+    base64-bytestring-1.2.1.0
+    blaze-builder-0.4.4.1
+    bytestring-0.11.5.3
+    case-insensitive-1.2.1.0
+    containers-0.6.7
+    cookie-0.5.1
+    deepseq-1.4.8.0
+    exceptions-0.10.5
+    filepath-1.4.2.2
+    ghc-prim-0.9.1
+    http-types-0.12.4
+    iproute-1.7.15
+    mime-types-0.1.2.1
+    network-3.2.8.0
+    network-uri-2.6.4.2
+    random-1.3.1
+    stm-2.5.1.0
+    streaming-commons-0.2.3.1
+    text-2.0.2
+    time-1.12.2
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         http-client-tls-0.3.6.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    case-insensitive-1.2.1.0
+    containers-0.6.7
+    crypton-1.0.6
+    crypton-connection-0.3.2
+    data-default-0.8.0.2
+    exceptions-0.10.5
+    http-client-0.7.19
+    http-types-0.12.4
+    memory-0.18.0
+    network-3.2.8.0
+    network-uri-2.6.4.2
+    text-2.0.2
+    tls-2.0.6
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         http-types-0.12.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    array-0.5.4.0
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    case-insensitive-1.2.1.0
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         old-locale-1.0.0.7
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         old-time-1.1.0.5
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    old-locale-1.0.0.7
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         mime-types-0.1.2.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         memory-0.18.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +support_bytestring +support_deepseq
+dependencies:
+    base-4.17.2.1
+    basement-0.0.16
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    ghc-prim-0.9.1
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         indexed-traversable-0.1.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    array-0.5.4.0
+    base-4.17.2.1
+    containers-0.6.7
+    foldable1-classes-compat-0.1.3
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         indexed-traversable-instances-0.1.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    OneTuple-0.4.2.1
+    base-4.17.2.1
+    indexed-traversable-0.1.4
+    tagged-0.8.10
+    unordered-containers-0.2.21
+    vector-0.13.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         unordered-containers-0.2.21
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -debug
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+    hashable-1.4.7.0
+    template-haskell-2.19.0.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         ansi-terminal-1.1.5
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -example
+dependencies:
+    ansi-terminal-types-1.1.3
+    base-4.17.2.1
+    colour-2.3.6
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         ansi-terminal-types-1.1.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    colour-2.3.6
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         integer-conversion-0.1.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    primitive-0.9.1.0
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         integer-logarithms-1.0.5
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -check-bounds +integer-gmp
+dependencies:
+    array-0.5.4.0
+    base-4.17.2.1
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         nats-1.1.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +binary +hashable +template-haskell
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         network-3.2.8.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -devel
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    directory-1.3.7.1
+    stm-2.5.1.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         network-uri-2.6.4.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+    parsec-3.1.16.1
+    template-haskell-2.19.0.0
+    th-compat-0.1.7
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         unix-time-0.4.17
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    binary-0.8.9.1
+    bytestring-0.11.5.3
+    old-time-1.1.0.5
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         pem-0.2.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    basement-0.0.16
+    bytestring-0.11.5.3
+    memory-0.18.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         appar-0.1.8
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         profunctors-5.6.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    base-orphans-0.9.4
+    bifunctors-5.6.3
+    comonad-5.0.10
+    contravariant-1.5.6
+    distributive-0.6.3
+    tagged-0.8.10
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         primitive-0.9.1.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+    template-haskell-2.19.0.0
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         iproute-1.7.15
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    appar-0.1.8
+    base-4.17.2.1
+    byteorder-1.0.4
+    bytestring-0.11.5.3
+    containers-0.6.7
+    network-3.2.8.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         prettyprinter-1.7.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -buildreadme +text
+dependencies:
+    base-4.17.2.1
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         prettyprinter-ansi-terminal-1.1.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    ansi-terminal-1.1.5
+    base-4.17.2.1
+    prettyprinter-1.7.1
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         optparse-applicative-0.19.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +process
+dependencies:
+    base-4.17.2.1
+    prettyprinter-1.7.1
+    prettyprinter-ansi-terminal-1.1.3
+    process-1.6.18.0
+    text-2.0.2
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         erf-2.0.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         reflection-2.1.9
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -slow +template-haskell
+dependencies:
+    base-4.17.2.1
+    template-haskell-2.19.0.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         random-1.3.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    mtl-2.2.2
+    splitmix-0.1.3.2
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         os-string-2.0.10
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    exceptions-0.10.5
+    template-haskell-2.19.0.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         socks-0.6.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    basement-0.0.16
+    bytestring-0.11.5.3
+    cereal-0.5.8.3
+    network-3.2.8.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         scientific-0.3.8.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -integer-simple
+dependencies:
+    base-4.17.2.1
+    binary-0.8.9.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    deepseq-1.4.8.0
+    hashable-1.4.7.0
+    integer-logarithms-1.0.5
+    primitive-0.9.1.0
+    template-haskell-2.19.0.0
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         semigroupoids-6.0.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:
+    +comonad +containers +contravariant +tagged +unordered-containers
+
+dependencies:
+    base-4.17.2.1
+    base-orphans-0.9.4
+    bifunctors-5.6.3
+    comonad-5.0.10
+    containers-0.6.7
+    contravariant-1.5.6
+    foldable1-classes-compat-0.1.3
+    hashable-1.4.7.0
+    tagged-0.8.10
+    template-haskell-2.19.0.0
+    transformers-0.5.6.2
+    transformers-compat-0.8
+    unordered-containers-0.2.21
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         semigroups-0.20.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         semialign-1.3.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +semigroupoids
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+    hashable-1.4.7.0
+    indexed-traversable-0.1.4
+    indexed-traversable-instances-0.1.2
+    semigroupoids-6.0.2
+    tagged-0.8.10
+    these-1.2.1
+    transformers-0.5.6.2
+    unordered-containers-0.2.21
+    vector-0.13.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         aeson-2.2.3.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +ordered-keymap
+dependencies:
+    OneTuple-0.4.2.1
+    QuickCheck-2.16.0.0
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    character-ps-0.1
+    containers-0.6.7
+    data-fix-0.3.4
+    deepseq-1.4.8.0
+    dlist-1.0
+    exceptions-0.10.5
+    generically-0.1.1
+    ghc-prim-0.9.1
+    hashable-1.4.7.0
+    indexed-traversable-0.1.4
+    integer-conversion-0.1.1
+    integer-logarithms-1.0.5
+    network-uri-2.6.4.2
+    primitive-0.9.1.0
+    scientific-0.3.8.1
+    semialign-1.3.1
+    strict-0.5.1
+    tagged-0.8.10
+    template-haskell-2.19.0.0
+    text-2.0.2
+    text-iso8601-0.1.1
+    text-short-0.1.6.1
+    th-abstraction-0.7.2.0
+    these-1.2.1
+    time-1.12.2
+    time-compat-1.9.8
+    unordered-containers-0.2.21
+    uuid-types-1.0.6
+    vector-0.13.2.0
+    witherable-0.5
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         asn1-encoding-0.9.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    asn1-types-0.3.4
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    hourglass-0.2.12
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         asn1-parse-0.9.5
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    asn1-encoding-0.9.6
+    asn1-types-0.3.4
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         asn1-types-0.3.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    hourglass-0.2.12
+    memory-0.18.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         splitmix-0.1.3.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -optimised-mixer
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         serialise-0.2.6.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +newtime15
+dependencies:
+    array-0.5.4.0
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    cborg-0.2.10.0
+    containers-0.6.7
+    ghc-prim-0.9.1
+    half-0.3.3
+    hashable-1.4.7.0
+    primitive-0.9.1.0
+    strict-0.5.1
+    text-2.0.2
+    these-1.2.1
+    time-1.12.2
+    unordered-containers-0.2.21
+    vector-0.13.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         assoc-1.1.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -tagged
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         strict-0.5.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    assoc-1.1.1
+    base-4.17.2.1
+    binary-0.8.9.1
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    ghc-prim-0.9.1
+    hashable-1.4.7.0
+    text-2.0.2
+    these-1.2.1
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         streaming-commons-0.2.3.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -use-bytestring-builder
+dependencies:
+    array-0.5.4.0
+    async-2.2.6
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    directory-1.3.7.1
+    network-3.2.8.0
+    process-1.6.18.0
+    random-1.3.1
+    stm-2.5.1.0
+    text-2.0.2
+    transformers-0.5.6.2
+    unix-2.7.3
+    zlib-0.7.1.1
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         async-2.2.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -bench -debug-auto-label
+dependencies:
+    base-4.17.2.1
+    hashable-1.4.7.0
+    stm-2.5.1.0
+    unordered-containers-0.2.21
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         tagged-0.8.10
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +deepseq +template-haskell
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+    template-haskell-2.19.0.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         th-abstraction-0.7.2.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+    template-haskell-2.19.0.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         th-compat-0.1.7
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    template-haskell-2.19.0.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         these-1.2.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    assoc-1.1.1
+    base-4.17.2.1
+    binary-0.8.9.1
+    deepseq-1.4.8.0
+    foldable1-classes-compat-0.1.3
+    hashable-1.4.7.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         tls-2.0.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -devel
+dependencies:
+    asn1-encoding-0.9.6
+    asn1-types-0.3.4
+    async-2.2.6
+    base-4.17.2.1
+    base16-bytestring-1.0.2.0
+    bytestring-0.11.5.3
+    cereal-0.5.8.3
+    crypton-1.0.6
+    crypton-x509-1.7.7
+    crypton-x509-store-1.6.14
+    crypton-x509-validation-1.6.14
+    data-default-class-0.2.0.0
+    memory-0.18.0
+    mtl-2.2.2
+    network-3.2.8.0
+    serialise-0.2.6.1
+    transformers-0.5.6.2
+    unix-time-0.4.17
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         time-compat-1.9.8
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    base-orphans-0.9.4
+    deepseq-1.4.8.0
+    hashable-1.4.7.0
+    template-haskell-2.19.0.0
+    time-1.12.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         trader-0.1.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    ad-4.5.6
+    aeson-2.2.3.0
+    base-4.17.2.1
+    base16-bytestring-1.0.2.0
+    bytestring-0.11.5.3
+    cassava-0.5.4.1
+    containers-0.6.7
+    cryptonite-0.30
+    directory-1.3.7.1
+    filepath-1.4.2.2
+    http-client-0.7.19
+    http-client-tls-0.3.6.4
+    http-types-0.12.4
+    memory-0.18.0
+    network-uri-2.6.4.2
+    optparse-applicative-0.19.0.0
+    process-1.6.18.0
+    random-1.3.1
+    text-2.0.2
+    time-1.12.2
+    unordered-containers-0.2.21
+    vector-0.13.2.0
+
+install-outcome: TestsFailed
+docs-outcome:    NotTried
+tests-outcome:   Failed
+
+
+package:         transformers-base-0.4.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +orphaninstances
+dependencies:
+    base-4.17.2.1
+    base-orphans-0.9.4
+    stm-2.5.1.0
+    transformers-0.5.6.2
+    transformers-compat-0.8
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         transformers-compat-0.8
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -five +five-three +generic-deriving +mtl
+dependencies:
+    base-4.17.2.1
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         attoparsec-0.14.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -developer
+dependencies:
+    array-0.5.4.0
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         attoparsec-0.14.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -developer
+dependencies:
+    array-0.5.4.0
+    attoparsec-0.14.4
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    containers-0.6.7
+    deepseq-1.4.8.0
+    ghc-prim-0.9.1
+    scientific-0.3.8.1
+    text-2.0.2
+    transformers-0.5.6.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         text-iso8601-0.1.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    integer-conversion-0.1.1
+    text-2.0.2
+    time-1.12.2
+    time-compat-1.9.8
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         text-short-0.1.6.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -asserts
+dependencies:
+    base-4.17.2.1
+    binary-0.8.9.1
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+    ghc-prim-0.9.1
+    hashable-1.4.7.0
+    template-haskell-2.19.0.0
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         vector-0.13.2.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +boundschecks -internalchecks -unsafechecks -wall
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+    primitive-0.9.1.0
+    vector-stream-0.1.0.1
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         vector-stream-0.1.0.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    ghc-prim-0.9.1
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         witherable-0.5
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    base-orphans-0.9.4
+    containers-0.6.7
+    hashable-1.4.7.0
+    indexed-traversable-0.1.4
+    indexed-traversable-instances-0.1.2
+    transformers-0.5.6.2
+    unordered-containers-0.2.21
+    vector-0.13.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         zlib-0.7.1.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -bundled-c-zlib +non-blocking-ffi +pkg-config
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         trader-0.1.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    ad-4.5.6
+    aeson-2.2.3.0
+    base-4.17.2.1
+    base16-bytestring-1.0.2.0
+    bytestring-0.11.5.3
+    cassava-0.5.4.1
+    containers-0.6.7
+    cryptonite-0.30
+    directory-1.3.7.1
+    filepath-1.4.2.2
+    http-client-0.7.19
+    http-client-tls-0.3.6.4
+    http-types-0.12.4
+    memory-0.18.0
+    network-uri-2.6.4.2
+    optparse-applicative-0.19.0.0
+    process-1.6.18.0
+    random-1.3.1
+    text-2.0.2
+    time-1.12.2
+    unordered-containers-0.2.21
+    vector-0.13.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         SHA-1.6.4.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -exe
+dependencies:
+    array-0.5.4.0
+    base-4.17.2.1
+    binary-0.8.9.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         bsb-http-chunked-0.0.0.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         bytestring-builder-0.10.8.2.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +bytestring_has_builder
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    deepseq-1.4.8.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         cryptohash-md5-0.11.101.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         cryptohash-sha1-0.11.101.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         uuid-1.3.16
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    binary-0.8.9.1
+    bytestring-0.11.5.3
+    cryptohash-md5-0.11.101.0
+    cryptohash-sha1-0.11.101.0
+    entropy-0.4.1.11
+    network-info-0.2.1
+    random-1.3.1
+    text-2.0.2
+    time-1.12.2
+    uuid-types-1.0.6
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         http-date-0.0.11
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    array-0.5.4.0
+    attoparsec-0.14.4
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    time-1.12.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         http-semantics-0.4.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    array-0.5.4.0
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    case-insensitive-1.2.1.0
+    http-types-0.12.4
+    network-3.2.8.0
+    network-byte-order-0.1.7
+    time-manager-0.3.1
+    utf8-string-1.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         http2-5.4.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -devel -h2spec
+dependencies:
+    array-0.5.4.0
+    async-2.2.6
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    case-insensitive-1.2.1.0
+    containers-0.6.7
+    http-semantics-0.4.0
+    http-types-0.12.4
+    iproute-1.7.15
+    network-3.2.8.0
+    network-byte-order-0.1.7
+    network-control-0.1.7
+    stm-2.5.1.0
+    time-manager-0.3.1
+    unix-time-0.4.17
+    utf8-string-1.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         entropy-0.4.1.11
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -donotgetentropy
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    unix-2.7.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         network-byte-order-0.1.7
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         network-control-0.1.7
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    psqueues-0.2.8.3
+    unix-time-0.4.17
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         network-info-0.2.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         psqueues-0.2.8.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    deepseq-1.4.8.0
+    hashable-1.4.7.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         postgresql-libpq-0.9.5.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -use-pkg-config
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    unix-2.7.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         postgresql-simple-0.6.5.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    Only-0.1
+    aeson-2.2.3.0
+    attoparsec-0.14.4
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    bytestring-builder-0.10.8.2.0
+    case-insensitive-1.2.1.0
+    containers-0.6.7
+    hashable-1.4.7.0
+    postgresql-libpq-0.9.5.0
+    scientific-0.3.8.1
+    template-haskell-2.19.0.0
+    text-2.0.2
+    time-compat-1.9.8
+    transformers-0.5.6.2
+    uuid-types-1.0.6
+    vector-0.13.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         recv-0.1.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    network-3.2.8.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         simple-sendfile-0.2.32
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +allow-bsd -fallback
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    network-3.2.8.0
+    unix-2.7.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         auto-update-0.2.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    stm-2.5.1.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         utf8-string-1.0.2
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         time-manager-0.3.1
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+    stm-2.5.1.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         trader-0.1.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    aeson-2.2.3.0
+    base-4.17.2.1
+    base16-bytestring-1.0.2.0
+    bytestring-0.11.5.3
+    containers-0.6.7
+    cryptonite-0.30
+    directory-1.3.7.1
+    filepath-1.4.2.2
+    memory-0.18.0
+    optparse-applicative-0.19.0.0
+    scientific-0.3.8.1
+    text-2.0.2
+    time-1.12.2
+    vector-0.13.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         trader-0.1.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    aeson-2.2.3.0
+    base-4.17.2.1
+    base16-bytestring-1.0.2.0
+    bytestring-0.11.5.3
+    containers-0.6.7
+    cryptonite-0.30
+    directory-1.3.7.1
+    filepath-1.4.2.2
+    memory-0.18.0
+    optparse-applicative-0.19.0.0
+    process-1.6.18.0
+    scientific-0.3.8.1
+    text-2.0.2
+    time-1.12.2
+    vector-0.13.2.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         trader-0.1.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    ad-4.5.6
+    aeson-2.2.3.0
+    base-4.17.2.1
+    base16-bytestring-1.0.2.0
+    bytestring-0.11.5.3
+    case-insensitive-1.2.1.0
+    cassava-0.5.4.1
+    containers-0.6.7
+    cryptonite-0.30
+    directory-1.3.7.1
+    filepath-1.4.2.2
+    http-client-0.7.19
+    http-client-tls-0.3.6.4
+    http-types-0.12.4
+    memory-0.18.0
+    network-uri-2.6.4.2
+    optparse-applicative-0.19.0.0
+    postgresql-simple-0.6.5.1
+    process-1.6.18.0
+    random-1.3.1
+    text-2.0.2
+    time-1.12.2
+    unordered-containers-0.2.21
+    uuid-1.3.16
+    vector-0.13.2.0
+    wai-3.2.4
+    warp-3.4.12
+    websockets-0.13.0.0
+    wuss-2.0.1.8
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         vault-0.3.1.6
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           +useghc
+dependencies:
+    base-4.17.2.1
+    containers-0.6.7
+    hashable-1.4.7.0
+    unordered-containers-0.2.21
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         wai-3.2.4
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    http-types-0.12.4
+    network-3.2.8.0
+    text-2.0.2
+    vault-0.3.1.6
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         websockets-0.13.0.0
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -example
+dependencies:
+    SHA-1.6.4.4
+    async-2.2.6
+    attoparsec-0.14.4
+    base-4.17.2.1
+    base64-bytestring-1.2.1.0
+    binary-0.8.9.1
+    bytestring-0.11.5.3
+    case-insensitive-1.2.1.0
+    containers-0.6.7
+    entropy-0.4.1.11
+    network-3.2.8.0
+    random-1.3.1
+    streaming-commons-0.2.3.1
+    text-2.0.2
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         word8-0.1.3
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+dependencies:    base-4.17.2.1
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         warp-3.4.12
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:
+    +allow-sendfilefd +include-warp-version -network-bytestring -warp-debug +x509
+
+dependencies:
+    array-0.5.4.0
+    async-2.2.6
+    auto-update-0.2.6
+    base-4.17.2.1
+    bsb-http-chunked-0.0.0.4
+    bytestring-0.11.5.3
+    case-insensitive-1.2.1.0
+    containers-0.6.7
+    crypton-x509-1.7.7
+    ghc-prim-0.9.1
+    hashable-1.4.7.0
+    http-date-0.0.11
+    http-types-0.12.4
+    http2-5.4.0
+    iproute-1.7.15
+    network-3.2.8.0
+    recv-0.1.1
+    simple-sendfile-0.2.32
+    stm-2.5.1.0
+    streaming-commons-0.2.3.1
+    text-2.0.2
+    time-manager-0.3.1
+    unix-2.7.3
+    vault-0.3.1.6
+    wai-3.2.4
+    word8-0.1.3
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+
+
+package:         wuss-2.0.1.8
+os:              osx
+arch:            x86_64
+compiler:        ghc-9.4.8
+client:          cabal-install-3.12.1.0
+flags:           -pedantic
+dependencies:
+    base-4.17.2.1
+    bytestring-0.11.5.3
+    crypton-connection-0.3.2
+    exceptions-0.10.5
+    network-3.2.8.0
+    websockets-0.13.0.0
+
+install-outcome: InstallOk
+docs-outcome:    NotTried
+tests-outcome:   NotTried
+

@@ -1,0 +1,23 @@
+Warning: appar.cabal:20:37: version operators used. To use version operators
+the package needs to specify at least 'cabal-version: >= 1.8'.
+Configuring appar-0.1.8...
+Preprocessing library for appar-0.1.8...
+Building library for appar-0.1.8...
+
+on the commandline: warning: [-Wdeprecated-flags]
+    -Wnoncanonical-monadfail-instances is deprecated: fail is no longer a method of Monad
+[1 of 5] Compiling Text.Appar.Input ( Text/Appar/Input.hs, dist/build/Text/Appar/Input.o, dist/build/Text/Appar/Input.dyn_o )
+[2 of 5] Compiling Text.Appar.Parser ( Text/Appar/Parser.hs, dist/build/Text/Appar/Parser.o, dist/build/Text/Appar/Parser.dyn_o )
+
+Text/Appar/Parser.hs:59:1: warning: [-Wunused-imports]
+    The import of ‘Control.Monad.Fail’ is redundant
+      except perhaps to import instances from ‘Control.Monad.Fail’
+    To import instances alone, use: import Control.Monad.Fail()
+   |
+59 | import Control.Monad.Fail as Fail
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[3 of 5] Compiling Text.Appar.LazyByteString ( Text/Appar/LazyByteString.hs, dist/build/Text/Appar/LazyByteString.o, dist/build/Text/Appar/LazyByteString.dyn_o )
+[4 of 5] Compiling Text.Appar.ByteString ( Text/Appar/ByteString.hs, dist/build/Text/Appar/ByteString.o, dist/build/Text/Appar/ByteString.dyn_o )
+[5 of 5] Compiling Text.Appar.String ( Text/Appar/String.hs, dist/build/Text/Appar/String.o, dist/build/Text/Appar/String.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ppr-0.1.8-8baaeccd/lib

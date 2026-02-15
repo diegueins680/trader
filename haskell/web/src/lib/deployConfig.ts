@@ -9,6 +9,7 @@ export type TraderUiTimeoutsMs = {
 
 export type TraderUiDeployConfig = {
   apiBaseUrl: string;
+  apiFallbackUrl?: string;
   apiToken: string;
   timeoutsMs?: TraderUiTimeoutsMs;
 };
@@ -17,30 +18,39 @@ function readString(raw: unknown): string {
   return typeof raw === "string" ? raw : "";
 }
 
-function readTimeoutMs(raw: unknown): number | undefined {
-  if (typeof raw !== "number" || !Number.isFinite(raw)) return;
-  const ms = Math.trunc(raw);
-  if (ms < 1_000) return;
-  return Math.min(ms, 24 * 60 * 60 * 1_000);
+function readNumber(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
-function readTimeoutsMs(raw: unknown): TraderUiTimeoutsMs | undefined {
-  if (!raw || typeof raw !== "object") return;
-  const obj = raw as Record<string, unknown>;
-  const timeoutsMs: TraderUiTimeoutsMs = {};
-  const requestMs = readTimeoutMs(obj.requestMs);
-  const signalMs = readTimeoutMs(obj.signalMs);
-  const backtestMs = readTimeoutMs(obj.backtestMs);
-  const tradeMs = readTimeoutMs(obj.tradeMs);
-  const botStartMs = readTimeoutMs(obj.botStartMs);
-  const botStatusMs = readTimeoutMs(obj.botStatusMs);
-  if (requestMs !== undefined) timeoutsMs.requestMs = requestMs;
-  if (signalMs !== undefined) timeoutsMs.signalMs = signalMs;
-  if (backtestMs !== undefined) timeoutsMs.backtestMs = backtestMs;
-  if (tradeMs !== undefined) timeoutsMs.tradeMs = tradeMs;
-  if (botStartMs !== undefined) timeoutsMs.botStartMs = botStartMs;
-  if (botStatusMs !== undefined) timeoutsMs.botStatusMs = botStatusMs;
-  return Object.keys(timeoutsMs).length ? timeoutsMs : undefined;
+function normalizeTimeoutMs(raw: unknown): number | undefined {
+  const n0 = readNumber(raw);
+  if (n0 == null) return undefined;
+  const n = Math.round(n0);
+  if (n < 1_000) return undefined;
+  // Avoid giant values overflowing timers / confusing UIs.
+  return Math.min(n, 24 * 60 * 60 * 1_000);
+}
+
+function readTimeouts(raw: unknown): TraderUiTimeoutsMs | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const out: TraderUiTimeoutsMs = {
+    requestMs: normalizeTimeoutMs(r.requestMs),
+    signalMs: normalizeTimeoutMs(r.signalMs),
+    backtestMs: normalizeTimeoutMs(r.backtestMs),
+    tradeMs: normalizeTimeoutMs(r.tradeMs),
+    botStartMs: normalizeTimeoutMs(r.botStartMs),
+    botStatusMs: normalizeTimeoutMs(r.botStatusMs),
+  };
+  if (!Object.values(out).some((v) => typeof v === "number")) return undefined;
+  return out;
 }
 
 function readConfigFromGlobal(): TraderUiDeployConfig {
@@ -50,9 +60,11 @@ function readConfigFromGlobal(): TraderUiDeployConfig {
 
   return {
     apiBaseUrl: readString((raw as { apiBaseUrl?: unknown }).apiBaseUrl).trim(),
+    apiFallbackUrl: readString((raw as { apiFallbackUrl?: unknown }).apiFallbackUrl).trim(),
     apiToken: readString((raw as { apiToken?: unknown }).apiToken).trim(),
-    timeoutsMs: readTimeoutsMs((raw as { timeoutsMs?: unknown }).timeoutsMs),
+    timeoutsMs: readTimeouts((raw as { timeoutsMs?: unknown }).timeoutsMs),
   };
 }
 
 export const TRADER_UI_CONFIG: TraderUiDeployConfig = readConfigFromGlobal();
+

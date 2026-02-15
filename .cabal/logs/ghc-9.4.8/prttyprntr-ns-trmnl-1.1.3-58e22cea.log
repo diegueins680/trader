@@ -1,0 +1,9 @@
+Configuring library for prettyprinter-ansi-terminal-1.1.3...
+Preprocessing library for prettyprinter-ansi-terminal-1.1.3...
+Building library for prettyprinter-ansi-terminal-1.1.3...
+[1 of 4] Compiling Prettyprinter.Render.Terminal.Internal ( src/Prettyprinter/Render/Terminal/Internal.hs, dist/build/Prettyprinter/Render/Terminal/Internal.o, dist/build/Prettyprinter/Render/Terminal/Internal.dyn_o )
+[2 of 4] Compiling Prettyprinter.Render.Terminal ( src/Prettyprinter/Render/Terminal.hs, dist/build/Prettyprinter/Render/Terminal.o, dist/build/Prettyprinter/Render/Terminal.dyn_o )
+[3 of 4] Compiling Data.Text.Prettyprint.Doc.Render.Terminal ( src/Data/Text/Prettyprint/Doc/Render/Terminal.hs, dist/build/Data/Text/Prettyprint/Doc/Render/Terminal.o, dist/build/Data/Text/Prettyprint/Doc/Render/Terminal.dyn_o )
+[4 of 4] Compiling Data.Text.Prettyprint.Doc.Render.Terminal.Internal ( src/Data/Text/Prettyprint/Doc/Render/Terminal/Internal.hs, dist/build/Data/Text/Prettyprint/Doc/Render/Terminal/Internal.o, dist/build/Data/Text/Prettyprint/Doc/Render/Terminal/Internal.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67507/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/prttyprntr-ns-trmnl-1.1.3-58e22cea/lib

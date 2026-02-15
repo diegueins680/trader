@@ -1,0 +1,14 @@
+Configuring library for unordered-containers-0.2.21...
+Preprocessing library for unordered-containers-0.2.21...
+Building library for unordered-containers-0.2.21...
+[1 of 9] Compiling Data.HashMap.Internal.Array ( Data/HashMap/Internal/Array.hs, dist/build/Data/HashMap/Internal/Array.o, dist/build/Data/HashMap/Internal/Array.dyn_o )
+[2 of 9] Compiling Data.HashMap.Internal.List ( Data/HashMap/Internal/List.hs, dist/build/Data/HashMap/Internal/List.o, dist/build/Data/HashMap/Internal/List.dyn_o )
+[3 of 9] Compiling Data.HashMap.Internal ( Data/HashMap/Internal.hs, dist/build/Data/HashMap/Internal.o, dist/build/Data/HashMap/Internal.dyn_o )
+[4 of 9] Compiling Data.HashMap.Internal.Debug ( Data/HashMap/Internal/Debug.hs, dist/build/Data/HashMap/Internal/Debug.o, dist/build/Data/HashMap/Internal/Debug.dyn_o )
+[5 of 9] Compiling Data.HashMap.Internal.Strict ( Data/HashMap/Internal/Strict.hs, dist/build/Data/HashMap/Internal/Strict.o, dist/build/Data/HashMap/Internal/Strict.dyn_o )
+[6 of 9] Compiling Data.HashSet.Internal ( Data/HashSet/Internal.hs, dist/build/Data/HashSet/Internal.o, dist/build/Data/HashSet/Internal.dyn_o )
+[7 of 9] Compiling Data.HashSet     ( Data/HashSet.hs, dist/build/Data/HashSet.o, dist/build/Data/HashSet.dyn_o )
+[8 of 9] Compiling Data.HashMap.Strict ( Data/HashMap/Strict.hs, dist/build/Data/HashMap/Strict.o, dist/build/Data/HashMap/Strict.dyn_o )
+[9 of 9] Compiling Data.HashMap.Lazy ( Data/HashMap/Lazy.hs, dist/build/Data/HashMap/Lazy.o, dist/build/Data/HashMap/Lazy.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/nrdrd-cntnrs-0.2.21-a93a7ffd/lib

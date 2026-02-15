@@ -1,0 +1,66 @@
+Configuring library for hourglass-0.2.12...
+Preprocessing library for hourglass-0.2.12...
+Building library for hourglass-0.2.12...
+[ 1 of 17] Compiling Data.Hourglass.Utils ( Data/Hourglass/Utils.hs, dist/build/Data/Hourglass/Utils.o, dist/build/Data/Hourglass/Utils.dyn_o )
+[ 2 of 17] Compiling Data.Hourglass.Zone ( Data/Hourglass/Zone.hs, dist/build/Data/Hourglass/Zone.o, dist/build/Data/Hourglass/Zone.dyn_o )
+[ 3 of 17] Compiling Time.Types       ( Time/Types.hs, dist/build/Time/Types.o, dist/build/Time/Types.dyn_o )
+[ 4 of 17] Compiling Data.Hourglass.Types ( Data/Hourglass/Types.hs, dist/build/Data/Hourglass/Types.o, dist/build/Data/Hourglass/Types.dyn_o )
+[ 5 of 17] Compiling Data.Hourglass.Internal.Unix ( Data/Hourglass/Internal/Unix.hs, dist/build/Data/Hourglass/Internal/Unix.o, dist/build/Data/Hourglass/Internal/Unix.dyn_o )
+
+Data/Hourglass/Internal/Unix.hs:24:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+24 | import Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 6 of 17] Compiling Data.Hourglass.Internal ( Data/Hourglass/Internal.hs, dist/build/Data/Hourglass/Internal.o, dist/build/Data/Hourglass/Internal.dyn_o )
+[ 7 of 17] Compiling Data.Hourglass.Calendar ( Data/Hourglass/Calendar.hs, dist/build/Data/Hourglass/Calendar.o, dist/build/Data/Hourglass/Calendar.dyn_o )
+[ 8 of 17] Compiling Data.Hourglass.Diff ( Data/Hourglass/Diff.hs, dist/build/Data/Hourglass/Diff.o, dist/build/Data/Hourglass/Diff.dyn_o )
+
+Data/Hourglass/Diff.hs:23:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+23 | import Data.Monoid
+   | ^^^^^^^^^^^^^^^^^^
+
+Data/Hourglass/Diff.hs:49:5: warning: [-Wnoncanonical-monoid-instances]
+    Noncanonical ‘mappend’ definition detected
+    in the instance declaration for ‘Monoid Period’.
+    ‘mappend’ will eventually be removed in favour of ‘(<>)’
+    Either remove definition for ‘mappend’ (recommended) or define as ‘mappend = (<>)’
+    See also: https://gitlab.haskell.org/ghc/ghc/-/wikis/proposal/semigroup-monoid
+   |
+49 |     mappend (Period y1 m1 d1) (Period y2 m2 d2) =
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^...
+
+Data/Hourglass/Diff.hs:70:5: warning: [-Wnoncanonical-monoid-instances]
+    Noncanonical ‘mappend’ definition detected
+    in the instance declaration for ‘Monoid Duration’.
+    ‘mappend’ will eventually be removed in favour of ‘(<>)’
+    Either remove definition for ‘mappend’ (recommended) or define as ‘mappend = (<>)’
+    See also: https://gitlab.haskell.org/ghc/ghc/-/wikis/proposal/semigroup-monoid
+   |
+70 |     mappend (Duration h1 m1 s1 ns1) (Duration h2 m2 s2 ns2) =
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^...
+[ 9 of 17] Compiling Data.Hourglass.Time ( Data/Hourglass/Time.hs, dist/build/Data/Hourglass/Time.o, dist/build/Data/Hourglass/Time.dyn_o )
+[10 of 17] Compiling Data.Hourglass.Epoch ( Data/Hourglass/Epoch.hs, dist/build/Data/Hourglass/Epoch.o, dist/build/Data/Hourglass/Epoch.dyn_o )
+[11 of 17] Compiling Data.Hourglass.Local ( Data/Hourglass/Local.hs, dist/build/Data/Hourglass/Local.o, dist/build/Data/Hourglass/Local.dyn_o )
+[12 of 17] Compiling Time.System      ( Time/System.hs, dist/build/Time/System.o, dist/build/Time/System.dyn_o )
+
+Time/System.hs:23:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+23 | import Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[13 of 17] Compiling System.Hourglass ( System/Hourglass.hs, dist/build/System/Hourglass.o, dist/build/System/Hourglass.dyn_o )
+[14 of 17] Compiling Data.Hourglass.Format ( Data/Hourglass/Format.hs, dist/build/Data/Hourglass/Format.o, dist/build/Data/Hourglass/Format.dyn_o )
+[15 of 17] Compiling Data.Hourglass   ( Data/Hourglass.hs, dist/build/Data/Hourglass.o, dist/build/Data/Hourglass.dyn_o )
+[16 of 17] Compiling Time.Compat      ( Time/Compat.hs, dist/build/Time/Compat.o, dist/build/Time/Compat.dyn_o )
+[17 of 17] Compiling Data.Hourglass.Compat ( Data/Hourglass/Compat.hs, dist/build/Data/Hourglass/Compat.o, dist/build/Data/Hourglass/Compat.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/hrglss-0.2.12-dc3a30e2/lib

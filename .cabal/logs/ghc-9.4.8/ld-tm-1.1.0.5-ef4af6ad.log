@@ -1,0 +1,41 @@
+Configuring old-time-1.1.0.5...
+configure: WARNING: unrecognized options: --with-compiler
+checking for gcc... /usr/bin/gcc
+checking whether the C compiler works... yes
+checking for C compiler default output file name... a.out
+checking for suffix of executables... 
+checking whether we are cross compiling... no
+checking for suffix of object files... o
+checking whether the compiler supports GNU C... yes
+checking whether /usr/bin/gcc accepts -g... yes
+checking for /usr/bin/gcc option to enable C11 features... none needed
+checking for stdio.h... yes
+checking for stdlib.h... yes
+checking for string.h... yes
+checking for inttypes.h... yes
+checking for stdint.h... yes
+checking for strings.h... yes
+checking for sys/stat.h... yes
+checking for sys/types.h... yes
+checking for unistd.h... yes
+checking for sys/time.h... yes
+checking for sys/time.h... (cached) yes
+checking for sys/timeb.h... yes
+checking for time.h... yes
+checking for ftime... yes
+checking for gmtime_r... yes
+checking for localtime_r... yes
+checking for gettimeofday... yes
+checking whether struct tm is in sys/time.h or time.h... time.h
+checking for /usr/bin/gcc options needed to detect all undeclared functions... none needed
+checking for struct tm.tm_zone... yes
+checking for sys/time.h... (cached) yes
+checking whether altzone is declared... no
+configure: creating ./config.status
+config.status: creating include/HsTimeConfig.h
+configure: WARNING: unrecognized options: --with-compiler
+Preprocessing library for old-time-1.1.0.5...
+Building library for old-time-1.1.0.5...
+[1 of 1] Compiling System.Time      ( dist/build/System/Time.hs, dist/build/System/Time.o, dist/build/System/Time.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ld-tm-1.1.0.5-ef4af6ad/lib

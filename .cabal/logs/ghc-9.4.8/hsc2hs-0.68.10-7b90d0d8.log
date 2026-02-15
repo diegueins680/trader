@@ -1,0 +1,21 @@
+Configuring executable 'hsc2hs' for hsc2hs-0.68.10...
+Preprocessing executable 'hsc2hs' for hsc2hs-0.68.10...
+Building executable 'hsc2hs' for hsc2hs-0.68.10...
+[ 1 of 12] Compiling ATTParser        ( src/ATTParser.hs, dist/build/hsc2hs/hsc2hs-tmp/ATTParser.o )
+[ 2 of 12] Compiling Compat.ResponseFile ( src/Compat/ResponseFile.hs, dist/build/hsc2hs/hsc2hs-tmp/Compat/ResponseFile.o )
+[ 3 of 12] Compiling Compat.TempFile  ( src/Compat/TempFile.hs, dist/build/hsc2hs/hsc2hs-tmp/Compat/TempFile.o )
+[ 4 of 12] Compiling Common           ( src/Common.hs, dist/build/hsc2hs/hsc2hs-tmp/Common.o )
+[ 5 of 12] Compiling Flags            ( src/Flags.hs, dist/build/hsc2hs/hsc2hs-tmp/Flags.o )
+[ 6 of 12] Compiling HSCParser        ( src/HSCParser.hs, dist/build/hsc2hs/hsc2hs-tmp/HSCParser.o )
+[ 7 of 12] Compiling C                ( src/C.hs, dist/build/hsc2hs/hsc2hs-tmp/C.o )
+[ 8 of 12] Compiling CrossCodegen     ( src/CrossCodegen.hs, dist/build/hsc2hs/hsc2hs-tmp/CrossCodegen.o )
+[ 9 of 12] Compiling Paths_hsc2hs     ( dist/build/hsc2hs/autogen/Paths_hsc2hs.hs, dist/build/hsc2hs/hsc2hs-tmp/Paths_hsc2hs.o )
+[10 of 12] Compiling UtilsCodegen     ( src/UtilsCodegen.hs, dist/build/hsc2hs/hsc2hs-tmp/UtilsCodegen.o )
+[11 of 12] Compiling DirectCodegen    ( src/DirectCodegen.hs, dist/build/hsc2hs/hsc2hs-tmp/DirectCodegen.o )
+[12 of 12] Compiling Main             ( src/Main.hs, dist/build/hsc2hs/hsc2hs-tmp/Main.o )
+[13 of 13] Linking dist/build/hsc2hs/hsc2hs
+ld: warning: ignoring duplicate libraries: '-lm'
+Installing executable hsc2hs in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/hsc2hs-0.68.10-7b90d0d8/bin
+Warning: The directory
+/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/hsc2hs-0.68.10-7b90d0d8/bin
+is not in the system search path.

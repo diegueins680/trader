@@ -1,0 +1,401 @@
+Configuring library for cryptonite-0.30...
+Preprocessing library for cryptonite-0.30...
+Building library for cryptonite-0.30...
+[  1 of 137] Compiling Crypto.Cipher.DES.Primitive ( Crypto/Cipher/DES/Primitive.hs, dist/build/Crypto/Cipher/DES/Primitive.o, dist/build/Crypto/Cipher/DES/Primitive.dyn_o )
+[  2 of 137] Compiling Crypto.Data.Padding ( Crypto/Data/Padding.hs, dist/build/Crypto/Data/Padding.o, dist/build/Crypto/Data/Padding.dyn_o )
+[  3 of 137] Compiling Crypto.Error.Types ( Crypto/Error/Types.hs, dist/build/Crypto/Error/Types.o, dist/build/Crypto/Error/Types.dyn_o )
+[  4 of 137] Compiling Crypto.Error     ( Crypto/Error.hs, dist/build/Crypto/Error.o, dist/build/Crypto/Error.dyn_o )
+[  5 of 137] Compiling Crypto.Internal.Compat ( Crypto/Internal/Compat.hs, dist/build/Crypto/Internal/Compat.o, dist/build/Crypto/Internal/Compat.dyn_o )
+[  6 of 137] Compiling Crypto.Internal.ByteArray ( Crypto/Internal/ByteArray.hs, dist/build/Crypto/Internal/ByteArray.o, dist/build/Crypto/Internal/ByteArray.dyn_o )
+[  7 of 137] Compiling Crypto.Cipher.Types.Utils ( Crypto/Cipher/Types/Utils.hs, dist/build/Crypto/Cipher/Types/Utils.o, dist/build/Crypto/Cipher/Types/Utils.dyn_o )
+[  8 of 137] Compiling Crypto.Internal.CompatPrim ( Crypto/Internal/CompatPrim.hs, dist/build/Crypto/Internal/CompatPrim.o, dist/build/Crypto/Internal/CompatPrim.dyn_o )
+[  9 of 137] Compiling Crypto.Internal.DeepSeq ( Crypto/Internal/DeepSeq.hs, dist/build/Crypto/Internal/DeepSeq.o, dist/build/Crypto/Internal/DeepSeq.dyn_o )
+[ 10 of 137] Compiling Crypto.Cipher.Types.Base ( Crypto/Cipher/Types/Base.hs, dist/build/Crypto/Cipher/Types/Base.o, dist/build/Crypto/Cipher/Types/Base.dyn_o )
+[ 11 of 137] Compiling Crypto.Cipher.Types.Stream ( Crypto/Cipher/Types/Stream.hs, dist/build/Crypto/Cipher/Types/Stream.o, dist/build/Crypto/Cipher/Types/Stream.dyn_o )
+[ 12 of 137] Compiling Crypto.Internal.Imports ( Crypto/Internal/Imports.hs, dist/build/Crypto/Internal/Imports.o, dist/build/Crypto/Internal/Imports.dyn_o )
+[ 13 of 137] Compiling Crypto.Internal.Builder ( Crypto/Internal/Builder.hs, dist/build/Crypto/Internal/Builder.o, dist/build/Crypto/Internal/Builder.dyn_o )
+[ 14 of 137] Compiling Crypto.Hash.Types ( Crypto/Hash/Types.hs, dist/build/Crypto/Hash/Types.o, dist/build/Crypto/Hash/Types.dyn_o )
+[ 15 of 137] Compiling Crypto.Hash.Whirlpool ( Crypto/Hash/Whirlpool.hs, dist/build/Crypto/Hash/Whirlpool.o, dist/build/Crypto/Hash/Whirlpool.dyn_o )
+[ 16 of 137] Compiling Crypto.Hash.Tiger ( Crypto/Hash/Tiger.hs, dist/build/Crypto/Hash/Tiger.o, dist/build/Crypto/Hash/Tiger.dyn_o )
+[ 17 of 137] Compiling Crypto.Hash.Skein512 ( Crypto/Hash/Skein512.hs, dist/build/Crypto/Hash/Skein512.o, dist/build/Crypto/Hash/Skein512.dyn_o )
+[ 18 of 137] Compiling Crypto.Hash.Skein256 ( Crypto/Hash/Skein256.hs, dist/build/Crypto/Hash/Skein256.o, dist/build/Crypto/Hash/Skein256.dyn_o )
+[ 19 of 137] Compiling Crypto.Hash.SHA512t ( Crypto/Hash/SHA512t.hs, dist/build/Crypto/Hash/SHA512t.o, dist/build/Crypto/Hash/SHA512t.dyn_o )
+[ 20 of 137] Compiling Crypto.Hash.SHA512 ( Crypto/Hash/SHA512.hs, dist/build/Crypto/Hash/SHA512.o, dist/build/Crypto/Hash/SHA512.dyn_o )
+[ 21 of 137] Compiling Crypto.Hash.SHA384 ( Crypto/Hash/SHA384.hs, dist/build/Crypto/Hash/SHA384.o, dist/build/Crypto/Hash/SHA384.dyn_o )
+[ 22 of 137] Compiling Crypto.Hash.SHA3 ( Crypto/Hash/SHA3.hs, dist/build/Crypto/Hash/SHA3.o, dist/build/Crypto/Hash/SHA3.dyn_o )
+[ 23 of 137] Compiling Crypto.Hash.SHA256 ( Crypto/Hash/SHA256.hs, dist/build/Crypto/Hash/SHA256.o, dist/build/Crypto/Hash/SHA256.dyn_o )
+[ 24 of 137] Compiling Crypto.Hash.SHA224 ( Crypto/Hash/SHA224.hs, dist/build/Crypto/Hash/SHA224.o, dist/build/Crypto/Hash/SHA224.dyn_o )
+[ 25 of 137] Compiling Crypto.Hash.SHA1 ( Crypto/Hash/SHA1.hs, dist/build/Crypto/Hash/SHA1.o, dist/build/Crypto/Hash/SHA1.dyn_o )
+[ 26 of 137] Compiling Crypto.Hash.RIPEMD160 ( Crypto/Hash/RIPEMD160.hs, dist/build/Crypto/Hash/RIPEMD160.o, dist/build/Crypto/Hash/RIPEMD160.dyn_o )
+[ 27 of 137] Compiling Crypto.Hash.MD5  ( Crypto/Hash/MD5.hs, dist/build/Crypto/Hash/MD5.o, dist/build/Crypto/Hash/MD5.dyn_o )
+[ 28 of 137] Compiling Crypto.Hash.MD4  ( Crypto/Hash/MD4.hs, dist/build/Crypto/Hash/MD4.o, dist/build/Crypto/Hash/MD4.dyn_o )
+[ 29 of 137] Compiling Crypto.Hash.MD2  ( Crypto/Hash/MD2.hs, dist/build/Crypto/Hash/MD2.o, dist/build/Crypto/Hash/MD2.dyn_o )
+[ 30 of 137] Compiling Crypto.Hash.Keccak ( Crypto/Hash/Keccak.hs, dist/build/Crypto/Hash/Keccak.o, dist/build/Crypto/Hash/Keccak.dyn_o )
+[ 31 of 137] Compiling Crypto.Hash.IO   ( Crypto/Hash/IO.hs, dist/build/Crypto/Hash/IO.o, dist/build/Crypto/Hash/IO.dyn_o )
+[ 32 of 137] Compiling Crypto.Hash.Blake2sp ( Crypto/Hash/Blake2sp.hs, dist/build/Crypto/Hash/Blake2sp.o, dist/build/Crypto/Hash/Blake2sp.dyn_o )
+[ 33 of 137] Compiling Crypto.Hash.Blake2s ( Crypto/Hash/Blake2s.hs, dist/build/Crypto/Hash/Blake2s.o, dist/build/Crypto/Hash/Blake2s.dyn_o )
+[ 34 of 137] Compiling Crypto.Hash.Blake2bp ( Crypto/Hash/Blake2bp.hs, dist/build/Crypto/Hash/Blake2bp.o, dist/build/Crypto/Hash/Blake2bp.dyn_o )
+[ 35 of 137] Compiling Crypto.Hash.Blake2b ( Crypto/Hash/Blake2b.hs, dist/build/Crypto/Hash/Blake2b.o, dist/build/Crypto/Hash/Blake2b.dyn_o )
+[ 36 of 137] Compiling Crypto.Cipher.Types.GF ( Crypto/Cipher/Types/GF.hs, dist/build/Crypto/Cipher/Types/GF.o, dist/build/Crypto/Cipher/Types/GF.dyn_o )
+[ 37 of 137] Compiling Crypto.Cipher.Types.AEAD ( Crypto/Cipher/Types/AEAD.hs, dist/build/Crypto/Cipher/Types/AEAD.o, dist/build/Crypto/Cipher/Types/AEAD.dyn_o )
+[ 38 of 137] Compiling Crypto.Cipher.Types.Block ( Crypto/Cipher/Types/Block.hs, dist/build/Crypto/Cipher/Types/Block.o, dist/build/Crypto/Cipher/Types/Block.dyn_o )
+[ 39 of 137] Compiling Crypto.Cipher.Types ( Crypto/Cipher/Types.hs, dist/build/Crypto/Cipher/Types.o, dist/build/Crypto/Cipher/Types.dyn_o )
+[ 40 of 137] Compiling Crypto.ConstructHash.MiyaguchiPreneel ( Crypto/ConstructHash/MiyaguchiPreneel.hs, dist/build/Crypto/ConstructHash/MiyaguchiPreneel.o, dist/build/Crypto/ConstructHash/MiyaguchiPreneel.dyn_o )
+[ 41 of 137] Compiling Crypto.Cipher.Utils ( Crypto/Cipher/Utils.hs, dist/build/Crypto/Cipher/Utils.o, dist/build/Crypto/Cipher/Utils.dyn_o )
+[ 42 of 137] Compiling Crypto.Cipher.TripleDES ( Crypto/Cipher/TripleDES.hs, dist/build/Crypto/Cipher/TripleDES.o, dist/build/Crypto/Cipher/TripleDES.dyn_o )
+[ 43 of 137] Compiling Crypto.Cipher.DES ( Crypto/Cipher/DES.hs, dist/build/Crypto/Cipher/DES.o, dist/build/Crypto/Cipher/DES.dyn_o )
+[ 44 of 137] Compiling Crypto.Cipher.Salsa ( Crypto/Cipher/Salsa.hs, dist/build/Crypto/Cipher/Salsa.o, dist/build/Crypto/Cipher/Salsa.dyn_o )
+[ 45 of 137] Compiling Crypto.Cipher.XSalsa ( Crypto/Cipher/XSalsa.hs, dist/build/Crypto/Cipher/XSalsa.o, dist/build/Crypto/Cipher/XSalsa.dyn_o )
+[ 46 of 137] Compiling Crypto.Cipher.RC4 ( Crypto/Cipher/RC4.hs, dist/build/Crypto/Cipher/RC4.o, dist/build/Crypto/Cipher/RC4.dyn_o )
+[ 47 of 137] Compiling Crypto.Cipher.ChaCha ( Crypto/Cipher/ChaCha.hs, dist/build/Crypto/Cipher/ChaCha.o, dist/build/Crypto/Cipher/ChaCha.dyn_o )
+[ 48 of 137] Compiling Crypto.Cipher.AES.Primitive ( Crypto/Cipher/AES/Primitive.hs, dist/build/Crypto/Cipher/AES/Primitive.o, dist/build/Crypto/Cipher/AES/Primitive.dyn_o )
+[ 49 of 137] Compiling Crypto.Cipher.AES ( Crypto/Cipher/AES.hs, dist/build/Crypto/Cipher/AES.o, dist/build/Crypto/Cipher/AES.dyn_o )
+[ 50 of 137] Compiling Crypto.Internal.Nat ( Crypto/Internal/Nat.hs, dist/build/Crypto/Internal/Nat.o, dist/build/Crypto/Internal/Nat.dyn_o )
+[ 51 of 137] Compiling Crypto.Hash.SHAKE ( Crypto/Hash/SHAKE.hs, dist/build/Crypto/Hash/SHAKE.o, dist/build/Crypto/Hash/SHAKE.dyn_o )
+[ 52 of 137] Compiling Crypto.Hash.Blake2 ( Crypto/Hash/Blake2.hs, dist/build/Crypto/Hash/Blake2.o, dist/build/Crypto/Hash/Blake2.dyn_o )
+[ 53 of 137] Compiling Crypto.Hash.Algorithms ( Crypto/Hash/Algorithms.hs, dist/build/Crypto/Hash/Algorithms.o, dist/build/Crypto/Hash/Algorithms.dyn_o )
+[ 54 of 137] Compiling Crypto.Hash      ( Crypto/Hash.hs, dist/build/Crypto/Hash.o, dist/build/Crypto/Hash.dyn_o )
+[ 55 of 137] Compiling Crypto.Internal.WordArray ( Crypto/Internal/WordArray.hs, dist/build/Crypto/Internal/WordArray.o, dist/build/Crypto/Internal/WordArray.dyn_o )
+[ 56 of 137] Compiling Crypto.Cipher.Twofish.Primitive ( Crypto/Cipher/Twofish/Primitive.hs, dist/build/Crypto/Cipher/Twofish/Primitive.o, dist/build/Crypto/Cipher/Twofish/Primitive.dyn_o )
+
+Crypto/Cipher/Twofish/Primitive.hs:84:19: warning: [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding:
+        Patterns of type ‘[Word32]’ not matched:
+            []
+            [_]
+            [_, _]
+            [_, _, _]
+            ...
+   |
+84 |             where [k0, k1, k2, k3] = fmap (\offset -> arrayRead32 ks $ (8 + 4 * ind) + offset) [0..3]
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Crypto/Cipher/Twofish/Primitive.hs:119:19: warning: [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding:
+        Patterns of type ‘[Word32]’ not matched:
+            []
+            [_]
+            [_, _]
+            [_, _, _]
+            ...
+    |
+119 |             where [k0, k1, k2, k3] = fmap (\offset -> arrayRead32 ks $ (4 + 4 * ind) + offset) [0..3]
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Crypto/Cipher/Twofish/Primitive.hs:210:11: warning: [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding:
+        Patterns of type ‘[Word8]’ not matched:
+            []
+            [_]
+            [_, _]
+            [_, _, _]
+            ...
+    |
+210 |           [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15] = take 16 ws
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Crypto/Cipher/Twofish/Primitive.hs:258:11: warning: [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding:
+        Patterns of type ‘[Word8]’ not matched:
+            []
+            [_]
+            [_, _]
+            [_, _, _]
+            ...
+    |
+258 |           [y0, y1, y2, y3] = take 4 input
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 57 of 137] Compiling Crypto.Cipher.Twofish ( Crypto/Cipher/Twofish.hs, dist/build/Crypto/Cipher/Twofish.o, dist/build/Crypto/Cipher/Twofish.dyn_o )
+[ 58 of 137] Compiling Crypto.Cipher.CAST5.Primitive ( Crypto/Cipher/CAST5/Primitive.hs, dist/build/Crypto/Cipher/CAST5/Primitive.o, dist/build/Crypto/Cipher/CAST5/Primitive.dyn_o )
+[ 59 of 137] Compiling Crypto.Cipher.CAST5 ( Crypto/Cipher/CAST5.hs, dist/build/Crypto/Cipher/CAST5.o, dist/build/Crypto/Cipher/CAST5.dyn_o )
+[ 60 of 137] Compiling Crypto.Cipher.Blowfish.Box ( Crypto/Cipher/Blowfish/Box.hs, dist/build/Crypto/Cipher/Blowfish/Box.o, dist/build/Crypto/Cipher/Blowfish/Box.dyn_o )
+[ 61 of 137] Compiling Crypto.Cipher.Blowfish.Primitive ( Crypto/Cipher/Blowfish/Primitive.hs, dist/build/Crypto/Cipher/Blowfish/Primitive.o, dist/build/Crypto/Cipher/Blowfish/Primitive.dyn_o )
+[ 62 of 137] Compiling Crypto.Cipher.Blowfish ( Crypto/Cipher/Blowfish.hs, dist/build/Crypto/Cipher/Blowfish.o, dist/build/Crypto/Cipher/Blowfish.dyn_o )
+[ 63 of 137] Compiling Crypto.Internal.Words ( Crypto/Internal/Words.hs, dist/build/Crypto/Internal/Words.o, dist/build/Crypto/Internal/Words.dyn_o )
+[ 64 of 137] Compiling Crypto.Cipher.Camellia.Primitive ( Crypto/Cipher/Camellia/Primitive.hs, dist/build/Crypto/Cipher/Camellia/Primitive.o, dist/build/Crypto/Cipher/Camellia/Primitive.dyn_o )
+[ 65 of 137] Compiling Crypto.Cipher.Camellia ( Crypto/Cipher/Camellia.hs, dist/build/Crypto/Cipher/Camellia.o, dist/build/Crypto/Cipher/Camellia.dyn_o )
+[ 66 of 137] Compiling Crypto.KDF.Argon2 ( Crypto/KDF/Argon2.hs, dist/build/Crypto/KDF/Argon2.o, dist/build/Crypto/KDF/Argon2.dyn_o )
+[ 67 of 137] Compiling Crypto.KDF.BCryptPBKDF ( Crypto/KDF/BCryptPBKDF.hs, dist/build/Crypto/KDF/BCryptPBKDF.o, dist/build/Crypto/KDF/BCryptPBKDF.dyn_o )
+[ 68 of 137] Compiling Crypto.MAC.CMAC  ( Crypto/MAC/CMAC.hs, dist/build/Crypto/MAC/CMAC.o, dist/build/Crypto/MAC/CMAC.dyn_o )
+[ 69 of 137] Compiling Crypto.MAC.HMAC  ( Crypto/MAC/HMAC.hs, dist/build/Crypto/MAC/HMAC.o, dist/build/Crypto/MAC/HMAC.dyn_o )
+[ 70 of 137] Compiling Crypto.KDF.PBKDF2 ( Crypto/KDF/PBKDF2.hs, dist/build/Crypto/KDF/PBKDF2.o, dist/build/Crypto/KDF/PBKDF2.dyn_o )
+[ 71 of 137] Compiling Crypto.KDF.Scrypt ( Crypto/KDF/Scrypt.hs, dist/build/Crypto/KDF/Scrypt.o, dist/build/Crypto/KDF/Scrypt.dyn_o )
+[ 72 of 137] Compiling Crypto.KDF.HKDF  ( Crypto/KDF/HKDF.hs, dist/build/Crypto/KDF/HKDF.o, dist/build/Crypto/KDF/HKDF.dyn_o )
+[ 73 of 137] Compiling Crypto.MAC.KMAC  ( Crypto/MAC/KMAC.hs, dist/build/Crypto/MAC/KMAC.o, dist/build/Crypto/MAC/KMAC.dyn_o )
+[ 74 of 137] Compiling Crypto.MAC.Poly1305 ( Crypto/MAC/Poly1305.hs, dist/build/Crypto/MAC/Poly1305.o, dist/build/Crypto/MAC/Poly1305.dyn_o )
+[ 75 of 137] Compiling Crypto.Cipher.ChaChaPoly1305 ( Crypto/Cipher/ChaChaPoly1305.hs, dist/build/Crypto/Cipher/ChaChaPoly1305.o, dist/build/Crypto/Cipher/ChaChaPoly1305.dyn_o )
+[ 76 of 137] Compiling Crypto.Number.Compat ( Crypto/Number/Compat.hs, dist/build/Crypto/Number/Compat.o, dist/build/Crypto/Number/Compat.dyn_o )
+
+Crypto/Number/Compat.hs:57:22: warning: [-Wdeprecations]
+    In the use of ‘gcdExtInteger’
+    (imported from GHC.Integer.GMP.Internals):
+    Deprecated: "Use integerGcde instead"
+   |
+57 |   where (# g, s #) = gcdExtInteger a b
+   |                      ^^^^^^^^^^^^^
+
+Crypto/Number/Compat.hs:90:40: warning: [-Wdeprecations]
+    In the use of ‘powModInteger’
+    (imported from GHC.Integer.GMP.Internals):
+    Deprecated: "Use integerPowMod# instead"
+   |
+90 | gmpPowModInteger b e m = GmpSupported (powModInteger b e m)
+   |                                        ^^^^^^^^^^^^^
+
+Crypto/Number/Compat.hs:101:13: warning: [-Wdeprecations]
+    In the use of ‘recipModInteger’
+    (imported from GHC.Integer.GMP.Internals):
+    Deprecated: "Use integerRecipMod# instead"
+    |
+101 |   where r = recipModInteger g m
+    |             ^^^^^^^^^^^^^^^
+
+Crypto/Number/Compat.hs:132:49: warning: [-Wdeprecations]
+    In the use of ‘sizeInBaseInteger’
+    (imported from GHC.Integer.GMP.Internals):
+    Deprecated: "Use integerSizeInBase# instead"
+    |
+132 | gmpSizeInBytes n = GmpSupported (I# (word2Int# (sizeInBaseInteger n 256#)))
+    |                                                 ^^^^^^^^^^^^^^^^^
+
+Crypto/Number/Compat.hs:140:48: warning: [-Wdeprecations]
+    In the use of ‘sizeInBaseInteger’
+    (imported from GHC.Integer.GMP.Internals):
+    Deprecated: "Use integerSizeInBase# instead"
+    |
+140 | gmpSizeInBits n = GmpSupported (I# (word2Int# (sizeInBaseInteger n 2#)))
+    |                                                ^^^^^^^^^^^^^^^^^
+
+Crypto/Number/Compat.hs:149:10: warning: [-Wdeprecations]
+    In the use of ‘exportIntegerToAddr’
+    (imported from GHC.Integer.GMP.Internals):
+    Deprecated: "Use integerToAddr# instead"
+    |
+149 |     _ <- exportIntegerToAddr n addr 1#
+    |          ^^^^^^^^^^^^^^^^^^^
+
+Crypto/Number/Compat.hs:163:10: warning: [-Wdeprecations]
+    In the use of ‘exportIntegerToAddr’
+    (imported from GHC.Integer.GMP.Internals):
+    Deprecated: "Use integerToAddr# instead"
+    |
+163 |     _ <- exportIntegerToAddr n addr 0#
+    |          ^^^^^^^^^^^^^^^^^^^
+
+Crypto/Number/Compat.hs:177:5: warning: [-Wdeprecations]
+    In the use of ‘importIntegerFromAddr’
+    (imported from GHC.Integer.GMP.Internals):
+    Deprecated: "Use integerFromAddr# instead"
+    |
+177 |     importIntegerFromAddr addr (int2Word# n) 1#
+    |     ^^^^^^^^^^^^^^^^^^^^^
+
+Crypto/Number/Compat.hs:189:5: warning: [-Wdeprecations]
+    In the use of ‘importIntegerFromAddr’
+    (imported from GHC.Integer.GMP.Internals):
+    Deprecated: "Use integerFromAddr# instead"
+    |
+189 |     importIntegerFromAddr addr (int2Word# n) 0#
+    |     ^^^^^^^^^^^^^^^^^^^^^
+[ 77 of 137] Compiling Crypto.Number.Basic ( Crypto/Number/Basic.hs, dist/build/Crypto/Number/Basic.o, dist/build/Crypto/Number/Basic.dyn_o )
+[ 78 of 137] Compiling Crypto.ECC.Simple.Types ( Crypto/ECC/Simple/Types.hs, dist/build/Crypto/ECC/Simple/Types.o, dist/build/Crypto/ECC/Simple/Types.dyn_o )
+[ 79 of 137] Compiling Crypto.Number.F2m ( Crypto/Number/F2m.hs, dist/build/Crypto/Number/F2m.o, dist/build/Crypto/Number/F2m.dyn_o )
+[ 80 of 137] Compiling Crypto.Number.ModArithmetic ( Crypto/Number/ModArithmetic.hs, dist/build/Crypto/Number/ModArithmetic.o, dist/build/Crypto/Number/ModArithmetic.dyn_o )
+[ 81 of 137] Compiling Crypto.Number.Nat ( Crypto/Number/Nat.hs, dist/build/Crypto/Number/Nat.o, dist/build/Crypto/Number/Nat.dyn_o )
+[ 82 of 137] Compiling Crypto.Number.Serialize.Internal ( Crypto/Number/Serialize/Internal.hs, dist/build/Crypto/Number/Serialize/Internal.o, dist/build/Crypto/Number/Serialize/Internal.dyn_o )
+[ 83 of 137] Compiling Crypto.Number.Serialize ( Crypto/Number/Serialize.hs, dist/build/Crypto/Number/Serialize.o, dist/build/Crypto/Number/Serialize.dyn_o )
+[ 84 of 137] Compiling Crypto.Number.Serialize.Internal.LE ( Crypto/Number/Serialize/Internal/LE.hs, dist/build/Crypto/Number/Serialize/Internal/LE.o, dist/build/Crypto/Number/Serialize/Internal/LE.dyn_o )
+[ 85 of 137] Compiling Crypto.Number.Serialize.LE ( Crypto/Number/Serialize/LE.hs, dist/build/Crypto/Number/Serialize/LE.o, dist/build/Crypto/Number/Serialize/LE.dyn_o )
+[ 86 of 137] Compiling Crypto.OTP       ( Crypto/OTP.hs, dist/build/Crypto/OTP.o, dist/build/Crypto/OTP.dyn_o )
+[ 87 of 137] Compiling Crypto.PubKey.ECC.Types ( Crypto/PubKey/ECC/Types.hs, dist/build/Crypto/PubKey/ECC/Types.o, dist/build/Crypto/PubKey/ECC/Types.dyn_o )
+[ 88 of 137] Compiling Crypto.PubKey.Internal ( Crypto/PubKey/Internal.hs, dist/build/Crypto/PubKey/Internal.o, dist/build/Crypto/PubKey/Internal.dyn_o )
+[ 89 of 137] Compiling Crypto.PubKey.MaskGenFunction ( Crypto/PubKey/MaskGenFunction.hs, dist/build/Crypto/PubKey/MaskGenFunction.o, dist/build/Crypto/PubKey/MaskGenFunction.dyn_o )
+[ 90 of 137] Compiling Crypto.PubKey.RSA.Types ( Crypto/PubKey/RSA/Types.hs, dist/build/Crypto/PubKey/RSA/Types.o, dist/build/Crypto/PubKey/RSA/Types.dyn_o )
+[ 91 of 137] Compiling Crypto.PubKey.RSA.Prim ( Crypto/PubKey/RSA/Prim.hs, dist/build/Crypto/PubKey/RSA/Prim.o, dist/build/Crypto/PubKey/RSA/Prim.dyn_o )
+[ 92 of 137] Compiling Crypto.Random.Entropy.Source ( Crypto/Random/Entropy/Source.hs, dist/build/Crypto/Random/Entropy/Source.o, dist/build/Crypto/Random/Entropy/Source.dyn_o )
+[ 93 of 137] Compiling Crypto.Random.Entropy.RDRand ( Crypto/Random/Entropy/RDRand.hs, dist/build/Crypto/Random/Entropy/RDRand.o, dist/build/Crypto/Random/Entropy/RDRand.dyn_o )
+[ 94 of 137] Compiling Crypto.Random.Entropy.Unix ( Crypto/Random/Entropy/Unix.hs, dist/build/Crypto/Random/Entropy/Unix.o, dist/build/Crypto/Random/Entropy/Unix.dyn_o )
+[ 95 of 137] Compiling Crypto.Random.Entropy.Backend ( Crypto/Random/Entropy/Backend.hs, dist/build/Crypto/Random/Entropy/Backend.o, dist/build/Crypto/Random/Entropy/Backend.dyn_o )
+[ 96 of 137] Compiling Crypto.Random.Entropy.Unsafe ( Crypto/Random/Entropy/Unsafe.hs, dist/build/Crypto/Random/Entropy/Unsafe.o, dist/build/Crypto/Random/Entropy/Unsafe.dyn_o )
+[ 97 of 137] Compiling Crypto.Random.Entropy ( Crypto/Random/Entropy.hs, dist/build/Crypto/Random/Entropy.o, dist/build/Crypto/Random/Entropy.dyn_o )
+[ 98 of 137] Compiling Crypto.Random.EntropyPool ( Crypto/Random/EntropyPool.hs, dist/build/Crypto/Random/EntropyPool.o, dist/build/Crypto/Random/EntropyPool.dyn_o )
+[ 99 of 137] Compiling Crypto.Random.Types ( Crypto/Random/Types.hs, dist/build/Crypto/Random/Types.o, dist/build/Crypto/Random/Types.dyn_o )
+[100 of 137] Compiling Crypto.Random.SystemDRG ( Crypto/Random/SystemDRG.hs, dist/build/Crypto/Random/SystemDRG.o, dist/build/Crypto/Random/SystemDRG.dyn_o )
+[101 of 137] Compiling Crypto.Random.ChaChaDRG ( Crypto/Random/ChaChaDRG.hs, dist/build/Crypto/Random/ChaChaDRG.o, dist/build/Crypto/Random/ChaChaDRG.dyn_o )
+[102 of 137] Compiling Crypto.Random    ( Crypto/Random.hs, dist/build/Crypto/Random.o, dist/build/Crypto/Random.dyn_o )
+[103 of 137] Compiling Crypto.Random.Probabilistic ( Crypto/Random/Probabilistic.hs, dist/build/Crypto/Random/Probabilistic.o, dist/build/Crypto/Random/Probabilistic.dyn_o )
+[104 of 137] Compiling Crypto.PubKey.Ed448 ( Crypto/PubKey/Ed448.hs, dist/build/Crypto/PubKey/Ed448.o, dist/build/Crypto/PubKey/Ed448.dyn_o )
+[105 of 137] Compiling Crypto.PubKey.Ed25519 ( Crypto/PubKey/Ed25519.hs, dist/build/Crypto/PubKey/Ed25519.o, dist/build/Crypto/PubKey/Ed25519.dyn_o )
+[106 of 137] Compiling Crypto.PubKey.ECC.P256 ( Crypto/PubKey/ECC/P256.hs, dist/build/Crypto/PubKey/ECC/P256.o, dist/build/Crypto/PubKey/ECC/P256.dyn_o )
+[107 of 137] Compiling Crypto.PubKey.Curve448 ( Crypto/PubKey/Curve448.hs, dist/build/Crypto/PubKey/Curve448.o, dist/build/Crypto/PubKey/Curve448.dyn_o )
+[108 of 137] Compiling Crypto.PubKey.Curve25519 ( Crypto/PubKey/Curve25519.hs, dist/build/Crypto/PubKey/Curve25519.o, dist/build/Crypto/PubKey/Curve25519.dyn_o )
+[109 of 137] Compiling Crypto.KDF.BCrypt ( Crypto/KDF/BCrypt.hs, dist/build/Crypto/KDF/BCrypt.o, dist/build/Crypto/KDF/BCrypt.dyn_o )
+[110 of 137] Compiling Crypto.ECC.Edwards25519 ( Crypto/ECC/Edwards25519.hs, dist/build/Crypto/ECC/Edwards25519.o, dist/build/Crypto/ECC/Edwards25519.dyn_o )
+[111 of 137] Compiling Crypto.Cipher.AESGCMSIV ( Crypto/Cipher/AESGCMSIV.hs, dist/build/Crypto/Cipher/AESGCMSIV.o, dist/build/Crypto/Cipher/AESGCMSIV.dyn_o )
+
+Crypto/Cipher/AESGCMSIV.hs:193:23: warning: [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding:
+        Patterns of type ‘Maybe (IV c)’ not matched: Nothing
+    |
+193 |   where toIV bs = let Just iv = makeIV (bs :: Bytes) in iv
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[112 of 137] Compiling Crypto.Number.Generate ( Crypto/Number/Generate.hs, dist/build/Crypto/Number/Generate.o, dist/build/Crypto/Number/Generate.dyn_o )
+[113 of 137] Compiling Crypto.PubKey.ECC.Prim ( Crypto/PubKey/ECC/Prim.hs, dist/build/Crypto/PubKey/ECC/Prim.o, dist/build/Crypto/PubKey/ECC/Prim.dyn_o )
+[114 of 137] Compiling Crypto.PubKey.ECC.ECDSA ( Crypto/PubKey/ECC/ECDSA.hs, dist/build/Crypto/PubKey/ECC/ECDSA.o, dist/build/Crypto/PubKey/ECC/ECDSA.dyn_o )
+[115 of 137] Compiling Crypto.PubKey.ECC.Generate ( Crypto/PubKey/ECC/Generate.hs, dist/build/Crypto/PubKey/ECC/Generate.o, dist/build/Crypto/PubKey/ECC/Generate.dyn_o )
+[116 of 137] Compiling Crypto.PubKey.DSA ( Crypto/PubKey/DSA.hs, dist/build/Crypto/PubKey/DSA.o, dist/build/Crypto/PubKey/DSA.dyn_o )
+[117 of 137] Compiling Crypto.Number.Prime ( Crypto/Number/Prime.hs, dist/build/Crypto/Number/Prime.o, dist/build/Crypto/Number/Prime.dyn_o )
+[118 of 137] Compiling Crypto.PubKey.Rabin.Types ( Crypto/PubKey/Rabin/Types.hs, dist/build/Crypto/PubKey/Rabin/Types.o, dist/build/Crypto/PubKey/Rabin/Types.dyn_o )
+[119 of 137] Compiling Crypto.PubKey.Rabin.OAEP ( Crypto/PubKey/Rabin/OAEP.hs, dist/build/Crypto/PubKey/Rabin/OAEP.o, dist/build/Crypto/PubKey/Rabin/OAEP.dyn_o )
+[120 of 137] Compiling Crypto.PubKey.Rabin.RW ( Crypto/PubKey/Rabin/RW.hs, dist/build/Crypto/PubKey/Rabin/RW.o, dist/build/Crypto/PubKey/Rabin/RW.dyn_o )
+[121 of 137] Compiling Crypto.PubKey.Rabin.Modified ( Crypto/PubKey/Rabin/Modified.hs, dist/build/Crypto/PubKey/Rabin/Modified.o, dist/build/Crypto/PubKey/Rabin/Modified.dyn_o )
+[122 of 137] Compiling Crypto.PubKey.Rabin.Basic ( Crypto/PubKey/Rabin/Basic.hs, dist/build/Crypto/PubKey/Rabin/Basic.o, dist/build/Crypto/PubKey/Rabin/Basic.dyn_o )
+[123 of 137] Compiling Crypto.PubKey.RSA ( Crypto/PubKey/RSA.hs, dist/build/Crypto/PubKey/RSA.o, dist/build/Crypto/PubKey/RSA.dyn_o )
+[124 of 137] Compiling Crypto.PubKey.RSA.PSS ( Crypto/PubKey/RSA/PSS.hs, dist/build/Crypto/PubKey/RSA/PSS.o, dist/build/Crypto/PubKey/RSA/PSS.dyn_o )
+[125 of 137] Compiling Crypto.PubKey.RSA.PKCS15 ( Crypto/PubKey/RSA/PKCS15.hs, dist/build/Crypto/PubKey/RSA/PKCS15.o, dist/build/Crypto/PubKey/RSA/PKCS15.dyn_o )
+[126 of 137] Compiling Crypto.PubKey.RSA.OAEP ( Crypto/PubKey/RSA/OAEP.hs, dist/build/Crypto/PubKey/RSA/OAEP.o, dist/build/Crypto/PubKey/RSA/OAEP.dyn_o )
+[127 of 137] Compiling Crypto.PubKey.DH ( Crypto/PubKey/DH.hs, dist/build/Crypto/PubKey/DH.o, dist/build/Crypto/PubKey/DH.dyn_o )
+[128 of 137] Compiling Crypto.PubKey.ElGamal ( Crypto/PubKey/ElGamal.hs, dist/build/Crypto/PubKey/ElGamal.o, dist/build/Crypto/PubKey/ElGamal.dyn_o )
+[129 of 137] Compiling Crypto.PubKey.ECC.DH ( Crypto/PubKey/ECC/DH.hs, dist/build/Crypto/PubKey/ECC/DH.o, dist/build/Crypto/PubKey/ECC/DH.dyn_o )
+
+Crypto/PubKey/ECC/DH.hs:47:5: warning: [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding: Patterns of type ‘Point’ not matched: PointO
+   |
+47 |     Point x _ = pointMul curve db qa
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[130 of 137] Compiling Crypto.ECC.Simple.Prim ( Crypto/ECC/Simple/Prim.hs, dist/build/Crypto/ECC/Simple/Prim.o, dist/build/Crypto/ECC/Simple/Prim.dyn_o )
+[131 of 137] Compiling Crypto.ECC       ( Crypto/ECC.hs, dist/build/Crypto/ECC.o, dist/build/Crypto/ECC.dyn_o )
+[132 of 137] Compiling Crypto.PubKey.EdDSA ( Crypto/PubKey/EdDSA.hs, dist/build/Crypto/PubKey/EdDSA.o, dist/build/Crypto/PubKey/EdDSA.dyn_o )
+
+Crypto/PubKey/EdDSA.hs:110:45: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+110 |                       , HashDigestSize hash ~ CurveDigestSize curve
+    |                                             ^
+
+Crypto/PubKey/EdDSA.hs:132:36: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+132 |              , HashDigestSize hash ~ CurveDigestSize curve
+    |                                    ^
+
+Crypto/PubKey/EdDSA.hs:154:36: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+154 |              , HashDigestSize hash ~ CurveDigestSize curve
+    |                                    ^
+
+Crypto/PubKey/EdDSA.hs:175:35: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+175 |             , HashDigestSize hash ~ CurveDigestSize curve
+    |                                   ^
+
+Crypto/PubKey/EdDSA.hs:184:39: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+184 |                 , HashDigestSize hash ~ CurveDigestSize curve
+    |                                       ^
+
+Crypto/PubKey/EdDSA.hs:195:31: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+195 |         , HashDigestSize hash ~ CurveDigestSize curve
+    |                               ^
+
+Crypto/PubKey/EdDSA.hs:204:33: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+204 |           , HashDigestSize hash ~ CurveDigestSize curve
+    |                                 ^
+
+Crypto/PubKey/EdDSA.hs:213:34: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+213 |            , HashDigestSize hash ~ CurveDigestSize curve
+    |                                  ^
+
+Crypto/PubKey/EdDSA.hs:223:36: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+223 |              , HashDigestSize hash ~ CurveDigestSize curve
+    |                                    ^
+
+Crypto/PubKey/EdDSA.hs:233:33: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+233 |           , HashDigestSize hash ~ CurveDigestSize curve
+    |                                 ^
+
+Crypto/PubKey/EdDSA.hs:242:35: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+242 |             , HashDigestSize hash ~ CurveDigestSize curve
+    |                                   ^
+
+Crypto/PubKey/EdDSA.hs:251:36: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+251 |              , HashDigestSize hash ~ CurveDigestSize curve
+    |                                    ^
+
+Crypto/PubKey/EdDSA.hs:269:38: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+269 |                , HashDigestSize hash ~ CurveDigestSize curve
+    |                                      ^
+
+Crypto/PubKey/EdDSA.hs:292:31: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+292 |         , HashDigestSize hash ~ CurveDigestSize curve
+    |                               ^
+
+Crypto/PubKey/EdDSA.hs:313:42: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+313 |                    , HashDigestSize hash ~ CurveDigestSize curve
+    |                                          ^
+[133 of 137] Compiling Crypto.PubKey.ECIES ( Crypto/PubKey/ECIES.hs, dist/build/Crypto/PubKey/ECIES.o, dist/build/Crypto/PubKey/ECIES.dyn_o )
+[134 of 137] Compiling Crypto.PubKey.ECDSA ( Crypto/PubKey/ECDSA.hs, dist/build/Crypto/PubKey/ECDSA.o, dist/build/Crypto/PubKey/ECDSA.dyn_o )
+[135 of 137] Compiling Crypto.Data.AFIS ( Crypto/Data/AFIS.hs, dist/build/Crypto/Data/AFIS.o, dist/build/Crypto/Data/AFIS.dyn_o )
+[136 of 137] Compiling Crypto.System.CPU ( Crypto/System/CPU.hs, dist/build/Crypto/System/CPU.o, dist/build/Crypto/System/CPU.dyn_o )
+[137 of 137] Compiling Crypto.Tutorial  ( Crypto/Tutorial.hs, dist/build/Crypto/Tutorial.o, dist/build/Crypto/Tutorial.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/cryptnt-0.30-fbe7f99e/lib

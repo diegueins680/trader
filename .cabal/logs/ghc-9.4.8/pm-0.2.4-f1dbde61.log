@@ -1,0 +1,9 @@
+Configuring library for pem-0.2.4...
+Preprocessing library for pem-0.2.4...
+Building library for pem-0.2.4...
+[1 of 4] Compiling Data.PEM.Types   ( Data/PEM/Types.hs, dist/build/Data/PEM/Types.o, dist/build/Data/PEM/Types.dyn_o )
+[2 of 4] Compiling Data.PEM.Parser  ( Data/PEM/Parser.hs, dist/build/Data/PEM/Parser.o, dist/build/Data/PEM/Parser.dyn_o )
+[3 of 4] Compiling Data.PEM.Writer  ( Data/PEM/Writer.hs, dist/build/Data/PEM/Writer.o, dist/build/Data/PEM/Writer.dyn_o )
+[4 of 4] Compiling Data.PEM         ( Data/PEM.hs, dist/build/Data/PEM.o, dist/build/Data/PEM.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67506/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/pm-0.2.4-f1dbde61/lib

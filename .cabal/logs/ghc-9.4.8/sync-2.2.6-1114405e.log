@@ -1,0 +1,17 @@
+Configuring library for async-2.2.6...
+Preprocessing library for async-2.2.6...
+Building library for async-2.2.6...
+[1 of 4] Compiling Control.Concurrent.Async.Internal ( Control/Concurrent/Async/Internal.hs, dist/build/Control/Concurrent/Async/Internal.o, dist/build/Control/Concurrent/Async/Internal.dyn_o )
+
+Control/Concurrent/Async/Internal.hs:50:1: warning: [-Wunused-imports]
+    The import of ‘Data.Semigroup’ is redundant
+      except perhaps to import instances from ‘Data.Semigroup’
+    To import instances alone, use: import Data.Semigroup()
+   |
+50 | import Data.Semigroup (Semigroup((<>)))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2 of 4] Compiling Control.Concurrent.Async ( Control/Concurrent/Async.hs, dist/build/Control/Concurrent/Async.o, dist/build/Control/Concurrent/Async.dyn_o )
+[3 of 4] Compiling Control.Concurrent.Async.Warden ( Control/Concurrent/Async/Warden.hs, dist/build/Control/Concurrent/Async/Warden.o, dist/build/Control/Concurrent/Async/Warden.dyn_o )
+[4 of 4] Compiling Control.Concurrent.Stream ( Control/Concurrent/Stream.hs, dist/build/Control/Concurrent/Stream.o, dist/build/Control/Concurrent/Stream.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/sync-2.2.6-1114405e/lib

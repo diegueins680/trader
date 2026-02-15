@@ -1,0 +1,16 @@
+Configuring library for cryptohash-md5-0.11.101.0...
+Preprocessing library for cryptohash-md5-0.11.101.0...
+Building library for cryptohash-md5-0.11.101.0...
+[1 of 3] Compiling Compat           ( src/Compat.hs, dist/build/Compat.o, dist/build/Compat.dyn_o )
+[2 of 3] Compiling Crypto.Hash.MD5.FFI ( src/Crypto/Hash/MD5/FFI.hs, dist/build/Crypto/Hash/MD5/FFI.o, dist/build/Crypto/Hash/MD5/FFI.dyn_o )
+[3 of 3] Compiling Crypto.Hash.MD5  ( src/Crypto/Hash/MD5.hs, dist/build/Crypto/Hash/MD5.o, dist/build/Crypto/Hash/MD5.dyn_o )
+
+src/Crypto/Hash/MD5.hs:134:19: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+134 | copyCtx dst src = memcpy (castPtr dst) (castPtr src) (fromIntegral sizeCtx)
+    |                   ^^^^^^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41764/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/crypthsh-md5-0.11.101.0-0c1d0a37/lib

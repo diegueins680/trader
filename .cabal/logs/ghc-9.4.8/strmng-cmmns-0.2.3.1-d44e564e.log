@@ -1,0 +1,23 @@
+Configuring library for streaming-commons-0.2.3.1...
+Preprocessing library for streaming-commons-0.2.3.1...
+Building library for streaming-commons-0.2.3.1...
+[ 1 of 11] Compiling Data.Streaming.ByteString.Builder.Buffer ( Data/Streaming/ByteString/Builder/Buffer.hs, dist/build/Data/Streaming/ByteString/Builder/Buffer.o, dist/build/Data/Streaming/ByteString/Builder/Buffer.dyn_o )
+[ 2 of 11] Compiling Data.Streaming.ByteString.Builder ( Data/Streaming/ByteString/Builder.hs, dist/build/Data/Streaming/ByteString/Builder.o, dist/build/Data/Streaming/ByteString/Builder.dyn_o )
+[ 3 of 11] Compiling Data.Streaming.FileRead ( Data/Streaming/FileRead.hs, dist/build/Data/Streaming/FileRead.o, dist/build/Data/Streaming/FileRead.dyn_o )
+[ 4 of 11] Compiling Data.Streaming.Filesystem ( Data/Streaming/Filesystem.hs, dist/build/Data/Streaming/Filesystem.o, dist/build/Data/Streaming/Filesystem.dyn_o )
+[ 5 of 11] Compiling Data.Streaming.Network.Internal ( Data/Streaming/Network/Internal.hs, dist/build/Data/Streaming/Network/Internal.o, dist/build/Data/Streaming/Network/Internal.dyn_o )
+[ 6 of 11] Compiling Data.Streaming.Network ( Data/Streaming/Network.hs, dist/build/Data/Streaming/Network.o, dist/build/Data/Streaming/Network.dyn_o )
+[ 7 of 11] Compiling Data.Streaming.Process.Internal ( Data/Streaming/Process/Internal.hs, dist/build/Data/Streaming/Process/Internal.o, dist/build/Data/Streaming/Process/Internal.dyn_o )
+[ 8 of 11] Compiling Data.Streaming.Process ( Data/Streaming/Process.hs, dist/build/Data/Streaming/Process.o, dist/build/Data/Streaming/Process.dyn_o )
+[ 9 of 11] Compiling Data.Streaming.Text ( Data/Streaming/Text.hs, dist/build/Data/Streaming/Text.o, dist/build/Data/Streaming/Text.dyn_o )
+[10 of 11] Compiling Data.Streaming.Zlib.Lowlevel ( Data/Streaming/Zlib/Lowlevel.hs, dist/build/Data/Streaming/Zlib/Lowlevel.o, dist/build/Data/Streaming/Zlib/Lowlevel.dyn_o )
+
+Data/Streaming/Zlib/Lowlevel.hs:105:1: warning: [-Woverlapping-patterns]
+    Pattern match is redundant
+    In an equation for ‘wbToInt’: wbToInt _ = ...
+    |
+105 | wbToInt _ = 15
+    | ^^^^^^^^^^^^^^
+[11 of 11] Compiling Data.Streaming.Zlib ( Data/Streaming/Zlib.hs, dist/build/Data/Streaming/Zlib.o, dist/build/Data/Streaming/Zlib.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/strmng-cmmns-0.2.3.1-d44e564e/lib

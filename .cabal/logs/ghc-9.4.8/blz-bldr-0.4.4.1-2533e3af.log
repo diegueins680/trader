@@ -1,0 +1,16 @@
+Configuring library for blaze-builder-0.4.4.1...
+Preprocessing library for blaze-builder-0.4.4.1...
+Building library for blaze-builder-0.4.4.1...
+[ 1 of 11] Compiling Blaze.ByteString.Builder.Internal.Write ( Blaze/ByteString/Builder/Internal/Write.hs, dist/build/Blaze/ByteString/Builder/Internal/Write.o, dist/build/Blaze/ByteString/Builder/Internal/Write.dyn_o )
+[ 2 of 11] Compiling Blaze.ByteString.Builder.Compat.Write ( Blaze/ByteString/Builder/Compat/Write.hs, dist/build/Blaze/ByteString/Builder/Compat/Write.o, dist/build/Blaze/ByteString/Builder/Compat/Write.dyn_o )
+[ 3 of 11] Compiling Blaze.ByteString.Builder.Int ( Blaze/ByteString/Builder/Int.hs, dist/build/Blaze/ByteString/Builder/Int.o, dist/build/Blaze/ByteString/Builder/Int.dyn_o )
+[ 4 of 11] Compiling Blaze.ByteString.Builder.Html.Word ( Blaze/ByteString/Builder/Html/Word.hs, dist/build/Blaze/ByteString/Builder/Html/Word.o, dist/build/Blaze/ByteString/Builder/Html/Word.dyn_o )
+[ 5 of 11] Compiling Blaze.ByteString.Builder.Char8 ( Blaze/ByteString/Builder/Char8.hs, dist/build/Blaze/ByteString/Builder/Char8.o, dist/build/Blaze/ByteString/Builder/Char8.dyn_o )
+[ 6 of 11] Compiling Blaze.ByteString.Builder.Char.Utf8 ( Blaze/ByteString/Builder/Char/Utf8.hs, dist/build/Blaze/ByteString/Builder/Char/Utf8.o, dist/build/Blaze/ByteString/Builder/Char/Utf8.dyn_o )
+[ 7 of 11] Compiling Blaze.ByteString.Builder.Html.Utf8 ( Blaze/ByteString/Builder/Html/Utf8.hs, dist/build/Blaze/ByteString/Builder/Html/Utf8.o, dist/build/Blaze/ByteString/Builder/Html/Utf8.dyn_o )
+[ 8 of 11] Compiling Blaze.ByteString.Builder.ByteString ( Blaze/ByteString/Builder/ByteString.hs, dist/build/Blaze/ByteString/Builder/ByteString.o, dist/build/Blaze/ByteString/Builder/ByteString.dyn_o )
+[ 9 of 11] Compiling Blaze.ByteString.Builder.HTTP ( Blaze/ByteString/Builder/HTTP.hs, dist/build/Blaze/ByteString/Builder/HTTP.o, dist/build/Blaze/ByteString/Builder/HTTP.dyn_o )
+[10 of 11] Compiling Blaze.ByteString.Builder.Word ( Blaze/ByteString/Builder/Word.hs, dist/build/Blaze/ByteString/Builder/Word.o, dist/build/Blaze/ByteString/Builder/Word.dyn_o )
+[11 of 11] Compiling Blaze.ByteString.Builder ( Blaze/ByteString/Builder.hs, dist/build/Blaze/ByteString/Builder.o, dist/build/Blaze/ByteString/Builder.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/blz-bldr-0.4.4.1-2533e3af/lib

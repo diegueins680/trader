@@ -1,0 +1,76 @@
+FROM haskell:8.10.4 AS build
+
+RUN sed -i 's|deb.debian.org/debian|archive.debian.org/debian|g' /etc/apt/sources.list \
+  && sed -i 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' /etc/apt/sources.list \
+  && sed -i '/buster-updates/d' /etc/apt/sources.list \
+  && apt-get -o Acquire::Check-Valid-Until=false update \
+  && apt-get install -y --no-install-recommends binutils libpq-dev pkg-config \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/trader/haskell
+
+# Copy only cabal file first for better dependency caching
+COPY haskell/trader.cabal trader.cabal
+
+# Build dependencies in separate layer (cached unless dependencies change)
+RUN --mount=type=cache,target=/root/.cabal \
+  --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
+  cabal update && cabal build --only-dependencies
+
+# Copy source code after dependencies are cached
+COPY haskell/app app
+COPY haskell/test test
+
+# Build all executables
+RUN --mount=type=cache,target=/root/.cabal \
+  --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
+  cabal build exe:trader-hs exe:optimize-equity exe:merge-top-combos
+
+# Extract and strip binaries in single layer
+RUN --mount=type=cache,target=/root/.cabal \
+  --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
+  cp "$(cabal list-bin trader-hs)" /opt/trader/trader-hs && \
+  cp "$(cabal list-bin optimize-equity)" /opt/trader/optimize-equity && \
+  cp "$(cabal list-bin merge-top-combos)" /opt/trader/merge-top-combos && \
+  strip /opt/trader/trader-hs /opt/trader/optimize-equity /opt/trader/merge-top-combos
+
+# Runtime stage with pinned digest for reproducibility
+FROM debian:bookworm-slim@sha256:56ff6d36d4eb3db13a741b342ec466f121480b5edded42e4b7ee850ce7a418ee
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    libgmp10 \
+    libpq5 \
+    libtinfo6 \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /opt/trader/trader-hs /usr/local/bin/trader-hs
+COPY --from=build /opt/trader/optimize-equity /usr/local/bin/optimize-equity
+COPY --from=build /opt/trader/merge-top-combos /usr/local/bin/merge-top-combos
+
+WORKDIR /opt/trader/haskell
+COPY haskell/web/public /opt/trader/haskell/web/public
+
+ENV TRADER_STATE_DIR=/var/lib/trader/state
+ENV TRADER_API_ASYNC_DIR=/var/lib/trader/async
+ENV TRADER_LSTM_WEIGHTS_DIR=/var/lib/trader/lstm
+
+RUN mkdir -p \
+    /var/lib/trader/async \
+    /var/lib/trader/lstm \
+    /var/lib/trader/state \
+    /opt/trader/haskell/.tmp/optimizer \
+  && chown -R 65532:65532 /var/lib/trader /opt/trader/haskell/.tmp
+
+VOLUME ["/var/lib/trader"]
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8080/ || exit 1
+
+USER 65532:65532
+
+CMD ["trader-hs", "--serve", "--port", "8080"]

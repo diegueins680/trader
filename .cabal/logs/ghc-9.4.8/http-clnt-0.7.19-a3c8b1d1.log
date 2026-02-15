@@ -1,0 +1,24 @@
+Configuring library for http-client-0.7.19...
+Preprocessing library for http-client-0.7.19...
+Building library for http-client-0.7.19...
+[ 1 of 19] Compiling Data.KeyedPool   ( Data/KeyedPool.hs, dist/build/Data/KeyedPool.o, dist/build/Data/KeyedPool.dyn_o )
+[ 2 of 19] Compiling Network.HTTP.Client.Types ( Network/HTTP/Client/Types.hs, dist/build/Network/HTTP/Client/Types.o, dist/build/Network/HTTP/Client/Types.dyn_o )
+[ 3 of 19] Compiling Network.HTTP.Client.Connection ( Network/HTTP/Client/Connection.hs, dist/build/Network/HTTP/Client/Connection.o, dist/build/Network/HTTP/Client/Connection.dyn_o )
+[ 4 of 19] Compiling Network.HTTP.Client.Headers ( Network/HTTP/Client/Headers.hs, dist/build/Network/HTTP/Client/Headers.o, dist/build/Network/HTTP/Client/Headers.dyn_o )
+[ 5 of 19] Compiling Network.HTTP.Client.Body ( Network/HTTP/Client/Body.hs, dist/build/Network/HTTP/Client/Body.o, dist/build/Network/HTTP/Client/Body.dyn_o )
+[ 6 of 19] Compiling Network.HTTP.Client.Util ( Network/HTTP/Client/Util.hs, dist/build/Network/HTTP/Client/Util.o, dist/build/Network/HTTP/Client/Util.dyn_o )
+[ 7 of 19] Compiling Network.HTTP.Client.Request ( Network/HTTP/Client/Request.hs, dist/build/Network/HTTP/Client/Request.o, dist/build/Network/HTTP/Client/Request.dyn_o )
+[ 8 of 19] Compiling Network.HTTP.Client.Response ( Network/HTTP/Client/Response.hs, dist/build/Network/HTTP/Client/Response.o, dist/build/Network/HTTP/Client/Response.dyn_o )
+[ 9 of 19] Compiling Network.HTTP.Proxy ( Network/HTTP/Proxy.hs, dist/build/Network/HTTP/Proxy.o, dist/build/Network/HTTP/Proxy.dyn_o )
+[10 of 19] Compiling Network.HTTP.Client.Manager ( Network/HTTP/Client/Manager.hs, dist/build/Network/HTTP/Client/Manager.o, dist/build/Network/HTTP/Client/Manager.dyn_o )
+[11 of 19] Compiling Network.PublicSuffixList.Types ( publicsuffixlist/Network/PublicSuffixList/Types.hs, dist/build/Network/PublicSuffixList/Types.o, dist/build/Network/PublicSuffixList/Types.dyn_o )
+[12 of 19] Compiling Network.PublicSuffixList.Serialize ( publicsuffixlist/Network/PublicSuffixList/Serialize.hs, dist/build/Network/PublicSuffixList/Serialize.o, dist/build/Network/PublicSuffixList/Serialize.dyn_o )
+[13 of 19] Compiling Network.PublicSuffixList.DataStructure ( publicsuffixlist/Network/PublicSuffixList/DataStructure.hs, dist/build/Network/PublicSuffixList/DataStructure.o, dist/build/Network/PublicSuffixList/DataStructure.dyn_o )
+[14 of 19] Compiling Network.PublicSuffixList.Lookup ( publicsuffixlist/Network/PublicSuffixList/Lookup.hs, dist/build/Network/PublicSuffixList/Lookup.o, dist/build/Network/PublicSuffixList/Lookup.dyn_o )
+[15 of 19] Compiling Network.HTTP.Client.Cookies ( Network/HTTP/Client/Cookies.hs, dist/build/Network/HTTP/Client/Cookies.o, dist/build/Network/HTTP/Client/Cookies.dyn_o )
+[16 of 19] Compiling Network.HTTP.Client.Core ( Network/HTTP/Client/Core.hs, dist/build/Network/HTTP/Client/Core.o, dist/build/Network/HTTP/Client/Core.dyn_o )
+[17 of 19] Compiling Network.HTTP.Client.Internal ( Network/HTTP/Client/Internal.hs, dist/build/Network/HTTP/Client/Internal.o, dist/build/Network/HTTP/Client/Internal.dyn_o )
+[18 of 19] Compiling Network.HTTP.Client ( Network/HTTP/Client.hs, dist/build/Network/HTTP/Client.o, dist/build/Network/HTTP/Client.dyn_o )
+[19 of 19] Compiling Network.HTTP.Client.MultipartFormData ( Network/HTTP/Client/MultipartFormData.hs, dist/build/Network/HTTP/Client/MultipartFormData.o, dist/build/Network/HTTP/Client/MultipartFormData.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/http-clnt-0.7.19-a3c8b1d1/lib

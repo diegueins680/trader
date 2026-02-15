@@ -1,0 +1,16 @@
+Configuring library for adjunctions-4.4.4...
+Preprocessing library for adjunctions-4.4.4...
+Building library for adjunctions-4.4.4...
+[ 1 of 11] Compiling Control.Monad.Trans.Conts ( src/Control/Monad/Trans/Conts.hs, dist/build/Control/Monad/Trans/Conts.o, dist/build/Control/Monad/Trans/Conts.dyn_o )
+[ 2 of 11] Compiling Data.Functor.Contravariant.Rep ( src/Data/Functor/Contravariant/Rep.hs, dist/build/Data/Functor/Contravariant/Rep.o, dist/build/Data/Functor/Contravariant/Rep.dyn_o )
+[ 3 of 11] Compiling Data.Functor.Contravariant.Adjunction ( src/Data/Functor/Contravariant/Adjunction.hs, dist/build/Data/Functor/Contravariant/Adjunction.o, dist/build/Data/Functor/Contravariant/Adjunction.dyn_o )
+[ 4 of 11] Compiling Control.Monad.Trans.Contravariant.Adjoint ( src/Control/Monad/Trans/Contravariant/Adjoint.hs, dist/build/Control/Monad/Trans/Contravariant/Adjoint.o, dist/build/Control/Monad/Trans/Contravariant/Adjoint.dyn_o )
+[ 5 of 11] Compiling Data.Functor.Rep ( src/Data/Functor/Rep.hs, dist/build/Data/Functor/Rep.o, dist/build/Data/Functor/Rep.dyn_o )
+[ 6 of 11] Compiling Data.Functor.Adjunction ( src/Data/Functor/Adjunction.hs, dist/build/Data/Functor/Adjunction.o, dist/build/Data/Functor/Adjunction.dyn_o )
+[ 7 of 11] Compiling Control.Monad.Trans.Adjoint ( src/Control/Monad/Trans/Adjoint.hs, dist/build/Control/Monad/Trans/Adjoint.o, dist/build/Control/Monad/Trans/Adjoint.dyn_o )
+[ 8 of 11] Compiling Control.Comonad.Trans.Adjoint ( src/Control/Comonad/Trans/Adjoint.hs, dist/build/Control/Comonad/Trans/Adjoint.o, dist/build/Control/Comonad/Trans/Adjoint.dyn_o )
+[ 9 of 11] Compiling Control.Monad.Representable.State ( src/Control/Monad/Representable/State.hs, dist/build/Control/Monad/Representable/State.o, dist/build/Control/Monad/Representable/State.dyn_o )
+[10 of 11] Compiling Control.Monad.Representable.Reader ( src/Control/Monad/Representable/Reader.hs, dist/build/Control/Monad/Representable/Reader.o, dist/build/Control/Monad/Representable/Reader.dyn_o )
+[11 of 11] Compiling Control.Comonad.Representable.Store ( src/Control/Comonad/Representable/Store.hs, dist/build/Control/Comonad/Representable/Store.o, dist/build/Control/Comonad/Representable/Store.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/djnctns-4.4.4-4009b1df/lib
