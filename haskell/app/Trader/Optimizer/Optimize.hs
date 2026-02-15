@@ -731,6 +731,7 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightBlend :: !Double
     , oaMethodWeightConfBlend :: !Double
     , oaMethodWeightConfPick :: !Double
+    , oaMethodWeightConformalClip :: !Double
     , oaMethodWeightCostPick :: !Double
     , oaMethodWeightHarmonicBlend :: !Double
     , oaMethodWeightDisagreementGuard :: !Double
@@ -747,6 +748,7 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightPhaseCancel :: !Double
     , oaMethodWeightSoftmaxBlend :: !Double
     , oaMethodWeightSmoothSoftmaxBlend :: !Double
+    , oaMethodWeightHedgeBlend :: !Double
     , oaMethodWeightNetSoftmaxBlend :: !Double
     , oaMethodWeightEdgeBlend :: !Double
     , oaMethodWeightEdgePick :: !Double
@@ -1719,7 +1721,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
+    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWConformalClip, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWHedgeBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -1760,6 +1762,7 @@ sampleParams
                 , ("blend", methodWBlend)
                 , ("conf_blend", methodWConfBlend)
                 , ("conf_pick", methodWConfPick)
+                , ("conformal_clip", methodWConformalClip)
                 , ("cost_pick", methodWCostPick)
                 , ("harmonic_blend", methodWHarmonicBlend)
                 , ("disagreement_guard", methodWDisagreementGuard)
@@ -1776,6 +1779,7 @@ sampleParams
                 , ("phase_cancel", methodWPhaseCancel)
                 , ("softmax_blend", methodWSoftmaxBlend)
                 , ("smooth_softmax_blend", methodWSmoothSoftmaxBlend)
+                , ("hedge_blend", methodWHedgeBlend)
                 , ("net_softmax_blend", methodWNetSoftmaxBlend)
                 , ("edge_blend", methodWEdgeBlend)
                 , ("edge_pick", methodWEdgePick)
@@ -2593,6 +2597,7 @@ runOptimizer args0 = do
                                                             , oaMethodWeightBlend args
                                                             , oaMethodWeightConfBlend args
                                                             , oaMethodWeightConfPick args
+                                                            , oaMethodWeightConformalClip args
                                                             , oaMethodWeightCostPick args
                                                             , oaMethodWeightHarmonicBlend args
                                                             , oaMethodWeightDisagreementGuard args
@@ -2609,6 +2614,7 @@ runOptimizer args0 = do
                                                             , oaMethodWeightPhaseCancel args
                                                             , oaMethodWeightSoftmaxBlend args
                                                             , oaMethodWeightSmoothSoftmaxBlend args
+                                                            , oaMethodWeightHedgeBlend args
                                                             , oaMethodWeightNetSoftmaxBlend args
                                                             , oaMethodWeightEdgeBlend args
                                                             , oaMethodWeightEdgePick args

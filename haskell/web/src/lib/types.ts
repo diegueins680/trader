@@ -7,6 +7,7 @@ export type Method =
   | "blend"
   | "conf_blend"
   | "conf_pick"
+  | "conformal_clip"
   | "cost_pick"
   | "harmonic_blend"
   | "disagreement_guard"
@@ -23,6 +24,7 @@ export type Method =
   | "phase_cancel"
   | "softmax_blend"
   | "smooth_softmax_blend"
+  | "hedge_blend"
   | "net_softmax_blend"
   | "edge_blend"
   | "edge_pick"
@@ -783,6 +785,7 @@ export type OptimizerRunRequest = {
   methodWeightBlend?: number;
   methodWeightConfBlend?: number;
   methodWeightConfPick?: number;
+  methodWeightConformalClip?: number;
   methodWeightCostPick?: number;
   methodWeightHarmonicBlend?: number;
   methodWeightDisagreementGuard?: number;
@@ -799,6 +802,7 @@ export type OptimizerRunRequest = {
   methodWeightPhaseCancel?: number;
   methodWeightSoftmaxBlend?: number;
   methodWeightSmoothSoftmaxBlend?: number;
+  methodWeightHedgeBlend?: number;
   methodWeightNetSoftmaxBlend?: number;
   methodWeightEdgeBlend?: number;
   methodWeightEdgePick?: number;

@@ -696,6 +696,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     "blend",
     "conf_blend",
     "conf_pick",
+    "conformal_clip",
     "cost_pick",
     "harmonic_blend",
     "disagreement_guard",
@@ -712,6 +713,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     "phase_cancel",
     "softmax_blend",
     "smooth_softmax_blend",
+    "hedge_blend",
     "net_softmax_blend",
     "edge_blend",
     "edge_pick",
@@ -1825,6 +1827,7 @@ export function App() {
       "blend",
       "conf_blend",
       "conf_pick",
+      "conformal_clip",
       "cost_pick",
       "harmonic_blend",
       "disagreement_guard",
@@ -1841,6 +1844,7 @@ export function App() {
       "phase_cancel",
       "softmax_blend",
       "smooth_softmax_blend",
+      "hedge_blend",
       "net_softmax_blend",
       "edge_blend",
       "edge_pick",
@@ -7619,6 +7623,10 @@ export function App() {
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "conf_pick";
         break;
+      case "conformal_clip":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "conformal_clip";
+        break;
       case "cost_pick":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "cost_pick";
@@ -7682,6 +7690,10 @@ export function App() {
       case "smooth_softmax_blend":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "smooth_softmax_blend";
+        break;
+      case "hedge_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "hedge_blend";
         break;
       case "net_softmax_blend":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);

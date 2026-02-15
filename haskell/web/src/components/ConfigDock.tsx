@@ -1311,6 +1311,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <option value="blend">blend — Weighted average</option>
               <option value="conf_blend">conf_blend — Confidence blend</option>
               <option value="conf_pick">conf_pick — Confidence pick</option>
+              <option value="conformal_clip">conformal_clip — Conformal clip</option>
               <option value="cost_pick">cost_pick — Cost-aware pick</option>
               <option value="harmonic_blend">harmonic_blend — Harmonic-return blend</option>
               <option value="disagreement_guard">disagreement_guard — Disagreement-aware pick</option>
@@ -1327,6 +1328,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <option value="phase_cancel">phase_cancel — Phase cancel</option>
               <option value="softmax_blend">softmax_blend — Softmax blend</option>
               <option value="smooth_softmax_blend">smooth_softmax_blend — Smooth softmax blend</option>
+              <option value="hedge_blend">hedge_blend — Hedge blend</option>
               <option value="net_softmax_blend">net_softmax_blend — Net softmax blend</option>
               <option value="edge_blend">edge_blend — Edge-weighted blend</option>
               <option value="edge_pick">edge_pick — Edge pick</option>
@@ -1338,7 +1340,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <option value="01">01 — LSTM only</option>
             </select>
             <div className="hint">
-              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “cost_pick” picks the higher post-cost edge, “harmonic_blend” uses a harmonic mean in return space, “disagreement_guard” picks lower-edge predictions when models conflict, “median_blend” uses a median-robust return blend, “neutral_guard” goes flat on model conflict, “risk_parity_blend” inversely weights each model by edge magnitude, “consensus_boost” boosts the stronger edge when models agree and goes flat when they conflict, “anchor_blend” tethers conflict bars back toward spot, “tension_gate” keeps agreement conviction but partially neutralizes conflicts, “entropy_blend” shrinks toward spot when model-edge uncertainty is high, “coherence_gate” amplifies coherent agreement and dampens incoherent conflicts, “divergence_gate” shrinks blended returns toward spot as model returns diverge, “fractal_blend” fuses signed-root returns to suppress outlier dominance, “phase_cancel” neutralizes anti-phase conflicts between models, “softmax_blend” blends with a softmax-style edge weighting, “smooth_softmax_blend” smooths that softmax weighting over time, “net_softmax_blend” uses post-cost edge in that softmax weighting, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, “regime_switch” toggles by volatility/z-score context, and “router”/“bandit_router” pick the best recent model.
+              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “conformal_clip” clips the blended return into the conformal/quantile band when available, “cost_pick” picks the higher post-cost edge, “harmonic_blend” uses a harmonic mean in return space, “disagreement_guard” picks lower-edge predictions when models conflict, “median_blend” uses a median-robust return blend, “neutral_guard” goes flat on model conflict, “risk_parity_blend” inversely weights each model by edge magnitude, “consensus_boost” boosts the stronger edge when models agree and goes flat when they conflict, “anchor_blend” tethers conflict bars back toward spot, “tension_gate” keeps agreement conviction but partially neutralizes conflicts, “entropy_blend” shrinks toward spot when model-edge uncertainty is high, “coherence_gate” amplifies coherent agreement and dampens incoherent conflicts, “divergence_gate” shrinks blended returns toward spot as model returns diverge, “fractal_blend” fuses signed-root returns to suppress outlier dominance, “phase_cancel” neutralizes anti-phase conflicts between models, “softmax_blend” blends with a softmax-style edge weighting, “smooth_softmax_blend” smooths that softmax weighting over time, “hedge_blend” adapts the blend weights online based on realized prediction error, “net_softmax_blend” uses post-cost edge in that softmax weighting, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, “regime_switch” toggles by volatility/z-score context, and “router”/“bandit_router” pick the best recent model.
             </div>
             {methodOverride ? (
               <div className="pillRow" style={{ marginTop: 6 }}>
@@ -1610,6 +1612,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 form.method !== "blend" &&
                 form.method !== "conf_blend" &&
                 form.method !== "conf_pick" &&
+                form.method !== "conformal_clip" &&
                 form.method !== "cost_pick" &&
                 form.method !== "harmonic_blend" &&
                 form.method !== "disagreement_guard" &&
@@ -1626,6 +1629,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 form.method !== "phase_cancel" &&
                 form.method !== "softmax_blend" &&
                 form.method !== "smooth_softmax_blend" &&
+                form.method !== "hedge_blend" &&
                 form.method !== "net_softmax_blend" &&
                 form.method !== "edge_blend" &&
                 form.method !== "edge_pick" &&
@@ -1634,7 +1638,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               }
             />
             <div className="hint">
-              0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch.
+              0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch.
             </div>
           </div>
         </div>

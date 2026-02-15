@@ -1540,6 +1540,136 @@ regimeSwitchPredictionsV fallbackWeight highVolCutoff kalZCutoff kalPredV lstmPr
              in regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred (metaAt t)
      in V.generate (max 0 stepCount) pick
 
+conformalClipBoundsFromMeta :: StepMeta -> Maybe (Double, Double)
+conformalClipBoundsFromMeta m =
+    let bad x = isNaN x || isInfinite x
+     in case (smConformalLo m, smConformalHi m) of
+            (Just lo, Just hi) | not (bad lo || bad hi) -> Just (lo, hi)
+            _ ->
+                case (smQuantile10 m, smQuantile90 m) of
+                    (Just lo, Just hi) | not (bad lo || bad hi) -> Just (lo, hi)
+                    _ -> Nothing
+
+conformalClipPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Maybe (Double, Double) ->
+    Double
+conformalClipPredFromPreds fallbackWeight prev kalPred lstmPred mBounds =
+    let bad x = isNaN x || isInfinite x
+        w = clamp01 fallbackWeight
+        cand0 =
+            case (bad kalPred, bad lstmPred) of
+                (False, False) ->
+                    let v = w * kalPred + (1 - w) * lstmPred
+                     in if bad v then kalPred else v
+                (False, True) -> kalPred
+                (True, False) -> lstmPred
+                (True, True) -> prev
+        cand = if bad cand0 then prev else cand0
+     in if prev <= 0 || bad prev || bad cand
+            then cand
+            else
+                let rCand = cand / prev - 1
+                 in case mBounds of
+                        Just (lo0, hi0) ->
+                            let lo = min lo0 hi0
+                                hi = max lo0 hi0
+                                rClipped = max lo (min hi rCand)
+                                rSafe = max (-0.999999) rClipped
+                                pred = prev * (1 + rSafe)
+                             in if bad pred then cand else pred
+                        Nothing -> cand
+
+conformalClipPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    V.Vector Double
+conformalClipPredictionsV fallbackWeight pricesV kalPredV lstmPredV mMetaV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        boundsAt t =
+            case mMetaV of
+                Just metaV
+                    | t >= 0 && t < V.length metaV ->
+                        conformalClipBoundsFromMeta (metaV V.! t)
+                _ -> Nothing
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in conformalClipPredFromPreds fallbackWeight prev kalPred lstmPred (boundsAt t)
+     in V.generate (max 0 stepCount) pick
+
+hedgeBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        bad x = isNaN x || isInfinite x
+        w0Raw = clamp01 initWeight
+        epsW = 1e-6
+        w0 = max epsW (min (1 - epsW) (if bad w0Raw then 0.5 else w0Raw))
+        logit p = log (p / (1 - p))
+        sigmoid z
+            | z >= 30 = 1
+            | z <= (-30) = 0
+            | otherwise = 1 / (1 + exp (negate z))
+        eta = 6.0
+        maxErr = 0.1
+        safePred w prev kalPred lstmPred =
+            case (bad kalPred, bad lstmPred) of
+                (False, False) ->
+                    let v = w * kalPred + (1 - w) * lstmPred
+                        fallback = w0 * kalPred + (1 - w0) * lstmPred
+                     in if bad v then fallback else v
+                (False, True) -> kalPred
+                (True, False) -> lstmPred
+                (True, True) ->
+                    if bad prev || prev <= 0
+                        then w0 * kalPred + (1 - w0) * lstmPred
+                        else prev
+        ret prev x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let r = x / prev - 1
+                     in if bad r then Nothing else Just r
+        lossFromR rPred rReal =
+            let e = abs (rPred - rReal)
+                e' = min maxErr (max 0 e)
+             in if bad e' then maxErr else e'
+        updateZ z prev actual kalPred lstmPred =
+            case ret prev actual of
+                Nothing -> z
+                Just rReal ->
+                    let mRKal = ret prev kalPred
+                        mRLstm = ret prev lstmPred
+                        lKal = maybe maxErr (\rK -> lossFromR rK rReal) mRKal
+                        lLstm = maybe maxErr (\rL -> lossFromR rL rReal) mRLstm
+                        z' = z - eta * (lKal - lLstm)
+                     in if bad z' then z else z'
+        step (t, z) =
+            if t >= stepCount
+                then Nothing
+                else
+                    let prev = pricesV V.! t
+                        actual = pricesV V.! (t + 1)
+                        kalPred = kalPredV V.! t
+                        lstmPred = lstmPredV V.! t
+                        w = sigmoid z
+                        pred = safePred w prev kalPred lstmPred
+                        z' = updateZ z prev actual kalPred lstmPred
+                     in Just (pred, (t + 1, z'))
+     in V.unfoldrN (max 0 stepCount) step (0, logit w0)
+
 foldRanges :: Int -> Int -> [(Int, Int)]
 foldRanges stepCount foldsReq =
     let steps = max 0 stepCount
@@ -1589,6 +1719,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodBanditRouter -> 3
                 MethodConfBlend -> 2
                 MethodConfPick -> 2
+                MethodConformalClip -> 2
                 MethodCostPick -> 2
                 MethodHarmonicBlend -> 2
                 MethodDisagreementGuard -> 2
@@ -1605,6 +1736,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodPhaseCancel -> 2
                 MethodSoftmaxBlend -> 2
                 MethodSmoothSoftmaxBlend -> 2
+                MethodHedgeBlend -> 2
                 MethodNetSoftmaxBlend -> 2
                 MethodEdgeBlend -> 2
                 MethodEdgePick -> 2
@@ -1624,6 +1756,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
             , MethodBanditRouter
             , MethodConfBlend
             , MethodConfPick
+            , MethodConformalClip
             , MethodCostPick
             , MethodHarmonicBlend
             , MethodDisagreementGuard
@@ -1640,6 +1773,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
             , MethodPhaseCancel
             , MethodSoftmaxBlend
             , MethodSmoothSoftmaxBlend
+            , MethodHedgeBlend
             , MethodNetSoftmaxBlend
             , MethodEdgeBlend
             , MethodEdgePick
@@ -1806,7 +1940,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         confBlendOpenThr0 = max baseOpenThreshold minEdge
         confBlendV0 = confidenceBlendPredictionsV blendWeight kalZMinForBlend kalZMaxForBlend confBlendOpenThr0 pricesV kalV lstmV metaV
         confPickV0 = confidencePickPredictionsV blendWeight kalZMinForBlend kalZMaxForBlend confBlendOpenThr0 pricesV kalV lstmV metaV
+        conformalClipV0 = conformalClipPredictionsV blendWeight pricesV kalV lstmV metaV
         divergenceGateV0 = divergenceGatePredictionsV blendWeight confBlendOpenThr0 pricesV kalV lstmV
+        hedgeBlendV0 = hedgeBlendPredictionsV blendWeight pricesV kalV lstmV
         regimeSwitchV0 = regimeSwitchPredictionsV blendWeight 0.6 1.0 kalV lstmV metaV
 
         (kalUsedV0, lstmUsedV0) =
@@ -1817,6 +1953,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodBlend -> (blendV, blendV)
                 MethodConfBlend -> (confBlendV0, confBlendV0)
                 MethodConfPick -> (confPickV0, confPickV0)
+                MethodConformalClip -> (conformalClipV0, conformalClipV0)
                 MethodCostPick -> (costPickV0, costPickV0)
                 MethodHarmonicBlend -> (harmonicBlendV0, harmonicBlendV0)
                 MethodDisagreementGuard -> (disagreementGuardV0, disagreementGuardV0)
@@ -1833,6 +1970,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodPhaseCancel -> (phaseCancelV0, phaseCancelV0)
                 MethodSoftmaxBlend -> (softmaxBlendV0, softmaxBlendV0)
                 MethodSmoothSoftmaxBlend -> (smoothSoftmaxBlendV0, smoothSoftmaxBlendV0)
+                MethodHedgeBlend -> (hedgeBlendV0, hedgeBlendV0)
                 MethodNetSoftmaxBlend -> (netSoftmaxBlendV0, netSoftmaxBlendV0)
                 MethodEdgeBlend -> (edgeBlendV0, edgeBlendV0)
                 MethodEdgePick -> (edgePickV0, edgePickV0)
@@ -1927,6 +2065,22 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                             )
                     | otherwise -> Nothing
                 MethodConfPick
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodConformalClip
                     | V.length kalV < stepCount ->
                         Just
                             ( "sweepThreshold: kalPred has length "
@@ -2198,6 +2352,22 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodHedgeBlend
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodNetSoftmaxBlend
                     | V.length kalV < stepCount ->
                         Just
@@ -2305,6 +2475,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodBlend -> [blendV]
                 MethodConfBlend -> [confBlendV0]
                 MethodConfPick -> [confPickV0]
+                MethodConformalClip -> [conformalClipV0]
                 MethodCostPick -> [costPickV0]
                 MethodHarmonicBlend -> [harmonicBlendV0]
                 MethodDisagreementGuard -> [disagreementGuardV0]
@@ -2321,6 +2492,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodPhaseCancel -> [phaseCancelV0]
                 MethodSoftmaxBlend -> [softmaxBlendV0]
                 MethodSmoothSoftmaxBlend -> [smoothSoftmaxBlendV0]
+                MethodHedgeBlend -> [hedgeBlendV0]
                 MethodNetSoftmaxBlend -> [netSoftmaxBlendV0]
                 MethodEdgeBlend -> [edgeBlendV0]
                 MethodEdgePick -> [edgePickV0]
