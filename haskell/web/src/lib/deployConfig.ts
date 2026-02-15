@@ -1,10 +1,3 @@
-export type TraderUiDeployConfig = {
-  apiBaseUrl: string;
-  apiFallbackUrl?: string;
-  apiToken: string;
-  timeoutsMs?: TraderUiTimeoutsMs;
-};
-
 export type TraderUiTimeoutsMs = {
   requestMs?: number;
   signalMs?: number;
@@ -12,6 +5,13 @@ export type TraderUiTimeoutsMs = {
   tradeMs?: number;
   botStartMs?: number;
   botStatusMs?: number;
+};
+
+export type TraderUiDeployConfig = {
+  apiBaseUrl: string;
+  apiFallbackUrl?: string;
+  apiToken: string;
+  timeoutsMs?: TraderUiTimeoutsMs;
 };
 
 function readString(raw: unknown): string {
@@ -67,3 +67,4 @@ function readConfigFromGlobal(): TraderUiDeployConfig {
 }
 
 export const TRADER_UI_CONFIG: TraderUiDeployConfig = readConfigFromGlobal();
+

@@ -604,6 +604,7 @@ async function runAsyncJob<T>(
       const elapsed = Date.now() - startedAt;
       const remaining = overallTimeoutMs - elapsed;
       if (remaining <= 0) {
+        await cancel();
         if (lastTransientError) throw new Error(describeAsyncTimeout(baseUrl, overallTimeoutMs, lastTransientError));
         throw timeoutError();
       }

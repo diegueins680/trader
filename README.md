@@ -968,6 +968,12 @@ cd haskell
 ./scripts/run_api_with_db.sh
 ```
 
+If you use Stack:
+```
+cd haskell
+stack run -v0 trader-hs -- --serve --port 8080
+```
+
 If your API uses a different port:
 ```
 cd haskell/web

@@ -16,10 +16,12 @@
 //   apiToken: "TRADER_API_TOKEN",
 //   timeoutsMs: {
 //     // Increase these if large backtests/trades time out in the UI.
+//     requestMs: 30_000,
 //     signalMs: 10 * 60_000,
 //     backtestMs: 30 * 60_000,
 //     tradeMs: 10 * 60_000,
 //     botStartMs: 30 * 60_000,
+//     botStatusMs: 60_000,
 //   },
 // };
 (() => {
