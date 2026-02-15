@@ -33,9 +33,9 @@ function normalizeTimeoutMs(raw: unknown): number | undefined {
   const n0 = readNumber(raw);
   if (n0 == null) return undefined;
   const n = Math.round(n0);
-  if (n < 1000) return undefined;
+  if (n < 1_000) return undefined;
   // Avoid giant values overflowing timers / confusing UIs.
-  return Math.min(n, 24 * 60 * 60 * 1000);
+  return Math.min(n, 24 * 60 * 60 * 1_000);
 }
 
 function readTimeouts(raw: unknown): TraderUiTimeoutsMs | undefined {
