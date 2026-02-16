@@ -137,6 +137,12 @@ import Trader.Binance (
     quantizeDown,
  )
 import Trader.BinanceIntervals (binanceIntervals)
+import Trader.BotStartSemantics (
+    botTradeEnabledFromApi,
+    shouldClearPositionOriginOnStart,
+    shouldPersistPositionOriginOnSwitch,
+    shouldPreserveProvidedComboOnActiveAdopt,
+ )
 import Trader.Coinbase (
     CoinbaseCandle (..),
     CoinbaseEnv (..),
@@ -5678,6 +5684,14 @@ applyLatestTopCombo mOps topCombosStore limits sym args req = do
                 Nothing -> pure (baseArgs, Nothing)
                 Just (args', mUuid) -> pure (args', mUuid)
 
+clearPositionOriginIfFlatMaybe :: Maybe OpsStore -> TenantKey -> Args -> String -> IO ()
+clearPositionOriginIfFlatMaybe mOps tenantKey args sym =
+    case mOps of
+        Nothing -> pure ()
+        Just store -> do
+            _ <- (try (deletePositionOrigin store tenantKey args sym) :: IO (Either SomeException ()))
+            pure ()
+
 applyOriginComboForAdoptionMaybe ::
     Maybe OpsStore ->
     TopCombosStore ->
@@ -5987,7 +6001,10 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
     let doStart baseArgs = do
             (argsFinal, comboUuidFinal) <-
                 if arActive adoptReq
-                    then applyLatestTopCombo mOps topCombosStore limits sym baseArgs adoptReq
+                    then
+                        if shouldPreserveProvidedComboOnActiveAdopt (arActive adoptReq) mComboUuid
+                            then pure (baseArgs, mComboUuid)
+                            else applyLatestTopCombo mOps topCombosStore limits sym baseArgs adoptReq
                     else pure (baseArgs, mComboUuid)
             preflight <- preflightBotStart mOps argsFinal settings sym
             case preflight of
@@ -6180,14 +6197,17 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                         (argsCombo, mComboUuid) <-
                                             if arActive adoptReq
                                                 then pure (argsSym, Nothing)
-                                                else case mCombo of
-                                                    Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                    Just combo ->
-                                                        case applyTopComboForStartWithUuid argsSym combo of
-                                                            Left err -> do
-                                                                recordError sym ("Top combo parse failed: " ++ err)
-                                                                applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                            Right (args', uuid) -> pure (args', uuid)
+                                                else do
+                                                    when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
+                                                        clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
+                                                    case mCombo of
+                                                        Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                        Just combo ->
+                                                            case applyTopComboForStartWithUuid argsSym combo of
+                                                                Left err -> do
+                                                                    recordError sym ("Top combo parse failed: " ++ err)
+                                                                    applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                Right (args', uuid) -> pure (args', uuid)
                                         case validateApiComputeLimits limits argsCombo of
                                             Left err -> recordError sym err
                                             Right argsOk -> do
@@ -9083,7 +9103,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             (botComboUuid st)
                             (Just (T.pack (botSymbol st)))
                             (orderIdFromOrderResult o)
-                        when (tradeEnabled && argBinanceLive args && switchedApplied1 && aorSent o) $
+                        when (shouldPersistPositionOriginOnSwitch tradeEnabled (argBinanceLive args) switchedApplied1 (aorSent o)) $
                             persistPositionOriginMaybe
                                 mOps
                                 (botTenantKey st)
@@ -14728,7 +14748,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                     Left e -> respond (jsonError status400 e)
                                     Right args0 -> do
                                         let argsBase = args0{argTradeOnly = True}
-                                            tradeEnabled = fromMaybe False (apBotTrade params)
+                                            tradeEnabled = botTradeEnabledFromApi (apBotTrade params)
                                         symbolsOrErr <- resolveBotSymbols argsBase params
                                         let requestedSymbols =
                                                 case symbolsOrErr of
@@ -14753,8 +14773,9 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                 results <- forM symbols $ \sym -> do
                                                     let argsSym = argsBase{argBinanceSymbol = Just sym}
                                                         allowExisting = allowExistingFor sym
+                                                        adoptable = tradeEnabled && platformSupportsLiveBot (argPlatform argsSym)
                                                     adoptReqOrErr <-
-                                                        if tradeEnabled && platformSupportsLiveBot (argPlatform argsSym)
+                                                        if adoptable
                                                             then resolveAdoptionRequirement mOps argsSym sym
                                                             else pure (Right noAdoptRequirement)
                                                     case adoptReqOrErr of
@@ -14763,7 +14784,10 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                             (argsCombo, mComboUuid) <-
                                                                 if arActive adoptReq
                                                                     then applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey argsSym adoptReq sym
-                                                                    else applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                    else do
+                                                                        when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
+                                                                            clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
+                                                                        applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                             case validateApiComputeLimits limits argsCombo of
                                                                 Left err -> pure (sym, Left err)
                                                                 Right argsOk -> do

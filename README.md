@@ -816,7 +816,7 @@ Live safety (startup position):
 - When `botTrade=true`, `/bot/start` also auto-starts bots for orphan open futures positions (even if not listed in `botSymbols`).
 - Set `botProtectionOrders=true` to place exchange-managed `STOP_MARKET` / `TAKE_PROFIT_MARKET` orders on Binance futures (requires stop-loss or take-profit; trailing stops remain internal).
 - `botAdoptExistingPosition` is now implied and ignored if provided.
-- If an existing position or open orders are detected, `/bot/start` adopts immediately using the current settings (auto-upgrades to `positioning=long-short` for shorts). It applies a compatible top combo when available but no longer blocks startup waiting for one, and preserves a persisted-origin combo selection when one was matched during start.
+- If an existing position or open orders are detected, `/bot/start` adopts immediately using the current settings (auto-upgrades to `positioning=long-short` for shorts). It applies a compatible top combo when available but no longer blocks startup waiting for one, preserves a persisted-origin combo selection when one was matched during start, and clears stale persisted origin rows when no position is active.
 
 Auto-optimize after each buy/sell operation:
 - Thresholds only: add `"sweepThreshold": true`

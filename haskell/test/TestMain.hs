@@ -27,6 +27,12 @@ import Trader.Binance (
     signQuery,
  )
 import Trader.Duration (TimeWindow (..), lookbackBarsFrom)
+import Trader.BotStartSemantics (
+    botTradeEnabledFromApi,
+    shouldClearPositionOriginOnStart,
+    shouldPersistPositionOriginOnSwitch,
+    shouldPreserveProvidedComboOnActiveAdopt,
+ )
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, trainLSTM)
@@ -90,6 +96,10 @@ main = do
             , run "method parsing" testMethodParsing
             , run "platform parsing" testPlatformParsing
             , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+            , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
+            , run "bot/start preserves provided combo for active adoption" testBotStartPreservesProvidedComboForActiveAdopt
+            , run "bot/start clears origin only when adoptable and flat" testBotStartClearOriginGate
+            , run "position origin persists only for live sent switches" testPersistPositionOriginGate
             , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
             , run "platform intervals" testPlatformIntervals
             , run "platform interval mapping" testPlatformIntervalMapping
@@ -729,6 +739,34 @@ testNonBinanceArgsLiveDefault = do
     case parseArgsResult (krakenBaseArgs ++ ["--binance-live"]) of
         Left err -> assert "explicit --binance-live rejected on kraken" ("--binance-live is only supported on Binance/Coinbase" `isInfixOf` err)
         Right _ -> error "expected explicit --binance-live to be rejected on kraken"
+
+testBotTradeDefaultTrue :: IO ()
+testBotTradeDefaultTrue = do
+    assert "botTrade omitted defaults to true" (botTradeEnabledFromApi Nothing)
+    assert "botTrade=true stays true" (botTradeEnabledFromApi (Just True))
+    assert "botTrade=false stays false" (not (botTradeEnabledFromApi (Just False)))
+
+testBotStartPreservesProvidedComboForActiveAdopt :: IO ()
+testBotStartPreservesProvidedComboForActiveAdopt = do
+    let comboUuid = Just ("8d3e3eb0-f4ea-4704-b9e4-57e3f0f6d81d" :: String)
+    assert "active adopt preserves provided combo" (shouldPreserveProvidedComboOnActiveAdopt True comboUuid)
+    assert "inactive adopt ignores provided combo" (not (shouldPreserveProvidedComboOnActiveAdopt False comboUuid))
+    assert "active adopt without combo falls back to recompute" (not (shouldPreserveProvidedComboOnActiveAdopt True Nothing))
+
+testBotStartClearOriginGate :: IO ()
+testBotStartClearOriginGate = do
+    assert "adoptable+flat clears origin" (shouldClearPositionOriginOnStart True False)
+    assert "active adopt keeps origin" (not (shouldClearPositionOriginOnStart True True))
+    assert "non-adoptable start skips origin cleanup" (not (shouldClearPositionOriginOnStart False False))
+
+testPersistPositionOriginGate :: IO ()
+testPersistPositionOriginGate = do
+    let shouldPersist = shouldPersistPositionOriginOnSwitch
+    assert "persist only on live sent switch" (shouldPersist True True True True)
+    assert "no persist in paper mode" (not (shouldPersist True False True True))
+    assert "no persist when trade disabled" (not (shouldPersist False True True True))
+    assert "no persist when switch not applied" (not (shouldPersist True True False True))
+    assert "no persist when order not sent" (not (shouldPersist True True True False))
 
 testDexTradeArgsRequireTokensNotSymbol :: IO ()
 testDexTradeArgsRequireTokensNotSymbol = do
