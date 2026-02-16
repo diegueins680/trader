@@ -316,6 +316,61 @@ optimizerArgsParser =
         <*> option auto (long "grad-clip-min" <> value 0.001 <> metavar "FLOAT")
         <*> option auto (long "grad-clip-max" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "p-disable-grad-clip" <> value 0.7 <> metavar "FLOAT")
+        <*> strOption (long "predictors" <> value "all" <> metavar "LIST")
+        <*> option auto (long "router-lookback-min" <> value 10 <> metavar "INT")
+        <*> option auto (long "router-lookback-max" <> value 120 <> metavar "INT")
+        <*> option auto (long "router-min-score-min" <> value (-1.0) <> metavar "FLOAT")
+        <*> option auto (long "router-min-score-max" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "fee-fixed-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "fee-fixed-max" <> value 0.002 <> metavar "FLOAT")
+        <*> option auto (long "slippage-impact-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "slippage-impact-max" <> value 0.01 <> metavar "FLOAT")
+        <*> option auto (long "slippage-impact-power-min" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "slippage-impact-power-max" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "slippage-vol-mult-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "slippage-vol-mult-max" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "spread-vol-mult-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "spread-vol-mult-max" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "take-profit-partial-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "take-profit-partial-max" <> value 0.75 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-take-profit-partial" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "max-trades-per-day-min" <> value 0 <> metavar "INT")
+        <*> option auto (long "max-trades-per-day-max" <> value 8 <> metavar "INT")
+        <*> option auto (long "p-disable-max-trades-per-day" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "expectancy-lookback-min" <> value 5 <> metavar "INT")
+        <*> option auto (long "expectancy-lookback-max" <> value 80 <> metavar "INT")
+        <*> option auto (long "min-expectancy-min" <> value (-0.01) <> metavar "FLOAT")
+        <*> option auto (long "min-expectancy-max" <> value 0.01 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-min-expectancy" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "loss-streak-max-min" <> value 0 <> metavar "INT")
+        <*> option auto (long "loss-streak-max-max" <> value 8 <> metavar "INT")
+        <*> option auto (long "p-disable-loss-streak-max" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "loss-streak-cooldown-bars-min" <> value 0 <> metavar "INT")
+        <*> option auto (long "loss-streak-cooldown-bars-max" <> value 40 <> metavar "INT")
+        <*> option auto (long "p-disable-loss-streak-cooldown-bars" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "max-open-positions-min" <> value 0 <> metavar "INT")
+        <*> option auto (long "max-open-positions-max" <> value 8 <> metavar "INT")
+        <*> option auto (long "p-disable-max-open-positions" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "max-gross-exposure-min" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "max-gross-exposure-max" <> value 3.0 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-max-gross-exposure" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "max-net-exposure-min" <> value 0.25 <> metavar "FLOAT")
+        <*> option auto (long "max-net-exposure-max" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-max-net-exposure" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "max-exposure-per-base-min" <> value 0.25 <> metavar "FLOAT")
+        <*> option auto (long "max-exposure-per-base-max" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-max-exposure-per-base" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "max-open-per-base-min" <> value 0 <> metavar "INT")
+        <*> option auto (long "max-open-per-base-max" <> value 4 <> metavar "INT")
+        <*> option auto (long "p-disable-max-open-per-base" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-edge-buffer-max-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-edge-buffer-max-max" <> value 0.02 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-min-signal-to-noise-max-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-min-signal-to-noise-max-max" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-trend-lookback-max-min" <> value 2 <> metavar "INT")
+        <*> option auto (long "adaptive-trend-lookback-max-max" <> value 120 <> metavar "INT")
+        <*> option auto (long "adaptive-kalman-z-min-max-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-kalman-z-min-max-max" <> value 3.0 <> metavar "FLOAT")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
@@ -382,6 +437,24 @@ validateArgs args = do
         Left "--threshold-factor-max-min/max must be >= 0."
     when (oaThresholdFactorFloorMin args < 0 || oaThresholdFactorFloorMax args < 0) $
         Left "--threshold-factor-floor-min/max must be >= 0."
+    when (oaRouterLookbackMin args < 2 || oaRouterLookbackMax args < 2) $
+        Left "--router-lookback-min/max must be >= 2."
+    when (oaTakeProfitPartialMin args < 0 || oaTakeProfitPartialMax args >= 1) $
+        Left "--take-profit-partial-min/max must be >= 0 and < 1."
+    when (oaMaxTradesPerDayMin args < 0 || oaMaxTradesPerDayMax args < 0) $
+        Left "--max-trades-per-day-min/max must be >= 0."
+    when (oaExpectancyLookbackMin args < 1 || oaExpectancyLookbackMax args < 1) $
+        Left "--expectancy-lookback-min/max must be >= 1."
+    when (oaLossStreakMaxMin args < 0 || oaLossStreakMaxMax args < 0) $
+        Left "--loss-streak-max-min/max must be >= 0."
+    when (oaLossStreakCooldownBarsMin args < 0 || oaLossStreakCooldownBarsMax args < 0) $
+        Left "--loss-streak-cooldown-bars-min/max must be >= 0."
+    when (oaMaxOpenPositionsMin args < 0 || oaMaxOpenPositionsMax args < 0) $
+        Left "--max-open-positions-min/max must be >= 0."
+    when (oaMaxOpenPerBaseMin args < 0 || oaMaxOpenPerBaseMax args < 0) $
+        Left "--max-open-per-base-min/max must be >= 0."
+    when (oaAdaptiveTrendLookbackMaxMin args < 1 || oaAdaptiveTrendLookbackMaxMax args < 1) $
+        Left "--adaptive-trend-lookback-max-min/max must be >= 1."
     pure args'
 
 objectiveChoices :: [String]

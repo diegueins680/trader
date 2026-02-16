@@ -759,6 +759,61 @@ data OptimizerArgs = OptimizerArgs
     , oaGradClipMin :: !Double
     , oaGradClipMax :: !Double
     , oaPDisableGradClip :: !Double
+    , oaPredictors :: !String
+    , oaRouterLookbackMin :: !Int
+    , oaRouterLookbackMax :: !Int
+    , oaRouterMinScoreMin :: !Double
+    , oaRouterMinScoreMax :: !Double
+    , oaFeeFixedMin :: !Double
+    , oaFeeFixedMax :: !Double
+    , oaSlippageImpactMin :: !Double
+    , oaSlippageImpactMax :: !Double
+    , oaSlippageImpactPowerMin :: !Double
+    , oaSlippageImpactPowerMax :: !Double
+    , oaSlippageVolMultMin :: !Double
+    , oaSlippageVolMultMax :: !Double
+    , oaSpreadVolMultMin :: !Double
+    , oaSpreadVolMultMax :: !Double
+    , oaTakeProfitPartialMin :: !Double
+    , oaTakeProfitPartialMax :: !Double
+    , oaPDisableTakeProfitPartial :: !Double
+    , oaMaxTradesPerDayMin :: !Int
+    , oaMaxTradesPerDayMax :: !Int
+    , oaPDisableMaxTradesPerDay :: !Double
+    , oaExpectancyLookbackMin :: !Int
+    , oaExpectancyLookbackMax :: !Int
+    , oaMinExpectancyMin :: !Double
+    , oaMinExpectancyMax :: !Double
+    , oaPDisableMinExpectancy :: !Double
+    , oaLossStreakMaxMin :: !Int
+    , oaLossStreakMaxMax :: !Int
+    , oaPDisableLossStreakMax :: !Double
+    , oaLossStreakCooldownBarsMin :: !Int
+    , oaLossStreakCooldownBarsMax :: !Int
+    , oaPDisableLossStreakCooldownBars :: !Double
+    , oaMaxOpenPositionsMin :: !Int
+    , oaMaxOpenPositionsMax :: !Int
+    , oaPDisableMaxOpenPositions :: !Double
+    , oaMaxGrossExposureMin :: !Double
+    , oaMaxGrossExposureMax :: !Double
+    , oaPDisableMaxGrossExposure :: !Double
+    , oaMaxNetExposureMin :: !Double
+    , oaMaxNetExposureMax :: !Double
+    , oaPDisableMaxNetExposure :: !Double
+    , oaMaxExposurePerBaseMin :: !Double
+    , oaMaxExposurePerBaseMax :: !Double
+    , oaPDisableMaxExposurePerBase :: !Double
+    , oaMaxOpenPerBaseMin :: !Int
+    , oaMaxOpenPerBaseMax :: !Int
+    , oaPDisableMaxOpenPerBase :: !Double
+    , oaAdaptiveEdgeBufferMaxMin :: !Double
+    , oaAdaptiveEdgeBufferMaxMax :: !Double
+    , oaAdaptiveMinSignalToNoiseMaxMin :: !Double
+    , oaAdaptiveMinSignalToNoiseMaxMax :: !Double
+    , oaAdaptiveTrendLookbackMaxMin :: !Int
+    , oaAdaptiveTrendLookbackMaxMax :: !Int
+    , oaAdaptiveKalmanZMinMaxMin :: !Double
+    , oaAdaptiveKalmanZMinMaxMax :: !Double
     }
     deriving (Eq, Show)
 
@@ -914,6 +969,29 @@ data TrialParams = TrialParams
     , tpConfidenceSizing :: !Bool
     , tpProtectionMinConfidence :: !Double
     , tpMinPositionSize :: !Double
+    , tpPredictors :: !String
+    , tpRouterLookback :: !Int
+    , tpRouterMinScore :: !Double
+    , tpFeeFixed :: !Double
+    , tpSlippageImpact :: !Double
+    , tpSlippageImpactPower :: !Double
+    , tpSlippageVolMult :: !Double
+    , tpSpreadVolMult :: !Double
+    , tpTakeProfitPartial :: !(Maybe Double)
+    , tpMaxTradesPerDay :: !(Maybe Int)
+    , tpExpectancyLookback :: !Int
+    , tpMinExpectancy :: !(Maybe Double)
+    , tpLossStreakMax :: !(Maybe Int)
+    , tpLossStreakCooldownBars :: !(Maybe Int)
+    , tpMaxOpenPositions :: !(Maybe Int)
+    , tpMaxGrossExposure :: !(Maybe Double)
+    , tpMaxNetExposure :: !(Maybe Double)
+    , tpMaxExposurePerBase :: !(Maybe Double)
+    , tpMaxOpenPerBase :: !(Maybe Int)
+    , tpAdaptiveEdgeBufferMax :: !Double
+    , tpAdaptiveMinSignalToNoiseMax :: !Double
+    , tpAdaptiveTrendLookbackMax :: !Int
+    , tpAdaptiveKalmanZMinMax :: !Double
     }
     deriving (Eq, Show)
 
@@ -1063,6 +1141,8 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
             cmd14
                 ++ [ "--fee"
                    , printf "%.12g" (max 0 (tpFee params))
+                   , "--fee-fixed"
+                   , printf "%.12g" (max 0 (tpFeeFixed params))
                    , "--funding-rate"
                    , printf "%.12g" (tpFundingRate params)
                    , "--rebalance-bars"
@@ -1106,8 +1186,30 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , printf "%.8f" (tpSlippage params)
                    , "--spread"
                    , printf "%.8f" (tpSpread params)
+                   , "--slippage-impact"
+                   , printf "%.12g" (max 0 (tpSlippageImpact params))
+                   , "--slippage-impact-power"
+                   , printf "%.12g" (max 0 (tpSlippageImpactPower params))
+                   , "--slippage-vol-mult"
+                   , printf "%.12g" (max 0 (tpSlippageVolMult params))
+                   , "--spread-vol-mult"
+                   , printf "%.12g" (max 0 (tpSpreadVolMult params))
                    , "--intrabar-fill"
                    , tpIntrabarFill params
+                   , "--predictors"
+                   , tpPredictors params
+                   , "--router-lookback"
+                   , show (max 2 (tpRouterLookback params))
+                   , "--router-min-score"
+                   , printf "%.12g" (tpRouterMinScore params)
+                   , "--adaptive-edge-buffer-max"
+                   , printf "%.12g" (max 0 (tpAdaptiveEdgeBufferMax params))
+                   , "--adaptive-min-signal-to-noise-max"
+                   , printf "%.12g" (max 0 (tpAdaptiveMinSignalToNoiseMax params))
+                   , "--adaptive-trend-lookback-max"
+                   , show (max 1 (tpAdaptiveTrendLookbackMax params))
+                   , "--adaptive-kalman-z-min-max"
+                   , printf "%.12g" (max 0 (tpAdaptiveKalmanZMinMax params))
                    ]
                 ++ (["--tri-layer" | tpTriLayer params])
                 ++ [ "--tri-layer-fast-mult"
@@ -1228,10 +1330,50 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , printf "%.4f" (clamp (tpProtectionMinConfidence params) 0 1)
                    ]
         cmd35 = cmd34 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
+        cmd35a =
+            case tpTakeProfitPartial params of
+                Just v -> cmd35 ++ ["--take-profit-partial", printf "%.12g" (clamp v 0 0.999999)]
+                Nothing -> cmd35
+        cmd35b =
+            case tpMaxTradesPerDay params of
+                Just v -> cmd35a ++ ["--max-trades-per-day", show (max 0 v)]
+                Nothing -> cmd35a
+        cmd35c =
+            case tpMinExpectancy params of
+                Just v -> cmd35b ++ ["--min-expectancy", printf "%.12g" v, "--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
+                Nothing -> cmd35b ++ ["--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
+        cmd35d =
+            case tpLossStreakMax params of
+                Just v -> cmd35c ++ ["--loss-streak-max", show (max 0 v)]
+                Nothing -> cmd35c
+        cmd35e =
+            case tpLossStreakCooldownBars params of
+                Just v -> cmd35d ++ ["--loss-streak-cooldown-bars", show (max 0 v)]
+                Nothing -> cmd35d
+        cmd35f =
+            case tpMaxOpenPositions params of
+                Just v -> cmd35e ++ ["--max-open-positions", show (max 0 v)]
+                Nothing -> cmd35e
+        cmd35g =
+            case tpMaxGrossExposure params of
+                Just v -> cmd35f ++ ["--max-gross-exposure", printf "%.12g" (max 0 v)]
+                Nothing -> cmd35f
+        cmd35h =
+            case tpMaxNetExposure params of
+                Just v -> cmd35g ++ ["--max-net-exposure", printf "%.12g" (max 0 v)]
+                Nothing -> cmd35g
+        cmd35i =
+            case tpMaxExposurePerBase params of
+                Just v -> cmd35h ++ ["--max-exposure-per-base", printf "%.12g" (max 0 v)]
+                Nothing -> cmd35h
+        cmd35j =
+            case tpMaxOpenPerBase params of
+                Just v -> cmd35i ++ ["--max-open-per-base", show (max 0 v)]
+                Nothing -> cmd35i
         cmd36 =
             if useSweepThreshold
-                then cmd35 ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
-                else cmd35
+                then cmd35j ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
+                else cmd35j
         cmd37 = cmd36
      in cmd37 ++ ["--json"]
 
@@ -1570,6 +1712,29 @@ trialToRecord tr symbolLabel =
             , "confidenceSizing" .= tpConfidenceSizing (trParams tr)
             , "protectionMinConfidence" .= tpProtectionMinConfidence (trParams tr)
             , "minPositionSize" .= tpMinPositionSize (trParams tr)
+            , "predictors" .= tpPredictors (trParams tr)
+            , "routerLookback" .= tpRouterLookback (trParams tr)
+            , "routerMinScore" .= tpRouterMinScore (trParams tr)
+            , "feeFixed" .= tpFeeFixed (trParams tr)
+            , "slippageImpact" .= tpSlippageImpact (trParams tr)
+            , "slippageImpactPower" .= tpSlippageImpactPower (trParams tr)
+            , "slippageVolMult" .= tpSlippageVolMult (trParams tr)
+            , "spreadVolMult" .= tpSpreadVolMult (trParams tr)
+            , "takeProfitPartial" .= tpTakeProfitPartial (trParams tr)
+            , "maxTradesPerDay" .= tpMaxTradesPerDay (trParams tr)
+            , "expectancyLookback" .= tpExpectancyLookback (trParams tr)
+            , "minExpectancy" .= tpMinExpectancy (trParams tr)
+            , "lossStreakMax" .= tpLossStreakMax (trParams tr)
+            , "lossStreakCooldownBars" .= tpLossStreakCooldownBars (trParams tr)
+            , "maxOpenPositions" .= tpMaxOpenPositions (trParams tr)
+            , "maxGrossExposure" .= tpMaxGrossExposure (trParams tr)
+            , "maxNetExposure" .= tpMaxNetExposure (trParams tr)
+            , "maxExposurePerBase" .= tpMaxExposurePerBase (trParams tr)
+            , "maxOpenPerBase" .= tpMaxOpenPerBase (trParams tr)
+            , "adaptiveEdgeBufferMax" .= tpAdaptiveEdgeBufferMax (trParams tr)
+            , "adaptiveMinSignalToNoiseMax" .= tpAdaptiveMinSignalToNoiseMax (trParams tr)
+            , "adaptiveTrendLookbackMax" .= tpAdaptiveTrendLookbackMax (trParams tr)
+            , "adaptiveKalmanZMinMax" .= tpAdaptiveKalmanZMinMax (trParams tr)
             ]
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
         paramsPairs' =
@@ -1731,7 +1896,40 @@ sampleParams
     pDisableMaxVolatility
     maxDdRange
     maxDlRange
-    maxOeRange =
+    maxOeRange
+    predictorChoices
+    routerLookbackRange
+    routerMinScoreRange
+    feeFixedRange
+    slippageImpactRange
+    slippageImpactPowerRange
+    slippageVolMultRange
+    spreadVolMultRange
+    takeProfitPartialRange
+    pDisableTakeProfitPartial
+    maxTradesPerDayRange
+    pDisableMaxTradesPerDay
+    expectancyLookbackRange
+    minExpectancyRange
+    pDisableMinExpectancy
+    lossStreakMaxRange
+    pDisableLossStreakMax
+    lossStreakCooldownBarsRange
+    pDisableLossStreakCooldownBars
+    maxOpenPositionsRange
+    pDisableMaxOpenPositions
+    maxGrossExposureRange
+    pDisableMaxGrossExposure
+    maxNetExposureRange
+    pDisableMaxNetExposure
+    maxExposurePerBaseRange
+    pDisableMaxExposurePerBase
+    maxOpenPerBaseRange
+    pDisableMaxOpenPerBase
+    adaptiveEdgeBufferMaxRange
+    adaptiveMinSignalToNoiseMaxRange
+    adaptiveTrendLookbackMaxRange
+    adaptiveKalmanZMinMaxRange =
         let (platform, rng1) =
                 case platforms of
                     [] -> (Nothing, rng0)
@@ -2158,6 +2356,55 @@ sampleParams
             (thresholdFactorLstmHealthWeight, rng74) =
                 let (lo, hi) = ordered thresholdFactorWeightRange
                  in nextUniform lo hi rng73
+            (predictorsChoice, rng75) = nextChoice predictorChoices rng74
+            predictors = fromMaybe "all" predictorsChoice
+            (routerLookback, rng76) = uncurry nextIntRange routerLookbackRange rng75
+            (routerMinScore, rng77) = uncurry nextUniform routerMinScoreRange rng76
+            (feeFixed, rng78) =
+                let (lo, hi) = ordered feeFixedRange
+                 in nextUniform (max 0 lo) (max 0 hi) rng77
+            (slippageImpact, rng79) =
+                let (lo, hi) = ordered slippageImpactRange
+                 in nextUniform (max 0 lo) (max 0 hi) rng78
+            (slippageImpactPower, rng80) =
+                let (lo, hi) = ordered slippageImpactPowerRange
+                 in nextUniform (max 0 lo) (max 0 hi) rng79
+            (slippageVolMult, rng81) =
+                let (lo, hi) = ordered slippageVolMultRange
+                 in nextUniform (max 0 lo) (max 0 hi) rng80
+            (spreadVolMult, rng82) =
+                let (lo, hi) = ordered spreadVolMultRange
+                 in nextUniform (max 0 lo) (max 0 hi) rng81
+            (takeProfitPartial, rng83) =
+                let (lo, hi) = ordered takeProfitPartialRange
+                    lo' = clamp lo 0 0.999999
+                    hi' = clamp hi 0 0.999999
+                 in if hi' <= 0 then (Nothing, rng82) else nextMaybe pDisableTakeProfitPartial (nextUniform lo' (max lo' hi')) rng82
+            (maxTradesPerDay, rng84) =
+                nextMaybe pDisableMaxTradesPerDay (uncurry nextIntRange maxTradesPerDayRange) rng83
+            (expectancyLookback, rng85) =
+                let (v, r) = uncurry nextIntRange expectancyLookbackRange rng84
+                 in (max 1 v, r)
+            (minExpectancy, rng86) =
+                nextMaybe pDisableMinExpectancy (uncurry nextUniform minExpectancyRange) rng85
+            (lossStreakMax, rng87) =
+                nextMaybe pDisableLossStreakMax (uncurry nextIntRange lossStreakMaxRange) rng86
+            (lossStreakCooldownBars, rng88) =
+                nextMaybe pDisableLossStreakCooldownBars (uncurry nextIntRange lossStreakCooldownBarsRange) rng87
+            (maxOpenPositions, rng89) =
+                nextMaybe pDisableMaxOpenPositions (uncurry nextIntRange maxOpenPositionsRange) rng88
+            (maxGrossExposure, rng90) =
+                nextMaybe pDisableMaxGrossExposure (uncurry nextUniform maxGrossExposureRange) rng89
+            (maxNetExposure, rng91) =
+                nextMaybe pDisableMaxNetExposure (uncurry nextUniform maxNetExposureRange) rng90
+            (maxExposurePerBase, rng92) =
+                nextMaybe pDisableMaxExposurePerBase (uncurry nextUniform maxExposurePerBaseRange) rng91
+            (maxOpenPerBase, rng93) =
+                nextMaybe pDisableMaxOpenPerBase (uncurry nextIntRange maxOpenPerBaseRange) rng92
+            (adaptiveEdgeBufferMax, rng94) = uncurry nextUniform adaptiveEdgeBufferMaxRange rng93
+            (adaptiveMinSignalToNoiseMax, rng95) = uncurry nextUniform adaptiveMinSignalToNoiseMaxRange rng94
+            (adaptiveTrendLookbackMax, rng96) = uncurry nextIntRange adaptiveTrendLookbackMaxRange rng95
+            (adaptiveKalmanZMinMax, rng97) = uncurry nextUniform adaptiveKalmanZMinMaxRange rng96
          in ( TrialParams
                 { tpPlatform = platform
                 , tpInterval = interval
@@ -2263,8 +2510,31 @@ sampleParams
                 , tpConfidenceSizing = confidenceSizing
                 , tpProtectionMinConfidence = protectionMinConfidence
                 , tpMinPositionSize = minPositionSize
+                , tpPredictors = predictors
+                , tpRouterLookback = routerLookback
+                , tpRouterMinScore = routerMinScore
+                , tpFeeFixed = feeFixed
+                , tpSlippageImpact = slippageImpact
+                , tpSlippageImpactPower = slippageImpactPower
+                , tpSlippageVolMult = slippageVolMult
+                , tpSpreadVolMult = spreadVolMult
+                , tpTakeProfitPartial = takeProfitPartial
+                , tpMaxTradesPerDay = maxTradesPerDay
+                , tpExpectancyLookback = expectancyLookback
+                , tpMinExpectancy = minExpectancy
+                , tpLossStreakMax = lossStreakMax
+                , tpLossStreakCooldownBars = lossStreakCooldownBars
+                , tpMaxOpenPositions = maxOpenPositions
+                , tpMaxGrossExposure = maxGrossExposure
+                , tpMaxNetExposure = maxNetExposure
+                , tpMaxExposurePerBase = maxExposurePerBase
+                , tpMaxOpenPerBase = maxOpenPerBase
+                , tpAdaptiveEdgeBufferMax = adaptiveEdgeBufferMax
+                , tpAdaptiveMinSignalToNoiseMax = adaptiveMinSignalToNoiseMax
+                , tpAdaptiveTrendLookbackMax = adaptiveTrendLookbackMax
+                , tpAdaptiveKalmanZMinMax = adaptiveKalmanZMinMax
                 }
-            , rng74
+            , rng97
             )
       where
         ordered (a, b) = if a <= b then (a, b) else (b, a)
@@ -2622,6 +2892,41 @@ runOptimizer args0 = do
                                                              in (lo, hi)
                                                         normalizationChoices =
                                                             [trim s | s <- splitCsv (oaNormalizations args), not (null (trim s))]
+                                                        predictorChoices =
+                                                            [trim s | s <- splitCsv (oaPredictors args), not (null (trim s))]
+                                                        routerLookbackRange =
+                                                            (max 2 (oaRouterLookbackMin args), max 2 (oaRouterLookbackMax args))
+                                                        routerMinScoreRange = (oaRouterMinScoreMin args, oaRouterMinScoreMax args)
+                                                        feeFixedRange = (max 0 (oaFeeFixedMin args), max 0 (oaFeeFixedMax args))
+                                                        slippageImpactRange = (max 0 (oaSlippageImpactMin args), max 0 (oaSlippageImpactMax args))
+                                                        slippageImpactPowerRange = (max 0 (oaSlippageImpactPowerMin args), max 0 (oaSlippageImpactPowerMax args))
+                                                        slippageVolMultRange = (max 0 (oaSlippageVolMultMin args), max 0 (oaSlippageVolMultMax args))
+                                                        spreadVolMultRange = (max 0 (oaSpreadVolMultMin args), max 0 (oaSpreadVolMultMax args))
+                                                        takeProfitPartialRange = (oaTakeProfitPartialMin args, oaTakeProfitPartialMax args)
+                                                        pDisableTakeProfitPartial = clamp (oaPDisableTakeProfitPartial args) 0 1
+                                                        maxTradesPerDayRange = (max 0 (oaMaxTradesPerDayMin args), max 0 (oaMaxTradesPerDayMax args))
+                                                        pDisableMaxTradesPerDay = clamp (oaPDisableMaxTradesPerDay args) 0 1
+                                                        expectancyLookbackRange = (max 1 (oaExpectancyLookbackMin args), max 1 (oaExpectancyLookbackMax args))
+                                                        minExpectancyRange = (oaMinExpectancyMin args, oaMinExpectancyMax args)
+                                                        pDisableMinExpectancy = clamp (oaPDisableMinExpectancy args) 0 1
+                                                        lossStreakMaxRange = (max 0 (oaLossStreakMaxMin args), max 0 (oaLossStreakMaxMax args))
+                                                        pDisableLossStreakMax = clamp (oaPDisableLossStreakMax args) 0 1
+                                                        lossStreakCooldownBarsRange = (max 0 (oaLossStreakCooldownBarsMin args), max 0 (oaLossStreakCooldownBarsMax args))
+                                                        pDisableLossStreakCooldownBars = clamp (oaPDisableLossStreakCooldownBars args) 0 1
+                                                        maxOpenPositionsRange = (max 0 (oaMaxOpenPositionsMin args), max 0 (oaMaxOpenPositionsMax args))
+                                                        pDisableMaxOpenPositions = clamp (oaPDisableMaxOpenPositions args) 0 1
+                                                        maxGrossExposureRange = (max 0 (oaMaxGrossExposureMin args), max 0 (oaMaxGrossExposureMax args))
+                                                        pDisableMaxGrossExposure = clamp (oaPDisableMaxGrossExposure args) 0 1
+                                                        maxNetExposureRange = (max 0 (oaMaxNetExposureMin args), max 0 (oaMaxNetExposureMax args))
+                                                        pDisableMaxNetExposure = clamp (oaPDisableMaxNetExposure args) 0 1
+                                                        maxExposurePerBaseRange = (max 0 (oaMaxExposurePerBaseMin args), max 0 (oaMaxExposurePerBaseMax args))
+                                                        pDisableMaxExposurePerBase = clamp (oaPDisableMaxExposurePerBase args) 0 1
+                                                        maxOpenPerBaseRange = (max 0 (oaMaxOpenPerBaseMin args), max 0 (oaMaxOpenPerBaseMax args))
+                                                        pDisableMaxOpenPerBase = clamp (oaPDisableMaxOpenPerBase args) 0 1
+                                                        adaptiveEdgeBufferMaxRange = (max 0 (oaAdaptiveEdgeBufferMaxMin args), max 0 (oaAdaptiveEdgeBufferMaxMax args))
+                                                        adaptiveMinSignalToNoiseMaxRange = (max 0 (oaAdaptiveMinSignalToNoiseMaxMin args), max 0 (oaAdaptiveMinSignalToNoiseMaxMax args))
+                                                        adaptiveTrendLookbackMaxRange = (max 1 (oaAdaptiveTrendLookbackMaxMin args), max 1 (oaAdaptiveTrendLookbackMaxMax args))
+                                                        adaptiveKalmanZMinMaxRange = (max 0 (oaAdaptiveKalmanZMinMaxMin args), max 0 (oaAdaptiveKalmanZMinMaxMax args))
                                                     if null normalizationChoices
                                                         then do
                                                             hPutStrLn stderr "No normalizations provided."
@@ -2829,6 +3134,39 @@ runOptimizer args0 = do
                                                                                 (oaMaxDdMin args, oaMaxDdMax args)
                                                                                 (oaMaxDlMin args, oaMaxDlMax args)
                                                                                 (oaMaxOeMin args, oaMaxOeMax args)
+                                                                                predictorChoices
+                                                                                routerLookbackRange
+                                                                                routerMinScoreRange
+                                                                                feeFixedRange
+                                                                                slippageImpactRange
+                                                                                slippageImpactPowerRange
+                                                                                slippageVolMultRange
+                                                                                spreadVolMultRange
+                                                                                takeProfitPartialRange
+                                                                                pDisableTakeProfitPartial
+                                                                                maxTradesPerDayRange
+                                                                                pDisableMaxTradesPerDay
+                                                                                expectancyLookbackRange
+                                                                                minExpectancyRange
+                                                                                pDisableMinExpectancy
+                                                                                lossStreakMaxRange
+                                                                                pDisableLossStreakMax
+                                                                                lossStreakCooldownBarsRange
+                                                                                pDisableLossStreakCooldownBars
+                                                                                maxOpenPositionsRange
+                                                                                pDisableMaxOpenPositions
+                                                                                maxGrossExposureRange
+                                                                                pDisableMaxGrossExposure
+                                                                                maxNetExposureRange
+                                                                                pDisableMaxNetExposure
+                                                                                maxExposurePerBaseRange
+                                                                                pDisableMaxExposurePerBase
+                                                                                maxOpenPerBaseRange
+                                                                                pDisableMaxOpenPerBase
+                                                                                adaptiveEdgeBufferMaxRange
+                                                                                adaptiveMinSignalToNoiseMaxRange
+                                                                                adaptiveTrendLookbackMaxRange
+                                                                                adaptiveKalmanZMinMaxRange
                                                                         runTrialWith idx rng mBase mParents best recordsRev = do
                                                                             let (params, _) =
                                                                                     case mBase of
@@ -4059,6 +4397,29 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "confidenceSizing" .= tpConfidenceSizing params
                 , "protectionMinConfidence" .= tpProtectionMinConfidence params
                 , "minPositionSize" .= tpMinPositionSize params
+                , "predictors" .= tpPredictors params
+                , "routerLookback" .= tpRouterLookback params
+                , "routerMinScore" .= tpRouterMinScore params
+                , "feeFixed" .= tpFeeFixed params
+                , "slippageImpact" .= tpSlippageImpact params
+                , "slippageImpactPower" .= tpSlippageImpactPower params
+                , "slippageVolMult" .= tpSlippageVolMult params
+                , "spreadVolMult" .= tpSpreadVolMult params
+                , "takeProfitPartial" .= tpTakeProfitPartial params
+                , "maxTradesPerDay" .= tpMaxTradesPerDay params
+                , "expectancyLookback" .= tpExpectancyLookback params
+                , "minExpectancy" .= tpMinExpectancy params
+                , "lossStreakMax" .= tpLossStreakMax params
+                , "lossStreakCooldownBars" .= tpLossStreakCooldownBars params
+                , "maxOpenPositions" .= tpMaxOpenPositions params
+                , "maxGrossExposure" .= tpMaxGrossExposure params
+                , "maxNetExposure" .= tpMaxNetExposure params
+                , "maxExposurePerBase" .= tpMaxExposurePerBase params
+                , "maxOpenPerBase" .= tpMaxOpenPerBase params
+                , "adaptiveEdgeBufferMax" .= tpAdaptiveEdgeBufferMax params
+                , "adaptiveMinSignalToNoiseMax" .= tpAdaptiveMinSignalToNoiseMax params
+                , "adaptiveTrendLookbackMax" .= tpAdaptiveTrendLookbackMax params
+                , "adaptiveKalmanZMinMax" .= tpAdaptiveKalmanZMinMax params
                 , "binanceSymbol" .= symbol
                 ]
         identity =
