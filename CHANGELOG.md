@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 - API: add public `GET /version` endpoint exposing build `version` and `commit` (when commit env vars are set), and list it in API docs/root endpoint metadata.
 - Trading/CLI/API: add `--dry-run` / `dryRun=true` simulation mode for trade flows so signals + trade JSON are returned without sending exchange/DEX requests (`order.mode="dry-run"`).
+- API: allow non-owner `/trade` and `/trade/async` requests to run with `dryRun=true` without requiring tenant exchange API keys (simulation only, no order sent).
 - Trading/CLI/API: fail fast on invalid runtime trading config (missing required Binance/Coinbase credentials or DEX runtime env) when `--binance-trade` is enabled and dry-run is off.
 - CLI: reject empty credential flag values (`--binance-api-key`, `--binance-api-secret`, `--coinbase-api-key`, `--coinbase-api-secret`, `--coinbase-api-passphrase`).
 - CI: enforce `fourmolu --mode check`, failing `hlint`, `cabal build`, and `cabal test` in the Haskell workflow.

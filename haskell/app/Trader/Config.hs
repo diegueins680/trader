@@ -2,6 +2,7 @@
 
 module Trader.Config (
     validateRuntimeConfig,
+    shouldRequireUserTradeKeys,
 ) where
 
 import System.Environment (lookupEnv)
@@ -10,6 +11,15 @@ import Trader.App.Args (Args (..))
 import Trader.Dex (resolveDexEnv)
 import Trader.Platform (Platform (..))
 import Trader.Text (trim)
+
+shouldRequireUserTradeKeys :: Platform -> Maybe tenant -> Bool -> Bool -> Bool
+shouldRequireUserTradeKeys platform mReqTenant useServerKeys dryRun
+    | dryRun = False
+    | otherwise =
+        case (platform, mReqTenant) of
+            (PlatformBinance, Just _) -> not useServerKeys
+            (PlatformCoinbase, Just _) -> not useServerKeys
+            _ -> False
 
 validateRuntimeConfig :: Args -> IO (Either String ())
 validateRuntimeConfig args

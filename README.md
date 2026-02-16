@@ -239,6 +239,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Order sizes are applied as specified (no extra multiplier).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
   - Non-dry-run trading validates required credentials and DEX runtime settings before execution (fail-fast with a user error/HTTP 400).
+  - API `POST /trade` and `POST /trade/async` with `dryRun=true` do not require tenant exchange API keys for non-owner requests (no order is sent).
 
 - DEX execution (Uniswap/Curve/Sushi/Balancer/Pancake/1inch via 1inch)
   - DEX trades require CSV price data (`--data`) and the following config:
