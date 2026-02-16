@@ -102,13 +102,25 @@ emptyGBDTModel =
 
 stumpPredict :: Stump -> V.Vector Double -> Double
 stumpPredict Stump{stFeature = j, stThreshold = thr, stLeftValue = l, stRightValue = r} feats =
-    if feats V.! j <= thr then l else r
+    if j < 0 || j >= V.length feats
+        then 0
+        else if feats V.! j <= thr then l else r
 
 fitStump :: V.Vector (V.Vector Double) -> V.Vector Double -> Stump
 fitStump feats residuals =
-    let d = V.length (V.head feats)
-        candidates = [bestForFeature j | j <- [0 .. d - 1]]
-     in minimumBy (comparing snd) candidates |> fst
+    case V.uncons feats of
+        Nothing ->
+            let mu = meanV residuals
+             in Stump{stFeature = 0, stThreshold = 0, stLeftValue = mu, stRightValue = mu}
+        Just (firstFeat, _rest) ->
+            let d = V.length firstFeat
+             in if d <= 0
+                    then
+                        let mu = meanV residuals
+                         in Stump{stFeature = 0, stThreshold = 0, stLeftValue = mu, stRightValue = mu}
+                    else
+                        let candidates = [bestForFeature j | j <- [0 .. d - 1]]
+                         in minimumBy (comparing snd) candidates |> fst
   where
     (|>) = flip ($)
 
@@ -142,7 +154,15 @@ candidateThresholds xs =
             then []
             else
                 let ix q = max 1 (min (n - 2) (floor (fromIntegral q * fromIntegral n / fromIntegral buckets)))
-                    thrs = [s !! ix q | q <- [1 .. buckets - 2]]
+                    fallback =
+                        case s of
+                            v : _ -> v
+                            [] -> 0
+                    atDef i ys =
+                        case drop i ys of
+                            v : _ -> v
+                            [] -> fallback
+                    thrs = [atDef (ix q) s | q <- [1 .. buckets - 2]]
                  in dedupeStable thrs
 
 splitOnThreshold :: Double -> V.Vector Double -> V.Vector Double -> ([Double], [Double])

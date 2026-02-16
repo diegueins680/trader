@@ -82,10 +82,10 @@ trainTCN lookbackBars prices trainTargets
 
 ridgeFit :: Double -> [[Double]] -> [Double] -> [Double]
 ridgeFit lambda xs ys =
-    if null xs
-        then []
-        else
-            let d = length (head xs)
+    case xs of
+        [] -> []
+        (x0 : _) ->
+            let d = length x0
              in if d <= 0
                     then []
                     else

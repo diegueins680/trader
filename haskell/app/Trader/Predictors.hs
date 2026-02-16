@@ -66,8 +66,9 @@ trainPredictors enabled lookbackBars trainPrices =
         lastTrainIndex =
             case trainSetIdx' of
                 [] -> Nothing
-                xs ->
-                    let (t, _, _) = last xs
+                (x : xs) ->
+                    let step _ curr = curr
+                        (t, _, _) = foldl step x xs
                      in Just t
         trainPriceLen =
             if needFeatures

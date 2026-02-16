@@ -180,10 +180,7 @@ stressEquityCurve volMult shock eq =
 
 returnsFromEquity :: [Double] -> [Double]
 returnsFromEquity eq =
-    case eq' of
-        [] -> []
-        [_] -> []
-        _ -> zipWith ret eq' (tail eq')
+    zipWith ret eq' (drop1 eq')
   where
     bad x = isNaN x || isInfinite x
     clamp x =
@@ -191,6 +188,10 @@ returnsFromEquity eq =
             then 0
             else x
     eq' = map clamp eq
+    drop1 xs =
+        case xs of
+            [] -> []
+            _ : ys -> ys
     ret a b =
         if a <= 0
             then 0
@@ -540,13 +541,19 @@ medianBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                 let rKal = kalPred / prev
                     rLstm = lstmPred / prev
                     rBlend = arithmetic / prev
-                    rMedian = (sort [rKal, rLstm, rBlend]) !! 1
+                    rMedian = median3 rKal rLstm rBlend
                     pred = prev * rMedian
                  in if isNaN pred || isInfinite pred then arithmetic else pred
             (_, False, True) -> kalPred
             (_, True, False) -> lstmPred
             (_, False, False) -> arithmetic
             _ -> arithmetic
+  where
+    median3 a b c
+        | a <= b = if b <= c then b else max a c
+        | a <= c = a
+        | b <= c = c
+        | otherwise = b
 
 medianBlendPredictionsV ::
     Double ->
@@ -1687,12 +1694,12 @@ foldRanges stepCount foldsReq =
      in go 0 0
 
 bestFinalEquity :: BacktestResult -> Double
-bestFinalEquity br =
-    case brEquityCurve br of
-        [] -> 1.0
-        xs ->
-            let v = last xs
-             in if isNaN v || isInfinite v || v < 0 then 0 else v
+bestFinalEquity br = sanitizeEquity (foldl' (\_ x -> x) 1.0 (brEquityCurve br))
+  where
+    sanitizeEquity x =
+        if isNaN x || isInfinite x || x < 0
+            then 0
+            else x
 
 optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Method, Double, Double, BacktestResult)
 optimizeOperations baseCfg prices kalPred lstmPred mMeta =

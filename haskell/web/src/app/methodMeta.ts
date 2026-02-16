@@ -8,7 +8,7 @@ export type MethodUiMeta = {
   tip: string;
 };
 
-export const METHOD_UI_META: MethodUiMeta[] = [
+export const METHOD_UI_META = [
   {
     id: "11",
     optionTitle: "Both (agreement gated)",
@@ -226,9 +226,19 @@ export const METHOD_UI_META: MethodUiMeta[] = [
     configHint: "uses only LSTM predictions.",
     tip: "01 uses LSTM-only predictions.",
   },
-];
+] as const satisfies readonly MethodUiMeta[];
 
-const METHOD_UI_META_BY_ID = new Map<Method, MethodUiMeta>(METHOD_UI_META.map((meta) => [meta.id, meta]));
+type ListedMethodIds = (typeof METHOD_UI_META)[number]["id"];
+type MissingMethodIds = Exclude<Method, ListedMethodIds>;
+const _assertAllMethodsListed: MissingMethodIds extends never ? true : never = true;
+
+const METHOD_UI_META_BY_ID = new Map<Method, MethodUiMeta>();
+for (const meta of METHOD_UI_META) {
+  if (METHOD_UI_META_BY_ID.has(meta.id)) {
+    throw new Error(`duplicate method metadata entry: ${meta.id}`);
+  }
+  METHOD_UI_META_BY_ID.set(meta.id, meta);
+}
 
 export const METHOD_CONFIG_HINT = METHOD_UI_META.map((meta) => `"${meta.id}" ${meta.configHint}`).join(" ");
 

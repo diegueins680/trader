@@ -39,12 +39,7 @@ computeMetrics :: Double -> BacktestResult -> BacktestMetrics
 computeMetrics periodsPerYear br =
     let eq = brEquityCurve br
         periods = max 0 (length eq - 1)
-        finalEq =
-            case eq of
-                [] -> 1.0
-                xs ->
-                    let v = last xs
-                     in if isNaN v || isInfinite v || v < 0 then 0 else v
+        finalEq = sanitizeEquity (lastOr 1.0 eq)
         totalRet = finalEq - 1
         rets = returnsFromEquity eq
         meanR = mean rets
@@ -145,10 +140,7 @@ computeMetrics periodsPerYear br =
 
 returnsFromEquity :: [Double] -> [Double]
 returnsFromEquity eq =
-    case eq' of
-        [] -> []
-        [_] -> []
-        _ -> zipWith ret eq' (tail eq')
+    zipWith ret eq' (drop1 eq')
   where
     bad x = isNaN x || isInfinite x
     clamp x =
@@ -156,6 +148,10 @@ returnsFromEquity eq =
             then 0
             else x
     eq' = map clamp eq
+    drop1 xs =
+        case xs of
+            [] -> []
+            _ : ys -> ys
     ret a b =
         if a <= 0
             then 0
@@ -194,7 +190,12 @@ varCvar level xs =
             then (0, 0)
             else
                 let idx = floor (alpha * fromIntegral (n - 1))
-                    q = xs' !! max 0 (min (n - 1) idx)
+                    safeIdx = max 0 (min (n - 1) idx)
+                    (left, right) = splitAt safeIdx xs'
+                    q =
+                        case right of
+                            y : _ -> y
+                            [] -> lastOr 0 left
                     tailXs = take (idx + 1) xs'
                     varLoss = max 0 (-q)
                     cvarLoss =
@@ -211,3 +212,12 @@ minDrawdown eq =
              in (peak', min minDd dd)
         (_, ddMin) = foldl' step (0, 0) eq
      in ddMin
+
+lastOr :: a -> [a] -> a
+lastOr fallback xs = foldl' (\_ x -> x) fallback xs
+
+sanitizeEquity :: Double -> Double
+sanitizeEquity x =
+    if isNaN x || isInfinite x || x < 0
+        then 0
+        else x
