@@ -9083,7 +9083,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             (botComboUuid st)
                             (Just (T.pack (botSymbol st)))
                             (orderIdFromOrderResult o)
-                        when (tradeEnabled && switchedApplied1 && aorSent o) $
+                        when (tradeEnabled && argBinanceLive args && switchedApplied1 && aorSent o) $
                             persistPositionOriginMaybe
                                 mOps
                                 (botTenantKey st)
