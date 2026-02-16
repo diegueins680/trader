@@ -33,7 +33,7 @@ import Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
     shouldResolveOriginComboOnAutoStart,
  )
-import Trader.Config (validateRuntimeConfig)
+import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Duration (TimeWindow (..), lookbackBarsFrom)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
@@ -100,6 +100,8 @@ main = do
             , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
             , run "dry-run requires trade flag" testDryRunRequiresTrade
             , run "dry-run trade bypasses runtime credentials" testDryRunBypassesRuntimeCredentials
+            , run "dry-run skips non-owner API key requirement" testDryRunSkipsNonOwnerUserKeyRequirement
+            , run "live trade keeps non-owner API key requirement" testLiveTradeRequiresNonOwnerUserKeys
             , run "empty cli credentials rejected" testEmptyCliCredentialsRejected
             , run "backtest window validates time formats" testBacktestWindowTimeValidation
             , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
@@ -777,6 +779,24 @@ testDryRunBypassesRuntimeCredentials = do
     case validated of
         Left err -> error ("dry-run should bypass runtime credential checks: " ++ err)
         Right () -> pure ()
+
+testDryRunSkipsNonOwnerUserKeyRequirement :: IO ()
+testDryRunSkipsNonOwnerUserKeyRequirement = do
+    assert
+        "dry-run skips non-owner Binance key requirement"
+        (not (shouldRequireUserTradeKeys PlatformBinance (Just "tenant-a") False True))
+    assert
+        "dry-run skips non-owner Coinbase key requirement"
+        (not (shouldRequireUserTradeKeys PlatformCoinbase (Just "tenant-a") False True))
+
+testLiveTradeRequiresNonOwnerUserKeys :: IO ()
+testLiveTradeRequiresNonOwnerUserKeys = do
+    assert
+        "live non-owner Binance trade requires user keys"
+        (shouldRequireUserTradeKeys PlatformBinance (Just "tenant-a") False False)
+    assert
+        "live owner Binance trade can use server keys"
+        (not (shouldRequireUserTradeKeys PlatformBinance (Just "tenant-a") True False))
 
 testEmptyCliCredentialsRejected :: IO ()
 testEmptyCliCredentialsRejected =

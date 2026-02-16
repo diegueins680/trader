@@ -6,6 +6,7 @@ module Trader.Predictors.Conformal (
 ) where
 
 import Data.List (sort)
+import Data.Maybe (fromMaybe, listToMaybe)
 
 data ConformalModel = ConformalModel
     { cmAlpha :: !Double
@@ -56,7 +57,7 @@ conformalRadius alpha xs =
         n = length s
         k = ceiling ((1 - alpha) * fromIntegral (n + 1))
         idx = max 0 (min (n - 1) (k - 1))
-     in s !! idx
+     in fromMaybe 0 (listToMaybe (drop idx s))
 
 isFinite :: Double -> Bool
 isFinite x = not (isNaN x || isInfinite x)

@@ -752,14 +752,14 @@ fetchKlinesRaw env symbol interval limit = do
         go remaining mEnd acc = do
             let batchLimit = min maxPerRequest remaining
             ks <- fetchBatch mEnd batchLimit
-            if null ks
-                then pure acc
-                else do
-                    let ksSorted = sortBy (comparing kOpenTime) ks
-                        acc' = ksSorted ++ acc
-                        remaining' = remaining - length ksSorted
-                        nextEnd = kOpenTime (head ksSorted) - 1
-                    if remaining' <= 0 || length ksSorted < batchLimit
+            case sortBy (comparing kOpenTime) ks of
+                [] -> pure acc
+                ksSorted@(firstK : _) -> do
+                    let acc' = ksSorted ++ acc
+                        batchCount = length ksSorted
+                        remaining' = remaining - batchCount
+                        nextEnd = kOpenTime firstK - 1
+                    if remaining' <= 0 || batchCount < batchLimit
                         then pure acc'
                         else go remaining' (Just nextEnd) acc'
 

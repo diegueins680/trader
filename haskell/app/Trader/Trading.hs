@@ -972,7 +972,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                 Nothing -> V.empty
                                 Just a ->
                                     let update var r = a * var + (1 - a) * (r * r)
-                                     in V.tail (V.scanl' update 0 returnsV)
+                                     in V.drop 1 (V.scanl' update 0 returnsV)
 
                         ewmaVarAt :: Int -> Maybe Double
                         ewmaVarAt t =
@@ -1579,10 +1579,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     | v > 0 ->
                                                         let start = v * 1.10
                                                             denom = max 1e-12 (start - v)
-                                                            pfVal =
-                                                                case perfProfitFactorGate of
-                                                                    Nothing -> start
-                                                                    Just pf -> pf
+                                                            pfVal = Data.Maybe.fromMaybe start perfProfitFactorGate
                                                             raw = (start - pfVal) / denom
                                                          in clamp01 raw
                                                 _ -> 0

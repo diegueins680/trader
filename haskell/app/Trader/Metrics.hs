@@ -214,7 +214,7 @@ minDrawdown eq =
      in ddMin
 
 lastOr :: a -> [a] -> a
-lastOr fallback xs = foldl' (\_ x -> x) fallback xs
+lastOr = foldl' (\_ x -> x)
 
 sanitizeEquity :: Double -> Double
 sanitizeEquity x =

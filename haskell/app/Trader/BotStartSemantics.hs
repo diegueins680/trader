@@ -6,10 +6,10 @@ module Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
 ) where
 
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 
 botTradeEnabledFromApi :: Maybe Bool -> Bool
-botTradeEnabledFromApi = maybe True id
+botTradeEnabledFromApi = fromMaybe True
 
 shouldResolveOriginComboOnAutoStart :: Bool -> Bool
 shouldResolveOriginComboOnAutoStart adoptActive = adoptActive

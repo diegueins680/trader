@@ -381,25 +381,14 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
             | exposure < 0.01 = 0.02
             | otherwise = 0
         obj = map toLower (trim objective)
-        baseScore =
-            if obj `elem` ["final-equity", "final_equity", "finalequity"]
-                then finalEq
-                else
-                    if obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"]
-                        then annRet
-                        else
-                            if obj == "sharpe"
-                                then sharpe
-                                else
-                                    if obj == "calmar"
-                                        then annRet / max 1e-12 maxDd
-                                        else
-                                            if obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"]
-                                                then finalEq - penaltyMaxDd * maxDd
-                                                else
-                                                    if obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"]
-                                                        then finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
-                                                        else finalEq
+        baseScore
+            | obj `elem` ["final-equity", "final_equity", "finalequity"] = finalEq
+            | obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"] = annRet
+            | obj == "sharpe" = sharpe
+            | obj == "calmar" = annRet / max 1e-12 maxDd
+            | obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"] = finalEq - penaltyMaxDd * maxDd
+            | obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"] = finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
+            | otherwise = finalEq
      in baseScore - activityPenalty - exposurePenalty
 
 extractOperations :: Maybe Value -> Maybe [Value]
@@ -1249,10 +1238,11 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
 runTrial :: FilePath -> [String] -> TrialParams -> Double -> Bool -> Double -> Bool -> IO TrialResult
 runTrial traderBin baseArgs params tuneRatio useSweepThreshold timeoutSec disableLstm = do
     let cmd = buildCommand traderBin baseArgs params tuneRatio useSweepThreshold
+        cmdArgs = drop 1 cmd
     env0 <- getEnvironment
     let env = if disableLstm then setEnv "TRADER_LSTM_WEIGHTS_DIR" "" env0 else env0
         procSpec =
-            (proc traderBin (tail cmd))
+            (proc traderBin cmdArgs)
                 { cwd = Just (takeDirectory traderBin)
                 , env = Just env
                 , std_out = CreatePipe

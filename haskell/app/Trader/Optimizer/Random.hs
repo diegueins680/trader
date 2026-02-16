@@ -12,6 +12,7 @@ module Trader.Optimizer.Random (
 import Control.Monad (forM_)
 import Control.Monad.ST (runST)
 import Data.Bits (Bits (..), countLeadingZeros, finiteBitSize)
+import Data.Maybe (listToMaybe)
 import Data.Vector.Unboxed (Vector)
 import qualified Data.Vector.Unboxed as V
 import qualified Data.Vector.Unboxed.Mutable as MV
@@ -116,7 +117,7 @@ nextChoice xs rng =
         [] -> (Nothing, rng)
         _ ->
             let (idx, rng') = nextIntRange 0 (length xs - 1) rng
-             in (Just (xs !! idx), rng')
+             in (listToMaybe (drop idx xs), rng')
 
 randBelow :: Word64 -> Rng -> (Word64, Rng)
 randBelow n rng
