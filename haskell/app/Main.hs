@@ -154,7 +154,7 @@ import Trader.Coinbase (
     newCoinbaseEnv,
     placeCoinbaseMarketOrder,
  )
-import Trader.Config (validateRuntimeConfig)
+import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (
     DexEnv (..),
     DexSwapResult (..),
@@ -4489,7 +4489,7 @@ tradeEntryHighVolFlag tr =
 computeBotPerfStatsFiltered :: Int -> (Trade -> Bool) -> [Trade] -> BotPerfStats
 computeBotPerfStatsFiltered lookback keep trades =
     let lb = max 0 lookback
-        recent = if lb <= 0 then [] else take lb (filter keep (reverse trades))
+        recent = if lb <= 0 then [] else take lb (reverse (filter keep trades))
         bad x = isNaN x || isInfinite x
         returns = [trReturn t | t <- recent, not (bad (trReturn t))]
         wins = length [r | r <- returns, r > 0]
@@ -4599,10 +4599,7 @@ computeAdaptiveAdjustments args stats =
                     | v > 0 ->
                         let start = v * 1.10
                             denom = max 1e-12 (start - v)
-                            pfVal =
-                                case bpsProfitFactor stats of
-                                    Nothing -> start
-                                    Just pf -> pf
+                            pfVal = fromMaybe start (bpsProfitFactor stats)
                             raw = (start - pfVal) / denom
                          in clamp01 raw
                 _ -> 0
@@ -5752,38 +5749,34 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
                                     let sideOk =
                                             (posSign > 0 && poriSide o == "long")
                                                 || (posSign < 0 && poriSide o == "short")
-                                    if posSign == 0
+                                    if posSign == 0 || not sideOk
                                         then do
                                             deletePositionOrigin store tenantKey baseArgs sym
                                             pure (baseArgs, Nothing)
                                         else
-                                            if not sideOk
-                                                then do
-                                                    deletePositionOrigin store tenantKey baseArgs sym
-                                                    pure (baseArgs, Nothing)
-                                                else do
-                                                    mComboDb <- readTopComboByUuidFromDb store comboUuid
-                                                    mCombo <-
-                                                        case mComboDb of
-                                                            Just c -> pure (Just c)
-                                                            Nothing -> do
-                                                                combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
-                                                                pure $
-                                                                    case combosOrErr of
-                                                                        Left _ -> Nothing
-                                                                        Right export ->
-                                                                            find
-                                                                                (\c -> uuidFromText (topComboUuid c) == Just comboUuid)
-                                                                                (tceCombos export)
-                                                    case mCombo of
-                                                        Nothing -> pure (baseArgs, Nothing)
-                                                        Just combo ->
-                                                            case applyTopComboForStartWithUuid baseArgs combo of
-                                                                Left _ -> pure (baseArgs, Nothing)
-                                                                Right (argsApplied0, mUuid) ->
-                                                                    case validateApiComputeLimits limits argsApplied0 of
-                                                                        Left _ -> pure (baseArgs, Nothing)
-                                                                        Right argsApplied -> pure (argsApplied, mUuid)
+                                            do
+                                                mComboDb <- readTopComboByUuidFromDb store comboUuid
+                                                mCombo <-
+                                                    case mComboDb of
+                                                        Just c -> pure (Just c)
+                                                        Nothing -> do
+                                                            combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+                                                            pure $
+                                                                case combosOrErr of
+                                                                    Left _ -> Nothing
+                                                                    Right export ->
+                                                                        find
+                                                                            (\c -> uuidFromText (topComboUuid c) == Just comboUuid)
+                                                                            (tceCombos export)
+                                                case mCombo of
+                                                    Nothing -> pure (baseArgs, Nothing)
+                                                    Just combo ->
+                                                        case applyTopComboForStartWithUuid baseArgs combo of
+                                                            Left _ -> pure (baseArgs, Nothing)
+                                                            Right (argsApplied0, mUuid) ->
+                                                                case validateApiComputeLimits limits argsApplied0 of
+                                                                    Left _ -> pure (baseArgs, Nothing)
+                                                                    Right argsApplied -> pure (argsApplied, mUuid)
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =
@@ -5910,15 +5903,13 @@ positionAdoptedByRuntime mInfo pos =
     case mInfo of
         Nothing -> False
         Just info ->
-            if not (raiTradeEnabled info)
-                then False
-                else
-                    case futuresPositionSideSign pos of
-                        Nothing -> False
-                        Just posSide ->
-                            let activeSides = maybeToList (raiSide info)
-                                hasStarting = raiStarting info
-                             in posSide `elem` activeSides || (null activeSides && hasStarting)
+            raiTradeEnabled info
+                && case futuresPositionSideSign pos of
+                    Nothing -> False
+                    Just posSide ->
+                        let activeSides = maybeToList (raiSide info)
+                            hasStarting = raiStarting info
+                         in posSide `elem` activeSides || (null activeSides && hasStarting)
 
 resolveOrphanOpenPositionActions :: Maybe OpsStore -> Args -> BotRuntimeMap -> IO ([String], [String])
 resolveOrphanOpenPositionActions mOps args tenantMap =
@@ -5961,7 +5952,7 @@ resolveOrphanOpenPositionActions mOps args tenantMap =
                             | (sym, symPositions) <- sortOn fst (HM.toList openBySymbol)
                             , symbolAdoptable symPositions
                             , let mInfo = HM.lookup sym runtimeBySymbol
-                            , any (not . positionAdoptedByRuntime mInfo) symPositions
+                            , not (all (positionAdoptedByRuntime mInfo) symPositions)
                             ]
                         orphanRestartSymbols =
                             [ sym
@@ -6416,7 +6407,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 let restartSymbols = dedupeStable (filter (`HM.member` tenantMap0) orphanRestartSymbols)
                                 unless (null restartSymbols) $ do
                                     putStrLn ("Live bot auto-start restarting orphaned symbols: " ++ formatList restartSymbols)
-                                    mapM_ (\sym -> void (botStop botCtrl tenantKey (Just sym))) restartSymbols
+                                    mapM_ (botStop botCtrl tenantKey . Just) restartSymbols
                                 mrtAfterRestart <- readMVar (bcRuntime botCtrl)
                                 let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrtAfterRestart)
                                 let missing = filter (not . (`HM.member` tenantMap)) targetSymbols
@@ -13500,10 +13491,11 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                                                             then mServerTenant
                                                             else mReqTenant
                                                     needsUserKeys =
-                                                        case (argPlatform argsOk, mReqTenant) of
-                                                            (PlatformBinance, Just _) -> not useServerKeys
-                                                            (PlatformCoinbase, Just _) -> not useServerKeys
-                                                            _ -> False
+                                                        shouldRequireUserTradeKeys
+                                                            (argPlatform argsOk)
+                                                            mReqTenant
+                                                            useServerKeys
+                                                            (argDryRun argsOk)
                                                     hasUserKeys =
                                                         case argPlatform argsOk of
                                                             PlatformBinance -> hasBinanceKeys argsOk
@@ -13615,10 +13607,11 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                             then mServerTenant
                                                             else mReqTenant
                                                     needsUserKeys =
-                                                        case (argPlatform argsOk, mReqTenant) of
-                                                            (PlatformBinance, Just _) -> not useServerKeys
-                                                            (PlatformCoinbase, Just _) -> not useServerKeys
-                                                            _ -> False
+                                                        shouldRequireUserTradeKeys
+                                                            (argPlatform argsOk)
+                                                            mReqTenant
+                                                            useServerKeys
+                                                            (argDryRun argsOk)
                                                     hasUserKeys =
                                                         case argPlatform argsOk of
                                                             PlatformBinance -> hasBinanceKeys argsOk
@@ -16408,14 +16401,8 @@ confidenceBlendWeightFromPreds fallbackWeight zMin zMax openThr prev kalPred lst
         kalScore =
             case mKalZ of
                 Just z | not (isNaN z || isInfinite z) -> scale01 zMin zMax z
-                _ ->
-                    case lstmConfidenceScoreFromPred openThr prev kalPred of
-                        Just s -> s
-                        Nothing -> 0
-        lstmScore =
-            case lstmConfidenceScoreFromPred openThr prev lstmPred of
-                Just s -> s
-                Nothing -> 0
+                _ -> fromMaybe 0 (lstmConfidenceScoreFromPred openThr prev kalPred)
+        lstmScore = fromMaybe 0 (lstmConfidenceScoreFromPred openThr prev lstmPred)
         denom = kalScore + lstmScore
      in if denom <= 1e-12
             then wFallback
@@ -16641,20 +16628,14 @@ disagreementGuardPredFromPreds fallbackWeight prev kalPred lstmPred =
                 case (edge kalPred, edge lstmPred, dir kalPred, dir lstmPred) of
                     (Just eKal, Just eLstm, Just dKal, Just dLstm) ->
                         if dKal == dLstm
-                            then
-                                if eKal > eLstm
-                                    then kalPred
-                                    else
-                                        if eLstm > eKal
-                                            then lstmPred
-                                            else if wFallback >= 0.5 then kalPred else lstmPred
-                            else
-                                if eKal < eLstm
-                                    then kalPred
-                                    else
-                                        if eLstm < eKal
-                                            then lstmPred
-                                            else if wFallback >= 0.5 then kalPred else lstmPred
+                            then case compare eKal eLstm of
+                                GT -> kalPred
+                                LT -> lstmPred
+                                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
+                            else case compare eKal eLstm of
+                                LT -> kalPred
+                                GT -> lstmPred
+                                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
                     _ -> if wFallback >= 0.5 then kalPred else lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
@@ -16685,16 +16666,10 @@ medianBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         w = clamp01 fallbackWeight
         arithmetic = w * kalPred + (1 - w) * lstmPred
-        median3 a b c =
-            if a <= b
-                then
-                    if b <= c
-                        then b
-                        else if a <= c then c else a
-                else
-                    if a <= c
-                        then a
-                        else if b <= c then c else b
+        median3 a b c
+            | a <= b = if b <= c then b else max a c
+            | a <= c = a
+            | otherwise = max b c
      in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
             (False, False, False) ->
                 let rKal = kalPred / prev
@@ -16755,12 +16730,10 @@ neutralGuardPredFromPreds fallbackWeight prev kalPred lstmPred =
                         | dKal /= dLstm ->
                             neutralPred
                     (_, _, Just eKal, Just eLstm) ->
-                        if eKal < eLstm
-                            then kalPred
-                            else
-                                if eLstm < eKal
-                                    then lstmPred
-                                    else if wFallback >= 0.5 then kalPred else lstmPred
+                        case compare eKal eLstm of
+                            LT -> kalPred
+                            GT -> lstmPred
+                            EQ -> if wFallback >= 0.5 then kalPred else lstmPred
                     _ -> if wFallback >= 0.5 then kalPred else lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
@@ -16873,12 +16846,10 @@ consensusBoostPredFromPreds fallbackWeight prev kalPred lstmPred =
                 case (dir kalPred, dir lstmPred, edge kalPred, edge lstmPred) of
                     (Just dKal, Just dLstm, Just eKal, Just eLstm)
                         | dKal == dLstm && dKal /= 0 ->
-                            if eKal > eLstm
-                                then kalPred
-                                else
-                                    if eLstm > eKal
-                                        then lstmPred
-                                        else if wFallback >= 0.5 then kalPred else lstmPred
+                            case compare eKal eLstm of
+                                GT -> kalPred
+                                LT -> lstmPred
+                                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
                         | dKal /= dLstm ->
                             neutralPred
                         | otherwise ->
@@ -16990,19 +16961,15 @@ tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
             | x < prev = Just (-1 :: Int)
             | otherwise = Just 0
         chooseStrong eKal eLstm =
-            if eKal > eLstm
-                then kalPred
-                else
-                    if eLstm > eKal
-                        then lstmPred
-                        else if wFallback >= 0.5 then kalPred else lstmPred
+            case compare eKal eLstm of
+                GT -> kalPred
+                LT -> lstmPred
+                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
         chooseWeak eKal eLstm =
-            if eKal < eLstm
-                then kalPred
-                else
-                    if eLstm < eKal
-                        then lstmPred
-                        else if wFallback >= 0.5 then kalPred else lstmPred
+            case compare eKal eLstm of
+                LT -> kalPred
+                GT -> lstmPred
+                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
         shrink alpha pred = (1 - alpha) * neutralPred + alpha * pred
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
@@ -17064,7 +17031,7 @@ entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
             let eps = 1e-12
                 p = max eps (min (1 - eps) (clamp01 p0))
                 q = 1 - p
-                h = -((p * log p) + (q * log q)) / log 2
+                h = - (((p * log p) + (q * log q)) / log 2)
              in if bad h then 1 else clamp01 h
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
@@ -17135,12 +17102,10 @@ coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
             | x < prev = Just (-1 :: Int)
             | otherwise = Just 0
         chooseWeak eKal eLstm =
-            if eKal < eLstm
-                then kalPred
-                else
-                    if eLstm < eKal
-                        then lstmPred
-                        else if wFallback >= 0.5 then kalPred else lstmPred
+            case compare eKal eLstm of
+                LT -> kalPred
+                GT -> lstmPred
+                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
         shrink alpha pred = neutralPred + alpha * (pred - neutralPred)
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
@@ -17654,14 +17619,8 @@ regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPr
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
         blend = wFallback * kalPred + (1 - wFallback) * lstmPred
-        kalZMeta =
-            case mMeta of
-                Just m -> kalmanZFromMeta m
-                Nothing -> Nothing
-        hvMeta =
-            case mMeta of
-                Just m -> smHighVolProb m
-                Nothing -> Nothing
+        kalZMeta = mMeta >>= kalmanZFromMeta
+        hvMeta = mMeta >>= smHighVolProb
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
                 case (kalZMeta, hvMeta) of
@@ -17803,8 +17762,8 @@ hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
                 Just rReal ->
                     let mRKal = ret prev kalPred
                         mRLstm = ret prev lstmPred
-                        lKal = maybe maxErr (\rK -> lossFromR rK rReal) mRKal
-                        lLstm = maybe maxErr (\rL -> lossFromR rL rReal) mRLstm
+                        lKal = maybe maxErr (`lossFromR` rReal) mRKal
+                        lLstm = maybe maxErr (`lossFromR` rReal) mRLstm
                         z' = z - eta * (lKal - lLstm)
                      in if bad z' then z else z'
         step (t, z) =
@@ -21268,8 +21227,8 @@ routerStatsWindowWith openThr roundTripCost pnlWeight pricesV predsV useIdx star
                  in RouterStats{rsScore = score, rsAccuracy = accuracy, rsCoverage = coverage, rsSignals = signals}
 
 routerStatsWindow :: Double -> Double -> Double -> V.Vector Double -> V.Vector Double -> Int -> Int -> RouterStats
-routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV start0 end0 =
-    routerStatsWindowWith openThr roundTripCost pnlWeight pricesV predsV (const True) start0 end0
+routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV =
+    routerStatsWindowWith openThr roundTripCost pnlWeight pricesV predsV (const True)
 
 routerSelectModelAt ::
     Double ->
@@ -22248,8 +22207,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     Just rReal ->
                                         let mRKal = ret prev kalPred
                                             mRLstm = ret prev lstmPred
-                                            lKal = maybe maxErr (\rK -> lossFromR rK rReal) mRKal
-                                            lLstm = maybe maxErr (\rL -> lossFromR rL rReal) mRLstm
+                                            lKal = maybe maxErr (`lossFromR` rReal) mRKal
+                                            lLstm = maybe maxErr (`lossFromR` rReal) mRLstm
                                             z' = z - eta * (lKal - lLstm)
                                          in if bad z' then z else z'
                             zPrev =
