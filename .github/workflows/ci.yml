@@ -32,9 +32,18 @@ jobs:
       - run: cabal update
       - name: Install HLint
         run: sudo apt-get update && sudo apt-get install -y hlint
-      - run: hlint app test bench --no-exit-code
-      - run: cabal build exe:trader-hs exe:optimize-equity exe:merge-top-combos
-      - run: cabal test all --test-show-details=direct
+      - name: Install fourmolu
+        run: |
+          cabal install fourmolu \
+            --installdir="$HOME/.local/bin" \
+            --overwrite-policy=always
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Check Haskell formatting
+        run: |
+          find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check
+      - run: hlint app test bench
+      - run: cabal build
+      - run: cabal test --test-show-details=direct
 
   web:
     runs-on: ubuntu-latest

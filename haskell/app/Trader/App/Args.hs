@@ -18,8 +18,11 @@ module Trader.App.Args (
 
 import Control.Applicative ((<|>))
 import Control.Monad (when)
-import Data.Char (isAlphaNum, toLower, toUpper)
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Char (isAlphaNum, isDigit, toLower, toUpper)
+import Data.Int (Int64)
+import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Time (defaultTimeLocale, parseTimeM)
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Text.Read (readMaybe)
 
 import Options.Applicative
@@ -68,6 +71,7 @@ data Args = Args
     , argCoinbaseApiPassphrase :: Maybe String
     , argBinanceTrade :: Bool
     , argBinanceLive :: Bool
+    , argDryRun :: Bool
     , argOrderQuote :: Maybe Double
     , argOrderQuantity :: Maybe Double
     , argOrderQuoteFraction :: Maybe Double
@@ -86,6 +90,9 @@ data Args = Args
     , argLr :: Double
     , argValRatio :: Double
     , argBacktestRatio :: Double
+    , argBacktestFrom :: Maybe String
+    , argBacktestTo :: Maybe String
+    , argInitialBalance :: Double
     , argTuneRatio :: Double
     , argTuneObjective :: TuneObjective
     , argTunePenaltyMaxDrawdown :: Double
@@ -262,6 +269,52 @@ parseBarsArg raw =
                 Just n -> Right (Just n)
                 Nothing -> Left "Expected an integer (e.g. 500) or 'auto'."
 
+parseTimeInt64 :: String -> Maybe Int64
+parseTimeInt64 s =
+    case (readMaybe s :: Maybe Int64) of
+        Just n -> Just n
+        Nothing ->
+            case (readMaybe s :: Maybe Double) of
+                Just d -> Just (floor d)
+                Nothing -> Nothing
+
+normalizeEpochMs :: Int64 -> Int64
+normalizeEpochMs n =
+    if n < 100000000000
+        then n * 1000
+        else n
+
+parseIsoTimeMs :: String -> Maybe Int64
+parseIsoTimeMs s =
+    let formats =
+            [ "%Y-%m-%d"
+            , "%Y-%m-%d %H:%M:%S"
+            , "%Y-%m-%dT%H:%M:%S"
+            , "%Y-%m-%d %H:%M:%S%Q"
+            , "%Y-%m-%dT%H:%M:%S%Q"
+            , "%Y-%m-%dT%H:%M:%S%QZ"
+            , "%Y-%m-%d %H:%M:%S%QZ"
+            ]
+        parseWith fmt = parseTimeM True defaultTimeLocale fmt s
+     in case mapMaybe parseWith formats of
+            [] -> Nothing
+            (t : _) -> Just (floor (utcTimeToPOSIXSeconds t * 1000))
+
+looksLikeIso8601Prefix :: String -> Bool
+looksLikeIso8601Prefix s =
+    case s of
+        (a : b : c : d : '-' : e : f : '-' : g : h : _) -> all isDigit [a, b, c, d, e, f, g, h]
+        _ -> False
+
+parseBacktestTimeMs :: String -> Maybe Int64
+parseBacktestTimeMs s =
+    case parseTimeInt64 s of
+        Just n -> Just (normalizeEpochMs n)
+        Nothing ->
+            if looksLikeIso8601Prefix s
+                then parseIsoTimeMs s
+                else Nothing
+
 positioningCode :: Positioning -> String
 positioningCode p =
     case p of
@@ -352,6 +405,12 @@ opts = do
             "no-binance-live"
             "Send LIVE orders (Binance/Coinbase; Coinbase has no test endpoint)."
             "Send TEST orders (Binance uses /order/test; Coinbase has no test endpoint)."
+    argDryRun <-
+        defaultOffSwitch
+            "dry-run"
+            "no-dry-run"
+            "Compute the latest signal and simulated trade response, but never send exchange/DEX orders."
+            "Disable dry-run so --binance-trade can place test/live orders."
     argOrderQuote <- optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
     argOrderQuantity <- optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
     argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0 < F <= 1) when --order-quote/--order-quantity not set"))
@@ -375,6 +434,9 @@ opts = do
     argLr <- option auto (long "lr" <> value 1e-3 <> help "LSTM learning rate")
     argValRatio <- option auto (long "val-ratio" <> value 0.3 <> help "Validation split ratio (within training set)")
     argBacktestRatio <- option auto (long "backtest-ratio" <> value 0.2 <> help "Backtest holdout ratio (last portion of series)")
+    argBacktestFrom <- optional (strOption (long "from" <> metavar "TIME" <> help "Optional backtest start timestamp (epoch seconds/ms or ISO-8601)"))
+    argBacktestTo <- optional (strOption (long "to" <> metavar "TIME" <> help "Optional backtest end timestamp (epoch seconds/ms or ISO-8601)"))
+    argInitialBalance <- option auto (long "initial-balance" <> value 1.0 <> showDefault <> help "Initial backtest balance (>0); scales equity outputs.")
     argTuneRatio <- option auto (long "tune-ratio" <> value 0.25 <> help "When optimizing operations/threshold: tune on the last portion of the training split (avoids lookahead on the backtest split)")
     argTuneObjective <-
         option
@@ -445,11 +507,11 @@ opts = do
     argMethod <-
         option
             (eitherReader parseMethod)
-                ( long "method"
+            ( long "method"
                 <> value MethodBoth
                 <> showDefaultWith methodCode
                 <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, conf_pick=confidence winner-take-all, conformal_clip=clip blended return to conformal/quantile band, cost_pick=cost-aware winner-take-all, harmonic_blend=harmonic-return blend, disagreement_guard=disagreement-aware model pick, median_blend=median-robust blend, neutral_guard=neutral-on-disagreement guard, risk_parity_blend=inverse-edge risk-parity blend, consensus_boost=consensus-strength guard, anchor_blend=disagreement-aware anchor blend, tension_gate=partial-neutral conflict gate, entropy_blend=uncertainty-aware blend shrink, coherence_gate=coherence-aware conflict gate, divergence_gate=shrink blend when model returns diverge, fractal_blend=signed-root nonlinear blend, phase_cancel=anti-phase cancellation gate, softmax_blend=softmax edge-weighted blend, smooth_softmax_blend=EMA-smoothed softmax blend, hedge_blend=online Hedge-style exp-weights blend, net_softmax_blend=post-cost softmax edge-weighted blend, edge_blend=edge-weighted blend, edge_pick=edge winner-take-all, geo_blend=geometric blend, regime_switch=volatility/z-score model switch, router=adaptive model selection, bandit_router=UCB-style adaptive router, 10|kalman=Kalman only, 01|lstm=LSTM only"
-        )
+            )
     argPositioning <-
         option
             (eitherReader parsePositioning)
@@ -736,6 +798,8 @@ validateArgs args0 = do
                 , argPriceCol = trim (argPriceCol args0)
                 , argHighCol = fmap trim (argHighCol args0)
                 , argLowCol = fmap trim (argLowCol args0)
+                , argBacktestFrom = fmap trim (argBacktestFrom args0)
+                , argBacktestTo = fmap trim (argBacktestTo args0)
                 }
         present = maybe False (not . null)
     case argData args of
@@ -764,9 +828,26 @@ validateArgs args0 = do
     ensure "--binance-testnet is only supported on Binance" (isBinance || not (argBinanceTestnet args))
     ensure "--binance-live is only supported on Binance/Coinbase" (supportsLiveMode || not (argBinanceLive args))
     ensure "--binance-trade is only supported on trading platforms" (supportsTrading || not (argBinanceTrade args))
+    ensure "--dry-run requires --binance-trade" (not (argDryRun args) || argBinanceTrade args)
     ensure
         "--binance-trade requires --symbol/--binance-symbol (or --dex-base-token/--dex-quote-token for DEX platforms)"
         (not (argBinanceTrade args) || present (argBinanceSymbol args) || (isDex && hasDexTokens))
+
+    case argBinanceApiKey args of
+        Nothing -> pure ()
+        Just v -> ensure "--binance-api-key cannot be empty" (not (null (trim v)))
+    case argBinanceApiSecret args of
+        Nothing -> pure ()
+        Just v -> ensure "--binance-api-secret cannot be empty" (not (null (trim v)))
+    case argCoinbaseApiKey args of
+        Nothing -> pure ()
+        Just v -> ensure "--coinbase-api-key cannot be empty" (not (null (trim v)))
+    case argCoinbaseApiSecret args of
+        Nothing -> pure ()
+        Just v -> ensure "--coinbase-api-secret cannot be empty" (not (null (trim v)))
+    case argCoinbaseApiPassphrase args of
+        Nothing -> pure ()
+        Just v -> ensure "--coinbase-api-passphrase cannot be empty" (not (null (trim v)))
 
     case argHighCol args of
         Nothing -> pure ()
@@ -775,6 +856,14 @@ validateArgs args0 = do
     case argLowCol args of
         Nothing -> pure ()
         Just "" -> Left "--low-column cannot be empty"
+        Just _ -> pure ()
+    case argBacktestFrom args of
+        Nothing -> pure ()
+        Just "" -> Left "--from cannot be empty"
+        Just _ -> pure ()
+    case argBacktestTo args of
+        Nothing -> pure ()
+        Just "" -> Left "--to cannot be empty"
         Just _ -> pure ()
     case (argHighCol args, argLowCol args) of
         (Nothing, Nothing) -> pure ()
@@ -846,6 +935,20 @@ validateArgs args0 = do
     ensure "--lr must be > 0" (argLr args > 0)
     ensure "--val-ratio must be >= 0 and < 1" (argValRatio args >= 0 && argValRatio args < 1)
     ensure "--backtest-ratio must be between 0 and 1" (argBacktestRatio args > 0 && argBacktestRatio args < 1)
+    let parseWindowBound flag raw =
+            case parseBacktestTimeMs raw of
+                Just t -> Right t
+                Nothing ->
+                    Left
+                        ( flag
+                            ++ " must be epoch seconds/ms or ISO-8601 (e.g. 1704067200, 1704067200000, 2025-01-01, 2025-01-01T00:00:00Z)"
+                        )
+    backtestFromMs <- traverse (parseWindowBound "--from") (argBacktestFrom args)
+    backtestToMs <- traverse (parseWindowBound "--to") (argBacktestTo args)
+    case (backtestFromMs, backtestToMs) of
+        (Just fromMs, Just toMs) -> ensure "--from must be <= --to" (fromMs <= toMs)
+        _ -> pure ()
+    ensure "--initial-balance must be > 0" (argInitialBalance args > 0)
     ensure "--tune-ratio must be >= 0 and < 1" (argTuneRatio args >= 0 && argTuneRatio args < 1)
     ensure "--tune-penalty-max-drawdown must be >= 0" (argTunePenaltyMaxDrawdown args >= 0)
     ensure "--tune-penalty-turnover must be >= 0" (argTunePenaltyTurnover args >= 0)

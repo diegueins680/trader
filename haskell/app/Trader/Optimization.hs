@@ -19,7 +19,7 @@ module Trader.Optimization (
 import qualified Data.Char
 import qualified Data.Either
 import Data.List (foldl', intercalate, sort)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 
@@ -259,14 +259,8 @@ confidenceBlendWeightFromPreds fallbackWeight zMin zMax openThr prev kalPred lst
         kalScore =
             case mKalZ of
                 Just z | not (isNaN z || isInfinite z) -> scale01 zMin zMax z
-                _ ->
-                    case lstmConfidenceScoreFromPred openThr prev kalPred of
-                        Just s -> s
-                        Nothing -> 0
-        lstmScore =
-            case lstmConfidenceScoreFromPred openThr prev lstmPred of
-                Just s -> s
-                Nothing -> 0
+                _ -> fromMaybe 0 (lstmConfidenceScoreFromPred openThr prev kalPred)
+        lstmScore = fromMaybe 0 (lstmConfidenceScoreFromPred openThr prev lstmPred)
         denom = kalScore + lstmScore
      in if denom <= 1e-12
             then wFallback
@@ -837,19 +831,15 @@ tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
             | x < prev = Just (-1 :: Int)
             | otherwise = Just 0
         chooseStrong eKal eLstm =
-            if eKal > eLstm
-                then kalPred
-                else
-                    if eLstm > eKal
-                        then lstmPred
-                        else if wFallback >= 0.5 then kalPred else lstmPred
+            case compare eKal eLstm of
+                GT -> kalPred
+                LT -> lstmPred
+                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
         chooseWeak eKal eLstm =
-            if eKal < eLstm
-                then kalPred
-                else
-                    if eLstm < eKal
-                        then lstmPred
-                        else if wFallback >= 0.5 then kalPred else lstmPred
+            case compare eKal eLstm of
+                LT -> kalPred
+                GT -> lstmPred
+                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
         shrink alpha pred = (1 - alpha) * neutralPred + alpha * pred
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
@@ -911,7 +901,7 @@ entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
             let eps = 1e-12
                 p = max eps (min (1 - eps) (clamp01 p0))
                 q = 1 - p
-                h = -((p * log p) + (q * log q)) / log 2
+                h = -(((p * log p) + (q * log q)) / log 2)
              in if bad h then 1 else clamp01 h
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
@@ -982,19 +972,15 @@ coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
             | x < prev = Just (-1 :: Int)
             | otherwise = Just 0
         chooseStrong eKal eLstm =
-            if eKal > eLstm
-                then kalPred
-                else
-                    if eLstm > eKal
-                        then lstmPred
-                        else if wFallback >= 0.5 then kalPred else lstmPred
+            case compare eKal eLstm of
+                GT -> kalPred
+                LT -> lstmPred
+                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
         chooseWeak eKal eLstm =
-            if eKal < eLstm
-                then kalPred
-                else
-                    if eLstm < eKal
-                        then lstmPred
-                        else if wFallback >= 0.5 then kalPred else lstmPred
+            case compare eKal eLstm of
+                LT -> kalPred
+                GT -> lstmPred
+                EQ -> if wFallback >= 0.5 then kalPred else lstmPred
         shrink alpha pred = neutralPred + alpha * (pred - neutralPred)
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
@@ -1508,14 +1494,8 @@ regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPr
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
         blend = wFallback * kalPred + (1 - wFallback) * lstmPred
-        kalZMeta =
-            case mMeta of
-                Just m -> kalmanZFromMeta m
-                Nothing -> Nothing
-        hvMeta =
-            case mMeta of
-                Just m -> smHighVolProb m
-                Nothing -> Nothing
+        kalZMeta = mMeta >>= kalmanZFromMeta
+        hvMeta = mMeta >>= smHighVolProb
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
                 case (kalZMeta, hvMeta) of
@@ -1659,8 +1639,8 @@ hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
                 Just rReal ->
                     let mRKal = ret prev kalPred
                         mRLstm = ret prev lstmPred
-                        lKal = maybe maxErr (\rK -> lossFromR rK rReal) mRKal
-                        lLstm = maybe maxErr (\rL -> lossFromR rL rReal) mRLstm
+                        lKal = maybe maxErr (`lossFromR` rReal) mRKal
+                        lLstm = maybe maxErr (`lossFromR` rReal) mRLstm
                         z' = z - eta * (lKal - lLstm)
                      in if bad z' then z else z'
         step (t, z) =
@@ -2838,8 +2818,8 @@ routerStatsWindowWith openThr roundTripCost pnlWeight pricesV predsV useIdx star
                  in RouterStats{rsScore = score, rsAccuracy = accuracy, rsCoverage = coverage, rsSignals = signals}
 
 routerStatsWindow :: Double -> Double -> Double -> V.Vector Double -> V.Vector Double -> Int -> Int -> RouterStats
-routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV start0 end0 =
-    routerStatsWindowWith openThr roundTripCost pnlWeight pricesV predsV (const True) start0 end0
+routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV =
+    routerStatsWindowWith openThr roundTripCost pnlWeight pricesV predsV (const True)
 
 routerSelectModelAt ::
     Double ->

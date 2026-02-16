@@ -1565,24 +1565,26 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                     else Nothing
                                         winScore =
                                             case perfMinWinRate of
-                                                Just v | v > 0 ->
-                                                    let slack = 0.05
-                                                        start = min 1 (v + slack)
-                                                        denom = max 1e-12 (start - v)
-                                                        raw = (start - perfWinRateGate) / denom
-                                                     in clamp01 raw
+                                                Just v
+                                                    | v > 0 ->
+                                                        let slack = 0.05
+                                                            start = min 1 (v + slack)
+                                                            denom = max 1e-12 (start - v)
+                                                            raw = (start - perfWinRateGate) / denom
+                                                         in clamp01 raw
                                                 _ -> 0
                                         pfScore =
                                             case perfMinProfitFactor of
-                                                Just v | v > 0 ->
-                                                    let start = v * 1.10
-                                                        denom = max 1e-12 (start - v)
-                                                        pfVal =
-                                                            case perfProfitFactorGate of
-                                                                Nothing -> start
-                                                                Just pf -> pf
-                                                        raw = (start - pfVal) / denom
-                                                     in clamp01 raw
+                                                Just v
+                                                    | v > 0 ->
+                                                        let start = v * 1.10
+                                                            denom = max 1e-12 (start - v)
+                                                            pfVal =
+                                                                case perfProfitFactorGate of
+                                                                    Nothing -> start
+                                                                    Just pf -> pf
+                                                            raw = (start - pfVal) / denom
+                                                         in clamp01 raw
                                                 _ -> 0
                                         strictness =
                                             if adaptiveFilters && perfReadyGate

@@ -11,6 +11,7 @@ executable trader-hs
   other-modules:       Trader.Binance
                      , Trader.Cache
                      , Trader.Coinbase
+                     , Trader.Config
                      , Trader.Dex
                      , Trader.App.Args
                      , Trader.BinanceIntervals
@@ -148,6 +149,7 @@ test-suite trader-tests
   other-modules:       Trader.Binance
                      , Trader.Cache
                      , Trader.Coinbase
+                     , Trader.Config
                      , Trader.Dex
                      , Trader.App.Args
                      , Trader.BinanceIntervals

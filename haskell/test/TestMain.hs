@@ -26,13 +26,15 @@ import Trader.Binance (
     placeMarketOrder,
     signQuery,
  )
-import Trader.Duration (TimeWindow (..), lookbackBarsFrom)
 import Trader.BotStartSemantics (
     botTradeEnabledFromApi,
     shouldClearPositionOriginOnStart,
     shouldPersistPositionOriginOnSwitch,
     shouldPreserveProvidedComboOnActiveAdopt,
+    shouldResolveOriginComboOnAutoStart,
  )
+import Trader.Config (validateRuntimeConfig)
+import Trader.Duration (TimeWindow (..), lookbackBarsFrom)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, trainLSTM)
@@ -96,7 +98,14 @@ main = do
             , run "method parsing" testMethodParsing
             , run "platform parsing" testPlatformParsing
             , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+            , run "dry-run requires trade flag" testDryRunRequiresTrade
+            , run "dry-run trade bypasses runtime credentials" testDryRunBypassesRuntimeCredentials
+            , run "empty cli credentials rejected" testEmptyCliCredentialsRejected
+            , run "backtest window validates time formats" testBacktestWindowTimeValidation
+            , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
+            , run "initial balance must be positive" testInitialBalanceValidation
             , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
+            , run "bot/auto-start resolves origin combo for active adoption" testAutoStartResolvesOriginComboForActiveAdopt
             , run "bot/start preserves provided combo for active adoption" testBotStartPreservesProvidedComboForActiveAdopt
             , run "bot/start clears origin only when adoptable and flat" testBotStartClearOriginGate
             , run "position origin persists only for live sent switches" testPersistPositionOriginGate
@@ -740,11 +749,72 @@ testNonBinanceArgsLiveDefault = do
         Left err -> assert "explicit --binance-live rejected on kraken" ("--binance-live is only supported on Binance/Coinbase" `isInfixOf` err)
         Right _ -> error "expected explicit --binance-live to be rejected on kraken"
 
+testDryRunRequiresTrade :: IO ()
+testDryRunRequiresTrade =
+    case parseArgsResult ["--data", "sample.csv", "--dry-run"] of
+        Left err -> assert "dry-run requires trade flag" ("--dry-run requires --binance-trade" `isInfixOf` err)
+        Right _ -> error "expected --dry-run without --binance-trade to fail"
+
+testDryRunBypassesRuntimeCredentials :: IO ()
+testDryRunBypassesRuntimeCredentials = do
+    args <-
+        parseArgs
+            [ "--symbol"
+            , "BTCUSDT"
+            , "--platform"
+            , "binance"
+            , "--interval"
+            , "1h"
+            , "--bars"
+            , "100"
+            , "--lookback-bars"
+            , "10"
+            , "--trade-only"
+            , "--binance-trade"
+            , "--dry-run"
+            ]
+    validated <- validateRuntimeConfig args
+    case validated of
+        Left err -> error ("dry-run should bypass runtime credential checks: " ++ err)
+        Right () -> pure ()
+
+testEmptyCliCredentialsRejected :: IO ()
+testEmptyCliCredentialsRejected =
+    case parseArgsResult ["--symbol", "BTCUSDT", "--binance-api-key", "   "] of
+        Left err -> assert "empty binance key rejected" ("--binance-api-key cannot be empty" `isInfixOf` err)
+        Right _ -> error "expected empty --binance-api-key to fail validation"
+
+testBacktestWindowTimeValidation :: IO ()
+testBacktestWindowTimeValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "not-a-time"] of
+        Left err ->
+            assert
+                "invalid --from rejected"
+                ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
+        Right _ -> error "expected invalid --from to fail validation"
+
+testBacktestWindowOrderValidation :: IO ()
+testBacktestWindowOrderValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-02", "--to", "2025-01-01"] of
+        Left err -> assert "from<=to enforced" ("--from must be <= --to" `isInfixOf` err)
+        Right _ -> error "expected --from > --to to fail validation"
+
+testInitialBalanceValidation :: IO ()
+testInitialBalanceValidation =
+    case parseArgsResult ["--data", "sample.csv", "--initial-balance", "0"] of
+        Left err -> assert "initial balance > 0 enforced" ("--initial-balance must be > 0" `isInfixOf` err)
+        Right _ -> error "expected non-positive initial balance to fail validation"
+
 testBotTradeDefaultTrue :: IO ()
 testBotTradeDefaultTrue = do
     assert "botTrade omitted defaults to true" (botTradeEnabledFromApi Nothing)
     assert "botTrade=true stays true" (botTradeEnabledFromApi (Just True))
     assert "botTrade=false stays false" (not (botTradeEnabledFromApi (Just False)))
+
+testAutoStartResolvesOriginComboForActiveAdopt :: IO ()
+testAutoStartResolvesOriginComboForActiveAdopt = do
+    assert "active adopt resolves persisted-origin combo first" (shouldResolveOriginComboOnAutoStart True)
+    assert "flat start skips persisted-origin combo resolution" (not (shouldResolveOriginComboOnAutoStart False))
 
 testBotStartPreservesProvidedComboForActiveAdopt :: IO ()
 testBotStartPreservesProvidedComboForActiveAdopt = do

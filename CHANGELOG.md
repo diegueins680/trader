@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- API: add public `GET /version` endpoint exposing build `version` and `commit` (when commit env vars are set), and list it in API docs/root endpoint metadata.
+- Trading/CLI/API: add `--dry-run` / `dryRun=true` simulation mode for trade flows so signals + trade JSON are returned without sending exchange/DEX requests (`order.mode="dry-run"`).
+- Trading/CLI/API: fail fast on invalid runtime trading config (missing required Binance/Coinbase credentials or DEX runtime env) when `--binance-trade` is enabled and dry-run is off.
+- CLI: reject empty credential flag values (`--binance-api-key`, `--binance-api-secret`, `--coinbase-api-key`, `--coinbase-api-secret`, `--coinbase-api-passphrase`).
+- CI: enforce `fourmolu --mode check`, failing `hlint`, `cabal build`, and `cabal test` in the Haskell workflow.
+- Backtests/CLI/API: add `--from`/`--to` (`from`/`to` in JSON) timestamp window filters and `--initial-balance` (`initialBalance`) to scale equity outputs from a configurable starting balance.
 - Trading/Optimizer/Web UI: expand adaptive methods with `--method conf_blend`/`conf_pick` (confidence-weighted/pick), `--method edge_blend`/`edge_pick` (edge-weighted/pick), and `--method geo_blend` (geometric), expose them in CLI/API/UI method lists, and add optimizer sampling via `--method-weight-conf-blend` / `--method-weight-conf-pick` / `--method-weight-edge-blend` / `--method-weight-edge-pick` / `--method-weight-geo-blend`.
 - Trading/Optimizer/Web UI: add `--method cost_pick` (post-cost winner), `--method regime_switch` (volatility/z-score switch), and `--method bandit_router` (UCB-style router exploration); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-cost-pick` / `--method-weight-regime-switch` / `--method-weight-bandit-router`.
 - Trading/Optimizer/Web UI: add `--method harmonic_blend` (harmonic return-space blend) and `--method disagreement_guard` (defensive pick on model disagreement); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-harmonic-blend` / `--method-weight-disagreement-guard`.
@@ -67,7 +73,8 @@ All notable changes to this project will be documented in this file.
 - Binance: skip key-check trade tests and order placement when exchangeInfo filters are unavailable to avoid precision errors.
 - Ops/API: add tenant-scoped ops persistence and rollups; `TRADER_MULTI_USER` enforces tenantKey for `/ops` + `/ops/performance`.
 - Ops/API: persist position origins (side + combo UUID) for live, sent orders in ops DB so adopted bots can reuse the combo that opened the position when possible (stale origins are cleared when the account is flat).
-- Bot/API: fix `/bot/start` adoption flow so omitted `botTrade` still defaults to live adoption/orphan checks, stale flat position-origin rows are cleaned up on start, and persisted-origin combo selections are not overridden by worker-time top-combo re-picks.
+- Bot/API: fix `/bot/start` adoption flow so omitted `botTrade` still defaults to live adoption/orphan checks, stale flat position-origin rows are cleaned up on start (with warning logs on cleanup failure), auto-start active adoption resolves persisted-origin combos first, and persisted-origin combo selections are not overridden by worker-time top-combo re-picks.
+- Bot/API: auto-start orphan adoption now evaluates runtime side/trade-enabled state and recycles orphaned running bots, restarting them with trading enabled and the top compatible combo so open futures positions can be adopted automatically.
 - Deploy: `deploy-aws-quick.sh` runs ops schema updates + performance rollups when `TRADER_DB_URL` is set (requires `psql`; disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`).
 - Deploy: `deploy-aws-quick.sh` snapshots `/state/sync` before App Runner updates (when a tenant key is available) and restores it after to preserve optimizer combos across deploys.
 - Optimizer: ensure at least the top 100 combos are restored from DB/S3 after deploys (configurable via `TRADER_TOP_COMBOS_MIN_PERSIST`).

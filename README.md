@@ -227,6 +227,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--binance-api-key KEY` (default: none) or env `BINANCE_API_KEY`
   - `--binance-api-secret SECRET` (default: none) or env `BINANCE_API_SECRET`
   - `--binance-trade` (default: off) place a market order for the latest signal (CEX requires `--symbol`/`--binance-symbol`; DEX requires `--dex-base-token/--dex-quote-token`)
+  - `--dry-run` (default: off) requires `--binance-trade`; computes signals and returns a simulated trade response, but never sends exchange/DEX requests
   - `--binance-live` (default: off) send LIVE orders
   - `--no-binance-live` send TEST orders (Binance only; Coinbase has no test endpoint)
   - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`)
@@ -237,6 +238,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
   - Order sizes are applied as specified (no extra multiplier).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
+  - Non-dry-run trading validates required credentials and DEX runtime settings before execution (fail-fast with a user error/HTTP 400).
 
 - DEX execution (Uniswap/Curve/Sushi/Balancer/Pancake/1inch via 1inch)
   - DEX trades require CSV price data (`--data`) and the following config:
@@ -460,6 +462,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 - Metrics
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
     - The split must leave at least `lookback+1` training bars and 2 backtest bars, otherwise it errors.
+  - `--from TIME` / `--to TIME` optional backtest window bounds (epoch seconds/ms or ISO-8601, for example `2025-01-01` or `2025-01-01T00:00:00Z`)
+    - Backtest window filtering requires bar timestamps (exchange candles or CSV with a parseable time column).
+  - `--initial-balance B` initial backtest balance (`> 0`, default `1.0`); scales equity outputs while keeping return/risk ratios unchanged.
   - `--periods-per-year N` (default: inferred from `--interval`)
     - Used for annualized metrics and tune scoring (optimize/sweep).
 
@@ -468,6 +473,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--json` machine-readable JSON to stdout:
     - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
     - Backtest: `{ "mode": "backtest", "backtest": ... }` (includes `"baselines"` like `buy-hold` / `sma-cross(...)`, and `"trade"` if `--binance-trade` is set)
+    - Backtest JSON includes `split.from`, `split.to`, and `initialBalance` when a window/balance override is used.
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
     - Trade responses include `txHash` when a DEX swap is submitted.
     - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match with non-neutral directions; agreement rate only counts bars where both models emit a non-neutral open direction.
@@ -493,9 +499,9 @@ cabal run trader-hs -- --serve --port 8080
 ```
 
 Optional auth (recommended for any deployment):
-- Set `TRADER_API_TOKEN` to require a token on all endpoints except `/health`
+- Set `TRADER_API_TOKEN` to require a token on all endpoints except `/health` and `/version`
 - Send either `Authorization: Bearer <token>` or `X-API-Key: <token>`
-- `/health` stays public, and reports `authRequired`/`authOk` when `TRADER_API_TOKEN` is set (useful for quickly checking auth wiring)
+- `/health` and `/version` stay public. `/health` reports `authRequired`/`authOk` when `TRADER_API_TOKEN` is set (useful for quickly checking auth wiring)
 
 Optional CORS:
 - Set `TRADER_CORS_ORIGIN` to one or more allowed origins (comma-separated; use `*` to allow all) to enable browser access from those origins.
@@ -513,11 +519,13 @@ Tenant isolation (multi-user UI):
 - Set `TRADER_MULTI_USER=true` to require `tenantKey` for `/ops` + `/ops/performance` and scope ops/rollups per tenant (rerun `haskell/scripts/rollup_performance.sh` after upgrading).
 
 Build info:
-- `GET /` and `GET /health` include `version` and optional `commit` (from env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA`).
+- `GET /`, `GET /health`, and `GET /version` include build version details.
+- Commit metadata is included when env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA` is set.
 
 Endpoints:
 - `GET /` → basic endpoint list
 - `GET /health`
+- `GET /version` → build metadata (`name`, `version`, and `commit`; `commit` is `null` when unset)
 - `GET /metrics`
 - `GET /ops` → persisted operations feed (enabled via `TRADER_DB_URL`; requires `tenantKey` when `TRADER_MULTI_USER=true`)
 - `GET /ops/performance` → ops rollups/deltas (requires `haskell/scripts/rollup_performance.sh`; `tenantKey` required when `TRADER_MULTI_USER=true`)
@@ -526,12 +534,12 @@ Endpoints:
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /signal/async` → starts an async signal job
 - `GET /signal/async/:jobId` → polls an async signal job (also accepts `POST` for proxy compatibility)
-- `POST /trade` → returns the latest signal + attempts an order (Binance test orders by default; set `binanceLive=true` for live orders; Coinbase is live-only; DEX orders use 1inch + `dex*` fields)
+- `POST /trade` → returns the latest signal + attempts an order (Binance test orders by default; set `binanceLive=true` for live orders; Coinbase is live-only; set `dryRun=true` to force simulation-only; DEX orders use 1inch + `dex*` fields)
 - `POST /trade/async` → starts an async trade job
 - `GET /trade/async/:jobId` → polls an async trade job (also accepts `POST` for proxy compatibility)
 - Signal endpoints validate request parameters the same way as the CLI; invalid ranges return 400.
 - Use `predictors` in API payloads to select which predictors train/use (same format as `--predictors`).
-- `POST /backtest` → runs a backtest and returns summary metrics
+- `POST /backtest` → runs a backtest and returns summary metrics (`from`, `to`, and `initialBalance` are supported in JSON payloads)
 - `POST /backtest/async` → starts an async backtest job
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
 - Backtest endpoints return 400 for inconsistent inputs (e.g., lookback >= bars, high/low length mismatches).
@@ -563,7 +571,7 @@ Endpoints:
 - `POST /bot/start` skips top-combo candidates that exceed API compute limits and falls back to the base args.
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
 - `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000, and open trade entries are clamped to the tail).
-- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`), keeps bots running for the current top 10 combos in `top-combos.json` (Binance only), prioritized by annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker, and scans for orphan open futures positions to auto-adopt them when a compatible top combo exists. When ops persistence is enabled (`TRADER_DB_URL`), the bot also stores the combo UUID used to open/switch each position (only for live, sent orders) and adoption prefers reusing that exact combo when possible. Trading is enabled by default (requires Binance API keys) and missing bots restart on the next poll interval. Set `TRADER_BOT_AUTOSTART=false` to disable auto-start on boot.
+- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`), keeps bots running for the current top 10 combos in `top-combos.json` (Binance only), prioritized by annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker, and scans for orphan open futures positions to auto-adopt them with a top compatible combo. When ops persistence is enabled (`TRADER_DB_URL`), the bot also stores the combo UUID used to open/switch each position (only for live, sent orders) and adoption (manual and auto-start) prefers reusing that exact combo when possible. Trading is enabled by default (requires Binance API keys), missing bots restart on the next poll interval, and orphaned symbols already running with a non-adopting bot state are recycled/restarted automatically so adoption can proceed. Set `TRADER_BOT_AUTOSTART=false` to disable auto-start on boot.
 
 Always-on live bot (cron watchdog):
 - Use `deploy/ensure-bot-running.sh` to check `/bot/status` and call `/bot/start` if the bot is not running.
@@ -848,6 +856,7 @@ If an S3 bucket already exists and is owned by you, the quick deploy script trea
 
 CI/CD (GitHub Actions):
 - On push to `main`/`master`, `.github/workflows/ci.yml` deploys via `deploy-aws-quick.sh` after CI passes.
+- Haskell CI gates enforce formatting (`fourmolu --mode check`), lint (`hlint`), `cabal build`, and `cabal test`.
 - Required secrets: `AWS_ROLE_ARN` + `AWS_REGION` (or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`), plus `TRADER_API_TOKEN`, `TRADER_DB_URL`, `TRADER_STATE_S3_BUCKET`, `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`.
 - If deploy fails pushing to ECR with `403 Forbidden` on `HEAD .../manifests/<tag|sha256:...>`, add `ecr:BatchGetImage` to the deploy IAM policy (Docker checks for existing manifests) or disable Docker attestations (the deploy script disables provenance/SBOM by default; set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable).
 - Optional: `TRADER_AWS_ENSURE_RESOURCES` (auto-provision), `TRADER_UI_CLOUDFRONT_AUTO`, `TRADER_UI_BUCKET`, `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`, `TRADER_UI_CLOUDFRONT_DOMAIN`, `TRADER_UI_API_MODE`, `TRADER_UI_API_URL`, `TRADER_UI_API_FALLBACK_URL`.
@@ -999,7 +1008,7 @@ Predictor training falls back to empty models when datasets/parameters are inval
 Kalman/LSTM helpers clamp invalid variances or short series to safe defaults instead of crashing, so early/undersized windows may emit neutral outputs until enough data arrives.
 Price loading now returns clear errors for unsupported intervals or conflicting `--data`/`--binance-symbol` inputs instead of crashing.
 Optimizer objectives are validated by the CLI; if validation is bypassed, unknown values fall back to `final-equity` scoring.
-If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
+If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` and `/version` require auth.
 
 - Web UI: `trader-config.js` is read at startup via a `<script>` tag in `index.html`, so keep it in `public/` and serve it at `/trader-config.js` for static hosts.
 - Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `X-API-Key: <token>`. Set `apiFallbackUrl` when you want explicit failover; same-origin `/api` works without CORS, while cross-origin fallbacks require `TRADER_CORS_ORIGIN` on the API service (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it for `/api` mode when a CloudFront distribution is used and the API URL is known). If the fallback host blocks CORS, the UI disables it for the session and remembers the block for ~12h to avoid repeated CORS errors; successful fallbacks are remembered until the cached decision expires or the fallback fails.

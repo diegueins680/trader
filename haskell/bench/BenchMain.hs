@@ -133,7 +133,7 @@ benchQuantile cfg = do
     _ <- timeIt "Quantile predict" $ do
         let preds =
                 map
-                    (\x -> maybe 0 (\(lo, mid, hi, _, _) -> lo + mid + hi) (predictQuantiles model x))
+                    (maybe 0 (\(lo, mid, hi, _, _) -> lo + mid + hi) . predictQuantiles model)
                     inputs
         evaluate (sum preds)
     pure ()
@@ -155,7 +155,7 @@ benchTCN cfg = do
     _ <- timeIt "TCN predict" $ do
         let preds =
                 map
-                    (\t -> maybe 0 fst (predictTCN model prices t))
+                    (maybe 0 fst . predictTCN model prices)
                     predictIdxs
         evaluate (sum preds)
     pure ()

@@ -101,10 +101,10 @@ emptyGBDTModel =
         }
 
 stumpPredict :: Stump -> V.Vector Double -> Double
-stumpPredict Stump{stFeature = j, stThreshold = thr, stLeftValue = l, stRightValue = r} feats =
-    if j < 0 || j >= V.length feats
-        then 0
-        else if feats V.! j <= thr then l else r
+stumpPredict Stump{stFeature = j, stThreshold = thr, stLeftValue = l, stRightValue = r} feats
+    | j < 0 || j >= V.length feats = 0
+    | feats V.! j <= thr = l
+    | otherwise = r
 
 fitStump :: V.Vector (V.Vector Double) -> V.Vector Double -> Stump
 fitStump feats residuals =

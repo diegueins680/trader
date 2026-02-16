@@ -142,6 +142,7 @@ import Trader.BotStartSemantics (
     shouldClearPositionOriginOnStart,
     shouldPersistPositionOriginOnSwitch,
     shouldPreserveProvidedComboOnActiveAdopt,
+    shouldResolveOriginComboOnAutoStart,
  )
 import Trader.Coinbase (
     CoinbaseCandle (..),
@@ -153,6 +154,7 @@ import Trader.Coinbase (
     newCoinbaseEnv,
     placeCoinbaseMarketOrder,
  )
+import Trader.Config (validateRuntimeConfig)
 import Trader.Dex (
     DexEnv (..),
     DexSwapResult (..),
@@ -559,6 +561,9 @@ data BacktestSummary = BacktestSummary
     , bsTuneMetrics :: !(Maybe BacktestMetrics)
     , bsBacktestSize :: !Int
     , bsBacktestRatio :: !Double
+    , bsBacktestFromMs :: !(Maybe Int64)
+    , bsBacktestToMs :: !(Maybe Int64)
+    , bsInitialBalance :: !Double
     , bsMethodUsed :: !Method
     , bsBestOpenThreshold :: !Double
     , bsBestCloseThreshold :: !Double
@@ -824,6 +829,10 @@ main = do
         case validateArgs args of
             Left e -> die (e ++ "\n\nRun with --help for usage.")
             Right ok -> pure ok
+    runtimeValidation <- validateRuntimeConfig args'
+    case runtimeValidation of
+        Left e -> die (e ++ "\n\nRun with --help for usage.")
+        Right () -> pure ()
     if argOpsBackfillCommits args'
         then runOpsBackfillCommits
         else do
@@ -876,6 +885,9 @@ data ApiParams = ApiParams
     , apLr :: Maybe Double
     , apValRatio :: Maybe Double
     , apBacktestRatio :: Maybe Double
+    , apFrom :: Maybe String
+    , apTo :: Maybe String
+    , apInitialBalance :: Maybe Double
     , apTuneRatio :: Maybe Double
     , apTuneObjective :: Maybe String
     , apTunePenaltyMaxDrawdown :: Maybe Double
@@ -988,6 +1000,7 @@ data ApiParams = ApiParams
     , apMaxOrderErrors :: Maybe Int
     , apPeriodsPerYear :: Maybe Double
     , apBinanceLive :: Maybe Bool
+    , apDryRun :: Maybe Bool
     , apOrderQuote :: Maybe Double
     , apOrderQuantity :: Maybe Double
     , apOrderQuoteFraction :: Maybe Double
@@ -2233,6 +2246,7 @@ argsPublicJson args =
             , "binanceTestnet" .= argBinanceTestnet args
             , "binanceLive" .= argBinanceLive args
             , "binanceTrade" .= argBinanceTrade args
+            , "dryRun" .= argDryRun args
             , "hasBinanceApiKey" .= boolFromMaybe (argBinanceApiKey args)
             , "hasBinanceApiSecret" .= boolFromMaybe (argBinanceApiSecret args)
             , "hasCoinbaseApiKey" .= boolFromMaybe (argCoinbaseApiKey args)
@@ -2256,6 +2270,9 @@ argsPublicJson args =
             , "lr" .= argLr args
             , "valRatio" .= argValRatio args
             , "backtestRatio" .= argBacktestRatio args
+            , "from" .= argBacktestFrom args
+            , "to" .= argBacktestTo args
+            , "initialBalance" .= argInitialBalance args
             , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
             , "patience" .= argPatience args
             , "gradClip" .= argGradClip args
@@ -4030,7 +4047,6 @@ persistBinancePositions store market positions =
                             )
                     pure ()
 
-
 data ComboParamsRow = ComboParamsRow
     { cprFinalEquity :: !(Maybe Double)
     , cprObjective :: !(Maybe Text)
@@ -4569,24 +4585,26 @@ computeAdaptiveAdjustments args stats =
         -- Profit-factor tightening starts at (minPF * 1.10) and reaches full strictness at minPF.
         winScore =
             case argPerfMinWinRate args of
-                Just v | v > 0 ->
-                    let slack = 0.05
-                        start = min 1 (v + slack)
-                        denom = max 1e-12 (start - v)
-                        raw = (start - bpsWinRate stats) / denom
-                     in clamp01 raw
+                Just v
+                    | v > 0 ->
+                        let slack = 0.05
+                            start = min 1 (v + slack)
+                            denom = max 1e-12 (start - v)
+                            raw = (start - bpsWinRate stats) / denom
+                         in clamp01 raw
                 _ -> 0
         pfScore =
             case argPerfMinProfitFactor args of
-                Just v | v > 0 ->
-                    let start = v * 1.10
-                        denom = max 1e-12 (start - v)
-                        pfVal =
-                            case bpsProfitFactor stats of
-                                Nothing -> start
-                                Just pf -> pf
-                        raw = (start - pfVal) / denom
-                     in clamp01 raw
+                Just v
+                    | v > 0 ->
+                        let start = v * 1.10
+                            denom = max 1e-12 (start - v)
+                            pfVal =
+                                case bpsProfitFactor stats of
+                                    Nothing -> start
+                                    Just pf -> pf
+                            raw = (start - pfVal) / denom
+                         in clamp01 raw
                 _ -> 0
         strictness =
             if argAdaptiveFilters args && ready
@@ -5689,8 +5707,16 @@ clearPositionOriginIfFlatMaybe mOps tenantKey args sym =
     case mOps of
         Nothing -> pure ()
         Just store -> do
-            _ <- (try (deletePositionOrigin store tenantKey args sym) :: IO (Either SomeException ()))
-            pure ()
+            delRes <- (try (deletePositionOrigin store tenantKey args sym) :: IO (Either SomeException ()))
+            case delRes of
+                Left ex ->
+                    putStrLn
+                        ( "Warning: failed to clear persisted position origin for "
+                            ++ sym
+                            ++ ": "
+                            ++ show ex
+                        )
+                Right () -> pure ()
 
 applyOriginComboForAdoptionMaybe ::
     Maybe OpsStore ->
@@ -5719,7 +5745,7 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
                                     ensureBinanceKeysPresent env
                                     fetchAdoptableAccountPos baseArgs env sym
                                 ) ::
-                                IO (Either SomeException Int)
+                                    IO (Either SomeException Int)
                             case posOrErr of
                                 Left _ -> pure (baseArgs, Nothing)
                                 Right posSign -> do
@@ -5827,6 +5853,122 @@ resolveOrphanOpenPositionSymbols mOps _limits args requested =
                             , not (fpsHasLong summary && fpsHasShort summary)
                             ]
                     pure (dedupeStable orphans)
+
+data RuntimeAdoptionInfo = RuntimeAdoptionInfo
+    { raiStarting :: !Bool
+    , raiTradeEnabled :: !Bool
+    , raiSide :: !(Maybe Int)
+    }
+
+botPositionSign :: BotState -> Maybe Int
+botPositionSign st =
+    let pos =
+            if V.null (botPositions st)
+                then 0
+                else V.last (botPositions st)
+     in case compare pos 0 of
+            GT -> Just 1
+            LT -> Just (-1)
+            EQ -> Nothing
+
+runtimeAdoptionInfo :: BotRuntimeState -> IO RuntimeAdoptionInfo
+runtimeAdoptionInfo rtState =
+    case rtState of
+        BotStarting rt ->
+            pure
+                RuntimeAdoptionInfo
+                    { raiStarting = True
+                    , raiTradeEnabled = bsTradeEnabled (bsrSettings rt)
+                    , raiSide = Nothing
+                    }
+        BotRunning rt -> do
+            stOrErr <- try (readMVar (brStateVar rt)) :: IO (Either SomeException BotState)
+            pure $
+                case stOrErr of
+                    Left _ ->
+                        RuntimeAdoptionInfo
+                            { raiStarting = False
+                            , raiTradeEnabled = False
+                            , raiSide = Nothing
+                            }
+                    Right st ->
+                        RuntimeAdoptionInfo
+                            { raiStarting = False
+                            , raiTradeEnabled = bsTradeEnabled (botSettings st)
+                            , raiSide = botPositionSign st
+                            }
+
+futuresPositionSideSign :: FuturesPositionRisk -> Maybe Int
+futuresPositionSideSign pos =
+    case accountPosSign (positionAmtSigned pos) of
+        1 -> Just 1
+        -1 -> Just (-1)
+        _ -> Nothing
+
+positionAdoptedByRuntime :: Maybe RuntimeAdoptionInfo -> FuturesPositionRisk -> Bool
+positionAdoptedByRuntime mInfo pos =
+    case mInfo of
+        Nothing -> False
+        Just info ->
+            if not (raiTradeEnabled info)
+                then False
+                else
+                    case futuresPositionSideSign pos of
+                        Nothing -> False
+                        Just posSide ->
+                            let activeSides = maybeToList (raiSide info)
+                                hasStarting = raiStarting info
+                             in posSide `elem` activeSides || (null activeSides && hasStarting)
+
+resolveOrphanOpenPositionActions :: Maybe OpsStore -> Args -> BotRuntimeMap -> IO ([String], [String])
+resolveOrphanOpenPositionActions mOps args tenantMap =
+    if not (platformSupportsLiveBot (argPlatform args)) || argBinanceMarket args /= MarketFutures
+        then pure ([], [])
+        else do
+            positionsOrErr <-
+                ( try $ do
+                    env <- makeBinanceEnv mOps args
+                    ensureBinanceKeysPresent env
+                    fetchFuturesPositionRisks env
+                ) ::
+                    IO (Either SomeException [FuturesPositionRisk])
+            case positionsOrErr of
+                Left _ -> pure ([], [])
+                Right positions -> do
+                    let openPositions = filter (\p -> accountPosSign (fprPositionAmt p) /= 0) positions
+                        openBySymbol =
+                            foldl'
+                                ( \acc pos ->
+                                    let sym = normalizeSymbol (fprSymbol pos)
+                                     in HM.insertWith (++) sym [pos] acc
+                                )
+                                HM.empty
+                                openPositions
+                        symbolAdoptable symPositions =
+                            let sides = dedupeStable [s | p <- symPositions, Just s <- [futuresPositionSideSign p]]
+                             in not (1 `elem` sides && (-1) `elem` sides)
+                        tenantMapNorm =
+                            HM.fromList
+                                [ (normalizeSymbol sym, st)
+                                | (sym, st) <- HM.toList tenantMap
+                                ]
+                    runtimeInfos <- forM (HM.toList tenantMapNorm) $ \(sym, rtState) -> do
+                        info <- runtimeAdoptionInfo rtState
+                        pure (sym, info)
+                    let runtimeBySymbol = HM.fromList runtimeInfos
+                        orphanSymbols =
+                            [ sym
+                            | (sym, symPositions) <- sortOn fst (HM.toList openBySymbol)
+                            , symbolAdoptable symPositions
+                            , let mInfo = HM.lookup sym runtimeBySymbol
+                            , any (not . positionAdoptedByRuntime mInfo) symPositions
+                            ]
+                        orphanRestartSymbols =
+                            [ sym
+                            | sym <- orphanSymbols
+                            , HM.member sym tenantMapNorm
+                            ]
+                    pure (dedupeStable orphanSymbols, dedupeStable orphanRestartSymbols)
 
 resolveAdoptionRequirement :: Maybe OpsStore -> Args -> String -> IO (Either String AdoptRequirement)
 resolveAdoptionRequirement mOps args sym = do
@@ -6195,8 +6337,28 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                     Left err -> recordError sym err
                                     Right adoptReq -> do
                                         (argsCombo, mComboUuid) <-
-                                            if arActive adoptReq
-                                                then pure (argsSym, Nothing)
+                                            if shouldResolveOriginComboOnAutoStart (arActive adoptReq)
+                                                then do
+                                                    (argsOrigin, mOriginUuid) <-
+                                                        applyOriginComboForAdoptionMaybe
+                                                            mOps
+                                                            topCombosStore
+                                                            limits
+                                                            tenantKey
+                                                            argsSym
+                                                            adoptReq
+                                                            sym
+                                                    case mOriginUuid of
+                                                        Just _ -> pure (argsOrigin, mOriginUuid)
+                                                        Nothing ->
+                                                            case mCombo of
+                                                                Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                Just combo ->
+                                                                    case applyTopComboForStartWithUuid argsSym combo of
+                                                                        Left err -> do
+                                                                            recordError sym ("Top combo parse failed: " ++ err)
+                                                                            applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                        Right (args', uuid) -> pure (args', uuid)
                                                 else do
                                                     when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
                                                         clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
@@ -6243,16 +6405,20 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                     topSymbols = map fst topTargets
                                     targetSymbolsBase = dedupeStable (baseSymbols ++ topSymbols)
                                 mrt <- readMVar (bcRuntime botCtrl)
-                                let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+                                let tenantMap0 = fromMaybe HM.empty (HM.lookup tenantKey mrt)
                                     argsWithKeys = argsBase
-                                    runningSymbols = HM.keys tenantMap
-                                    orphanRequested = dedupeStable (targetSymbolsBase ++ runningSymbols)
-                                orphanSymbols <- resolveOrphanOpenPositionSymbols mOps limits argsWithKeys orphanRequested
+                                (orphanSymbols, orphanRestartSymbols) <- resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0
                                 let targetSymbols = dedupeStable (targetSymbolsBase ++ orphanSymbols)
                                 prevTargets <- readIORef targetsRef
                                 when (prevTargets /= targetSymbols) $ do
                                     writeIORef targetsRef targetSymbols
                                     putStrLn ("Live bot auto-start targets: " ++ formatList targetSymbols)
+                                let restartSymbols = dedupeStable (filter (`HM.member` tenantMap0) orphanRestartSymbols)
+                                unless (null restartSymbols) $ do
+                                    putStrLn ("Live bot auto-start restarting orphaned symbols: " ++ formatList restartSymbols)
+                                    mapM_ (\sym -> void (botStop botCtrl tenantKey (Just sym))) restartSymbols
+                                mrtAfterRestart <- readMVar (bcRuntime botCtrl)
+                                let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrtAfterRestart)
                                 let missing = filter (not . (`HM.member` tenantMap)) targetSymbols
                                 mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap)) missing
                                 sleepSec pollSec
@@ -10051,6 +10217,9 @@ argsCacheJsonBacktest args =
             , "method" .= methodCode (argMethod args)
             , "positioning" .= positioningCode (argPositioning args)
             , "backtestRatio" .= argBacktestRatio args
+            , "from" .= argBacktestFrom args
+            , "to" .= argBacktestTo args
+            , "initialBalance" .= argInitialBalance args
             , "tuneRatio" .= argTuneRatio args
             , "tuneObjective" .= tuneObjectiveCode tuneObjectiveUsed
             , "tunePenaltyMaxDrawdown" .= argTunePenaltyMaxDrawdown args
@@ -10786,12 +10955,13 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
             case path of
                 [] -> "/"
                 _ -> "/" ++ intercalate "/" (map T.unpack path)
-        pathIsHealth = path == ["health"]
+        pathIsPublic = path == ["health"] || path == ["version"]
+        pathIsQuiet = path == ["health"] || path == ["version"]
         respondLogged resp = do
             endMs <- getTimestampMs
             let code = statusCode (Wai.responseStatus resp)
                 durMs = max 0 (endMs - startMs)
-                shouldLog = method /= "OPTIONS" && not (pathIsHealth && code < 400)
+                shouldLog = method /= "OPTIONS" && not (pathIsQuiet && code < 400)
             when shouldLog $
                 putStrLn (printf "Request %s %s -> %d (%dms)" method pathLabel code durMs)
             respond resp
@@ -10820,7 +10990,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                 "OPTIONS" -> respondLogged (Wai.responseLBS status204 (corsHeadersFor corsConfig req) "")
                 _ -> do
                     metricsIncEndpoint metrics label
-                    if path /= ["health"] && not (authorized apiToken req)
+                    if not pathIsPublic && not (authorized apiToken req)
                         then respondCors (jsonError status401 "Unauthorized (send Authorization: Bearer <token> or X-API-Key)")
                         else case path of
                             [] ->
@@ -10836,6 +11006,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                                         ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
                                                         ++ [ "endpoints"
                                                                 .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
+                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/version" :: String)]
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/ops/performance" :: String)]
@@ -10872,6 +11043,19 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                                                    ]
                                                            ]
                                                     )
+                                                )
+                                    _ -> respondCors (jsonError status405 "Method not allowed")
+                            ["version"] ->
+                                case Wai.requestMethod req of
+                                    "GET" ->
+                                        respondCors $
+                                            jsonValue
+                                                status200
+                                                ( object
+                                                    [ "name" .= ("trader-hs" :: String)
+                                                    , "version" .= biVersion buildInfo
+                                                    , "commit" .= biCommit buildInfo
+                                                    ]
                                                 )
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["health"] ->
@@ -15100,6 +15284,9 @@ argsFromApi baseArgs p = do
                 , argLr = pick (apLr p) (argLr baseArgs)
                 , argValRatio = pick (apValRatio p) (argValRatio baseArgs)
                 , argBacktestRatio = pick (apBacktestRatio p) (argBacktestRatio baseArgs)
+                , argBacktestFrom = pickMaybe (apFrom p) (argBacktestFrom baseArgs)
+                , argBacktestTo = pickMaybe (apTo p) (argBacktestTo baseArgs)
+                , argInitialBalance = pick (apInitialBalance p) (argInitialBalance baseArgs)
                 , argTuneRatio = pick (apTuneRatio p) (argTuneRatio baseArgs)
                 , argTuneObjective = tuneObjective
                 , argTunePenaltyMaxDrawdown = pick (apTunePenaltyMaxDrawdown p) (argTunePenaltyMaxDrawdown baseArgs)
@@ -15217,6 +15404,7 @@ argsFromApi baseArgs p = do
                         Nothing -> argPeriodsPerYear baseArgs
                         Just v -> Just v
                 , argBinanceLive = pick (apBinanceLive p) (argBinanceLive baseArgs)
+                , argDryRun = pick (apDryRun p) (argDryRun baseArgs)
                 , argOrderQuote = pickMaybe (apOrderQuote p) (argOrderQuote baseArgs)
                 , argOrderQuantity = pickMaybe (apOrderQuantity p) (argOrderQuantity baseArgs)
                 , argOrderQuoteFraction = pickMaybe (apOrderQuoteFraction p) (argOrderQuoteFraction baseArgs)
@@ -15308,29 +15496,91 @@ noOrderResult msg =
         , aorMessage = msg
         }
 
+ensureRuntimeConfig :: Args -> IO ()
+ensureRuntimeConfig args = do
+    runtimeValidation <- validateRuntimeConfig args
+    case runtimeValidation of
+        Left msg -> throwIO (userError msg)
+        Right () -> pure ()
+
+dryRunOrderResult :: Args -> LatestSignal -> ApiOrderResult
+dryRunOrderResult args sig =
+    let chosen = lsChosenDir sig
+        message =
+            case chosen of
+                Nothing -> "Dry run: neutral signal; no order would be sent."
+                Just _ -> "Dry run: order execution disabled; no exchange or DEX request was sent."
+        side =
+            case chosen of
+                Just 1 -> Just "BUY"
+                Just (-1) -> Just "SELL"
+                _ -> Nothing
+        qty =
+            case argOrderQuantity args of
+                Just q | q > 0 -> Just q
+                _ -> Nothing
+        quoteQty =
+            case argOrderQuote args of
+                Just q | q > 0 -> Just q
+                _ -> Nothing
+        dexSymbol =
+            case (argDexBaseToken args, argDexQuoteToken args) of
+                (Just baseRaw, Just quoteRaw) ->
+                    let base = trim baseRaw
+                        quote = trim quoteRaw
+                     in if null base || null quote then argBinanceSymbol args else Just (base ++ "/" ++ quote)
+                _ -> argBinanceSymbol args
+        symbol =
+            case argPlatform args of
+                PlatformUniswap -> dexSymbol
+                PlatformCurve -> dexSymbol
+                PlatformSushiswap -> dexSymbol
+                PlatformBalancer -> dexSymbol
+                PlatformPancakeswap -> dexSymbol
+                PlatformOneInch -> dexSymbol
+                _ -> argBinanceSymbol args
+     in ApiOrderResult
+            { aorSent = False
+            , aorMode = Just "dry-run"
+            , aorSide = side
+            , aorSymbol = symbol
+            , aorQuantity = qty
+            , aorQuoteQuantity = quoteQty
+            , aorOrderId = Nothing
+            , aorClientOrderId = trim <$> argIdempotencyKey args
+            , aorStatus = Just "not_sent"
+            , aorExecutedQty = Nothing
+            , aorCummulativeQuoteQty = Nothing
+            , aorTxHash = Nothing
+            , aorResponse = Nothing
+            , aorMessage = message
+            }
+
 placeOrderForSignalPlatform :: Args -> LatestSignal -> Maybe BinanceEnv -> IO ApiOrderResult
 placeOrderForSignalPlatform args sig mBinanceEnv =
-    case argPlatform args of
-        PlatformBinance ->
-            case (argBinanceSymbol args, mBinanceEnv) of
-                (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
-                (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
-                (Just sym, Just env) -> placeOrderForSignal args sym sig env
-        PlatformCoinbase ->
-            case argBinanceSymbol args of
-                Nothing -> pure (noOrderResult "No order: missing symbol.")
-                Just sym -> do
-                    envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
-                    case envOrErr of
-                        Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
-                        Right env -> placeCoinbaseOrderForSignal args sym sig env
-        PlatformUniswap -> placeDexOrderForSignal args sig
-        PlatformCurve -> placeDexOrderForSignal args sig
-        PlatformSushiswap -> placeDexOrderForSignal args sig
-        PlatformBalancer -> placeDexOrderForSignal args sig
-        PlatformPancakeswap -> placeDexOrderForSignal args sig
-        PlatformOneInch -> placeDexOrderForSignal args sig
-        _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
+    if argDryRun args
+        then pure (dryRunOrderResult args sig)
+        else case argPlatform args of
+            PlatformBinance ->
+                case (argBinanceSymbol args, mBinanceEnv) of
+                    (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
+                    (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
+                    (Just sym, Just env) -> placeOrderForSignal args sym sig env
+            PlatformCoinbase ->
+                case argBinanceSymbol args of
+                    Nothing -> pure (noOrderResult "No order: missing symbol.")
+                    Just sym -> do
+                        envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
+                        case envOrErr of
+                            Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
+                            Right env -> placeCoinbaseOrderForSignal args sym sig env
+            PlatformUniswap -> placeDexOrderForSignal args sig
+            PlatformCurve -> placeDexOrderForSignal args sig
+            PlatformSushiswap -> placeDexOrderForSignal args sig
+            PlatformBalancer -> placeDexOrderForSignal args sig
+            PlatformPancakeswap -> placeDexOrderForSignal args sig
+            PlatformOneInch -> placeDexOrderForSignal args sig
+            _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
 
 placeDexOrderForSignal :: Args -> LatestSignal -> IO ApiOrderResult
 placeDexOrderForSignal args sig = do
@@ -15504,6 +15754,7 @@ resolveDexAmount dir mPrice entryScale exitScale args =
 
 computeTradeFromSeries :: Args -> PriceSeries -> Maybe BinanceEnv -> IO ApiTradeResponse
 computeTradeFromSeries args series mBinanceEnv = do
+    ensureRuntimeConfig args
     let prices = psClose series
     ensureMinPriceRows args 2 prices
     let lookback = argLookback args
@@ -19000,17 +19251,108 @@ computeBacktestFromArgs mOps args = do
 computeBacktestFromArgsWithLimits :: ApiComputeLimits -> Maybe OpsStore -> Args -> IO Aeson.Value
 computeBacktestFromArgsWithLimits limits mOps args = do
     (series, mBinanceEnv) <- loadPrices mOps args
-    case validateApiComputeLimitsAfterLoad limits args series of
+    seriesForLimits <-
+        case applyBacktestTimeWindow args series of
+            Left msg -> throwIO (userError msg)
+            Right s -> pure s
+    case validateApiComputeLimitsAfterLoad limits args seriesForLimits of
         Left msg -> throwIO (userError msg)
         Right () -> pure ()
     computeBacktestFromSeries args series mBinanceEnv
 
+backtestTimeBoundsMs :: Args -> Either String (Maybe Int64, Maybe Int64)
+backtestTimeBoundsMs args =
+    let parseBound flag raw =
+            case raw of
+                Nothing -> Right Nothing
+                Just s ->
+                    case parseTimeMs s of
+                        Just t -> Right (Just t)
+                        Nothing ->
+                            Left
+                                ( flag
+                                    ++ " must be epoch seconds/ms or ISO-8601 (e.g. 1704067200, 1704067200000, 2025-01-01, 2025-01-01T00:00:00Z)"
+                                )
+     in do
+            fromMs <- parseBound "--from" (argBacktestFrom args)
+            toMs <- parseBound "--to" (argBacktestTo args)
+            Right (fromMs, toMs)
+
+applyBacktestTimeWindow :: Args -> PriceSeries -> Either String PriceSeries
+applyBacktestTimeWindow args series = do
+    (mFromMs, mToMs) <- backtestTimeBoundsMs args
+    case (mFromMs, mToMs) of
+        (Nothing, Nothing) -> Right series
+        _ ->
+            let prices = psClose series
+                n = length prices
+                inRange t = maybe True (<= t) mFromMs && maybe True (t <=) mToMs
+                sliceContiguous i0 len xs = take len (drop i0 xs)
+                keepMaybe xs =
+                    case xs of
+                        Just vals | length vals == n -> Just vals
+                        _ -> Nothing
+             in case psOpenTimes series of
+                    Just openTimes
+                        | length openTimes == n ->
+                            let matching = [i | (i, t) <- zip [0 :: Int ..] openTimes, inRange t]
+                             in case matching of
+                                    [] ->
+                                        Left
+                                            ( "Backtest window is empty for the selected bounds. Adjust --from/--to. "
+                                                ++ "(source: "
+                                                ++ priceSourceLabel args
+                                                ++ ")"
+                                            )
+                                    _ ->
+                                        let i0 = head matching
+                                            i1 = last matching
+                                            len = i1 - i0 + 1
+                                            highs = fmap (sliceContiguous i0 len) (keepMaybe (psHigh series))
+                                            lows = fmap (sliceContiguous i0 len) (keepMaybe (psLow series))
+                                            openTimes' = Just (sliceContiguous i0 len openTimes)
+                                            closes = sliceContiguous i0 len prices
+                                         in Right (PriceSeries closes highs lows openTimes')
+                    _ ->
+                        Left
+                            "--from/--to require timestamped bars (CSV with a time column or exchange klines)."
+
+scaleBacktestMetrics :: Double -> BacktestMetrics -> BacktestMetrics
+scaleBacktestMetrics factor m =
+    m
+        { bmFinalEquity = bmFinalEquity m * factor
+        , bmGrossProfit = bmGrossProfit m * factor
+        , bmGrossLoss = bmGrossLoss m * factor
+        }
+
+scaleTradeEquity :: Double -> Trade -> Trade
+scaleTradeEquity factor tr =
+    tr
+        { trEntryEquity = trEntryEquity tr * factor
+        , trExitEquity = trExitEquity tr * factor
+        }
+
+scaleWalkForwardReport :: Double -> WalkForwardReport -> WalkForwardReport
+scaleWalkForwardReport factor report =
+    let scaleFold fold0 =
+            fold0{wffMetrics = scaleBacktestMetrics factor (wffMetrics fold0)}
+        scaleSummary summary =
+            summary
+                { wfsFinalEquityMean = wfsFinalEquityMean summary * factor
+                , wfsFinalEquityStd = wfsFinalEquityStd summary * factor
+                }
+     in report
+            { wfrFolds = map scaleFold (wfrFolds report)
+            , wfrSummary = scaleSummary (wfrSummary report)
+            }
+
+scaleBaselineMetrics :: Double -> Baseline -> Baseline
+scaleBaselineMetrics factor baseline =
+    baseline{blMetrics = scaleBacktestMetrics factor (blMetrics baseline)}
+
 computeBacktestFromSeries :: Args -> PriceSeries -> Maybe BinanceEnv -> IO Aeson.Value
 computeBacktestFromSeries args series mBinanceEnv = do
-    let prices = psClose series
-    ensureMinPriceRows args 2 prices
     let lookback = argLookback args
-    ensureLookbackRows args lookback prices
     summary <- computeBacktestSummary args lookback series mBinanceEnv
     pure (backtestSummaryJson summary)
 
@@ -19096,8 +19438,11 @@ backtestSummaryJson summary =
                     , "tuneStartIndex" .= bsFitSize summary
                     , "backtest" .= bsBacktestSize summary
                     , "backtestRatio" .= bsBacktestRatio summary
+                    , "from" .= bsBacktestFromMs summary
+                    , "to" .= bsBacktestToMs summary
                     , "backtestStartIndex" .= bsTrainEnd summary
                     ]
+            , "initialBalance" .= bsInitialBalance summary
             , "method" .= methodCode (bsMethodUsed summary)
             , "threshold" .= bsBestOpenThreshold summary
             , "openThreshold" .= bsBestOpenThreshold summary
@@ -19214,6 +19559,7 @@ metricsToJson m =
 
 runTradeOnly :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
 runTradeOnly mWebhook args lookback series mBinanceEnv = do
+    ensureRuntimeConfig args
     signal <- computeTradeOnlySignal args lookback series mBinanceEnv
     if argJson args
         then
@@ -19240,7 +19586,7 @@ runTradeOnly mWebhook args lookback series mBinanceEnv = do
 
 runBacktestPipeline :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
 runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
-    let prices = psClose series
+    ensureRuntimeConfig args
     summary <- computeBacktestSummary args lookback series mBinanceEnv
     if argJson args
         then do
@@ -19252,7 +19598,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     printJsonStdout (object ["mode" .= ("backtest" :: String), "backtest" .= base, "trade" .= ApiTradeResponse (bsLatestSignal summary) order])
                 else printJsonStdout (object ["mode" .= ("backtest" :: String), "backtest" .= base])
         else do
-            let n = length prices
+            let n = bsTrainSize summary + bsBacktestSize summary
                 trainEndRaw = bsTrainEndRaw summary
                 trainEnd = bsTrainEnd summary
                 backtestRatio = bsBacktestRatio summary
@@ -19310,6 +19656,16 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                                 (bsBestCloseThreshold summary)
                                 (bsBestCloseThreshold summary * 100)
                             )
+
+            case (bsBacktestFromMs summary, bsBacktestToMs summary) of
+                (Nothing, Nothing) -> pure ()
+                (mFrom, mTo) ->
+                    putStrLn
+                        ( printf
+                            "Backtest window: from=%s to=%s"
+                            (maybe "start" show mFrom)
+                            (maybe "end" show mTo)
+                        )
 
             case bsTuneStats summary of
                 Nothing -> pure ()
@@ -19372,27 +19728,45 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
 
             Data.Foldable.for_ (bsLstmHistory summary) printLstmSummary
 
-            printMetrics (bsMethodUsed summary) (bsMetrics summary)
+            printMetrics (bsMethodUsed summary) (bsInitialBalance summary) (bsMetrics summary)
 
             case bsWalkForward summary of
                 Nothing -> pure ()
                 Just wf -> do
                     let s = wfrSummary wf
+                        initialBalance = bsInitialBalance summary
                     putStrLn ""
                     putStrLn "**Walk-forward backtest**"
-                    putStrLn
-                        ( printf
-                            "Folds=%d finalEq=%.4fx±%.4fx sharpe=%.3f±%.3f maxDD=%.2f%%±%.2f%% turnover=%.4f±%.4f"
-                            (wfrFoldCount wf)
-                            (wfsFinalEquityMean s)
-                            (wfsFinalEquityStd s)
-                            (wfsSharpeMean s)
-                            (wfsSharpeStd s)
-                            (wfsMaxDrawdownMean s * 100)
-                            (wfsMaxDrawdownStd s * 100)
-                            (wfsTurnoverMean s)
-                            (wfsTurnoverStd s)
-                        )
+                    if abs (initialBalance - 1) <= 1e-12
+                        then
+                            putStrLn
+                                ( printf
+                                    "Folds=%d finalEq=%.4fx±%.4fx sharpe=%.3f±%.3f maxDD=%.2f%%±%.2f%% turnover=%.4f±%.4f"
+                                    (wfrFoldCount wf)
+                                    (wfsFinalEquityMean s)
+                                    (wfsFinalEquityStd s)
+                                    (wfsSharpeMean s)
+                                    (wfsSharpeStd s)
+                                    (wfsMaxDrawdownMean s * 100)
+                                    (wfsMaxDrawdownStd s * 100)
+                                    (wfsTurnoverMean s)
+                                    (wfsTurnoverStd s)
+                                )
+                        else
+                            putStrLn
+                                ( printf
+                                    "Folds=%d finalEq=%.4f±%.4f (initial=%.4f) sharpe=%.3f±%.3f maxDD=%.2f%%±%.2f%% turnover=%.4f±%.4f"
+                                    (wfrFoldCount wf)
+                                    (wfsFinalEquityMean s)
+                                    (wfsFinalEquityStd s)
+                                    initialBalance
+                                    (wfsSharpeMean s)
+                                    (wfsSharpeStd s)
+                                    (wfsMaxDrawdownMean s * 100)
+                                    (wfsMaxDrawdownStd s * 100)
+                                    (wfsTurnoverMean s)
+                                    (wfsTurnoverStd s)
+                                )
 
             printLatestSignalSummary (bsLatestSignal summary)
             maybeSendOrder mWebhook args mBinanceEnv (bsLatestSignal summary)
@@ -19685,7 +20059,18 @@ trainLstmWithPersistence args lookback cfg series = do
 
 computeBacktestSummary :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO BacktestSummary
 computeBacktestSummary args lookback series mBinanceEnv = do
-    let prices = psClose series
+    seriesWindow <-
+        case applyBacktestTimeWindow args series of
+            Left msg -> throwIO (userError msg)
+            Right s -> pure s
+    (backtestFromMs, backtestToMs) <-
+        case backtestTimeBoundsMs args of
+            Left msg -> throwIO (userError msg)
+            Right bounds -> pure bounds
+    let prices = psClose seriesWindow
+    ensureMinPriceRows args 2 prices
+    ensureLookbackRows args lookback prices
+    let initialBalance = argInitialBalance args
         n = length prices
         backtestRatio = argBacktestRatio args
     split <-
@@ -19726,12 +20111,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             )
 
     let (highsAll, lowsAll) =
-            case (psHigh series, psLow series) of
+            case (psHigh seriesWindow, psLow seriesWindow) of
                 (Just hs, Just ls)
                     | length hs == n && length ls == n -> (hs, ls)
                 _ -> (prices, prices)
         openTimesAll =
-            case psOpenTimes series of
+            case psOpenTimes seriesWindow of
                 Just ts | length ts == n -> Just ts
                 _ -> Nothing
 
@@ -19905,7 +20290,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     let feeUsed = max 0 (argFee args)
         slippageUsed = max 0 (argSlippage args)
         spreadUsed = max 0 (argSpread args)
-        volPerBar = volPerBarFromPrices (psClose series)
+        volPerBar = volPerBarFromPrices prices
         sizeRef = max 1e-6 (argMaxPositionSize args)
         perSideCost = estimatedPerSideCost args sizeRef volPerBar
         roundTripCost = estimatedRoundTripCost args sizeRef volPerBar
@@ -20420,8 +20805,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         }
             _ -> pure backtestRaw
 
-    let metrics = computeMetrics ppy backtest
-        baselines = computeBaselines ppy perSideCost backtestPrices
+    let metricsRaw = computeMetrics ppy backtest
+        baselinesRaw = computeBaselines ppy perSideCost backtestPrices
 
         walkForwardE =
             let wfReq = max 1 (argWalkForwardFolds args)
@@ -20522,7 +20907,14 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             Left err -> throwIO (userError err)
             Right wf -> pure wf
 
-    let argsForSignal
+    let metrics = scaleBacktestMetrics initialBalance metricsRaw
+        baselines = map (scaleBaselineMetrics initialBalance) baselinesRaw
+        tuneMetrics = fmap (scaleBacktestMetrics initialBalance) mTuneMetrics
+        walkForwardScaled = fmap (scaleWalkForwardReport initialBalance) walkForward
+        equityCurveScaled = map (* initialBalance) (brEquityCurve backtest)
+        tradesScaled = map (scaleTradeEquity initialBalance) (brTrades backtest)
+
+        argsForSignal
             | argOptimizeOperations args =
                 args{argMethod = methodUsed, argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr}
             | argSweepThreshold args =
@@ -20585,9 +20977,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsWalkForwardFolds = argWalkForwardFolds args
             , bsWalkForwardEmbargoBars = argWalkForwardEmbargoBars args
             , bsTuneStats = mTuneStats
-            , bsTuneMetrics = mTuneMetrics
+            , bsTuneMetrics = tuneMetrics
             , bsBacktestSize = length backtestPrices
             , bsBacktestRatio = backtestRatio
+            , bsBacktestFromMs = backtestFromMs
+            , bsBacktestToMs = backtestToMs
+            , bsInitialBalance = initialBalance
             , bsMethodUsed = methodUsed
             , bsBestOpenThreshold = bestOpenThr
             , bsBestCloseThreshold = bestCloseThr
@@ -20648,17 +21043,17 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsEstimatedRoundTripCost = roundTripCost
             , bsMetrics = metrics
             , bsBaselines = baselines
-            , bsWalkForward = walkForward
+            , bsWalkForward = walkForwardScaled
             , bsLstmHistory = mHistory
             , bsLatestSignal = latestSignal
-            , bsEquityCurve = brEquityCurve backtest
+            , bsEquityCurve = equityCurveScaled
             , bsBacktestPrices = backtestPrices
             , bsOpenTimes = backtestOpenTimes
             , bsKalmanPredNext = kalmanPredNext
             , bsLstmPredNext = lstmPredNext
             , bsPositions = brPositions backtest
             , bsAgreementOk = brAgreementOk backtest
-            , bsTrades = brTrades backtest
+            , bsTrades = tradesScaled
             }
 computeBaselines :: Double -> Double -> [Double] -> [Baseline]
 computeBaselines periodsPerYear perSideCost prices =
@@ -22070,67 +22465,67 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (method, mKalmanCtx, mLstmCtxSafe) of
                     (mMethod, Just (predictors, _, _, _), Just (normState, obsAll, lstmModel))
                         | mMethod == MethodRouter || mMethod == MethodBanditRouter ->
-                        let stepCount = max 0 (n - 1)
-                            historyPreds =
-                                case mPredHistory of
-                                    Just PredHistory{phKalman = kalHist, phLstm = lstmHist, phMeta = metaHist}
-                                        | V.length kalHist >= stepCount && V.length lstmHist >= stepCount ->
-                                            let kalPredV = V.take stepCount kalHist
-                                                lstmPredV = V.take stepCount lstmHist
+                            let stepCount = max 0 (n - 1)
+                                historyPreds =
+                                    case mPredHistory of
+                                        Just PredHistory{phKalman = kalHist, phLstm = lstmHist, phMeta = metaHist}
+                                            | V.length kalHist >= stepCount && V.length lstmHist >= stepCount ->
+                                                let kalPredV = V.take stepCount kalHist
+                                                    lstmPredV = V.take stepCount lstmHist
+                                                    blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
+                                                    mMetaV =
+                                                        case metaHist of
+                                                            Just mv | V.length mv >= stepCount -> Just (V.take stepCount mv)
+                                                            _ -> Nothing
+                                                 in Just (kalPredV, lstmPredV, blendPredV, mMetaV)
+                                        _ -> Nothing
+                                (kalPredV, lstmPredV, blendPredV, metaV) =
+                                    case historyPreds of
+                                        Just preds -> preds
+                                        Nothing ->
+                                            let kal0 =
+                                                    initKalman1
+                                                        0
+                                                        (max 1e-12 (argKalmanMeasurementVar args))
+                                                        (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+                                                hmm0 = initHMMFilter predictors []
+                                                sv0 = emptySensorVar
+                                                (_, _, _, kalPredRev, metaRev) =
+                                                    foldl'
+                                                        (backtestStepKalmanOnly args pricesV predictors 0 mMarketModel)
+                                                        (kal0, hmm0, sv0, [], [])
+                                                        [0 .. stepCount - 1]
+                                                kalPredV = V.fromList (reverse kalPredRev)
+                                                metaV = Just (V.fromList (reverse metaRev))
+                                                obsV = V.fromList obsAll
+                                                lstmPredV =
+                                                    V.generate stepCount $ \i ->
+                                                        if i < lookback - 1
+                                                            then pricesV V.! i
+                                                            else
+                                                                let window = V.toList (V.slice (i - lookback + 1) lookback obsV)
+                                                                    predObs = predictNext lstmModel window
+                                                                 in inverseNorm normState predObs
                                                 blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
-                                                mMetaV =
-                                                    case metaHist of
-                                                        Just mv | V.length mv >= stepCount -> Just (V.take stepCount mv)
-                                                        _ -> Nothing
-                                             in Just (kalPredV, lstmPredV, blendPredV, mMetaV)
-                                    _ -> Nothing
-                            (kalPredV, lstmPredV, blendPredV, metaV) =
-                                case historyPreds of
-                                    Just preds -> preds
-                                    Nothing ->
-                                        let kal0 =
-                                                initKalman1
-                                                    0
-                                                    (max 1e-12 (argKalmanMeasurementVar args))
-                                                    (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
-                                            hmm0 = initHMMFilter predictors []
-                                            sv0 = emptySensorVar
-                                            (_, _, _, kalPredRev, metaRev) =
-                                                foldl'
-                                                    (backtestStepKalmanOnly args pricesV predictors 0 mMarketModel)
-                                                    (kal0, hmm0, sv0, [], [])
-                                                    [0 .. stepCount - 1]
-                                            kalPredV = V.fromList (reverse kalPredRev)
-                                            metaV = Just (V.fromList (reverse metaRev))
-                                            obsV = V.fromList obsAll
-                                            lstmPredV =
-                                                V.generate stepCount $ \i ->
-                                                    if i < lookback - 1
-                                                        then pricesV V.! i
-                                                        else
-                                                            let window = V.toList (V.slice (i - lookback + 1) lookback obsV)
-                                                                predObs = predictNext lstmModel window
-                                                             in inverseNorm normState predObs
-                                            blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
-                                         in (kalPredV, lstmPredV, blendPredV, metaV)
-                            selectAt =
-                                if mMethod == MethodBanditRouter
-                                    then banditSelectModelAt
-                                    else routerSelectModelAt
-                            (mChoice, _score, mReason) =
-                                selectAt
-                                    openThrBase
-                                    roundTripCost
-                                    (argRouterScorePnlWeight args)
-                                    routerLookback
-                                    routerMinScore
-                                    pricesV
-                                    kalPredV
-                                    lstmPredV
-                                    blendPredV
-                                    metaV
-                                    t
-                         in (mChoice, mReason)
+                                             in (kalPredV, lstmPredV, blendPredV, metaV)
+                                selectAt =
+                                    if mMethod == MethodBanditRouter
+                                        then banditSelectModelAt
+                                        else routerSelectModelAt
+                                (mChoice, _score, mReason) =
+                                    selectAt
+                                        openThrBase
+                                        roundTripCost
+                                        (argRouterScorePnlWeight args)
+                                        routerLookback
+                                        routerMinScore
+                                        pricesV
+                                        kalPredV
+                                        lstmPredV
+                                        blendPredV
+                                        metaV
+                                        t
+                             in (mChoice, mReason)
                     _ -> (Nothing, Nothing)
             routerNext =
                 case mRouterModel of
@@ -23922,11 +24317,13 @@ lstmHealthScore history =
   where
     bad x = isNaN x || isInfinite x
 
-printMetrics :: Method -> BacktestMetrics -> IO ()
-printMetrics method m = do
+printMetrics :: Method -> Double -> BacktestMetrics -> IO ()
+printMetrics method initialBalance m = do
     putStrLn ""
     putStrLn "**Profitability**"
-    putStrLn (printf "Final equity: %.4fx" (bmFinalEquity m))
+    if abs (initialBalance - 1) <= 1e-12
+        then putStrLn (printf "Final equity: %.4fx" (bmFinalEquity m))
+        else putStrLn (printf "Final equity: %.4f (from initial balance %.4f)" (bmFinalEquity m) initialBalance)
     putStrLn (printf "Total return: %.2f%%" (bmTotalReturn m * 100))
     putStrLn (printf "Annualized return: %.2f%%" (bmAnnualizedReturn m * 100))
 

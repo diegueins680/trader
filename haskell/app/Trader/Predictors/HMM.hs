@@ -77,7 +77,7 @@ remapRegimes hmm =
         remaining = filter (/= highVol) [0, 1, 2]
         trend =
             case remaining of
-                [i, j] -> if abs (mus !! i) >= abs (mus !! j) then i else j
+                [i, j] -> if abs (atDef 0 mus i) >= abs (atDef 0 mus j) then i else j
                 _ -> 0
         mr =
             case filter (\k -> k /= highVol && k /= trend) [0, 1, 2] of
@@ -112,9 +112,9 @@ predictNextFromPosterior hmm filt =
     let hmm' = normalizeHMM3 hmm
         post = normalizePosterior (hfPosterior filt)
         predState = vecMat post (hmmA hmm')
-        pTrend = predState !! hmmTrendIx hmm'
-        pMr = predState !! hmmMrIx hmm'
-        pHv = predState !! hmmHighVolIx hmm'
+        pTrend = atDef 0 predState (hmmTrendIx hmm')
+        pMr = atDef 0 predState (hmmMrIx hmm')
+        pHv = atDef 0 predState (hmmHighVolIx hmm')
         mu = sum (zipWith (*) predState (hmmMu hmm'))
         var = sum (zipWith3 (\w m v -> w * (v + m * m)) predState (hmmMu hmm') (hmmVar hmm')) - mu * mu
         sigma = sqrt (max 1e-12 var)
@@ -142,7 +142,10 @@ emStep obs hmm =
         gammas = zipWith (\a b -> normalize (zipWith (*) a b)) alphas betas
         xis = xiList hmm obs alphas betas cs
 
-        pi' = head gammas
+        pi' =
+            case gammas of
+                g0 : _ -> g0
+                [] -> hmmPi hmm
         a' = updateA gammas xis
         (mus', vars') = updateEmissions obs gammas
      in hmm{hmmPi = pi', hmmA = a', hmmMu = mus', hmmVar = vars'}
@@ -179,7 +182,7 @@ backwardScaled hmm obs cs =
                         let oNext = obsV V.! (t + 1)
                             likeNext = emissions hmm oNext
                             betaUn =
-                                [ sum [(hmmA hmm !! i !! j) * (likeNext !! j) * (betaNext !! j) | j <- [0 .. 2]]
+                                [ sum [atDef2 0 (hmmA hmm) i j * atDef 0 likeNext j * atDef 0 betaNext j | j <- [0 .. 2]]
                                 | i <- [0 .. 2]
                                 ]
                             beta = map (/ (csV V.! (t + 1))) betaUn
@@ -200,7 +203,7 @@ xiList hmm obs alphas betas cs =
                 likeNext = emissions hmm oNext
                 denom = max 1e-300 (csV V.! (t + 1))
                 un =
-                    [ [ aT !! i * (hmmA hmm !! i !! j) * (likeNext !! j) * (bNext !! j) / denom
+                    [ [ atDef 0 aT i * atDef2 0 (hmmA hmm) i j * atDef 0 likeNext j * atDef 0 bNext j / denom
                       | j <- [0 .. 2]
                       ]
                     | i <- [0 .. 2]
@@ -214,8 +217,8 @@ updateA gammas xis =
     let gammasV = V.fromList gammas
         xisV = V.fromList xis
         tMax = V.length gammasV
-        denom i = sum [(gammasV V.! t) !! i | t <- [0 .. tMax - 2]] + 1e-12
-        num i j = sum [(xisV V.! t) !! i !! j | t <- [0 .. V.length xisV - 1]]
+        denom i = sum [atDef 0 (gammasV V.! t) i | t <- [0 .. tMax - 2]] + 1e-12
+        num i j = sum [atDef2 0 (xisV V.! t) i j | t <- [0 .. V.length xisV - 1]]
         row i =
             let r = [num i j / denom i | j <- [0 .. 2]]
              in normalize r
@@ -226,18 +229,18 @@ updateEmissions obs gammas =
     let obsV = V.fromList obs
         gammasV = V.fromList gammas
         tMax = V.length gammasV
-        denom k = sum [(gammasV V.! t) !! k | t <- [0 .. tMax - 1]] + 1e-12
-        mu k = sum [(gammasV V.! t) !! k * (obsV V.! t) | t <- [0 .. tMax - 1]] / denom k
+        denom k = sum [atDef 0 (gammasV V.! t) k | t <- [0 .. tMax - 1]] + 1e-12
+        mu k = sum [atDef 0 (gammasV V.! t) k * (obsV V.! t) | t <- [0 .. tMax - 1]] / denom k
         mus = [mu k | k <- [0 .. 2]]
         var k =
-            let mk = mus !! k
-             in sum [(gammasV V.! t) !! k * ((obsV V.! t) - mk) ^ (2 :: Int) | t <- [0 .. tMax - 1]] / denom k + 1e-8
+            let mk = atDef 0 mus k
+             in sum [atDef 0 (gammasV V.! t) k * ((obsV V.! t) - mk) ^ (2 :: Int) | t <- [0 .. tMax - 1]] / denom k + 1e-8
         vars = [var k | k <- [0 .. 2]]
      in (mus, vars)
 
 emissions :: HMM3 -> Double -> [Double]
 emissions hmm x =
-    [normalPdf x (hmmMu hmm !! k) (hmmVar hmm !! k) | k <- [0 .. 2]]
+    [normalPdf x (atDef 0 (hmmMu hmm) k) (atDef 1e-8 (hmmVar hmm) k) | k <- [0 .. 2]]
 
 normalPdf :: Double -> Double -> Double -> Double
 normalPdf x mu var =
@@ -250,8 +253,8 @@ vecMat :: [Double] -> [[Double]] -> [Double]
 vecMat v m =
     [sum (zipWith (*) v (col j m)) | j <- [0 .. length v - 1]]
 
-col :: Int -> [[a]] -> [a]
-col j m = [row !! j | row <- m]
+col :: Int -> [[Double]] -> [Double]
+col j m = [atDef 0 row j | row <- m]
 
 normalize :: [Double] -> [Double]
 normalize xs =
@@ -276,12 +279,12 @@ argmax :: [Double] -> Int
 argmax xs =
     case xs of
         [] -> 0
-        _ ->
+        (x0 : rest) ->
             fst $
                 foldl'
                     (\(bi, bv) (i, v) -> if v > bv then (i, v) else (bi, bv))
-                    (0, head xs)
-                    (zip [0 ..] xs)
+                    (0, x0)
+                    (zip [1 ..] rest)
 
 applyN :: Int -> (a -> a) -> a -> a
 applyN n f = go n
@@ -291,3 +294,14 @@ applyN n f = go n
         | otherwise =
             let x' = f x
              in x' `seq` go (k - 1) x'
+
+atDef :: a -> [a] -> Int -> a
+atDef fallback xs i
+    | i < 0 = fallback
+    | otherwise =
+        case drop i xs of
+            y : _ -> y
+            [] -> fallback
+
+atDef2 :: a -> [[a]] -> Int -> Int -> a
+atDef2 fallback rows i = atDef fallback (atDef [] rows i)

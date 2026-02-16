@@ -1,5 +1,6 @@
 module Trader.BotStartSemantics (
     botTradeEnabledFromApi,
+    shouldResolveOriginComboOnAutoStart,
     shouldClearPositionOriginOnStart,
     shouldPersistPositionOriginOnSwitch,
     shouldPreserveProvidedComboOnActiveAdopt,
@@ -9,6 +10,9 @@ import Data.Maybe (isJust)
 
 botTradeEnabledFromApi :: Maybe Bool -> Bool
 botTradeEnabledFromApi = maybe True id
+
+shouldResolveOriginComboOnAutoStart :: Bool -> Bool
+shouldResolveOriginComboOnAutoStart adoptActive = adoptActive
 
 shouldPreserveProvidedComboOnActiveAdopt :: Bool -> Maybe a -> Bool
 shouldPreserveProvidedComboOnActiveAdopt adoptActive providedCombo = adoptActive && isJust providedCombo
