@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Optimizer: expand `optimize-equity` sampling to cover router memory/score gates, predictor-set selection, execution realism (`fee-fixed`/slippage-impact/volatility multipliers), partial take-profit, trade-pacing/performance guardrails, exposure/open-position caps, and adaptive guardrail maxima via new `*-min/max` + `--p-disable-*` optimizer controls.
 - API: add public `GET /version` endpoint exposing build `version` and `commit` (when commit env vars are set), and list it in API docs/root endpoint metadata.
 - Trading/CLI/API: add `--dry-run` / `dryRun=true` simulation mode for trade flows so signals + trade JSON are returned without sending exchange/DEX requests (`order.mode="dry-run"`).
 - API: allow non-owner `/trade` and `/trade/async` requests to run with `dryRun=true` without requiring tenant exchange API keys (simulation only, no order sent).
