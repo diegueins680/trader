@@ -807,6 +807,7 @@ Multi-symbol notes:
 - `POST /bot/stop?symbol=BTCUSDT` stops one bot; omit `symbol` to stop all.
 
 Live safety (startup position):
+- `botTrade` defaults to `true` when omitted, including startup adoption/orphan checks.
 - When `botTrade=true`, `/bot/start` adopts any existing position or open exchange orders for the symbol (long or short, subject to positioning).
 - Adopted positions now estimate size from current balances/positions so partial exits and fee modeling stay aligned with the live account.
 - Live bots cache the Binance API key/secret in memory for the life of the bot so order operations do not depend on the UI sending keys (not persisted across restarts).
@@ -815,7 +816,7 @@ Live safety (startup position):
 - When `botTrade=true`, `/bot/start` also auto-starts bots for orphan open futures positions (even if not listed in `botSymbols`).
 - Set `botProtectionOrders=true` to place exchange-managed `STOP_MARKET` / `TAKE_PROFIT_MARKET` orders on Binance futures (requires stop-loss or take-profit; trailing stops remain internal).
 - `botAdoptExistingPosition` is now implied and ignored if provided.
-- If an existing position or open orders are detected, `/bot/start` adopts immediately using the current settings (auto-upgrades to `positioning=long-short` for shorts). It applies a compatible top combo when available but no longer blocks startup waiting for one.
+- If an existing position or open orders are detected, `/bot/start` adopts immediately using the current settings (auto-upgrades to `positioning=long-short` for shorts). It applies a compatible top combo when available but no longer blocks startup waiting for one, and preserves a persisted-origin combo selection when one was matched during start.
 
 Auto-optimize after each buy/sell operation:
 - Thresholds only: add `"sweepThreshold": true`

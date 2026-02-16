@@ -1,6 +1,7 @@
 import type { BotStatusSingle, Market, Method } from "../lib/types";
 import { fmtNum } from "../lib/format";
 import { DATA_LOG_BAR_SERIES_KEYS } from "./constants";
+import { methodLabelFromMeta } from "./methodMeta";
 
 export function normalizeApiBaseUrlInput(raw: string): string {
   const v = raw.trim();
@@ -403,72 +404,7 @@ export function actionBadgeClass(action: string): string {
 }
 
 export function methodLabel(method: Method): string {
-  switch (method) {
-    case "11":
-      return "Both (agreement gated)";
-    case "10":
-      return "Kalman only";
-    case "01":
-      return "LSTM only";
-    case "blend":
-      return "Blend (weighted average)";
-    case "conf_blend":
-      return "Conf blend (confidence-weighted)";
-    case "conf_pick":
-      return "Conf pick (confidence winner)";
-    case "conformal_clip":
-      return "Conformal clip (clips blended return to conformal/quantile band)";
-    case "cost_pick":
-      return "Cost pick (net-edge winner)";
-    case "harmonic_blend":
-      return "Harmonic blend (return harmonic mean)";
-    case "disagreement_guard":
-      return "Disagreement guard (lower-edge on conflict)";
-    case "median_blend":
-      return "Median blend (robust middle return)";
-    case "neutral_guard":
-      return "Neutral guard (flat on conflict)";
-    case "risk_parity_blend":
-      return "Risk parity blend (inverse-edge weighted)";
-    case "consensus_boost":
-      return "Consensus boost (flat on conflict, strong on agree)";
-    case "anchor_blend":
-      return "Anchor blend (pulls toward current price on conflict)";
-    case "tension_gate":
-      return "Tension gate (partial neutralization on conflict)";
-    case "entropy_blend":
-      return "Entropy blend (uncertainty-aware spot anchoring)";
-    case "coherence_gate":
-      return "Coherence gate (agreement coherence conflict guard)";
-    case "divergence_gate":
-      return "Divergence gate (shrinks blended return on disagreement)";
-    case "fractal_blend":
-      return "Fractal blend (signed-root nonlinear fusion)";
-    case "phase_cancel":
-      return "Phase cancel (anti-phase conflict neutralization)";
-    case "softmax_blend":
-      return "Softmax blend (softmax edge weights)";
-    case "smooth_softmax_blend":
-      return "Smooth softmax blend (EMA-smooth softmax weights)";
-    case "hedge_blend":
-      return "Hedge blend (online exp-weights mix)";
-    case "net_softmax_blend":
-      return "Net softmax blend (post-cost softmax edge weights)";
-    case "edge_blend":
-      return "Edge blend (edge-weighted)";
-    case "edge_pick":
-      return "Edge pick (edge winner)";
-    case "geo_blend":
-      return "Geo blend (geometric)";
-    case "regime_switch":
-      return "Regime switch (vol/z adaptive)";
-    case "router":
-      return "Router (adaptive)";
-    case "bandit_router":
-      return "Bandit router (UCB adaptive)";
-    default:
-      return "Unknown";
-  }
+  return methodLabelFromMeta(method);
 }
 
 export function marketLabel(m: Market): string {

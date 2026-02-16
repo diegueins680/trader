@@ -26,6 +26,7 @@ import { defaultForm, parseDurationSeconds, platformIntervalSeconds } from "./fo
 import type { FormState } from "./formState";
 import type { cacheStats, health } from "../lib/api";
 import { PLATFORM_DEFAULT_SYMBOL } from "./constants";
+import { METHOD_TIPS } from "./methodMeta";
 import { clamp, normalizePositionSide, normalizeSymbolKey, numFromInput, positionSideFromAmount } from "./utils";
 
 export type RequestKind = "signal" | "backtest" | "trade";
@@ -226,37 +227,7 @@ export const EQUITY_TIPS = {
   ratios: ["Keep Backtest ratio + Tune ratio < 1 to leave enough training data."],
 };
 export const COMPLEX_TIPS = {
-  method: [
-    "11 requires Kalman + LSTM agreement beyond the open threshold; fewer trades, higher confidence.",
-    "blend averages predictions; blend weight sets the Kalman vs LSTM mix.",
-    "conf_blend adjusts Kalman vs LSTM mix per bar using confidence (Kalman z vs LSTM edge confidence).",
-    "conf_pick selects Kalman or LSTM per bar using the stronger confidence score.",
-    "conformal_clip clips the blended return into the conformal interval (or quantile band) when available.",
-    "cost_pick selects Kalman or LSTM per bar using post-cost edge (net of round-trip costs).",
-    "harmonic_blend mixes Kalman/LSTM predictions using a harmonic mean in return space (more conservative on outliers).",
-    "disagreement_guard picks higher-edge model when Kalman/LSTM agree, but lower-edge model when they disagree.",
-    "median_blend uses the median of Kalman/LSTM/blend return ratios to damp outlier predictions.",
-    "neutral_guard goes neutral when Kalman/LSTM directions conflict, and otherwise follows the more conservative edge.",
-    "risk_parity_blend down-weights the more extreme edge, blending by inverse edge magnitude to reduce forecast concentration.",
-    "consensus_boost goes flat on model conflict, and on agreement chooses the higher-edge forecast.",
-    "anchor_blend continuously pulls the blend back to current price when Kalman/LSTM conflict or disagree in edge strength.",
-    "tension_gate uses stronger conviction on agreement, but partially neutralizes toward spot on directional conflict.",
-    "entropy_blend uses edge-entropy to adaptively shrink blend predictions toward spot when model uncertainty is high.",
-    "coherence_gate measures return coherence; it amplifies coherent agreement and soft-gates incoherent conflicts toward spot.",
-    "divergence_gate shrinks blended returns toward spot as Kalman/LSTM return divergence grows relative to the open threshold.",
-    "fractal_blend blends signed square-root returns, then maps back to return space to reduce outlier dominance.",
-    "phase_cancel detects anti-phase Kalman/LSTM returns and compresses conflicting edges toward neutral.",
-    "softmax_blend uses a softmax-style edge weighting so the higher-edge model gets more weight (blend weight is a bias/fallback).",
-    "smooth_softmax_blend smooths the softmax edge weights over time (EMA) to reduce twitchy per-bar switching.",
-    "hedge_blend adapts the Kalman/LSTM mix online (exp-weights) based on realized prediction error.",
-    "net_softmax_blend is like softmax_blend but uses post-cost edge (net of round-trip costs) in the softmax weighting.",
-    "edge_blend adapts Kalman vs LSTM weights from each model's instantaneous edge magnitude.",
-    "edge_pick selects Kalman or LSTM per bar using the larger absolute edge.",
-    "geo_blend mixes Kalman/LSTM returns in log-space for a multiplicative geometric blend.",
-    "regime_switch prefers LSTM in calm periods, Kalman on strong z-scores, and blend in high-volatility regimes.",
-    "router picks the best recent model using router lookback; min score gates to HOLD.",
-    "bandit_router adds an exploration bonus so under-sampled models can still be selected when promising.",
-  ],
+  method: METHOD_TIPS,
   thresholds: [
     "Open threshold is the entry deadband; below break-even can churn after costs.",
     "Close threshold is often <= open threshold to reduce whipsaw.",

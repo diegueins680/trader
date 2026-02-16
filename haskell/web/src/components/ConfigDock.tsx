@@ -23,6 +23,7 @@ import { defaultForm, type FormState } from "../app/formState";
 import { firstReason, fmtTimeMs, generateIdempotencyKey, numFromInput } from "../app/utils";
 import { COMPLEX_TIPS, CUSTOM_SYMBOL_VALUE, EQUITY_TIPS } from "../app/appHelpers";
 import { PLATFORM_DEFAULT_SYMBOL, PLATFORM_LABELS, PLATFORM_SYMBOL_SET, PLATFORMS, TUNE_OBJECTIVES } from "../app/constants";
+import { METHOD_CONFIG_HINT, METHOD_UI_META } from "../app/methodMeta";
 import { CollapsibleCard } from "./CollapsibleCard";
 import { InfoList, InfoPopover } from "./InfoPopover";
 
@@ -1307,41 +1308,13 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 }));
               }}
             >
-              <option value="11">11 — Both (agreement gated)</option>
-              <option value="blend">blend — Weighted average</option>
-              <option value="conf_blend">conf_blend — Confidence blend</option>
-              <option value="conf_pick">conf_pick — Confidence pick</option>
-              <option value="conformal_clip">conformal_clip — Conformal clip</option>
-              <option value="cost_pick">cost_pick — Cost-aware pick</option>
-              <option value="harmonic_blend">harmonic_blend — Harmonic-return blend</option>
-              <option value="disagreement_guard">disagreement_guard — Disagreement-aware pick</option>
-              <option value="median_blend">median_blend — Median-robust blend</option>
-              <option value="neutral_guard">neutral_guard — Neutral-on-disagreement guard</option>
-              <option value="risk_parity_blend">risk_parity_blend — Inverse-edge risk parity blend</option>
-              <option value="consensus_boost">consensus_boost — Consensus-strength guard</option>
-              <option value="anchor_blend">anchor_blend — Conflict-anchor blend</option>
-              <option value="tension_gate">tension_gate — Conflict-tension gate</option>
-              <option value="entropy_blend">entropy_blend — Entropy-aware blend</option>
-              <option value="coherence_gate">coherence_gate — Coherence gate</option>
-              <option value="divergence_gate">divergence_gate — Divergence gate</option>
-              <option value="fractal_blend">fractal_blend — Fractal blend</option>
-              <option value="phase_cancel">phase_cancel — Phase cancel</option>
-              <option value="softmax_blend">softmax_blend — Softmax blend</option>
-              <option value="smooth_softmax_blend">smooth_softmax_blend — Smooth softmax blend</option>
-              <option value="hedge_blend">hedge_blend — Hedge blend</option>
-              <option value="net_softmax_blend">net_softmax_blend — Net softmax blend</option>
-              <option value="edge_blend">edge_blend — Edge-weighted blend</option>
-              <option value="edge_pick">edge_pick — Edge pick</option>
-              <option value="geo_blend">geo_blend — Geometric blend</option>
-              <option value="regime_switch">regime_switch — Regime switch</option>
-              <option value="router">router — Adaptive router</option>
-              <option value="bandit_router">bandit_router — Bandit router</option>
-              <option value="10">10 — Kalman only</option>
-              <option value="01">01 — LSTM only</option>
+              {METHOD_UI_META.map((meta) => (
+                <option key={meta.id} value={meta.id}>
+                  {meta.id} — {meta.optionTitle}
+                </option>
+              ))}
             </select>
-            <div className="hint">
-              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “conformal_clip” clips the blended return into the conformal/quantile band when available, “cost_pick” picks the higher post-cost edge, “harmonic_blend” uses a harmonic mean in return space, “disagreement_guard” picks lower-edge predictions when models conflict, “median_blend” uses a median-robust return blend, “neutral_guard” goes flat on model conflict, “risk_parity_blend” inversely weights each model by edge magnitude, “consensus_boost” boosts the stronger edge when models agree and goes flat when they conflict, “anchor_blend” tethers conflict bars back toward spot, “tension_gate” keeps agreement conviction but partially neutralizes conflicts, “entropy_blend” shrinks toward spot when model-edge uncertainty is high, “coherence_gate” amplifies coherent agreement and dampens incoherent conflicts, “divergence_gate” shrinks blended returns toward spot as model returns diverge, “fractal_blend” fuses signed-root returns to suppress outlier dominance, “phase_cancel” neutralizes anti-phase conflicts between models, “softmax_blend” blends with a softmax-style edge weighting, “smooth_softmax_blend” smooths that softmax weighting over time, “hedge_blend” adapts the blend weights online based on realized prediction error, “net_softmax_blend” uses post-cost edge in that softmax weighting, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, “regime_switch” toggles by volatility/z-score context, and “router”/“bandit_router” pick the best recent model.
-            </div>
+            <div className="hint">{METHOD_CONFIG_HINT}</div>
             {methodOverride ? (
               <div className="pillRow" style={{ marginTop: 6 }}>
                 <span className="pill" style={{ color: "rgba(245, 158, 11, 0.9)", borderColor: "rgba(245, 158, 11, 0.35)" }}>

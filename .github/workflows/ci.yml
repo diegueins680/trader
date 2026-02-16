@@ -16,7 +16,7 @@ jobs:
 
       - uses: haskell-actions/setup@v2
         with:
-          ghc-version: "8.10.7"
+          ghc-version: "9.4.8"
 
       - name: Cache Cabal artifacts
         uses: actions/cache@v5
@@ -30,7 +30,10 @@ jobs:
             ${{ runner.os }}-cabal-
 
       - run: cabal update
-      - run: cabal build exe:trader-hs
+      - name: Install HLint
+        run: sudo apt-get update && sudo apt-get install -y hlint
+      - run: hlint app test bench --no-exit-code
+      - run: cabal build exe:trader-hs exe:optimize-equity exe:merge-top-combos
       - run: cabal test all --test-show-details=direct
 
   web:
