@@ -3861,6 +3861,53 @@ opsPerformanceCombos store mTenantKey limit scope order = do
                 (fromString sql)
                 finalParams
 
+outboxStatusValue :: OpsStore -> IO Aeson.Value
+outboxStatusValue store = do
+    now <- getTimestampMs
+    (rows, mOldestPending) <-
+        withMVar (osLock store) $ \_ -> do
+            grouped <-
+                query
+                    (osConn store)
+                    "SELECT status, COUNT(*)::bigint FROM outbox_events GROUP BY status" ::
+                    IO [(Text, Int64)]
+            oldestRows <-
+                query
+                    (osConn store)
+                    "SELECT MIN(created_at_ms) FROM outbox_events WHERE status = 'pending'" ::
+                    IO [Only (Maybe Int64)]
+            let oldest =
+                    case oldestRows of
+                        (Only v : _) -> v
+                        _ -> Nothing
+            pure (grouped, oldest)
+    let counts = HM.fromList rows
+        countFor key = fromMaybe 0 (HM.lookup key counts)
+        pending = countFor "pending"
+        publishing = countFor "publishing"
+        published = countFor "published"
+        failed = countFor "failed"
+        total = pending + publishing + published + failed
+        oldestPendingAgeMs =
+            case mOldestPending of
+                Nothing -> Nothing
+                Just createdAt -> Just (max 0 (now - createdAt))
+    pure
+        ( object
+            [ "enabled" .= True
+            , "atMs" .= now
+            , "counts"
+                .= object
+                    [ "total" .= total
+                    , "pending" .= pending
+                    , "publishing" .= publishing
+                    , "published" .= published
+                    , "failed" .= failed
+                    ]
+            , "oldestPendingAgeMs" .= oldestPendingAgeMs
+            ]
+        )
+
 binanceOpsLogger :: OpsStore -> Maybe TenantKey -> BinanceLog -> IO ()
 binanceOpsLogger store mTenantKey entry = do
     let params =
@@ -11284,6 +11331,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/ops/performance" :: String)]
+                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/outbox" :: String)]
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/cache" :: String)]
                                                                    , object ["method" .= ("POST" :: String), "path" .= ("/cache/clear" :: String)]
                                                                    , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
@@ -11373,6 +11421,10 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                             ["ops", "performance"] ->
                                 case Wai.requestMethod req of
                                     "GET" -> handleOpsPerformance multiUserEnabled mOps req respondCors
+                                    _ -> respondCors (jsonError status405 "Method not allowed")
+                            ["outbox"] ->
+                                case Wai.requestMethod req of
+                                    "GET" -> handleOutbox mOps respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["cache"] ->
                                 case Wai.requestMethod req of
@@ -13618,6 +13670,23 @@ handleOpsPerformance multiUserEnabled mOps req respond =
                                 }
                             )
                         )
+
+handleOutbox :: Maybe OpsStore -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleOutbox mOps respond =
+    case mOps of
+        Nothing ->
+            respond
+                ( jsonValue
+                    status200
+                    ( object
+                        [ "enabled" .= False
+                        , "hint" .= ("Set TRADER_DB_URL (or DATABASE_URL) to enable outbox persistence." :: String)
+                        ]
+                    )
+                )
+        Just store -> do
+            payload <- outboxStatusValue store
+            respond (jsonValue status200 payload)
 
 handleSignal :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
