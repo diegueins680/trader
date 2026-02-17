@@ -3172,13 +3172,12 @@ runOptimizer args0 = do
                                                                                         Nothing -> sampleParamsWithRng rng
                                                                                         Just base ->
                                                                                             case mParents of
-                                                                                                Just parents
-                                                                                                    | length parents >= 2 ->
-                                                                                                        case pickParentPair parents rng of
-                                                                                                            Just ((p1, p2), rng1) ->
-                                                                                                                let (child, rng2) = crossoverTrialParams p1 p2 rng1
-                                                                                                                 in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
-                                                                                                            Nothing -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                                Just parents@(_ : _ : _) ->
+                                                                                                    case pickParentPair parents rng of
+                                                                                                        Just ((p1, p2), rng1) ->
+                                                                                                            let (child, rng2) = crossoverTrialParams p1 p2 rng1
+                                                                                                             in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
+                                                                                                        Nothing -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
                                                                                                 _ -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
                                                                             tr0 <-
                                                                                 runTrial
@@ -3323,9 +3322,9 @@ runOptimizer args0 = do
                                                                             , metricFloat (trMetrics tr) "annualizedReturn" 0 > 1
                                                                             ]
                                                                         gaParentPool =
-                                                                            if length gaParents >= 2
-                                                                                then Just gaParents
-                                                                                else Nothing
+                                                                            case gaParents of
+                                                                                _ : _ : _ -> Just gaParents
+                                                                                _ -> Nothing
                                                                         bestScore b = fromMaybe (-1e18) (trScore =<< b)
                                                                         runTrialsWithEarlyStop best recs survivorsIx stagnant trialsList =
                                                                             case trialsList of
@@ -3357,7 +3356,10 @@ runOptimizer args0 = do
                                                                         techniqueSummaryFinal =
                                                                             techniqueSummarySeed
                                                                                 { otsAppliedBayesianEi = remainingTrials > 0 && not (null survivorParams)
-                                                                                , otsAppliedEnsemble = length records >= 2
+                                                                                , otsAppliedEnsemble =
+                                                                                    case records of
+                                                                                        _ : _ : _ -> True
+                                                                                        _ -> False
                                                                                 }
                                                                     Data.Foldable.for_ outHandle hClose
                                                                     case best of
