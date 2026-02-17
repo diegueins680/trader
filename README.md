@@ -545,6 +545,7 @@ Endpoints:
 - `POST /backtest/async` → starts an async backtest job
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
 - Backtest endpoints return 400 for inconsistent inputs (e.g., lookback >= bars, high/low length mismatches).
+- Outbox events: when ops DB is enabled, API writes `trader.v1.*` records into `outbox_events` for signal/trade/backtest/job workflows. Run the publisher worker to drain them.
 - `POST /optimizer/run` → runs the optimizer executable, merges the run into `top-combos.json`, and returns the last JSONL record
   - The Web UI applies guardrails for trials/timeout/bars to avoid runaway optimizer runs (see UI constants).
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
@@ -872,6 +873,14 @@ CI/CD (GitHub Actions):
 - Deploys run ops schema updates + performance rollups when `TRADER_DB_URL` is set (requires `psql`); disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`.
 
 Note: `/bot/*` is stateful. Async endpoints persist job state to Postgres when ops DB is enabled (`TRADER_DB_URL`/`DATABASE_URL`), and also to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default. If DB persistence is disabled, deployments behind non-sticky load balancers (including CloudFront `/api/*`) should keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to shared writable storage.
+
+Outbox publisher worker (Phase 1 scaffold):
+- Build/run: `cd haskell && cabal run outbox-publisher`
+- Requires `TRADER_DB_URL` (or `DATABASE_URL`).
+- `TRADER_OUTBOX_PUBLISHER_MODE`:
+  - `noop` (default) leaves events pending (no publish attempts).
+  - `stdout` prints each event and marks it published (placeholder publisher).
+- Optional tuning: `TRADER_OUTBOX_POLL_MS` (default `1000`), `TRADER_OUTBOX_BATCH_SIZE` (default `100`).
 
 Web UI
 ------
