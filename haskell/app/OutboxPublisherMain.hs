@@ -15,7 +15,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Database.PostgreSQL.Simple (Connection, connectPostgreSQL, execute, query)
+import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, query)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Network.HTTP.Client (Manager, RequestBody (..), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
 import Network.HTTP.Client.TLS (tlsManagerSettings)

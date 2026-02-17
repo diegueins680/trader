@@ -202,11 +202,10 @@ detectHighLowColumns path = do
 countCsvRows :: FilePath -> IO Int
 countCsvRows path = do
     bs <- BS.readFile path
-    if BS.null bs
-        then pure 0
-        else do
+    case BS.unsnoc bs of
+        Nothing -> pure 0
+        Just (_, lastByte) -> do
             let newlines = BS.count 10 bs
-                lastByte = BS.last bs
                 extra = if lastByte == 10 then 0 else 1
             pure (fromIntegral newlines + extra)
 

@@ -3870,8 +3870,8 @@ outboxStatusValue store mTenantKey mStatus = do
                 status' = normalizeMaybeText mStatus
                 whereParts =
                     catMaybes
-                        [ fmap (\_ -> "tenant_key = ?") tenantKey'
-                        , fmap (\_ -> "status = ?") status'
+                        [ fmap (const "tenant_key = ?") tenantKey'
+                        , fmap (const "status = ?") status'
                         ]
                 whereSql =
                     if null whereParts
@@ -4129,10 +4129,7 @@ botStatusLogMaybe :: Maybe OpsStore -> Bool -> BotState -> IO ()
 botStatusLogMaybe mOps running st = do
     let args = botArgs st
         settings = botSettings st
-        eq =
-            if V.null (botEquityCurve st)
-                then Nothing
-                else Just (V.last (botEquityCurve st))
+        eq = vectorLastMaybe (botEquityCurve st)
         result =
             object
                 [ "symbol" .= botSymbol st
@@ -4232,10 +4229,7 @@ persistBotSnapshot store running st statusJson =
 
 persistBotPosition :: Connection -> Int64 -> Int -> Maybe Int64 -> Text -> Text -> BotState -> IO ()
 persistBotPosition conn botId platformId mSymbolId symbolText marketText st = do
-    let pos =
-            if V.null (botPositions st)
-                then 0
-                else V.last (botPositions st)
+    let pos = vectorLastOr 0 (botPositions st)
         mSide
             | pos > 0 = Just ("long" :: Text)
             | pos < 0 = Just ("short" :: Text)
@@ -5195,6 +5189,15 @@ positionChangeCount positions =
 
 lastMaybe :: [a] -> Maybe a
 lastMaybe = foldl' (\_ x -> Just x) Nothing
+
+vectorLastMaybe :: V.Vector a -> Maybe a
+vectorLastMaybe v =
+    if V.null v
+        then Nothing
+        else Just (V.last v)
+
+vectorLastOr :: a -> V.Vector a -> a
+vectorLastOr fallback = fromMaybe fallback . vectorLastMaybe
 
 botBacktestResultFromState :: BotState -> BacktestResult
 botBacktestResultFromState st =
@@ -6195,10 +6198,7 @@ data RuntimeAdoptionInfo = RuntimeAdoptionInfo
 
 botPositionSign :: BotState -> Maybe Int
 botPositionSign st =
-    let pos =
-            if V.null (botPositions st)
-                then 0
-                else V.last (botPositions st)
+    let pos = vectorLastOr 0 (botPositions st)
      in case compare pos 0 of
             GT -> Just 1
             LT -> Just (-1)
@@ -6516,9 +6516,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                     Nothing -> pure mrt
         Right st0 -> do
             let eq0 =
-                    if V.null (botEquityCurve st0)
-                        then 1.0
-                        else V.last (botEquityCurve st0)
+                    vectorLastOr 1.0 (botEquityCurve st0)
             opsAppendMaybe
                 mOps
                 (Just tenantKey)
@@ -6948,7 +6946,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
 
                     (kalPrev, hmmPrev, svPrev, predsRev) = foldl' step (kal0, hmm0, sv0, []) [0 .. n - 2]
                     preds = reverse predsRev
-                    lastPrice = V.last pricesV
+                    lastPrice = vectorLastOr 0 pricesV
                     (sensorOutsLast, _) = predictSensors predictors pricesV hmmPrev (n - 1)
                     measLast = mapMaybe (toMeasurement args svPrev) sensorOutsLast
                     kalLast = stepMulti measLast kalPrev
@@ -7031,7 +7029,8 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         baseEq = 1.0
         eq0 = V.replicate n baseEq
         pos0 = V.replicate n 0
-        lastOt = V.last openV
+        lastPrice = vectorLastOr 0 pricesV
+        lastOt = vectorLastOr now openV
         wantSwitch = desiredPosSignal /= startPos0
         opSide =
             if desiredPosSignal > startPos0
@@ -7053,7 +7052,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
 
     mStartSize <-
         if tradeEnabled && startPos0 /= 0
-            then fetchAdoptedPositionSize args env sym (V.last pricesV)
+            then fetchAdoptedPositionSize args env sym lastPrice
             else pure Nothing
     let startSize =
             case mStartSize of
@@ -7102,7 +7101,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         openTrade =
             case desiredPos of
                 1 ->
-                    let px = V.last pricesV
+                    let px = lastPrice
                         openSize = if desiredPos == startPos0 then startSize else entrySize
                         entryHv = rpHighVol <$> lsRegimes latest
                      in Just
@@ -7119,7 +7118,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                                 , botOpenPartialTaken = False
                                 }
                 (-1) ->
-                    let px = V.last pricesV
+                    let px = lastPrice
                         openSize = if desiredPos == startPos0 then startSize else entrySize
                         entryHv = rpHighVol <$> lsRegimes latest
                      in Just
@@ -7137,11 +7136,11 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                                 }
                 _ -> Nothing
         ops =
-            ([BotOp (n - 1) opSide (V.last pricesV) | wantSwitch && appliedSwitch])
+            ([BotOp (n - 1) opSide lastPrice | wantSwitch && appliedSwitch])
 
         orders =
             case (wantSwitch, mOrder) of
-                (True, Just o) -> [BotOrderEvent (n - 1) opSide (V.last pricesV) lastOt now o]
+                (True, Just o) -> [BotOrderEvent (n - 1) opSide lastPrice lastOt now o]
                 _ -> []
 
         maxPoints = max (lookback + 3) (bsMaxPoints settings)
@@ -7187,11 +7186,11 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
 
         peakEq = if V.null eq2 then 1.0 else V.maximum eq2
         dayMs = 86400000 :: Int64
-        dayKey = V.last openV2 `div` dayMs
-        dayStartEq = V.last eq2
+        dayKey = vectorLastOr now openV2 `div` dayMs
+        dayStartEq = vectorLastOr 1.0 eq2
         weekMs = 7 * dayMs
-        weekKey = V.last openV2 `div` weekMs
-        weekStartEq = V.last eq2
+        weekKey = vectorLastOr now openV2 `div` weekMs
+        weekStartEq = vectorLastOr 1.0 eq2
         initOrderErrors =
             if tradeEnabled && wantSwitch && not appliedSwitch
                 then 1
@@ -9205,8 +9204,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         cooldownBars = max 0 (argCooldownBars args)
         cooldownLeft0 = max 0 (botCooldownLeft st)
         cooldownBlocked = prevPos == 0 && cooldownLeft0 > 0
-        positionNow st' =
-            if V.null (botPositions st') then 0 else V.last (botPositions st')
+        positionNow st' = vectorLastOr 0 (botPositions st')
         baseAssetFor st' =
             fst
                 ( splitSymbolForPlatform
@@ -13933,7 +13931,7 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                                                                 if useServerKeys
                                                                     then sanitizeArgsKeys argsOk
                                                                     else argsOk
-                                                            mIdemKey = normalizeMaybeText (T.pack <$> (trim <$> argIdempotencyKey argsFinal))
+                                                            mIdemKey = normalizeMaybeText (T.pack . trim <$> argIdempotencyKey argsFinal)
                                                             idemReqHash = requestHashFromApiParams params
                                                         idemCheck <-
                                                             case (mOps, mIdemKey) of
@@ -14081,7 +14079,7 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                                     else argsOk
                                                             paramsJson = Just (toJSON (sanitizeApiParams params))
                                                             argsJson = Just (argsPublicJson argsFinal)
-                                                            mIdemKey = normalizeMaybeText (T.pack <$> (trim <$> argIdempotencyKey argsFinal))
+                                                            mIdemKey = normalizeMaybeText (T.pack . trim <$> argIdempotencyKey argsFinal)
                                                             idemReqHash = requestHashFromApiParams params
                                                         idemCheck <-
                                                             case (mOps, mIdemKey) of
