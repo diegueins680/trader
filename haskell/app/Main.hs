@@ -2762,8 +2762,8 @@ inferPlatformFromKind kind =
                             then Just "kraken"
                             else
                                 if "poloniex." `T.isPrefixOf` k
-                                            then Just "poloniex"
-                                            else Nothing
+                                    then Just "poloniex"
+                                    else Nothing
 
 data TradeRequestRow = TradeRequestRow
     { trrRequestHash :: !Text
@@ -2827,30 +2827,29 @@ resolveTradeIdempotency store mTenantKey idempotencyKey requestHash = do
                                         ( TradeIdemConflict
                                             "idempotencyKey already exists for a different trade payload."
                                         )
-                                else
-                                    case T.toLower (trrStatus row) of
-                                        "done" ->
-                                            case decodeJsonTextMaybe (trrResponseJson row) of
-                                                Just v -> pure (TradeIdemCached v)
-                                                Nothing ->
-                                                    pure
-                                                        ( TradeIdemBusy
-                                                            "idempotencyKey is done but cached response is unavailable."
-                                                        )
-                                        "error" ->
-                                            pure
-                                                ( TradeIdemBusy
-                                                    ( maybe
-                                                        "A prior trade request with this idempotencyKey failed."
-                                                        T.unpack
-                                                        (normalizeMaybeText (trrErrorText row))
+                                else case T.toLower (trrStatus row) of
+                                    "done" ->
+                                        case decodeJsonTextMaybe (trrResponseJson row) of
+                                            Just v -> pure (TradeIdemCached v)
+                                            Nothing ->
+                                                pure
+                                                    ( TradeIdemBusy
+                                                        "idempotencyKey is done but cached response is unavailable."
                                                     )
+                                    "error" ->
+                                        pure
+                                            ( TradeIdemBusy
+                                                ( maybe
+                                                    "A prior trade request with this idempotencyKey failed."
+                                                    T.unpack
+                                                    (normalizeMaybeText (trrErrorText row))
                                                 )
-                                        _ ->
-                                            pure
-                                                ( TradeIdemBusy
-                                                    "A trade request with this idempotencyKey is already running."
-                                                )
+                                            )
+                                    _ ->
+                                        pure
+                                            ( TradeIdemBusy
+                                                "A trade request with this idempotencyKey is already running."
+                                            )
                         _ -> pure TradeIdemAcquire
 
 completeTradeIdempotencySuccess ::
@@ -2928,7 +2927,7 @@ readAsyncJobDb store jobId = do
                 (osConn store)
                 "SELECT payload_json::text FROM async_jobs WHERE job_id = ? LIMIT 1"
                 (Only jobId) ::
-            IO [Only Text]
+                IO [Only Text]
     pure $
         case rows of
             (Only payloadText : _) -> decodeJsonTextMaybe (Just payloadText)
@@ -3888,13 +3887,13 @@ outboxStatusValue store mTenantKey mStatus = do
                     (osConn store)
                     (fromString ("SELECT status, COUNT(*)::bigint FROM outbox_events" <> whereSql <> " GROUP BY status"))
                     params ::
-                IO [(Text, Int64)]
+                    IO [(Text, Int64)]
             oldestRows <-
                 query
                     (osConn store)
                     (fromString ("SELECT MIN(created_at_ms) FROM outbox_events" <> whereSqlOldest))
                     params ::
-                IO [Only (Maybe Int64)]
+                    IO [Only (Maybe Int64)]
             let oldest =
                     case oldestRows of
                         (Only v : _) -> v
@@ -6095,30 +6094,29 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
                                         then do
                                             deletePositionOrigin store tenantKey baseArgs sym
                                             pure (baseArgs, Nothing)
-                                        else
-                                            do
-                                                mComboDb <- readTopComboByUuidFromDb store comboUuid
-                                                mCombo <-
-                                                    case mComboDb of
-                                                        Just c -> pure (Just c)
-                                                        Nothing -> do
-                                                            combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
-                                                            pure $
-                                                                case combosOrErr of
-                                                                    Left _ -> Nothing
-                                                                    Right export ->
-                                                                        find
-                                                                            (\c -> uuidFromText (topComboUuid c) == Just comboUuid)
-                                                                            (tceCombos export)
-                                                case mCombo of
-                                                    Nothing -> pure (baseArgs, Nothing)
-                                                    Just combo ->
-                                                        case applyTopComboForStartWithUuid baseArgs combo of
-                                                            Left _ -> pure (baseArgs, Nothing)
-                                                            Right (argsApplied0, mUuid) ->
-                                                                case validateApiComputeLimits limits argsApplied0 of
-                                                                    Left _ -> pure (baseArgs, Nothing)
-                                                                    Right argsApplied -> pure (argsApplied, mUuid)
+                                        else do
+                                            mComboDb <- readTopComboByUuidFromDb store comboUuid
+                                            mCombo <-
+                                                case mComboDb of
+                                                    Just c -> pure (Just c)
+                                                    Nothing -> do
+                                                        combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+                                                        pure $
+                                                            case combosOrErr of
+                                                                Left _ -> Nothing
+                                                                Right export ->
+                                                                    find
+                                                                        (\c -> uuidFromText (topComboUuid c) == Just comboUuid)
+                                                                        (tceCombos export)
+                                            case mCombo of
+                                                Nothing -> pure (baseArgs, Nothing)
+                                                Just combo ->
+                                                    case applyTopComboForStartWithUuid baseArgs combo of
+                                                        Left _ -> pure (baseArgs, Nothing)
+                                                        Right (argsApplied0, mUuid) ->
+                                                            case validateApiComputeLimits limits argsApplied0 of
+                                                                Left _ -> pure (baseArgs, Nothing)
+                                                                Right argsApplied -> pure (argsApplied, mUuid)
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =
@@ -17561,7 +17559,7 @@ entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
             let eps = 1e-12
                 p = max eps (min (1 - eps) (clamp01 p0))
                 q = 1 - p
-                h = - (((p * log p) + (q * log q)) / log 2)
+                h = -(((p * log p) + (q * log q)) / log 2)
              in if bad h then 1 else clamp01 h
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->

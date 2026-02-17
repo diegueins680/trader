@@ -2566,7 +2566,7 @@ sampleParams
                                     pick acc ((name, w) : rest) =
                                         let acc' = acc + max 0 w
                                          in if target <= acc' then name else pick acc' rest
-                                    pick _ [] = fst (last options)
+                                    pick _ [] = fst (fromMaybe firstOpt (listToMaybe (reverse options)))
                                  in (pick 0 options, rng')
 
 runOptimizer :: OptimizerArgs -> IO Int
@@ -3175,9 +3175,11 @@ runOptimizer args0 = do
                                                                                             case mParents of
                                                                                                 Just parents
                                                                                                     | length parents >= 2 ->
-                                                                                                        let ((p1, p2), rng1) = pickParentPair parents rng
-                                                                                                            (child, rng2) = crossoverTrialParams p1 p2 rng1
-                                                                                                         in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
+                                                                                                        case pickParentPair parents rng of
+                                                                                                            Just ((p1, p2), rng1) ->
+                                                                                                                let (child, rng2) = crossoverTrialParams p1 p2 rng1
+                                                                                                                 in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
+                                                                                                            Nothing -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
                                                                                                 _ -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
                                                                             tr0 <-
                                                                                 runTrial
@@ -3335,7 +3337,7 @@ runOptimizer args0 = do
                                                                                                 [] -> Nothing
                                                                                                 _ ->
                                                                                                     let ix = survivorsIx `mod` length survivorParams
-                                                                                                     in Just (survivorParams !! ix)
+                                                                                                     in listToMaybe (drop ix survivorParams)
                                                                                         prevScore = bestScore best
                                                                                     (best', recs', _tr) <- runTrialWith idx rng baseParam gaParentPool best recs
                                                                                     let survivorsIx' = survivorsIx + 1
@@ -3886,13 +3888,19 @@ pickValue a b rng =
     let (r, rng1) = nextDouble rng
      in (if r < 0.5 then a else b, rng1)
 
-pickParentPair :: [TrialParams] -> Rng -> ((TrialParams, TrialParams), Rng)
+pickParentPair :: [TrialParams] -> Rng -> Maybe ((TrialParams, TrialParams), Rng)
 pickParentPair parents rng0 =
-    let n = length parents
-        (i, rng1) = nextIntRange 0 (n - 1) rng0
-        (j, rng2) = nextIntRange 0 (n - 1) rng1
-        j' = if j == i then (j + 1) `mod` n else j
-     in ((parents !! i, parents !! j'), rng2)
+    case parents of
+        [] -> Nothing
+        p0 : rest ->
+            let n = length parents
+                p1 = fromMaybe p0 (listToMaybe rest)
+                (i, rng1) = nextIntRange 0 (n - 1) rng0
+                (j, rng2) = nextIntRange 0 (n - 1) rng1
+                j' = if j == i then (j + 1) `mod` n else j
+                pi' = fromMaybe p0 (listToMaybe (drop i parents))
+                pj' = fromMaybe p1 (listToMaybe (drop j' parents))
+             in Just ((pi', pj'), rng2)
 
 crossoverTrialParams :: TrialParams -> TrialParams -> Rng -> (TrialParams, Rng)
 crossoverTrialParams a b rng0 =
@@ -4001,6 +4009,30 @@ crossoverTrialParams a b rng0 =
         (tpProtectionMinConfidence', rng97a) =
             pickValue (tpProtectionMinConfidence a) (tpProtectionMinConfidence b) rng97
         (tpMinPositionSize', rng98) = pickValue (tpMinPositionSize a) (tpMinPositionSize b) rng97a
+        (tpPredictors', rng99) = pickValue (tpPredictors a) (tpPredictors b) rng98
+        (tpRouterLookback', rng100) = pickValue (tpRouterLookback a) (tpRouterLookback b) rng99
+        (tpRouterMinScore', rng101) = pickValue (tpRouterMinScore a) (tpRouterMinScore b) rng100
+        (tpFeeFixed', rng102) = pickValue (tpFeeFixed a) (tpFeeFixed b) rng101
+        (tpSlippageImpact', rng103) = pickValue (tpSlippageImpact a) (tpSlippageImpact b) rng102
+        (tpSlippageImpactPower', rng104) = pickValue (tpSlippageImpactPower a) (tpSlippageImpactPower b) rng103
+        (tpSlippageVolMult', rng105) = pickValue (tpSlippageVolMult a) (tpSlippageVolMult b) rng104
+        (tpSpreadVolMult', rng106) = pickValue (tpSpreadVolMult a) (tpSpreadVolMult b) rng105
+        (tpTakeProfitPartial', rng107) = pickValue (tpTakeProfitPartial a) (tpTakeProfitPartial b) rng106
+        (tpMaxTradesPerDay', rng108) = pickValue (tpMaxTradesPerDay a) (tpMaxTradesPerDay b) rng107
+        (tpExpectancyLookback', rng109) = pickValue (tpExpectancyLookback a) (tpExpectancyLookback b) rng108
+        (tpMinExpectancy', rng110) = pickValue (tpMinExpectancy a) (tpMinExpectancy b) rng109
+        (tpLossStreakMax', rng111) = pickValue (tpLossStreakMax a) (tpLossStreakMax b) rng110
+        (tpLossStreakCooldownBars', rng112) = pickValue (tpLossStreakCooldownBars a) (tpLossStreakCooldownBars b) rng111
+        (tpMaxOpenPositions', rng113) = pickValue (tpMaxOpenPositions a) (tpMaxOpenPositions b) rng112
+        (tpMaxGrossExposure', rng114) = pickValue (tpMaxGrossExposure a) (tpMaxGrossExposure b) rng113
+        (tpMaxNetExposure', rng115) = pickValue (tpMaxNetExposure a) (tpMaxNetExposure b) rng114
+        (tpMaxExposurePerBase', rng116) = pickValue (tpMaxExposurePerBase a) (tpMaxExposurePerBase b) rng115
+        (tpMaxOpenPerBase', rng117) = pickValue (tpMaxOpenPerBase a) (tpMaxOpenPerBase b) rng116
+        (tpAdaptiveEdgeBufferMax', rng118) = pickValue (tpAdaptiveEdgeBufferMax a) (tpAdaptiveEdgeBufferMax b) rng117
+        (tpAdaptiveMinSignalToNoiseMax', rng119) =
+            pickValue (tpAdaptiveMinSignalToNoiseMax a) (tpAdaptiveMinSignalToNoiseMax b) rng118
+        (tpAdaptiveTrendLookbackMax', rng120) = pickValue (tpAdaptiveTrendLookbackMax a) (tpAdaptiveTrendLookbackMax b) rng119
+        (tpAdaptiveKalmanZMinMax', rng121) = pickValue (tpAdaptiveKalmanZMinMax a) (tpAdaptiveKalmanZMinMax b) rng120
      in ( TrialParams
             { tpPlatform = tpPlatform'
             , tpInterval = tpInterval'
@@ -4106,8 +4138,31 @@ crossoverTrialParams a b rng0 =
             , tpConfidenceSizing = tpConfidenceSizing'
             , tpProtectionMinConfidence = tpProtectionMinConfidence'
             , tpMinPositionSize = tpMinPositionSize'
+            , tpPredictors = tpPredictors'
+            , tpRouterLookback = tpRouterLookback'
+            , tpRouterMinScore = tpRouterMinScore'
+            , tpFeeFixed = tpFeeFixed'
+            , tpSlippageImpact = tpSlippageImpact'
+            , tpSlippageImpactPower = tpSlippageImpactPower'
+            , tpSlippageVolMult = tpSlippageVolMult'
+            , tpSpreadVolMult = tpSpreadVolMult'
+            , tpTakeProfitPartial = tpTakeProfitPartial'
+            , tpMaxTradesPerDay = tpMaxTradesPerDay'
+            , tpExpectancyLookback = tpExpectancyLookback'
+            , tpMinExpectancy = tpMinExpectancy'
+            , tpLossStreakMax = tpLossStreakMax'
+            , tpLossStreakCooldownBars = tpLossStreakCooldownBars'
+            , tpMaxOpenPositions = tpMaxOpenPositions'
+            , tpMaxGrossExposure = tpMaxGrossExposure'
+            , tpMaxNetExposure = tpMaxNetExposure'
+            , tpMaxExposurePerBase = tpMaxExposurePerBase'
+            , tpMaxOpenPerBase = tpMaxOpenPerBase'
+            , tpAdaptiveEdgeBufferMax = tpAdaptiveEdgeBufferMax'
+            , tpAdaptiveMinSignalToNoiseMax = tpAdaptiveMinSignalToNoiseMax'
+            , tpAdaptiveTrendLookbackMax = tpAdaptiveTrendLookbackMax'
+            , tpAdaptiveKalmanZMinMax = tpAdaptiveKalmanZMinMax'
             }
-        , rng98
+        , rng121
         )
 
 clampBarsForPlatform :: Maybe String -> Int -> Int -> Int -> Int

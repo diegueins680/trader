@@ -6,6 +6,7 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Control.Monad (forM_, forever)
 import Data.Aeson (Value (..), decode, encode, object, (.=))
+import qualified Data.ByteString.Lazy as BL
 import Data.Char (toLower)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -13,7 +14,7 @@ import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import qualified Data.ByteString.Lazy as BL
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple (Connection, connectPostgreSQL, execute, query)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Network.HTTP.Client (Manager, RequestBody (..), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
@@ -22,7 +23,6 @@ import Network.HTTP.Types (hContentType, statusCode)
 import System.Environment (lookupEnv)
 import System.Exit (die)
 import Text.Read (readMaybe)
-import Data.Time.Clock.POSIX (getPOSIXTime)
 
 data PublishMode
     = PublishNoop
