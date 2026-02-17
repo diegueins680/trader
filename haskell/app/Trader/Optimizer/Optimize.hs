@@ -4036,7 +4036,7 @@ crossoverTrialParams a b rng0 =
             pickValue (tpAdaptiveMinSignalToNoiseMax a) (tpAdaptiveMinSignalToNoiseMax b) rng118
         (tpAdaptiveTrendLookbackMax', rng120) = pickValue (tpAdaptiveTrendLookbackMax a) (tpAdaptiveTrendLookbackMax b) rng119
         (tpAdaptiveKalmanZMinMax', rng121) = pickValue (tpAdaptiveKalmanZMinMax a) (tpAdaptiveKalmanZMinMax b) rng120
-     in ( TrialParams
+     in ( a
             { tpPlatform = tpPlatform'
             , tpInterval = tpInterval'
             , tpBars = tpBars'
