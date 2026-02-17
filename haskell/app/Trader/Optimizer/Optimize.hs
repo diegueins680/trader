@@ -2380,7 +2380,7 @@ sampleParams
                 let (lo, hi) = ordered takeProfitPartialRange
                     lo' = clamp lo 0 0.999999
                     hi' = clamp hi 0 0.999999
-                 in if hi' <= 0 then (Nothing, rng82) else nextMaybe pDisableTakeProfitPartial (nextUniform lo' (max lo' hi')) rng82
+                 in if hi' <= 0 then (Nothing, rng83) else nextMaybe pDisableTakeProfitPartial (nextUniform lo' (max lo' hi')) rng82
             (maxTradesPerDay, rng84) =
                 nextMaybe pDisableMaxTradesPerDay (uncurry nextIntRange maxTradesPerDayRange) rng83
             (expectancyLookback, rng85) =
@@ -4231,6 +4231,28 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (thresholdFactorQuantileWeight', rng42) = perturbDoubleSigned (tpThresholdFactorQuantileWeight p) scaleDouble rng41
         (thresholdFactorLstmConfWeight', rng43) = perturbDoubleSigned (tpThresholdFactorLstmConfWeight p) scaleDouble rng42
         (thresholdFactorLstmHealthWeight', rng44) = perturbDoubleSigned (tpThresholdFactorLstmHealthWeight p) scaleDouble rng43
+        (routerLookback', rng45) = perturbInt (tpRouterLookback p) scaleInt rng44
+        (routerMinScore', rng46) = perturbDouble (tpRouterMinScore p) scaleDouble rng45
+        (feeFixed', rng47) = perturbDouble (tpFeeFixed p) scaleDouble rng46
+        (slippageImpact', rng48) = perturbDouble (tpSlippageImpact p) scaleDouble rng47
+        (slippageImpactPower', rng49) = perturbDouble (tpSlippageImpactPower p) scaleDouble rng48
+        (slippageVolMult', rng50) = perturbDouble (tpSlippageVolMult p) scaleDouble rng49
+        (spreadVolMult', rng51) = perturbDouble (tpSpreadVolMult p) scaleDouble rng50
+        (takeProfitPartial', rng52) = perturbMaybeDouble (tpTakeProfitPartial p) scaleDouble rng51
+        (maxTradesPerDay', rng53) = perturbMaybeInt (tpMaxTradesPerDay p) scaleInt rng52
+        (expectancyLookback', rng54) = perturbInt (tpExpectancyLookback p) scaleInt rng53
+        (minExpectancy', rng55) = perturbMaybeDouble (tpMinExpectancy p) scaleDouble rng54
+        (lossStreakMax', rng56) = perturbMaybeInt (tpLossStreakMax p) scaleInt rng55
+        (lossStreakCooldownBars', rng57) = perturbMaybeInt (tpLossStreakCooldownBars p) scaleInt rng56
+        (maxOpenPositions', rng58) = perturbMaybeInt (tpMaxOpenPositions p) scaleInt rng57
+        (maxGrossExposure', rng59) = perturbMaybeDouble (tpMaxGrossExposure p) scaleDouble rng58
+        (maxNetExposure', rng60) = perturbMaybeDouble (tpMaxNetExposure p) scaleDouble rng59
+        (maxExposurePerBase', rng61) = perturbMaybeDouble (tpMaxExposurePerBase p) scaleDouble rng60
+        (maxOpenPerBase', rng62) = perturbMaybeInt (tpMaxOpenPerBase p) scaleInt rng61
+        (adaptiveEdgeBufferMax', rng63) = perturbDouble (tpAdaptiveEdgeBufferMax p) scaleDouble rng62
+        (adaptiveMinSignalToNoiseMax', rng64) = perturbDouble (tpAdaptiveMinSignalToNoiseMax p) scaleDouble rng63
+        (adaptiveTrendLookbackMax', rng65) = perturbInt (tpAdaptiveTrendLookbackMax p) scaleInt rng64
+        (adaptiveKalmanZMinMax', rng66) = perturbDouble (tpAdaptiveKalmanZMinMax p) scaleDouble rng65
      in ( p
             { tpBars = bars'
             , tpBlendWeight = clamp blendWeight' 0 1
@@ -4280,8 +4302,30 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
             , tpRebalanceThreshold = rebalanceThreshold'
             , tpRebalanceCostMult = rebalanceCostMult'
             , tpLearningRate = learningRate'
+            , tpRouterLookback = routerLookback'
+            , tpRouterMinScore = routerMinScore'
+            , tpFeeFixed = feeFixed'
+            , tpSlippageImpact = slippageImpact'
+            , tpSlippageImpactPower = slippageImpactPower'
+            , tpSlippageVolMult = slippageVolMult'
+            , tpSpreadVolMult = spreadVolMult'
+            , tpTakeProfitPartial = takeProfitPartial'
+            , tpMaxTradesPerDay = maxTradesPerDay'
+            , tpExpectancyLookback = expectancyLookback'
+            , tpMinExpectancy = minExpectancy'
+            , tpLossStreakMax = lossStreakMax'
+            , tpLossStreakCooldownBars = lossStreakCooldownBars'
+            , tpMaxOpenPositions = maxOpenPositions'
+            , tpMaxGrossExposure = maxGrossExposure'
+            , tpMaxNetExposure = maxNetExposure'
+            , tpMaxExposurePerBase = maxExposurePerBase'
+            , tpMaxOpenPerBase = maxOpenPerBase'
+            , tpAdaptiveEdgeBufferMax = adaptiveEdgeBufferMax'
+            , tpAdaptiveMinSignalToNoiseMax = adaptiveMinSignalToNoiseMax'
+            , tpAdaptiveTrendLookbackMax = adaptiveTrendLookbackMax'
+            , tpAdaptiveKalmanZMinMax = adaptiveKalmanZMinMax'
             }
-        , rng44
+        , rng66
         )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
