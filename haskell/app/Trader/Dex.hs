@@ -547,7 +547,15 @@ tokenInputKind raw =
 
 isHexAddress :: String -> Bool
 isHexAddress t =
-    "0x" `isPrefixOf` t && length t >= 42
+    case t of
+        '0' : 'x' : rest -> hasMinLength 40 rest
+        _ -> False
+
+hasMinLength :: Int -> [a] -> Bool
+hasMinLength n _
+    | n <= 0 = True
+hasMinLength _ [] = False
+hasMinLength n (_ : xs) = hasMinLength (n - 1) xs
 
 isNativeToken :: DexToken -> Bool
 isNativeToken tok = map toLower (dtAddress tok) == map toLower dexNativeAddress
