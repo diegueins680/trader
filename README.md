@@ -858,6 +858,21 @@ Assumptions:
 - `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
 - Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption or futures trade requests.
 
+Deploy for free (Render)
+------------------------
+See `deploy/render/README.md` and `render.yaml`.
+
+Quick path:
+- Push this repo to GitHub.
+- In Render, create a new Blueprint and select the repo.
+- Deploy with the included `render.yaml` (`plan: free`).
+- Use the generated `TRADER_API_TOKEN` from the Render dashboard for protected endpoints.
+
+Free-tier caveats:
+- Free web services spin down after 15 minutes of inactivity (cold start on the next request).
+- Local filesystem state is ephemeral; use external persistence (for example `TRADER_DB_URL`) if you need durable ops/async state.
+- If you need always-on runtime, use a paid plan (Render Starter or Railway usage-based pricing).
+
 Deploy to AWS
 -------------
 See `DEPLOY_AWS_QUICKSTART.md`, `DEPLOY_AWS.md`, and `deploy/aws/README.md`.

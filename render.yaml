@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: trader-api
+    runtime: docker
+    plan: free
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: TRADER_API_TOKEN
+        generateValue: true
+      - key: TRADER_MULTI_USER
+        value: "true"
+      - key: TRADER_OPTIMIZER_ENABLED
+        value: "false"
+      - key: TRADER_TOP_COMBOS_BACKTEST_ENABLED
+        value: "false"
+      - key: TRADER_BOT_AUTOSTART
+        value: "false"
+      - key: TRADER_API_MAX_EPOCHS
+        value: "30"
+      - key: TRADER_CORS_ORIGIN
+        sync: false
+      - key: TRADER_DB_URL
+        sync: false
+      - key: BINANCE_API_KEY
+        sync: false
+      - key: BINANCE_API_SECRET
+        sync: false
+      - key: COINBASE_API_KEY
+        sync: false
+      - key: COINBASE_API_SECRET
+        sync: false
+      - key: COINBASE_API_PASSPHRASE
+        sync: false
