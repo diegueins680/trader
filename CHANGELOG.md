@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- API/Ops DB: add `outbox_events` persistence scaffolding and enqueue API signal/trade/backtest/job events (`trader.v1.*`) while keeping current synchronous request behavior.
 - API/Ops DB: persist async job status/results to Postgres (`async_jobs`) when `TRADER_DB_URL`/`DATABASE_URL` is set, so `/signal/async`, `/trade/async`, and `/backtest/async` polling can survive restarts/non-sticky routing without shared filesystem storage.
 - API/Ops DB: add trade-request idempotency persistence (`trade_requests`) keyed by tenant + `idempotencyKey`; repeated `/trade` and `/trade/async` requests return cached results or `409` while in-progress, and reject payload mismatches for reused keys.
 - Optimizer: expand `optimize-equity` sampling to cover router memory/score gates, predictor-set selection, execution realism (`fee-fixed`/slippage-impact/volatility multipliers), partial take-profit, trade-pacing/performance guardrails, exposure/open-position caps, and adaptive guardrail maxima via new `*-min/max` + `--p-disable-*` optimizer controls.
