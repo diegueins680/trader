@@ -8,7 +8,7 @@ import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
-import Data.List (isInfixOf)
+import Data.List (foldl', isInfixOf)
 import Data.Maybe (isNothing)
 import qualified Data.Maybe
 import qualified Data.Vector as V
@@ -146,6 +146,18 @@ requireRight label res =
     case res of
         Left err -> error (label ++ ": " ++ err)
         Right v -> v
+
+requireHead :: String -> [a] -> a
+requireHead label xs =
+    case xs of
+        y : _ -> y
+        [] -> error label
+
+requireLast :: String -> [a] -> a
+requireLast label xs =
+    case foldl' (\_ x -> Just x) Nothing xs of
+        Just y -> y
+        Nothing -> error label
 
 parseArgs :: [String] -> IO Args
 parseArgs argv = do
@@ -346,7 +358,7 @@ testKalmanConstant = do
         KalmanRun preds filt = runConstantAcceleration1D 1.0 1e-6 1e-6 xs
     assert "pred length" (length preds == length xs - 1)
     assert "filt length" (length filt == length xs)
-    assertApprox "filtered near constant" 1e-2 (last filt) 10.0
+    assertApprox "filtered near constant" 1e-2 (requireLast "missing filtered value" filt) 10.0
 
 testKalmanForecast :: IO ()
 testKalmanForecast = do
@@ -581,8 +593,8 @@ testLongShortDownMove = do
         btFlat = requireRight "simulateEnsemble flat" (simulateEnsemble baseCfg lookback prices kalPred lstmPred Nothing)
         btShort = requireRight "simulateEnsemble short" (simulateEnsemble (baseCfg{ecPositioning = LongShort}) lookback prices kalPred lstmPred Nothing)
 
-    assertApprox "flat final equity" 1e-12 (last (brEquityCurve btFlat)) 1.0
-    assertApprox "short final equity" 1e-12 (last (brEquityCurve btShort)) 1.1
+    assertApprox "flat final equity" 1e-12 (requireLast "missing flat equity curve value" (brEquityCurve btFlat)) 1.0
+    assertApprox "short final equity" 1e-12 (requireLast "missing short equity curve value" (brEquityCurve btShort)) 1.1
     assert "short position opened" (brPositions btShort == [-1])
 
 testLiquidationClamp :: IO ()
@@ -593,7 +605,7 @@ testLiquidationClamp = do
         lstmPred = [50]
         cfg = baseEnsembleConfig{ecPositioning = LongShort}
         bt = requireRight "simulateEnsemble liquidation" (simulateEnsemble cfg lookback prices kalPred lstmPred Nothing)
-        finalEq = last (brEquityCurve bt)
+        finalEq = requireLast "missing liquidation equity curve value" (brEquityCurve bt)
         trades = brTrades bt
     assertApprox "equity clamped at 0" 1e-12 finalEq 0.0
     assert "positions cleared after liquidation" (brPositions bt == [0])
@@ -673,7 +685,7 @@ testBinanceKlineParsing = do
         Left e -> error ("decode failed: " ++ e)
         Right ks -> do
             assert "kline count" (length ks == 2)
-            assertApprox "close parse" 1e-12 (kClose (head ks)) 123.45
+            assertApprox "close parse" 1e-12 (kClose (requireHead "missing first kline" ks)) 123.45
 
 testMethodParsing :: IO ()
 testMethodParsing = do
