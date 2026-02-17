@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Worker/Dev: add `haskell/scripts/start_outbox_publisher_bg.sh` and stale-lease recovery (`TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS`) so crashed workers can recover `outbox_events` rows stuck in `publishing`.
 - Build/Runtime: add `outbox-publisher` executable (`cabal run outbox-publisher`) to drain `outbox_events`; supports `TRADER_OUTBOX_PUBLISHER_MODE=noop|stdout`, polling interval, and batch size env tuning.
 - API/Ops DB: add `outbox_events` persistence scaffolding and enqueue API signal/trade/backtest/job events (`trader.v1.*`) while keeping current synchronous request behavior.
 - API/Ops DB: persist async job status/results to Postgres (`async_jobs`) when `TRADER_DB_URL`/`DATABASE_URL` is set, so `/signal/async`, `/trade/async`, and `/backtest/async` polling can survive restarts/non-sticky routing without shared filesystem storage.

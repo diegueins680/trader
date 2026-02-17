@@ -876,11 +876,12 @@ Note: `/bot/*` is stateful. Async endpoints persist job state to Postgres when o
 
 Outbox publisher worker (Phase 1 scaffold):
 - Build/run: `cd haskell && cabal run outbox-publisher`
+- Background helper: `./haskell/scripts/start_outbox_publisher_bg.sh`
 - Requires `TRADER_DB_URL` (or `DATABASE_URL`).
 - `TRADER_OUTBOX_PUBLISHER_MODE`:
   - `noop` (default) leaves events pending (no publish attempts).
   - `stdout` prints each event and marks it published (placeholder publisher).
-- Optional tuning: `TRADER_OUTBOX_POLL_MS` (default `1000`), `TRADER_OUTBOX_BATCH_SIZE` (default `100`).
+- Optional tuning: `TRADER_OUTBOX_POLL_MS` (default `1000`), `TRADER_OUTBOX_BATCH_SIZE` (default `100`), `TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS` (default `60000`, reclaims stale `publishing` rows after worker crashes/restarts).
 
 Web UI
 ------

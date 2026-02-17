@@ -58,6 +58,16 @@ parseIntEnv key def = do
                 Just v | v > 0 -> pure v
                 _ -> pure def
 
+parseInt64Env :: String -> Int64 -> IO Int64
+parseInt64Env key def = do
+    mRaw <- lookupEnv key
+    case mRaw of
+        Nothing -> pure def
+        Just raw ->
+            case readMaybe (trim raw) of
+                Just v | v > 0 -> pure v
+                _ -> pure def
+
 resolveDbUrl :: IO String
 resolveDbUrl = do
     mPrimary <- lookupEnv "TRADER_DB_URL"
@@ -119,6 +129,17 @@ markOutboxRetry conn now eventId nextAttempt errMsg = do
             (nextAttempt, now, errMsg, eventId)
     pure ()
 
+reclaimStalePublishing :: Connection -> Int64 -> Int64 -> IO Int
+reclaimStalePublishing conn now timeoutMs = do
+    let cutoff = now - max 1000 timeoutMs
+    execute
+        conn
+        ( "UPDATE outbox_events "
+            <> "SET status = 'pending', next_attempt_at_ms = ?, updated_at_ms = ?, last_error = COALESCE(last_error, 'stale publishing lease reclaimed') "
+            <> "WHERE status = 'publishing' AND published_at_ms IS NULL AND updated_at_ms < ?"
+        )
+        (now, now, cutoff)
+
 backoffMs :: Int -> Int64
 backoffMs attempts =
     let a = max 1 attempts
@@ -141,12 +162,16 @@ publishEvent mode event =
                 )
             pure (Right ())
 
-runBatch :: Connection -> PublishMode -> Int -> IO ()
-runBatch conn mode batchSize = do
+runBatch :: Connection -> PublishMode -> Int -> Int64 -> IO ()
+runBatch conn mode batchSize staleTimeoutMs = do
     case mode of
         PublishNoop -> pure ()
         PublishStdout -> do
             now <- getTimestampMs
+            reclaimed <- reclaimStalePublishing conn now staleTimeoutMs
+            if reclaimed > 0
+                then putStrLn ("outbox.reclaim count=" <> show reclaimed)
+                else pure ()
             events <- claimOutboxBatch conn now batchSize
             forM_ events $ \event -> do
                 result <- (try (publishEvent mode event) :: IO (Either SomeException (Either Text ())))
@@ -167,6 +192,7 @@ main = do
     dbUrl <- resolveDbUrl
     pollMs <- parseIntEnv "TRADER_OUTBOX_POLL_MS" 1000
     batchSize <- parseIntEnv "TRADER_OUTBOX_BATCH_SIZE" 100
+    staleTimeoutMs <- parseInt64Env "TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS" 60000
     mode <- resolveMode
     conn <- connectPostgreSQL (TE.encodeUtf8 (T.pack dbUrl))
     putStrLn
@@ -177,7 +203,9 @@ main = do
             <> show pollMs
             <> " batchSize="
             <> show batchSize
+            <> " publishingTimeoutMs="
+            <> show staleTimeoutMs
         )
     forever $ do
-        runBatch conn mode batchSize
+        runBatch conn mode batchSize staleTimeoutMs
         threadDelay (pollMs * 1000)
