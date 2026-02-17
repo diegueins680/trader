@@ -34,10 +34,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y hlint
       - name: Install fourmolu
         run: |
-          cabal install fourmolu \
+          cabal install fourmolu-0.15.0.0 \
             --installdir="$HOME/.local/bin" \
             --overwrite-policy=always
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Show fourmolu version
+        run: fourmolu --version
       - name: Check Haskell formatting
         run: |
           find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check
