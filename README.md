@@ -530,7 +530,7 @@ Endpoints:
 - `GET /metrics`
 - `GET /ops` → persisted operations feed (enabled via `TRADER_DB_URL`; requires `tenantKey` when `TRADER_MULTI_USER=true`)
 - `GET /ops/performance` → ops rollups/deltas (requires `haskell/scripts/rollup_performance.sh`; `tenantKey` required when `TRADER_MULTI_USER=true`)
-- `GET /outbox` → outbox queue stats (counts by status + oldest pending age; enabled via `TRADER_DB_URL`)
+- `GET /outbox` → outbox queue stats (counts by status + oldest pending age; enabled via `TRADER_DB_URL`; when `TRADER_MULTI_USER=true`, `tenantKey` is required and results are tenant-scoped)
 - `GET /cache` → in-memory cache stats (entries + hit/miss)
 - `POST /cache/clear` → clears the in-memory cache
 - `POST /signal` → returns the latest signal (no orders)
@@ -882,7 +882,9 @@ Outbox publisher worker (Phase 1 scaffold):
 - `TRADER_OUTBOX_PUBLISHER_MODE`:
   - `noop` (default) leaves events pending (no publish attempts).
   - `stdout` prints each event and marks it published (placeholder publisher).
-- Optional tuning: `TRADER_OUTBOX_POLL_MS` (default `1000`), `TRADER_OUTBOX_BATCH_SIZE` (default `100`), `TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS` (default `60000`, reclaims stale `publishing` rows after worker crashes/restarts).
+  - `kafka-rest` publishes events to Kafka via REST Proxy (`TRADER_OUTBOX_KAFKA_REST_URL` base URL; topic path auto-appended).
+- Optional tuning: `TRADER_OUTBOX_POLL_MS` (default `1000`), `TRADER_OUTBOX_BATCH_SIZE` (default `100`), `TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS` (default `60000`, reclaims stale `publishing` rows after worker crashes/restarts), `TRADER_OUTBOX_PUBLISHED_RETENTION_MS` (default `604800000` = 7 days; `0` disables cleanup).
+- `GET /outbox` optional query params: `status=pending|publishing|published|failed`.
 
 Web UI
 ------

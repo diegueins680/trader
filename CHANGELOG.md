@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Outbox worker/API: add Kafka REST publishing mode (`TRADER_OUTBOX_PUBLISHER_MODE=kafka-rest`, `TRADER_OUTBOX_KAFKA_REST_URL`), published-event retention cleanup (`TRADER_OUTBOX_PUBLISHED_RETENTION_MS`), and tenant-scoped `/outbox` filtering with multi-user tenant-key enforcement.
 - API: add `GET /outbox` endpoint (when ops DB is enabled) to report outbox queue counts and oldest pending age for operational monitoring.
 - Worker/Dev: add `haskell/scripts/start_outbox_publisher_bg.sh` and stale-lease recovery (`TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS`) so crashed workers can recover `outbox_events` rows stuck in `publishing`.
 - Build/Runtime: add `outbox-publisher` executable (`cabal run outbox-publisher`) to drain `outbox_events`; supports `TRADER_OUTBOX_PUBLISHER_MODE=noop|stdout`, polling interval, and batch size env tuning.

@@ -3861,21 +3861,39 @@ opsPerformanceCombos store mTenantKey limit scope order = do
                 (fromString sql)
                 finalParams
 
-outboxStatusValue :: OpsStore -> IO Aeson.Value
-outboxStatusValue store = do
+outboxStatusValue :: OpsStore -> Maybe TenantKey -> Maybe Text -> IO Aeson.Value
+outboxStatusValue store mTenantKey mStatus = do
     now <- getTimestampMs
     (rows, mOldestPending) <-
         withMVar (osLock store) $ \_ -> do
+            let tenantKey' = normalizeMaybeText mTenantKey
+                status' = normalizeMaybeText mStatus
+                whereParts =
+                    catMaybes
+                        [ fmap (\_ -> "tenant_key = ?") tenantKey'
+                        , fmap (\_ -> "status = ?") status'
+                        ]
+                whereSql =
+                    if null whereParts
+                        then ""
+                        else " WHERE " <> intercalate " AND " whereParts
+                whereSqlOldest =
+                    if null whereParts
+                        then " WHERE status = 'pending'"
+                        else " WHERE status = 'pending' AND " <> intercalate " AND " whereParts
+                params = catMaybes [toField <$> tenantKey', toField <$> status']
             grouped <-
                 query
                     (osConn store)
-                    "SELECT status, COUNT(*)::bigint FROM outbox_events GROUP BY status" ::
-                    IO [(Text, Int64)]
+                    (fromString ("SELECT status, COUNT(*)::bigint FROM outbox_events" <> whereSql <> " GROUP BY status"))
+                    params ::
+                IO [(Text, Int64)]
             oldestRows <-
                 query
                     (osConn store)
-                    "SELECT MIN(created_at_ms) FROM outbox_events WHERE status = 'pending'" ::
-                    IO [Only (Maybe Int64)]
+                    (fromString ("SELECT MIN(created_at_ms) FROM outbox_events" <> whereSqlOldest))
+                    params ::
+                IO [Only (Maybe Int64)]
             let oldest =
                     case oldestRows of
                         (Only v : _) -> v
@@ -3896,6 +3914,8 @@ outboxStatusValue store = do
         ( object
             [ "enabled" .= True
             , "atMs" .= now
+            , "tenantKey" .= normalizeMaybeText mTenantKey
+            , "statusFilter" .= normalizeMaybeText mStatus
             , "counts"
                 .= object
                     [ "total" .= total
@@ -11424,7 +11444,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["outbox"] ->
                                 case Wai.requestMethod req of
-                                    "GET" -> handleOutbox mOps respondCors
+                                    "GET" -> handleOutbox multiUserEnabled mOps req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["cache"] ->
                                 case Wai.requestMethod req of
@@ -13671,8 +13691,8 @@ handleOpsPerformance multiUserEnabled mOps req respond =
                             )
                         )
 
-handleOutbox :: Maybe OpsStore -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleOutbox mOps respond =
+handleOutbox :: Bool -> Maybe OpsStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleOutbox multiUserEnabled mOps req respond =
     case mOps of
         Nothing ->
             respond
@@ -13685,8 +13705,32 @@ handleOutbox mOps respond =
                     )
                 )
         Just store -> do
-            payload <- outboxStatusValue store
-            respond (jsonValue status200 payload)
+            let q = Wai.queryString req
+                lookupParam name =
+                    case lookup (BS.pack name) q of
+                        Just (Just raw) -> Just raw
+                        _ -> Nothing
+                statusParam = T.toLower . T.strip . T.pack . BS.unpack <$> lookupParam "status"
+                statusFilter =
+                    case statusParam of
+                        Just "pending" -> Just "pending"
+                        Just "publishing" -> Just "publishing"
+                        Just "published" -> Just "published"
+                        Just "failed" -> Just "failed"
+                        Just _ -> Nothing
+                        Nothing -> Nothing
+                tenantResult =
+                    if multiUserEnabled
+                        then Just <$> requireTenantKey "outbox" (tenantKeyFromRequest req)
+                        else Right (tenantKeyFromRequest req)
+            case (statusParam, statusFilter) of
+                (Just _, Nothing) -> respond (jsonError status400 "Invalid outbox status (expected pending|publishing|published|failed).")
+                _ ->
+                    case tenantResult of
+                        Left e -> respond (jsonError status400 e)
+                        Right mTenantKey -> do
+                            payload <- outboxStatusValue store mTenantKey statusFilter
+                            respond (jsonValue status200 payload)
 
 handleSignal :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
