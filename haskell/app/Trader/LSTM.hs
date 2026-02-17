@@ -50,7 +50,6 @@ paramCount h =
 buildSequences :: Int -> [Double] -> [([Double], Double)]
 buildSequences lookback xs
     | lookback <= 0 = []
-    | length xs <= lookback = []
     | otherwise =
         let xsV = V.fromList xs
          in map (Data.Bifunctor.first V.toList) (buildSequencesV lookback xsV)
