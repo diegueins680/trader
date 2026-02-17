@@ -777,17 +777,18 @@ parseEnvLine raw =
 parseEnvValue :: String -> String
 parseEnvValue raw =
     let trimmed = trim (stripInlineComment raw)
-     in case trimmed of
-            "" -> ""
-            _ ->
-                let firstChar = head trimmed
-                    lastChar = last trimmed
-                 in if length trimmed >= 2 && firstChar == '"' && lastChar == '"'
-                        then unescapeDoubleQuoted (init (tail trimmed))
-                        else
-                            if length trimmed >= 2 && firstChar == '\'' && lastChar == '\''
-                                then init (tail trimmed)
-                                else trimmed
+        stripWrappedQuote q s =
+            case s of
+                first : rest
+                    | first == q ->
+                        case reverse rest of
+                            lastChar : innerRev
+                                | lastChar == q -> Just (reverse innerRev)
+                            _ -> Nothing
+                _ -> Nothing
+     in fromMaybe trimmed $
+            (unescapeDoubleQuoted <$> stripWrappedQuote '"' trimmed)
+                <|> stripWrappedQuote '\'' trimmed
 
 stripInlineComment :: String -> String
 stripInlineComment = go False False False []
@@ -5193,14 +5194,14 @@ positionChangeCount positions =
         (p0 : rest) ->
             snd (foldl' (\(prev, acc) cur -> (cur, if cur == prev then acc else acc + 1)) (p0, 0) rest)
 
+lastMaybe :: [a] -> Maybe a
+lastMaybe = foldl' (\_ x -> Just x) Nothing
+
 botBacktestResultFromState :: BotState -> BacktestResult
 botBacktestResultFromState st =
     let eq = V.toList (botEquityCurve st)
         posAll = botPositions st
-        posForMetrics =
-            if V.length posAll > 1
-                then V.toList (V.init posAll)
-                else []
+        posForMetrics = V.toList (V.take (max 0 (V.length posAll - 1)) posAll)
         posChanges = positionChangeCount (V.toList posAll)
      in BacktestResult
             { brEquityCurve = eq
@@ -7249,10 +7250,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 , botPolledAtMs = now
                 , botPollLatencyMs = 0
                 , botFetchedKlines = length ks
-                , botFetchedLastKline =
-                    if null ks
-                        then Nothing
-                        else Just (last ks)
+                , botFetchedLastKline = lastMaybe ks
                 , botLastBatchAtMs = now
                 , botLastBatchSize = length ks
                 , botLastBatchMs = 0
@@ -8669,10 +8667,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
                             sleepSec pollSec
                             loop
                         Right ks -> do
-                            let fetchedLast =
-                                    if null ks
-                                        then Nothing
-                                        else Just (last ks)
+                            let fetchedLast = lastMaybe ks
                                 stPolled =
                                     st
                                         { botError = Nothing
@@ -9668,7 +9663,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         newTradeCount = length trades'
         mNewTrade =
             if newTradeCount > oldTradeCount
-                then Just (last trades')
+                then lastMaybe trades'
                 else Nothing
         (perfStatsNext, adjustmentsNext, lossStreakNext, lossStreakTriggered) =
             case mNewTrade of
@@ -11770,7 +11765,7 @@ pickRandom xs =
             r <- randomIO :: IO Word64
             let len = length xs
                 idx = fromIntegral (r `mod` fromIntegral len)
-            pure (Just (xs !! idx))
+            pure (listToMaybe (drop idx xs))
 
 pickDefaultString :: String -> Maybe String -> String
 pickDefaultString def mb =
@@ -19798,9 +19793,8 @@ applyBacktestTimeWindow args series = do
                                                 ++ priceSourceLabel args
                                                 ++ ")"
                                             )
-                                    _ ->
-                                        let i0 = head matching
-                                            i1 = last matching
+                                    i0 : rest ->
+                                        let i1 = foldl' (\_ i -> i) i0 rest
                                             len = i1 - i0 + 1
                                             highs = fmap (sliceContiguous i0 len) (keepMaybe (psHigh series))
                                             lows = fmap (sliceContiguous i0 len) (keepMaybe (psLow series))
@@ -22264,7 +22258,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                         let pricesList = V.toList pricesV
                          in [ let r = if p0 == 0 || bad p0 || bad p1 then 0 else p1 / p0 - 1
                                in if bad r then 0 else r
-                            | (p0, p1) <- zip pricesList (tail pricesList)
+                            | (p0, p1) <- zip pricesList (drop 1 pricesList)
                             ]
 
             meanList xs =
