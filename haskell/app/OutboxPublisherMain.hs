@@ -4,12 +4,12 @@ module Main where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
-import Control.Monad (forM_, forever)
+import Control.Monad (forM_, forever, when)
 import Data.Aeson (Value (..), decode, encode, object, (.=))
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (toLower)
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -104,7 +104,7 @@ resolveDbUrl = do
     mPrimary <- lookupEnv "TRADER_DB_URL"
     mFallback <- lookupEnv "DATABASE_URL"
     let pick =
-            case filter (not . null) (map (trim) (concat [[maybe "" id mPrimary], [maybe "" id mFallback]])) of
+            case filter (not . null) (map trim [fromMaybe "" mPrimary, fromMaybe "" mFallback]) of
                 (x : _) -> Just x
                 [] -> Nothing
     case pick of
@@ -201,7 +201,7 @@ publishEvent ctx event =
                     <> " topic="
                     <> T.unpack (oeTopic event)
                     <> " key="
-                    <> T.unpack (maybe "" id (oeEventKey event))
+                    <> T.unpack (fromMaybe "" (oeEventKey event))
                 )
             pure (Right ())
         PublishKafkaRest ->
@@ -236,21 +236,17 @@ publishEvent ctx event =
 runBatch :: Connection -> PublisherCtx -> Int -> Int64 -> Int64 -> IO ()
 runBatch conn ctx batchSize staleTimeoutMs publishedRetentionMs = do
     now0 <- getTimestampMs
-    if publishedRetentionMs > 0
-        then do
-            deleted <- cleanupPublishedOlderThan conn now0 publishedRetentionMs
-            if deleted > 0
-                then putStrLn ("outbox.cleanup deleted=" <> show deleted)
-                else pure ()
-        else pure ()
+    when (publishedRetentionMs > 0) $ do
+        deleted <- cleanupPublishedOlderThan conn now0 publishedRetentionMs
+        when (deleted > 0) $
+            putStrLn ("outbox.cleanup deleted=" <> show deleted)
     case pcMode ctx of
         PublishNoop -> pure ()
         _ -> do
             now <- getTimestampMs
             reclaimed <- reclaimStalePublishing conn now staleTimeoutMs
-            if reclaimed > 0
-                then putStrLn ("outbox.reclaim count=" <> show reclaimed)
-                else pure ()
+            when (reclaimed > 0) $
+                putStrLn ("outbox.reclaim count=" <> show reclaimed)
             events <- claimOutboxBatch conn now batchSize
             forM_ events $ \event -> do
                 result <- (try (publishEvent ctx event) :: IO (Either SomeException (Either Text ())))
@@ -291,7 +287,7 @@ main = do
             <> " publishedRetentionMs="
             <> show publishedRetentionMs
             <> " kafkaRestUrlConfigured="
-            <> show (maybe False (const True) kafkaRestBaseUrl)
+            <> show (isJust kafkaRestBaseUrl)
         )
     forever $ do
         runBatch conn ctx batchSize staleTimeoutMs publishedRetentionMs
