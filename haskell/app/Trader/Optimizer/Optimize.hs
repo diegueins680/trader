@@ -25,10 +25,9 @@ import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
 import Data.Either (fromRight)
 import Data.Foldable (for_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
-import Data.List (foldl', intercalate, sort, sortBy)
+import Data.List (foldl', intercalate, sort, sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
-import Data.Ord (comparing)
 import qualified Data.Ord
 import Data.Scientific (Scientific, toRealFloat)
 import qualified Data.Set as Set
@@ -3300,8 +3299,8 @@ runOptimizer args0 = do
                                                                             (zip [1 .. seedTrials] sobolRngs)
                                                                     let seedResults = reverse seedResultsRev
                                                                         scored =
-                                                                            sortBy
-                                                                                (comparing (Data.Ord.Down . fromMaybe (-1e18) . trScore))
+                                                                            sortOn
+                                                                                (Data.Ord.Down . fromMaybe (-1e18) . trScore)
                                                                                 (filter (isJust . trScore) seedResults)
                                                                         survivorsRaw = take survivorCount (filter trEligible scored ++ scored)
                                                                         techniqueSummarySeed =
@@ -4319,7 +4318,7 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
                 eq = fromMaybe 0 (trFinalEquity tr)
                 eq' = if isNaN eq || isInfinite eq then 0 else eq
              in (ann', score', eq')
-        sorted = sortBy (comparing (Data.Ord.Down . sortKey)) successful
+        sorted = sortOn (Data.Ord.Down . sortKey) successful
         combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
         topMetrics =
             let topN = take 5 sorted
