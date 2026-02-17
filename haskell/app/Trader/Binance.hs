@@ -68,9 +68,8 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isSpace, toLower)
 import Data.Int (Int64)
-import Data.List (foldl', isInfixOf, isPrefixOf, isSuffixOf, sortBy)
+import Data.List (foldl', isInfixOf, isPrefixOf, isSuffixOf, sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
-import Data.Ord (comparing)
 import qualified Data.Ord
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -752,7 +751,7 @@ fetchKlinesRaw env symbol interval limit = do
         go remaining mEnd acc = do
             let batchLimit = min maxPerRequest remaining
             ks <- fetchBatch mEnd batchLimit
-            case sortBy (comparing kOpenTime) ks of
+            case sortOn kOpenTime ks of
                 [] -> pure acc
                 ksSorted@(firstK : _) -> do
                     let acc' = ksSorted ++ acc
@@ -890,7 +889,7 @@ fetchTopSymbolsByQuoteVolume env quote topN = do
                                    isLeveraged = any (`isSuffixOf` base) leveragedSuffixes
                                 in not isStableStable && not isLeveraged
                 ranked =
-                    sortBy (comparing (Data.Ord.Down . snd)) $
+                    sortOn (Data.Ord.Down . snd) $
                         [ (map toUpperAscii (t24Symbol t), max 0 (t24QuoteVolume t))
                         | t <- filter wanted tickers
                         ]

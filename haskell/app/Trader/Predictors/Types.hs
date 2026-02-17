@@ -99,9 +99,9 @@ predictorSetFromString raw =
                                     else
                                         if hasNone
                                             then
-                                                if length lowered == 1
-                                                    then Right Set.empty
-                                                    else Left "Predictors list mixes 'none' with other entries."
+                                                case lowered of
+                                                    [_] -> Right Set.empty
+                                                    _ -> Left "Predictors list mixes 'none' with other entries."
                                             else
                                                 let parsed = map parseOne lowered
                                                  in Right (Set.fromList (rights parsed))

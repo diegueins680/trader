@@ -25,10 +25,9 @@ import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
 import Data.Either (fromRight)
 import Data.Foldable (for_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
-import Data.List (foldl', intercalate, sort, sortBy)
+import Data.List (foldl', intercalate, sort, sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
-import Data.Ord (comparing)
 import qualified Data.Ord
 import Data.Scientific (Scientific, toRealFloat)
 import qualified Data.Set as Set
@@ -202,11 +201,10 @@ detectHighLowColumns path = do
 countCsvRows :: FilePath -> IO Int
 countCsvRows path = do
     bs <- BS.readFile path
-    if BS.null bs
-        then pure 0
-        else do
+    case BS.unsnoc bs of
+        Nothing -> pure 0
+        Just (_, lastByte) -> do
             let newlines = BS.count 10 bs
-                lastByte = BS.last bs
                 extra = if lastByte == 10 then 0 else 1
             pure (fromIntegral newlines + extra)
 
@@ -1417,7 +1415,10 @@ runTrial traderBin baseArgs params tuneRatio useSweepThreshold timeoutSec disabl
                 ExitFailure code -> do
                     let chosen = if null err then out else err
                         trimmed = trim chosen
-                        short = if length trimmed > 300 then take 300 trimmed ++ "…" else trimmed
+                        short =
+                            case splitAt 300 trimmed of
+                                (prefix, []) -> prefix
+                                (prefix, _) -> prefix ++ "…"
                         reason = if null short then "exit=" ++ show code else short
                     pure
                         TrialResult
@@ -2566,7 +2567,7 @@ sampleParams
                                     pick acc ((name, w) : rest) =
                                         let acc' = acc + max 0 w
                                          in if target <= acc' then name else pick acc' rest
-                                    pick _ [] = fst (last options)
+                                    pick _ [] = fst (fromMaybe firstOpt (listToMaybe (reverse options)))
                                  in (pick 0 options, rng')
 
 runOptimizer :: OptimizerArgs -> IO Int
@@ -3173,11 +3174,12 @@ runOptimizer args0 = do
                                                                                         Nothing -> sampleParamsWithRng rng
                                                                                         Just base ->
                                                                                             case mParents of
-                                                                                                Just parents
-                                                                                                    | length parents >= 2 ->
-                                                                                                        let ((p1, p2), rng1) = pickParentPair parents rng
-                                                                                                            (child, rng2) = crossoverTrialParams p1 p2 rng1
-                                                                                                         in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
+                                                                                                Just parents@(_ : _ : _) ->
+                                                                                                    case pickParentPair parents rng of
+                                                                                                        Just ((p1, p2), rng1) ->
+                                                                                                            let (child, rng2) = crossoverTrialParams p1 p2 rng1
+                                                                                                             in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
+                                                                                                        Nothing -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
                                                                                                 _ -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
                                                                             tr0 <-
                                                                                 runTrial
@@ -3300,8 +3302,8 @@ runOptimizer args0 = do
                                                                             (zip [1 .. seedTrials] sobolRngs)
                                                                     let seedResults = reverse seedResultsRev
                                                                         scored =
-                                                                            sortBy
-                                                                                (comparing (Data.Ord.Down . fromMaybe (-1e18) . trScore))
+                                                                            sortOn
+                                                                                (Data.Ord.Down . fromMaybe (-1e18) . trScore)
                                                                                 (filter (isJust . trScore) seedResults)
                                                                         survivorsRaw = take survivorCount (filter trEligible scored ++ scored)
                                                                         techniqueSummarySeed =
@@ -3322,9 +3324,9 @@ runOptimizer args0 = do
                                                                             , metricFloat (trMetrics tr) "annualizedReturn" 0 > 1
                                                                             ]
                                                                         gaParentPool =
-                                                                            if length gaParents >= 2
-                                                                                then Just gaParents
-                                                                                else Nothing
+                                                                            case gaParents of
+                                                                                _ : _ : _ -> Just gaParents
+                                                                                _ -> Nothing
                                                                         bestScore b = fromMaybe (-1e18) (trScore =<< b)
                                                                         runTrialsWithEarlyStop best recs survivorsIx stagnant trialsList =
                                                                             case trialsList of
@@ -3335,7 +3337,7 @@ runOptimizer args0 = do
                                                                                                 [] -> Nothing
                                                                                                 _ ->
                                                                                                     let ix = survivorsIx `mod` length survivorParams
-                                                                                                     in Just (survivorParams !! ix)
+                                                                                                     in listToMaybe (drop ix survivorParams)
                                                                                         prevScore = bestScore best
                                                                                     (best', recs', _tr) <- runTrialWith idx rng baseParam gaParentPool best recs
                                                                                     let survivorsIx' = survivorsIx + 1
@@ -3356,7 +3358,10 @@ runOptimizer args0 = do
                                                                         techniqueSummaryFinal =
                                                                             techniqueSummarySeed
                                                                                 { otsAppliedBayesianEi = remainingTrials > 0 && not (null survivorParams)
-                                                                                , otsAppliedEnsemble = length records >= 2
+                                                                                , otsAppliedEnsemble =
+                                                                                    case records of
+                                                                                        _ : _ : _ -> True
+                                                                                        _ -> False
                                                                                 }
                                                                     Data.Foldable.for_ outHandle hClose
                                                                     case best of
@@ -3886,13 +3891,19 @@ pickValue a b rng =
     let (r, rng1) = nextDouble rng
      in (if r < 0.5 then a else b, rng1)
 
-pickParentPair :: [TrialParams] -> Rng -> ((TrialParams, TrialParams), Rng)
+pickParentPair :: [TrialParams] -> Rng -> Maybe ((TrialParams, TrialParams), Rng)
 pickParentPair parents rng0 =
-    let n = length parents
-        (i, rng1) = nextIntRange 0 (n - 1) rng0
-        (j, rng2) = nextIntRange 0 (n - 1) rng1
-        j' = if j == i then (j + 1) `mod` n else j
-     in ((parents !! i, parents !! j'), rng2)
+    case parents of
+        [] -> Nothing
+        p0 : rest ->
+            let n = length parents
+                p1 = fromMaybe p0 (listToMaybe rest)
+                (i, rng1) = nextIntRange 0 (n - 1) rng0
+                (j, rng2) = nextIntRange 0 (n - 1) rng1
+                j' = if j == i then (j + 1) `mod` n else j
+                pi' = fromMaybe p0 (listToMaybe (drop i parents))
+                pj' = fromMaybe p1 (listToMaybe (drop j' parents))
+             in Just ((pi', pj'), rng2)
 
 crossoverTrialParams :: TrialParams -> TrialParams -> Rng -> (TrialParams, Rng)
 crossoverTrialParams a b rng0 =
@@ -4021,7 +4032,8 @@ crossoverTrialParams a b rng0 =
         (tpMaxExposurePerBase', rng116) = pickValue (tpMaxExposurePerBase a) (tpMaxExposurePerBase b) rng115
         (tpMaxOpenPerBase', rng117) = pickValue (tpMaxOpenPerBase a) (tpMaxOpenPerBase b) rng116
         (tpAdaptiveEdgeBufferMax', rng118) = pickValue (tpAdaptiveEdgeBufferMax a) (tpAdaptiveEdgeBufferMax b) rng117
-        (tpAdaptiveMinSignalToNoiseMax', rng119) = pickValue (tpAdaptiveMinSignalToNoiseMax a) (tpAdaptiveMinSignalToNoiseMax b) rng118
+        (tpAdaptiveMinSignalToNoiseMax', rng119) =
+            pickValue (tpAdaptiveMinSignalToNoiseMax a) (tpAdaptiveMinSignalToNoiseMax b) rng118
         (tpAdaptiveTrendLookbackMax', rng120) = pickValue (tpAdaptiveTrendLookbackMax a) (tpAdaptiveTrendLookbackMax b) rng119
         (tpAdaptiveKalmanZMinMax', rng121) = pickValue (tpAdaptiveKalmanZMinMax a) (tpAdaptiveKalmanZMinMax b) rng120
      in ( TrialParams
@@ -4353,7 +4365,7 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
                 eq = fromMaybe 0 (trFinalEquity tr)
                 eq' = if isNaN eq || isInfinite eq then 0 else eq
              in (ann', score', eq')
-        sorted = sortBy (comparing (Data.Ord.Down . sortKey)) successful
+        sorted = sortOn (Data.Ord.Down . sortKey) successful
         combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
         topMetrics =
             let topN = take 5 sorted

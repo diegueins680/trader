@@ -24,7 +24,9 @@ pnpm-debug.log*
 # Haskell / Cabal
 dist/
 dist-newstyle/
+dist-newstyle-*/
 haskell/dist-newstyle/
+haskell/dist-newstyle-*/
 haskell/dist-newstyle-alt/
 haskell/.stack-work/
 haskell/.stack-root/

@@ -95,7 +95,9 @@ parseTimeOfDay raw =
 pad2 :: Int -> String
 pad2 n =
     let s = show (abs n)
-     in if length s == 1 then '0' : s else s
+     in case s of
+            [d] -> ['0', d]
+            _ -> s
 
 readIntEither :: String -> Either String Int
 readIntEither s =

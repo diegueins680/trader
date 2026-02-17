@@ -54,7 +54,7 @@ import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, status504, statusCode)
+import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status413, status429, status500, status502, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
@@ -777,17 +777,18 @@ parseEnvLine raw =
 parseEnvValue :: String -> String
 parseEnvValue raw =
     let trimmed = trim (stripInlineComment raw)
-     in case trimmed of
-            "" -> ""
-            _ ->
-                let firstChar = head trimmed
-                    lastChar = last trimmed
-                 in if length trimmed >= 2 && firstChar == '"' && lastChar == '"'
-                        then unescapeDoubleQuoted (init (tail trimmed))
-                        else
-                            if length trimmed >= 2 && firstChar == '\'' && lastChar == '\''
-                                then init (tail trimmed)
-                                else trimmed
+        stripWrappedQuote q s =
+            case s of
+                first : rest
+                    | first == q ->
+                        case reverse rest of
+                            lastChar : innerRev
+                                | lastChar == q -> Just (reverse innerRev)
+                            _ -> Nothing
+                _ -> Nothing
+     in fromMaybe trimmed $
+            (unescapeDoubleQuoted <$> stripWrappedQuote '"' trimmed)
+                <|> stripWrappedQuote '\'' trimmed
 
 stripInlineComment :: String -> String
 stripInlineComment = go False False False []
@@ -2730,6 +2731,15 @@ lookupJsonTextKeys keys val =
 lookupJsonTextMaybe :: [Text] -> Maybe Aeson.Value -> Maybe Text
 lookupJsonTextMaybe keys mVal = mVal >>= lookupJsonTextKeys keys
 
+lookupJsonInt64 :: Text -> Aeson.Value -> Maybe Int64
+lookupJsonInt64 key val =
+    case val of
+        Aeson.Object obj ->
+            case KM.lookup (AK.fromString (T.unpack key)) obj of
+                Nothing -> Nothing
+                Just v -> AT.parseMaybe Aeson.parseJSON v
+        _ -> Nothing
+
 inferPlatformFromJson :: Maybe Aeson.Value -> Maybe Text
 inferPlatformFromJson = lookupJsonTextMaybe ["platform"]
 
@@ -2754,6 +2764,174 @@ inferPlatformFromKind kind =
                                 if "poloniex." `T.isPrefixOf` k
                                     then Just "poloniex"
                                     else Nothing
+
+data TradeRequestRow = TradeRequestRow
+    { trrRequestHash :: !Text
+    , trrStatus :: !Text
+    , trrResponseJson :: !(Maybe Text)
+    , trrErrorText :: !(Maybe Text)
+    }
+    deriving (Eq, Show)
+
+instance FromRow TradeRequestRow where
+    fromRow = TradeRequestRow <$> field <*> field <*> field <*> field
+
+data TradeIdempotencyCheck
+    = TradeIdemAcquire
+    | TradeIdemCached !Aeson.Value
+    | TradeIdemBusy !String
+    | TradeIdemConflict !String
+    deriving (Eq, Show)
+
+normalizeTenantScope :: Maybe TenantKey -> Text
+normalizeTenantScope mTenantKey =
+    fromMaybe "" (normalizeMaybeText mTenantKey)
+
+requestHashFromApiParams :: ApiParams -> Text
+requestHashFromApiParams params =
+    T.pack (hashBytesHex (Aeson.encode (sanitizeApiParams params)))
+
+resolveTradeIdempotency ::
+    OpsStore ->
+    Maybe TenantKey ->
+    Text ->
+    Text ->
+    IO TradeIdempotencyCheck
+resolveTradeIdempotency store mTenantKey idempotencyKey requestHash = do
+    now <- getTimestampMs
+    let tenantScope = normalizeTenantScope mTenantKey
+        tenantKey' = normalizeMaybeText mTenantKey
+    withMVar (osLock store) $ \_ ->
+        withTransaction (osConn store) $ do
+            inserted <-
+                execute
+                    (osConn store)
+                    ( "INSERT INTO trade_requests (tenant_scope, tenant_key, idempotency_key, request_hash, status, created_at_ms, updated_at_ms) "
+                        <> "VALUES (?, ?, ?, ?, 'running', ?, ?) "
+                        <> "ON CONFLICT (tenant_scope, idempotency_key) DO NOTHING"
+                    )
+                    (tenantScope, tenantKey', idempotencyKey, requestHash, now, now)
+            if inserted > 0
+                then pure TradeIdemAcquire
+                else do
+                    rows <-
+                        query
+                            (osConn store)
+                            "SELECT request_hash, status, response_json::text, error_text FROM trade_requests WHERE tenant_scope = ? AND idempotency_key = ? LIMIT 1"
+                            (tenantScope, idempotencyKey)
+                    case rows of
+                        (row : _) ->
+                            if trrRequestHash row /= requestHash
+                                then
+                                    pure
+                                        ( TradeIdemConflict
+                                            "idempotencyKey already exists for a different trade payload."
+                                        )
+                                else case T.toLower (trrStatus row) of
+                                    "done" ->
+                                        case decodeJsonTextMaybe (trrResponseJson row) of
+                                            Just v -> pure (TradeIdemCached v)
+                                            Nothing ->
+                                                pure
+                                                    ( TradeIdemBusy
+                                                        "idempotencyKey is done but cached response is unavailable."
+                                                    )
+                                    "error" ->
+                                        pure
+                                            ( TradeIdemBusy
+                                                ( maybe
+                                                    "A prior trade request with this idempotencyKey failed."
+                                                    T.unpack
+                                                    (normalizeMaybeText (trrErrorText row))
+                                                )
+                                            )
+                                    _ ->
+                                        pure
+                                            ( TradeIdemBusy
+                                                "A trade request with this idempotencyKey is already running."
+                                            )
+                        _ -> pure TradeIdemAcquire
+
+completeTradeIdempotencySuccess ::
+    OpsStore ->
+    Maybe TenantKey ->
+    Text ->
+    Text ->
+    Aeson.Value ->
+    IO ()
+completeTradeIdempotencySuccess store mTenantKey idempotencyKey requestHash responseJson = do
+    now <- getTimestampMs
+    let tenantScope = normalizeTenantScope mTenantKey
+        tenantKey' = normalizeMaybeText mTenantKey
+        responseText = TE.decodeUtf8 (BL.toStrict (Aeson.encode responseJson))
+    withMVar (osLock store) $ \_ ->
+        void $
+            execute
+                (osConn store)
+                ( "UPDATE trade_requests "
+                    <> "SET tenant_key = ?, request_hash = ?, status = 'done', response_json = ?::jsonb, error_text = NULL, updated_at_ms = ?, completed_at_ms = ? "
+                    <> "WHERE tenant_scope = ? AND idempotency_key = ?"
+                )
+                (tenantKey', requestHash, responseText, now, now, tenantScope, idempotencyKey)
+
+completeTradeIdempotencyError ::
+    OpsStore ->
+    Maybe TenantKey ->
+    Text ->
+    Text ->
+    String ->
+    IO ()
+completeTradeIdempotencyError store mTenantKey idempotencyKey requestHash errMsg = do
+    now <- getTimestampMs
+    let tenantScope = normalizeTenantScope mTenantKey
+        tenantKey' = normalizeMaybeText mTenantKey
+        msg = T.pack (take 4000 errMsg)
+    withMVar (osLock store) $ \_ ->
+        void $
+            execute
+                (osConn store)
+                ( "UPDATE trade_requests "
+                    <> "SET tenant_key = ?, request_hash = ?, status = 'error', response_json = NULL, error_text = ?, updated_at_ms = ?, completed_at_ms = ? "
+                    <> "WHERE tenant_scope = ? AND idempotency_key = ?"
+                )
+                (tenantKey', requestHash, msg, now, now, tenantScope, idempotencyKey)
+
+writeAsyncJobDb :: OpsStore -> Text -> Text -> Aeson.Value -> IO ()
+writeAsyncJobDb store jobType jobId payload = do
+    now <- getTimestampMs
+    let status = fromMaybe "running" (lookupJsonText "status" payload)
+        createdAtMs = lookupJsonInt64 "createdAtMs" payload
+        completedAtMs = lookupJsonInt64 "completedAtMs" payload
+        payloadText = TE.decodeUtf8 (BL.toStrict (Aeson.encode payload))
+    withMVar (osLock store) $ \_ ->
+        void $
+            execute
+                (osConn store)
+                ( "INSERT INTO async_jobs (job_id, job_type, status, payload_json, created_at_ms, completed_at_ms, updated_at_ms) "
+                    <> "VALUES (?, ?, ?, ?::jsonb, ?, ?, ?) "
+                    <> "ON CONFLICT (job_id) DO UPDATE SET "
+                    <> "job_type = EXCLUDED.job_type, "
+                    <> "status = EXCLUDED.status, "
+                    <> "payload_json = EXCLUDED.payload_json, "
+                    <> "created_at_ms = COALESCE(EXCLUDED.created_at_ms, async_jobs.created_at_ms), "
+                    <> "completed_at_ms = EXCLUDED.completed_at_ms, "
+                    <> "updated_at_ms = EXCLUDED.updated_at_ms"
+                )
+                (jobId, jobType, status, payloadText, createdAtMs, completedAtMs, now)
+
+readAsyncJobDb :: OpsStore -> Text -> IO (Maybe Aeson.Value)
+readAsyncJobDb store jobId = do
+    rows <-
+        withMVar (osLock store) $ \_ ->
+            query
+                (osConn store)
+                "SELECT payload_json::text FROM async_jobs WHERE job_id = ? LIMIT 1"
+                (Only jobId) ::
+                IO [Only Text]
+    pure $
+        case rows of
+            (Only payloadText : _) -> decodeJsonTextMaybe (Just payloadText)
+            _ -> Nothing
 
 sanitizeSymbolForPlatformText :: Maybe Text -> Text -> Maybe Text
 sanitizeSymbolForPlatformText mPlatform sym =
@@ -3108,6 +3286,54 @@ ensureOpsDbSchema conn = do
                 <> "git_commit_id BIGINT REFERENCES git_commits(id)"
                 <> ")"
             )
+    _ <-
+        execute_
+            conn
+            ( "CREATE TABLE IF NOT EXISTS async_jobs ("
+                <> "job_id TEXT PRIMARY KEY,"
+                <> "job_type TEXT NOT NULL,"
+                <> "status TEXT NOT NULL,"
+                <> "payload_json JSONB NOT NULL,"
+                <> "created_at_ms BIGINT,"
+                <> "completed_at_ms BIGINT,"
+                <> "updated_at_ms BIGINT NOT NULL"
+                <> ")"
+            )
+    _ <-
+        execute_
+            conn
+            ( "CREATE TABLE IF NOT EXISTS trade_requests ("
+                <> "tenant_scope TEXT NOT NULL,"
+                <> "tenant_key TEXT,"
+                <> "idempotency_key TEXT NOT NULL,"
+                <> "request_hash TEXT NOT NULL,"
+                <> "status TEXT NOT NULL,"
+                <> "response_json JSONB,"
+                <> "error_text TEXT,"
+                <> "created_at_ms BIGINT NOT NULL,"
+                <> "updated_at_ms BIGINT NOT NULL,"
+                <> "completed_at_ms BIGINT,"
+                <> "PRIMARY KEY (tenant_scope, idempotency_key)"
+                <> ")"
+            )
+    _ <-
+        execute_
+            conn
+            ( "CREATE TABLE IF NOT EXISTS outbox_events ("
+                <> "id BIGSERIAL PRIMARY KEY,"
+                <> "tenant_key TEXT,"
+                <> "topic TEXT NOT NULL,"
+                <> "event_key TEXT,"
+                <> "payload_json JSONB NOT NULL,"
+                <> "status TEXT NOT NULL DEFAULT 'pending',"
+                <> "attempts INTEGER NOT NULL DEFAULT 0,"
+                <> "next_attempt_at_ms BIGINT,"
+                <> "last_error TEXT,"
+                <> "created_at_ms BIGINT NOT NULL,"
+                <> "updated_at_ms BIGINT NOT NULL,"
+                <> "published_at_ms BIGINT"
+                <> ")"
+            )
     _ <- execute_ conn "ALTER TABLE bots ADD COLUMN IF NOT EXISTS tenant_key TEXT"
     _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS tenant_key TEXT"
     _ <- execute_ conn "ALTER TABLE bots DROP CONSTRAINT IF EXISTS bots_platform_id_symbol_market_interval_key"
@@ -3125,6 +3351,13 @@ ensureOpsDbSchema conn = do
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_git_commit_id_idx ON ops(git_commit_id)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS git_commits_committed_at_ms_idx ON git_commits(committed_at_ms)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_order_id_idx ON ops(order_id)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS async_jobs_type_status_idx ON async_jobs(job_type, status)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS async_jobs_updated_at_ms_idx ON async_jobs(updated_at_ms)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS trade_requests_tenant_status_idx ON trade_requests(tenant_scope, status)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS trade_requests_updated_at_ms_idx ON trade_requests(updated_at_ms)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS outbox_events_status_next_attempt_idx ON outbox_events(status, next_attempt_at_ms)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS outbox_events_created_at_ms_idx ON outbox_events(created_at_ms)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS outbox_events_tenant_topic_idx ON outbox_events(tenant_key, topic)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_at_ms_idx ON ops(at_ms)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_at_ms_idx ON ops(symbol, at_ms)"
     _ <- execute_ conn "CREATE UNIQUE INDEX IF NOT EXISTS platforms_code_idx ON platforms(code)"
@@ -3424,6 +3657,47 @@ opsAppendMaybe mStore mTenantKey kind mParams mArgs mResult mEquity mComboUuid m
             _ <- try (opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId) :: IO (Either SomeException PersistedOperation)
             pure ()
 
+outboxEnqueue ::
+    OpsStore ->
+    Maybe TenantKey ->
+    Text ->
+    Maybe Text ->
+    Aeson.Value ->
+    IO ()
+outboxEnqueue store mTenantKey topic mEventKey payload = do
+    now <- getTimestampMs
+    let tenantKey' = normalizeMaybeText mTenantKey
+        eventKey' = normalizeMaybeText mEventKey
+        payloadJson = TE.decodeUtf8 (BL.toStrict (Aeson.encode payload))
+    withMVar (osLock store) $ \_ ->
+        void $
+            execute
+                (osConn store)
+                ( "INSERT INTO outbox_events (tenant_key, topic, event_key, payload_json, status, attempts, next_attempt_at_ms, created_at_ms, updated_at_ms) "
+                    <> "VALUES (?, ?, ?, ?::jsonb, 'pending', 0, NULL, ?, ?)"
+                )
+                (tenantKey', topic, eventKey', payloadJson, now, now)
+
+outboxEnqueueMaybe ::
+    Maybe OpsStore ->
+    Maybe TenantKey ->
+    Text ->
+    Maybe Text ->
+    Aeson.Value ->
+    IO ()
+outboxEnqueueMaybe mStore mTenantKey topic mEventKey payload =
+    case mStore of
+        Nothing -> pure ()
+        Just store -> do
+            _ <- try (outboxEnqueue store mTenantKey topic mEventKey payload) :: IO (Either SomeException ())
+            pure ()
+
+ownerKeyFromArgs :: Maybe TenantKey -> Args -> Text
+ownerKeyFromArgs mTenantKey args =
+    let tenant = fromMaybe "public" (normalizeMaybeText mTenantKey)
+        symbol = fromMaybe "-" (normalizeMaybeText (T.pack <$> argBinanceSymbol args))
+     in T.intercalate ":" [tenant, T.pack (platformCode (argPlatform args)), symbol, T.pack (marketCode (argBinanceMarket args)), T.pack (argInterval args)]
+
 data OpsCondition = OpsCondition
     { ocSql :: !String
     , ocParams :: ![Action]
@@ -3586,6 +3860,73 @@ opsPerformanceCombos store mTenantKey limit scope order = do
                 (osConn store)
                 (fromString sql)
                 finalParams
+
+outboxStatusValue :: OpsStore -> Maybe TenantKey -> Maybe Text -> IO Aeson.Value
+outboxStatusValue store mTenantKey mStatus = do
+    now <- getTimestampMs
+    (rows, mOldestPending) <-
+        withMVar (osLock store) $ \_ -> do
+            let tenantKey' = normalizeMaybeText mTenantKey
+                status' = normalizeMaybeText mStatus
+                whereParts =
+                    catMaybes
+                        [ fmap (const "tenant_key = ?") tenantKey'
+                        , fmap (const "status = ?") status'
+                        ]
+                whereSql =
+                    if null whereParts
+                        then ""
+                        else " WHERE " <> intercalate " AND " whereParts
+                whereSqlOldest =
+                    if null whereParts
+                        then " WHERE status = 'pending'"
+                        else " WHERE status = 'pending' AND " <> intercalate " AND " whereParts
+                params = catMaybes [toField <$> tenantKey', toField <$> status']
+            grouped <-
+                query
+                    (osConn store)
+                    (fromString ("SELECT status, COUNT(*)::bigint FROM outbox_events" <> whereSql <> " GROUP BY status"))
+                    params ::
+                    IO [(Text, Int64)]
+            oldestRows <-
+                query
+                    (osConn store)
+                    (fromString ("SELECT MIN(created_at_ms) FROM outbox_events" <> whereSqlOldest))
+                    params ::
+                    IO [Only (Maybe Int64)]
+            let oldest =
+                    case oldestRows of
+                        (Only v : _) -> v
+                        _ -> Nothing
+            pure (grouped, oldest)
+    let counts = HM.fromList rows
+        countFor key = fromMaybe 0 (HM.lookup key counts)
+        pending = countFor "pending"
+        publishing = countFor "publishing"
+        published = countFor "published"
+        failed = countFor "failed"
+        total = pending + publishing + published + failed
+        oldestPendingAgeMs =
+            case mOldestPending of
+                Nothing -> Nothing
+                Just createdAt -> Just (max 0 (now - createdAt))
+    pure
+        ( object
+            [ "enabled" .= True
+            , "atMs" .= now
+            , "tenantKey" .= normalizeMaybeText mTenantKey
+            , "statusFilter" .= normalizeMaybeText mStatus
+            , "counts"
+                .= object
+                    [ "total" .= total
+                    , "pending" .= pending
+                    , "publishing" .= publishing
+                    , "published" .= published
+                    , "failed" .= failed
+                    ]
+            , "oldestPendingAgeMs" .= oldestPendingAgeMs
+            ]
+        )
 
 binanceOpsLogger :: OpsStore -> Maybe TenantKey -> BinanceLog -> IO ()
 binanceOpsLogger store mTenantKey entry = do
@@ -3788,10 +4129,7 @@ botStatusLogMaybe :: Maybe OpsStore -> Bool -> BotState -> IO ()
 botStatusLogMaybe mOps running st = do
     let args = botArgs st
         settings = botSettings st
-        eq =
-            if V.null (botEquityCurve st)
-                then Nothing
-                else Just (V.last (botEquityCurve st))
+        eq = vectorLastMaybe (botEquityCurve st)
         result =
             object
                 [ "symbol" .= botSymbol st
@@ -3891,10 +4229,7 @@ persistBotSnapshot store running st statusJson =
 
 persistBotPosition :: Connection -> Int64 -> Int -> Maybe Int64 -> Text -> Text -> BotState -> IO ()
 persistBotPosition conn botId platformId mSymbolId symbolText marketText st = do
-    let pos =
-            if V.null (botPositions st)
-                then 0
-                else V.last (botPositions st)
+    let pos = vectorLastOr 0 (botPositions st)
         mSide
             | pos > 0 = Just ("long" :: Text)
             | pos < 0 = Just ("short" :: Text)
@@ -4852,14 +5187,23 @@ positionChangeCount positions =
         (p0 : rest) ->
             snd (foldl' (\(prev, acc) cur -> (cur, if cur == prev then acc else acc + 1)) (p0, 0) rest)
 
+lastMaybe :: [a] -> Maybe a
+lastMaybe = foldl' (\_ x -> Just x) Nothing
+
+vectorLastMaybe :: V.Vector a -> Maybe a
+vectorLastMaybe v =
+    if V.null v
+        then Nothing
+        else Just (V.last v)
+
+vectorLastOr :: a -> V.Vector a -> a
+vectorLastOr fallback = fromMaybe fallback . vectorLastMaybe
+
 botBacktestResultFromState :: BotState -> BacktestResult
 botBacktestResultFromState st =
     let eq = V.toList (botEquityCurve st)
         posAll = botPositions st
-        posForMetrics =
-            if V.length posAll > 1
-                then V.toList (V.init posAll)
-                else []
+        posForMetrics = V.toList (V.take (max 0 (V.length posAll - 1)) posAll)
         posChanges = positionChangeCount (V.toList posAll)
      in BacktestResult
             { brEquityCurve = eq
@@ -5753,30 +6097,29 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
                                         then do
                                             deletePositionOrigin store tenantKey baseArgs sym
                                             pure (baseArgs, Nothing)
-                                        else
-                                            do
-                                                mComboDb <- readTopComboByUuidFromDb store comboUuid
-                                                mCombo <-
-                                                    case mComboDb of
-                                                        Just c -> pure (Just c)
-                                                        Nothing -> do
-                                                            combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
-                                                            pure $
-                                                                case combosOrErr of
-                                                                    Left _ -> Nothing
-                                                                    Right export ->
-                                                                        find
-                                                                            (\c -> uuidFromText (topComboUuid c) == Just comboUuid)
-                                                                            (tceCombos export)
-                                                case mCombo of
-                                                    Nothing -> pure (baseArgs, Nothing)
-                                                    Just combo ->
-                                                        case applyTopComboForStartWithUuid baseArgs combo of
-                                                            Left _ -> pure (baseArgs, Nothing)
-                                                            Right (argsApplied0, mUuid) ->
-                                                                case validateApiComputeLimits limits argsApplied0 of
-                                                                    Left _ -> pure (baseArgs, Nothing)
-                                                                    Right argsApplied -> pure (argsApplied, mUuid)
+                                        else do
+                                            mComboDb <- readTopComboByUuidFromDb store comboUuid
+                                            mCombo <-
+                                                case mComboDb of
+                                                    Just c -> pure (Just c)
+                                                    Nothing -> do
+                                                        combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+                                                        pure $
+                                                            case combosOrErr of
+                                                                Left _ -> Nothing
+                                                                Right export ->
+                                                                    find
+                                                                        (\c -> uuidFromText (topComboUuid c) == Just comboUuid)
+                                                                        (tceCombos export)
+                                            case mCombo of
+                                                Nothing -> pure (baseArgs, Nothing)
+                                                Just combo ->
+                                                    case applyTopComboForStartWithUuid baseArgs combo of
+                                                        Left _ -> pure (baseArgs, Nothing)
+                                                        Right (argsApplied0, mUuid) ->
+                                                            case validateApiComputeLimits limits argsApplied0 of
+                                                                Left _ -> pure (baseArgs, Nothing)
+                                                                Right argsApplied -> pure (argsApplied, mUuid)
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =
@@ -5855,10 +6198,7 @@ data RuntimeAdoptionInfo = RuntimeAdoptionInfo
 
 botPositionSign :: BotState -> Maybe Int
 botPositionSign st =
-    let pos =
-            if V.null (botPositions st)
-                then 0
-                else V.last (botPositions st)
+    let pos = vectorLastOr 0 (botPositions st)
      in case compare pos 0 of
             GT -> Just 1
             LT -> Just (-1)
@@ -6176,9 +6516,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                     Nothing -> pure mrt
         Right st0 -> do
             let eq0 =
-                    if V.null (botEquityCurve st0)
-                        then 1.0
-                        else V.last (botEquityCurve st0)
+                    vectorLastOr 1.0 (botEquityCurve st0)
             opsAppendMaybe
                 mOps
                 (Just tenantKey)
@@ -6608,7 +6946,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
 
                     (kalPrev, hmmPrev, svPrev, predsRev) = foldl' step (kal0, hmm0, sv0, []) [0 .. n - 2]
                     preds = reverse predsRev
-                    lastPrice = V.last pricesV
+                    lastPrice = vectorLastOr 0 pricesV
                     (sensorOutsLast, _) = predictSensors predictors pricesV hmmPrev (n - 1)
                     measLast = mapMaybe (toMeasurement args svPrev) sensorOutsLast
                     kalLast = stepMulti measLast kalPrev
@@ -6691,7 +7029,8 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         baseEq = 1.0
         eq0 = V.replicate n baseEq
         pos0 = V.replicate n 0
-        lastOt = V.last openV
+        lastPrice = vectorLastOr 0 pricesV
+        lastOt = vectorLastOr now openV
         wantSwitch = desiredPosSignal /= startPos0
         opSide =
             if desiredPosSignal > startPos0
@@ -6713,7 +7052,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
 
     mStartSize <-
         if tradeEnabled && startPos0 /= 0
-            then fetchAdoptedPositionSize args env sym (V.last pricesV)
+            then fetchAdoptedPositionSize args env sym lastPrice
             else pure Nothing
     let startSize =
             case mStartSize of
@@ -6762,7 +7101,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         openTrade =
             case desiredPos of
                 1 ->
-                    let px = V.last pricesV
+                    let px = lastPrice
                         openSize = if desiredPos == startPos0 then startSize else entrySize
                         entryHv = rpHighVol <$> lsRegimes latest
                      in Just
@@ -6779,7 +7118,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                                 , botOpenPartialTaken = False
                                 }
                 (-1) ->
-                    let px = V.last pricesV
+                    let px = lastPrice
                         openSize = if desiredPos == startPos0 then startSize else entrySize
                         entryHv = rpHighVol <$> lsRegimes latest
                      in Just
@@ -6797,11 +7136,11 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                                 }
                 _ -> Nothing
         ops =
-            ([BotOp (n - 1) opSide (V.last pricesV) | wantSwitch && appliedSwitch])
+            ([BotOp (n - 1) opSide lastPrice | wantSwitch && appliedSwitch])
 
         orders =
             case (wantSwitch, mOrder) of
-                (True, Just o) -> [BotOrderEvent (n - 1) opSide (V.last pricesV) lastOt now o]
+                (True, Just o) -> [BotOrderEvent (n - 1) opSide lastPrice lastOt now o]
                 _ -> []
 
         maxPoints = max (lookback + 3) (bsMaxPoints settings)
@@ -6847,11 +7186,11 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
 
         peakEq = if V.null eq2 then 1.0 else V.maximum eq2
         dayMs = 86400000 :: Int64
-        dayKey = V.last openV2 `div` dayMs
-        dayStartEq = V.last eq2
+        dayKey = vectorLastOr now openV2 `div` dayMs
+        dayStartEq = vectorLastOr 1.0 eq2
         weekMs = 7 * dayMs
-        weekKey = V.last openV2 `div` weekMs
-        weekStartEq = V.last eq2
+        weekKey = vectorLastOr now openV2 `div` weekMs
+        weekStartEq = vectorLastOr 1.0 eq2
         initOrderErrors =
             if tradeEnabled && wantSwitch && not appliedSwitch
                 then 1
@@ -6908,10 +7247,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 , botPolledAtMs = now
                 , botPollLatencyMs = 0
                 , botFetchedKlines = length ks
-                , botFetchedLastKline =
-                    if null ks
-                        then Nothing
-                        else Just (last ks)
+                , botFetchedLastKline = lastMaybe ks
                 , botLastBatchAtMs = now
                 , botLastBatchSize = length ks
                 , botLastBatchMs = 0
@@ -8328,10 +8664,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
                             sleepSec pollSec
                             loop
                         Right ks -> do
-                            let fetchedLast =
-                                    if null ks
-                                        then Nothing
-                                        else Just (last ks)
+                            let fetchedLast = lastMaybe ks
                                 stPolled =
                                     st
                                         { botError = Nothing
@@ -8871,8 +9204,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         cooldownBars = max 0 (argCooldownBars args)
         cooldownLeft0 = max 0 (botCooldownLeft st)
         cooldownBlocked = prevPos == 0 && cooldownLeft0 > 0
-        positionNow st' =
-            if V.null (botPositions st') then 0 else V.last (botPositions st')
+        positionNow st' = vectorLastOr 0 (botPositions st')
         baseAssetFor st' =
             fst
                 ( splitSymbolForPlatform
@@ -9327,7 +9659,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         newTradeCount = length trades'
         mNewTrade =
             if newTradeCount > oldTradeCount
-                then Just (last trades')
+                then lastMaybe trades'
                 else Nothing
         (perfStatsNext, adjustmentsNext, lossStreakNext, lossStreakTriggered) =
             case mNewTrade of
@@ -10616,6 +10948,15 @@ writeJobFile store jobId payload =
                 Left ex -> hPutStrLn stderr (printf "WARN: failed to persist async job %s (%s): %s" (T.unpack jobId) path (show ex))
                 Right _ -> pure ()
 
+persistAsyncJobState :: Maybe OpsStore -> JobStore a -> Text -> Aeson.Value -> IO ()
+persistAsyncJobState mOps store jobId payload = do
+    writeJobFile store jobId payload
+    case mOps of
+        Nothing -> pure ()
+        Just opsStore -> do
+            _ <- try (writeAsyncJobDb opsStore (jsPrefix store) jobId payload) :: IO (Either SomeException ())
+            pure ()
+
 readJobFile :: JobStore a -> Text -> IO (Maybe Aeson.Value)
 readJobFile store jobId =
     case jobFilePath store jobId of
@@ -10683,8 +11024,8 @@ pruneJobStoreDisk store now =
         _ <- try (removeFile path) :: IO (Either SomeException ())
         pure ()
 
-startJob :: (ToJSON a) => JobStore a -> IO a -> IO (Either String Text)
-startJob store action = do
+startJob :: (ToJSON a) => Maybe OpsStore -> JobStore a -> IO a -> IO (Either String Text)
+startJob mOps store action = do
     now <- getTimestampMs
     pruneJobStore store now
     pruneJobStoreDisk store now
@@ -10718,7 +11059,7 @@ startJob store action = do
                         <> "-"
                         <> T.pack (printf "%016x" r)
             out <- newEmptyMVar
-            writeJobFile store jobId (object ["status" .= ("running" :: String), "createdAtMs" .= now])
+            persistAsyncJobState mOps store jobId (object ["status" .= ("running" :: String), "createdAtMs" .= now])
             tid <-
                 forkIO $
                     ( do
@@ -10726,13 +11067,13 @@ startJob store action = do
                         case r of
                             Right v -> do
                                 doneAt <- getTimestampMs
-                                writeJobFile store jobId (object ["status" .= ("done" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "result" .= v])
+                                persistAsyncJobState mOps store jobId (object ["status" .= ("done" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "result" .= v])
                                 _ <- tryPutMVar out (Right v)
                                 pure ()
                             Left ex -> do
                                 let (_, msg) = exceptionToHttp ex
                                 doneAt <- getTimestampMs
-                                writeJobFile store jobId (object ["status" .= ("error" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "error" .= msg])
+                                persistAsyncJobState mOps store jobId (object ["status" .= ("error" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "error" .= msg])
                                 _ <- tryPutMVar out (Left msg)
                                 pure ()
                     )
@@ -11001,6 +11342,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/ops/performance" :: String)]
+                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/outbox" :: String)]
                                                                    , object ["method" .= ("GET" :: String), "path" .= ("/cache" :: String)]
                                                                    , object ["method" .= ("POST" :: String), "path" .= ("/cache/clear" :: String)]
                                                                    , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
@@ -11068,7 +11410,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                                             .= object
                                                                 [ "maxRunning" .= jsMaxRunning asyncCfg
                                                                 , "ttlMs" .= jsTtlMs asyncCfg
-                                                                , "persistence" .= isJust (jsDir asyncCfg)
+                                                                , "persistence" .= (isJust (jsDir asyncCfg) || isJust mOps)
                                                                 ]
                                                        , "cache"
                                                             .= object
@@ -11090,6 +11432,10 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                             ["ops", "performance"] ->
                                 case Wai.requestMethod req of
                                     "GET" -> handleOpsPerformance multiUserEnabled mOps req respondCors
+                                    _ -> respondCors (jsonError status405 "Method not allowed")
+                            ["outbox"] ->
+                                case Wai.requestMethod req of
+                                    "GET" -> handleOutbox multiUserEnabled mOps req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["cache"] ->
                                 case Wai.requestMethod req of
@@ -11114,12 +11460,12 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["signal", "async", jobId] ->
                                 case Wai.requestMethod req of
-                                    "GET" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
-                                    "POST" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
+                                    "GET" -> handleAsyncPoll mOps (asSignal asyncStores) jobId respondCors
+                                    "POST" -> handleAsyncPoll mOps (asSignal asyncStores) jobId respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["signal", "async", jobId, "cancel"] ->
                                 case Wai.requestMethod req of
-                                    "POST" -> handleAsyncCancel (asSignal asyncStores) jobId respondCors
+                                    "POST" -> handleAsyncCancel mOps (asSignal asyncStores) jobId respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["trade"] ->
                                 case Wai.requestMethod req of
@@ -11131,12 +11477,12 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["trade", "async", jobId] ->
                                 case Wai.requestMethod req of
-                                    "GET" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
-                                    "POST" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
+                                    "GET" -> handleAsyncPoll mOps (asTrade asyncStores) jobId respondCors
+                                    "POST" -> handleAsyncPoll mOps (asTrade asyncStores) jobId respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["trade", "async", jobId, "cancel"] ->
                                 case Wai.requestMethod req of
-                                    "POST" -> handleAsyncCancel (asTrade asyncStores) jobId respondCors
+                                    "POST" -> handleAsyncCancel mOps (asTrade asyncStores) jobId respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["backtest"] ->
                                 case Wai.requestMethod req of
@@ -11148,12 +11494,12 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["backtest", "async", jobId] ->
                                 case Wai.requestMethod req of
-                                    "GET" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
-                                    "POST" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
+                                    "GET" -> handleAsyncPoll mOps (asBacktest asyncStores) jobId respondCors
+                                    "POST" -> handleAsyncPoll mOps (asBacktest asyncStores) jobId respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["backtest", "async", jobId, "cancel"] ->
                                 case Wai.requestMethod req of
-                                    "POST" -> handleAsyncCancel (asBacktest asyncStores) jobId respondCors
+                                    "POST" -> handleAsyncCancel mOps (asBacktest asyncStores) jobId respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["binance", "keys"] ->
                                 case Wai.requestMethod req of
@@ -11415,7 +11761,7 @@ pickRandom xs =
             r <- randomIO :: IO Word64
             let len = length xs
                 idx = fromIntegral (r `mod` fromIntegral len)
-            pure (Just (xs !! idx))
+            pure (listToMaybe (drop idx xs))
 
 pickDefaultString :: String -> Maybe String -> String
 pickDefaultString def mb =
@@ -13336,6 +13682,47 @@ handleOpsPerformance multiUserEnabled mOps req respond =
                             )
                         )
 
+handleOutbox :: Bool -> Maybe OpsStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleOutbox multiUserEnabled mOps req respond =
+    case mOps of
+        Nothing ->
+            respond
+                ( jsonValue
+                    status200
+                    ( object
+                        [ "enabled" .= False
+                        , "hint" .= ("Set TRADER_DB_URL (or DATABASE_URL) to enable outbox persistence." :: String)
+                        ]
+                    )
+                )
+        Just store -> do
+            let q = Wai.queryString req
+                lookupParam name =
+                    case lookup (BS.pack name) q of
+                        Just (Just raw) -> Just raw
+                        _ -> Nothing
+                statusParam = T.toLower . T.strip . T.pack . BS.unpack <$> lookupParam "status"
+                statusFilter =
+                    case statusParam of
+                        Just "pending" -> Just "pending"
+                        Just "publishing" -> Just "publishing"
+                        Just "published" -> Just "published"
+                        Just "failed" -> Just "failed"
+                        Just _ -> Nothing
+                        Nothing -> Nothing
+                tenantResult =
+                    if multiUserEnabled
+                        then Just <$> requireTenantKey "outbox" (tenantKeyFromRequest req)
+                        else Right (tenantKeyFromRequest req)
+            case (statusParam, statusFilter) of
+                (Just _, Nothing) -> respond (jsonError status400 "Invalid outbox status (expected pending|publishing|published|failed).")
+                _ ->
+                    case tenantResult of
+                        Left e -> respond (jsonError status400 e)
+                        Right mTenantKey -> do
+                            payload <- outboxStatusValue store mTenantKey statusFilter
+                            respond (jsonValue status200 payload)
+
 handleSignal :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
@@ -13392,6 +13779,16 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
                                                             Nothing
                                                             (T.pack <$> argBinanceSymbol argsOk)
                                                             Nothing
+                                                        outboxEnqueueMaybe
+                                                            mOps
+                                                            mReqTenant
+                                                            "trader.v1.signals.generated"
+                                                            (Just (ownerKeyFromArgs mReqTenant argsOk))
+                                                            ( object
+                                                                [ "ownerKey" .= ownerKeyFromArgs mReqTenant argsOk
+                                                                , "signal" .= sig
+                                                                ]
+                                                            )
                                                         respond (jsonValue status200 sig)
 
 handleSignalAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore LatestSignal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -13430,16 +13827,33 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
                                                     argsJson = Just (argsPublicJson argsOk)
                                                     noCache = requestWantsNoCache req
                                                 r <-
-                                                    startJob store $ do
+                                                    startJob mOps store $ do
                                                         sig <-
                                                             if noCache
                                                                 then computeLatestSignalFromArgsWithLimits limits mOps argsOk
                                                                 else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
                                                         opsAppendMaybe mOps mReqTenant "signal" paramsJson argsJson (Just (toJSON sig)) Nothing Nothing (T.pack <$> argBinanceSymbol argsOk) Nothing
+                                                        outboxEnqueueMaybe
+                                                            mOps
+                                                            mReqTenant
+                                                            "trader.v1.signals.generated"
+                                                            (Just (ownerKeyFromArgs mReqTenant argsOk))
+                                                            ( object
+                                                                [ "ownerKey" .= ownerKeyFromArgs mReqTenant argsOk
+                                                                , "signal" .= sig
+                                                                ]
+                                                            )
                                                         pure sig
                                                 case r of
                                                     Left e -> respond (jsonError status429 e)
-                                                    Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
+                                                    Right jobId -> do
+                                                        outboxEnqueueMaybe
+                                                            mOps
+                                                            mReqTenant
+                                                            "trader.v1.jobs.requested"
+                                                            (Just jobId)
+                                                            (object ["jobId" .= jobId, "jobType" .= ("signal" :: String), "status" .= ("running" :: String)])
+                                                        respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 handleTrade :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond = do
@@ -13517,45 +13931,75 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                                                                 if useServerKeys
                                                                     then sanitizeArgsKeys argsOk
                                                                     else argsOk
-                                                        r <- try (computeTradeFromArgsWithLimits limits mOps argsFinal) :: IO (Either SomeException ApiTradeResponse)
-                                                        case r of
-                                                            Left ex ->
-                                                                let (st, msg) = exceptionToHttp ex
-                                                                 in respond (jsonError st msg)
-                                                            Right out -> do
-                                                                metricsRecordOrder metrics (atrOrder out)
-                                                                now <- getTimestampMs
-                                                                journalWriteMaybe
-                                                                    mJournal
-                                                                    ( object
-                                                                        [ "type" .= ("trade.order" :: String)
-                                                                        , "atMs" .= now
-                                                                        , "symbol" .= argBinanceSymbol argsFinal
-                                                                        , "market" .= marketCode (argBinanceMarket argsFinal)
-                                                                        , "action" .= lsAction (atrSignal out)
-                                                                        , "order" .= atrOrder out
-                                                                        , "originIp" .= originIp
-                                                                        ]
-                                                                    )
-                                                                let outJson =
-                                                                        case toJSON out of
-                                                                            Aeson.Object o ->
-                                                                                Aeson.Object
-                                                                                    (KM.insert (AK.fromString "originIp") (toJSON originIp) o)
-                                                                            v -> v
-                                                                opsAppendMaybe
-                                                                    mOps
-                                                                    mOpsTenant
-                                                                    "trade.order"
-                                                                    (Just (toJSON (sanitizeApiParams params)))
-                                                                    (Just (argsPublicJson argsFinal))
-                                                                    (Just outJson)
-                                                                    Nothing
-                                                                    Nothing
-                                                                    (T.pack <$> argBinanceSymbol argsFinal)
-                                                                    (orderIdFromOrderResult (atrOrder out))
-                                                                webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsFinal (atrSignal out) (atrOrder out))
-                                                                respond (jsonValue status200 out)
+                                                            mIdemKey = normalizeMaybeText (T.pack . trim <$> argIdempotencyKey argsFinal)
+                                                            idemReqHash = requestHashFromApiParams params
+                                                        idemCheck <-
+                                                            case (mOps, mIdemKey) of
+                                                                (Just opsStore, Just idemKey) ->
+                                                                    resolveTradeIdempotency opsStore mOpsTenant idemKey idemReqHash
+                                                                _ -> pure TradeIdemAcquire
+                                                        case idemCheck of
+                                                            TradeIdemConflict msg -> respond (jsonError status409 msg)
+                                                            TradeIdemBusy msg -> respond (jsonError status409 msg)
+                                                            TradeIdemCached cachedValue -> respond (jsonValue status200 cachedValue)
+                                                            TradeIdemAcquire -> do
+                                                                r <- try (computeTradeFromArgsWithLimits limits mOps argsFinal) :: IO (Either SomeException ApiTradeResponse)
+                                                                case r of
+                                                                    Left ex -> do
+                                                                        case (mOps, mIdemKey) of
+                                                                            (Just opsStore, Just idemKey) ->
+                                                                                completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash (snd (exceptionToHttp ex))
+                                                                            _ -> pure ()
+                                                                        let (st, msg) = exceptionToHttp ex
+                                                                         in respond (jsonError st msg)
+                                                                    Right out -> do
+                                                                        case (mOps, mIdemKey) of
+                                                                            (Just opsStore, Just idemKey) ->
+                                                                                completeTradeIdempotencySuccess opsStore mOpsTenant idemKey idemReqHash (toJSON out)
+                                                                            _ -> pure ()
+                                                                        metricsRecordOrder metrics (atrOrder out)
+                                                                        now <- getTimestampMs
+                                                                        journalWriteMaybe
+                                                                            mJournal
+                                                                            ( object
+                                                                                [ "type" .= ("trade.order" :: String)
+                                                                                , "atMs" .= now
+                                                                                , "symbol" .= argBinanceSymbol argsFinal
+                                                                                , "market" .= marketCode (argBinanceMarket argsFinal)
+                                                                                , "action" .= lsAction (atrSignal out)
+                                                                                , "order" .= atrOrder out
+                                                                                , "originIp" .= originIp
+                                                                                ]
+                                                                            )
+                                                                        let outJson =
+                                                                                case toJSON out of
+                                                                                    Aeson.Object o ->
+                                                                                        Aeson.Object
+                                                                                            (KM.insert (AK.fromString "originIp") (toJSON originIp) o)
+                                                                                    v -> v
+                                                                        opsAppendMaybe
+                                                                            mOps
+                                                                            mOpsTenant
+                                                                            "trade.order"
+                                                                            (Just (toJSON (sanitizeApiParams params)))
+                                                                            (Just (argsPublicJson argsFinal))
+                                                                            (Just outJson)
+                                                                            Nothing
+                                                                            Nothing
+                                                                            (T.pack <$> argBinanceSymbol argsFinal)
+                                                                            (orderIdFromOrderResult (atrOrder out))
+                                                                        outboxEnqueueMaybe
+                                                                            mOps
+                                                                            mOpsTenant
+                                                                            "trader.v1.orders.submitted"
+                                                                            (Just (ownerKeyFromArgs mOpsTenant argsFinal))
+                                                                            ( object
+                                                                                [ "ownerKey" .= ownerKeyFromArgs mOpsTenant argsFinal
+                                                                                , "trade" .= out
+                                                                                ]
+                                                                            )
+                                                                        webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsFinal (atrSignal out) (atrOrder out))
+                                                                        respond (jsonValue status200 out)
 
 handleTradeAsync :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs req respond = do
@@ -13635,45 +14079,100 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                                     else argsOk
                                                             paramsJson = Just (toJSON (sanitizeApiParams params))
                                                             argsJson = Just (argsPublicJson argsFinal)
-                                                        r <-
-                                                            startJob store $ do
-                                                                out <- computeTradeFromArgsWithLimits limits mOps argsFinal
-                                                                metricsRecordOrder metrics (atrOrder out)
-                                                                now <- getTimestampMs
-                                                                journalWriteMaybe
-                                                                    mJournal
-                                                                    ( object
-                                                                        [ "type" .= ("trade.order" :: String)
-                                                                        , "atMs" .= now
-                                                                        , "symbol" .= argBinanceSymbol argsFinal
-                                                                        , "market" .= marketCode (argBinanceMarket argsFinal)
-                                                                        , "action" .= lsAction (atrSignal out)
-                                                                        , "order" .= atrOrder out
-                                                                        , "originIp" .= originIp
-                                                                        ]
-                                                                    )
-                                                                let outJson =
-                                                                        case toJSON out of
-                                                                            Aeson.Object o ->
-                                                                                Aeson.Object
-                                                                                    (KM.insert (AK.fromString "originIp") (toJSON originIp) o)
-                                                                            v -> v
-                                                                opsAppendMaybe
+                                                            mIdemKey = normalizeMaybeText (T.pack . trim <$> argIdempotencyKey argsFinal)
+                                                            idemReqHash = requestHashFromApiParams params
+                                                        idemCheck <-
+                                                            case (mOps, mIdemKey) of
+                                                                (Just opsStore, Just idemKey) ->
+                                                                    resolveTradeIdempotency opsStore mOpsTenant idemKey idemReqHash
+                                                                _ -> pure TradeIdemAcquire
+                                                        case idemCheck of
+                                                            TradeIdemConflict msg -> respond (jsonError status409 msg)
+                                                            TradeIdemBusy msg -> respond (jsonError status409 msg)
+                                                            TradeIdemCached cachedValue -> do
+                                                                outboxEnqueueMaybe
                                                                     mOps
                                                                     mOpsTenant
-                                                                    "trade.order"
-                                                                    paramsJson
-                                                                    argsJson
-                                                                    (Just outJson)
+                                                                    "trader.v1.jobs.requested"
                                                                     Nothing
-                                                                    Nothing
-                                                                    (T.pack <$> argBinanceSymbol argsFinal)
-                                                                    (orderIdFromOrderResult (atrOrder out))
-                                                                webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsFinal (atrSignal out) (atrOrder out))
-                                                                pure out
-                                                        case r of
-                                                            Left e -> respond (jsonError status429 e)
-                                                            Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
+                                                                    (object ["jobType" .= ("trade" :: String), "status" .= ("cached" :: String)])
+                                                                respond (jsonValue status200 (object ["status" .= ("done" :: String), "result" .= cachedValue]))
+                                                            TradeIdemAcquire -> do
+                                                                r <-
+                                                                    startJob mOps store $ do
+                                                                        outResult <- try (computeTradeFromArgsWithLimits limits mOps argsFinal) :: IO (Either SomeException ApiTradeResponse)
+                                                                        out <-
+                                                                            case outResult of
+                                                                                Left ex -> do
+                                                                                    case (mOps, mIdemKey) of
+                                                                                        (Just opsStore, Just idemKey) ->
+                                                                                            completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash (snd (exceptionToHttp ex))
+                                                                                        _ -> pure ()
+                                                                                    throwIO ex
+                                                                                Right out' -> do
+                                                                                    case (mOps, mIdemKey) of
+                                                                                        (Just opsStore, Just idemKey) ->
+                                                                                            completeTradeIdempotencySuccess opsStore mOpsTenant idemKey idemReqHash (toJSON out')
+                                                                                        _ -> pure ()
+                                                                                    pure out'
+                                                                        metricsRecordOrder metrics (atrOrder out)
+                                                                        now <- getTimestampMs
+                                                                        journalWriteMaybe
+                                                                            mJournal
+                                                                            ( object
+                                                                                [ "type" .= ("trade.order" :: String)
+                                                                                , "atMs" .= now
+                                                                                , "symbol" .= argBinanceSymbol argsFinal
+                                                                                , "market" .= marketCode (argBinanceMarket argsFinal)
+                                                                                , "action" .= lsAction (atrSignal out)
+                                                                                , "order" .= atrOrder out
+                                                                                , "originIp" .= originIp
+                                                                                ]
+                                                                            )
+                                                                        let outJson =
+                                                                                case toJSON out of
+                                                                                    Aeson.Object o ->
+                                                                                        Aeson.Object
+                                                                                            (KM.insert (AK.fromString "originIp") (toJSON originIp) o)
+                                                                                    v -> v
+                                                                        opsAppendMaybe
+                                                                            mOps
+                                                                            mOpsTenant
+                                                                            "trade.order"
+                                                                            paramsJson
+                                                                            argsJson
+                                                                            (Just outJson)
+                                                                            Nothing
+                                                                            Nothing
+                                                                            (T.pack <$> argBinanceSymbol argsFinal)
+                                                                            (orderIdFromOrderResult (atrOrder out))
+                                                                        outboxEnqueueMaybe
+                                                                            mOps
+                                                                            mOpsTenant
+                                                                            "trader.v1.orders.submitted"
+                                                                            (Just (ownerKeyFromArgs mOpsTenant argsFinal))
+                                                                            ( object
+                                                                                [ "ownerKey" .= ownerKeyFromArgs mOpsTenant argsFinal
+                                                                                , "trade" .= out
+                                                                                ]
+                                                                            )
+                                                                        webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsFinal (atrSignal out) (atrOrder out))
+                                                                        pure out
+                                                                case r of
+                                                                    Left e -> do
+                                                                        case (mOps, mIdemKey) of
+                                                                            (Just opsStore, Just idemKey) ->
+                                                                                completeTradeIdempotencyError opsStore mOpsTenant idemKey idemReqHash e
+                                                                            _ -> pure ()
+                                                                        respond (jsonError status429 e)
+                                                                    Right jobId -> do
+                                                                        outboxEnqueueMaybe
+                                                                            mOps
+                                                                            mReqTenant
+                                                                            "trader.v1.jobs.requested"
+                                                                            (Just jobId)
+                                                                            (object ["jobId" .= jobId, "jobType" .= ("trade" :: String), "status" .= ("running" :: String)])
+                                                                        respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 extractBacktestFinalEquity :: Aeson.Value -> Maybe Double
 extractBacktestFinalEquity =
@@ -13734,6 +14233,12 @@ handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respond 
                                                     Nothing
                                                     (T.pack <$> argBinanceSymbol argsOk)
                                                     Nothing
+                                                outboxEnqueueMaybe
+                                                    mOps
+                                                    mReqTenant
+                                                    "trader.v1.backtests.completed"
+                                                    (Just (ownerKeyFromArgs mReqTenant argsOk))
+                                                    (object ["ownerKey" .= ownerKeyFromArgs mReqTenant argsOk, "result" .= out])
                                                 respond (jsonValue status200 out)
 
 handleBacktestAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> BacktestGate -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -13770,7 +14275,7 @@ handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs r
                                             argsJson = Just (argsPublicJson argsOk)
                                             noCache = requestWantsNoCache req
                                         r <-
-                                            startJob store $ do
+                                            startJob mOps store $ do
                                                 let computeAction =
                                                         if noCache
                                                             then computeBacktestFromArgsWithLimits limits mOps argsOk
@@ -13790,13 +14295,26 @@ handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs r
                                                             Nothing
                                                             (T.pack <$> argBinanceSymbol argsOk)
                                                             Nothing
+                                                        outboxEnqueueMaybe
+                                                            mOps
+                                                            mReqTenant
+                                                            "trader.v1.backtests.completed"
+                                                            (Just (ownerKeyFromArgs mReqTenant argsOk))
+                                                            (object ["ownerKey" .= ownerKeyFromArgs mReqTenant argsOk, "result" .= out])
                                                         pure out
                                         case r of
                                             Left e -> respond (jsonError status429 e)
-                                            Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
+                                            Right jobId -> do
+                                                outboxEnqueueMaybe
+                                                    mOps
+                                                    mReqTenant
+                                                    "trader.v1.jobs.requested"
+                                                    (Just jobId)
+                                                    (object ["jobId" .= jobId, "jobType" .= ("backtest" :: String), "status" .= ("running" :: String)])
+                                                respond (jsonValue status202 (object ["jobId" .= jobId]))
 
-handleAsyncPoll :: (ToJSON a) => JobStore a -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleAsyncPoll store jobId respond = do
+handleAsyncPoll :: (ToJSON a) => Maybe OpsStore -> JobStore a -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleAsyncPoll mOps store jobId respond = do
     now <- getTimestampMs
     pruneJobStore store now
     mEntry <- withMVar (jsJobs store) (pure . HM.lookup jobId)
@@ -13805,7 +14323,14 @@ handleAsyncPoll store jobId respond = do
             mDisk <- readJobFile store jobId
             case mDisk of
                 Just v -> respond (jsonValue status200 v)
-                Nothing -> respond (jsonValue status200 (object ["status" .= ("error" :: String), "error" .= ("Not found" :: String)]))
+                Nothing -> do
+                    mDb <-
+                        case mOps of
+                            Nothing -> pure Nothing
+                            Just opsStore -> readAsyncJobDb opsStore jobId
+                    case mDb of
+                        Just v -> respond (jsonValue status200 v)
+                        Nothing -> respond (jsonValue status200 (object ["status" .= ("error" :: String), "error" .= ("Not found" :: String)]))
         Just entry -> do
             r <- tryReadMVar (jeResult entry)
             case r of
@@ -13828,8 +14353,8 @@ handleAsyncPoll store jobId respond = do
                             (object ["status" .= ("done" :: String), "createdAtMs" .= jeCreatedAtMs entry, "result" .= v])
                         )
 
-handleAsyncCancel :: (ToJSON a) => JobStore a -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleAsyncCancel store jobId respond = do
+handleAsyncCancel :: (ToJSON a) => Maybe OpsStore -> JobStore a -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleAsyncCancel mOps store jobId respond = do
     now <- getTimestampMs
     pruneJobStore store now
     mEntry <- withMVar (jsJobs store) (pure . HM.lookup jobId)
@@ -13853,7 +14378,8 @@ handleAsyncCancel store jobId respond = do
                 Nothing -> do
                     canceledAt <- getTimestampMs
                     let msg = "Canceled" :: String
-                    writeJobFile
+                    persistAsyncJobState
+                        mOps
                         store
                         jobId
                         (object ["status" .= ("error" :: String), "createdAtMs" .= jeCreatedAtMs entry, "completedAtMs" .= canceledAt, "error" .= msg])
@@ -17031,7 +17557,7 @@ entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
             let eps = 1e-12
                 p = max eps (min (1 - eps) (clamp01 p0))
                 q = 1 - p
-                h = - (((p * log p) + (q * log q)) / log 2)
+                h = -(((p * log p) + (q * log q)) / log 2)
              in if bad h then 1 else clamp01 h
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
@@ -19263,9 +19789,8 @@ applyBacktestTimeWindow args series = do
                                                 ++ priceSourceLabel args
                                                 ++ ")"
                                             )
-                                    _ ->
-                                        let i0 = head matching
-                                            i1 = last matching
+                                    i0 : rest ->
+                                        let i1 = foldl' (\_ i -> i) i0 rest
                                             len = i1 - i0 + 1
                                             highs = fmap (sliceContiguous i0 len) (keepMaybe (psHigh series))
                                             lows = fmap (sliceContiguous i0 len) (keepMaybe (psLow series))
@@ -21729,7 +22254,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                         let pricesList = V.toList pricesV
                          in [ let r = if p0 == 0 || bad p0 || bad p1 then 0 else p1 / p0 - 1
                                in if bad r then 0 else r
-                            | (p0, p1) <- zip pricesList (tail pricesList)
+                            | (p0, p1) <- zip pricesList (drop 1 pricesList)
                             ]
 
             meanList xs =

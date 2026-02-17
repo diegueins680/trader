@@ -142,6 +142,23 @@ executable merge-top-combos
   if os(darwin)
     ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
 
+executable outbox-publisher
+  hs-source-dirs:      app
+  main-is:             OutboxPublisherMain.hs
+  default-language:    Haskell2010
+  build-depends:       base >=4.14 && <4.20
+                     , aeson >=1.5
+                     , bytestring >=0.10
+                     , http-client
+                     , http-client-tls
+                     , http-types
+                     , text
+                     , time
+                     , postgresql-simple >=0.6 && <0.7
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  if os(darwin)
+    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
+
 test-suite trader-tests
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test, app

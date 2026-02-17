@@ -455,8 +455,9 @@ oneInchEndpoint env path = deBaseUrl env ++ "/" ++ show (deChainId env) ++ "/" +
 
 shortResp :: BL.ByteString -> String
 shortResp body =
-    let s = take 8000 (BS.unpack (BL.toStrict body))
-     in if length s < 8000 then s else s ++ "..."
+    case splitAt 8000 (BS.unpack (BL.toStrict body)) of
+        (prefix, []) -> prefix
+        (prefix, _) -> prefix ++ "..."
 
 parseTokens :: Value -> Either String (HM.HashMap Text DexToken)
 parseTokens =
@@ -547,7 +548,23 @@ tokenInputKind raw =
 
 isHexAddress :: String -> Bool
 isHexAddress t =
-    "0x" `isPrefixOf` t && length t >= 42
+    case t of
+        '0' : 'x' : rest -> hasMinLength 40 rest
+        _ -> False
+
+hasMinLength :: Int -> [a] -> Bool
+hasMinLength n _
+    | n <= 0 = True
+hasMinLength _ [] = False
+hasMinLength n (_ : xs) = hasMinLength (n - 1) xs
+
+hasExactLength :: Int -> [a] -> Bool
+hasExactLength n _
+    | n < 0 = False
+hasExactLength 0 [] = True
+hasExactLength 0 (_ : _) = False
+hasExactLength _ [] = False
+hasExactLength n (_ : xs) = hasExactLength (n - 1) xs
 
 isNativeToken :: DexToken -> Bool
 isNativeToken tok = map toLower (dtAddress tok) == map toLower dexNativeAddress
@@ -623,7 +640,7 @@ extractTxHash raw =
     let tokens = words raw
         isHash t =
             let t' = map toLower t
-             in "0x" `isPrefixOf` t' && length t' == 66
+             in "0x" `isPrefixOf` t' && hasExactLength 66 t'
      in find isHash tokens
 
 isInfixOf :: String -> String -> Bool
