@@ -537,6 +537,7 @@ Endpoints:
 - `GET /signal/async/:jobId` → polls an async signal job (also accepts `POST` for proxy compatibility)
 - `POST /trade` → returns the latest signal + attempts an order (Binance test orders by default; set `binanceLive=true` for live orders; Coinbase is live-only; set `dryRun=true` to force simulation-only; DEX orders use 1inch + `dex*` fields)
 - `POST /trade/async` → starts an async trade job
+- Trade idempotency: when ops DB is enabled (`TRADER_DB_URL`/`DATABASE_URL`) and `idempotencyKey` is provided, repeated `/trade` and `/trade/async` requests with the same tenant+key return the existing result (or `409` while the original request is still running); reusing the same key with a different payload returns `409`.
 - `GET /trade/async/:jobId` → polls an async trade job (also accepts `POST` for proxy compatibility)
 - Signal endpoints validate request parameters the same way as the CLI; invalid ranges return 400.
 - Use `predictors` in API payloads to select which predictors train/use (same format as `--predictors`).
@@ -870,7 +871,7 @@ CI/CD (GitHub Actions):
 - Optional: `TRADER_AWS_ENSURE_RESOURCES` (auto-provision), `TRADER_UI_CLOUDFRONT_AUTO`, `TRADER_UI_BUCKET`, `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`, `TRADER_UI_CLOUDFRONT_DOMAIN`, `TRADER_UI_API_MODE`, `TRADER_UI_API_URL`, `TRADER_UI_API_FALLBACK_URL`.
 - Deploys run ops schema updates + performance rollups when `TRADER_DB_URL` is set (requires `psql`); disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`.
 
-Note: `/bot/*` is stateful, and async endpoints persist job state to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default (local only). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to a shared writable directory. If the UI reports "Async job not found", the backend likely restarted or the load balancer is not sticky; use shared async storage or run a single instance.
+Note: `/bot/*` is stateful. Async endpoints persist job state to Postgres when ops DB is enabled (`TRADER_DB_URL`/`DATABASE_URL`), and also to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default. If DB persistence is disabled, deployments behind non-sticky load balancers (including CloudFront `/api/*`) should keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to shared writable storage.
 
 Web UI
 ------
