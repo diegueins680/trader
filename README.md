@@ -656,7 +656,7 @@ Database (required for ops + combo persistence):
 - Stores every operation plus combo metrics, strategy metadata, and combo parameters.
 - When `TRADER_GIT_COMMIT` (or related env vars) is set, ops link to `git_commits` via `git_commit_id` for code-state analysis.
 - Backfill git history and link existing ops with `cabal run trader-hs -- --ops-backfill-commits` (matches ops by commit timestamp; requires repo history + `TRADER_DB_URL`).
-- Live bots update the matching combo row with the latest equity/annualized metrics on every candle.
+- Live bots recalculate/update combo `final_equity` + `annualized_return` when each `bot.order` operation completes, applying the realized equity delta from that operation on top of the combo's stored performance baseline.
 - Recommended: include `sslmode=require` in hosted Postgres connection strings.
 - Platforms are stored in `platforms` with REST/WS URLs plus non-secret connection metadata (auth type, testnet/futures endpoints).
 - Per-platform symbols live in `platform_symbols` (by platform + market), and are upserted whenever bots run, ops log symbols, or positions are fetched.
@@ -857,6 +857,21 @@ Assumptions:
 - `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), `"blend"` (fixed weighted average), `"conf_blend"` (confidence-weighted blend), `"conf_pick"` (confidence winner-take-all), `"cost_pick"` (post-cost winner-take-all), `"harmonic_blend"` (harmonic-return blend), `"disagreement_guard"` (disagreement-aware pick), `"median_blend"` (median-robust blend), `"neutral_guard"` (neutral-on-disagreement guard), `"risk_parity_blend"` (inverse-edge risk-parity blend), `"consensus_boost"` (consensus-strength guard), `"anchor_blend"` (conflict-aware spot anchoring), `"tension_gate"` (agreement-conviction with conflict neutralization), `"entropy_blend"` (uncertainty-aware entropy shrink blend), `"coherence_gate"` (coherence-aware conflict gate), `"divergence_gate"` (shrink blend on model divergence), `"fractal_blend"` (signed-root nonlinear blend), `"phase_cancel"` (anti-phase cancellation gate), `"softmax_blend"` (softmax edge-weighted blend), `"smooth_softmax_blend"` (EMA-smoothed softmax edge-weighted blend), `"net_softmax_blend"` (post-cost softmax edge-weighted blend), `"edge_blend"` (edge-weighted blend), `"edge_pick"` (edge winner-take-all), `"geo_blend"` (geometric blend), `"regime_switch"` (volatility/z-score switch), `"router"` (adaptive selection), or `"bandit_router"` (adaptive selection with UCB-style exploration); Kalman confidence/risk gates apply only on Kalman-selected router bars; see `--router-lookback` / `--router-min-score` / `--router-score-pnl-weight`.
 - `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
 - Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption or futures trade requests.
+
+Deploy for free (Render)
+------------------------
+See `deploy/render/README.md` and `render.yaml`.
+
+Quick path:
+- Push this repo to GitHub.
+- In Render, create a new Blueprint and select the repo.
+- Deploy with the included `render.yaml` (`plan: free`).
+- Use the generated `TRADER_API_TOKEN` from the Render dashboard for protected endpoints.
+
+Free-tier caveats:
+- Free web services spin down after 15 minutes of inactivity (cold start on the next request).
+- Local filesystem state is ephemeral; use external persistence (for example `TRADER_DB_URL`) if you need durable ops/async state.
+- If you need always-on runtime, use a paid plan (Render Starter or Railway usage-based pricing).
 
 Deploy to AWS
 -------------

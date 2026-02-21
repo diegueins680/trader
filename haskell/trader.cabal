@@ -82,8 +82,6 @@ executable trader-hs
                      , uuid
                      , vector >=0.12
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  if os(darwin)
-    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
 
 executable optimize-equity
   hs-source-dirs:      app
@@ -113,8 +111,6 @@ executable optimize-equity
                      , time
                      , vector >=0.12
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  if os(darwin)
-    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
 
 executable merge-top-combos
   hs-source-dirs:      app
@@ -139,8 +135,6 @@ executable merge-top-combos
                      , time
                      , vector >=0.12
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  if os(darwin)
-    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
 
 executable outbox-publisher
   hs-source-dirs:      app
@@ -156,8 +150,6 @@ executable outbox-publisher
                      , time
                      , postgresql-simple >=0.6 && <0.7
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  if os(darwin)
-    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
 
 test-suite trader-tests
   type:                exitcode-stdio-1.0
@@ -204,8 +196,6 @@ test-suite trader-tests
                      , Trader.Trading
                      , Paths_trader
   default-language:    Haskell2010
-  if os(darwin)
-    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
   build-depends:       base >=4.14 && <4.20
                      , aeson >=1.5
                      , bytestring >=0.10
@@ -273,8 +263,6 @@ benchmark trader-bench
                      , Trader.Trading
                      , Paths_trader
   default-language:    Haskell2010
-  if os(darwin)
-    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
   build-depends:       base >=4.14 && <4.20
                      , aeson >=1.5
                      , bytestring >=0.10
