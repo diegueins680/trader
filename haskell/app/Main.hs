@@ -3551,6 +3551,152 @@ runOpsBackfillCommits = do
                                     putStrLn ("Git commits upserted: " ++ show commitsUpserted)
                                     putStrLn ("Ops rows updated: " ++ show opsUpdated)
 
+comboCompletedOperationKind :: Text
+comboCompletedOperationKind = "bot.order"
+
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)
+
+finiteMaybe :: Maybe Double -> Maybe Double
+finiteMaybe mX = do
+    x <- mX
+    if isFiniteDouble x then Just x else Nothing
+
+positiveFinite :: Double -> Maybe Double
+positiveFinite x =
+    if isFiniteDouble x && x > 0
+        then Just x
+        else Nothing
+
+nonNegativeFinite :: Double -> Maybe Double
+nonNegativeFinite x =
+    if isFiniteDouble x && x >= 0
+        then Just x
+        else Nothing
+
+comboMetricFromObject :: String -> Aeson.Object -> Maybe Double
+comboMetricFromObject key obj =
+    KM.lookup (AK.fromString key) obj >>= coerceDoubleValue
+
+comboAnnualizationExponent ::
+    Maybe Text ->
+    Aeson.Object ->
+    Double ->
+    Maybe Double ->
+    Maybe Double
+comboAnnualizationExponent mInterval metricsObj baselineEq mAnnualized =
+    fromMetrics <|> fromExisting
+  where
+    fromMetrics =
+        case comboMetricFromObject "periods" metricsObj >>= positiveFinite of
+            Nothing -> Nothing
+            Just periods ->
+                let ppy =
+                        case comboMetricFromObject "periodsPerYear" metricsObj >>= positiveFinite of
+                            Just v -> v
+                            Nothing ->
+                                case mInterval of
+                                    Just intervalTxt -> inferPeriodsPerYear (T.unpack intervalTxt)
+                                    Nothing -> 365
+                 in positiveFinite (ppy / periods)
+
+    fromExisting =
+        case (positiveFinite baselineEq, finiteMaybe mAnnualized) of
+            (Just base, Just ann)
+                | ann > (-1) && abs (base - 1) > 1e-9 ->
+                    let denom = log base
+                        numer = log (1 + ann)
+                     in if abs denom <= 1e-12
+                            then Nothing
+                            else positiveFinite (numer / denom)
+            _ -> Nothing
+
+comboAnnualizedReturnFromExponent :: Double -> Maybe Double -> Double
+comboAnnualizedReturnFromExponent finalEq mExponent =
+    let fallbackRaw =
+            if isFiniteDouble finalEq
+                then finalEq - 1
+                else 0
+        fallback =
+            if isFiniteDouble fallbackRaw
+                then max (-1) fallbackRaw
+                else 0
+        fromExponent =
+            case mExponent of
+                Just expo
+                    | expo > 0 ->
+                        if finalEq <= 0
+                            then -1
+                            else finalEq ** expo - 1
+                _ -> fallback
+        chosen =
+            if isFiniteDouble fromExponent
+                then fromExponent
+                else fallback
+     in max (-1) chosen
+
+updateComboPerformanceFromCompletedOperation ::
+    Connection ->
+    Int64 ->
+    UUID.UUID ->
+    Double ->
+    IO ()
+updateComboPerformanceFromCompletedOperation conn now comboUuid currentEq = do
+    eqRows <-
+        query
+            conn
+            "SELECT equity FROM ops WHERE combo_uuid = ? AND kind = ? AND equity IS NOT NULL ORDER BY id DESC LIMIT 2"
+            (comboUuid, comboCompletedOperationKind) ::
+            IO [Only Double]
+    let prevEq =
+            case eqRows of
+                (_ : Only v : _) ->
+                    fromMaybe 1 (positiveFinite v)
+                _ -> 1
+        ratioRaw =
+            if prevEq > 0
+                then currentEq / prevEq
+                else 1
+        ratio =
+            fromMaybe 1 (nonNegativeFinite ratioRaw)
+    comboRows <-
+        query
+            conn
+            "SELECT final_equity, annualized_return, interval, metrics_json::text FROM combos WHERE combo_uuid = ? LIMIT 1"
+            (Only comboUuid) ::
+            IO [(Maybe Double, Maybe Double, Maybe Text, Maybe Text)]
+    case comboRows of
+        [] -> pure ()
+        ((mFinalEq, mAnnualized, mInterval, mMetricsText) : _) -> do
+            let metricsObj =
+                    case decodeJsonTextMaybe mMetricsText of
+                        Just (Aeson.Object o) -> o
+                        _ -> KM.empty
+                baselineEqRaw =
+                    fromMaybe 1 (finiteMaybe mFinalEq <|> comboMetricFromObject "finalEquity" metricsObj)
+                baselineEq = max 0 baselineEqRaw
+                nextFinalEqRaw = baselineEq * ratio
+                nextFinalEq =
+                    if isFiniteDouble nextFinalEqRaw && nextFinalEqRaw >= 0
+                        then nextFinalEqRaw
+                        else baselineEq
+                mExponent = comboAnnualizationExponent mInterval metricsObj baselineEq mAnnualized
+                nextAnnualized = comboAnnualizedReturnFromExponent nextFinalEq mExponent
+                metricsObj' =
+                    KM.insert
+                        (AK.fromString "annualizedReturn")
+                        (toJSON nextAnnualized)
+                        (KM.insert (AK.fromString "finalEquity") (toJSON nextFinalEq) metricsObj)
+                metricsJson = encodeJsonTextMaybe (Just (Aeson.Object metricsObj'))
+            void $
+                execute
+                    conn
+                    ( "UPDATE combos "
+                        <> "SET final_equity = ?, annualized_return = ?, metrics_json = ?::jsonb, updated_at_ms = ? "
+                        <> "WHERE combo_uuid = ?"
+                    )
+                    (nextFinalEq, nextAnnualized, metricsJson, now, comboUuid)
+
 opsAppend ::
     OpsStore ->
     Maybe TenantKey ->
@@ -3612,15 +3758,23 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
             case mComboUuid' of
                 Nothing -> pure ()
                 Just comboUuid ->
-                    void $
-                        execute
-                            conn
-                            ( "INSERT INTO combos (combo_uuid, operation_count, updated_at_ms) "
-                                <> "VALUES (?, 1, ?) "
-                                <> "ON CONFLICT (combo_uuid) DO UPDATE "
-                                <> "SET operation_count = combos.operation_count + 1, updated_at_ms = EXCLUDED.updated_at_ms"
-                            )
-                            (comboUuid, now)
+                    do
+                        void $
+                            execute
+                                conn
+                                ( "INSERT INTO combos (combo_uuid, operation_count, created_at_ms, updated_at_ms) "
+                                    <> "VALUES (?, 1, ?, ?) "
+                                    <> "ON CONFLICT (combo_uuid) DO UPDATE "
+                                    <> "SET operation_count = combos.operation_count + 1, "
+                                    <> "created_at_ms = COALESCE(combos.created_at_ms, EXCLUDED.created_at_ms), "
+                                    <> "updated_at_ms = EXCLUDED.updated_at_ms"
+                                )
+                                (comboUuid, now, now)
+                        when (kind == comboCompletedOperationKind) $
+                            case finiteMaybe mEquity of
+                                Nothing -> pure ()
+                                Just currentEq ->
+                                    updateComboPerformanceFromCompletedOperation conn now comboUuid currentEq
             pure newId
     let op =
             PersistedOperation
@@ -8723,30 +8877,6 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
 
     loop `finally` cleanup
 
-updateComboMetricsMaybe :: Maybe OpsStore -> BotState -> IO ()
-updateComboMetricsMaybe mOps st =
-    case (mOps, botComboUuid st >>= uuidFromText) of
-        (Just store, Just comboUuid) -> do
-            let metrics = botMetricsFromState st
-                metricsJson = encodeJsonTextMaybe (Just (metricsToJson metrics))
-                finalEq = bmFinalEquity metrics
-                annRet = bmAnnualizedReturn metrics
-            now <- getTimestampMs
-            _ <-
-                try
-                    ( withMVar (osLock store) $ \_ ->
-                        execute
-                            (osConn store)
-                            ( "UPDATE combos "
-                                <> "SET final_equity = ?, annualized_return = ?, metrics_json = ?::jsonb, updated_at_ms = ? "
-                                <> "WHERE combo_uuid = ?"
-                            )
-                            (finalEq, annRet, metricsJson, now, comboUuid)
-                    ) ::
-                    IO (Either SomeException Int64)
-            pure ()
-        _ -> pure ()
-
 botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotController -> BotState -> Kline -> IO BotState
 botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
     r <- try (botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k) :: IO (Either SomeException BotState)
@@ -9899,7 +10029,6 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         (botComboUuid stOut)
         (Just (T.pack (botSymbol stOut)))
         Nothing
-    updateComboMetricsMaybe mOps stOut
     triggerTopCombosBacktestOnCandle topCombosCtx
     pure stOut
 

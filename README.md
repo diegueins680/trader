@@ -656,7 +656,7 @@ Database (required for ops + combo persistence):
 - Stores every operation plus combo metrics, strategy metadata, and combo parameters.
 - When `TRADER_GIT_COMMIT` (or related env vars) is set, ops link to `git_commits` via `git_commit_id` for code-state analysis.
 - Backfill git history and link existing ops with `cabal run trader-hs -- --ops-backfill-commits` (matches ops by commit timestamp; requires repo history + `TRADER_DB_URL`).
-- Live bots update the matching combo row with the latest equity/annualized metrics on every candle.
+- Live bots recalculate/update combo `final_equity` + `annualized_return` when each `bot.order` operation completes, applying the realized equity delta from that operation on top of the combo's stored performance baseline.
 - Recommended: include `sslmode=require` in hosted Postgres connection strings.
 - Platforms are stored in `platforms` with REST/WS URLs plus non-secret connection metadata (auth type, testnet/futures endpoints).
 - Per-platform symbols live in `platform_symbols` (by platform + market), and are upserted whenever bots run, ops log symbols, or positions are fetched.
