@@ -67,65 +67,25 @@ jobs:
       - run: npm run build
 
   deploy:
-    name: Deploy (AWS)
+    name: Deploy (Fly.io)
     runs-on: ubuntu-latest
     needs: [haskell, web]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && secrets.FLY_API_TOKEN != ''
     permissions:
       contents: read
-      id-token: write
-    env:
-      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "20"
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
 
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Configure AWS credentials (OIDC)
-        if: ${{ env.AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Configure AWS credentials (access keys)
-        if: ${{ env.AWS_ROLE_ARN == '' }}
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Deploy (App Runner + UI)
+      - name: Deploy (Fly.io)
         env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          TRADER_API_TOKEN: ${{ secrets.TRADER_API_TOKEN }}
-          TRADER_DB_URL: ${{ secrets.TRADER_DB_URL }}
-          TRADER_STATE_S3_BUCKET: ${{ secrets.TRADER_STATE_S3_BUCKET }}
-          TRADER_STATE_S3_PREFIX: ${{ secrets.TRADER_STATE_S3_PREFIX }}
-          TRADER_STATE_S3_REGION: ${{ secrets.TRADER_STATE_S3_REGION }}
-          APP_RUNNER_INSTANCE_ROLE_ARN: ${{ secrets.APP_RUNNER_INSTANCE_ROLE_ARN }}
-          TRADER_AWS_ENSURE_RESOURCES: ${{ secrets.TRADER_AWS_ENSURE_RESOURCES }}
-          TRADER_UI_CLOUDFRONT_AUTO: ${{ secrets.TRADER_UI_CLOUDFRONT_AUTO }}
-          TRADER_UI_BUCKET: ${{ secrets.TRADER_UI_BUCKET }}
-          TRADER_UI_CLOUDFRONT_DOMAIN: ${{ secrets.TRADER_UI_CLOUDFRONT_DOMAIN }}
-          TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID }}
-          TRADER_UI_API_MODE: ${{ secrets.TRADER_UI_API_MODE }}
-          TRADER_UI_API_URL: ${{ secrets.TRADER_UI_API_URL }}
-          TRADER_UI_API_FALLBACK_URL: ${{ secrets.TRADER_UI_API_FALLBACK_URL }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_APP: ${{ secrets.FLY_APP }}
         run: |
           set -euo pipefail
-          extra_args=()
-          if [[ "${TRADER_AWS_ENSURE_RESOURCES:-true}" == "true" ]]; then
-            extra_args+=(--ensure-resources)
+          if [[ -n "${FLY_APP:-}" ]]; then
+            flyctl deploy --remote-only --app "${FLY_APP}"
+          else
+            flyctl deploy --remote-only
           fi
-          if [[ "${TRADER_UI_CLOUDFRONT_AUTO:-true}" == "true" ]]; then
-            extra_args+=(--cloudfront)
-          fi
-          bash deploy-aws-quick.sh --region "${AWS_REGION}" "${extra_args[@]}"
