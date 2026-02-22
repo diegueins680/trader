@@ -42,13 +42,14 @@ toUpperAscii c =
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
 
+nonEmptyString :: String -> Maybe String
+nonEmptyString s =
+    case s of
+        "" -> Nothing
+        _ -> Just s
+
 normalizePlatform :: Maybe String -> Maybe String
-normalizePlatform raw =
-    case raw of
-        Nothing -> Nothing
-        Just v ->
-            let s = map toLower (trim v)
-             in if null s then Nothing else Just s
+normalizePlatform raw = raw >>= nonEmptyString . map toLower . trim
 
 isDexPlatformKey :: String -> Bool
 isDexPlatformKey key =
@@ -210,4 +211,6 @@ findSubstrPositions needle hay =
             if needle `isPrefixOf` xs
                 then i : go (i + 1) rest
                 else go (i + 1) rest
-     in if null needle then [] else go 0 hay
+     in case needle of
+            "" -> []
+            _ -> go 0 hay
