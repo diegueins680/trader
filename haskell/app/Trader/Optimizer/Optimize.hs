@@ -4370,7 +4370,14 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
         topMetrics =
             let topN = take 5 sorted
                 extract f = [f tr | tr <- topN, trEligible tr, isJust (trScore tr)]
-                avg xs = if null xs then Nothing else Just (sum xs / fromIntegral (length xs))
+                avg xs =
+                    let (sumX, countX) =
+                            foldl'
+                                ( \(acc, n) x -> (acc + x, n + 1 :: Int)
+                                )
+                                (0, 0)
+                                xs
+                     in if countX == 0 then Nothing else Just (sumX / fromIntegral countX)
              in object
                     [ "avgScore" .= avg (map (fromMaybe 0 . trScore) topN)
                     , "avgSharpe" .= avg (map (\tr -> metricFloat (trMetrics tr) "sharpe" 0) topN)
