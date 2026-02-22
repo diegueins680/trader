@@ -5,6 +5,7 @@ module Trader.Config (
     shouldRequireUserTradeKeys,
 ) where
 
+import Data.Maybe (isJust)
 import System.Environment (lookupEnv)
 
 import Trader.App.Args (Args (..))
@@ -75,13 +76,14 @@ resolveCredential envName override =
             raw <- lookupEnv envName
             pure (raw >>= normalize)
 
+nonEmptyString :: String -> Maybe String
+nonEmptyString s =
+    case s of
+        "" -> Nothing
+        _ -> Just s
+
 normalize :: String -> Maybe String
-normalize raw =
-    let cleaned = trim raw
-     in if null cleaned then Nothing else Just cleaned
+normalize = nonEmptyString . trim
 
 present :: Maybe String -> Bool
-present raw =
-    case raw of
-        Nothing -> False
-        Just _ -> True
+present = isJust
