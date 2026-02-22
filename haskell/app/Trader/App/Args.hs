@@ -1149,7 +1149,11 @@ validateArgs args0 = do
         Nothing -> pure ()
         Just raw ->
             let k = trim raw
-                okLen = not (null k) && length k <= 36
+                okLen =
+                    case splitAt 37 k of
+                        ("", _) -> False
+                        (_, []) -> True
+                        _ -> False
                 okChars = all (\c -> isAlphaNum c || c == '-' || c == '_') k
              in ensure "--idempotency-key must be 1..36 chars of [A-Za-z0-9_-]" (okLen && okChars)
     case argDexChainId args of
