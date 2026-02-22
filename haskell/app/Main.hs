@@ -3771,10 +3771,9 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
                                 )
                                 (comboUuid, now, now)
                         when (kind == comboCompletedOperationKind) $
-                            case finiteMaybe mEquity of
-                                Nothing -> pure ()
-                                Just currentEq ->
-                                    updateComboPerformanceFromCompletedOperation conn now comboUuid currentEq
+                            for_
+                                (finiteMaybe mEquity)
+                                (updateComboPerformanceFromCompletedOperation conn now comboUuid)
             pure newId
     let op =
             PersistedOperation

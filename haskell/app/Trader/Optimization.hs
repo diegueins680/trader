@@ -2534,7 +2534,11 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
             let t0' = t0 + e
                 t1' = t1 - e
              in if t1' < t0' then Nothing else Just (t0', t1')
-        foldSingle = length foldRs <= 1
+        foldSingle =
+            case foldRs of
+                [] -> True
+                [_] -> True
+                _ -> False
         foldRsEval =
             if foldSingle || embargoBars <= 0
                 then foldRs
