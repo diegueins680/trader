@@ -249,13 +249,15 @@ comboEquityAboveOne val =
 valueStringMaybe :: Aeson.Value -> Maybe String
 valueStringMaybe = AT.parseMaybe Aeson.parseJSON
 
+nonEmptyString :: String -> Maybe String
+nonEmptyString s =
+    case s of
+        "" -> Nothing
+        _ -> Just s
+
 normalizeComboPlatform :: Maybe String -> Maybe String
 normalizeComboPlatform raw =
-    case raw of
-        Nothing -> Nothing
-        Just v ->
-            let key = normalizeKey v
-             in if null key then Nothing else Just key
+    raw >>= nonEmptyString . normalizeKey
 
 isBinancePlatformKey :: String -> Bool
 isBinancePlatformKey key = key == "binance" || "binance" `isPrefixOf` key
@@ -455,9 +457,7 @@ extractPayloadSource val =
         Aeson.Object o -> KM.lookup (AK.fromString "source") o >>= AT.parseMaybe Aeson.parseJSON >>= cleanPayloadSource
         _ -> Nothing
   where
-    cleanPayloadSource raw =
-        let s = trim raw
-         in if null s then Nothing else Just s
+    cleanPayloadSource = nonEmptyString . trim
 
 extractCombos :: Aeson.Value -> [Aeson.Value]
 extractCombos val =
