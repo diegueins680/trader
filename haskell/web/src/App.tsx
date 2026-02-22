@@ -5116,6 +5116,21 @@ export function App() {
         if (!tenantKey) {
           throw new Error("Tenant key required. Add Binance API keys (or check keys) to open the listen key stream.");
         }
+        const triggerAutoRestart = (reason: string, cooldownMs = 60_000): boolean => {
+          const restart = startListenKeyStreamRef.current;
+          if (!restart) return false;
+          const now = Date.now();
+          const lastRestartAt = listenKeyStreamAutoRestartAtRef.current;
+          if (now - lastRestartAt < cooldownMs) return false;
+          listenKeyStreamAutoRestartAtRef.current = now;
+          setListenKeyUi((s) => ({
+            ...s,
+            wsStatus: "connecting",
+            wsError: reason,
+          }));
+          void restart({ silent: true });
+          return true;
+        };
         scheduleRetry = (reason: string | null) => {
           if (listenKeyStreamRetryRef.current) return;
           if (!listenKeyInfoRef.current) return;
@@ -5150,17 +5165,7 @@ export function App() {
             const notRunning =
               normalized.includes("listen key stream not running") || normalized.includes("listenkey stream not running");
             if (notRunning) {
-              const now = Date.now();
-              const lastRestartAt = listenKeyStreamAutoRestartAtRef.current;
-              const cooldownMs = 60_000;
-              if (now - lastRestartAt >= cooldownMs) {
-                listenKeyStreamAutoRestartAtRef.current = now;
-                setListenKeyUi((s) => ({
-                  ...s,
-                  wsStatus: "connecting",
-                  wsError: "Listen key stream not running; restarting.",
-                }));
-                void startListenKeyStreamRef.current?.({ silent: true });
+              if (triggerAutoRestart("Listen key stream not running; restarting.", 60_000)) {
                 return;
               }
             }
@@ -5178,8 +5183,12 @@ export function App() {
           if (event === "status") {
             const payload = safeJsonParse<ListenKeyStreamStatusPayload>(data);
             const statusRaw = typeof payload?.status === "string" ? payload.status : "disconnected";
+            const statusNormalized = statusRaw.trim().toLowerCase();
             const message = typeof payload?.message === "string" ? payload.message : null;
-            const nextStatus = normalizeListenKeyStreamStatus(statusRaw);
+            if (statusNormalized === "expired") {
+              if (triggerAutoRestart(message ?? "Listen key expired; restarting.", 5_000)) return;
+            }
+            const nextStatus = normalizeListenKeyStreamStatus(statusNormalized);
             setListenKeyUi((s) => ({
               ...s,
               wsStatus: nextStatus,
@@ -5187,7 +5196,7 @@ export function App() {
             }));
             if (nextStatus === "connected") {
               listenKeyStreamRetryMsRef.current = 0;
-            } else if (nextStatus === "disconnected") {
+            } else if (nextStatus === "disconnected" || nextStatus === "stopped") {
               scheduleRetry?.(message);
             }
             return;
