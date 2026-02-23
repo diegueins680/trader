@@ -262,6 +262,7 @@ import Trader.TopCombosStore (
     newTopCombosStore,
     normalizeComboPlatform,
     readTopCombosValueLocal,
+    recalculateComboPerformanceFromOperation,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
     topCombosGeneratedAtMs,
@@ -3554,86 +3555,10 @@ runOpsBackfillCommits = do
 comboCompletedOperationKind :: Text
 comboCompletedOperationKind = "bot.order"
 
-isFiniteDouble :: Double -> Bool
-isFiniteDouble x = not (isNaN x || isInfinite x)
-
 finiteMaybe :: Maybe Double -> Maybe Double
 finiteMaybe mX = do
     x <- mX
-    if isFiniteDouble x then Just x else Nothing
-
-positiveFinite :: Double -> Maybe Double
-positiveFinite x =
-    if isFiniteDouble x && x > 0
-        then Just x
-        else Nothing
-
-nonNegativeFinite :: Double -> Maybe Double
-nonNegativeFinite x =
-    if isFiniteDouble x && x >= 0
-        then Just x
-        else Nothing
-
-comboMetricFromObject :: String -> Aeson.Object -> Maybe Double
-comboMetricFromObject key obj =
-    KM.lookup (AK.fromString key) obj >>= coerceDoubleValue
-
-comboAnnualizationExponent ::
-    Maybe Text ->
-    Aeson.Object ->
-    Double ->
-    Maybe Double ->
-    Maybe Double
-comboAnnualizationExponent mInterval metricsObj baselineEq mAnnualized =
-    fromMetrics <|> fromExisting
-  where
-    fromMetrics =
-        case comboMetricFromObject "periods" metricsObj >>= positiveFinite of
-            Nothing -> Nothing
-            Just periods ->
-                let ppy =
-                        case comboMetricFromObject "periodsPerYear" metricsObj >>= positiveFinite of
-                            Just v -> v
-                            Nothing ->
-                                case mInterval of
-                                    Just intervalTxt -> inferPeriodsPerYear (T.unpack intervalTxt)
-                                    Nothing -> 365
-                 in positiveFinite (ppy / periods)
-
-    fromExisting =
-        case (positiveFinite baselineEq, finiteMaybe mAnnualized) of
-            (Just base, Just ann)
-                | ann > (-1) && abs (base - 1) > 1e-9 ->
-                    let denom = log base
-                        numer = log (1 + ann)
-                     in if abs denom <= 1e-12
-                            then Nothing
-                            else positiveFinite (numer / denom)
-            _ -> Nothing
-
-comboAnnualizedReturnFromExponent :: Double -> Maybe Double -> Double
-comboAnnualizedReturnFromExponent finalEq mExponent =
-    let fallbackRaw =
-            if isFiniteDouble finalEq
-                then finalEq - 1
-                else 0
-        fallback =
-            if isFiniteDouble fallbackRaw
-                then max (-1) fallbackRaw
-                else 0
-        fromExponent =
-            case mExponent of
-                Just expo
-                    | expo > 0 ->
-                        if finalEq <= 0
-                            then -1
-                            else finalEq ** expo - 1
-                _ -> fallback
-        chosen =
-            if isFiniteDouble fromExponent
-                then fromExponent
-                else fallback
-     in max (-1) chosen
+    if not (isNaN x || isInfinite x) then Just x else Nothing
 
 updateComboPerformanceFromCompletedOperation ::
     Connection ->
@@ -3648,17 +3573,6 @@ updateComboPerformanceFromCompletedOperation conn now comboUuid currentEq = do
             "SELECT equity FROM ops WHERE combo_uuid = ? AND kind = ? AND equity IS NOT NULL ORDER BY id DESC LIMIT 2"
             (comboUuid, comboCompletedOperationKind) ::
             IO [Only Double]
-    let prevEq =
-            case eqRows of
-                (_ : Only v : _) ->
-                    fromMaybe 1 (positiveFinite v)
-                _ -> 1
-        ratioRaw =
-            if prevEq > 0
-                then currentEq / prevEq
-                else 1
-        ratio =
-            fromMaybe 1 (nonNegativeFinite ratioRaw)
     comboRows <-
         query
             conn
@@ -3672,21 +3586,14 @@ updateComboPerformanceFromCompletedOperation conn now comboUuid currentEq = do
                     case decodeJsonTextMaybe mMetricsText of
                         Just (Aeson.Object o) -> o
                         _ -> KM.empty
-                baselineEqRaw =
-                    fromMaybe 1 (finiteMaybe mFinalEq <|> comboMetricFromObject "finalEquity" metricsObj)
-                baselineEq = max 0 baselineEqRaw
-                nextFinalEqRaw = baselineEq * ratio
-                nextFinalEq =
-                    if isFiniteDouble nextFinalEqRaw && nextFinalEqRaw >= 0
-                        then nextFinalEqRaw
-                        else baselineEq
-                mExponent = comboAnnualizationExponent mInterval metricsObj baselineEq mAnnualized
-                nextAnnualized = comboAnnualizedReturnFromExponent nextFinalEq mExponent
-                metricsObj' =
-                    KM.insert
-                        (AK.fromString "annualizedReturn")
-                        (toJSON nextAnnualized)
-                        (KM.insert (AK.fromString "finalEquity") (toJSON nextFinalEq) metricsObj)
+                (nextFinalEq, nextAnnualized, metricsObj') =
+                    recalculateComboPerformanceFromOperation
+                        (T.unpack <$> mInterval)
+                        mFinalEq
+                        mAnnualized
+                        metricsObj
+                        (case eqRows of (_ : Only v : _) -> Just v; _ -> Nothing)
+                        currentEq
                 metricsJson = encodeJsonTextMaybe (Just (Aeson.Object metricsObj'))
             void $
                 execute

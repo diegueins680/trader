@@ -570,7 +570,7 @@ Endpoints:
 - `GET /binance/listenKey/stream` → server-sent events relay of listenKey status, keep-alives, and Binance user-data payloads (auto-reconnects the Binance WebSocket on disconnects)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
 - `POST /binance/listenKey/close` → closes a listenKey
-- If Binance returns `-1125` (listenKey expired), the backend marks the stream as expired so you can restart it from the UI.
+- If Binance returns `-1125` (listenKey expired), the backend marks the stream as expired and the UI automatically restarts the listenKey stream.
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail). When `botSymbols` is provided without `binanceSymbol`, the first symbol is used as the data source for validation.
 - `POST /bot/start` skips top-combo candidates that exceed API compute limits and falls back to the base args.
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
@@ -881,12 +881,11 @@ The quick deploy script also runs post-deploy health checks for the API and (whe
 If an S3 bucket already exists and is owned by you, the quick deploy script treats it as success (including `BucketAlreadyOwnedByYou`).
 
 CI/CD (GitHub Actions):
-- On push to `main`/`master`, `.github/workflows/ci.yml` deploys via `deploy-aws-quick.sh` after CI passes.
+- On push to `main`/`master`, `.github/workflows/ci.yml` deploys to Fly.io via `flyctl deploy --remote-only` after CI passes.
 - Haskell CI gates enforce formatting (`fourmolu --mode check`), lint (`hlint`), `cabal build`, and `cabal test`.
-- Required secrets: `AWS_ROLE_ARN` + `AWS_REGION` (or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`), plus `TRADER_API_TOKEN`, `TRADER_DB_URL`, `TRADER_STATE_S3_BUCKET`, `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`.
-- If deploy fails pushing to ECR with `403 Forbidden` on `HEAD .../manifests/<tag|sha256:...>`, add `ecr:BatchGetImage` to the deploy IAM policy (Docker checks for existing manifests) or disable Docker attestations (the deploy script disables provenance/SBOM by default; set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable).
-- Optional: `TRADER_AWS_ENSURE_RESOURCES` (auto-provision), `TRADER_UI_CLOUDFRONT_AUTO`, `TRADER_UI_BUCKET`, `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`, `TRADER_UI_CLOUDFRONT_DOMAIN`, `TRADER_UI_API_MODE`, `TRADER_UI_API_URL`, `TRADER_UI_API_FALLBACK_URL`.
-- Deploys run ops schema updates + performance rollups when `TRADER_DB_URL` is set (requires `psql`); disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`.
+- Required secret: `FLY_API_TOKEN`.
+- Optional secret: `FLY_APP` (if unset, Fly uses the app configured in `fly.toml`).
+- Fly deploy config defaults to `fly.toml`; override with repository variable `FLY_CONFIG_PATH`.
 
 Note: `/bot/*` is stateful. Async endpoints persist job state to Postgres when ops DB is enabled (`TRADER_DB_URL`/`DATABASE_URL`), and also to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default. If DB persistence is disabled, deployments behind non-sticky load balancers (including CloudFront `/api/*`) should keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to shared writable storage.
 
@@ -954,7 +953,7 @@ The Binance account trades panel shows timestamps with millisecond precision to 
 Binance account trade tables now show separate `Opened` and `Closed` timestamps (browser-local timezone): opens use fill time, closes include the matched open time inferred from prior fills.
 The Binance trade P&L breakdown also reports total filled quantity and quote volume for the analyzed fills.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes). It also shows the Binance account UID when available so you can confirm which account is queried, plus inferred position open times based on recent Binance trades (cache duration is configurable in the UI). Open positions and orphaned operations include a “Close position” button that sends a reduce-only futures market order; in hedge mode the request includes `positionSide` (enable Live orders to use it).
-The Binance listenKey stream auto-reconnects with backoff after transient disconnects.
+The Binance listenKey stream auto-reconnects with backoff after transient disconnects and automatically restarts when the listenKey expires.
 The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
 The UI includes a “State sync” panel to export bot snapshots and optimizer combos, import combos from state-sync/top-combos JSON files, and push payloads to another API via `/state/sync`, with controls to limit per-request payload size.
 The bot state timeline shows the hovered timestamp.
