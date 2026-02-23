@@ -84,8 +84,14 @@ jobs:
           FLY_APP: ${{ secrets.FLY_APP }}
         run: |
           set -euo pipefail
+          if [[ -z "${FLY_API_TOKEN:-}" ]]; then
+            echo "::warning::FLY_API_TOKEN is not set; skipping Fly deploy."
+            exit 0
+          fi
           if [[ -n "${FLY_APP:-}" ]]; then
             flyctl deploy --remote-only --app "${FLY_APP}"
-          else
+          elif [[ -f fly.toml ]]; then
             flyctl deploy --remote-only
+          else
+            echo "::warning::No FLY_APP secret and no fly.toml found; skipping Fly deploy."
           fi
