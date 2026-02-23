@@ -70,7 +70,7 @@ jobs:
     name: Deploy (Fly.io)
     runs-on: ubuntu-latest
     needs: [haskell, web]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && secrets.FLY_API_TOKEN != ''
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     permissions:
       contents: read
     steps:
