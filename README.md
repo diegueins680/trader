@@ -883,9 +883,10 @@ If an S3 bucket already exists and is owned by you, the quick deploy script trea
 CI/CD (GitHub Actions):
 - On push to `main`/`master`, `.github/workflows/ci.yml` deploys to Fly.io via `flyctl deploy --remote-only` after CI passes.
 - Haskell CI gates enforce formatting (`fourmolu --mode check`), lint (`hlint`), `cabal build`, and `cabal test`.
-- Required secret: `FLY_API_TOKEN`.
+- Required secret: `FLY_API_TOKEN` (use a Fly deploy token, for example from `fly tokens create deploy`).
 - Optional secret: `FLY_APP` (if unset, Fly uses the app configured in `fly.toml`).
 - If `FLY_APP` is unset, the workflow falls back to repo-root `fly.toml`; if neither is present, the deploy step is skipped with a warning.
+- If `FLY_API_TOKEN` is present but invalid for CI (for example “missing third-party discharge token”), the deploy step is skipped with a warning so CI does not fail on token-shape issues.
 
 Note: `/bot/*` is stateful. Async endpoints persist job state to Postgres when ops DB is enabled (`TRADER_DB_URL`/`DATABASE_URL`), and also to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default. If DB persistence is disabled, deployments behind non-sticky load balancers (including CloudFront `/api/*`) should keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to shared writable storage.
 

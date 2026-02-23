@@ -41,6 +41,7 @@ All notable changes to this project will be documented in this file.
 - Trading: add a richer transaction-cost model with fixed/min fees and volatility/size-based slippage/spread.
 - Dev/CI: auto-deploy to Fly.io from GitHub Actions after successful pushes to `main`/`master`.
 - Dev/CI: harden Fly deploy workflow by pinning `setup-flyctl` and skipping deploy when Fly credentials/config are missing (`FLY_API_TOKEN` is required; the workflow uses `FLY_APP` when set, otherwise repo-root `fly.toml`).
+- Dev/CI: treat Fly CI auth token-shape errors (for example missing third-party discharge token) as a warning + deploy skip, and document using `fly tokens create deploy` for `FLY_API_TOKEN`.
 - Deploy/Fly: reduce remote builder memory pressure by building only `trader-hs` in Docker with `-j1 --disable-optimization`, fixing Fly deploy OOM kills during image builds.
 - Deploy: disable Docker build attestations (provenance/SBOM) by default in `deploy-aws-quick.sh` to avoid ECR push `403` errors; set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable.
 - Deploy: treat `BucketAlreadyOwnedByYou` as success when ensuring S3 buckets in `deploy-aws-quick.sh`.

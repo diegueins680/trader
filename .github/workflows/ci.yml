@@ -84,10 +84,24 @@ jobs:
           FLY_APP: ${{ secrets.FLY_APP }}
         run: |
           set -euo pipefail
+          auth_err_file="$(mktemp)"
+          trap 'rm -f "$auth_err_file"' EXIT
+
           if [[ -z "${FLY_API_TOKEN:-}" ]]; then
             echo "::warning::FLY_API_TOKEN is not set; skipping Fly deploy."
             exit 0
           fi
+
+          if ! flyctl auth whoami >"$auth_err_file" 2>&1; then
+            if grep -qiE "missing third-party discharge token|invalid token" "$auth_err_file"; then
+              echo "::warning::FLY_API_TOKEN is invalid for CI deploy (missing Fly discharge token). Generate a deploy token with 'fly tokens create deploy' and update the FLY_API_TOKEN GitHub secret; skipping Fly deploy."
+              exit 0
+            fi
+            echo "::error::Fly authentication failed before deploy."
+            cat "$auth_err_file"
+            exit 1
+          fi
+
           if [[ -n "${FLY_APP:-}" ]]; then
             flyctl deploy --remote-only --app "${FLY_APP}"
           elif [[ -f fly.toml ]]; then
