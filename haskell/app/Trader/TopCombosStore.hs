@@ -15,6 +15,7 @@ module Trader.TopCombosStore (
     isTopCombosPayload,
     mergeTopCombosPayloads,
     newTopCombosStore,
+    recalculateComboPerformanceFromOperation,
     normalizeComboPlatform,
     readTopCombosValueLocal,
     sanitizeComboSymbolForPlatform,
@@ -51,6 +52,7 @@ import System.IO (Handle, hClose, openTempFile)
 import System.IO.Error (isAlreadyExistsError)
 import Text.Read (readMaybe)
 
+import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Symbol (commonQuotes, sanitizeSymbolForPlatform)
 import Trader.Text (normalizeKey, trim)
@@ -239,6 +241,105 @@ comboMetricsDouble key val = do
 comboFinalEquityValue :: Aeson.Value -> Maybe Double
 comboFinalEquityValue val =
     comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val
+
+recalculateComboPerformanceFromOperation ::
+    Maybe String ->
+    Maybe Double ->
+    Maybe Double ->
+    Aeson.Object ->
+    Maybe Double ->
+    Double ->
+    (Double, Double, Aeson.Object)
+recalculateComboPerformanceFromOperation mInterval mStoredFinalEq mStoredAnnualized metricsObj mPrevOrderEq currentOrderEq =
+    let prevEq = fromMaybe 1 (positiveFiniteMaybe mPrevOrderEq)
+        currentEq = fromMaybe prevEq (nonNegativeFinite currentOrderEq)
+        ratioRaw =
+            if prevEq > 0
+                then currentEq / prevEq
+                else 1
+        ratio = fromMaybe 1 (nonNegativeFinite ratioRaw)
+        baselineEqRaw =
+            fromMaybe 1 (finiteMaybe mStoredFinalEq <|> comboMetricFromObject "finalEquity" metricsObj)
+        baselineEq = max 0 baselineEqRaw
+        nextFinalEqRaw = baselineEq * ratio
+        nextFinalEq =
+            if isFiniteDouble nextFinalEqRaw && nextFinalEqRaw >= 0
+                then nextFinalEqRaw
+                else baselineEq
+        mExponent = comboAnnualizationExponent mInterval metricsObj baselineEq mStoredAnnualized
+        nextAnnualized = comboAnnualizedReturnFromExponent nextFinalEq mExponent
+        metricsObj' =
+            KM.insert
+                (AK.fromString "annualizedReturn")
+                (toJSON nextAnnualized)
+                (KM.insert (AK.fromString "finalEquity") (toJSON nextFinalEq) metricsObj)
+     in (nextFinalEq, nextAnnualized, metricsObj')
+  where
+    comboMetricFromObject key obj =
+        KM.lookup (AK.fromString key) obj >>= coerceDoubleValue
+
+    isFiniteDouble x = not (isNaN x || isInfinite x)
+
+    finiteMaybe mX = do
+        x <- mX
+        if isFiniteDouble x then Just x else Nothing
+
+    positiveFiniteMaybe mX = do
+        x <- finiteMaybe mX
+        if x > 0 then Just x else Nothing
+
+    positiveFinite = positiveFiniteMaybe . Just
+
+    nonNegativeFiniteMaybe mX = do
+        x <- finiteMaybe mX
+        if x >= 0 then Just x else Nothing
+
+    nonNegativeFinite = nonNegativeFiniteMaybe . Just
+
+    comboAnnualizationExponent interval metrics baselineEq mAnnualized =
+        fromMetrics <|> fromExisting
+      where
+        fromMetrics = do
+            periods <- comboMetricFromObject "periods" metrics >>= positiveFinite
+            let ppy =
+                    fromMaybe
+                        (maybe 365 inferPeriodsPerYear interval)
+                        (comboMetricFromObject "periodsPerYear" metrics >>= positiveFinite)
+            positiveFinite (ppy / periods)
+
+        fromExisting =
+            case (positiveFinite baselineEq, finiteMaybe mAnnualized) of
+                (Just base, Just ann)
+                    | ann > (-1) && abs (base - 1) > 1e-9 ->
+                        let denom = log base
+                            numer = log (1 + ann)
+                         in if abs denom <= 1e-12
+                                then Nothing
+                                else positiveFinite (numer / denom)
+                _ -> Nothing
+
+    comboAnnualizedReturnFromExponent finalEq mExponent =
+        let fallbackRaw =
+                if isFiniteDouble finalEq
+                    then finalEq - 1
+                    else 0
+            fallback =
+                if isFiniteDouble fallbackRaw
+                    then max (-1) fallbackRaw
+                    else 0
+            fromExponent =
+                case mExponent of
+                    Just expo
+                        | expo > 0 ->
+                            if finalEq <= 0
+                                then -1
+                                else finalEq ** expo - 1
+                    _ -> fallback
+            chosen =
+                if isFiniteDouble fromExponent
+                    then fromExponent
+                    else fallback
+         in max (-1) chosen
 
 comboEquityAboveOne :: Aeson.Value -> Bool
 comboEquityAboveOne val =

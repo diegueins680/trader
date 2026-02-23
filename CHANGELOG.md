@@ -39,7 +39,9 @@ All notable changes to this project will be documented in this file.
 - CLI/docs: clarify `--bars auto` exchange defaults (Coinbase uses 300; Binance/Kraken/Poloniex use 500).
 - Trading: add portfolio exposure caps (gross/net/per-base) and expanded risk metrics (Sortino, Calmar, VaR/CVaR).
 - Trading: add a richer transaction-cost model with fixed/min fees and volatility/size-based slippage/spread.
-- Dev/CI: auto-deploy to AWS from GitHub Actions after successful pushes to `main`/`master`.
+- Dev/CI: auto-deploy to Fly.io from GitHub Actions after successful pushes to `main`/`master`.
+- Dev/CI: harden Fly deploy workflow by pinning `setup-flyctl` and skipping deploy when Fly credentials/config are missing (`FLY_API_TOKEN` is required; the workflow uses `FLY_APP` when set, otherwise repo-root `fly.toml`).
+- Deploy/Fly: reduce remote builder memory pressure by building only `trader-hs` in Docker with `-j1 --disable-optimization`, fixing Fly deploy OOM kills during image builds.
 - Deploy: disable Docker build attestations (provenance/SBOM) by default in `deploy-aws-quick.sh` to avoid ECR push `403` errors; set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable.
 - Deploy: treat `BucketAlreadyOwnedByYou` as success when ensuring S3 buckets in `deploy-aws-quick.sh`.
 - Deploy: add App Runner fixed-egress helpers (`deploy/aws/setup-apprunner-egress-eip.sh`, `deploy/aws/teardown-apprunner-egress-eip.sh`) and `deploy-aws-quick.sh --setup-egress-eip`/`--teardown-egress-eip` flags (teardown prompts for confirmation).
@@ -130,6 +132,7 @@ All notable changes to this project will be documented in this file.
 - Dev: `start_ui_bg.sh` now reports API port status and tails the API log on health timeouts.
 - ListenKey: add retry/backoff for listenKey create/keepAlive to reduce transient timeouts.
 - ListenKey: auto-expire user-data streams when Binance returns `-1125` so the UI can restart cleanly after idle/expired listen keys.
+- Web UI: auto-restart Binance listenKey streams when SSE status reports `expired`, and retry `stopped` stream states so expired streams recover without manual restart clicks.
 - Trading/Backtests: apply bracket exits using candle high/low (intrabar) for stop loss / trailing stop / take profit, and track per-bar positions after intrabar exits.
 - Dev: `start_api_bg.sh` now defaults `TRADER_API_BIND_HOST` to `127.0.0.1` for local stability.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.

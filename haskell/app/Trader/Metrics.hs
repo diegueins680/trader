@@ -97,7 +97,13 @@ computeMetrics periodsPerYear br =
 
         exposure =
             let pos = brPositions br
-             in if null pos then 0 else foldl' (\acc v -> acc + abs v) 0 pos / fromIntegral (length pos)
+                (sumAbs, count) =
+                    foldl'
+                        ( \(acc, n) v -> (acc + abs v, n + 1 :: Int)
+                        )
+                        (0, 0)
+                        pos
+             in if count == 0 then 0 else sumAbs / fromIntegral count
 
         agree =
             let flags = brAgreementOk br

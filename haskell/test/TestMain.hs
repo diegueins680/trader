@@ -4,7 +4,8 @@ module Main where
 
 import Control.Exception (SomeException, evaluate, try)
 import qualified Control.Monad
-import Data.Aeson (eitherDecode)
+import Data.Aeson (eitherDecode, object, (.=))
+import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
@@ -64,6 +65,7 @@ import Trader.Predictors (
  )
 import Trader.Predictors.Types (allPredictors)
 import Trader.Split (Split (..), splitTrainBacktest)
+import Trader.TopCombosStore (recalculateComboPerformanceFromOperation)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble)
 
 main :: IO ()
@@ -111,6 +113,7 @@ main = do
             , run "bot/start preserves provided combo for active adoption" testBotStartPreservesProvidedComboForActiveAdopt
             , run "bot/start clears origin only when adoptable and flat" testBotStartClearOriginGate
             , run "position origin persists only for live sent switches" testPersistPositionOriginGate
+            , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
             , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
             , run "platform intervals" testPlatformIntervals
             , run "platform interval mapping" testPlatformIntervalMapping
@@ -869,6 +872,33 @@ testPersistPositionOriginGate = do
     assert "no persist when trade disabled" (not (shouldPersist False True True True))
     assert "no persist when switch not applied" (not (shouldPersist True True False True))
     assert "no persist when order not sent" (not (shouldPersist True True True False))
+
+testRecalculateComboPerformanceFromCompletedOperation :: IO ()
+testRecalculateComboPerformanceFromCompletedOperation = do
+    let metricsWithPeriods =
+            case object ["periods" .= (365 :: Int), "periodsPerYear" .= (365 :: Int)] of
+                Aeson.Object o -> o
+                _ -> error "expected object"
+        (nextEq1, nextAnn1, metrics1) =
+            recalculateComboPerformanceFromOperation
+                (Just "1d")
+                (Just 1.5)
+                (Just 0.5)
+                metricsWithPeriods
+                (Just 1.2)
+                1.08
+        (nextEq2, nextAnn2, _metrics2) =
+            recalculateComboPerformanceFromOperation
+                (Just "1d")
+                (Just 1.35)
+                (Just 0.35)
+                metrics1
+                (Just 1.0)
+                0.9
+    assertApprox "delta scales final equity" 1e-12 nextEq1 1.35
+    assertApprox "period-based annualized return updated" 1e-12 nextAnn1 0.35
+    assertApprox "delta scales from updated baseline" 1e-12 nextEq2 1.215
+    assertApprox "annualized return follows updated equity" 1e-12 nextAnn2 0.215
 
 testDexTradeArgsRequireTokensNotSymbol :: IO ()
 testDexTradeArgsRequireTokensNotSymbol = do

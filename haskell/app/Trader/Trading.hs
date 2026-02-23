@@ -937,8 +937,16 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                         meanList :: [Double] -> Double
                         meanList xs =
-                            let ys = filter (not . isBad) xs
-                             in if null ys then 0 else sum ys / fromIntegral (length ys)
+                            let (sumY, countY) =
+                                    foldl'
+                                        ( \(acc, n) x ->
+                                            if isBad x
+                                                then (acc, n)
+                                                else (acc + x, n + 1 :: Int)
+                                        )
+                                        (0, 0)
+                                        xs
+                             in if countY == 0 then 0 else sumY / fromIntegral countY
 
                         returnsV :: V.Vector Double
                         returnsV =
