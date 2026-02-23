@@ -40,7 +40,8 @@ All notable changes to this project will be documented in this file.
 - Trading: add portfolio exposure caps (gross/net/per-base) and expanded risk metrics (Sortino, Calmar, VaR/CVaR).
 - Trading: add a richer transaction-cost model with fixed/min fees and volatility/size-based slippage/spread.
 - Dev/CI: auto-deploy to Fly.io from GitHub Actions after successful pushes to `main`/`master`.
-- Dev/CI: harden Fly deploy workflow by pinning `setup-flyctl`, skipping deploy when `FLY_API_TOKEN` is missing, and failing early when the Fly config file is missing (defaults to `fly.toml`, override via `FLY_CONFIG_PATH` repo variable).
+- Dev/CI: harden Fly deploy workflow by pinning `setup-flyctl` and skipping deploy when Fly credentials/config are missing (`FLY_API_TOKEN` is required; the workflow uses `FLY_APP` when set, otherwise repo-root `fly.toml`).
+- Deploy/Fly: reduce remote builder memory pressure by building only `trader-hs` in Docker with `-j1 --disable-optimization`, fixing Fly deploy OOM kills during image builds.
 - Deploy: disable Docker build attestations (provenance/SBOM) by default in `deploy-aws-quick.sh` to avoid ECR push `403` errors; set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable.
 - Deploy: treat `BucketAlreadyOwnedByYou` as success when ensuring S3 buckets in `deploy-aws-quick.sh`.
 - Deploy: add App Runner fixed-egress helpers (`deploy/aws/setup-apprunner-egress-eip.sh`, `deploy/aws/teardown-apprunner-egress-eip.sh`) and `deploy-aws-quick.sh --setup-egress-eip`/`--teardown-egress-eip` flags (teardown prompts for confirmation).
