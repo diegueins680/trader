@@ -31,7 +31,7 @@
       return appName.slice(0, -4);
     }
     const marker = "-web-";
-    const markerAt = appName.indexOf(marker);
+    const markerAt = appName.lastIndexOf(marker);
     if (markerAt <= 0) return "";
     const prefix = appName.slice(0, markerAt);
     const suffix = appName.slice(markerAt + marker.length);

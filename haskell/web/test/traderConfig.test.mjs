@@ -34,6 +34,12 @@ test("trader-config does not rewrite app names that only contain -web as a subst
   assert.equal(config.apiFallbackUrl, "");
 });
 
+test("trader-config strips the rightmost -web- marker when app names contain multiple markers", () => {
+  const config = runTraderConfig("alpha-web-api-web-us.fly.dev");
+  assert.equal(config.apiBaseUrl, "https://alpha-web-api-us.fly.dev");
+  assert.equal(config.apiFallbackUrl, "/api");
+});
+
 test("trader-config keeps existing config object intact", () => {
   const existing = { apiBaseUrl: "https://api.example.com", apiFallbackUrl: "/api", apiToken: "x" };
   const config = runTraderConfig("trader-web-hs.fly.dev", existing);

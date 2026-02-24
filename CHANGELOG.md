@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
-- Web UI: default `trader-config.js` now infers direct Fly API hosts only for split-app patterns (`*-web.fly.dev` or `*-web-*.fly.dev`), avoiding accidental rewrites like `*-webhook`; direct-host calls now fail over to `/api` on network errors and HTTP 404/502/503/504.
+- Web UI: default `trader-config.js` now infers direct Fly API hosts only for split-app patterns (`*-web.fly.dev` or `*-web-*.fly.dev`), strips the rightmost `-web-` marker when multiple are present, avoids accidental rewrites like `*-webhook`, and fails over direct-host calls to `/api` on network errors and HTTP 404/502/503/504.
 - API/UI: include `egressIp` in `/binance/keys` (best-effort public backend IP lookup), and show/copy it in the Trade result key-status panel for Binance API IP allowlisting.
 - Ops/Combos: recalculate combo `final_equity` and `annualized_return` on each completed `bot.order` using that operation's realized equity delta, instead of overwriting combo metrics on every candle.
 - Deploy: add a free-tier Render deployment path via `render.yaml` and `deploy/render/README.md`, including low-resource defaults and docs for free-tier spin-down/ephemeral-state constraints plus cheapest paid fallback guidance.
