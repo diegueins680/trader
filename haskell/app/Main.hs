@@ -23,7 +23,7 @@ import Data.ByteString.Builder (byteString)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.CaseInsensitive as CI
-import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
+import Data.Char (isAlphaNum, isDigit, isHexDigit, isSpace, toLower, toUpper)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, rights)
 import Data.Foldable (for_, toList)
@@ -52,7 +52,7 @@ import Database.PostgreSQL.Simple.Types (PGArray (..))
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
-import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
+import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status413, status429, status500, status502, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
@@ -1442,6 +1442,7 @@ data ApiBinanceKeysStatus = ApiBinanceKeysStatus
     , abkSymbol :: !(Maybe String)
     , abkHasApiKey :: !Bool
     , abkHasApiSecret :: !Bool
+    , abkEgressIp :: !(Maybe String)
     , abkTenantKey :: !(Maybe String)
     , abkSigned :: !(Maybe ApiBinanceProbe)
     , abkTradeTest :: !(Maybe ApiBinanceProbe)
@@ -16415,10 +16416,70 @@ probeCoinbase step action = do
                 (code, m, summary) = parseCoinbaseError msg
             pure (ApiBinanceProbe False False step code m summary)
 
+binanceEgressIpProbeTimeoutMicros :: Int
+binanceEgressIpProbeTimeoutMicros = 1500000
+
+binanceEgressIpProbeUrls :: [String]
+binanceEgressIpProbeUrls =
+    [ "https://checkip.amazonaws.com"
+    , "https://api64.ipify.org"
+    , "https://api.ipify.org"
+    ]
+
+resolveBinanceEgressIp :: IO (Maybe String)
+resolveBinanceEgressIp = do
+    mOverride <- lookupEnv "TRADER_BINANCE_EGRESS_IP"
+    case mOverride >>= extractPublicIpCandidate of
+        Just ip -> pure (Just ip)
+        Nothing -> do
+            manager <- newManager tlsManagerSettings
+            probeUrls manager binanceEgressIpProbeUrls
+  where
+    probeUrls _ [] = pure Nothing
+    probeUrls manager (url : rest) = do
+        r <- try (fetchPublicIpFromUrl manager url) :: IO (Either SomeException (Maybe String))
+        case r of
+            Right (Just ip) -> pure (Just ip)
+            _ -> probeUrls manager rest
+
+fetchPublicIpFromUrl :: Manager -> String -> IO (Maybe String)
+fetchPublicIpFromUrl manager url = do
+    req0 <- parseRequest url
+    let req =
+            req0
+                { method = "GET"
+                , requestHeaders = ("Accept", "text/plain") : requestHeaders req0
+                , responseTimeout = responseTimeoutMicro binanceEgressIpProbeTimeoutMicros
+                }
+    resp <- httpLbs req manager
+    let code = statusCode (responseStatus resp)
+    if code < 200 || code >= 300
+        then pure Nothing
+        else pure (extractPublicIpCandidate (BS.unpack (BL.toStrict (responseBody resp))))
+
+extractPublicIpCandidate :: String -> Maybe String
+extractPublicIpCandidate raw = go (trimString raw)
+  where
+    go [] = Nothing
+    go s@(c : cs)
+        | isIpChar c =
+            let candidate = takeWhile isIpChar s
+             in if looksLikePublicIp candidate then Just candidate else go cs
+        | otherwise = go cs
+
+    isIpChar c = isHexDigit c || c == '.' || c == ':'
+
+    looksLikePublicIp candidate =
+        not (null candidate)
+            && length candidate <= 64
+            && any isDigit candidate
+            && ('.' `elem` candidate || ':' `elem` candidate)
+
 computeBinanceKeysStatusFromArgs :: Maybe OpsStore -> Args -> IO ApiBinanceKeysStatus
 computeBinanceKeysStatusFromArgs mOps args = do
     apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
     apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
+    egressIp <- resolveBinanceEgressIp
 
     let hasApiKey = maybe False (not . null . trim) apiKey
         hasApiSecret = maybe False (not . null . trim) apiSecret
@@ -16433,6 +16494,7 @@ computeBinanceKeysStatusFromArgs mOps args = do
                 , abkSymbol = sym
                 , abkHasApiKey = hasApiKey
                 , abkHasApiSecret = hasApiSecret
+                , abkEgressIp = egressIp
                 , abkTenantKey = tenantKey
                 , abkSigned = Nothing
                 , abkTradeTest = Nothing

@@ -1416,6 +1416,8 @@ export function App() {
   const keysSigned = activeKeysStatus?.signed ?? null;
   const keysTradeTest =
     activeKeysStatus && isBinanceKeysStatus(activeKeysStatus) ? activeKeysStatus.tradeTest ?? null : null;
+  const keysEgressIp =
+    activeKeysStatus && isBinanceKeysStatus(activeKeysStatus) ? activeKeysStatus.egressIp?.trim() ?? null : null;
   const keysCheckedAtMs = keys.platform === platform ? keys.checkedAtMs : null;
   const botTradeKeysIssue = useMemo(() => {
     if (!isBinancePlatform || !form.tradeArmed) return null;
@@ -10959,6 +10961,31 @@ export function App() {
                         : ""}
                     </div>
                   </div>
+
+                  {isBinancePlatform ? (
+                    <div className="kv">
+                      <div className="k">Server egress IP</div>
+                      <div className="v">
+                        {keysEgressIp ? (
+                          <>
+                            <span className="tdMono">{keysEgressIp}</span>{" "}
+                            <button
+                              className="btnSmall"
+                              type="button"
+                              onClick={async () => {
+                                await copyText(keysEgressIp);
+                                showToast("Copied server egress IP");
+                              }}
+                            >
+                              Copy
+                            </button>
+                          </>
+                        ) : (
+                          "Unavailable"
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="kv">
                     <div className="k">Signed check</div>

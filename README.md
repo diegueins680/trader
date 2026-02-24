@@ -559,7 +559,7 @@ Endpoints:
 - `GET /state/sync` → exports bot snapshots and optimizer `top-combos.json` for syncing between deployments
 - `POST /state/sync` → imports state from another deployment (bot snapshots keep the latest `snapshotAtMs`; `top-combos.json` merges when the incoming `generatedAtMs` is newer or when backfilling to meet `TRADER_TOP_COMBOS_MIN_PERSIST`, de-duplicating by full combo identity and keeping the best metrics)
 - `/bot/*`, `/state/sync`, and `/binance/listenKey/*` require `tenantKey` (header/query for GET, JSON for POST).
-- `POST /binance/keys` → checks key/secret presence and probes signed endpoints (futures signed probe uses the futures balance endpoint; test order quantity is rounded to the symbol step size and auto-bumped to minNotional; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or unavailable pricing; quote sizing falls back to mark price, 24h last price, then the latest 1m close if the ticker price is unavailable; trade test errors include the attempted order details and sizing filters for debugging).
+- `POST /binance/keys` → checks key/secret presence and probes signed endpoints (futures signed probe uses the futures balance endpoint; response includes `egressIp` as a best-effort public backend IP for exchange allowlists; test order quantity is rounded to the symbol step size and auto-bumped to minNotional; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or unavailable pricing; quote sizing falls back to mark price, 24h last price, then the latest 1m close if the ticker price is unavailable; trade test errors include the attempted order details and sizing filters for debugging).
 - `POST /binance/keys` (futures): `binanceSymbol` is optional for the signed probe; the trade test is skipped when `binanceSymbol` is missing, and dataset-style suffixes are trimmed before the trade test runs.
 - `GET /binance/proxy/health` → checks Binance proxy connectivity (reports `status=ok|error|not_configured`)
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
@@ -923,6 +923,7 @@ The overview card summarizes connection, execution mode, and the latest signal/b
 Overview summary metadata (like API URLs or error strings) wraps so full content stays visible.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
 On startup the UI auto-checks API keys for Binance/Coinbase (when selected) and auto-starts the Binance listenKey user-data stream once keys are available.
+The Trade result panel shows the backend server egress IP (when available) with a Copy button so Binance IP allowlisting is faster.
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 Missing/invalid saved symbols fall back to platform defaults, and trade-test skips surface as a warning callout with the skip reason.
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.

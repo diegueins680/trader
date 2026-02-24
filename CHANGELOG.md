@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- API/UI: include `egressIp` in `/binance/keys` (best-effort public backend IP lookup), and show/copy it in the Trade result key-status panel for Binance API IP allowlisting.
 - Ops/Combos: recalculate combo `final_equity` and `annualized_return` on each completed `bot.order` using that operation's realized equity delta, instead of overwriting combo metrics on every candle.
 - Deploy: add a free-tier Render deployment path via `render.yaml` and `deploy/render/README.md`, including low-resource defaults and docs for free-tier spin-down/ephemeral-state constraints plus cheapest paid fallback guidance.
 - Outbox worker/API: add Kafka REST publishing mode (`TRADER_OUTBOX_PUBLISHER_MODE=kafka-rest`, `TRADER_OUTBOX_KAFKA_REST_URL`), published-event retention cleanup (`TRADER_OUTBOX_PUBLISHED_RETENTION_MS`), and tenant-scoped `/outbox` filtering with multi-user tenant-key enforcement.

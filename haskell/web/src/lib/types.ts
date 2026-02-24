@@ -229,6 +229,7 @@ export type BinanceKeysStatus = {
   symbol?: string;
   hasApiKey: boolean;
   hasApiSecret: boolean;
+  egressIp?: string;
   tenantKey?: string;
   signed?: BinanceProbe;
   tradeTest?: BinanceProbe;
