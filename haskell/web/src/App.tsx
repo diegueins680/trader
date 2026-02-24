@@ -7264,8 +7264,13 @@ export function App() {
   const extraIssueCount = Math.max(0, requestIssueDetails.length - 1);
   const requestDisabledReason = primaryIssue?.disabledMessage ?? primaryIssue?.message ?? null;
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
-  const backtestDisabledReason = requestDisabledReason ?? backtestInputIssue;
-  const backtestDisabled = requestDisabled || Boolean(backtestInputIssue);
+  const backtestAutofixAvailable = Boolean(
+    !requestDisabledReason &&
+      backtestInputIssue &&
+      adjustBacktestParams(commonParams).changes,
+  );
+  const backtestDisabledReason = requestDisabledReason ?? (backtestAutofixAvailable ? null : backtestInputIssue);
+  const backtestDisabled = requestDisabled || (Boolean(backtestInputIssue) && !backtestAutofixAvailable);
   const applyErrorFix = useCallback(() => {
     if (!errorFix) return;
     if (errorFix.action === "tuneRatio") {

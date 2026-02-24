@@ -4,8 +4,8 @@
 //
 // Example:
 // globalThis.__TRADER_CONFIG__ = {
-//   // Use "/api" when CloudFront proxies /api/* to your API origin (deploy-aws-quick.sh enforces /api when a
-//   // distribution ID is provided). CloudFront is non-sticky, so keep the backend single-instance unless you
+//   // Use "/api" when Fly's proxy routes /api/* to your API origin.
+//   // Fly Proxy is non-sticky, so keep the backend single-instance unless you
 //   // configure shared async storage (TRADER_API_ASYNC_DIR or TRADER_STATE_DIR).
 //   // Use "https://your-api-host" for direct API calls when you are not proxying via /api.
 //   apiBaseUrl: "/api",
@@ -25,11 +25,40 @@
 //   },
 // };
 (() => {
+  const inferFlyApiAppName = (appName) => {
+    if (!appName) return "";
+    if (appName.endsWith("-web")) {
+      return appName.slice(0, -4);
+    }
+    const marker = "-web-";
+    const markerAt = appName.indexOf(marker);
+    if (markerAt <= 0) return "";
+    const prefix = appName.slice(0, markerAt);
+    const suffix = appName.slice(markerAt + marker.length);
+    if (!suffix) return "";
+    return `${prefix}-${suffix}`;
+  };
+
+  const inferFlyDirectApiBaseUrl = () => {
+    if (typeof window === "undefined") return "";
+    const host = window.location.hostname.trim().toLowerCase();
+    if (!host.endsWith(".fly.dev")) return "";
+    const labels = host.split(".");
+    const appName = labels[0] ?? "";
+    const inferredAppName = inferFlyApiAppName(appName);
+    if (!inferredAppName || inferredAppName === appName) return "";
+    labels[0] = inferredAppName;
+    return `https://${labels.join(".")}`;
+  };
+
   const existing = globalThis.__TRADER_CONFIG__;
   if (existing && typeof existing === "object") return;
+  const inferredDirectApiBaseUrl = inferFlyDirectApiBaseUrl();
   globalThis.__TRADER_CONFIG__ = {
-    apiBaseUrl: "/api",
-    apiFallbackUrl: "",
+    // For split Fly apps (for example, trader-web-hs.fly.dev + trader-hs.fly.dev),
+    // infer the direct API host and fall back to /api if it is unavailable.
+    apiBaseUrl: inferredDirectApiBaseUrl || "/api",
+    apiFallbackUrl: inferredDirectApiBaseUrl ? "/api" : "",
     apiToken: "",
     timeoutsMs: { botStatusMs: 120000 },
   };

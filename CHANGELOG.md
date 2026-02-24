@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: default `trader-config.js` now infers direct Fly API hosts only for split-app patterns (`*-web.fly.dev` or `*-web-*.fly.dev`), avoiding accidental rewrites like `*-webhook`; direct-host calls now fail over to `/api` on network errors and HTTP 404/502/503/504.
 - API/UI: include `egressIp` in `/binance/keys` (best-effort public backend IP lookup), and show/copy it in the Trade result key-status panel for Binance API IP allowlisting.
 - Ops/Combos: recalculate combo `final_equity` and `annualized_return` on each completed `bot.order` using that operation's realized equity delta, instead of overwriting combo metrics on every candle.
 - Deploy: add a free-tier Render deployment path via `render.yaml` and `deploy/render/README.md`, including low-resource defaults and docs for free-tier spin-down/ephemeral-state constraints plus cheapest paid fallback guidance.
@@ -36,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - Trading: adaptive filter tightening now ramps in slightly above the hard performance thresholds; perf-gated direction flips exit to flat instead of holding the prior side.
 - Trading: performance gates and adaptive filters now prefer a same-regime (high-vol vs not) rolling lookback when HMM regimes are available (fallback to global), and trades include `entryHighVolProb` in JSON outputs for analysis.
 - Web UI: normalize bare `localhost/path` API base inputs to `http://localhost/path`, treat `0.0.0.0` as local, and avoid silently coercing ambiguous single-comma numeric inputs (for example `1,234`) by falling back to the previous value.
+- Web UI: keep backtest/optimize buttons enabled when split constraints are auto-fixable, and let backtest runs auto-adjust bars/backtest ratio instead of pre-run blocking.
 - Web UI: default Binance trade toggles (`binanceLive`, `tradeArmed`) to false and normalize them by platform/market (avoid implicitly enabling live mode).
 - CLI/docs: clarify `--bars auto` exchange defaults (Coinbase uses 300; Binance/Kraken/Poloniex use 500).
 - Trading: add portfolio exposure caps (gross/net/per-base) and expanded risk metrics (Sortino, Calmar, VaR/CVaR).
