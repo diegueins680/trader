@@ -431,7 +431,7 @@ function isNetworkError(err: unknown): boolean {
 function shouldFallbackToApiBase(err: unknown): boolean {
   if (err instanceof UnexpectedResponseError) return true;
   if (isAbortError(err) || isTimeoutError(err)) return false;
-  if (err instanceof HttpError) return err.status === 404 || err.status === 502 || err.status === 503 || err.status === 504;
+  if (err instanceof HttpError) return err.status === 401 || err.status === 403 || err.status === 404 || err.status === 502 || err.status === 503 || err.status === 504;
   return isNetworkError(err);
 }
 

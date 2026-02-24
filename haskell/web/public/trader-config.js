@@ -30,12 +30,16 @@
     if (appName.endsWith("-web")) {
       return appName.slice(0, -4);
     }
+
+    // "-web-" names are ambiguous (for example, "news-web-api" may be a single app name),
+    // so only infer when the backend suffix clearly follows this repo's split naming.
     const marker = "-web-";
     const markerAt = appName.lastIndexOf(marker);
     if (markerAt <= 0) return "";
     const prefix = appName.slice(0, markerAt);
     const suffix = appName.slice(markerAt + marker.length);
     if (!suffix) return "";
+    if (!/^hs(?:-[a-z0-9]+)*$/.test(suffix)) return "";
     return `${prefix}-${suffix}`;
   };
 
