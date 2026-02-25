@@ -150,7 +150,8 @@ function loadFallbackStorage(): FallbackStorage {
   const raw = readJson<FallbackStorage>(FALLBACK_STORAGE_KEY);
   if (!raw || typeof raw !== "object") return emptyFallbackStorage();
   const savedAtMs = typeof raw.savedAtMs === "number" && Number.isFinite(raw.savedAtMs) ? raw.savedAtMs : 0;
-  if (!savedAtMs || Date.now() - savedAtMs > FALLBACK_STORAGE_TTL_MS) return emptyFallbackStorage();
+  const nowMs = Date.now();
+  if (!savedAtMs || savedAtMs > nowMs || nowMs - savedAtMs > FALLBACK_STORAGE_TTL_MS) return emptyFallbackStorage();
   const blocked = Array.isArray(raw.blocked)
     ? raw.blocked
         .filter((entry): entry is string => typeof entry === "string")

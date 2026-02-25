@@ -178,3 +178,32 @@ test("async polling retries transient network type errors without fetch wording"
     "POST https://api.example.com/signal/async/job-1",
   ]);
 });
+
+test("api fallback ignores future-dated fallback cache entries", async () => {
+  const calls = [];
+  const futureStorage = createStorage({
+    trader_api_fallback_v4: JSON.stringify({
+      savedAtMs: Date.now() + 24 * 60 * 60 * 1_000,
+      blocked: [],
+      preferred: { "https://api.example.com": "/api" },
+    }),
+  });
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "/api",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { status: "ok" });
+    },
+    async (api) => {
+      const out = await api.health("https://api.example.com", { timeoutMs: 5_000 });
+      assert.equal(out.status, "ok");
+    },
+    { localStorage: futureStorage },
+  );
+  assert.deepEqual(calls, ["https://api.example.com/health"]);
+});
