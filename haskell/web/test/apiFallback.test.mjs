@@ -207,3 +207,28 @@ test("api fallback ignores future-dated fallback cache entries", async () => {
   );
   assert.deepEqual(calls, ["https://api.example.com/health"]);
 });
+
+test("health preserves version and commit metadata", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () =>
+      jsonResponse(200, {
+        status: "ok",
+        version: "1.2.3",
+        commit: "abcdef123456",
+        authRequired: false,
+        authOk: true,
+        computeLimits: { maxBarsLstm: 10, maxEpochs: 20, maxHiddenSize: 30 },
+      }),
+    async (api) => {
+      const out = await api.health("https://api.example.com", { timeoutMs: 5_000 });
+      assert.equal(out.version, "1.2.3");
+      assert.equal(out.commit, "abcdef123456");
+    },
+  );
+});

@@ -719,6 +719,8 @@ async function runAsyncJob<T>(
 export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<HealthResponse> {
   const out = await fetchJson<{
     status: string;
+    version?: string;
+    commit?: string;
     authRequired?: boolean;
     authOk?: boolean;
     computeLimits?: { maxBarsLstm: number; maxEpochs: number; maxHiddenSize: number };
@@ -728,6 +730,8 @@ export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<
   if (out.status !== "ok") throw new Error("Unexpected /health response");
   return {
     status: "ok",
+    version: out.version,
+    commit: out.commit,
     authRequired: out.authRequired,
     authOk: out.authOk,
     computeLimits: out.computeLimits,

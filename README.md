@@ -1053,6 +1053,8 @@ Price loading now returns clear errors for unsupported intervals or conflicting 
 Optimizer objectives are validated by the CLI; if validation is bypassed, unknown values fall back to `final-equity` scoring.
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` and `/version` require auth.
 In the UI status badge, health-check `401/403` responses are treated as auth errors (not generic down) to surface token issues clearly.
+Health-check `429` and other non-availability client errors no longer force the UI status to `down`; the last known status is preserved while the error is logged.
+The UI now preserves `/health` `version`/`commit` metadata, so the API build label reflects the server response consistently.
 
 - Web UI: `trader-config.js` is read at startup via a `<script>` tag in `index.html`, so keep it in `public/` and serve it at `/trader-config.js` for static hosts.
 - Web UI: default `trader-config.js` now auto-infers a direct API URL for Fly split apps named like `*-web-hs.fly.dev` or `*-web-hs-*.fly.dev` (for example, `trader-web-hs.fly.dev` -> `https://trader-hs.fly.dev`) and sets `/api` as fallback. Plain `*-web` names and ambiguous `-web-` forms (for example `*-web-hs2` or `price-webhook.fly.dev`) are left on `/api` to avoid misrouting standalone UI apps. Override `apiBaseUrl`/`apiFallbackUrl` explicitly if your host naming differs.

@@ -36,6 +36,7 @@ import type {
 } from "./lib/types";
 import {
   HttpError,
+  UnexpectedResponseError,
   backtest,
   binanceClosePosition,
   binancePositions,
@@ -1283,6 +1284,19 @@ function shouldMarkApiDown(err: unknown, msg: string, opts?: { includeTimeout?: 
   if (err instanceof TypeError) return true;
   if (opts?.includeTimeout && isTimeoutError(err)) return true;
   return msg.toLowerCase().includes("backend unreachable");
+}
+
+function classifyHealthErrorStatus(err: unknown, msg: string): "auth" | "down" | null {
+  if (err instanceof HttpError) {
+    if (err.status === 401 || err.status === 403) return "auth";
+    if (err.status === 429) return null;
+    if (err.status === 404 || err.status === 408 || err.status >= 500) return "down";
+    return null;
+  }
+  if (err instanceof UnexpectedResponseError) return "down";
+  if (err instanceof TypeError || isTimeoutError(err)) return "down";
+  if (msg.toLowerCase().includes("backend unreachable")) return "down";
+  return null;
 }
 
 export function App() {
@@ -3570,10 +3584,12 @@ export function App() {
       })
       .catch((e) => {
         if (!mounted) return;
-        setHealthInfo(null);
         const msg = e instanceof Error ? e.message : "API unreachable";
-        if (e instanceof HttpError && (e.status === 401 || e.status === 403)) setApiOk("auth");
-        else setApiOk("down");
+        const status = classifyHealthErrorStatus(e, msg);
+        if (status) {
+          setHealthInfo(null);
+          setApiOk(status);
+        }
         appendDataLog("Health Error (auto)", buildDataLogError(e, msg), { background: true, error: true });
       });
     return () => {
@@ -3610,15 +3626,21 @@ export function App() {
     try {
       h = await health(apiBase, { timeoutMs: 10_000, headers: authHeaders });
     } catch (e) {
-      setHealthInfo(null);
-      if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+      const msg = e instanceof Error ? e.message : "API unreachable";
+      const status = classifyHealthErrorStatus(e, msg);
+      if (status === "auth") {
+        setHealthInfo(null);
         setApiOk("auth");
         showToast(apiToken.trim() ? "API auth failed" : "API auth required");
-      } else {
+      } else if (status === "down") {
+        setHealthInfo(null);
         setApiOk("down");
-        showToast("API unreachable");
+        showToast(isTimeoutError(e) ? "API request timed out" : "API unreachable");
+      } else if (e instanceof HttpError && e.status === 429) {
+        applyRateLimit(e);
+      } else {
+        showToast("Health check failed");
       }
-      const msg = e instanceof Error ? e.message : "API unreachable";
       appendDataLog("Health Error", buildDataLogError(e, msg), { error: true });
       return;
     }
@@ -3647,7 +3669,7 @@ export function App() {
       setApiOk("down");
       showToast(isTimeoutError(e) ? "API request timed out" : "API unreachable");
     }
-  }, [activeTenantKey, apiBase, apiToken, appendDataLog, authHeaders, buildDataLogError, showToast]);
+  }, [activeTenantKey, apiBase, apiToken, appendDataLog, applyRateLimit, authHeaders, buildDataLogError, showToast]);
 
   const refreshCacheStats = useCallback(async () => {
     setCacheUi((s) => ({ ...s, loading: true, error: null }));
