@@ -20,6 +20,7 @@ executable trader-hs
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
+                     , Trader.KalmanPhysics
                      , Trader.Kraken
                      , Trader.LSTM
                      , Trader.LstmPersistence
@@ -167,6 +168,7 @@ test-suite trader-tests
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
+                     , Trader.KalmanPhysics
                      , Trader.Kraken
                      , Trader.LSTM
                      , Trader.LstmPersistence
@@ -234,6 +236,7 @@ benchmark trader-bench
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
+                     , Trader.KalmanPhysics
                      , Trader.Kraken
                      , Trader.LSTM
                      , Trader.LstmPersistence

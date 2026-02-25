@@ -689,6 +689,7 @@ testBinanceKlineParsing = do
         Right ks -> do
             assert "kline count" (length ks == 2)
             assertApprox "close parse" 1e-12 (kClose (requireHead "missing first kline" ks)) 123.45
+            assertApprox "volume parse" 1e-12 (kVolume (requireHead "missing first kline" ks)) 0
 
 testMethodParsing :: IO ()
 testMethodParsing = do
@@ -698,6 +699,7 @@ testMethodParsing = do
     assert "parse 10" (parseMethod "10" == Right MethodKalmanOnly)
     assert "parse kalman" (parseMethod "kalman" == Right MethodKalmanOnly)
     assert "parse Kalman-Only" (parseMethod "Kalman-Only" == Right MethodKalmanOnly)
+    assert "parse kalman_physics_error" (parseMethod "kalman_physics_error" == Right MethodKalmanPhysicsError)
     assert "parse 01" (parseMethod "01" == Right MethodLstmOnly)
     assert "parse lstm" (parseMethod "lstm" == Right MethodLstmOnly)
     assert "parse LSTM_ONLY" (parseMethod "LSTM_ONLY" == Right MethodLstmOnly)
@@ -957,6 +959,7 @@ testMethodSelection = do
         blend = [w * 1.0 + (1 - w) * 10.0, w * 2.0 + (1 - w) * 20.0]
     assert "both keeps both" (selectPredictions MethodBoth w kal lstm == (kal, lstm))
     assert "kalman-only duplicates kalman" (selectPredictions MethodKalmanOnly w kal lstm == (kal, kal))
+    assert "kalman_physics_error duplicates kalman stream" (selectPredictions MethodKalmanPhysicsError w kal lstm == (kal, kal))
     assert "lstm-only duplicates lstm" (selectPredictions MethodLstmOnly w kal lstm == (lstm, lstm))
     assert "blend averages" (selectPredictions MethodBlend w kal lstm == (blend, blend))
     assert "conf_blend falls back to weighted average when confidence context is unavailable" (selectPredictions MethodConfBlend w kal lstm == (blend, blend))

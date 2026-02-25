@@ -158,6 +158,7 @@ data Kline = Kline
     , kHigh :: !Double
     , kLow :: !Double
     , kClose :: !Double
+    , kVolume :: !Double
     }
     deriving (Eq, Show)
 
@@ -525,11 +526,13 @@ instance FromJSON Kline where
                 highTxt <- parseIndexText 2 arr
                 lowTxt <- parseIndexText 3 arr
                 closeTxt <- parseIndexText 4 arr
+                volumeTxt <- parseIndexText 5 arr
                 open <- parseDoubleText openTxt
                 high <- parseDoubleText highTxt
                 low <- parseDoubleText lowTxt
                 close <- parseDoubleText closeTxt
-                pure Kline{kOpenTime = openTime, kOpen = open, kHigh = high, kLow = low, kClose = close}
+                volume <- parseDoubleText volumeTxt
+                pure Kline{kOpenTime = openTime, kOpen = open, kHigh = high, kLow = low, kClose = close, kVolume = volume}
       where
         parseIndexInt64 i a =
             case a V.!? i of

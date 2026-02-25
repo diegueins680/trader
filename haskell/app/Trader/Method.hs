@@ -2,6 +2,7 @@ module Trader.Method (
     Method (..),
     methodCode,
     parseMethod,
+    runtimeMethod,
     selectPredictions,
 ) where
 
@@ -10,6 +11,7 @@ import Data.Char (isSpace, toLower)
 data Method
     = MethodBoth
     | MethodKalmanOnly
+    | MethodKalmanPhysicsError
     | MethodLstmOnly
     | MethodBlend
     | MethodConfBlend
@@ -46,6 +48,7 @@ methodCode m =
     case m of
         MethodBoth -> "11"
         MethodKalmanOnly -> "10"
+        MethodKalmanPhysicsError -> "kalman_physics_error"
         MethodLstmOnly -> "01"
         MethodBlend -> "blend"
         MethodConfBlend -> "conf_blend"
@@ -91,6 +94,12 @@ parseMethod raw =
         "kalman-only" -> Right MethodKalmanOnly
         "kalman_only" -> Right MethodKalmanOnly
         "kalmanonly" -> Right MethodKalmanOnly
+        "kalman_physics_error" -> Right MethodKalmanPhysicsError
+        "kalman-physics-error" -> Right MethodKalmanPhysicsError
+        "kalmanphysicserror" -> Right MethodKalmanPhysicsError
+        "physics_error" -> Right MethodKalmanPhysicsError
+        "physics-error" -> Right MethodKalmanPhysicsError
+        "physicserror" -> Right MethodKalmanPhysicsError
         "01" -> Right MethodLstmOnly
         "lstm" -> Right MethodLstmOnly
         "lstm-only" -> Right MethodLstmOnly
@@ -272,12 +281,18 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
+                    ++ " (expected 11|both, 10|kalman, kalman_physics_error, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
                 )
+
+runtimeMethod :: Method -> Method
+runtimeMethod m =
+    case m of
+        MethodKalmanPhysicsError -> MethodKalmanOnly
+        _ -> m
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
 selectPredictions m blendWeight kalPred lstmPred =
-    case m of
+    case runtimeMethod m of
         MethodBoth -> (kalPred, lstmPred)
         MethodKalmanOnly -> (kalPred, kalPred)
         MethodLstmOnly -> (lstmPred, lstmPred)

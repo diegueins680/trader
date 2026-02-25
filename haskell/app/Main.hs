@@ -175,6 +175,7 @@ import Trader.Duration (
     timeWindowContains,
  )
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
+import Trader.KalmanPhysics (OhlcvBar (..), predictKalmanPhysicsError)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, stepMulti)
 import Trader.Kraken (KrakenCandle (..), fetchKrakenCandles, krakenBaseUrl)
 import Trader.LSTM (
@@ -189,7 +190,7 @@ import Trader.LSTM (
  )
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (MarketModel, buildMarketModel, marketMeasurementAt)
-import Trader.Method (Method (..), methodCode, parseMethod, selectPredictions)
+import Trader.Method (Method (..), methodCode, parseMethod, runtimeMethod, selectPredictions)
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Optimization (
@@ -359,7 +360,12 @@ extractCellDoubleAt rowIndex key rec =
                                 ++ s
                             )
 
-loadCsvPriceSeries :: FilePath -> String -> Maybe String -> Maybe String -> IO (Either String ([Double], Maybe [Double], Maybe [Double], Maybe [Int64]))
+loadCsvPriceSeries ::
+    FilePath ->
+    String ->
+    Maybe String ->
+    Maybe String ->
+    IO (Either String ([Double], Maybe [Double], Maybe [Double], Maybe [Double], Maybe [Double], Maybe [Int64]))
 loadCsvPriceSeries path closeCol mHighCol mLowCol = do
     exists <- doesFileExist path
     if not exists
@@ -374,6 +380,8 @@ loadCsvPriceSeries path closeCol mHighCol mLowCol = do
                     let hdrList = V.toList hdr
                         rowsList0 = V.toList rows
                         mTimeKey = csvTimeKey hdrList
+                        mOpenKey = csvOpenKey hdrList
+                        mVolumeKey = csvVolumeKey hdrList
                         rowsList = maybe rowsList0 (`sortCsvRowsByTime` rowsList0) mTimeKey
                         rowPairs = zip [1 :: Int ..] rowsList
                         seriesFor key = traverse (\(i, row) -> extractCellDoubleAt i key row) rowPairs
@@ -386,10 +394,12 @@ loadCsvPriceSeries path closeCol mHighCol mLowCol = do
                         mHighKey <- traverse (resolveCsvColumnKey path "--high-column" hdrList) mHighCol
                         mLowKey <- traverse (resolveCsvColumnKey path "--low-column" hdrList) mLowCol
                         closeSeries <- seriesFor closeKey
+                        openSeries <- traverse seriesFor mOpenKey
                         highSeries <- traverse seriesFor mHighKey
                         lowSeries <- traverse seriesFor mLowKey
+                        volumeSeries <- traverse seriesFor mVolumeKey
                         openTimes <- openTimesE
-                        pure (closeSeries, highSeries, lowSeries, openTimes)
+                        pure (closeSeries, openSeries, highSeries, lowSeries, volumeSeries, openTimes)
 
 csvTimeKey :: [BS.ByteString] -> Maybe BS.ByteString
 csvTimeKey hdrList =
@@ -402,6 +412,27 @@ csvTimeKey hdrList =
             , "datetime"
             , "date"
             , "time"
+            ]
+     in firstJust [findHeaderKey hdrList c | c <- candidates]
+
+csvOpenKey :: [BS.ByteString] -> Maybe BS.ByteString
+csvOpenKey hdrList =
+    let candidates =
+            [ "open"
+            , "openPrice"
+            , "open_price"
+            ]
+     in firstJust [findHeaderKey hdrList c | c <- candidates]
+
+csvVolumeKey :: [BS.ByteString] -> Maybe BS.ByteString
+csvVolumeKey hdrList =
+    let candidates =
+            [ "volume"
+            , "vol"
+            , "baseVolume"
+            , "base_volume"
+            , "quoteVolume"
+            , "quote_volume"
             ]
      in firstJust [findHeaderKey hdrList c | c <- candidates]
 
@@ -5135,6 +5166,7 @@ botStatusJson st =
                 , "high" .= kHigh k
                 , "low" .= kLow k
                 , "close" .= kClose k
+                , "volume" .= kVolume k
                 ]
      in object $
             [ "running" .= True
@@ -6920,7 +6952,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         openV = V.fromList openTimes
         n = V.length pricesV
 
-    let method = argMethod args
+    let method = runtimeMethod (argMethod args)
         methodForCtx =
             if argOptimizeOperations args
                 then MethodBoth
@@ -7495,14 +7527,14 @@ botOptimizeAfterOperation st = do
                                         (optimizeOperationsWith tuneCfg baseCfg prices kalPred lstmPred Nothing)
                                 else
                                     fmap
-                                        (\(openThr, closeThr, _bt, _stats) -> (argMethod args, openThr, closeThr))
-                                        (sweepThresholdWith tuneCfg (argMethod args) baseCfg prices kalPred lstmPred Nothing)
+                                        (\(openThr, closeThr, _bt, _stats) -> (runtimeMethod (argMethod args), openThr, closeThr))
+                                        (sweepThresholdWith tuneCfg (runtimeMethod (argMethod args)) baseCfg prices kalPred lstmPred Nothing)
                     (newMethod, newOpenThr, newCloseThr) <-
                         case thresholdResult of
                             Right res -> pure res
                             Left err -> do
                                 hPutStrLn stderr ("Warning: Threshold tuning failed and was skipped: " ++ err)
-                                pure (argMethod args, baseOpenThr, baseCloseThr)
+                                pure (runtimeMethod (argMethod args), baseOpenThr, baseCloseThr)
                     let args' =
                             args
                                 { argMethod = newMethod
@@ -7571,7 +7603,7 @@ botApplyOptimizerUpdate st upd = do
         n = V.length pricesV
         mLstmCtx' = bouLstmCtx upd <|> botLstmCtx st
         mKalmanCtx' = bouKalmanCtx upd <|> botKalmanCtx st
-        method = argMethod argsWithKeys
+        method = runtimeMethod (argMethod argsWithKeys)
         ctxOk =
             case method of
                 MethodBoth -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -7980,15 +8012,16 @@ buildOptimizerUpdate st combo = do
                         n = V.length pricesV
                         hasLstmCtx = isJust (botLstmCtx st)
                         hasKalmanCtx = isJust (botKalmanCtx st)
+                        method0 = runtimeMethod (argMethod args0)
                         needsLstm' =
-                            argMethod args0 /= MethodKalmanOnly
+                            method0 /= MethodKalmanOnly
                                 && ( not hasLstmCtx
                                         || argHiddenSize args0 /= argHiddenSize curArgs
                                         || argNormalization args0 /= argNormalization curArgs
                                         || lookback /= botLookback st
                                    )
                         needsKalman' =
-                            argMethod args0 /= MethodLstmOnly
+                            method0 /= MethodLstmOnly
                                 && ( not hasKalmanCtx
                                         || argKalmanDt args0 /= argKalmanDt curArgs
                                         || argKalmanProcessVar args0 /= argKalmanProcessVar curArgs
@@ -11224,7 +11257,7 @@ defaultApiMaxBotStatusTail = 1000
 
 validateApiComputeLimits :: ApiComputeLimits -> Args -> Either String Args
 validateApiComputeLimits limits args =
-    case argMethod args of
+    case runtimeMethod (argMethod args) of
         MethodKalmanOnly -> Right args
         _ -> do
             let maxBars = aclMaxBarsLstm limits
@@ -11271,7 +11304,7 @@ validateApiComputeLimits limits args =
 
 validateApiComputeLimitsAfterLoad :: ApiComputeLimits -> Args -> PriceSeries -> Either String ()
 validateApiComputeLimitsAfterLoad limits args series =
-    case argMethod args of
+    case runtimeMethod (argMethod args) of
         MethodKalmanOnly -> Right ()
         _ ->
             let maxBars = aclMaxBarsLstm limits
@@ -12775,14 +12808,16 @@ readLastOptimizerRecord path = do
 
 writeKlinesCsv :: FilePath -> [Kline] -> IO ()
 writeKlinesCsv path ks = do
-    let header = "openTime,close,high,low\n"
+    let header = "openTime,open,high,low,close,volume\n"
         row k =
             intercalate
                 ","
                 [ show (kOpenTime k)
-                , show (kClose k)
+                , show (kOpen k)
                 , show (kHigh k)
                 , show (kLow k)
+                , show (kClose k)
+                , show (kVolume k)
                 ]
                 ++ "\n"
         body = header ++ concatMap row ks
@@ -12833,6 +12868,8 @@ strategyCodeFromMethod mMethod =
      in T.pack $ case raw of
             Just "kalman" -> "kalman"
             Just "10" -> "kalman"
+            Just "kalman_physics_error" -> "kalman_physics_error"
+            Just "kalman-physics-error" -> "kalman_physics_error"
             Just "lstm" -> "lstm"
             Just "01" -> "lstm"
             Just "both" -> "both"
@@ -19889,11 +19926,13 @@ applyBacktestTimeWindow args series = do
                                     i0 : rest ->
                                         let i1 = foldl' (\_ i -> i) i0 rest
                                             len = i1 - i0 + 1
+                                            opens = fmap (sliceContiguous i0 len) (keepMaybe (psOpen series))
                                             highs = fmap (sliceContiguous i0 len) (keepMaybe (psHigh series))
                                             lows = fmap (sliceContiguous i0 len) (keepMaybe (psLow series))
+                                            volumes = fmap (sliceContiguous i0 len) (keepMaybe (psVolume series))
                                             openTimes' = Just (sliceContiguous i0 len openTimes)
                                             closes = sliceContiguous i0 len prices
-                                         in Right (PriceSeries closes highs lows openTimes')
+                                         in Right (PriceSeries closes opens highs lows volumes openTimes')
                     _ ->
                         Left
                             "--from/--to require timestamped bars (CSV with a time column or exchange klines)."
@@ -20367,7 +20406,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
     let prices = psClose series
         highsV = V.fromList <$> psHigh series
         lowsV = V.fromList <$> psLow series
-        method = argMethod args
+        method = runtimeMethod (argMethod args)
         pricesV = V.fromList prices
         n = V.length pricesV
         stepCount = max 0 (n - 1)
@@ -20648,12 +20687,39 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         case backtestTimeBoundsMs args of
             Left msg -> throwIO (userError msg)
             Right bounds -> pure bounds
-    let prices = psClose seriesWindow
+    let methodRequestedRaw = argMethod args
+        methodRequested = runtimeMethod methodRequestedRaw
+        useKalmanPhysics = methodRequestedRaw == MethodKalmanPhysicsError
+        trimForMethod xs =
+            if useKalmanPhysics
+                then takeLast 1000 xs
+                else xs
+        pricesRaw = psClose seriesWindow
+        nRaw = length pricesRaw
+        prices = trimForMethod pricesRaw
+        n = length prices
+        matchLengthAndTrim mVals =
+            case mVals of
+                Just vals | length vals == nRaw -> Just (trimForMethod vals)
+                _ -> Nothing
     ensureMinPriceRows args 2 prices
     ensureLookbackRows args lookback prices
+    when useKalmanPhysics $ do
+        when (argOptimizeOperations args || argSweepThreshold args) $
+            throwIO (userError "Method kalman_physics_error does not support --optimize-operations/--sweep-threshold.")
+        when (n < 1000) $
+            throwIO
+                ( userError
+                    ( "Method kalman_physics_error requires 1000 bars (got "
+                        ++ show n
+                        ++ "). Increase --bars and ensure data source has enough rows."
+                    )
+                )
     let initialBalance = argInitialBalance args
-        n = length prices
-        backtestRatio = argBacktestRatio args
+        backtestRatio =
+            if useKalmanPhysics
+                then 0.3
+                else argBacktestRatio args
     split <-
         case splitTrainBacktest lookback backtestRatio prices of
             Left err -> throwIO (userError err)
@@ -20663,7 +20729,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         trainPrices = splitTrain split
         backtestPrices = splitBacktest split
         trainSize = length trainPrices
-        tuningEnabled = argOptimizeOperations args || argSweepThreshold args
+        tuningEnabled = not useKalmanPhysics && (argOptimizeOperations args || argSweepThreshold args)
         tuneRatio = max 0 (min 0.999999 (argTuneRatio args))
         tuneRatioUsed = if tuningEnabled then tuneRatio else 0
         tuneSize =
@@ -20691,15 +20757,14 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 )
             )
 
-    let (highsAll, lowsAll) =
-            case (psHigh seriesWindow, psLow seriesWindow) of
+    let opensAll = fromMaybe prices (matchLengthAndTrim (psOpen seriesWindow))
+        (highsAll, lowsAll) =
+            case (matchLengthAndTrim (psHigh seriesWindow), matchLengthAndTrim (psLow seriesWindow)) of
                 (Just hs, Just ls)
                     | length hs == n && length ls == n -> (hs, ls)
                 _ -> (prices, prices)
-        openTimesAll =
-            case psOpenTimes seriesWindow of
-                Just ts | length ts == n -> Just ts
-                _ -> Nothing
+        volumesAll = fromMaybe (replicate n 1) (matchLengthAndTrim (psVolume seriesWindow))
+        openTimesAll = matchLengthAndTrim (psOpenTimes seriesWindow)
 
         predStart = if tuningEnabled then fitSize else trainEnd
         stepCount = n - predStart - 1
@@ -20713,41 +20778,42 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         backtestHighs = drop trainEnd highsAll
         backtestLows = drop trainEnd lowsAll
         backtestOpenTimes = fmap (drop trainEnd) openTimesAll
-
-        methodRequested = argMethod args
         methodForComputation =
-            if argOptimizeOperations args
-                then MethodBoth
-                else case methodRequested of
-                    MethodBlend -> MethodBoth
-                    MethodConfBlend -> MethodBoth
-                    MethodConfPick -> MethodBoth
-                    MethodConformalClip -> MethodBoth
-                    MethodCostPick -> MethodBoth
-                    MethodHarmonicBlend -> MethodBoth
-                    MethodDisagreementGuard -> MethodBoth
-                    MethodMedianBlend -> MethodBoth
-                    MethodNeutralGuard -> MethodBoth
-                    MethodRiskParityBlend -> MethodBoth
-                    MethodConsensusBoost -> MethodBoth
-                    MethodAnchorBlend -> MethodBoth
-                    MethodTensionGate -> MethodBoth
-                    MethodEntropyBlend -> MethodBoth
-                    MethodCoherenceGate -> MethodBoth
-                    MethodDivergenceGate -> MethodBoth
-                    MethodFractalBlend -> MethodBoth
-                    MethodPhaseCancel -> MethodBoth
-                    MethodSoftmaxBlend -> MethodBoth
-                    MethodSmoothSoftmaxBlend -> MethodBoth
-                    MethodHedgeBlend -> MethodBoth
-                    MethodNetSoftmaxBlend -> MethodBoth
-                    MethodEdgeBlend -> MethodBoth
-                    MethodEdgePick -> MethodBoth
-                    MethodGeoBlend -> MethodBoth
-                    MethodRegimeSwitch -> MethodBoth
-                    MethodRouter -> MethodBoth
-                    MethodBanditRouter -> MethodBoth
-                    _ -> methodRequested
+            if useKalmanPhysics
+                then MethodKalmanPhysicsError
+                else
+                    if argOptimizeOperations args
+                        then MethodBoth
+                        else case methodRequested of
+                            MethodBlend -> MethodBoth
+                            MethodConfBlend -> MethodBoth
+                            MethodConfPick -> MethodBoth
+                            MethodConformalClip -> MethodBoth
+                            MethodCostPick -> MethodBoth
+                            MethodHarmonicBlend -> MethodBoth
+                            MethodDisagreementGuard -> MethodBoth
+                            MethodMedianBlend -> MethodBoth
+                            MethodNeutralGuard -> MethodBoth
+                            MethodRiskParityBlend -> MethodBoth
+                            MethodConsensusBoost -> MethodBoth
+                            MethodAnchorBlend -> MethodBoth
+                            MethodTensionGate -> MethodBoth
+                            MethodEntropyBlend -> MethodBoth
+                            MethodCoherenceGate -> MethodBoth
+                            MethodDivergenceGate -> MethodBoth
+                            MethodFractalBlend -> MethodBoth
+                            MethodPhaseCancel -> MethodBoth
+                            MethodSoftmaxBlend -> MethodBoth
+                            MethodSmoothSoftmaxBlend -> MethodBoth
+                            MethodHedgeBlend -> MethodBoth
+                            MethodNetSoftmaxBlend -> MethodBoth
+                            MethodEdgeBlend -> MethodBoth
+                            MethodEdgePick -> MethodBoth
+                            MethodGeoBlend -> MethodBoth
+                            MethodRegimeSwitch -> MethodBoth
+                            MethodRouter -> MethodBoth
+                            MethodBanditRouter -> MethodBoth
+                            _ -> methodRequested
         pricesV = V.fromList prices
         highsV = V.fromList highsAll
         lowsV = V.fromList lowsAll
@@ -20806,6 +20872,42 @@ computeBacktestSummary args lookback series mBinanceEnv = do
 
     (mLstmCtx, mHistory, kalPredAll, lstmPredAll, mKalmanCtx, mMetaAll) <-
         case methodForComputation of
+            MethodKalmanPhysicsError -> do
+                let fitPricesV = V.fromList fitPrices
+                    predictors = trainPredictors (argPredictors args) lookback fitPricesV
+                    hmmInitReturns = forwardReturns (take (predStart + 1) prices)
+                    hmm0 = initHMMFilter predictors hmmInitReturns
+                    kal0 =
+                        initKalman1
+                            0
+                            (max 1e-12 (argKalmanMeasurementVar args))
+                            (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+                    sv0 = emptySensorVar
+                    (kalFinal, hmmFinal, svFinal, _kalPredRev, metaRev) =
+                        foldl'
+                            (backtestStepKalmanOnly args pricesV predictors predStart mMarketModel)
+                            (kal0, hmm0, sv0, [], [])
+                            [0 .. stepCount - 1]
+                    opensV = V.fromList opensAll
+                    highsV' = V.fromList highsAll
+                    lowsV' = V.fromList lowsAll
+                    closesV = V.fromList prices
+                    volumesV = V.fromList volumesAll
+                    barsV =
+                        V.generate n $ \i ->
+                            OhlcvBar
+                                { obOpen = opensV V.! i
+                                , obHigh = highsV' V.! i
+                                , obLow = lowsV' V.! i
+                                , obClose = closesV V.! i
+                                , obVolume = volumesV V.! i
+                                }
+                kalPred <-
+                    case predictKalmanPhysicsError (argKalmanDt args) (argKalmanProcessVar args) (argKalmanMeasurementVar args) predStart barsV of
+                        Left err -> throwIO (userError ("kalman_physics_error: " ++ err))
+                        Right preds -> pure preds
+                let meta = reverse metaRev
+                pure (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal), Just meta)
             MethodKalmanOnly -> do
                 let fitPricesV = V.fromList fitPrices
                     predictors = trainPredictors (argPredictors args) lookback fitPricesV
@@ -22203,7 +22305,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method bandit_router requires both Kalman and LSTM contexts."
   where
-    method = argMethod args
+    method = runtimeMethod (argMethod args)
     nAll = V.length pricesV
     methodNeedsLstm =
         case method of
@@ -24489,8 +24591,10 @@ maybeSendOrder mWebhook args mBinanceEnv sig =
 
 data PriceSeries = PriceSeries
     { psClose :: ![Double]
+    , psOpen :: !(Maybe [Double])
     , psHigh :: !(Maybe [Double])
     , psLow :: !(Maybe [Double])
+    , psVolume :: !(Maybe [Double])
     , psOpenTimes :: !(Maybe [Int64])
     }
     deriving (Eq, Show)
@@ -24560,7 +24664,7 @@ loadPrices mOps args =
         isDex = isDexPlatform (argPlatform args)
         loadCsv path = do
             csvOrErr <- loadCsvPriceSeries path (argPriceCol args) (argHighCol args) (argLowCol args)
-            (closes, mHighs, mLows, mOpenTimes) <-
+            (closes, mOpens, mHighs, mLows, mVolumes, mOpenTimes) <-
                 case csvOrErr of
                     Left err -> throwIO (userError err)
                     Right out -> pure out
@@ -24569,6 +24673,10 @@ loadPrices mOps args =
                     if bars > 0
                         then takeLast bars closes
                         else closes
+                opens' =
+                    if bars > 0
+                        then fmap (takeLast bars) mOpens
+                        else mOpens
                 highs' =
                     if bars > 0
                         then fmap (takeLast bars) mHighs
@@ -24577,11 +24685,15 @@ loadPrices mOps args =
                     if bars > 0
                         then fmap (takeLast bars) mLows
                         else mLows
+                volumes' =
+                    if bars > 0
+                        then fmap (takeLast bars) mVolumes
+                        else mVolumes
                 openTimes' =
                     if bars > 0
                         then fmap (takeLast bars) mOpenTimes
                         else mOpenTimes
-            pure (PriceSeries closes' highs' lows' openTimes', Nothing)
+            pure (PriceSeries closes' opens' highs' lows' volumes' openTimes', Nothing)
      in case (argData args, argBinanceSymbol args) of
             (Just path, Nothing) -> loadCsv path
             (Just path, Just _sym) | isDex -> loadCsv path
@@ -24621,7 +24733,11 @@ loadPricesBinance mOps args sym = do
     let market = argBinanceMarket args
     when (market == MarketMargin && argBinanceTestnet args) $
         throwIO (userError "--binance-testnet is not supported for margin operations")
-    let bars = resolveBarsForBinance args
+    let barsBase = resolveBarsForBinance args
+        bars =
+            if argMethod args == MethodKalmanPhysicsError
+                then 1000
+                else barsBase
     urls <- resolveBinanceBaseUrls
     let tradeBase = selectBinanceBaseUrl urls (argBinanceTestnet args) market
         dataBase = selectBinanceDataBaseUrl urls market
@@ -24638,11 +24754,13 @@ loadPricesBinance mOps args sym = do
                         envData <- newBinanceEnvWithOps mOps market dataBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                         fetchKlines envData sym (argInterval args) bars
                     else throwIO ex
-    let closes = map kClose ks
+    let opens = map kOpen ks
+        closes = map kClose ks
         highs = map kHigh ks
         lows = map kLow ks
+        volumes = map kVolume ks
         openTimes = map (normalizeEpochMs . kOpenTime) ks
-    pure (envTrade, PriceSeries closes (Just highs) (Just lows) (Just openTimes))
+    pure (envTrade, PriceSeries closes (Just opens) (Just highs) (Just lows) (Just volumes) (Just openTimes))
 
 loadPricesCoinbase :: Args -> String -> IO PriceSeries
 loadPricesCoinbase args sym = do
@@ -24661,7 +24779,7 @@ loadPricesCoinbase args sym = do
         highs' = if bars > 0 then takeLast bars highs else highs
         lows' = if bars > 0 then takeLast bars lows else lows
         openTimes' = if bars > 0 then takeLast bars openTimes else openTimes
-    pure (PriceSeries closes' (Just highs') (Just lows') (Just openTimes'))
+    pure (PriceSeries closes' Nothing (Just highs') (Just lows') Nothing (Just openTimes'))
 
 loadPricesKraken :: Args -> String -> IO PriceSeries
 loadPricesKraken args sym = do
@@ -24680,7 +24798,7 @@ loadPricesKraken args sym = do
         highs' = if bars > 0 then takeLast bars highs else highs
         lows' = if bars > 0 then takeLast bars lows else lows
         openTimes' = if bars > 0 then takeLast bars openTimes else openTimes
-    pure (PriceSeries closes' (Just highs') (Just lows') (Just openTimes'))
+    pure (PriceSeries closes' Nothing (Just highs') (Just lows') Nothing (Just openTimes'))
 
 loadPricesPoloniex :: Args -> String -> IO PriceSeries
 loadPricesPoloniex args sym = do
@@ -24699,7 +24817,7 @@ loadPricesPoloniex args sym = do
         highs' = if bars > 0 then takeLast bars highs else highs
         lows' = if bars > 0 then takeLast bars lows else lows
         openTimes' = if bars > 0 then takeLast bars openTimes else openTimes
-    pure (PriceSeries closes' (Just highs') (Just lows') (Just openTimes'))
+    pure (PriceSeries closes' Nothing (Just highs') (Just lows') Nothing (Just openTimes'))
 
 data BinanceBaseUrls = BinanceBaseUrls
     { bbuSpot :: !String
