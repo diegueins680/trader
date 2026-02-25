@@ -26,9 +26,29 @@ async function loadApiModule(config, fetchImpl) {
   return import(modUrl.href);
 }
 
+function restoreGlobal(name, priorValue) {
+  if (priorValue === undefined) {
+    delete globalThis[name];
+    return;
+  }
+  globalThis[name] = priorValue;
+}
+
+async function withApiModule(config, fetchImpl, run) {
+  const priorWindow = globalThis.window;
+  const priorFetch = globalThis.fetch;
+  try {
+    const api = await loadApiModule(config, fetchImpl);
+    return await run(api);
+  } finally {
+    restoreGlobal("window", priorWindow);
+    restoreGlobal("fetch", priorFetch);
+  }
+}
+
 test("api fallback does not use 401 for explicit direct hosts", async () => {
   const calls = [];
-  const api = await loadApiModule(
+  await withApiModule(
     {
       apiBaseUrl: "https://api.example.com",
       apiBaseUrlInferred: false,
@@ -39,18 +59,19 @@ test("api fallback does not use 401 for explicit direct hosts", async () => {
       calls.push(String(url));
       return jsonResponse(401, { error: "Unauthorized" });
     },
-  );
-
-  await assert.rejects(
-    () => api.health("https://api.example.com", { timeoutMs: 5_000 }),
-    (err) => err?.name === "HttpError" && err.status === 401,
+    async (api) => {
+      await assert.rejects(
+        () => api.health("https://api.example.com", { timeoutMs: 5_000 }),
+        (err) => err?.name === "HttpError" && err.status === 401,
+      );
+    },
   );
   assert.deepEqual(calls, ["https://api.example.com/health"]);
 });
 
 test("api fallback uses 401 for inferred direct hosts with /api fallback", async () => {
   const calls = [];
-  const api = await loadApiModule(
+  await withApiModule(
     {
       apiBaseUrl: "https://api.example.com",
       apiBaseUrlInferred: true,
@@ -65,9 +86,10 @@ test("api fallback uses 401 for inferred direct hosts with /api fallback", async
       }
       return jsonResponse(200, { status: "ok" });
     },
+    async (api) => {
+      const out = await api.health("https://api.example.com", { timeoutMs: 5_000 });
+      assert.equal(out.status, "ok");
+    },
   );
-
-  const out = await api.health("https://api.example.com", { timeoutMs: 5_000 });
-  assert.equal(out.status, "ok");
   assert.deepEqual(calls, ["https://api.example.com/health", "/api/health"]);
 });

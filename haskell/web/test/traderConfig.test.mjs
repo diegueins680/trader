@@ -23,11 +23,11 @@ test("trader-config infers direct Fly API host for -web-hs naming", () => {
   assert.equal(config.apiFallbackUrl, "/api");
 });
 
-test("trader-config infers direct Fly API host for -web suffix naming", () => {
+test("trader-config does not infer direct Fly API host for plain -web suffix naming", () => {
   const config = runTraderConfig("trader-web.fly.dev");
-  assert.equal(config.apiBaseUrl, "https://trader.fly.dev");
-  assert.equal(config.apiBaseUrlInferred, true);
-  assert.equal(config.apiFallbackUrl, "/api");
+  assert.equal(config.apiBaseUrl, "/api");
+  assert.equal(config.apiBaseUrlInferred, false);
+  assert.equal(config.apiFallbackUrl, "");
 });
 
 test("trader-config does not rewrite app names that only contain -web as a substring", () => {

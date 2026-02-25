@@ -27,12 +27,9 @@
 (() => {
   const inferFlyApiAppName = (appName) => {
     if (!appName) return "";
-    if (appName.endsWith("-web")) {
-      return appName.slice(0, -4);
-    }
-
     // "-web-" names are ambiguous (for example, "news-web-api" may be a single app name),
     // so only infer when the backend suffix clearly follows this repo's split naming.
+    // Plain "*-web" names are treated as ambiguous to avoid rewriting standalone UI apps.
     const marker = "-web-";
     const markerAt = appName.lastIndexOf(marker);
     if (markerAt <= 0) return "";
