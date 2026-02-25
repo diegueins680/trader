@@ -142,3 +142,39 @@ test("api fallback ignores legacy preferred fallback cache entries", async () =>
   );
   assert.deepEqual(calls, ["https://api.example.com/health"]);
 });
+
+test("async polling retries transient network type errors without fetch wording", async () => {
+  const calls = [];
+  let pollCalls = 0;
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const method = String(init.method || "GET").toUpperCase();
+      const href = String(url);
+      calls.push(`${method} ${href}`);
+      if (method === "POST" && href === "https://api.example.com/signal/async") {
+        return jsonResponse(200, { jobId: "job-1" });
+      }
+      if (method === "POST" && href === "https://api.example.com/signal/async/job-1") {
+        pollCalls += 1;
+        if (pollCalls === 1) throw new TypeError("Load failed");
+        return jsonResponse(200, { status: "done", result: { signal: "UP" } });
+      }
+      throw new Error(`unexpected request: ${method} ${href}`);
+    },
+    async (api) => {
+      const out = await api.signal("https://api.example.com", { symbol: "BTCUSDT" }, { timeoutMs: 5_000 });
+      assert.equal(out.signal, "UP");
+    },
+  );
+  assert.deepEqual(calls, [
+    "POST https://api.example.com/signal/async",
+    "POST https://api.example.com/signal/async/job-1",
+    "POST https://api.example.com/signal/async/job-1",
+  ]);
+});

@@ -1277,6 +1277,14 @@ function isBinanceTimestampErrorMessage(msg: string): boolean {
     lowered.includes("code -1021")
   );
 }
+
+function shouldMarkApiDown(err: unknown, msg: string, opts?: { includeTimeout?: boolean }): boolean {
+  if (err instanceof HttpError) return err.status >= 500;
+  if (err instanceof TypeError) return true;
+  if (opts?.includeTimeout && isTimeoutError(err)) return true;
+  return msg.toLowerCase().includes("backend unreachable");
+}
+
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [healthInfo, setHealthInfo] = useState<Awaited<ReturnType<typeof health>> | null>(null);
@@ -3374,7 +3382,7 @@ export function App() {
 
       setApiOk((prev) => {
         if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
-        const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500);
+        const looksDown = shouldMarkApiDown(e, msg);
         return looksDown ? "down" : prev;
       });
 
@@ -4909,7 +4917,7 @@ export function App() {
 
         setApiOk((prev) => {
           if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
-          const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500);
+          const looksDown = shouldMarkApiDown(e, msg);
           return looksDown ? "down" : prev;
         });
 
@@ -5006,9 +5014,7 @@ export function App() {
 
         setApiOk((prev) => {
           if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
-          const msgLower = msg.toLowerCase();
-          const looksDown =
-            msgLower.includes("backend unreachable") || msgLower.includes("fetch") || (e instanceof HttpError && e.status >= 500);
+          const looksDown = shouldMarkApiDown(e, msg);
           return looksDown ? "down" : prev;
         });
 
@@ -5566,7 +5572,7 @@ export function App() {
 
         setApiOk((prev) => {
           if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
-          const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500) || isTimeoutError(e);
+          const looksDown = shouldMarkApiDown(e, msg, { includeTimeout: true });
           return looksDown ? "down" : prev;
         });
       } finally {

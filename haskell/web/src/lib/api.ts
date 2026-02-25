@@ -675,7 +675,7 @@ async function runAsyncJob<T>(
           backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
           continue;
         }
-        if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
+        if (isNetworkError(err)) {
           lastTransientError = err;
           await sleep(Math.min(backoffMs, remaining), opts?.signal);
           backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
