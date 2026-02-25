@@ -1053,7 +1053,7 @@ Price loading now returns clear errors for unsupported intervals or conflicting 
 Optimizer objectives are validated by the CLI; if validation is bypassed, unknown values fall back to `final-equity` scoring.
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` and `/version` require auth.
 In the UI status badge, health-check `401/403` responses are treated as auth errors (not generic down) to surface token issues clearly.
-Health-check `429` and other non-availability client errors no longer force the UI status to `down`; the last known status is preserved while the error is logged.
+Health-check `429` and other non-availability client errors no longer force the UI status to `down`; the last known status is preserved while the error is logged (including manual Recheck API probes, which now use the same classification and rate-limit handling).
 The UI now preserves `/health` `version`/`commit` metadata, so the API build label reflects the server response consistently.
 
 - Web UI: `trader-config.js` is read at startup via a `<script>` tag in `index.html`, so keep it in `public/` and serve it at `/trader-config.js` for static hosts.

@@ -3661,13 +3661,23 @@ export function App() {
       showToast("API online");
     } catch (e) {
       if (isAbortError(e)) return;
-      if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+      const msg = e instanceof Error ? e.message : "API unreachable";
+      if (e instanceof HttpError && e.status === 429) {
+        applyRateLimit(e);
+        return;
+      }
+      const status = classifyHealthErrorStatus(e, msg);
+      if (status === "auth") {
         setApiOk("auth");
         showToast(apiToken.trim() ? "API auth failed" : "API auth required");
         return;
       }
-      setApiOk("down");
-      showToast(isTimeoutError(e) ? "API request timed out" : "API unreachable");
+      if (status === "down") {
+        setApiOk("down");
+        showToast(isTimeoutError(e) ? "API request timed out" : "API unreachable");
+        return;
+      }
+      showToast("Health check failed");
     }
   }, [activeTenantKey, apiBase, apiToken, appendDataLog, applyRateLimit, authHeaders, buildDataLogError, showToast]);
 
