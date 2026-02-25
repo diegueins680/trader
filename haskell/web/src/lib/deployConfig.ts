@@ -9,6 +9,7 @@ export type TraderUiTimeoutsMs = {
 
 export type TraderUiDeployConfig = {
   apiBaseUrl: string;
+  apiBaseUrlInferred?: boolean;
   apiFallbackUrl?: string;
   apiToken: string;
   timeoutsMs?: TraderUiTimeoutsMs;
@@ -27,6 +28,11 @@ function readNumber(raw: unknown): number | null {
     return Number.isFinite(n) ? n : null;
   }
   return null;
+}
+
+function readBoolean(raw: unknown): boolean | undefined {
+  if (typeof raw === "boolean") return raw;
+  return undefined;
 }
 
 function normalizeTimeoutMs(raw: unknown): number | undefined {
@@ -60,6 +66,7 @@ function readConfigFromGlobal(): TraderUiDeployConfig {
 
   return {
     apiBaseUrl: readString((raw as { apiBaseUrl?: unknown }).apiBaseUrl).trim(),
+    apiBaseUrlInferred: readBoolean((raw as { apiBaseUrlInferred?: unknown }).apiBaseUrlInferred),
     apiFallbackUrl: readString((raw as { apiFallbackUrl?: unknown }).apiFallbackUrl).trim(),
     apiToken: readString((raw as { apiToken?: unknown }).apiToken).trim(),
     timeoutsMs: readTimeouts((raw as { timeoutsMs?: unknown }).timeoutsMs),
@@ -67,4 +74,3 @@ function readConfigFromGlobal(): TraderUiDeployConfig {
 }
 
 export const TRADER_UI_CONFIG: TraderUiDeployConfig = readConfigFromGlobal();
-

@@ -7,6 +7,7 @@ declare module "/trader-config.js";
 interface Window {
   __TRADER_CONFIG__?: {
     apiBaseUrl?: string;
+    apiBaseUrlInferred?: boolean;
     apiFallbackUrl?: string;
     apiToken?: string;
     timeoutsMs?: {

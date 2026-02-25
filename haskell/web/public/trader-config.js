@@ -58,10 +58,12 @@
   const existing = globalThis.__TRADER_CONFIG__;
   if (existing && typeof existing === "object") return;
   const inferredDirectApiBaseUrl = inferFlyDirectApiBaseUrl();
+  const apiBaseUrlInferred = Boolean(inferredDirectApiBaseUrl);
   globalThis.__TRADER_CONFIG__ = {
     // For split Fly apps (for example, trader-web-hs.fly.dev + trader-hs.fly.dev),
     // infer the direct API host and fall back to /api if it is unavailable.
     apiBaseUrl: inferredDirectApiBaseUrl || "/api",
+    apiBaseUrlInferred,
     apiFallbackUrl: inferredDirectApiBaseUrl ? "/api" : "",
     apiToken: "",
     timeoutsMs: { botStatusMs: 120000 },

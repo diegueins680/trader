@@ -379,6 +379,12 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
 async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
   const primaryBase = normalizeBaseUrl(baseUrl);
   const fallbackBase = resolveFallbackBase(primaryBase);
+  const allowAuthStatusFallback = Boolean(
+    TRADER_UI_CONFIG.apiBaseUrlInferred &&
+      fallbackBase &&
+      fallbackBase.startsWith("/") &&
+      isCrossOriginBase(primaryBase),
+  );
   const allowFallback = opts?.allowFallback !== false;
   const preferredBase = allowFallback ? resolvePreferredFallback(primaryBase, fallbackBase) : null;
 
@@ -395,7 +401,7 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
   try {
     return await fetchJsonOnce<T>(primaryBase, path, init, opts);
   } catch (err) {
-    if (fallbackBase && allowFallback && shouldFallbackToApiBase(err)) {
+    if (fallbackBase && allowFallback && shouldFallbackToApiBase(err, allowAuthStatusFallback)) {
       try {
         const out = await fetchJsonOnce<T>(fallbackBase, path, init, opts);
         rememberPreferredFallback(primaryBase, fallbackBase);
@@ -428,10 +434,13 @@ function isNetworkError(err: unknown): boolean {
   return err instanceof TypeError;
 }
 
-function shouldFallbackToApiBase(err: unknown): boolean {
+function shouldFallbackToApiBase(err: unknown, allowAuthStatusFallback: boolean): boolean {
   if (err instanceof UnexpectedResponseError) return true;
   if (isAbortError(err) || isTimeoutError(err)) return false;
-  if (err instanceof HttpError) return err.status === 401 || err.status === 403 || err.status === 404 || err.status === 502 || err.status === 503 || err.status === 504;
+  if (err instanceof HttpError) {
+    if (err.status === 401 || err.status === 403) return allowAuthStatusFallback;
+    return err.status === 404 || err.status === 502 || err.status === 503 || err.status === 504;
+  }
   return isNetworkError(err);
 }
 
