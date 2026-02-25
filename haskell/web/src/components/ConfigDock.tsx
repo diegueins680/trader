@@ -655,7 +655,12 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 {apiBaseCorsHint}
               </div>
             ) : null}
-            {healthInfo?.computeLimits ? (
+            {healthInfo &&
+            (healthInfo.version ||
+              typeof healthInfo.authRequired === "boolean" ||
+              Boolean(healthInfo.computeLimits) ||
+              Boolean(healthInfo.asyncJobs) ||
+              Boolean(healthInfo.cache)) ? (
               <div className="hint" style={{ marginTop: 6 }}>
                 {healthInfo.version ? (
                   <>
@@ -673,8 +678,12 @@ export const ConfigDock = (props: ConfigDockProps) => {
                     {healthInfo.authRequired ? (healthInfo.authOk ? "required (ok)" : "required (failed)") : "not required"}.
                   </>
                 ) : null}{" "}
-                API limits: max LSTM bars {healthInfo.computeLimits.maxBarsLstm}, epochs {healthInfo.computeLimits.maxEpochs}, hidden{" "}
-                {healthInfo.computeLimits.maxHiddenSize}.
+                {healthInfo.computeLimits ? (
+                  <>
+                    API limits: max LSTM bars {healthInfo.computeLimits.maxBarsLstm}, epochs {healthInfo.computeLimits.maxEpochs}, hidden{" "}
+                    {healthInfo.computeLimits.maxHiddenSize}.
+                  </>
+                ) : null}
                 {healthInfo.asyncJobs
                   ? ` Async: max running ${healthInfo.asyncJobs.maxRunning}, TTL ${Math.round(
                       healthInfo.asyncJobs.ttlMs / 60000,

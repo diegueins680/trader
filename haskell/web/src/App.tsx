@@ -1281,6 +1281,7 @@ function isBinanceTimestampErrorMessage(msg: string): boolean {
 
 function shouldMarkApiDown(err: unknown, msg: string, opts?: { includeTimeout?: boolean }): boolean {
   if (err instanceof HttpError) return err.status >= 500;
+  if (err instanceof UnexpectedResponseError) return true;
   if (err instanceof TypeError) return true;
   if (opts?.includeTimeout && isTimeoutError(err)) return true;
   return msg.toLowerCase().includes("backend unreachable");

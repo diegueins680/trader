@@ -1055,6 +1055,8 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` and `
 In the UI status badge, health-check `401/403` responses are treated as auth errors (not generic down) to surface token issues clearly.
 Health-check `429` and other non-availability client errors no longer force the UI status to `down`; the last known status is preserved while the error is logged (including manual Recheck API probes, which now use the same classification and rate-limit handling).
 The UI now preserves `/health` `version`/`commit` metadata, so the API build label reflects the server response consistently.
+Non-JSON proxy/base misroutes (for example HTML error pages returned to API requests) now mark API status as `down` in regular request flows, not just health probes.
+Health summary details in the Config dock now render even when `computeLimits` is absent, so build/auth/cache metadata from older or minimal `/health` responses remains visible.
 
 - Web UI: `trader-config.js` is read at startup via a `<script>` tag in `index.html`, so keep it in `public/` and serve it at `/trader-config.js` for static hosts.
 - Web UI: default `trader-config.js` now auto-infers a direct API URL for Fly split apps named like `*-web-hs.fly.dev` or `*-web-hs-*.fly.dev` (for example, `trader-web-hs.fly.dev` -> `https://trader-hs.fly.dev`) and sets `/api` as fallback. Plain `*-web` names and ambiguous `-web-` forms (for example `*-web-hs2` or `price-webhook.fly.dev`) are left on `/api` to avoid misrouting standalone UI apps. Override `apiBaseUrl`/`apiFallbackUrl` explicitly if your host naming differs.

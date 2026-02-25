@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 - Web UI: ignore future-dated fallback cache timestamps as invalid to prevent stale preferred fallbacks from persisting under client clock skew.
 - Web UI: health check failures now classify HTTP 401/403 as auth errors (instead of generic down) for clearer status/toast behavior.
 - Web UI: preserve `/health` `version`/`commit` metadata in the API health model, and keep prior API status on health-check `429`/other non-availability client errors instead of forcing `down` (including manual Recheck API bot-status probes).
+- Web UI: classify non-JSON API responses (`UnexpectedResponseError`, such as proxy/base misroutes returning HTML) as `down` in regular request paths to keep status behavior consistent with health probes.
+- Web UI: Config dock health summary now shows build/auth/cache/async metadata even when `computeLimits` is absent.
 - API/UI: include `egressIp` in `/binance/keys` (best-effort public backend IP lookup), and show/copy it in the Trade result key-status panel for Binance API IP allowlisting.
 - Ops/Combos: recalculate combo `final_equity` and `annualized_return` on each completed `bot.order` using that operation's realized equity delta, instead of overwriting combo metrics on every candle.
 - Deploy: add a free-tier Render deployment path via `render.yaml` and `deploy/render/README.md`, including low-resource defaults and docs for free-tier spin-down/ephemeral-state constraints plus cheapest paid fallback guidance.
