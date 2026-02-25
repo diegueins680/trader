@@ -131,7 +131,9 @@ function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
-const FALLBACK_STORAGE_KEY = "trader_api_fallback_v3";
+// v4 drops legacy persisted fallback preferences so older auth-driven entries
+// cannot override the current explicit-host fallback rules after upgrades.
+const FALLBACK_STORAGE_KEY = "trader_api_fallback_v4";
 const FALLBACK_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
 
 type FallbackStorage = {

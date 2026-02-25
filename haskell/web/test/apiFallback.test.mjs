@@ -26,6 +26,21 @@ async function loadApiModule(config, fetchImpl) {
   return import(modUrl.href);
 }
 
+function createStorage(seed = {}) {
+  const map = new Map(Object.entries(seed));
+  return {
+    getItem(key) {
+      return map.has(key) ? map.get(key) : null;
+    },
+    setItem(key, value) {
+      map.set(key, String(value));
+    },
+    removeItem(key) {
+      map.delete(key);
+    },
+  };
+}
+
 function restoreGlobal(name, priorValue) {
   if (priorValue === undefined) {
     delete globalThis[name];
@@ -34,15 +49,20 @@ function restoreGlobal(name, priorValue) {
   globalThis[name] = priorValue;
 }
 
-async function withApiModule(config, fetchImpl, run) {
+async function withApiModule(config, fetchImpl, run, options = {}) {
   const priorWindow = globalThis.window;
   const priorFetch = globalThis.fetch;
+  const priorLocalStorage = globalThis.localStorage;
+  if (Object.prototype.hasOwnProperty.call(options, "localStorage")) {
+    globalThis.localStorage = options.localStorage;
+  }
   try {
     const api = await loadApiModule(config, fetchImpl);
     return await run(api);
   } finally {
     restoreGlobal("window", priorWindow);
     restoreGlobal("fetch", priorFetch);
+    restoreGlobal("localStorage", priorLocalStorage);
   }
 }
 
@@ -92,4 +112,33 @@ test("api fallback uses 401 for inferred direct hosts with /api fallback", async
     },
   );
   assert.deepEqual(calls, ["https://api.example.com/health", "/api/health"]);
+});
+
+test("api fallback ignores legacy preferred fallback cache entries", async () => {
+  const calls = [];
+  const legacyStorage = createStorage({
+    trader_api_fallback_v3: JSON.stringify({
+      savedAtMs: Date.now(),
+      blocked: [],
+      preferred: { "https://api.example.com": "/api" },
+    }),
+  });
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "/api",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { status: "ok" });
+    },
+    async (api) => {
+      const out = await api.health("https://api.example.com", { timeoutMs: 5_000 });
+      assert.equal(out.status, "ok");
+    },
+    { localStorage: legacyStorage },
+  );
+  assert.deepEqual(calls, ["https://api.example.com/health"]);
 });
