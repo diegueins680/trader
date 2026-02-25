@@ -3571,8 +3571,9 @@ export function App() {
       .catch((e) => {
         if (!mounted) return;
         setHealthInfo(null);
-        setApiOk("down");
         const msg = e instanceof Error ? e.message : "API unreachable";
+        if (e instanceof HttpError && (e.status === 401 || e.status === 403)) setApiOk("auth");
+        else setApiOk("down");
         appendDataLog("Health Error (auto)", buildDataLogError(e, msg), { background: true, error: true });
       });
     return () => {
@@ -3610,8 +3611,13 @@ export function App() {
       h = await health(apiBase, { timeoutMs: 10_000, headers: authHeaders });
     } catch (e) {
       setHealthInfo(null);
-      setApiOk("down");
-      showToast("API unreachable");
+      if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+        setApiOk("auth");
+        showToast(apiToken.trim() ? "API auth failed" : "API auth required");
+      } else {
+        setApiOk("down");
+        showToast("API unreachable");
+      }
       const msg = e instanceof Error ? e.message : "API unreachable";
       appendDataLog("Health Error", buildDataLogError(e, msg), { error: true });
       return;
