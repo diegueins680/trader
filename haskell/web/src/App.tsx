@@ -3653,12 +3653,12 @@ export function App() {
       showToast(apiToken.trim() ? "API auth failed" : "API auth required");
       return;
     }
+    setApiOk("ok");
 
     try {
       if (activeTenantKey) {
         await botStatus(apiBase, { timeoutMs: 10_000, headers: authHeaders }, undefined, undefined, activeTenantKey);
       }
-      setApiOk("ok");
       showToast("API online");
     } catch (e) {
       if (isAbortError(e)) return;
