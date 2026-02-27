@@ -691,12 +691,12 @@ S3 state (required for App Runner persistence):
 - Requires AWS credentials or an App Runner instance role with S3 access.
 - Bot snapshots include orders/trades, so the UI can show history after restarts; journal/async/LSTM weights still use `TRADER_STATE_DIR`.
 
-Optional state sync push (keep a central AWS deployment updated):
+Optional state sync push (keep a central Fly deployment updated):
 - Set `TRADER_STATE_SYNC_URL` to the target API base or full `/state/sync` URL (if it does not end with `/state/sync`, the API appends it).
 - Set `TRADER_STATE_SYNC_TENANT_KEY` to the tenant key expected by the target; when unset, the server derives it from `BINANCE_API_KEY`/`BINANCE_API_SECRET` (or Coinbase keys).
 - If the target requires auth, set `TRADER_STATE_SYNC_API_TOKEN` (Authorization: Bearer) or `TRADER_STATE_SYNC_API_KEY` (X-API-Key).
 - The API POSTs updated `top-combos.json` to the target whenever combos are written.
-- To avoid sync loops, configure this only on non-target instances (leave it unset on the AWS instance).
+- To avoid sync loops, configure this only on non-target instances (leave it unset on the target/central instance).
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts/adjustments, trade orders).
