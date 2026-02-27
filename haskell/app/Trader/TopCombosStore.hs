@@ -46,7 +46,7 @@ import qualified Data.Maybe
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 import qualified Data.Vector as V
-import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, removeDirectory, renameFile, setModificationTime)
+import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, removeDirectory, removeFile, renameFile, setModificationTime)
 import System.FilePath (takeDirectory)
 import System.IO (Handle, hClose, openTempFile)
 import System.IO.Error (isAlreadyExistsError)
@@ -165,12 +165,24 @@ writeTopCombosValue path val = do
             case tempResult of
                 Left e -> pure (Left ("Failed to create temp top combos file: " ++ show e))
                 Right (tmpPath, handle) -> do
-                    _ <- try (BL.hPut handle (encodePretty filteredVal <> "\n")) :: IO (Either SomeException ())
-                    hClose handle
-                    renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
-                    case renameResult of
-                        Left e -> pure (Left ("Failed to write top combos JSON: " ++ show e))
-                        Right _ -> pure (Right ())
+                    writeResult <- try (BL.hPut handle (encodePretty filteredVal <> "\n")) :: IO (Either SomeException ())
+                    closeResult <- try (hClose handle) :: IO (Either SomeException ())
+                    case writeResult of
+                        Left e -> do
+                            _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
+                            pure (Left ("Failed to write top combos JSON: " ++ show e))
+                        Right _ ->
+                            case closeResult of
+                                Left e -> do
+                                    _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
+                                    pure (Left ("Failed to finalize top combos JSON: " ++ show e))
+                                Right _ -> do
+                                    renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+                                    case renameResult of
+                                        Left e -> do
+                                            _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
+                                            pure (Left ("Failed to write top combos JSON: " ++ show e))
+                                        Right _ -> pure (Right ())
 
 sanitizeTopCombosValue :: Aeson.Value -> (Aeson.Value, Int)
 sanitizeTopCombosValue val =

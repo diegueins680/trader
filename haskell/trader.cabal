@@ -29,6 +29,7 @@ executable trader-hs
                      , Trader.MarketContext
                      , Trader.Normalization
                      , Trader.Optimization
+                     , Trader.OrderExecution
                      , Trader.Optimizer.Json
                      , Trader.OnlineStats
                      , Trader.Poloniex
@@ -177,6 +178,7 @@ test-suite trader-tests
                      , Trader.MarketContext
                      , Trader.Normalization
                      , Trader.Optimization
+                     , Trader.OrderExecution
                      , Trader.Optimizer.Json
                      , Trader.OnlineStats
                      , Trader.Poloniex
@@ -245,6 +247,7 @@ benchmark trader-bench
                      , Trader.MarketContext
                      , Trader.Normalization
                      , Trader.Optimization
+                     , Trader.OrderExecution
                      , Trader.Optimizer.Json
                      , Trader.OnlineStats
                      , Trader.Poloniex

@@ -44,6 +44,7 @@ import Trader.MarketContext (fitLinearRange)
 import Trader.Method (Method (..), parseMethod, selectPredictions)
 import Trader.Metrics (bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
@@ -113,6 +114,8 @@ main = do
             , run "bot/start preserves provided combo for active adoption" testBotStartPreservesProvidedComboForActiveAdopt
             , run "bot/start clears origin only when adoptable and flat" testBotStartClearOriginGate
             , run "position origin persists only for live sent switches" testPersistPositionOriginGate
+            , run "order execution uses fill evidence for live orders" testOrderAppliedQuantity
+            , run "order execution updates position by executed qty" testApplyExecutedQuantity
             , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
             , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
             , run "platform intervals" testPlatformIntervals
@@ -874,6 +877,41 @@ testPersistPositionOriginGate = do
     assert "no persist when trade disabled" (not (shouldPersist False True True True))
     assert "no persist when switch not applied" (not (shouldPersist True True False True))
     assert "no persist when order not sent" (not (shouldPersist True True True False))
+
+testOrderAppliedQuantity :: IO ()
+testOrderAppliedQuantity = do
+    let mk sent live status execQty =
+            OrderExecutionEvidence
+                { oeeSent = sent
+                , oeeLive = live
+                , oeeStatus = status
+                , oeeExecutedQty = execQty
+                }
+    assert "not sent does not apply" (isNothing (orderAppliedQuantity (mk False True (Just "FILLED") (Just 1.0)) 1.0))
+    assert "paper mode uses fallback qty when sent" (orderAppliedQuantity (mk True False Nothing Nothing) 2.5 == Just 2.5)
+    assert "live NEW status blocks apply without fills" (isNothing (orderAppliedQuantity (mk True True (Just "NEW") Nothing) 2.5))
+    assert "live partial fill uses executed qty" (orderAppliedQuantity (mk True True (Just "PARTIALLY_FILLED") (Just 0.4)) 2.5 == Just 0.4)
+    assert "live filled status falls back when executed qty missing" (orderAppliedQuantity (mk True True (Just "FILLED") Nothing) 2.5 == Just 2.5)
+
+testApplyExecutedQuantity :: IO ()
+testApplyExecutedQuantity = do
+    let (pos1, size1, close1, open1) = applyExecutedQuantity 1 2 False 0.5
+    assert "partial close keeps long side" (pos1 == 1)
+    assertApprox "partial close size" 1e-12 size1 1.5
+    assertApprox "partial close qty tracked" 1e-12 close1 0.5
+    assertApprox "partial close does not open opposite side" 1e-12 open1 0
+
+    let (pos2, size2, close2, open2) = applyExecutedQuantity 1 2 False 3
+    assert "flip crosses to short side" (pos2 == -1)
+    assertApprox "flip remaining short size" 1e-12 size2 1
+    assertApprox "flip closes full prior size" 1e-12 close2 2
+    assertApprox "flip opens new opposite size" 1e-12 open2 1
+
+    let (pos3, size3, close3, open3) = applyExecutedQuantity 0 0 True 1.2
+    assert "flat entry opens long" (pos3 == 1)
+    assertApprox "flat entry size" 1e-12 size3 1.2
+    assertApprox "flat entry has no close leg" 1e-12 close3 0
+    assertApprox "flat entry open leg" 1e-12 open3 1.2
 
 testRecalculateComboPerformanceFromCompletedOperation :: IO ()
 testRecalculateComboPerformanceFromCompletedOperation = do

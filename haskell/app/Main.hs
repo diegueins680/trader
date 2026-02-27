@@ -175,8 +175,8 @@ import Trader.Duration (
     timeWindowContains,
  )
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
-import Trader.KalmanPhysics (OhlcvBar (..), predictKalmanPhysicsError)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, stepMulti)
+import Trader.KalmanPhysics (OhlcvBar (..), predictKalmanPhysicsError)
 import Trader.Kraken (KrakenCandle (..), fetchKrakenCandles, krakenBaseUrl)
 import Trader.LSTM (
     EpochStats (..),
@@ -204,6 +204,7 @@ import Trader.Optimization (
     sweepThresholdWithHLWith,
     tuneObjectiveCode,
  )
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Platform (
     Platform (..),
@@ -9430,6 +9431,66 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                         then latestFinal{lsChosenDir = Just 1}
                         else latestFinal{lsChosenDir = Just (-1)}
         entrySize = entryScaleForSignal args (beMarket (botEnv st)) latestFinal
+        qtyEps = 1e-9
+        isPositiveQty q = q > qtyEps
+        requestedQtyFromOrder fallbackQty o =
+            case aorQuantity o of
+                Just q | not (isNaN q || isInfinite q) && q > 0 -> q
+                _ ->
+                    if not (isNaN fallbackQty || isInfinite fallbackQty) && fallbackQty > 0
+                        then fallbackQty
+                        else 0
+        executedQtyFromOrder fallbackQty o =
+            let evidence =
+                    OrderExecutionEvidence
+                        { oeeSent = aorSent o
+                        , oeeLive = argBinanceLive args
+                        , oeeStatus = aorStatus o
+                        , oeeExecutedQty = aorExecutedQty o
+                        }
+             in orderAppliedQuantity evidence fallbackQty
+        applyCostForSize eq size =
+            if isPositiveQty size
+                then
+                    let feeFrac = costPerSideTotal args size volPerBar
+                     in eq * (1 - feeFrac)
+                else eq
+        openTradeFor side eqEntry size =
+            BotOpenTrade
+                { botOpenEntryIndex = nPrev
+                , botOpenEntryEquity = eqEntry
+                , botOpenEntryIp = botTradeOriginIp st
+                , botOpenEntryHighVolProb = rpHighVol <$> lsRegimes latestFinal
+                , botOpenHoldingPeriods = 0
+                , botOpenEntryPrice = priceNew
+                , botOpenSize = size
+                , botOpenTrail = priceNew
+                , botOpenSide = side
+                , botOpenPartialTaken = False
+                }
+        closeTradeAt exitEq ot =
+            Trade
+                { trEntryIndex = botOpenEntryIndex ot
+                , trExitIndex = nPrev
+                , trEntryEquity = botOpenEntryEquity ot
+                , trExitEquity = exitEq
+                , trReturn = exitEq / botOpenEntryEquity ot - 1
+                , trHoldingPeriods = botOpenHoldingPeriods ot
+                , trEntryHighVolProb = botOpenEntryHighVolProb ot
+                , trExitReason = exitReasonFromCode <$> mExitReason
+                , trEntryIp = botOpenEntryIp ot
+                , trExitIp = botTradeOriginIp st
+                }
+        sideFromPos p = if p >= 0 then SideLong else SideShort
+        targetQtyForSwitch =
+            case (prevPos, desiredPosWanted) of
+                (0, 1) -> entrySize
+                (0, -1) -> entrySize
+                (1, 0) -> prevSize
+                (-1, 0) -> prevSize
+                (1, -1) -> prevSize + entrySize
+                (-1, 1) -> prevSize + entrySize
+                _ -> max prevSize entrySize
 
     (ops', orders', trades', openTrade', mOrder, posFinal, eqFinal, switchedApplied, orderErrors1, haltReason2, haltedAt2) <-
         if partialExitWanted
@@ -9439,24 +9500,37 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                     orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now oPartial
                     ordersNew = botOrders st ++ [orderEv]
                     tradeEnabled = bsTradeEnabled settings
-                    appliedPartial =
-                        not tradeEnabled || aorSent oPartial
-                    feeApplied =
-                        not tradeEnabled || aorSent oPartial
-                    partialSize = max 0 (min prevSize (prevSize * partialTpFrac))
-                    remainingSize = max 0 (prevSize - partialSize)
-                    feeFrac = costPerSideTotal args partialSize volPerBar
+                    targetQty = max 0 (min prevSize (prevSize * partialTpFrac))
+                    requestedQty = requestedQtyFromOrder targetQty oPartial
+                    executedQtyRaw =
+                        if not tradeEnabled
+                            then requestedQty
+                            else fromMaybe 0 (executedQtyFromOrder requestedQty oPartial)
+                    (posAfterPartial, remainingSizeRaw, closedQty, _) =
+                        applyExecutedQuantity prevPos prevSize (opSide == "BUY") executedQtyRaw
+                    partialSize = max 0 (min prevSize closedQty)
+                    remainingSize = max 0 remainingSizeRaw
+                    appliedPartial = isPositiveQty partialSize
                     eqAfterFee =
-                        if appliedPartial && feeApplied
-                            then eqAfterReturn * (1 - feeFrac)
-                            else eqAfterReturn
-                    openTradeNew =
                         if appliedPartial
-                            then case openTrade1 of
-                                Just ot | remainingSize > 0 -> Just ot{botOpenSize = remainingSize, botOpenPartialTaken = True}
-                                Just _ -> Nothing
-                                _ -> openTrade1
-                            else openTrade1
+                            then applyCostForSize eqAfterReturn partialSize
+                            else eqAfterReturn
+                    (openTradeNew, tradesNew) =
+                        if not appliedPartial
+                            then (openTrade1, botTrades st)
+                            else case (prevPos, posAfterPartial, openTrade1) of
+                                (p, newPos, Just ot)
+                                    | newPos == p && remainingSize > qtyEps ->
+                                        (Just ot{botOpenSize = remainingSize, botOpenPartialTaken = True}, botTrades st)
+                                (_, 0, Just ot) ->
+                                    (Nothing, botTrades st ++ [closeTradeAt eqAfterFee ot])
+                                (p, newPos, Just ot)
+                                    | newPos == negate p ->
+                                        (Just (openTradeFor (sideFromPos newPos) eqAfterFee remainingSize), botTrades st ++ [closeTradeAt eqAfterFee ot])
+                                (_, newPos, _)
+                                    | newPos /= 0 ->
+                                        (Just (openTradeFor (sideFromPos newPos) eqAfterFee remainingSize), botTrades st)
+                                _ -> (openTrade1, botTrades st)
                     errors0 = botConsecutiveOrderErrors st
                     errors1 =
                         if tradeEnabled
@@ -9497,7 +9571,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             , "interval" .= argInterval args
                             , "event" .= orderEv
                             , "signal" .= latestFinal
-                            , "position" .= prevPos
+                            , "position" .= posAfterPartial
                             , "partial" .= True
                             , "partialSize" .= partialSize
                             , "remainingSize" .= remainingSize
@@ -9512,14 +9586,16 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew oPartial)
 
                 pure
-                    ( botOps st
+                    ( if posAfterPartial /= prevPos
+                        then botOps st ++ [BotOp nPrev opSide priceNew]
+                        else botOps st
                     , ordersNew
-                    , botTrades st
+                    , tradesNew
                     , openTradeNew
                     , Just oPartial
-                    , prevPos
+                    , posAfterPartial
                     , eqAfterFee
-                    , False
+                    , posAfterPartial /= prevPos
                     , errors1
                     , haltReason3
                     , haltedAt3
@@ -9555,71 +9631,45 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             alreadyMsg =
                                 let msg = aorMessage o
                                  in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
-                            appliedSwitch =
-                                not tradeEnabled || (aorSent o || alreadyMsg)
-                            feeApplied =
-                                not tradeEnabled || aorSent o
-                            applyCostOnce eq size =
-                                let feeFrac = costPerSideTotal args size volPerBar
-                                 in eq * (1 - feeFrac)
+                            requestedQty = requestedQtyFromOrder targetQtyForSwitch o
+                            executedQtyRaw =
+                                if not tradeEnabled
+                                    then requestedQty
+                                    else
+                                        if alreadyMsg
+                                            then requestedQty
+                                            else fromMaybe 0 (executedQtyFromOrder requestedQty o)
+                            (posNew, sizeNew, closeQty, openQty) =
+                                applyExecutedQuantity prevPos prevSize (opSide == "BUY") executedQtyRaw
+                            appliedExecution =
+                                isPositiveQty closeQty || isPositiveQty openQty
                             eqAfterFee =
-                                if appliedSwitch && feeApplied
-                                    then case (prevPos, desiredPosWanted) of
-                                        (0, _) -> applyCostOnce eqAfterReturn entrySize
-                                        (_, 0) -> applyCostOnce eqAfterReturn prevSize
-                                        _ -> applyCostOnce (applyCostOnce eqAfterReturn prevSize) entrySize
+                                if appliedExecution
+                                    then applyCostForSize (applyCostForSize eqAfterReturn closeQty) openQty
                                     else eqAfterReturn
-                            posNew = if appliedSwitch then desiredPosWanted else prevPos
                             switchedApplied1 = posNew /= prevPos
                             opsNew =
-                                if appliedSwitch
+                                if switchedApplied1
                                     then botOps st ++ [BotOp nPrev opSide priceNew]
                                     else botOps st
-                            openTradeFor side eqEntry =
-                                BotOpenTrade
-                                    { botOpenEntryIndex = nPrev
-                                    , botOpenEntryEquity = eqEntry
-                                    , botOpenEntryIp = botTradeOriginIp st
-                                    , botOpenEntryHighVolProb = rpHighVol <$> lsRegimes latestFinal
-                                    , botOpenHoldingPeriods = 0
-                                    , botOpenEntryPrice = priceNew
-                                    , botOpenSize = entrySize
-                                    , botOpenTrail = priceNew
-                                    , botOpenSide = side
-                                    , botOpenPartialTaken = False
-                                    }
-                            closeTradeAt exitEq ot =
-                                Trade
-                                    { trEntryIndex = botOpenEntryIndex ot
-                                    , trExitIndex = nPrev
-                                    , trEntryEquity = botOpenEntryEquity ot
-                                    , trExitEquity = exitEq
-                                    , trReturn = exitEq / botOpenEntryEquity ot - 1
-                                    , trHoldingPeriods = botOpenHoldingPeriods ot
-                                    , trEntryHighVolProb = botOpenEntryHighVolProb ot
-                                    , trExitReason = exitReasonFromCode <$> mExitReason
-                                    , trEntryIp = botOpenEntryIp ot
-                                    , trExitIp = botTradeOriginIp st
-                                    }
-                            closeTrades =
-                                case openTrade1 of
-                                    Nothing -> botTrades st
-                                    Just ot -> botTrades st ++ [closeTradeAt eqAfterFee ot]
                             (openTradeNew, tradesNew) =
-                                if not appliedSwitch
+                                if not appliedExecution
                                     then (openTrade1, botTrades st)
-                                    else case (prevPos, posNew) of
-                                        (0, 1) -> (Just (openTradeFor SideLong eqAfterFee), botTrades st)
-                                        (0, -1) -> (Just (openTradeFor SideShort eqAfterFee), botTrades st)
-                                        (1, 0) -> (Nothing, closeTrades)
-                                        (-1, 0) -> (Nothing, closeTrades)
-                                        (1, -1) -> (Just (openTradeFor SideShort eqAfterFee), closeTrades)
-                                        (-1, 1) -> (Just (openTradeFor SideLong eqAfterFee), closeTrades)
+                                    else case (prevPos, posNew, openTrade1) of
+                                        (0, 1, _) -> (Just (openTradeFor SideLong eqAfterFee sizeNew), botTrades st)
+                                        (0, -1, _) -> (Just (openTradeFor SideShort eqAfterFee sizeNew), botTrades st)
+                                        (1, 0, Just ot) -> (Nothing, botTrades st ++ [closeTradeAt eqAfterFee ot])
+                                        (-1, 0, Just ot) -> (Nothing, botTrades st ++ [closeTradeAt eqAfterFee ot])
+                                        (1, 1, Just ot) -> (Just ot{botOpenSize = sizeNew}, botTrades st)
+                                        (-1, -1, Just ot) -> (Just ot{botOpenSize = sizeNew}, botTrades st)
+                                        (1, -1, Just ot) -> (Just (openTradeFor SideShort eqAfterFee sizeNew), botTrades st ++ [closeTradeAt eqAfterFee ot])
+                                        (-1, 1, Just ot) -> (Just (openTradeFor SideLong eqAfterFee sizeNew), botTrades st ++ [closeTradeAt eqAfterFee ot])
+                                        (_, p, _) | p /= 0 -> (Just (openTradeFor (sideFromPos p) eqAfterFee sizeNew), botTrades st)
                                         _ -> (openTrade1, botTrades st)
                             errors0 = botConsecutiveOrderErrors st
                             errors1 =
                                 if tradeEnabled
-                                    then if appliedSwitch then 0 else errors0 + 1
+                                    then if appliedExecution then 0 else errors0 + 1
                                     else 0
                             (haltReason3, haltedAt3) =
                                 case haltReason1 of
@@ -12779,9 +12829,13 @@ writeS3TopCombosTemp topJsonPath = do
                     case tempResult of
                         Left _ -> pure Nothing
                         Right (path, handle) -> do
-                            _ <- try (BL.hPut handle contents) :: IO (Either SomeException ())
-                            hClose handle
-                            pure (Just path)
+                            writeResult <- try (BL.hPut handle contents) :: IO (Either SomeException ())
+                            closeResult <- try (hClose handle) :: IO (Either SomeException ())
+                            case (writeResult, closeResult) of
+                                (Right _, Right _) -> pure (Just path)
+                                _ -> do
+                                    removeTempTopCombo path
+                                    pure Nothing
 
 removeTempTopCombo :: FilePath -> IO ()
 removeTempTopCombo path = do

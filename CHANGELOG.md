@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Trading/Bot: reconcile live bot position/equity updates from order fill evidence (`status`/`executedQty`) and executed quantity sizing, including partial-fill handling, instead of treating any sent order as fully applied.
+- Ops/Top-combos: harden temp JSON writes so write/close failures do not get promoted (no rename/use of corrupted temp files).
 - Trading: add `--method kalman_physics_error`, which builds OHLCV-driven Kalman state vectors (`position, velocity, acceleration`), computes physics baseline `close + velocity + 0.5 * acceleration`, trains a GBDT error model using `{velocity, acceleration, delta-accel|jerk, discriminant}` features, and backtests on latest-1000 Binance bars with fixed train/test split (700/300 for `BTCUSDT` workflows). This method does not support `--optimize-operations`/`--sweep-threshold`.
 - Web UI: default `trader-config.js` now infers direct Fly API hosts only for split-app patterns (`*-web-hs.fly.dev` or `*-web-hs-*.fly.dev`), leaves plain `*-web` and ambiguous `-web-` names on `/api`, and fails over direct-host calls to `/api` on network errors and HTTP 404/502/503/504 (plus 401/403 for auto-inferred Fly direct hosts). Legacy fallback preference cache entries are ignored after upgrade so stale auth-driven routing does not persist.
 - Docs: clarify that successful Web UI API fallback preferences are cached for about 12h (or until failure), not only for a single page session.
