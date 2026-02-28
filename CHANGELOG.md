@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Optimizer/Execution: raise default optimize-equity robustness gates (`minRoundTrips=20`, `minExposure=0.10`, `minSharpe=1.0`, `minCalmar=0.8`, `minWfSharpeMean=0.8`, `maxWfSharpeStd=1.0`), increase default trials to 300, enable stress-aware tuning defaults (`tuneStressVolMult=1.25`, `tuneStressWeight=0.2`, walk-forward embargo range `1..3`), increase adaptive method/router sampling (`regime_switch`/`bandit_router` weights, router ranges), enable stronger default risk/volatility sizing sampling (risk-per-trade + vol-mult exits + confidence sizing), update `run_optimize_equity_top5.sh` to default to quality/robust settings, and make live `--execution-maker-first` default-on.
 - Optimization/CLI/UI: add a new `roi` objective for tune/optimizer scoring (`annualizedReturn - ddPenalty*(maxDrawdown + cvar95) - turnoverPenalty*turnover + expectancy/payback adjustments`), wire it through CLI/API/UI objective lists, and set ROI-focused defaults (`--tune-objective roi`, `optimize-equity --objective/--tune-objective roi`, UI optimizer form defaults).
 - Trading/Bot: reconcile live bot position/equity updates from order fill evidence (`status`/`executedQty`) and executed quantity sizing, including partial-fill handling, instead of treating any sent order as fully applied.
 - Ops/Top-combos: harden temp JSON writes so write/close failures do not get promoted (no rename/use of corrupted temp files).
@@ -96,6 +97,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: prefer the configured direct `apiFallbackUrl` for the Binance listenKey stream when `apiBaseUrl` is `/api` to avoid CDN stream disconnects.
 - API: log listenKey stream status/errors and SSE disconnects with tenant hints to aid debugging.
 - API: optionally push updated `top-combos.json` to another deployment via `/state/sync` (`TRADER_STATE_SYNC_URL`/`TRADER_STATE_SYNC_TENANT_KEY`).
+- Optimizer/State sync: replace S3-only pre-merge seeding with on-the-fly `GET /state/sync` top-combos pulls when `TRADER_STATE_SYNC_URL` is configured (S3 remains a fallback when enabled).
 - Predictors: add psychological price-level proximity features (round-number clustering) to the feature set.
 - Predictors: add short/mid momentum and volatility-spread features to improve signal quality.
 - API/UI: include test-order sizing details in Binance key-check trade permission errors to debug precision rejections.

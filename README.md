@@ -373,6 +373,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--slippage-impact F` impact coefficient applied to `size^power` (`0` disables)
   - `--slippage-impact-power P` exponent for slippage impact scaling (`>= 0`)
   - `--spread-vol-mult F` extra spread per-bar sigma multiple (`0` disables)
+  - `--execution-maker-first` maker-first entry pacing for live orders (default on; waits for favorable ticks, then can fall back to market)
+  - `--no-execution-maker-first` disable maker-first pacing and place entries immediately
   - The CLI also prints an estimated **round-trip cost** (fee + slippage + spread + impact) and warns when thresholds are below it.
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
   - `--take-profit F` optional synthetic take profit (`0 < F < 1`)
@@ -612,11 +614,14 @@ Optimizer script tips:
 - `optimize-equity` accepts `--futures` to pull Binance USDT-M futures data (Binance only).
 - `optimize-equity` clamps perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
 - Optimizer timeouts now return even if a child backtest process doesn't exit after SIGTERM, and stdout/stderr capture won't block progress if pipes never close.
-- `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons), continues when a symbol run fails, and writes a `run.log` with exit/signal status in the output directory.
+- `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons), now defaults to quality mode with robustness filters, prefers higher-quality seed combos, continues when a symbol run fails, and writes a `run.log` with exit/signal status in the output directory.
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
-- `optimize-equity` now defaults to `--min-round-trips 3` and `--min-exposure 0.02` to suppress no-trade/near-flat candidates (set either to `0` to disable).
+- `optimize-equity` now defaults to stronger robustness gates: `--min-round-trips 20`, `--min-exposure 0.10`, `--min-sharpe 1.0`, `--min-calmar 0.8`, `--min-wf-sharpe-mean 0.8`, and `--max-wf-sharpe-std 1.0` (set any of these to `0` to disable that gate).
+- `optimize-equity` now defaults to stress-aware tune scoring (`--tune-stress-vol-mult 1.25`, `--tune-stress-weight 0.2`) and walk-forward embargo sampling (`--walk-forward-embargo-bars-min/max 1/3`) for leakage-resistant selection.
 - Objective scoring now applies sparse-activity/no-exposure penalties, so zero-trade and ultra-low-exposure trials rank below active candidates even when hard filters are relaxed.
-- Default method sampling now heavily favors Kalman (`--method-weight-10 4.0`) while keeping smaller exploration weights on LSTM/agreement (`--method-weight-01 0.1`, `--method-weight-11 0.25`) to reduce timeout-heavy search paths.
+- Default method sampling now heavily favors Kalman (`--method-weight-10 4.0`) while keeping smaller exploration weights on LSTM/agreement (`--method-weight-01 0.1`, `--method-weight-11 0.25`) and enabling stronger adaptive exploration via `--method-weight-regime-switch 1.0` and `--method-weight-bandit-router 1.0`.
+- Router defaults now explore a wider adaptive range: `--router-score-pnl-weight-min/max 0.25/0.85`, `--router-lookback-min/max 20/180`, and `--router-min-score-min/max 0.05/0.7`.
+- Risk and volatility exits now sample by default (`--stop-vol-mult-min/max 0.8/3.0`, `--tp-vol-mult-min/max 1.2/4.0`, `--trail-vol-mult-min/max 0.8/3.0`) with more frequent risk sizing (`--p-disable-risk-per-trade 0.3`) and confidence sizing (`--p-confidence-sizing 0.85`).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - CSV runs derive `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename) and normalize it to a valid exchange symbol, trimming dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` -> `BNBUSDT`) before combos are persisted.
 - `--platform`/`--platforms` sample exchange platforms when using `--binance-symbol`/`--symbol` (default: binance; supports coinbase/kraken/poloniex).
@@ -698,6 +703,7 @@ Optional state sync push (keep a central Fly deployment updated):
 - Set `TRADER_STATE_SYNC_TENANT_KEY` to the tenant key expected by the target; when unset, the server derives it from `BINANCE_API_KEY`/`BINANCE_API_SECRET` (or Coinbase keys).
 - If the target requires auth, set `TRADER_STATE_SYNC_API_TOKEN` (Authorization: Bearer) or `TRADER_STATE_SYNC_API_KEY` (X-API-Key).
 - The API POSTs updated `top-combos.json` to the target whenever combos are written.
+- Optimizer merges now also pull `top-combos` from the sync target on-the-fly (via `GET /state/sync`) before merging local runs; this provides non-S3 continuity across deployments.
 - To avoid sync loops, configure this only on non-target instances (leave it unset on the target/central instance).
 
 Optional journaling:
@@ -729,8 +735,8 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - `TRADER_OPTIMIZER_MAX_TIMEOUT_SEC` (default: `1200`) max timeout accepted by `/optimizer/run` (returns 400 if exceeded).
 - `TRADER_OPTIMIZER_MAX_BARS` (default: `1500`) max bars accepted by `/optimizer/run` (caps `barsMin`/`barsMax` and rejects lookback windows that require more bars at the selected intervals).
 - `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
-- `TRADER_TOP_COMBOS_MIN_PERSIST` (default: `100`) ensures at least this many top combos are retained when rebuilding from DB/S3 after deploys (if available).
-- When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained, and history snapshots are written under `optimizer/history/`.
+- `TRADER_TOP_COMBOS_MIN_PERSIST` (default: `100`) ensures at least this many top combos are retained when rebuilding from DB/state-sync/S3 after deploys (if available).
+- When `TRADER_STATE_SYNC_URL` is set, new optimizer runs merge against the sync target's `top-combos` on-the-fly; if state sync is unavailable and S3 persistence is enabled, it falls back to S3. History snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
 - When `TRADER_DB_URL` is set, the API can rebuild `top-combos.json` from Postgres if local/S3 state is missing, so combos persist across deploys.
 - `top-combos.json` drops combos with `finalEquity <= 1` on read/write (including numeric strings), sanitizes combo symbols, and persists the filtered file to S3 when configured.

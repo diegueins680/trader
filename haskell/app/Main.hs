@@ -1972,6 +1972,35 @@ syncTopCombosMaybe mTarget contents =
                                         then clearStateSyncError target
                                         else recordStateSyncError target ("HTTP " ++ show code)
 
+fetchStateSyncPayload :: StateSyncTarget -> IO (Either String StateSyncPayload)
+fetchStateSyncPayload target = do
+    let req =
+            (sstRequest target)
+                { method = "GET"
+                , requestBody = RequestBodyLBS BL.empty
+                }
+    respOrErr <- try (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
+    case respOrErr of
+        Left ex -> do
+            let err = show ex
+            recordStateSyncError target err
+            pure (Left err)
+        Right resp -> do
+            let code = statusCode (responseStatus resp)
+            if code < 200 || code >= 300
+                then do
+                    let err = "HTTP " ++ show code
+                    recordStateSyncError target err
+                    pure (Left err)
+                else case Aeson.eitherDecode' (responseBody resp) of
+                    Left err -> do
+                        let msg = "Invalid /state/sync payload: " ++ err
+                        recordStateSyncError target msg
+                        pure (Left msg)
+                    Right payload -> do
+                        clearStateSyncError target
+                        pure (Right payload)
+
 recordStateSyncError :: StateSyncTarget -> String -> IO ()
 recordStateSyncError target msg = do
     let full = "State sync failed (" ++ sstUrl target ++ "): " ++ msg
@@ -12911,24 +12940,46 @@ runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsPath maxItems 
     case dirResult of
         Left e -> pure (Left ("Failed to create top combos directory: " ++ show e, "", ""))
         Right _ -> do
-            s3TempPath <- writeS3TopCombosTemp topJsonPath
+            remoteTempPath <- writeRemoteTopCombosTemp mStateSyncTarget topJsonPath
             historyDir <- resolveOptimizerCombosHistoryDir topJsonPath
             exeResult <- resolveOptimizerExecutable projectRoot "merge-top-combos"
             case exeResult of
                 Left err -> pure (Left (err, "", ""))
                 Right exePath -> do
                     let baseArgs = ["--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)]
-                        s3Args = maybe [] (\p -> ["--from-top-json", p]) s3TempPath
+                        remoteArgs = maybe [] (\p -> ["--from-top-json", p]) remoteTempPath
                         historyArgs = maybe [] (\dir -> ["--history-dir", dir]) historyDir
-                        args = baseArgs ++ s3Args ++ historyArgs
+                        args = baseArgs ++ remoteArgs ++ historyArgs
                         proc' = (proc exePath args){cwd = Just projectRoot}
-                        cleanup = maybe (pure ()) removeTempTopCombo s3TempPath
+                        cleanup = maybe (pure ()) removeTempTopCombo remoteTempPath
                     (exitCode, out, err) <- readCreateProcessWithExitCode proc' "" `finally` cleanup
                     case exitCode of
                         ExitSuccess -> do
                             persistTopCombosMaybe mStateSyncTarget topJsonPath
                             pure (Right ())
                         ExitFailure code -> pure (Left (printf "Merge executable failed (exit %d)" code, out, err))
+
+writeRemoteTopCombosTemp :: Maybe StateSyncTarget -> FilePath -> IO (Maybe FilePath)
+writeRemoteTopCombosTemp mStateSyncTarget topJsonPath = do
+    fromSync <- writeStateSyncTopCombosTemp mStateSyncTarget topJsonPath
+    case fromSync of
+        Just path -> pure (Just path)
+        Nothing -> writeS3TopCombosTemp topJsonPath
+
+writeStateSyncTopCombosTemp :: Maybe StateSyncTarget -> FilePath -> IO (Maybe FilePath)
+writeStateSyncTopCombosTemp mStateSyncTarget topJsonPath =
+    case mStateSyncTarget of
+        Nothing -> pure Nothing
+        Just target -> do
+            payloadOrErr <- fetchStateSyncPayload target
+            case payloadOrErr of
+                Left _ -> pure Nothing
+                Right payload ->
+                    case sspTopCombos payload of
+                        Just val
+                            | isTopCombosPayload val ->
+                                writeTopCombosTempFile topJsonPath "top-combos-state-sync.json" (encode val)
+                        _ -> pure Nothing
 
 writeS3TopCombosTemp :: FilePath -> IO (Maybe FilePath)
 writeS3TopCombosTemp topJsonPath = do
@@ -12941,19 +12992,23 @@ writeS3TopCombosTemp topJsonPath = do
             case r of
                 Left _ -> pure Nothing
                 Right Nothing -> pure Nothing
-                Right (Just contents) -> do
-                    let dir = takeDirectory topJsonPath
-                    tempResult <- try (openTempFile dir "top-combos-s3.json") :: IO (Either SomeException (FilePath, Handle))
-                    case tempResult of
-                        Left _ -> pure Nothing
-                        Right (path, handle) -> do
-                            writeResult <- try (BL.hPut handle contents) :: IO (Either SomeException ())
-                            closeResult <- try (hClose handle) :: IO (Either SomeException ())
-                            case (writeResult, closeResult) of
-                                (Right _, Right _) -> pure (Just path)
-                                _ -> do
-                                    removeTempTopCombo path
-                                    pure Nothing
+                Right (Just contents) ->
+                    writeTopCombosTempFile topJsonPath "top-combos-s3.json" contents
+
+writeTopCombosTempFile :: FilePath -> String -> BL.ByteString -> IO (Maybe FilePath)
+writeTopCombosTempFile topJsonPath fileName contents = do
+    let dir = takeDirectory topJsonPath
+    tempResult <- try (openTempFile dir fileName) :: IO (Either SomeException (FilePath, Handle))
+    case tempResult of
+        Left _ -> pure Nothing
+        Right (path, handle) -> do
+            writeResult <- try (BL.hPut handle contents) :: IO (Either SomeException ())
+            closeResult <- try (hClose handle) :: IO (Either SomeException ())
+            case (writeResult, closeResult) of
+                (Right _, Right _) -> pure (Just path)
+                _ -> do
+                    removeTempTopCombo path
+                    pure Nothing
 
 removeTempTopCombo :: FilePath -> IO ()
 removeTempTopCombo path = do
