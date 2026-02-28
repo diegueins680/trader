@@ -161,6 +161,30 @@ data Args = Args
     , argAdaptiveMinSignalToNoiseMax :: Double
     , argAdaptiveKalmanZMinMax :: Double
     , argAdaptiveTrendLookbackMax :: Int
+    , argMetaLabelFilter :: Bool
+    , argMetaLabelMinEdge :: Double
+    , argMetaLabelMinConfidence :: Double
+    , argMetaLabelRequireBand :: Bool
+    , argRegimeParameterBank :: Bool
+    , argRegimeBankHysteresis :: Double
+    , argRegimeTrendOpenMult :: Double
+    , argRegimeMrOpenMult :: Double
+    , argRegimeHighVolOpenMult :: Double
+    , argRegimeTrendSizeMult :: Double
+    , argRegimeMrSizeMult :: Double
+    , argRegimeHighVolSizeMult :: Double
+    , argMultiTimeframeConsensus :: Bool
+    , argMtfFastBars :: Int
+    , argMtfMidBars :: Int
+    , argMtfSlowBars :: Int
+    , argMtfMinAgree :: Int
+    , argCrossAssetConfirmation :: Bool
+    , argCrossAssetMinBeta :: Double
+    , argCrossAssetMinEdge :: Double
+    , argPairsStatArb :: Bool
+    , argPairsStatArbLookback :: Int
+    , argPairsStatArbZEntry :: Double
+    , argPairsStatArbSizeMult :: Double
     , argThresholdFactorEnabled :: Bool
     , argThresholdFactorAlpha :: Double
     , argThresholdFactorMin :: Double
@@ -192,6 +216,11 @@ data Args = Args
     , argFundingRate :: Double
     , argFundingBySide :: Bool
     , argFundingOnOpen :: Bool
+    , argFundingOiAware :: Bool
+    , argFundingOiFundingCap :: Maybe Double
+    , argFundingOiVolLookback :: Int
+    , argFundingOiVolCap :: Maybe Double
+    , argFundingOiSizeMult :: Double
     , argBlendWeight :: Double
     , argRouterLookback :: Int
     , argRouterMinScore :: Double
@@ -230,6 +259,15 @@ data Args = Args
     , argLstmConfidenceSoft :: Double
     , argLstmConfidenceHard :: Double
     , argMinPositionSize :: Double
+    , argKellyLiteSizing :: Bool
+    , argKellyLiteFraction :: Double
+    , argKellyLiteFloor :: Double
+    , argKellyLiteCap :: Double
+    , argExecutionMakerFirst :: Bool
+    , argExecutionMakerOffsetBps :: Double
+    , argExecutionMakerTimeoutSec :: Double
+    , argExecutionMakerPollMs :: Int
+    , argExecutionMakerFallbackMarket :: Bool
     , argTuneStressVolMult :: Double
     , argTuneStressShock :: Double
     , argTuneStressWeight :: Double
@@ -442,12 +480,12 @@ opts = do
         option
             (eitherReader parseTuneObjective)
             ( long "tune-objective"
-                <> value TuneEquityDdTurnover
+                <> value TuneRoi
                 <> showDefaultWith tuneObjectiveCode
-                <> help "Objective for --optimize-operations/--sweep-threshold: annualized-equity|final-equity|sharpe|calmar|equity-dd|equity-dd-turnover"
+                <> help "Objective for --optimize-operations/--sweep-threshold: annualized-equity|roi|final-equity|sharpe|calmar|equity-dd|equity-dd-turnover"
             )
     argTunePenaltyMaxDrawdown <- option auto (long "tune-penalty-max-drawdown" <> value 1.5 <> help "Penalty weight for max drawdown (used by equity-dd objectives)")
-    argTunePenaltyTurnover <- option auto (long "tune-penalty-turnover" <> value 0.2 <> help "Penalty weight for turnover (used by equity-dd-turnover)")
+    argTunePenaltyTurnover <- option auto (long "tune-penalty-turnover" <> value 0.2 <> help "Penalty weight for turnover (used by roi/equity-dd-turnover)")
     argMinRoundTrips <-
         option
             auto
@@ -639,6 +677,60 @@ opts = do
                 <> showDefault
                 <> help "Max additive trend lookback when adaptive filters are fully tightened"
             )
+    argMetaLabelFilter <-
+        defaultOffSwitch
+            "meta-label-filter"
+            "no-meta-label-filter"
+            "Enable meta-label filtering (edge + confidence + optional interval confirmation)."
+            "Disable meta-label filtering."
+    argMetaLabelMinEdge <- option auto (long "meta-label-min-edge" <> value 0 <> showDefault <> help "Minimum edge required by the meta-label filter (fraction)")
+    argMetaLabelMinConfidence <- option auto (long "meta-label-min-confidence" <> value 0 <> showDefault <> help "Minimum confidence required by the meta-label filter (0..1)")
+    argMetaLabelRequireBand <-
+        defaultOnSwitch
+            "meta-label-require-band"
+            "no-meta-label-require-band"
+            "Require conformal/quantile band agreement when meta-label filtering is enabled (default on)."
+            "Disable conformal/quantile band agreement for the meta-label filter."
+    argRegimeParameterBank <-
+        defaultOffSwitch
+            "regime-parameter-bank"
+            "no-regime-parameter-bank"
+            "Enable regime-conditioned threshold and size multipliers."
+            "Disable regime-conditioned threshold and size multipliers."
+    argRegimeBankHysteresis <- option auto (long "regime-bank-hysteresis" <> value 0.05 <> showDefault <> help "Minimum top-vs-second regime probability gap required to activate regime multipliers (0..1)")
+    argRegimeTrendOpenMult <- option auto (long "regime-trend-open-mult" <> value 0.9 <> showDefault <> help "Open-threshold multiplier when trend regime dominates")
+    argRegimeMrOpenMult <- option auto (long "regime-mr-open-mult" <> value 1.1 <> showDefault <> help "Open-threshold multiplier when mean-reversion regime dominates")
+    argRegimeHighVolOpenMult <- option auto (long "regime-high-vol-open-mult" <> value 1.3 <> showDefault <> help "Open-threshold multiplier when high-vol regime dominates")
+    argRegimeTrendSizeMult <- option auto (long "regime-trend-size-mult" <> value 1.1 <> showDefault <> help "Position-size multiplier when trend regime dominates")
+    argRegimeMrSizeMult <- option auto (long "regime-mr-size-mult" <> value 0.9 <> showDefault <> help "Position-size multiplier when mean-reversion regime dominates")
+    argRegimeHighVolSizeMult <- option auto (long "regime-high-vol-size-mult" <> value 0.7 <> showDefault <> help "Position-size multiplier when high-vol regime dominates")
+    argMultiTimeframeConsensus <-
+        defaultOffSwitch
+            "multi-timeframe-consensus"
+            "no-multi-timeframe-consensus"
+            "Enable multi-timeframe momentum consensus entry gating."
+            "Disable multi-timeframe momentum consensus entry gating."
+    argMtfFastBars <- option auto (long "mtf-fast-bars" <> value 5 <> showDefault <> help "Fast timeframe bars for multi-timeframe consensus")
+    argMtfMidBars <- option auto (long "mtf-mid-bars" <> value 20 <> showDefault <> help "Mid timeframe bars for multi-timeframe consensus")
+    argMtfSlowBars <- option auto (long "mtf-slow-bars" <> value 60 <> showDefault <> help "Slow timeframe bars for multi-timeframe consensus")
+    argMtfMinAgree <- option auto (long "mtf-min-agree" <> value 2 <> showDefault <> help "Minimum agreeing timeframes required for entry (1..3)")
+    argCrossAssetConfirmation <-
+        defaultOffSwitch
+            "cross-asset-confirmation"
+            "no-cross-asset-confirmation"
+            "Enable cross-asset confirmation using market-context direction."
+            "Disable cross-asset confirmation."
+    argCrossAssetMinBeta <- option auto (long "cross-asset-min-beta" <> value 0.05 <> showDefault <> help "Minimum absolute market beta required to trust cross-asset confirmation")
+    argCrossAssetMinEdge <- option auto (long "cross-asset-min-edge" <> value 0 <> showDefault <> help "Minimum absolute market-context edge required for cross-asset confirmation")
+    argPairsStatArb <-
+        defaultOffSwitch
+            "pairs-stat-arb"
+            "no-pairs-stat-arb"
+            "Enable residual z-score pairs/stat-arb overlay versus market context."
+            "Disable residual z-score pairs/stat-arb overlay."
+    argPairsStatArbLookback <- option auto (long "pairs-stat-arb-lookback" <> value 120 <> showDefault <> help "Lookback bars for residual z-score statistics")
+    argPairsStatArbZEntry <- option auto (long "pairs-stat-arb-z-entry" <> value 2.0 <> showDefault <> help "Absolute residual z-score required to trigger pairs/stat-arb overlay")
+    argPairsStatArbSizeMult <- option auto (long "pairs-stat-arb-size-mult" <> value 0.7 <> showDefault <> help "Position-size multiplier applied when pairs/stat-arb overlay is active")
     argCostAwareEdge <-
         defaultOnSwitch
             "cost-aware-edge"
@@ -680,6 +772,16 @@ opts = do
     argFundingRate <- option auto (long "funding-rate" <> long "financing-rate" <> value 0.1 <> showDefault <> help "Annualized funding/borrow rate applied per bar in backtests (fraction; negative allowed; side-agnostic unless --funding-by-side)")
     argFundingBySide <- switch (long "funding-by-side" <> help "Apply funding sign by side (long pays positive, short receives)")
     argFundingOnOpen <- switch (long "funding-on-open" <> help "Charge funding for bars opened with a position (even if exited intrabar)")
+    argFundingOiAware <-
+        defaultOffSwitch
+            "funding-oi-aware"
+            "no-funding-oi-aware"
+            "Enable funding/OI-aware gating and sizing dampening."
+            "Disable funding/OI-aware gating and sizing dampening."
+    argFundingOiFundingCap <- optional (option auto (long "funding-oi-funding-cap" <> help "Block entries when side-adjusted funding exceeds this cap (fraction; 0 disables)"))
+    argFundingOiVolLookback <- option auto (long "funding-oi-vol-lookback" <> value 48 <> showDefault <> help "Lookback bars for volatility proxy used by funding/OI-aware gating")
+    argFundingOiVolCap <- optional (option auto (long "funding-oi-vol-cap" <> help "Block entries when volatility proxy exceeds this level (0 disables)"))
+    argFundingOiSizeMult <- option auto (long "funding-oi-size-mult" <> value 0.7 <> showDefault <> help "Max position-size multiplier applied by funding/OI-aware dampening (0..1)")
     argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch (0..1)")
     argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router/bandit_router scoring (>= 2)")
     argRouterMinScore <- option auto (long "router-min-score" <> value 0.25 <> help "Minimum router score (blend of accuracy*coverage and return) to accept a model (0..1)")
@@ -711,6 +813,21 @@ opts = do
     argLstmExitFlipGraceBars <- option auto (long "lstm-exit-flip-grace-bars" <> value 0 <> showDefault <> help "Ignore LSTM flip exits during the first N bars of a trade")
     argLstmExitFlipStrong <- switch (long "lstm-exit-flip-strong" <> help "Require strong LSTM confidence for flip exits (uses --lstm-confidence-hard)")
     argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
+    argExecutionMakerFirst <-
+        defaultOffSwitch
+            "execution-maker-first"
+            "no-execution-maker-first"
+            "Enable maker-first entry pacing (wait for favorable ticks) with optional market fallback."
+            "Disable maker-first entry pacing."
+    argExecutionMakerOffsetBps <- option auto (long "execution-maker-offset-bps" <> value 2 <> showDefault <> help "Favorable-price offset in basis points for maker-first pacing")
+    argExecutionMakerTimeoutSec <- option auto (long "execution-maker-timeout-sec" <> value 3 <> showDefault <> help "Maximum wait time (seconds) for maker-first pacing before fallback/skip")
+    argExecutionMakerPollMs <- option auto (long "execution-maker-poll-ms" <> value 250 <> showDefault <> help "Polling interval (ms) while waiting for maker-first pacing")
+    argExecutionMakerFallbackMarket <-
+        defaultOnSwitch
+            "execution-maker-fallback-market"
+            "no-execution-maker-fallback-market"
+            "Fallback to immediate market execution after maker-first timeout (default on)."
+            "Do not fallback to market execution after maker-first timeout."
     argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
     argJson <- switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
     argServe <- switch (long "serve" <> help "Run REST API server on localhost instead of running the CLI workflow")
@@ -750,6 +867,15 @@ opts = do
     argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (linear ramp to --lstm-confidence-hard; requires --confidence-sizing)")
     argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
     argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "Minimum entry size after sizing/vol scaling; skip if below this (0..1)")
+    argKellyLiteSizing <-
+        defaultOffSwitch
+            "kelly-lite-sizing"
+            "no-kelly-lite-sizing"
+            "Enable Kelly-lite size scaling from estimated edge and variance."
+            "Disable Kelly-lite size scaling."
+    argKellyLiteFraction <- option auto (long "kelly-lite-fraction" <> value 0.5 <> showDefault <> help "Fraction applied to Kelly-lite size scale")
+    argKellyLiteFloor <- option auto (long "kelly-lite-floor" <> value 0 <> showDefault <> help "Lower bound for Kelly-lite size scale")
+    argKellyLiteCap <- option auto (long "kelly-lite-cap" <> value 1 <> showDefault <> help "Upper bound for Kelly-lite size scale")
     argTuneStressVolMult <- option auto (long "tune-stress-vol-mult" <> value 1.0 <> help "Stress volatility multiplier for tune scoring (1 disables)")
     argTuneStressShock <- option auto (long "tune-stress-shock" <> value 0.0 <> help "Stress shock added to returns for tune scoring (0 disables)")
     argTuneStressWeight <- option auto (long "tune-stress-weight" <> value 0.0 <> help "Penalty weight for stress scenario in tune scoring (0 disables)")
@@ -1062,6 +1188,24 @@ validateArgs args0 = do
     ensure "--adaptive-min-signal-to-noise-max must be >= 0" (argAdaptiveMinSignalToNoiseMax args >= 0)
     ensure "--adaptive-kalman-z-min-max must be >= 0" (argAdaptiveKalmanZMinMax args >= 0)
     ensure "--adaptive-trend-lookback-max must be >= 0" (argAdaptiveTrendLookbackMax args >= 0)
+    ensure "--meta-label-min-edge must be >= 0" (argMetaLabelMinEdge args >= 0)
+    ensure "--meta-label-min-confidence must be between 0 and 1" (argMetaLabelMinConfidence args >= 0 && argMetaLabelMinConfidence args <= 1)
+    ensure "--regime-bank-hysteresis must be between 0 and 1" (argRegimeBankHysteresis args >= 0 && argRegimeBankHysteresis args <= 1)
+    ensure "--regime-trend-open-mult must be >= 0" (argRegimeTrendOpenMult args >= 0)
+    ensure "--regime-mr-open-mult must be >= 0" (argRegimeMrOpenMult args >= 0)
+    ensure "--regime-high-vol-open-mult must be >= 0" (argRegimeHighVolOpenMult args >= 0)
+    ensure "--regime-trend-size-mult must be >= 0" (argRegimeTrendSizeMult args >= 0)
+    ensure "--regime-mr-size-mult must be >= 0" (argRegimeMrSizeMult args >= 0)
+    ensure "--regime-high-vol-size-mult must be >= 0" (argRegimeHighVolSizeMult args >= 0)
+    ensure "--mtf-fast-bars must be >= 1" (argMtfFastBars args >= 1)
+    ensure "--mtf-mid-bars must be >= 1" (argMtfMidBars args >= 1)
+    ensure "--mtf-slow-bars must be >= 1" (argMtfSlowBars args >= 1)
+    ensure "--mtf-min-agree must be between 1 and 3" (argMtfMinAgree args >= 1 && argMtfMinAgree args <= 3)
+    ensure "--cross-asset-min-beta must be >= 0" (argCrossAssetMinBeta args >= 0)
+    ensure "--cross-asset-min-edge must be >= 0" (argCrossAssetMinEdge args >= 0)
+    ensure "--pairs-stat-arb-lookback must be >= 2" (argPairsStatArbLookback args >= 2)
+    ensure "--pairs-stat-arb-z-entry must be > 0" (argPairsStatArbZEntry args > 0)
+    ensure "--pairs-stat-arb-size-mult must be between 0 and 1" (argPairsStatArbSizeMult args >= 0 && argPairsStatArbSizeMult args <= 1)
     ensure "--threshold-factor-alpha must be between 0 and 1" (argThresholdFactorAlpha args >= 0 && argThresholdFactorAlpha args <= 1)
     ensure "--threshold-factor-min must be >= 0" (argThresholdFactorMin args >= 0)
     ensure "--threshold-factor-max must be >= --threshold-factor-min" (argThresholdFactorMax args >= argThresholdFactorMin args)
@@ -1091,6 +1235,14 @@ validateArgs args0 = do
     ensure "--rebalance-cost-mult must be >= 0" (argRebalanceCostMult args >= 0)
     let fundingRate = argFundingRate args
     ensure "--funding-rate must be finite" (not (isNaN fundingRate || isInfinite fundingRate))
+    case argFundingOiFundingCap args of
+        Nothing -> pure ()
+        Just v -> ensure "--funding-oi-funding-cap must be >= 0" (v >= 0)
+    ensure "--funding-oi-vol-lookback must be >= 2" (argFundingOiVolLookback args >= 2)
+    case argFundingOiVolCap args of
+        Nothing -> pure ()
+        Just v -> ensure "--funding-oi-vol-cap must be >= 0" (v >= 0)
+    ensure "--funding-oi-size-mult must be between 0 and 1" (argFundingOiSizeMult args >= 0 && argFundingOiSizeMult args <= 1)
     ensure "--blend-weight must be between 0 and 1" (argBlendWeight args >= 0 && argBlendWeight args <= 1)
     ensure "--tri-layer-fast-mult must be > 0" (argTriLayerFastMult args > 0)
     ensure "--tri-layer-slow-mult must be > 0" (argTriLayerSlowMult args > 0)
@@ -1117,6 +1269,9 @@ validateArgs args0 = do
     case argMaxOrderErrors args of
         Nothing -> pure ()
         Just n -> ensure "--max-order-errors must be >= 1" (n >= 1)
+    ensure "--execution-maker-offset-bps must be >= 0" (argExecutionMakerOffsetBps args >= 0)
+    ensure "--execution-maker-timeout-sec must be >= 0" (argExecutionMakerTimeoutSec args >= 0)
+    ensure "--execution-maker-poll-ms must be >= 1" (argExecutionMakerPollMs args >= 1)
     case argPeriodsPerYear args of
         Nothing -> pure ()
         Just v -> ensure "--periods-per-year must be > 0" (v > 0)
@@ -1184,6 +1339,9 @@ validateArgs args0 = do
         Just v -> ensure "--max-quantile-width must be >= 0" (v >= 0)
     ensure "--min-position-size must be between 0 and 1" (argMinPositionSize args >= 0 && argMinPositionSize args <= 1)
     ensure "--min-position-size must be <= --max-position-size" (argMinPositionSize args <= argMaxPositionSize args)
+    ensure "--kelly-lite-fraction must be >= 0" (argKellyLiteFraction args >= 0)
+    ensure "--kelly-lite-floor must be >= 0" (argKellyLiteFloor args >= 0)
+    ensure "--kelly-lite-cap must be >= --kelly-lite-floor" (argKellyLiteCap args >= argKellyLiteFloor args)
     ensure "--tune-stress-vol-mult must be > 0" (argTuneStressVolMult args > 0)
     ensure "--tune-stress-weight must be >= 0" (argTuneStressWeight args >= 0)
 

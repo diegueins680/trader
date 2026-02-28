@@ -4,6 +4,7 @@ module Trader.OrderExecution (
     applyExecutedQuantity,
 ) where
 
+import Data.Maybe (fromMaybe)
 import Trader.Text (normalizeKey, trim)
 
 data OrderExecutionEvidence = OrderExecutionEvidence
@@ -36,7 +37,7 @@ orderAppliedQuantity ev fallbackQty =
 
 applyExecutedQuantity :: Int -> Double -> Bool -> Double -> (Int, Double, Double, Double)
 applyExecutedQuantity prevPos prevSize isBuy qtyRaw =
-    let qty = maybe 0 id (positiveFinite qtyRaw)
+    let qty = fromMaybe 0 (positiveFinite qtyRaw)
         prevSign = signum prevPos
         currentSigned = fromIntegral prevSign * max 0 prevSize
         deltaSigned = if isBuy then qty else negate qty

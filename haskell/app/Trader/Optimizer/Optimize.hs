@@ -363,9 +363,15 @@ objectiveScore :: KM.KeyMap Value -> String -> Double -> Double -> Double
 objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
     let finalEq = metricFloat (Just metrics) "finalEquity" 0
         maxDd = metricFloat (Just metrics) "maxDrawdown" 0
+        cvar95 = metricFloat (Just metrics) "cvar95" 0
         sharpe = metricFloat (Just metrics) "sharpe" 0
         annRet = metricFloat (Just metrics) "annualizedReturn" 0
         turnover = metricFloat (Just metrics) "turnover" 0
+        maxDdN = max 0 maxDd
+        cvar95N = max 0 cvar95
+        turnoverN = max 0 turnover
+        avgTradeReturn = metricFloat (Just metrics) "avgTradeReturn" 0
+        avgHoldingPeriods = metricFloat (Just metrics) "avgHoldingPeriods" 0
         exposure = metricFloat (Just metrics) "exposure" 0
         roundTrips = metricInt (Just metrics) "roundTrips" 0
         tradeCount = metricInt (Just metrics) "tradeCount" 0
@@ -378,10 +384,15 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
             | exposure <= 0 = 0.05
             | exposure < 0.01 = 0.02
             | otherwise = 0
+        paybackBonus
+            | avgHoldingPeriods <= 0 = 0
+            | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
         obj = map toLower (trim objective)
         baseScore
             | obj `elem` ["final-equity", "final_equity", "finalequity"] = finalEq
             | obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"] = annRet
+            | obj `elem` ["roi", "risk-adjusted-roi", "risk_adjusted_roi", "riskadjustedroi"] =
+                annRet - penaltyMaxDd * (maxDdN + cvar95N) - penaltyTurnover * turnoverN + 0.5 * avgTradeReturn + paybackBonus
             | obj == "sharpe" = sharpe
             | obj == "calmar" = annRet / max 1e-12 maxDd
             | obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"] = finalEq - penaltyMaxDd * maxDd
@@ -820,7 +831,7 @@ applyQualityPreset args =
     let objective = map toLower (trim (oaObjective args))
         objective' =
             if objective `elem` ["final-equity", "final_equity", "finalequity"]
-                then "equity-dd-turnover"
+                then "roi"
                 else oaObjective args
         intervalReset =
             case oaInterval args of

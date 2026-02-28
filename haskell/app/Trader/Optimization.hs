@@ -30,6 +30,7 @@ import Trader.Trading (BacktestResult (..), EnsembleConfig (..), StepMeta (..), 
 data TuneObjective
     = TuneFinalEquity
     | TuneAnnualizedEquity
+    | TuneRoi
     | TuneSharpe
     | TuneCalmar
     | TuneEquityDd
@@ -41,6 +42,7 @@ tuneObjectiveCode o =
     case o of
         TuneFinalEquity -> "final-equity"
         TuneAnnualizedEquity -> "annualized-equity"
+        TuneRoi -> "roi"
         TuneSharpe -> "sharpe"
         TuneCalmar -> "calmar"
         TuneEquityDd -> "equity-dd"
@@ -58,6 +60,10 @@ parseTuneObjective raw =
         "annualizedreturn" -> Right TuneAnnualizedEquity
         "annualized-return" -> Right TuneAnnualizedEquity
         "annualized_return" -> Right TuneAnnualizedEquity
+        "roi" -> Right TuneRoi
+        "riskadjustedroi" -> Right TuneRoi
+        "risk-adjusted-roi" -> Right TuneRoi
+        "risk_adjusted_roi" -> Right TuneRoi
         "sharpe" -> Right TuneSharpe
         "calmar" -> Right TuneCalmar
         "equitydd" -> Right TuneEquityDd
@@ -71,7 +77,7 @@ parseTuneObjective raw =
                 ( "Invalid tune objective (expected one of: "
                     ++ intercalate
                         ", "
-                        (map tuneObjectiveCode [TuneAnnualizedEquity, TuneFinalEquity, TuneSharpe, TuneCalmar, TuneEquityDd, TuneEquityDdTurnover])
+                        (map tuneObjectiveCode [TuneAnnualizedEquity, TuneRoi, TuneFinalEquity, TuneSharpe, TuneCalmar, TuneEquityDd, TuneEquityDdTurnover])
                     ++ ")"
                 )
   where
@@ -104,7 +110,7 @@ data TuneStats = TuneStats
 defaultTuneConfig :: Double -> TuneConfig
 defaultTuneConfig periodsPerYear =
     TuneConfig
-        { tcObjective = TuneFinalEquity
+        { tcObjective = TuneRoi
         , tcPenaltyMaxDrawdown = 1.0
         , tcPenaltyTurnover = 0.0
         , tcPeriodsPerYear = max 1e-12 periodsPerYear
@@ -146,6 +152,7 @@ scoreObjective cfg m =
      in case tcObjective cfg of
             TuneFinalEquity -> finalEq
             TuneAnnualizedEquity -> bmAnnualizedReturn m
+            TuneRoi -> roiObjectiveScore pDd pTurn m
             TuneSharpe -> bmSharpe m
             TuneCalmar ->
                 if maxDd <= 0
@@ -155,6 +162,45 @@ scoreObjective cfg m =
                          in bmAnnualizedReturn m / denom
             TuneEquityDd -> finalEq - pDd * maxDd
             TuneEquityDdTurnover -> finalEq - pDd * maxDd - pTurn * turnover
+
+roiObjectiveScore :: Double -> Double -> BacktestMetrics -> Double
+roiObjectiveScore penaltyMaxDd penaltyTurnover m =
+    let bad x = isNaN x || isInfinite x
+        clean x =
+            if bad x
+                then 0
+                else x
+        annRet = clean (bmAnnualizedReturn m)
+        maxDd = max 0 (clean (bmMaxDrawdown m))
+        tailLoss = max 0 (clean (bmCVaR95 m))
+        turnover = max 0 (clean (bmTurnover m))
+        expectancy = clean (bmAvgTradeReturn m)
+        avgHold = max 0 (clean (bmAvgHoldingPeriods m))
+        roundTrips = max 0 (bmRoundTrips m)
+        tradeCount = max 0 (bmTradeCount m)
+        exposure = max 0 (clean (bmExposure m))
+        activityCount = max roundTrips tradeCount
+        activityPenalty
+            | activityCount <= 0 = 0.25
+            | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
+            | otherwise = 0
+        exposurePenalty
+            | exposure <= 0 = 0.05
+            | exposure < 0.01 = 0.02
+            | otherwise = 0
+        paybackBonus =
+            if avgHold <= 0
+                then 0
+                else min 0.05 (1 / (1 + avgHold))
+        pDd = max 0 penaltyMaxDd
+        pTurn = max 0 penaltyTurnover
+     in annRet
+            - pDd * (maxDd + tailLoss)
+            - pTurn * turnover
+            + 0.5 * expectancy
+            + paybackBonus
+            - activityPenalty
+            - exposurePenalty
 
 stressEquityCurve :: Double -> Double -> [Double] -> [Double]
 stressEquityCurve volMult shock eq =

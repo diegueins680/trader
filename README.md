@@ -349,13 +349,14 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
   - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.
-  - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
-    - `annualized-equity` | `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
+  - `--tune-objective roi` objective used by `--optimize-operations` / `--sweep-threshold`:
+    - `annualized-equity` | `roi` | `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
+    - `roi` scores annualized return net of drawdown/CVaR and turnover penalties, then rewards faster payback and positive expectancy.
     - Calmar falls back to annualized return when max drawdown is zero (avoids infinite scores).
     - To maximize annualized equity, set `--tune-objective annualized-equity` (alias: `annualized-return`).
   - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips (excludes end-of-series EOD exits), and non-inverted hysteresis (close <= open) without reducing equity.
   - `--tune-penalty-max-drawdown 1.5` penalty weight for max drawdown (used by `equity-dd*` objectives)
-  - `--tune-penalty-turnover 0.2` penalty weight for turnover (used by `equity-dd-turnover`)
+  - `--tune-penalty-turnover 0.2` penalty weight for turnover (used by `roi` and `equity-dd-turnover`)
   - `--min-round-trips N` (default: `0`) when optimizing/sweeping, require at least `N` non-EOD round trips in the tune split (helps avoid picking "no-trade" configs)
   - `--tune-stress-vol-mult F` volatility multiplier for stress scoring (`1` disables)
   - `--tune-stress-shock F` shock added to returns for stress scoring (`0` disables)
@@ -606,8 +607,8 @@ Backtest limits:
 - `TRADER_API_BACKTEST_TIMEOUT_SEC` (default: `900`) cancels long-running backtests (sync returns 504; async jobs return an error).
 
 Optimizer script tips:
-- `optimize-equity` defaults to `--objective annualized-equity` (annualized return).
-- `optimize-equity` now tunes stop-loss and take-profit by default for annualized-equity; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
+- `optimize-equity` defaults to `--objective roi --tune-objective roi` (risk-adjusted ROI).
+- `optimize-equity` now tunes stop-loss and take-profit by default for ROI-focused runs; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
 - `optimize-equity` accepts `--futures` to pull Binance USDT-M futures data (Binance only).
 - `optimize-equity` clamps perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
 - Optimizer timeouts now return even if a child backtest process doesn't exit after SIGTERM, and stdout/stderr capture won't block progress if pipes never close.
@@ -943,7 +944,7 @@ Backtest actions now stay enabled when split constraints can be auto-corrected; 
 Live-bot status polling skips overlapping `/bot/status` requests and runs at a modest cadence to avoid client aborts while keeping the dashboard responsive.
 Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, display full combo parameters inline, and can be filtered by symbol/market/interval/method plus minimum final equity.
 Optimizer run forms (including the Optimizer combos panel) launch `/optimizer/run` with constraints, accept advanced JSON overrides for `source`/`binanceSymbol`/`data` and `timeoutSec`, validate backtest/tune ratios, include an annualized-equity preset button, and surface equity-focused info popovers; complex parameters (method/thresholds/splits/LSTM/optimization) include info buttons.
-Optimization defaults in the UI bias toward annualized equity: tune objective is `annualized-equity`, min round trips is `5`, walk-forward embargo is `1`, and rebalance cost mult is `1` (adjust as needed).
+Optimization defaults in the UI bias toward risk-adjusted ROI: objective/tune objective are `roi`, min round trips is `5`, walk-forward embargo is `1`, and rebalance cost mult is `1` (adjust as needed).
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
 Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), selecting the existing bot if it is already running; top-combo auto-apply pauses while a manual Apply is starting a bot, and Refresh combos resyncs.

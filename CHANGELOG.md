@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Optimization/CLI/UI: add a new `roi` objective for tune/optimizer scoring (`annualizedReturn - ddPenalty*(maxDrawdown + cvar95) - turnoverPenalty*turnover + expectancy/payback adjustments`), wire it through CLI/API/UI objective lists, and set ROI-focused defaults (`--tune-objective roi`, `optimize-equity --objective/--tune-objective roi`, UI optimizer form defaults).
 - Trading/Bot: reconcile live bot position/equity updates from order fill evidence (`status`/`executedQty`) and executed quantity sizing, including partial-fill handling, instead of treating any sent order as fully applied.
 - Ops/Top-combos: harden temp JSON writes so write/close failures do not get promoted (no rename/use of corrupted temp files).
 - Trading: add `--method kalman_physics_error`, which builds OHLCV-driven Kalman state vectors (`position, velocity, acceleration`), computes physics baseline `close + velocity + 0.5 * acceleration`, trains a GBDT error model using `{velocity, acceleration, delta-accel|jerk, discriminant}` features, and backtests on latest-1000 Binance bars with fixed train/test split (700/300 for `BTCUSDT` workflows). This method does not support `--optimize-operations`/`--sweep-threshold`.

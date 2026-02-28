@@ -208,6 +208,7 @@ export const PLATFORM_DEFAULT_BARS: Record<Platform, number> = {
 
 export const TUNE_OBJECTIVES = [
   "annualized-equity",
+  "roi",
   "final-equity",
   "sharpe",
   "calmar",

@@ -29,7 +29,7 @@ parseArgs progName argv =
     handleParseResult $
         execParserPure
             (prefs showHelpOnError)
-            (info (optimizerArgsParser <**> helper) (fullDesc <> progDesc "Random-search optimizer for trader-hs annualized equity (annualizedReturn)."))
+            (info (optimizerArgsParser <**> helper) (fullDesc <> progDesc "Random-search optimizer for trader-hs ROI (risk-adjusted annualized return)."))
             argv
   where
     handleParseResult result =
@@ -74,7 +74,7 @@ optimizerArgsParser =
         <*> strOption (long "top-json" <> value "" <> metavar "PATH")
         <*> switch (long "quality")
         <*> switch (long "auto-high-low")
-        <*> strOption (long "objective" <> value "annualized-equity" <> metavar "NAME")
+        <*> strOption (long "objective" <> value "roi" <> metavar "NAME")
         <*> option auto (long "penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
         <*> option auto (long "penalty-turnover" <> value 0.2 <> metavar "FLOAT")
         <*> option auto (long "min-annualized-return" <> value 0.0 <> metavar "FLOAT")
@@ -87,7 +87,7 @@ optimizerArgsParser =
         <*> option auto (long "min-sharpe" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "min-wf-sharpe-mean" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "max-wf-sharpe-std" <> value 0.0 <> metavar "FLOAT")
-        <*> strOption (long "tune-objective" <> value "annualized-equity" <> metavar "NAME")
+        <*> strOption (long "tune-objective" <> value "roi" <> metavar "NAME")
         <*> option auto (long "tune-penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
         <*> option auto (long "tune-penalty-turnover" <> value 0.2 <> metavar "FLOAT")
         <*> option auto (long "tune-stress-vol-mult" <> value 1.0 <> metavar "FLOAT")
@@ -460,6 +460,7 @@ validateArgs args = do
 objectiveChoices :: [String]
 objectiveChoices =
     [ "annualized-equity"
+    , "roi"
     , "final-equity"
     , "sharpe"
     , "calmar"

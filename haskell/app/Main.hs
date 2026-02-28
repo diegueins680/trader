@@ -189,7 +189,7 @@ import Trader.LSTM (
     trainLSTM,
  )
 import Trader.LstmPersistence (lstmModelKey)
-import Trader.MarketContext (MarketModel, buildMarketModel, marketMeasurementAt)
+import Trader.MarketContext (MarketModel (..), buildMarketModel, marketMeasurementAt)
 import Trader.Method (Method (..), methodCode, parseMethod, runtimeMethod, selectPredictions)
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
@@ -2368,6 +2368,30 @@ argsPublicJson args =
             , "adaptiveMinSignalToNoiseMax" .= argAdaptiveMinSignalToNoiseMax args
             , "adaptiveKalmanZMinMax" .= argAdaptiveKalmanZMinMax args
             , "adaptiveTrendLookbackMax" .= argAdaptiveTrendLookbackMax args
+            , "metaLabelFilter" .= argMetaLabelFilter args
+            , "metaLabelMinEdge" .= argMetaLabelMinEdge args
+            , "metaLabelMinConfidence" .= argMetaLabelMinConfidence args
+            , "metaLabelRequireBand" .= argMetaLabelRequireBand args
+            , "regimeParameterBank" .= argRegimeParameterBank args
+            , "regimeBankHysteresis" .= argRegimeBankHysteresis args
+            , "regimeTrendOpenMult" .= argRegimeTrendOpenMult args
+            , "regimeMrOpenMult" .= argRegimeMrOpenMult args
+            , "regimeHighVolOpenMult" .= argRegimeHighVolOpenMult args
+            , "regimeTrendSizeMult" .= argRegimeTrendSizeMult args
+            , "regimeMrSizeMult" .= argRegimeMrSizeMult args
+            , "regimeHighVolSizeMult" .= argRegimeHighVolSizeMult args
+            , "multiTimeframeConsensus" .= argMultiTimeframeConsensus args
+            , "mtfFastBars" .= argMtfFastBars args
+            , "mtfMidBars" .= argMtfMidBars args
+            , "mtfSlowBars" .= argMtfSlowBars args
+            , "mtfMinAgree" .= argMtfMinAgree args
+            , "crossAssetConfirmation" .= argCrossAssetConfirmation args
+            , "crossAssetMinBeta" .= argCrossAssetMinBeta args
+            , "crossAssetMinEdge" .= argCrossAssetMinEdge args
+            , "pairsStatArb" .= argPairsStatArb args
+            , "pairsStatArbLookback" .= argPairsStatArbLookback args
+            , "pairsStatArbZEntry" .= argPairsStatArbZEntry args
+            , "pairsStatArbSizeMult" .= argPairsStatArbSizeMult args
             , "thresholdFactorEnabled" .= argThresholdFactorEnabled args
             , "thresholdFactorAlpha" .= argThresholdFactorAlpha args
             , "thresholdFactorMin" .= argThresholdFactorMin args
@@ -2404,6 +2428,11 @@ argsPublicJson args =
             , "fundingBySide" .= argFundingBySide args
             , "rebalanceResetOnSignal" .= argRebalanceResetOnSignal args
             , "fundingOnOpen" .= argFundingOnOpen args
+            , "fundingOiAware" .= argFundingOiAware args
+            , "fundingOiFundingCap" .= argFundingOiFundingCap args
+            , "fundingOiVolLookback" .= argFundingOiVolLookback args
+            , "fundingOiVolCap" .= argFundingOiVolCap args
+            , "fundingOiSizeMult" .= argFundingOiSizeMult args
             , "blendWeight" .= argBlendWeight args
             , "routerLookback" .= argRouterLookback args
             , "routerMinScore" .= argRouterMinScore args
@@ -2426,6 +2455,16 @@ argsPublicJson args =
             , "lstmConfidenceSoft" .= argLstmConfidenceSoft args
             , "lstmConfidenceHard" .= argLstmConfidenceHard args
             , "protectionMinConfidence" .= argProtectionMinConfidence args
+            , "minPositionSize" .= argMinPositionSize args
+            , "kellyLiteSizing" .= argKellyLiteSizing args
+            , "kellyLiteFraction" .= argKellyLiteFraction args
+            , "kellyLiteFloor" .= argKellyLiteFloor args
+            , "kellyLiteCap" .= argKellyLiteCap args
+            , "executionMakerFirst" .= argExecutionMakerFirst args
+            , "executionMakerOffsetBps" .= argExecutionMakerOffsetBps args
+            , "executionMakerTimeoutSec" .= argExecutionMakerTimeoutSec args
+            , "executionMakerPollMs" .= argExecutionMakerPollMs args
+            , "executionMakerFallbackMarket" .= argExecutionMakerFallbackMarket args
             , "tuneStressVolMult" .= argTuneStressVolMult args
             , "tuneStressShock" .= argTuneStressShock args
             , "tuneStressWeight" .= argTuneStressWeight args
@@ -7154,9 +7193,12 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 _ -> if entrySize > 0 then entrySize else 1
 
     mOrder <-
-        if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
-            then Just <$> placeBotCloseIfEnabled args settings latestOrder env sym
-            else Just <$> placeIfEnabled args settings latestOrder env sym
+        if not wantSwitch
+            then pure Nothing
+            else
+                if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
+                    then Just <$> placeBotCloseIfEnabled args settings latestOrder env sym
+                    else Just <$> placeIfEnabled args settings latestOrder env sym
 
     let orderSent = maybe False aorSent mOrder
         alreadyMsg =
@@ -7504,22 +7546,18 @@ botOptimizeAfterOperation st = do
                         hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
                         ppy = periodsPerYear args
                         tuneCfg =
-                            let objective =
-                                    if argThresholdFactorEnabled args
-                                        then TuneAnnualizedEquity
-                                        else argTuneObjective args
-                             in TuneConfig
-                                    { tcObjective = objective
-                                    , tcPenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
-                                    , tcPenaltyTurnover = argTunePenaltyTurnover args
-                                    , tcPeriodsPerYear = ppy
-                                    , tcWalkForwardFolds = argWalkForwardFolds args
-                                    , tcWalkForwardEmbargoBars = argWalkForwardEmbargoBars args
-                                    , tcMinRoundTrips = argMinRoundTrips args
-                                    , tcStressVolMultiplier = argTuneStressVolMult args
-                                    , tcStressShock = argTuneStressShock args
-                                    , tcStressWeight = argTuneStressWeight args
-                                    }
+                            TuneConfig
+                                { tcObjective = argTuneObjective args
+                                , tcPenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
+                                , tcPenaltyTurnover = argTunePenaltyTurnover args
+                                , tcPeriodsPerYear = ppy
+                                , tcWalkForwardFolds = argWalkForwardFolds args
+                                , tcWalkForwardEmbargoBars = argWalkForwardEmbargoBars args
+                                , tcMinRoundTrips = argMinRoundTrips args
+                                , tcStressVolMultiplier = argTuneStressVolMult args
+                                , tcStressShock = argTuneStressShock args
+                                , tcStressWeight = argTuneStressWeight args
+                                }
                         thresholdResult =
                             if optimizeOps && hasBothCtx
                                 then
@@ -8279,6 +8317,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                 _ -> 0.25
                                         objectiveAllowed =
                                             [ "annualized-equity"
+                                            , "roi"
                                             , "final-equity"
                                             , "sharpe"
                                             , "calmar"
@@ -8289,7 +8328,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         objective =
                                             case objectiveRaw of
                                                 Just v | v `elem` objectiveAllowed -> v
-                                                _ -> "annualized-equity"
+                                                _ -> "roi"
                                         symbols =
                                             case symbolsEnv of
                                                 Just raw ->
@@ -9600,11 +9639,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                     , haltReason3
                     , haltedAt3
                     )
-            else do
-                o <-
-                    if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
-                        then placeBotCloseIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
-                        else placeIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
+            else
                 if not wantSwitch
                     then
                         pure
@@ -9612,7 +9647,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             , botOrders st
                             , botTrades st
                             , openTrade1
-                            , Just o
+                            , Nothing
                             , prevPos
                             , eqAfterReturn
                             , False
@@ -9621,6 +9656,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             , haltedAt1
                             )
                     else do
+                        o <-
+                            if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
+                                then placeBotCloseIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
+                                else placeIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
                         let opSide =
                                 if desiredPosWanted > prevPos
                                     then "BUY"
@@ -9632,13 +9671,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 let msg = aorMessage o
                                  in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
                             requestedQty = requestedQtyFromOrder targetQtyForSwitch o
-                            executedQtyRaw =
-                                if not tradeEnabled
-                                    then requestedQty
-                                    else
-                                        if alreadyMsg
-                                            then requestedQty
-                                            else fromMaybe 0 (executedQtyFromOrder requestedQty o)
+                            executedQtyRaw
+                                | not tradeEnabled = requestedQty
+                                | alreadyMsg = requestedQty
+                                | otherwise = fromMaybe 0 (executedQtyFromOrder requestedQty o)
                             (posNew, sizeNew, closeQty, openQty) =
                                 applyExecutedQuantity prevPos prevSize (opSide == "BUY") executedQtyRaw
                             appliedExecution =
@@ -10570,6 +10606,30 @@ argsCacheJsonSignal args =
             , "minEdge" .= argMinEdge args
             , "minSignalToNoise" .= argMinSignalToNoise args
             , "snrSizeWeight" .= argSnrSizeWeight args
+            , "metaLabelFilter" .= argMetaLabelFilter args
+            , "metaLabelMinEdge" .= argMetaLabelMinEdge args
+            , "metaLabelMinConfidence" .= argMetaLabelMinConfidence args
+            , "metaLabelRequireBand" .= argMetaLabelRequireBand args
+            , "regimeParameterBank" .= argRegimeParameterBank args
+            , "regimeBankHysteresis" .= argRegimeBankHysteresis args
+            , "regimeTrendOpenMult" .= argRegimeTrendOpenMult args
+            , "regimeMrOpenMult" .= argRegimeMrOpenMult args
+            , "regimeHighVolOpenMult" .= argRegimeHighVolOpenMult args
+            , "regimeTrendSizeMult" .= argRegimeTrendSizeMult args
+            , "regimeMrSizeMult" .= argRegimeMrSizeMult args
+            , "regimeHighVolSizeMult" .= argRegimeHighVolSizeMult args
+            , "multiTimeframeConsensus" .= argMultiTimeframeConsensus args
+            , "mtfFastBars" .= argMtfFastBars args
+            , "mtfMidBars" .= argMtfMidBars args
+            , "mtfSlowBars" .= argMtfSlowBars args
+            , "mtfMinAgree" .= argMtfMinAgree args
+            , "crossAssetConfirmation" .= argCrossAssetConfirmation args
+            , "crossAssetMinBeta" .= argCrossAssetMinBeta args
+            , "crossAssetMinEdge" .= argCrossAssetMinEdge args
+            , "pairsStatArb" .= argPairsStatArb args
+            , "pairsStatArbLookback" .= argPairsStatArbLookback args
+            , "pairsStatArbZEntry" .= argPairsStatArbZEntry args
+            , "pairsStatArbSizeMult" .= argPairsStatArbSizeMult args
             , "thresholdFactorEnabled" .= argThresholdFactorEnabled args
             , "thresholdFactorAlpha" .= argThresholdFactorAlpha args
             , "thresholdFactorMin" .= argThresholdFactorMin args
@@ -10598,6 +10658,11 @@ argsCacheJsonSignal args =
             , "volFloor" .= argVolFloor args
             , "volScaleMax" .= argVolScaleMax args
             , "maxVolatility" .= argMaxVolatility args
+            , "fundingOiAware" .= argFundingOiAware args
+            , "fundingOiFundingCap" .= argFundingOiFundingCap args
+            , "fundingOiVolLookback" .= argFundingOiVolLookback args
+            , "fundingOiVolCap" .= argFundingOiVolCap args
+            , "fundingOiSizeMult" .= argFundingOiSizeMult args
             , "blendWeight" .= argBlendWeight args
             , "routerLookback" .= argRouterLookback args
             , "routerMinScore" .= argRouterMinScore args
@@ -10618,6 +10683,15 @@ argsCacheJsonSignal args =
             , "confirmQuantiles" .= argConfirmQuantiles args
             , "confidenceSizing" .= argConfidenceSizing args
             , "minPositionSize" .= argMinPositionSize args
+            , "kellyLiteSizing" .= argKellyLiteSizing args
+            , "kellyLiteFraction" .= argKellyLiteFraction args
+            , "kellyLiteFloor" .= argKellyLiteFloor args
+            , "kellyLiteCap" .= argKellyLiteCap args
+            , "executionMakerFirst" .= argExecutionMakerFirst args
+            , "executionMakerOffsetBps" .= argExecutionMakerOffsetBps args
+            , "executionMakerTimeoutSec" .= argExecutionMakerTimeoutSec args
+            , "executionMakerPollMs" .= argExecutionMakerPollMs args
+            , "executionMakerFallbackMarket" .= argExecutionMakerFallbackMarket args
             ]
 
 argsCacheJsonBacktest :: Args -> Aeson.Value
@@ -10625,10 +10699,7 @@ argsCacheJsonBacktest args =
     let market = marketCode (argBinanceMarket args)
         barsResolved = barsResolvedForCache args
         lookbackResolved = argLookback args
-        tuneObjectiveUsed =
-            if argThresholdFactorEnabled args
-                then TuneAnnualizedEquity
-                else argTuneObjective args
+        tuneObjectiveUsed = argTuneObjective args
      in object
             [ "data" .= argData args
             , "priceColumn" .= argPriceCol args
@@ -10697,6 +10768,30 @@ argsCacheJsonBacktest args =
             , "maxDailyLoss" .= argMaxDailyLoss args
             , "minEdge" .= argMinEdge args
             , "minSignalToNoise" .= argMinSignalToNoise args
+            , "metaLabelFilter" .= argMetaLabelFilter args
+            , "metaLabelMinEdge" .= argMetaLabelMinEdge args
+            , "metaLabelMinConfidence" .= argMetaLabelMinConfidence args
+            , "metaLabelRequireBand" .= argMetaLabelRequireBand args
+            , "regimeParameterBank" .= argRegimeParameterBank args
+            , "regimeBankHysteresis" .= argRegimeBankHysteresis args
+            , "regimeTrendOpenMult" .= argRegimeTrendOpenMult args
+            , "regimeMrOpenMult" .= argRegimeMrOpenMult args
+            , "regimeHighVolOpenMult" .= argRegimeHighVolOpenMult args
+            , "regimeTrendSizeMult" .= argRegimeTrendSizeMult args
+            , "regimeMrSizeMult" .= argRegimeMrSizeMult args
+            , "regimeHighVolSizeMult" .= argRegimeHighVolSizeMult args
+            , "multiTimeframeConsensus" .= argMultiTimeframeConsensus args
+            , "mtfFastBars" .= argMtfFastBars args
+            , "mtfMidBars" .= argMtfMidBars args
+            , "mtfSlowBars" .= argMtfSlowBars args
+            , "mtfMinAgree" .= argMtfMinAgree args
+            , "crossAssetConfirmation" .= argCrossAssetConfirmation args
+            , "crossAssetMinBeta" .= argCrossAssetMinBeta args
+            , "crossAssetMinEdge" .= argCrossAssetMinEdge args
+            , "pairsStatArb" .= argPairsStatArb args
+            , "pairsStatArbLookback" .= argPairsStatArbLookback args
+            , "pairsStatArbZEntry" .= argPairsStatArbZEntry args
+            , "pairsStatArbSizeMult" .= argPairsStatArbSizeMult args
             , "thresholdFactorEnabled" .= argThresholdFactorEnabled args
             , "thresholdFactorAlpha" .= argThresholdFactorAlpha args
             , "thresholdFactorMin" .= argThresholdFactorMin args
@@ -10728,6 +10823,11 @@ argsCacheJsonBacktest args =
             , "fundingBySide" .= argFundingBySide args
             , "rebalanceResetOnSignal" .= argRebalanceResetOnSignal args
             , "fundingOnOpen" .= argFundingOnOpen args
+            , "fundingOiAware" .= argFundingOiAware args
+            , "fundingOiFundingCap" .= argFundingOiFundingCap args
+            , "fundingOiVolLookback" .= argFundingOiVolLookback args
+            , "fundingOiVolCap" .= argFundingOiVolCap args
+            , "fundingOiSizeMult" .= argFundingOiSizeMult args
             , "blendWeight" .= argBlendWeight args
             , "routerLookback" .= argRouterLookback args
             , "routerMinScore" .= argRouterMinScore args
@@ -10749,6 +10849,15 @@ argsCacheJsonBacktest args =
             , "confirmQuantiles" .= argConfirmQuantiles args
             , "confidenceSizing" .= argConfidenceSizing args
             , "minPositionSize" .= argMinPositionSize args
+            , "kellyLiteSizing" .= argKellyLiteSizing args
+            , "kellyLiteFraction" .= argKellyLiteFraction args
+            , "kellyLiteFloor" .= argKellyLiteFloor args
+            , "kellyLiteCap" .= argKellyLiteCap args
+            , "executionMakerFirst" .= argExecutionMakerFirst args
+            , "executionMakerOffsetBps" .= argExecutionMakerOffsetBps args
+            , "executionMakerTimeoutSec" .= argExecutionMakerTimeoutSec args
+            , "executionMakerPollMs" .= argExecutionMakerPollMs args
+            , "executionMakerFallbackMarket" .= argExecutionMakerFallbackMarket args
             ]
 
 cacheKeyForArgs :: Text -> (Args -> Aeson.Value) -> Args -> Text
@@ -11983,6 +12092,7 @@ prepareOptimizerArgs outputPath req = do
                                 else Right []
                 objectiveAllowed =
                     [ "annualized-equity"
+                    , "roi"
                     , "final-equity"
                     , "sharpe"
                     , "calmar"
@@ -13213,16 +13323,49 @@ objectiveScoreFromMetrics args objective metricsVal =
             case metricsVal of
                 Aeson.Object o -> KM.lookup (AK.fromString k) o >>= AT.parseMaybe parseJSON
                 _ -> Nothing
-        finalEq = fromMaybe 0 (metric "finalEquity")
-        maxDd = fromMaybe 0 (metric "maxDrawdown")
-        sharpe = fromMaybe 0 (metric "sharpe")
-        annRet = fromMaybe 0 (metric "annualizedReturn")
-        turnover = fromMaybe 0 (metric "turnover")
+        metricDouble :: String -> Maybe Double
+        metricDouble = metric
+        metricInt :: String -> Maybe Int
+        metricInt = metric
+        finalEq = fromMaybe 0 (metricDouble "finalEquity")
+        maxDd = fromMaybe 0 (metricDouble "maxDrawdown")
+        cvar95 = fromMaybe 0 (metricDouble "cvar95")
+        sharpe = fromMaybe 0 (metricDouble "sharpe")
+        annRet = fromMaybe 0 (metricDouble "annualizedReturn")
+        turnover = fromMaybe 0 (metricDouble "turnover")
+        maxDdN = max 0 maxDd
+        cvar95N = max 0 cvar95
+        turnoverN = max 0 turnover
+        avgTradeReturn = fromMaybe 0 (metricDouble "avgTradeReturn")
+        avgHoldingPeriods = fromMaybe 0 (metricDouble "avgHoldingPeriods")
+        roundTrips = max 0 (fromMaybe 0 (metricInt "roundTrips"))
+        tradeCount = max 0 (fromMaybe 0 (metricInt "tradeCount"))
+        exposure = max 0 (fromMaybe 0 (metricDouble "exposure"))
+        activityCount = max roundTrips tradeCount
+        activityPenalty
+            | activityCount <= 0 = 0.25
+            | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
+            | otherwise = 0
+        exposurePenalty
+            | exposure <= 0 = 0.05
+            | exposure < 0.01 = 0.02
+            | otherwise = 0
+        paybackBonus
+            | avgHoldingPeriods <= 0 = 0
+            | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
         obj = map toLower (trim objective)
         penaltyMaxDd = max 0 (argTunePenaltyMaxDrawdown args)
         penaltyTurnover = max 0 (argTunePenaltyTurnover args)
         rawScore
             | obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"] = annRet
+            | obj `elem` ["roi", "risk-adjusted-roi", "risk_adjusted_roi", "riskadjustedroi"] =
+                annRet
+                    - penaltyMaxDd * (maxDdN + cvar95N)
+                    - penaltyTurnover * turnoverN
+                    + 0.5 * avgTradeReturn
+                    + paybackBonus
+                    - activityPenalty
+                    - exposurePenalty
             | obj `elem` ["final-equity", "final_equity", "finalequity"] = finalEq
             | obj == "sharpe" = sharpe
             | obj == "calmar" = annRet / max 1e-12 maxDd
@@ -19040,6 +19183,56 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                     else Just (clamp01 x)
          in raw >>= clean
 
+    makerWaitEnabled :: Bool
+    makerWaitEnabled = argExecutionMakerFirst args && mode == OrderLive
+
+    makerOffsetFrac :: Double
+    makerOffsetFrac = max 0 (argExecutionMakerOffsetBps args) / 10000
+
+    makerTimeoutUs :: Int
+    makerTimeoutUs = max 0 (floor (max 0 (argExecutionMakerTimeoutSec args) * 1000000))
+
+    makerPollUs :: Int
+    makerPollUs = max 1000 (argExecutionMakerPollMs args * 1000)
+
+    waitForMakerEntry :: OrderSide -> IO (Either String ())
+    waitForMakerEntry side =
+        if not makerWaitEnabled || makerOffsetFrac <= 0
+            then pure (Right ())
+            else do
+                let targetPx =
+                        case side of
+                            Buy -> currentPrice * (1 - makerOffsetFrac)
+                            Sell -> currentPrice * (1 + makerOffsetFrac)
+                    isReady px =
+                        case side of
+                            Buy -> px <= targetPx
+                            Sell -> px >= targetPx
+                    timeoutMsg = "No order: maker-first timeout (market fallback disabled)."
+                if makerTimeoutUs <= 0
+                    then
+                        if argExecutionMakerFallbackMarket args
+                            then pure (Right ())
+                            else pure (Left timeoutMsg)
+                    else do
+                        start <- getPOSIXTime
+                        let elapsedUs now = floor ((now - start) * 1000000)
+                            loop = do
+                                pxOrErr <- try (fetchTickerPrice env sym) :: IO (Either SomeException Double)
+                                case pxOrErr of
+                                    Right px | not (isNaN px || isInfinite px) && isReady px -> pure (Right ())
+                                    _ -> do
+                                        now <- getPOSIXTime
+                                        if elapsedUs now >= makerTimeoutUs
+                                            then
+                                                if argExecutionMakerFallbackMarket args
+                                                    then pure (Right ())
+                                                    else pure (Left timeoutMsg)
+                                            else do
+                                                threadDelay makerPollUs
+                                                loop
+                        loop
+
     tryFetchFilters :: IO (Maybe SymbolFilters)
     tryFetchFilters = do
         r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
@@ -19123,6 +19316,23 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                             case normalizeQty sf price minQ of
                                 Right qMin -> Right (qMin, qMin > qtyRaw + 1e-9)
                                 Left _ -> Left err
+
+    sendMarketOrderWithMaker :: Bool -> String -> OrderSide -> Maybe Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
+    sendMarketOrderWithMaker isEntry sideLabel side mQty mQuote mReduceOnly =
+        if not isEntry
+            then sendMarketOrder sideLabel side mQty mQuote mReduceOnly
+            else do
+                waitRes <- waitForMakerEntry side
+                case waitRes of
+                    Left msg ->
+                        pure
+                            baseResult
+                                { aorSide = Just sideLabel
+                                , aorQuantity = mQty
+                                , aorQuoteQuantity = mQuote
+                                , aorMessage = msg
+                                }
+                    Right () -> sendMarketOrder sideLabel side mQty mQuote mReduceOnly
 
     sendMarketOrder :: String -> OrderSide -> Maybe Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
     sendMarketOrder sideLabel side mQty mQuote mReduceOnly = do
@@ -19210,7 +19420,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                         Nothing ->
                                             if qRaw * currentPrice > quoteBal
                                                 then pure baseResult{aorMessage = "No order: insufficient quote balance."}
-                                                else sendMarketOrder "BUY" Buy (Just qRaw) Nothing Nothing
+                                                else sendMarketOrderWithMaker True "BUY" Buy (Just qRaw) Nothing Nothing
                                         Just sf ->
                                             case normalizeEntryQty sf currentPrice qRaw of
                                                 Left e -> pure baseResult{aorMessage = "No order: " ++ e}
@@ -19225,7 +19435,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                             else "No order: insufficient quote balance."
                                                                     }
                                                         else do
-                                                            out <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
+                                                            out <- sendMarketOrderWithMaker True "BUY" Buy (Just q) Nothing Nothing
                                                             pure $
                                                                 if bumped && aorSent out
                                                                     then out{aorMessage = aorMessage out ++ " (min size applied)."}
@@ -19244,7 +19454,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                     else
                                                         if qq > quoteBal
                                                             then pure baseResult{aorMessage = "No order: insufficient quote balance."}
-                                                            else sendMarketOrder "BUY" Buy Nothing (Just qq) Nothing
+                                                            else sendMarketOrderWithMaker True "BUY" Buy Nothing (Just qq) Nothing
             (-1) ->
                 if not alreadyLong
                     then pure baseResult{aorMessage = "No order: already flat."}
@@ -19629,7 +19839,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                     if q <= 0
                                                                         then pure baseResult{aorMessage = "No order: quantity is 0."}
                                                                         else do
-                                                                            out0 <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
+                                                                            out0 <- sendMarketOrderWithMaker True "BUY" Buy (Just q) Nothing Nothing
                                                                             let out =
                                                                                     if bumped && aorSent out0
                                                                                         then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
@@ -19689,7 +19899,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                             if q <= 0
                                                                                 then pure baseResult{aorMessage = "No order: quantity is 0."}
                                                                                 else do
-                                                                                    out0 <- sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
+                                                                                    out0 <- sendMarketOrderWithMaker True "SELL" Sell (Just q) Nothing Nothing
                                                                                     let out =
                                                                                             if bumped && aorSent out0
                                                                                                 then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
@@ -20832,42 +21042,40 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         backtestHighs = drop trainEnd highsAll
         backtestLows = drop trainEnd lowsAll
         backtestOpenTimes = fmap (drop trainEnd) openTimesAll
-        methodForComputation =
-            if useKalmanPhysics
-                then MethodKalmanPhysicsError
-                else
-                    if argOptimizeOperations args
-                        then MethodBoth
-                        else case methodRequested of
-                            MethodBlend -> MethodBoth
-                            MethodConfBlend -> MethodBoth
-                            MethodConfPick -> MethodBoth
-                            MethodConformalClip -> MethodBoth
-                            MethodCostPick -> MethodBoth
-                            MethodHarmonicBlend -> MethodBoth
-                            MethodDisagreementGuard -> MethodBoth
-                            MethodMedianBlend -> MethodBoth
-                            MethodNeutralGuard -> MethodBoth
-                            MethodRiskParityBlend -> MethodBoth
-                            MethodConsensusBoost -> MethodBoth
-                            MethodAnchorBlend -> MethodBoth
-                            MethodTensionGate -> MethodBoth
-                            MethodEntropyBlend -> MethodBoth
-                            MethodCoherenceGate -> MethodBoth
-                            MethodDivergenceGate -> MethodBoth
-                            MethodFractalBlend -> MethodBoth
-                            MethodPhaseCancel -> MethodBoth
-                            MethodSoftmaxBlend -> MethodBoth
-                            MethodSmoothSoftmaxBlend -> MethodBoth
-                            MethodHedgeBlend -> MethodBoth
-                            MethodNetSoftmaxBlend -> MethodBoth
-                            MethodEdgeBlend -> MethodBoth
-                            MethodEdgePick -> MethodBoth
-                            MethodGeoBlend -> MethodBoth
-                            MethodRegimeSwitch -> MethodBoth
-                            MethodRouter -> MethodBoth
-                            MethodBanditRouter -> MethodBoth
-                            _ -> methodRequested
+        methodForComputation
+            | useKalmanPhysics = MethodKalmanPhysicsError
+            | argOptimizeOperations args = MethodBoth
+            | otherwise =
+                case methodRequested of
+                    MethodBlend -> MethodBoth
+                    MethodConfBlend -> MethodBoth
+                    MethodConfPick -> MethodBoth
+                    MethodConformalClip -> MethodBoth
+                    MethodCostPick -> MethodBoth
+                    MethodHarmonicBlend -> MethodBoth
+                    MethodDisagreementGuard -> MethodBoth
+                    MethodMedianBlend -> MethodBoth
+                    MethodNeutralGuard -> MethodBoth
+                    MethodRiskParityBlend -> MethodBoth
+                    MethodConsensusBoost -> MethodBoth
+                    MethodAnchorBlend -> MethodBoth
+                    MethodTensionGate -> MethodBoth
+                    MethodEntropyBlend -> MethodBoth
+                    MethodCoherenceGate -> MethodBoth
+                    MethodDivergenceGate -> MethodBoth
+                    MethodFractalBlend -> MethodBoth
+                    MethodPhaseCancel -> MethodBoth
+                    MethodSoftmaxBlend -> MethodBoth
+                    MethodSmoothSoftmaxBlend -> MethodBoth
+                    MethodHedgeBlend -> MethodBoth
+                    MethodNetSoftmaxBlend -> MethodBoth
+                    MethodEdgeBlend -> MethodBoth
+                    MethodEdgePick -> MethodBoth
+                    MethodGeoBlend -> MethodBoth
+                    MethodRegimeSwitch -> MethodBoth
+                    MethodRouter -> MethodBoth
+                    MethodBanditRouter -> MethodBoth
+                    _ -> methodRequested
         pricesV = V.fromList prices
         highsV = V.fromList highsAll
         lowsV = V.fromList lowsAll
@@ -21177,10 +21385,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
 
         ppy = periodsPerYear args
-        tuneObjectiveUsed =
-            if argThresholdFactorEnabled args
-                then TuneAnnualizedEquity
-                else argTuneObjective args
+        tuneObjectiveUsed = argTuneObjective args
         tuneCfg =
             TuneConfig
                 { tcObjective = tuneObjectiveUsed
@@ -22462,6 +22667,45 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 if factorEnabled
                     then max factorFloor (minSignalToNoiseBase * factorOpenBase)
                     else minSignalToNoiseBase
+            metaLabelEnabled = argMetaLabelFilter args
+            metaLabelMinEdge = max 0 (argMetaLabelMinEdge args)
+            metaLabelMinConfidence = clamp01 (argMetaLabelMinConfidence args)
+            metaLabelRequireBand = argMetaLabelRequireBand args
+            regimeBankEnabled = argRegimeParameterBank args
+            regimeBankHysteresis = clamp01 (argRegimeBankHysteresis args)
+            regimeTrendOpenMult = max 0 (argRegimeTrendOpenMult args)
+            regimeMrOpenMult = max 0 (argRegimeMrOpenMult args)
+            regimeHighVolOpenMult = max 0 (argRegimeHighVolOpenMult args)
+            regimeTrendSizeMult = max 0 (argRegimeTrendSizeMult args)
+            regimeMrSizeMult = max 0 (argRegimeMrSizeMult args)
+            regimeHighVolSizeMult = max 0 (argRegimeHighVolSizeMult args)
+            mtfConsensusEnabled = argMultiTimeframeConsensus args
+            mtfFastBars = max 1 (argMtfFastBars args)
+            mtfMidBars = max 1 (argMtfMidBars args)
+            mtfSlowBars = max 1 (argMtfSlowBars args)
+            mtfMinAgree = max 1 (min 3 (argMtfMinAgree args))
+            crossAssetEnabled = argCrossAssetConfirmation args
+            crossAssetMinBeta = max 0 (argCrossAssetMinBeta args)
+            crossAssetMinEdge = max 0 (argCrossAssetMinEdge args)
+            pairsStatArbEnabled = argPairsStatArb args
+            pairsLookback = max 2 (argPairsStatArbLookback args)
+            pairsZEntry = max 1e-9 (argPairsStatArbZEntry args)
+            pairsSizeMult = clamp01 (argPairsStatArbSizeMult args)
+            fundingOiEnabled = argFundingOiAware args
+            fundingOiFundingCap =
+                case argFundingOiFundingCap args of
+                    Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
+                    _ -> Nothing
+            fundingOiVolLookback = max 2 (argFundingOiVolLookback args)
+            fundingOiVolCap =
+                case argFundingOiVolCap args of
+                    Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
+                    _ -> Nothing
+            fundingOiSizeMult = clamp01 (argFundingOiSizeMult args)
+            kellyLiteEnabled = argKellyLiteSizing args
+            kellyLiteFraction = max 0 (argKellyLiteFraction args)
+            kellyLiteFloor = max 0 (argKellyLiteFloor args)
+            kellyLiteCap = max kellyLiteFloor (argKellyLiteCap args)
             directionPrice thr pred =
                 let upEdge = currentPrice * (1 + thr)
                     downEdge = currentPrice * (1 - thr)
@@ -22521,6 +22765,47 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                         let m = meanList xs
                             var = sum (map (\x -> (x - m) ** 2) xs) / fromIntegral (length xs - 1)
                          in sqrt var
+
+            returnAt i =
+                if i <= 0 || i >= n
+                    then Nothing
+                    else
+                        let p0 = pricesV V.! (i - 1)
+                            p1 = pricesV V.! i
+                            r =
+                                if p0 == 0 || bad p0 || bad p1
+                                    then 0
+                                    else p1 / p0 - 1
+                         in if bad r then Nothing else Just r
+
+            horizonDir bars =
+                if bars <= 0 || t < bars
+                    then Nothing
+                    else
+                        let p0 = pricesV V.! (t - bars)
+                            p1 = pricesV V.! t
+                            r =
+                                if p0 == 0 || bad p0 || bad p1
+                                    then 0
+                                    else p1 / p0 - 1
+                            eps = max 1e-12 (openThrAdj * sqrt (fromIntegral (max 1 bars)))
+                         in if bad r
+                                then Nothing
+                                else
+                                    if r > eps
+                                        then Just (1 :: Int)
+                                        else if r < negate eps then Just (-1) else Nothing
+
+            mtfDirs = map horizonDir [mtfFastBars, mtfMidBars, mtfSlowBars]
+
+            fundingPressure dir =
+                let baseFunding = argFundingRate args
+                 in if argFundingBySide args
+                        then
+                            if dir >= 0
+                                then baseFunding
+                                else negate baseFunding
+                        else baseFunding
 
             volEstimate =
                 let total = length returnsFromPrices
@@ -23376,6 +23661,98 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodRegimeSwitch -> edgeRegimeSwitch
                     MethodRouter -> edgeRouter
                     MethodBanditRouter -> edgeRouter
+            regimeLeader =
+                case mRegimes of
+                    Nothing -> Nothing
+                    Just r ->
+                        let ranked =
+                                sortOn
+                                    (Data.Ord.Down . snd)
+                                    [("TREND", rpTrend r), ("MR", rpMR r), ("HIGH_VOL", rpHighVol r)]
+                         in case ranked of
+                                [] -> Nothing
+                                [(name, _)] -> Just name
+                                ((name, p1) : (_, p2) : _) ->
+                                    if p1 - p2 >= regimeBankHysteresis
+                                        then Just name
+                                        else Nothing
+            regimeOpenMult =
+                if not regimeBankEnabled
+                    then 1
+                    else case regimeLeader of
+                        Just "TREND" -> regimeTrendOpenMult
+                        Just "MR" -> regimeMrOpenMult
+                        Just "HIGH_VOL" -> regimeHighVolOpenMult
+                        _ -> 1
+            regimeSizeMult =
+                if not regimeBankEnabled
+                    then 1
+                    else case regimeLeader of
+                        Just "TREND" -> regimeTrendSizeMult
+                        Just "MR" -> regimeMrSizeMult
+                        Just "HIGH_VOL" -> regimeHighVolSizeMult
+                        _ -> 1
+            minEdgeRegime = minEdge * regimeOpenMult
+            marketContextSignal =
+                case mMarketModel of
+                    Nothing -> Nothing
+                    Just mm ->
+                        if t <= 0 || t >= V.length (mmLag mm)
+                            then Nothing
+                            else
+                                let lagV = mmLag mm V.! t
+                                    mu = mmIntercept mm + mmBeta mm * lagV
+                                 in if bad mu
+                                        then Nothing
+                                        else Just (mu, mmBeta mm)
+            crossAssetDirRaw =
+                case marketContextSignal of
+                    Just (mu, betaAbs)
+                        | abs betaAbs >= crossAssetMinBeta ->
+                            if mu > crossAssetMinEdge
+                                then Just (1 :: Int)
+                                else if mu < negate crossAssetMinEdge then Just (-1) else Nothing
+                    _ -> Nothing
+            pairsZScore =
+                if not pairsStatArbEnabled
+                    then Nothing
+                    else case mMarketModel of
+                        Nothing -> Nothing
+                        Just mm ->
+                            let residualAt i =
+                                    if i <= 0 || i >= n || i >= V.length (mmLag mm)
+                                        then Nothing
+                                        else case returnAt i of
+                                            Nothing -> Nothing
+                                            Just r ->
+                                                let expR = mmIntercept mm + mmBeta mm * (mmLag mm V.! i)
+                                                    e = r - expR
+                                                 in if bad e then Nothing else Just e
+                                start = max 1 (t - pairsLookback + 1)
+                                residuals = [e | i <- [start .. t], Just e <- [residualAt i]]
+                             in case residualAt t of
+                                    Nothing -> Nothing
+                                    Just eNow ->
+                                        let mRes = meanList residuals
+                                            sRes = stddevList residuals
+                                            z = if sRes <= 1e-12 then 0 else (eNow - mRes) / sRes
+                                         in if bad z then Nothing else Just z
+            pairsDirRaw =
+                case pairsZScore of
+                    Just z ->
+                        if z >= pairsZEntry
+                            then Just (-1 :: Int)
+                            else if z <= negate pairsZEntry then Just (1 :: Int) else Nothing
+                    Nothing -> Nothing
+            oiVolProxy =
+                let total = length returnsFromPrices
+                    lb = min total fundingOiVolLookback
+                    window = drop (total - lb) returnsFromPrices
+                 in if null window
+                        then Nothing
+                        else
+                            let v = meanList (map abs window)
+                             in if bad v then Nothing else Just v
             snrRatio =
                 case (edgeForMethod, volPerBar) of
                     (Just edge, Just vol) | vol > 0 -> Just (edge / vol)
@@ -23980,6 +24357,107 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     else 1
                          in (routerDirRaw, routerCloseDirRaw, Just sizeFallback, Nothing, Nothing)
 
+            methodConfidence =
+                case method of
+                    MethodLstmOnly -> Nothing
+                    MethodRouter -> routerConfidence
+                    MethodBanditRouter -> routerConfidence
+                    _ -> mConfidence
+
+            metaBandAgree dir =
+                case (mConformal, mQuantiles) of
+                    (Just i, _) ->
+                        case dir of
+                            1 -> iLo i > 0
+                            (-1) -> iHi i < 0
+                            _ -> False
+                    (_, Just q) ->
+                        case dir of
+                            1 -> q10 q > 0
+                            (-1) -> q90 q < 0
+                            _ -> False
+                    _ -> False
+
+            metaLabelOk dir =
+                if not metaLabelEnabled
+                    then True
+                    else
+                        let edgeOk =
+                                if metaLabelMinEdge <= 0
+                                    then True
+                                    else maybe False (>= metaLabelMinEdge) edgeForMethod
+                            confidenceOk =
+                                if metaLabelMinConfidence <= 0
+                                    then True
+                                    else maybe False (>= metaLabelMinConfidence) methodConfidence
+                            bandOk =
+                                if not metaLabelRequireBand
+                                    then True
+                                    else metaBandAgree dir
+                         in edgeOk && confidenceOk && bandOk
+
+            mtfConsensusCheck dir =
+                if not mtfConsensusEnabled
+                    then (True, Nothing)
+                    else
+                        let available = [d | Just d <- mtfDirs]
+                            agree = length (filter (== dir) available)
+                         in if length available < mtfMinAgree
+                                then (False, Just "MTF_WARMUP")
+                                else
+                                    if agree >= mtfMinAgree
+                                        then (True, Nothing)
+                                        else (False, Just "MTF_CONSENSUS")
+
+            crossAssetCheck dir =
+                if not crossAssetEnabled
+                    then (True, Nothing)
+                    else case crossAssetDirRaw of
+                        Nothing -> (False, Just "CROSS_ASSET")
+                        Just d ->
+                            if d == dir
+                                then (True, Nothing)
+                                else (False, Just "CROSS_ASSET")
+
+            regimeEdgeOk =
+                if not regimeBankEnabled
+                    then True
+                    else
+                        if minEdgeRegime <= 0
+                            then True
+                            else maybe False (>= minEdgeRegime) edgeForMethod
+
+            fundingOiCheck dir =
+                if not fundingOiEnabled
+                    then (True, 1.0)
+                    else
+                        let funding = fundingPressure dir
+                            fundingOk =
+                                case fundingOiFundingCap of
+                                    Nothing -> True
+                                    Just cap -> funding <= cap
+                            volProxyOk =
+                                case fundingOiVolCap of
+                                    Nothing -> True
+                                    Just cap ->
+                                        case oiVolProxy of
+                                            Nothing -> False
+                                            Just v -> v <= cap
+                            fundingPenalty =
+                                case fundingOiFundingCap of
+                                    Nothing -> 0
+                                    Just cap ->
+                                        if cap <= 0
+                                            then 0
+                                            else max 0 ((funding - cap) / cap)
+                            volPenalty =
+                                case (fundingOiVolCap, oiVolProxy) of
+                                    (Just cap, Just v) | cap > 0 -> max 0 ((v - cap) / cap)
+                                    _ -> 0
+                            dampRaw = 1 / (1 + fundingPenalty + volPenalty)
+                            damp = max fundingOiSizeMult (min 1 dampRaw)
+                         in (fundingOk && volProxyOk, damp)
+
             closeDir =
                 case method of
                     MethodBoth ->
@@ -24021,7 +24499,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 if kalDir == lstmDir
                     then kalDir
                     else Nothing
-            chosenDir0 =
+            chosenDirBase =
                 case method of
                     MethodBoth -> agreeDir
                     MethodKalmanOnly -> kalDir
@@ -24054,9 +24532,19 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodRegimeSwitch -> regimeSwitchDirGated
                     MethodRouter -> routerDirGated
                     MethodBanditRouter -> routerDirGated
+            (chosenDir0, pairsOverlayActive, mPairsOverlayReason) =
+                if not pairsStatArbEnabled
+                    then (chosenDirBase, False, Nothing)
+                    else case (chosenDirBase, pairsDirRaw) of
+                        (Nothing, Just d) -> (Just d, True, Nothing)
+                        (Just d0, Just d1) ->
+                            if d0 == d1
+                                then (Just d0, True, Nothing)
+                                else (Nothing, False, Just "PAIRS_CONFLICT")
+                        (x, Nothing) -> (x, False, Nothing)
             (chosenDir1, mPostGateReason) =
                 case chosenDir0 of
-                    Nothing -> (Nothing, Nothing)
+                    Nothing -> (Nothing, mPairsOverlayReason)
                     Just dir ->
                         if not volOk
                             then (Nothing, Just "MAX_VOLATILITY")
@@ -24075,7 +24563,25 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                                             else
                                                                 if not signalToNoiseOk
                                                                     then (Nothing, Just "SIGNAL_TO_NOISE")
-                                                                    else (Just dir, Nothing)
+                                                                    else
+                                                                        if not regimeEdgeOk
+                                                                            then (Nothing, Just "REGIME_BANK")
+                                                                            else
+                                                                                let (mtfOk, mMtfReason) = mtfConsensusCheck dir
+                                                                                 in if not mtfOk
+                                                                                        then (Nothing, mMtfReason)
+                                                                                        else
+                                                                                            let (crossOk, mCrossReason) = crossAssetCheck dir
+                                                                                             in if not crossOk
+                                                                                                    then (Nothing, mCrossReason)
+                                                                                                    else
+                                                                                                        if not (metaLabelOk dir)
+                                                                                                            then (Nothing, Just "META_LABEL")
+                                                                                                            else
+                                                                                                                let (fundingOiOk, _fundingOiSizeScale0) = fundingOiCheck dir
+                                                                                                                 in if not fundingOiOk
+                                                                                                                        then (Nothing, Just "FUNDING_OI")
+                                                                                                                        else (Just dir, Nothing)
 
             chosenDir2 =
                 case chosenDir1 of
@@ -24099,9 +24605,34 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                             (Just _, Just sz) -> sz
                             _ -> 0
 
+            fundingOiSizeScale =
+                case chosenDir2 of
+                    Just dir ->
+                        let (_ok, sc) = fundingOiCheck dir
+                         in sc
+                    Nothing -> 1
+            pairsSizeScale =
+                if pairsOverlayActive
+                    then pairsSizeMult
+                    else 1
+            kellyLiteScale =
+                if not kellyLiteEnabled
+                    then 1
+                    else
+                        let mu = fromMaybe 0 edgeForMethod
+                            sig2 =
+                                case volPerBar of
+                                    Just v | v > 0 -> v * v
+                                    _ -> 0
+                            raw =
+                                if sig2 <= 1e-12
+                                    then 0
+                                    else kellyLiteFraction * (mu / sig2)
+                         in max kellyLiteFloor (min kellyLiteCap raw)
             sizeScaled = baseSize * volScale * snrScaleWeighted
             sizeScaledRisk = sizeScaled * riskScale
-            sizeCapped = min maxPositionSize (max 0 sizeScaledRisk)
+            sizeAfterOverlays = sizeScaledRisk * regimeSizeMult * pairsSizeScale * fundingOiSizeScale * kellyLiteScale
+            sizeCapped = min maxPositionSize (max 0 sizeAfterOverlays)
             sizeFinal0 =
                 if argConfidenceSizing args && sizeCapped < argMinPositionSize args
                     then 0
@@ -24453,12 +24984,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 , lsRegimes = mRegimes
                 , lsQuantiles = mQuantiles
                 , lsConformalInterval = mConformal
-                , lsConfidence =
-                    case method of
-                        MethodLstmOnly -> Nothing
-                        MethodRouter -> routerConfidence
-                        MethodBanditRouter -> routerConfidence
-                        _ -> mConfidence
+                , lsConfidence = methodConfidence
                 , lsPositionSize = posSizeFinal
                 , lsExitSize = Nothing
                 , lsKalmanDir = kalDir

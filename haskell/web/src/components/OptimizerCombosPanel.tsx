@@ -916,8 +916,8 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           </button>
         </div>
         <div className="hint" style={{ marginTop: 8 }}>
-          Runs <code>/optimizer/run</code> to generate new combos and refreshes the list above. For annualized equity, keep objective/tune objective on
-          <code>annualized-equity</code> and increase trials/timeout.
+          Runs <code>/optimizer/run</code> to generate new combos and refreshes the list above. For risk-adjusted ROI, keep objective/tune objective on
+          <code>roi</code> and increase trials/timeout.
         </div>
         {optimizerRunValidationError ? (
           <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.85)" }}>

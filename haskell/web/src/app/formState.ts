@@ -159,7 +159,7 @@ export const defaultForm: FormState = {
   routerMinScore: 0.25,
   backtestRatio: 0.2,
   tuneRatio: 0.25,
-  tuneObjective: "annualized-equity",
+  tuneObjective: "roi",
   tunePenaltyMaxDrawdown: 1.5,
   tunePenaltyTurnover: 0.2,
   tuneStressVolMult: 1.0,
@@ -341,7 +341,7 @@ function normalizeTuneObjective(raw: unknown, fallback: string): string {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (s && TUNE_OBJECTIVE_SET.has(s)) return s;
   if (TUNE_OBJECTIVE_SET.has(fallback)) return fallback;
-  return "equity-dd-turnover";
+  return "roi";
 }
 
 export function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
