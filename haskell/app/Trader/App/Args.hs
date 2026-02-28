@@ -814,10 +814,10 @@ opts = do
     argLstmExitFlipStrong <- switch (long "lstm-exit-flip-strong" <> help "Require strong LSTM confidence for flip exits (uses --lstm-confidence-hard)")
     argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
     argExecutionMakerFirst <-
-        defaultOffSwitch
+        defaultOnSwitch
             "execution-maker-first"
             "no-execution-maker-first"
-            "Enable maker-first entry pacing (wait for favorable ticks) with optional market fallback."
+            "Enable maker-first entry pacing (wait for favorable ticks) with optional market fallback (default on)."
             "Disable maker-first entry pacing."
     argExecutionMakerOffsetBps <- option auto (long "execution-maker-offset-bps" <> value 2 <> showDefault <> help "Favorable-price offset in basis points for maker-first pacing")
     argExecutionMakerTimeoutSec <- option auto (long "execution-maker-timeout-sec" <> value 3 <> showDefault <> help "Maximum wait time (seconds) for maker-first pacing before fallback/skip")

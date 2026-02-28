@@ -10,12 +10,43 @@ if [[ ! -f "$TOP_JSON" ]]; then
 fi
 
 COUNT="${COUNT:-5}"
-TRIALS="${TRIALS:-100}"
+TRIALS="${TRIALS:-300}"
 BARS="${BARS:-1000}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
 PLATFORM="${PLATFORM:-binance}"
 FUTURES="${FUTURES:-1}"
-QUALITY="${QUALITY:-0}"
+QUALITY="${QUALITY:-1}"
+MIN_ROUND_TRIPS="${MIN_ROUND_TRIPS:-20}"
+MIN_EXPOSURE="${MIN_EXPOSURE:-0.10}"
+MIN_SHARPE="${MIN_SHARPE:-1.0}"
+MIN_CALMAR="${MIN_CALMAR:-0.8}"
+MIN_WF_SHARPE_MEAN="${MIN_WF_SHARPE_MEAN:-0.8}"
+MAX_WF_SHARPE_STD="${MAX_WF_SHARPE_STD:-1.0}"
+TUNE_STRESS_VOL_MULT="${TUNE_STRESS_VOL_MULT:-1.25}"
+TUNE_STRESS_SHOCK="${TUNE_STRESS_SHOCK:-0.0}"
+TUNE_STRESS_WEIGHT="${TUNE_STRESS_WEIGHT:-0.2}"
+WF_EMBARGO_MIN="${WF_EMBARGO_MIN:-1}"
+WF_EMBARGO_MAX="${WF_EMBARGO_MAX:-3}"
+METHOD_WEIGHT_REGIME_SWITCH="${METHOD_WEIGHT_REGIME_SWITCH:-1.0}"
+METHOD_WEIGHT_BANDIT_ROUTER="${METHOD_WEIGHT_BANDIT_ROUTER:-1.0}"
+ROUTER_SCORE_PNL_WEIGHT_MIN="${ROUTER_SCORE_PNL_WEIGHT_MIN:-0.25}"
+ROUTER_SCORE_PNL_WEIGHT_MAX="${ROUTER_SCORE_PNL_WEIGHT_MAX:-0.85}"
+ROUTER_LOOKBACK_MIN="${ROUTER_LOOKBACK_MIN:-20}"
+ROUTER_LOOKBACK_MAX="${ROUTER_LOOKBACK_MAX:-180}"
+ROUTER_MIN_SCORE_MIN="${ROUTER_MIN_SCORE_MIN:-0.05}"
+ROUTER_MIN_SCORE_MAX="${ROUTER_MIN_SCORE_MAX:-0.7}"
+P_CONFIDENCE_SIZING="${P_CONFIDENCE_SIZING:-0.85}"
+P_COST_AWARE_EDGE="${P_COST_AWARE_EDGE:-1.0}"
+P_DISABLE_RISK_PER_TRADE="${P_DISABLE_RISK_PER_TRADE:-0.3}"
+STOP_VOL_MULT_MIN="${STOP_VOL_MULT_MIN:-0.8}"
+STOP_VOL_MULT_MAX="${STOP_VOL_MULT_MAX:-3.0}"
+TP_VOL_MULT_MIN="${TP_VOL_MULT_MIN:-1.2}"
+TP_VOL_MULT_MAX="${TP_VOL_MULT_MAX:-4.0}"
+TRAIL_VOL_MULT_MIN="${TRAIL_VOL_MULT_MIN:-0.8}"
+TRAIL_VOL_MULT_MAX="${TRAIL_VOL_MULT_MAX:-3.0}"
+P_DISABLE_STOP_VOL_MULT="${P_DISABLE_STOP_VOL_MULT:-0.35}"
+P_DISABLE_TP_VOL_MULT="${P_DISABLE_TP_VOL_MULT:-0.35}"
+P_DISABLE_TRAIL_VOL_MULT="${P_DISABLE_TRAIL_VOL_MULT:-0.5}"
 COMPARE="${COMPARE:-0}"
 BASE_REF="${BASE_REF:-HEAD~1}"
 OUT_ROOT="${OUT_ROOT:-"$ROOT_DIR/.tmp/opt-eq-top5-$(date +%Y%m%d-%H%M%S)"}"
@@ -51,26 +82,77 @@ while IFS= read -r line; do
   [[ -z "$line" ]] && continue
   COMBOS+=("$line")
 done < <(
-  python3 - <<'PY' "$TOP_JSON" "$COUNT"
+  python3 - <<'PY' "$TOP_JSON" "$COUNT" "$MIN_ROUND_TRIPS" "$MIN_EXPOSURE" "$MIN_SHARPE" "$MIN_CALMAR"
 import json, sys
 
 path = sys.argv[1]
 count = int(sys.argv[2])
+min_round_trips = float(sys.argv[3])
+min_exposure = float(sys.argv[4])
+min_sharpe = float(sys.argv[5])
+min_calmar = float(sys.argv[6])
+
+
+def to_float(v, default=0.0):
+    try:
+        return float(v)
+    except Exception:
+        return default
 
 with open(path) as f:
     data = json.load(f)
 
-combos = []
+eligible = []
+fallback = []
+seen = set()
 for c in data.get("combos", []):
     params = c.get("params") or {}
+    metrics = c.get("metrics") or {}
     sym = params.get("binanceSymbol") or params.get("symbol") or params.get("binance_symbol")
     interval = params.get("interval")
-    if sym and interval:
-        combos.append((sym, interval))
-    if len(combos) >= count:
+    if not sym or not interval:
+        continue
+    key = (sym, interval)
+    if key in seen:
+        continue
+    seen.add(key)
+
+    annualized_return = to_float(metrics.get("annualizedReturn"))
+    round_trips = to_float(metrics.get("roundTrips"))
+    exposure = to_float(metrics.get("exposure"))
+    sharpe = to_float(metrics.get("sharpe"))
+    max_dd = to_float(metrics.get("maxDrawdown"))
+    calmar_raw = metrics.get("calmar")
+    if calmar_raw is None:
+        calmar = annualized_return / max_dd if max_dd > 0 else annualized_return
+    else:
+        calmar = to_float(calmar_raw)
+    score = (annualized_return, sharpe, exposure, round_trips)
+    fallback.append((score, sym, interval))
+
+    if (
+        round_trips >= min_round_trips
+        and exposure >= min_exposure
+        and sharpe >= min_sharpe
+        and calmar >= min_calmar
+    ):
+        eligible.append((score, sym, interval))
+
+eligible.sort(reverse=True)
+fallback.sort(reverse=True)
+
+selected = []
+selected_keys = set()
+for _, sym, interval in eligible + fallback:
+    key = (sym, interval)
+    if key in selected_keys:
+        continue
+    selected.append((sym, interval))
+    selected_keys.add(key)
+    if len(selected) >= count:
         break
 
-for sym, interval in combos:
+for sym, interval in selected:
     print(sym, interval)
 PY
 )
@@ -80,7 +162,7 @@ if [[ ${#COMBOS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC platform=$PLATFORM futures=$FUTURES quality=$QUALITY compare=$COMPARE"
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC platform=$PLATFORM futures=$FUTURES quality=$QUALITY compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR"
 
 run_set() {
   local label="$1"
@@ -111,6 +193,37 @@ run_set() {
       --bars-auto-prob 0
       --trials "$TRIALS"
       --timeout-sec "$TIMEOUT_SEC"
+      --min-round-trips "$MIN_ROUND_TRIPS"
+      --min-exposure "$MIN_EXPOSURE"
+      --min-sharpe "$MIN_SHARPE"
+      --min-calmar "$MIN_CALMAR"
+      --min-wf-sharpe-mean "$MIN_WF_SHARPE_MEAN"
+      --max-wf-sharpe-std "$MAX_WF_SHARPE_STD"
+      --tune-stress-vol-mult "$TUNE_STRESS_VOL_MULT"
+      --tune-stress-shock "$TUNE_STRESS_SHOCK"
+      --tune-stress-weight "$TUNE_STRESS_WEIGHT"
+      --walk-forward-embargo-bars-min "$WF_EMBARGO_MIN"
+      --walk-forward-embargo-bars-max "$WF_EMBARGO_MAX"
+      --method-weight-regime-switch "$METHOD_WEIGHT_REGIME_SWITCH"
+      --method-weight-bandit-router "$METHOD_WEIGHT_BANDIT_ROUTER"
+      --router-score-pnl-weight-min "$ROUTER_SCORE_PNL_WEIGHT_MIN"
+      --router-score-pnl-weight-max "$ROUTER_SCORE_PNL_WEIGHT_MAX"
+      --router-lookback-min "$ROUTER_LOOKBACK_MIN"
+      --router-lookback-max "$ROUTER_LOOKBACK_MAX"
+      --router-min-score-min "$ROUTER_MIN_SCORE_MIN"
+      --router-min-score-max "$ROUTER_MIN_SCORE_MAX"
+      --p-confidence-sizing "$P_CONFIDENCE_SIZING"
+      --p-cost-aware-edge "$P_COST_AWARE_EDGE"
+      --p-disable-risk-per-trade "$P_DISABLE_RISK_PER_TRADE"
+      --stop-vol-mult-min "$STOP_VOL_MULT_MIN"
+      --stop-vol-mult-max "$STOP_VOL_MULT_MAX"
+      --tp-vol-mult-min "$TP_VOL_MULT_MIN"
+      --tp-vol-mult-max "$TP_VOL_MULT_MAX"
+      --trail-vol-mult-min "$TRAIL_VOL_MULT_MIN"
+      --trail-vol-mult-max "$TRAIL_VOL_MULT_MAX"
+      --p-disable-stop-vol-mult "$P_DISABLE_STOP_VOL_MULT"
+      --p-disable-tp-vol-mult "$P_DISABLE_TP_VOL_MULT"
+      --p-disable-trail-vol-mult "$P_DISABLE_TRAIL_VOL_MULT"
       --top-json "$json"
     )
 

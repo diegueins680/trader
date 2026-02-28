@@ -844,18 +844,19 @@ applyQualityPreset args =
         minIf = min
      in args
             { oaTrials = maxIf (oaTrials args) 500
-            , oaMinRoundTrips = maxIf (oaMinRoundTrips args) 5
+            , oaMinRoundTrips = maxIf (oaMinRoundTrips args) 20
             , oaOpenThresholdMax = maxIf (oaOpenThresholdMax args) 5e-2
             , oaCloseThresholdMax = maxIf (oaCloseThresholdMax args) 5e-2
             , oaMinWinRate = maxIf (oaMinWinRate args) 0.45
             , oaMinProfitFactor = maxIf (oaMinProfitFactor args) 1.1
-            , oaMinExposure = maxIf (oaMinExposure args) 0.05
-            , oaMinSharpe = maxIf (oaMinSharpe args) 0.25
-            , oaMinWfSharpeMean = maxIf (oaMinWfSharpeMean args) 0.2
+            , oaMinExposure = maxIf (oaMinExposure args) 0.10
+            , oaMinSharpe = maxIf (oaMinSharpe args) 1.0
+            , oaMinCalmar = maxIf (oaMinCalmar args) 0.8
+            , oaMinWfSharpeMean = maxIf (oaMinWfSharpeMean args) 0.8
             , oaMaxWfSharpeStd =
                 if oaMaxWfSharpeStd args <= 0
-                    then 1.5
-                    else oaMaxWfSharpeStd args
+                    then 1.0
+                    else min 1.0 (oaMaxWfSharpeStd args)
             , oaMinSignalToNoiseMin = maxIf (oaMinSignalToNoiseMin args) 0.2
             , oaMinSignalToNoiseMax = maxIf (oaMinSignalToNoiseMax args) 1.0
             , oaEpochsMax = maxIf (oaEpochsMax args) 50
@@ -863,12 +864,29 @@ applyQualityPreset args =
             , oaLrMax = maxIf (oaLrMax args) 5e-2
             , oaBacktestRatio = minIf (oaBacktestRatio args) 0.10
             , oaTuneRatio = minIf (oaTuneRatio args) 0.15
+            , oaTuneStressVolMult = maxIf (oaTuneStressVolMult args) 1.25
+            , oaTuneStressWeight = maxIf (oaTuneStressWeight args) 0.2
             , oaObjective = objective'
             , oaPenaltyTurnover = maxIf (oaPenaltyTurnover args) 0.1
             , oaBarsMax = min (oaBarsMax args) 0
             , oaAutoHighLow = True
             , oaWalkForwardFoldsMin = maxIf (oaWalkForwardFoldsMin args) 3
             , oaWalkForwardFoldsMax = maxIf (oaWalkForwardFoldsMax args) (oaWalkForwardFoldsMin args)
+            , oaWalkForwardEmbargoBarsMin = maxIf (oaWalkForwardEmbargoBarsMin args) 1
+            , oaWalkForwardEmbargoBarsMax = maxIf (oaWalkForwardEmbargoBarsMax args) 3
+            , oaMethodWeightRegimeSwitch = maxIf (oaMethodWeightRegimeSwitch args) 1.0
+            , oaMethodWeightBanditRouter = maxIf (oaMethodWeightBanditRouter args) 1.0
+            , oaPConfidenceSizing = maxIf (oaPConfidenceSizing args) 0.85
+            , oaPDisableRiskPerTrade = minIf (oaPDisableRiskPerTrade args) 0.3
+            , oaStopVolMultMin = maxIf (oaStopVolMultMin args) 0.8
+            , oaStopVolMultMax = maxIf (oaStopVolMultMax args) 3.0
+            , oaTpVolMultMin = maxIf (oaTpVolMultMin args) 1.2
+            , oaTpVolMultMax = maxIf (oaTpVolMultMax args) 4.0
+            , oaTrailVolMultMin = maxIf (oaTrailVolMultMin args) 0.8
+            , oaTrailVolMultMax = maxIf (oaTrailVolMultMax args) 3.0
+            , oaPDisableStopVolMult = minIf (oaPDisableStopVolMult args) 0.35
+            , oaPDisableTpVolMult = minIf (oaPDisableTpVolMult args) 0.35
+            , oaPDisableTrailVolMult = minIf (oaPDisableTrailVolMult args) 0.5
             , oaInterval = if intervalReset then Nothing else oaInterval args
             , oaIntervals = intervals'
             }

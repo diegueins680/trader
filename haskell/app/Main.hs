@@ -24451,11 +24451,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     metaLabelRequireBand
                     (metaBandAgree dir)
 
-            mtfConsensusCheck dir =
-                signalMtfConsensusCheck mtfConsensusEnabled mtfDirs mtfMinAgree dir
+            mtfConsensusCheck =
+                signalMtfConsensusCheck mtfConsensusEnabled mtfDirs mtfMinAgree
 
-            crossAssetCheck dir =
-                signalCrossAssetCheck crossAssetEnabled crossAssetDirRaw dir
+            crossAssetCheck =
+                signalCrossAssetCheck crossAssetEnabled crossAssetDirRaw
 
             regimeEdgeOk =
                 signalRegimeEdgeOk regimeBankEnabled minEdgeRegime edgeForMethod
