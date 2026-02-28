@@ -248,6 +248,14 @@ import Trader.S3 (
     s3PutObject,
  )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
+import Trader.SignalGates (
+    signalCrossAssetCheck,
+    signalFundingOiCheck,
+    signalMetaLabelOk,
+    signalMtfConsensusCheck,
+    signalRegimeEdgeOk,
+    signalRunPostDirectionGates,
+ )
 import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
 import Trader.Text (dedupeStable, normalizeKey, trim)
@@ -24379,74 +24387,32 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     _ -> False
 
             metaLabelOk dir =
-                not metaLabelEnabled
-                    || let edgeOk =
-                                metaLabelMinEdge <= 0
-                                    || maybe False (>= metaLabelMinEdge) edgeForMethod
-                           confidenceOk =
-                                metaLabelMinConfidence <= 0
-                                    || maybe False (>= metaLabelMinConfidence) methodConfidence
-                           bandOk = not metaLabelRequireBand || metaBandAgree dir
-                        in edgeOk && confidenceOk && bandOk
+                signalMetaLabelOk
+                    metaLabelEnabled
+                    metaLabelMinEdge
+                    edgeForMethod
+                    metaLabelMinConfidence
+                    methodConfidence
+                    metaLabelRequireBand
+                    (metaBandAgree dir)
 
             mtfConsensusCheck dir =
-                if not mtfConsensusEnabled
-                    then (True, Nothing)
-                    else
-                        let available = catMaybes mtfDirs
-                            agree = length (filter (== dir) available)
-                         in if length available < mtfMinAgree
-                                then (False, Just "MTF_WARMUP")
-                                else
-                                    if agree >= mtfMinAgree
-                                        then (True, Nothing)
-                                        else (False, Just "MTF_CONSENSUS")
+                signalMtfConsensusCheck mtfConsensusEnabled mtfDirs mtfMinAgree dir
 
             crossAssetCheck dir =
-                if not crossAssetEnabled
-                    then (True, Nothing)
-                    else case crossAssetDirRaw of
-                        Nothing -> (False, Just "CROSS_ASSET")
-                        Just d ->
-                            if d == dir
-                                then (True, Nothing)
-                                else (False, Just "CROSS_ASSET")
+                signalCrossAssetCheck crossAssetEnabled crossAssetDirRaw dir
 
             regimeEdgeOk =
-                not regimeBankEnabled
-                    || minEdgeRegime <= 0
-                    || maybe False (>= minEdgeRegime) edgeForMethod
+                signalRegimeEdgeOk regimeBankEnabled minEdgeRegime edgeForMethod
 
             fundingOiCheck dir =
-                if not fundingOiEnabled
-                    then (True, 1.0)
-                    else
-                        let funding = fundingPressure dir
-                            fundingOk =
-                                case fundingOiFundingCap of
-                                    Nothing -> True
-                                    Just cap -> funding <= cap
-                            volProxyOk =
-                                case fundingOiVolCap of
-                                    Nothing -> True
-                                    Just cap ->
-                                        case oiVolProxy of
-                                            Nothing -> False
-                                            Just v -> v <= cap
-                            fundingPenalty =
-                                case fundingOiFundingCap of
-                                    Nothing -> 0
-                                    Just cap ->
-                                        if cap <= 0
-                                            then 0
-                                            else max 0 ((funding - cap) / cap)
-                            volPenalty =
-                                case (fundingOiVolCap, oiVolProxy) of
-                                    (Just cap, Just v) | cap > 0 -> max 0 ((v - cap) / cap)
-                                    _ -> 0
-                            dampRaw = 1 / (1 + fundingPenalty + volPenalty)
-                            damp = max fundingOiSizeMult (min 1 dampRaw)
-                         in (fundingOk && volProxyOk, damp)
+                signalFundingOiCheck
+                    fundingOiEnabled
+                    fundingOiFundingCap
+                    fundingOiVolCap
+                    fundingOiSizeMult
+                    (fundingPressure dir)
+                    oiVolProxy
 
             closeDir =
                 case method of
@@ -24533,45 +24499,20 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 else (Nothing, False, Just "PAIRS_CONFLICT")
                         (x, Nothing) -> (x, False, Nothing)
             (chosenDir1, mPostGateReason) =
-                case chosenDir0 of
-                    Nothing -> (Nothing, mPairsOverlayReason)
-                    Just dir ->
-                        if not volOk
-                            then (Nothing, Just "MAX_VOLATILITY")
-                            else
-                                if not volTargetReady
-                                    then (Nothing, Just "VOL_TARGET_WARMUP")
-                                    else
-                                        if not (trendOk dir)
-                                            then (Nothing, Just "TREND_FILTER")
-                                            else
-                                                if not (cloudOk dir)
-                                                    then (Nothing, Just "KALMAN_CLOUD")
-                                                    else
-                                                        if not (priceActionOk dir)
-                                                            then (Nothing, Just "PRICE_ACTION")
-                                                            else
-                                                                if not signalToNoiseOk
-                                                                    then (Nothing, Just "SIGNAL_TO_NOISE")
-                                                                    else
-                                                                        if not regimeEdgeOk
-                                                                            then (Nothing, Just "REGIME_BANK")
-                                                                            else
-                                                                                let (mtfOk, mMtfReason) = mtfConsensusCheck dir
-                                                                                 in if not mtfOk
-                                                                                        then (Nothing, mMtfReason)
-                                                                                        else
-                                                                                            let (crossOk, mCrossReason) = crossAssetCheck dir
-                                                                                             in if not crossOk
-                                                                                                    then (Nothing, mCrossReason)
-                                                                                                    else
-                                                                                                        if not (metaLabelOk dir)
-                                                                                                            then (Nothing, Just "META_LABEL")
-                                                                                                            else
-                                                                                                                let (fundingOiOk, _fundingOiSizeScale0) = fundingOiCheck dir
-                                                                                                                 in if not fundingOiOk
-                                                                                                                        then (Nothing, Just "FUNDING_OI")
-                                                                                                                        else (Just dir, Nothing)
+                signalRunPostDirectionGates
+                    chosenDir0
+                    mPairsOverlayReason
+                    volOk
+                    volTargetReady
+                    trendOk
+                    cloudOk
+                    priceActionOk
+                    signalToNoiseOk
+                    regimeEdgeOk
+                    mtfConsensusCheck
+                    crossAssetCheck
+                    metaLabelOk
+                    fundingOiCheck
 
             chosenDir2 =
                 case chosenDir1 of
