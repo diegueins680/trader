@@ -44,6 +44,7 @@ executable trader-hs
                      , Trader.Predictors.HMM
                      , Trader.Platform
                      , Trader.SensorVariance
+                     , Trader.SignalGates
                      , Trader.Split
                      , Trader.Symbol
                      , Trader.TopCombosStore
@@ -193,6 +194,7 @@ test-suite trader-tests
                      , Trader.Predictors.HMM
                      , Trader.Platform
                      , Trader.SensorVariance
+                     , Trader.SignalGates
                      , Trader.Split
                      , Trader.Symbol
                      , Trader.TopCombosStore

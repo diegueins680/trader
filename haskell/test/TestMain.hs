@@ -65,6 +65,14 @@ import Trader.Predictors (
     trainPredictors,
  )
 import Trader.Predictors.Types (allPredictors)
+import Trader.SignalGates (
+    signalCrossAssetCheck,
+    signalFundingOiCheck,
+    signalMetaLabelOk,
+    signalMtfConsensusCheck,
+    signalRegimeEdgeOk,
+    signalRunPostDirectionGates,
+ )
 import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.TopCombosStore (recalculateComboPerformanceFromOperation)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble)
@@ -116,6 +124,12 @@ main = do
             , run "position origin persists only for live sent switches" testPersistPositionOriginGate
             , run "order execution uses fill evidence for live orders" testOrderAppliedQuantity
             , run "order execution updates position by executed qty" testApplyExecutedQuantity
+            , run "signal gate emits MTF_WARMUP reason" testSignalGateMtfWarmup
+            , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
+            , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
+            , run "signal gate emits META_LABEL reason" testSignalGateMetaLabel
+            , run "signal gate emits REGIME_BANK reason" testSignalGateRegimeBank
+            , run "signal gate emits FUNDING_OI reason" testSignalGateFundingOi
             , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
             , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
             , run "platform intervals" testPlatformIntervals
@@ -912,6 +926,103 @@ testApplyExecutedQuantity = do
     assertApprox "flat entry size" 1e-12 size3 1.2
     assertApprox "flat entry has no close leg" 1e-12 close3 0
     assertApprox "flat entry open leg" 1e-12 open3 1.2
+
+runSignalPostGate ::
+    Bool ->
+    (Int -> (Bool, Maybe String)) ->
+    (Int -> (Bool, Maybe String)) ->
+    (Int -> Bool) ->
+    (Int -> (Bool, Double)) ->
+    (Maybe Int, Maybe String)
+runSignalPostGate =
+    signalRunPostDirectionGates
+        (Just 1)
+        Nothing
+        True
+        True
+        (const True)
+        (const True)
+        (const True)
+        True
+
+testSignalGateMtfWarmup :: IO ()
+testSignalGateMtfWarmup = do
+    let mtfCheck = signalMtfConsensusCheck True [Just 1, Nothing, Nothing] 2
+        result =
+            runSignalPostGate
+                True
+                mtfCheck
+                (signalCrossAssetCheck False Nothing)
+                (const True)
+                (const (True, 1))
+    assert "insufficient MTF directions returns MTF_WARMUP" (result == (Nothing, Just "MTF_WARMUP"))
+
+testSignalGateMtfConsensus :: IO ()
+testSignalGateMtfConsensus = do
+    let mtfCheck = signalMtfConsensusCheck True [Just 1, Just (-1), Just (-1)] 2
+        result =
+            runSignalPostGate
+                True
+                mtfCheck
+                (signalCrossAssetCheck False Nothing)
+                (const True)
+                (const (True, 1))
+    assert "disagreeing MTF directions returns MTF_CONSENSUS" (result == (Nothing, Just "MTF_CONSENSUS"))
+
+testSignalGateCrossAsset :: IO ()
+testSignalGateCrossAsset = do
+    let result =
+            runSignalPostGate
+                True
+                (const (True, Nothing))
+                (signalCrossAssetCheck True (Just (-1)))
+                (const True)
+                (const (True, 1))
+    assert "cross-asset disagreement returns CROSS_ASSET" (result == (Nothing, Just "CROSS_ASSET"))
+
+testSignalGateMetaLabel :: IO ()
+testSignalGateMetaLabel = do
+    let metaCheck dir =
+            signalMetaLabelOk
+                True
+                0.01
+                (Just 0.02)
+                0.9
+                (Just 0.95)
+                True
+                (dir < 0)
+        result =
+            runSignalPostGate
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                metaCheck
+                (const (True, 1))
+    assert "meta-label band failure returns META_LABEL" (result == (Nothing, Just "META_LABEL"))
+
+testSignalGateRegimeBank :: IO ()
+testSignalGateRegimeBank = do
+    let regimeOk = signalRegimeEdgeOk True 0.01 (Just 0.005)
+        result =
+            runSignalPostGate
+                regimeOk
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "regime edge shortfall returns REGIME_BANK" (result == (Nothing, Just "REGIME_BANK"))
+
+testSignalGateFundingOi :: IO ()
+testSignalGateFundingOi = do
+    let fundingCheck _ = signalFundingOiCheck True (Just 0.001) Nothing 0.7 0.005 Nothing
+        result =
+            runSignalPostGate
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                fundingCheck
+    assert "funding pressure above cap returns FUNDING_OI" (result == (Nothing, Just "FUNDING_OI"))
 
 testRecalculateComboPerformanceFromCompletedOperation :: IO ()
 testRecalculateComboPerformanceFromCompletedOperation = do
