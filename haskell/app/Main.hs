@@ -24379,28 +24379,21 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     _ -> False
 
             metaLabelOk dir =
-                if not metaLabelEnabled
-                    then True
-                    else
-                        let edgeOk =
-                                if metaLabelMinEdge <= 0
-                                    then True
-                                    else maybe False (>= metaLabelMinEdge) edgeForMethod
-                            confidenceOk =
-                                if metaLabelMinConfidence <= 0
-                                    then True
-                                    else maybe False (>= metaLabelMinConfidence) methodConfidence
-                            bandOk =
-                                if not metaLabelRequireBand
-                                    then True
-                                    else metaBandAgree dir
-                         in edgeOk && confidenceOk && bandOk
+                not metaLabelEnabled
+                    || let edgeOk =
+                                metaLabelMinEdge <= 0
+                                    || maybe False (>= metaLabelMinEdge) edgeForMethod
+                           confidenceOk =
+                                metaLabelMinConfidence <= 0
+                                    || maybe False (>= metaLabelMinConfidence) methodConfidence
+                           bandOk = not metaLabelRequireBand || metaBandAgree dir
+                        in edgeOk && confidenceOk && bandOk
 
             mtfConsensusCheck dir =
                 if not mtfConsensusEnabled
                     then (True, Nothing)
                     else
-                        let available = [d | Just d <- mtfDirs]
+                        let available = catMaybes mtfDirs
                             agree = length (filter (== dir) available)
                          in if length available < mtfMinAgree
                                 then (False, Just "MTF_WARMUP")
@@ -24420,12 +24413,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 else (False, Just "CROSS_ASSET")
 
             regimeEdgeOk =
-                if not regimeBankEnabled
-                    then True
-                    else
-                        if minEdgeRegime <= 0
-                            then True
-                            else maybe False (>= minEdgeRegime) edgeForMethod
+                not regimeBankEnabled
+                    || minEdgeRegime <= 0
+                    || maybe False (>= minEdgeRegime) edgeForMethod
 
             fundingOiCheck dir =
                 if not fundingOiEnabled
