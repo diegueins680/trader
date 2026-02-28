@@ -24,16 +24,15 @@ orderAppliedQuantity ev fallbackQty =
             else
                 if not (oeeLive ev)
                     then fallback
-                    else
-                        case status of
-                            Just s | statusHasNoFill s -> Nothing
-                            _ ->
-                                case executed of
-                                    Just q -> Just q
-                                    Nothing ->
-                                        case status of
-                                            Just s | statusImpliesFilled s -> fallback
-                                            _ -> Nothing
+                    else case status of
+                        Just s | statusHasNoFill s -> Nothing
+                        _ ->
+                            case executed of
+                                Just q -> Just q
+                                Nothing ->
+                                    case status of
+                                        Just s | statusImpliesFilled s -> fallback
+                                        _ -> Nothing
 
 applyExecutedQuantity :: Int -> Double -> Bool -> Double -> (Int, Double, Double, Double)
 applyExecutedQuantity prevPos prevSize isBuy qtyRaw =

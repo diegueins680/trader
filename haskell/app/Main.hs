@@ -204,8 +204,8 @@ import Trader.Optimization (
     sweepThresholdWithHLWith,
     tuneObjectiveCode,
  )
-import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
 import Trader.Optimizer.Json (encodePretty)
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
