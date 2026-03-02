@@ -29,6 +29,11 @@ Features
 - Data sources: CSV or exchange klines (Binance/Coinbase/Kraken/Poloniex).
 - Sample dataset in `data/sample_prices.csv`.
 
+ROI playbook
+------------
+For a concrete Codex workflow focused on speed + quality (task lanes, guardrails, command packs, and weekly scorecard), see `ROI_PLAYBOOK.md`.
+Generate a weekly scorecard automatically with `./haskell/scripts/generate_roi_scorecard.sh` (use `--week YYYY-WW` for a specific ISO week).
+
 Quick start
 -----------
 Build and run with Cabal:
@@ -619,7 +624,7 @@ Optimizer script tips:
 - `optimize-equity` now defaults to stronger robustness gates: `--min-round-trips 20`, `--min-exposure 0.10`, `--min-sharpe 1.0`, `--min-calmar 0.8`, `--min-wf-sharpe-mean 0.8`, and `--max-wf-sharpe-std 1.0` (set any of these to `0` to disable that gate).
 - `optimize-equity` now defaults to stress-aware tune scoring (`--tune-stress-vol-mult 1.25`, `--tune-stress-weight 0.2`) and walk-forward embargo sampling (`--walk-forward-embargo-bars-min/max 1/3`) for leakage-resistant selection.
 - Objective scoring now applies sparse-activity/no-exposure penalties, so zero-trade and ultra-low-exposure trials rank below active candidates even when hard filters are relaxed.
-- Default method sampling now heavily favors Kalman (`--method-weight-10 4.0`) while keeping smaller exploration weights on LSTM/agreement (`--method-weight-01 0.1`, `--method-weight-11 0.25`) and enabling stronger adaptive exploration via `--method-weight-regime-switch 1.0` and `--method-weight-bandit-router 1.0`.
+- Default method sampling now heavily favors Kalman (`--method-weight-10 4.0`) while keeping smaller exploration weights on LSTM/agreement (`--method-weight-01 0.1`, `--method-weight-11 0.25`), raising `--method-weight-regime-switch` to `1.0`, and leaving `--method-weight-bandit-router` off by default for compatibility with threshold optimization.
 - Router defaults now explore a wider adaptive range: `--router-score-pnl-weight-min/max 0.25/0.85`, `--router-lookback-min/max 20/180`, and `--router-min-score-min/max 0.05/0.7`.
 - Risk and volatility exits now sample by default (`--stop-vol-mult-min/max 0.8/3.0`, `--tp-vol-mult-min/max 1.2/4.0`, `--trail-vol-mult-min/max 0.8/3.0`) with more frequent risk sizing (`--p-disable-risk-per-trade 0.3`) and confidence sizing (`--p-confidence-sizing 0.85`).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
@@ -1048,7 +1053,7 @@ Timeouts:
 - Frontend: `timeoutsMs.botStatusMs` controls live bot status polling timeouts (useful if `/bot/status` is slow).
 - Frontend (dev proxy): set `TRADER_UI_PROXY_TIMEOUT_MS` to increase the Vite `/api` proxy timeout.
 
-Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors. Async signal/backtest starts retry transient 5xx/timeouts and can fail over to `apiFallbackUrl`; ensure the fallback points at the same backend to avoid mismatched job IDs. Live bot status/ops polling auto-reduces history sizes on proxy 502/503/504 or client timeouts to keep the dashboard responsive, and `/bot/status` is capped at 1000 points by default to avoid upstream 5xx responses.
+Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors. Async signal/backtest starts retry transient 5xx/timeouts and can fail over to `apiFallbackUrl`; ensure the fallback points at the same backend to avoid mismatched job IDs. Live bot starts (`POST /bot/start`) also retry transient 502/503/504/network/timeouts (up to two retries), and the UI shows a retry toast while those retries are in progress. Live bot status/ops polling auto-reduces history sizes on proxy 502/503/504 or client timeouts to keep the dashboard responsive, and `/bot/status` is capped at 1000 points by default to avoid upstream 5xx responses.
 Direct `apiBaseUrl` requests fail over to `apiFallbackUrl` on 404/502/503/504 responses (plus network errors). For auto-inferred Fly direct hosts, 401/403 responses also fail over to `/api`, so keep auth/cors settings consistent between primary and fallback hosts.
 Fallback preference cache entries are versioned; older cache entries are ignored after fallback-rule changes so stale decisions do not silently override updated behavior.
 Async polling retries transient network `TypeError`s regardless of browser-specific error wording, and API health status now marks those network errors as `down` without relying on message text.

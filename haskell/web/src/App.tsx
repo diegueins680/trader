@@ -5734,7 +5734,19 @@ export function App() {
         };
         if (primarySymbol) payload.binanceSymbol = primarySymbol;
         if (startSymbols.length > 0) payload.botSymbols = startSymbols;
-        const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
+        const out = await botStart(apiBase, withPlatformKeys(payload), {
+          headers: authHeaders,
+          timeoutMs: BOT_START_TIMEOUT_MS,
+          onTransientRetry: ({ attempt, maxRetries, delayMs, error }) => {
+            if (silent) return;
+            let reason = "transient error";
+            if (error instanceof HttpError && error.status >= 500) reason = `HTTP ${error.status}`;
+            else if (isTimeoutError(error)) reason = "timeout";
+            else if (error instanceof UnexpectedResponseError) reason = "unexpected response";
+            else if (error instanceof TypeError) reason = "network error";
+            showToast(`Bot start retrying (${attempt}/${maxRetries}) in ${fmtDurationMs(delayMs)} (${reason})`);
+          },
+        });
         const normalizedOut = normalizeBotStatus(out);
         setBot((s) => ({ ...s, loading: false, error: null, status: normalizedOut }));
         appendDataLog(`Bot Start Response${silent ? " (auto)" : ""}`, normalizedOut, { background: silent });

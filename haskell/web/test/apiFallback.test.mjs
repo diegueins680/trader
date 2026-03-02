@@ -179,6 +179,95 @@ test("async polling retries transient network type errors without fetch wording"
   ]);
 });
 
+test("botStart retries transient 502 responses before failing", async () => {
+  const calls = [];
+  let starts = 0;
+  const retryEvents = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const method = String(init.method || "GET").toUpperCase();
+      const href = String(url);
+      calls.push(`${method} ${href}`);
+      if (method === "POST" && href === "https://api.example.com/bot/start") {
+        starts += 1;
+        if (starts < 3) return jsonResponse(502, { error: "Bad Gateway" });
+        return jsonResponse(202, { starting: true, symbol: "BTCUSDT" });
+      }
+      throw new Error(`unexpected request: ${method} ${href}`);
+    },
+    async (api) => {
+      const out = await api.botStart(
+        "https://api.example.com",
+        { tenantKey: "tenant", binanceSymbol: "BTCUSDT" },
+        {
+          timeoutMs: 8_000,
+          onTransientRetry: (info) => {
+            const status =
+              info.error && typeof info.error === "object" && "status" in info.error ? Number(info.error.status) : null;
+            retryEvents.push({ attempt: info.attempt, maxRetries: info.maxRetries, status, delayMs: info.delayMs });
+          },
+        },
+      );
+      assert.equal(out.starting, true);
+      assert.equal(out.symbol, "BTCUSDT");
+    },
+  );
+  assert.equal(starts, 3);
+  assert.deepEqual(calls, [
+    "POST https://api.example.com/bot/start",
+    "POST https://api.example.com/bot/start",
+    "POST https://api.example.com/bot/start",
+  ]);
+  assert.equal(retryEvents.length, 2);
+  assert.deepEqual(
+    retryEvents.map((event) => ({ attempt: event.attempt, maxRetries: event.maxRetries, status: event.status })),
+    [
+      { attempt: 1, maxRetries: 2, status: 502 },
+      { attempt: 2, maxRetries: 2, status: 502 },
+    ],
+  );
+  assert.equal(retryEvents.every((event) => event.delayMs >= 750), true);
+});
+
+test("botStart does not retry non-transient validation errors", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const method = String(init.method || "GET").toUpperCase();
+      const href = String(url);
+      calls.push(`${method} ${href}`);
+      if (method === "POST" && href === "https://api.example.com/bot/start") {
+        return jsonResponse(400, { error: "bot/start requires tenantKey or API keys." });
+      }
+      throw new Error(`unexpected request: ${method} ${href}`);
+    },
+    async (api) => {
+      await assert.rejects(
+        () =>
+          api.botStart(
+            "https://api.example.com",
+            { binanceSymbol: "BTCUSDT" },
+            { timeoutMs: 5_000 },
+          ),
+        (err) => err?.name === "HttpError" && err.status === 400,
+      );
+    },
+  );
+  assert.deepEqual(calls, ["POST https://api.example.com/bot/start"]);
+});
+
 test("api fallback ignores future-dated fallback cache entries", async () => {
   const calls = [];
   const futureStorage = createStorage({

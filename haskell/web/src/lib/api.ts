@@ -69,6 +69,15 @@ type FetchJsonOptions = {
   timeoutMs?: number;
   headers?: Record<string, string>;
   allowFallback?: boolean;
+  onTransientRetry?: (info: TransientRetryInfo) => void;
+};
+
+type TransientRetryInfo = {
+  attempt: number;
+  maxRetries: number;
+  error: unknown;
+  delayMs: number;
+  retryAfterMs: number | null;
 };
 
 type AsyncStartResponse = { jobId: string };
@@ -480,6 +489,42 @@ function shouldRetryAsyncStart(err: unknown): boolean {
   if (isTimeoutError(err) || isNetworkError(err)) return true;
   if (err instanceof UnexpectedResponseError) return true;
   return err instanceof HttpError && (err.status === 502 || err.status === 503 || err.status === 504);
+}
+
+type TransientRetryOptions = {
+  maxRetries?: number;
+  initialBackoffMs?: number;
+  maxBackoffMs?: number;
+};
+
+async function fetchJsonWithTransientRetry<T>(
+  baseUrl: string,
+  path: string,
+  init: RequestInit,
+  opts?: FetchJsonOptions,
+  retryOpts?: TransientRetryOptions,
+): Promise<T> {
+  const maxRetries = retryOpts?.maxRetries ?? 2;
+  const maxBackoffMs = retryOpts?.maxBackoffMs ?? 5_000;
+  let retries = 0;
+  let backoffMs = retryOpts?.initialBackoffMs ?? 750;
+
+  for (;;) {
+    try {
+      return await fetchJson<T>(baseUrl, path, init, opts);
+    } catch (err) {
+      if (retries >= maxRetries || !shouldRetryAsyncStart(err)) throw err;
+      retries += 1;
+      const retryAfterMs =
+        err instanceof HttpError && typeof err.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs)
+          ? Math.max(0, err.retryAfterMs)
+          : null;
+      const delayMs = retryAfterMs == null ? backoffMs : Math.max(backoffMs, retryAfterMs);
+      opts?.onTransientRetry?.({ attempt: retries, maxRetries, error: err, delayMs, retryAfterMs });
+      await sleep(delayMs, opts?.signal);
+      if (retryAfterMs == null) backoffMs = Math.min(maxBackoffMs, Math.round(backoffMs * 1.4));
+    }
+  }
 }
 
 async function runSyncBacktestWithRetry(
@@ -951,7 +996,7 @@ export async function binanceTrades(
 }
 
 export async function botStart(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<BotStatus> {
-  return fetchJson<BotStatus>(
+  return fetchJsonWithTransientRetry<BotStatus>(
     baseUrl,
     "/bot/start",
     {
@@ -960,6 +1005,7 @@ export async function botStart(baseUrl: string, params: ApiParams, opts?: FetchJ
       body: JSON.stringify(params),
     },
     opts,
+    { maxRetries: 2 },
   );
 }
 
