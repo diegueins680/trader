@@ -23,6 +23,7 @@ Features
 - Feature engineering includes psychological round-number proximity (big figures/halves/quarters/tenths) plus short/mid momentum and volatility spread features.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
+- Router and bandit-router adaptive model selection now evaluate six strategy candidates (`kalman`, `lstm`, `blend`, `cost_pick`, `regime_switch`, `edge_blend`) to improve risk-adjusted selection under changing regimes.
 - Ensemble simulation helpers return `Either` with validation errors instead of throwing exceptions.
 - Optional tri-layer entry gating: Kalman cloud trend + price-action reversal triggers (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, Sortino, Calmar, VaR/CVaR, max drawdown) (`haskell/app/Trader/Metrics.hs`).

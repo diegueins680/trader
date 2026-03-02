@@ -18920,6 +18920,9 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                                                 kalPred0
                                                 lstmPred0
                                                 blendPred0
+                                                costPickPred0
+                                                regimeSwitchPred0
+                                                edgeBlendPred0
                                                 (phMeta hist)
                                      in predV
                              in case method of
@@ -21653,6 +21656,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 kalV = V.fromList kalPredBacktest
                 lstmV = V.fromList lstmPredBacktest
                 blendV = V.fromList blendPredBacktest
+                costPickV = V.fromList costPickPredBacktest
+                regimeSwitchV = V.fromList regimeSwitchPredBacktest
+                edgeBlendV = V.fromList edgeBlendPredBacktest
                 metaV = V.fromList <$> metaBacktest
              in selectFn
                     routerOpenThr
@@ -21664,6 +21670,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     kalV
                     lstmV
                     blendV
+                    costPickV
+                    regimeSwitchV
+                    edgeBlendV
                     metaV
         routerPredBacktest =
             case methodUsed of
@@ -21678,14 +21687,14 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     case routerPredBacktest of
                         Just (routerPredV, routerModelsV) ->
                             let routerPred = V.toList routerPredV
-                                routerMaskV = V.map (== Just RouterKalman) routerModelsV
+                                routerMaskV = V.map routerUsesKalmanGating routerModelsV
                              in (routerPred, routerPred, metaBacktest, Just routerMaskV)
                         Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest, Nothing)
                 MethodBanditRouter ->
                     case routerPredBacktest of
                         Just (routerPredV, routerModelsV) ->
                             let routerPred = V.toList routerPredV
-                                routerMaskV = V.map (== Just RouterKalman) routerModelsV
+                                routerMaskV = V.map routerUsesKalmanGating routerModelsV
                              in (routerPred, routerPred, metaBacktest, Just routerMaskV)
                         Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest, Nothing)
                 MethodConfBlend ->
@@ -22190,7 +22199,17 @@ data RouterModel
     = RouterKalman
     | RouterLstm
     | RouterBlend
+    | RouterCostPick
+    | RouterRegimeSwitch
+    | RouterEdgeBlend
     deriving (Eq, Show)
+
+routerUsesKalmanGating :: Maybe RouterModel -> Bool
+routerUsesKalmanGating mModel =
+    case mModel of
+        Just RouterKalman -> True
+        Just RouterRegimeSwitch -> True
+        _ -> False
 
 data RouterStats = RouterStats
     { rsScore :: !Double
@@ -22286,16 +22305,22 @@ routerSelectModelAt ::
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
+routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
                 , V.length kalPredV
                 , V.length lstmPredV
                 , V.length blendPredV
+                , V.length costPickPredV
+                , V.length regimeSwitchPredV
+                , V.length edgeBlendPredV
                 ]
         lookback = max 1 lookback0
         minScore = max 0 (min 1 minScore0)
@@ -22312,7 +22337,10 @@ routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
                 _ -> Nothing
         modelRank m =
             case m of
-                RouterBlend -> 2 :: Int
+                RouterCostPick -> 5 :: Int
+                RouterRegimeSwitch -> 4
+                RouterEdgeBlend -> 3
+                RouterBlend -> 2
                 RouterKalman -> 1
                 RouterLstm -> 0
         scoreKey (m, stats) = (rsScore stats, rsCoverage stats, rsAccuracy stats, modelRank m)
@@ -22335,8 +22363,19 @@ routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
                     statsKal = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV kalPredV useIdx windowStart windowEnd
                     statsLstm = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV lstmPredV useIdx windowStart windowEnd
                     statsBlend = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV blendPredV useIdx windowStart windowEnd
+                    statsCostPick = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV costPickPredV useIdx windowStart windowEnd
+                    statsRegimeSwitch = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV regimeSwitchPredV useIdx windowStart windowEnd
+                    statsEdgeBlend = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV edgeBlendPredV useIdx windowStart windowEnd
                     (bestModel, bestStats) =
-                        foldl' pick (RouterKalman, statsKal) [(RouterLstm, statsLstm), (RouterBlend, statsBlend)]
+                        foldl'
+                            pick
+                            (RouterKalman, statsKal)
+                            [ (RouterLstm, statsLstm)
+                            , (RouterBlend, statsBlend)
+                            , (RouterCostPick, statsCostPick)
+                            , (RouterRegimeSwitch, statsRegimeSwitch)
+                            , (RouterEdgeBlend, statsEdgeBlend)
+                            ]
                     bestScore = rsScore bestStats
                  in if bestScore < minScore
                         then (Nothing, bestScore, Just "ROUTER_MIN_SCORE")
@@ -22352,16 +22391,22 @@ banditSelectModelAt ::
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
+banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
                 , V.length kalPredV
                 , V.length lstmPredV
                 , V.length blendPredV
+                , V.length costPickPredV
+                , V.length regimeSwitchPredV
+                , V.length edgeBlendPredV
                 ]
         lookback = max 1 lookback0
         minScore = max 0 (min 1 minScore0)
@@ -22378,7 +22423,10 @@ banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
                 _ -> Nothing
         modelRank m =
             case m of
-                RouterBlend -> 2 :: Int
+                RouterCostPick -> 5 :: Int
+                RouterRegimeSwitch -> 4
+                RouterEdgeBlend -> 3
+                RouterBlend -> 2
                 RouterKalman -> 1
                 RouterLstm -> 0
         bonusScale = 0.25 :: Double
@@ -22406,9 +22454,29 @@ banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
                     statsKal = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV kalPredV useIdx windowStart windowEnd
                     statsLstm = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV lstmPredV useIdx windowStart windowEnd
                     statsBlend = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV blendPredV useIdx windowStart windowEnd
-                    totalSignals = fromIntegral (1 + rsSignals statsKal + rsSignals statsLstm + rsSignals statsBlend)
+                    statsCostPick = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV costPickPredV useIdx windowStart windowEnd
+                    statsRegimeSwitch = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV regimeSwitchPredV useIdx windowStart windowEnd
+                    statsEdgeBlend = routerStatsWindowWith openThr roundTripCost pnlWeight pricesV edgeBlendPredV useIdx windowStart windowEnd
+                    totalSignals =
+                        fromIntegral
+                            ( 1
+                                + rsSignals statsKal
+                                + rsSignals statsLstm
+                                + rsSignals statsBlend
+                                + rsSignals statsCostPick
+                                + rsSignals statsRegimeSwitch
+                                + rsSignals statsEdgeBlend
+                            )
                     (bestModel, bestStats) =
-                        foldl' (pick totalSignals) (RouterKalman, statsKal) [(RouterLstm, statsLstm), (RouterBlend, statsBlend)]
+                        foldl'
+                            (pick totalSignals)
+                            (RouterKalman, statsKal)
+                            [ (RouterLstm, statsLstm)
+                            , (RouterBlend, statsBlend)
+                            , (RouterCostPick, statsCostPick)
+                            , (RouterRegimeSwitch, statsRegimeSwitch)
+                            , (RouterEdgeBlend, statsEdgeBlend)
+                            ]
                     bestScore = rsScore bestStats
                  in if bestScore < minScore
                         then (Nothing, bestScore, Just "BANDIT_MIN_SCORE")
@@ -22424,21 +22492,30 @@ routerPredictionsWithModelsV ::
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
+routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
                 , V.length kalPredV
                 , V.length lstmPredV
                 , V.length blendPredV
+                , V.length costPickPredV
+                , V.length regimeSwitchPredV
+                , V.length edgeBlendPredV
                 ]
         pickPred t =
-            case routerSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
+            case routerSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
+                (Just RouterCostPick, _, _) -> (costPickPredV V.! t, Just RouterCostPick)
+                (Just RouterRegimeSwitch, _, _) -> (regimeSwitchPredV V.! t, Just RouterRegimeSwitch)
+                (Just RouterEdgeBlend, _, _) -> (edgeBlendPredV V.! t, Just RouterEdgeBlend)
                 _ -> (pricesV V.! t, Nothing)
         picks = V.generate (max 0 stepCount) pickPred
      in (V.map fst picks, V.map snd picks)
@@ -22453,21 +22530,30 @@ banditPredictionsWithModelsV ::
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-banditPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
+banditPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
                 , V.length kalPredV
                 , V.length lstmPredV
                 , V.length blendPredV
+                , V.length costPickPredV
+                , V.length regimeSwitchPredV
+                , V.length edgeBlendPredV
                 ]
         pickPred t =
-            case banditSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
+            case banditSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
+                (Just RouterCostPick, _, _) -> (costPickPredV V.! t, Just RouterCostPick)
+                (Just RouterRegimeSwitch, _, _) -> (regimeSwitchPredV V.! t, Just RouterRegimeSwitch)
+                (Just RouterEdgeBlend, _, _) -> (edgeBlendPredV V.! t, Just RouterEdgeBlend)
                 _ -> (pricesV V.! t, Nothing)
         picks = V.generate (max 0 stepCount) pickPred
      in (V.map fst picks, V.map snd picks)
@@ -22482,9 +22568,12 @@ routerPredictionsV ::
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
     V.Vector Double
-routerPredictionsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV =
-    fst (routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV Nothing)
+routerPredictionsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV =
+    fst (routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV Nothing)
 
 computeLatestSignal ::
     Args ->
@@ -23558,13 +23647,16 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                                 let kalPredV = V.take stepCount kalHist
                                                     lstmPredV = V.take stepCount lstmHist
                                                     blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
+                                                    costPickPredV = costPickPredictionsV blendWeight roundTripCost pricesV kalPredV lstmPredV
                                                     mMetaV =
                                                         case metaHist of
                                                             Just mv | V.length mv >= stepCount -> Just (V.take stepCount mv)
                                                             _ -> Nothing
-                                                 in Just (kalPredV, lstmPredV, blendPredV, mMetaV)
+                                                    regimeSwitchPredV = regimeSwitchPredictionsV blendWeight 0.6 1.0 kalPredV lstmPredV mMetaV
+                                                    edgeBlendPredV = edgeBlendPredictionsV blendWeight pricesV kalPredV lstmPredV
+                                                 in Just (kalPredV, lstmPredV, blendPredV, costPickPredV, regimeSwitchPredV, edgeBlendPredV, mMetaV)
                                         _ -> Nothing
-                                (kalPredV, lstmPredV, blendPredV, metaV) =
+                                (kalPredV, lstmPredV, blendPredV, costPickPredV, regimeSwitchPredV, edgeBlendPredV, metaV) =
                                     case historyPreds of
                                         Just preds -> preds
                                         Nothing ->
@@ -23592,7 +23684,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                                                     predObs = predictNext lstmModel window
                                                                  in inverseNorm normState predObs
                                                 blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
-                                             in (kalPredV, lstmPredV, blendPredV, metaV)
+                                                costPickPredV = costPickPredictionsV blendWeight roundTripCost pricesV kalPredV lstmPredV
+                                                regimeSwitchPredV = regimeSwitchPredictionsV blendWeight 0.6 1.0 kalPredV lstmPredV metaV
+                                                edgeBlendPredV = edgeBlendPredictionsV blendWeight pricesV kalPredV lstmPredV
+                                             in (kalPredV, lstmPredV, blendPredV, costPickPredV, regimeSwitchPredV, edgeBlendPredV, metaV)
                                 selectAt =
                                     if mMethod == MethodBanditRouter
                                         then banditSelectModelAt
@@ -23608,6 +23703,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                         kalPredV
                                         lstmPredV
                                         blendPredV
+                                        costPickPredV
+                                        regimeSwitchPredV
+                                        edgeBlendPredV
                                         metaV
                                         t
                              in (mChoice, mReason)
@@ -23617,6 +23715,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     Just RouterKalman -> mKalNext
                     Just RouterLstm -> mLstmNext
                     Just RouterBlend -> blendNext
+                    Just RouterCostPick -> costPickNext
+                    Just RouterRegimeSwitch -> regimeSwitchNext
+                    Just RouterEdgeBlend -> edgeBlendNext
                     Nothing -> Just currentPrice
             sizingNext =
                 case method of
@@ -24389,30 +24490,31 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     _ -> (Nothing, Nothing, Nothing, Nothing)
             (routerDirGated, routerCloseDirGated, routerPosSize, routerGateReason, routerConfidence) =
                 case mRouterModel of
-                    Just RouterKalman ->
-                        case (mKalZ, mConfidence) of
-                            (Just kalZ, Just confScore) ->
-                                let sizeRaw
-                                        | argConfidenceSizing args = confScore
-                                        | isNothing routerDirRaw = 0
-                                        | otherwise = 1
-                                    (dirUsed, mWhy) =
-                                        gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore routerDirRaw
-                                    (closeDirUsed, _) =
-                                        gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore routerCloseDirRaw
-                                    sizeUsed =
-                                        case dirUsed of
-                                            Nothing -> 0
-                                            Just _ ->
-                                                let s0 = if argConfidenceSizing args then sizeRaw else 1
-                                                 in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
-                                 in (dirUsed, closeDirUsed, Just sizeUsed, mWhy, Just confScore)
-                            _ ->
-                                let sizeFallback =
-                                        if isNothing routerDirRaw
-                                            then 0
-                                            else 1
-                                 in (routerDirRaw, routerCloseDirRaw, Just sizeFallback, Nothing, mConfidence)
+                    Just routerModel
+                        | routerUsesKalmanGating (Just routerModel) ->
+                            case (mKalZ, mConfidence) of
+                                (Just kalZ, Just confScore) ->
+                                    let sizeRaw
+                                            | argConfidenceSizing args = confScore
+                                            | isNothing routerDirRaw = 0
+                                            | otherwise = 1
+                                        (dirUsed, mWhy) =
+                                            gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore routerDirRaw
+                                        (closeDirUsed, _) =
+                                            gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore routerCloseDirRaw
+                                        sizeUsed =
+                                            case dirUsed of
+                                                Nothing -> 0
+                                                Just _ ->
+                                                    let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                                     in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                                     in (dirUsed, closeDirUsed, Just sizeUsed, mWhy, Just confScore)
+                                _ ->
+                                    let sizeFallback =
+                                            if isNothing routerDirRaw
+                                                then 0
+                                                else 1
+                                     in (routerDirRaw, routerCloseDirRaw, Just sizeFallback, Nothing, mConfidence)
                     _ ->
                         let sizeFallback =
                                 if isNothing routerDirRaw
