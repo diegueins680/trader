@@ -1933,7 +1933,7 @@ export function App() {
   const topComboBotTargets = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const combo of topCombosOrdered) {
+    for (const combo of topCombosAll) {
       const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
       if (platform && platform !== "binance") continue;
       const rawSymbol = combo.params.binanceSymbol ?? "";
@@ -1945,7 +1945,7 @@ export function App() {
       if (out.length >= TOP_COMBOS_BOT_TARGET) break;
     }
     return out;
-  }, [topCombosOrdered]);
+  }, [topCombosAll]);
   const topComboBotTargetsKey = useMemo(() => topComboBotTargets.join("|"), [topComboBotTargets]);
   const [topCombosDisplayCount, setTopCombosDisplayCount] = useState(() => TOP_COMBOS_DISPLAY_DEFAULT);
   const topCombos = useMemo(
