@@ -64,6 +64,30 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   return `${scheme}://${normalizeAuthority()}${rest}`;
 }
 
+export function inferFlyApiAppName(appNameRaw: string): string {
+  const appName = appNameRaw.trim().toLowerCase();
+  if (!appName) return "";
+  const marker = "-web-";
+  const markerAt = appName.lastIndexOf(marker);
+  if (markerAt <= 0) return "";
+  const prefix = appName.slice(0, markerAt);
+  const suffix = appName.slice(markerAt + marker.length);
+  if (!suffix) return "";
+  if (!/^hs(?:-[a-z0-9]+)*$/.test(suffix)) return "";
+  return `${prefix}-${suffix}`;
+}
+
+export function inferFlyDirectApiBaseFromHostname(hostnameRaw: string): string {
+  const hostname = hostnameRaw.trim().toLowerCase();
+  if (!hostname || !hostname.endsWith(".fly.dev")) return "";
+  const labels = hostname.split(".");
+  const appName = labels[0] ?? "";
+  const inferredAppName = inferFlyApiAppName(appName);
+  if (!inferredAppName || inferredAppName === appName) return "";
+  labels[0] = inferredAppName;
+  return `https://${labels.join(".")}`;
+}
+
 export function normalizeSymbolKey(raw: string): string {
   return raw.trim().toUpperCase();
 }

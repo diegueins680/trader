@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildOrphanedPositions, buildRequestIssueDetails, isLocalHostname, methodLabel, normalizeApiBaseUrlInput, numFromInput } from "../.tmp/web-tests/utils.js";
+import {
+  buildOrphanedPositions,
+  buildRequestIssueDetails,
+  inferFlyApiAppName,
+  inferFlyDirectApiBaseFromHostname,
+  isLocalHostname,
+  methodLabel,
+  normalizeApiBaseUrlInput,
+  numFromInput,
+} from "../.tmp/web-tests/utils.js";
 import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
 
 test("buildRequestIssueDetails returns empty when clean", () => {
@@ -106,6 +115,23 @@ test("normalizeApiBaseUrlInput supports bare loopback IPv6 with port", () => {
 
 test("normalizeApiBaseUrlInput supports localhost host+path without explicit scheme", () => {
   assert.equal(normalizeApiBaseUrlInput("localhost/api"), "http://localhost/api");
+});
+
+test("inferFlyApiAppName resolves split -web-hs app names only", () => {
+  assert.equal(inferFlyApiAppName("trader-web-hs"), "trader-hs");
+  assert.equal(inferFlyApiAppName("alpha-web-api-web-hs"), "alpha-web-api-hs");
+  assert.equal(inferFlyApiAppName("trader-web"), "");
+  assert.equal(inferFlyApiAppName("news-web-api"), "");
+  assert.equal(inferFlyApiAppName("trader-web-hs2"), "");
+});
+
+test("inferFlyDirectApiBaseFromHostname infers direct fly API host for split web apps", () => {
+  assert.equal(inferFlyDirectApiBaseFromHostname("trader-web-hs.fly.dev"), "https://trader-hs.fly.dev");
+  assert.equal(inferFlyDirectApiBaseFromHostname("ALPHA-web-api-web-hs.fly.dev"), "https://alpha-web-api-hs.fly.dev");
+  assert.equal(inferFlyDirectApiBaseFromHostname("trader-web.fly.dev"), "");
+  assert.equal(inferFlyDirectApiBaseFromHostname("price-webhook.fly.dev"), "");
+  assert.equal(inferFlyDirectApiBaseFromHostname("trader-web-hs2.fly.dev"), "");
+  assert.equal(inferFlyDirectApiBaseFromHostname("example.com"), "");
 });
 
 test("isLocalHostname accepts bracketed IPv6 loopback", () => {

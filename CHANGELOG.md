@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: Config dock health summary now shows build/auth/cache/async metadata even when `computeLimits` is absent.
 - Web UI: manual Recheck API sets status `ok` immediately after successful `/health` auth, so follow-up throttled bot-status checks do not leave stale `down` state.
 - Web UI: retry `POST /bot/start` on transient API/proxy failures (`502`/`503`/`504`, timeout, network type errors) before surfacing the error, with retry-progress toasts in the UI.
+- Web UI: for Fly split-app hosts (`*-web-hs.fly.dev` style), listenKey stream auto-prefers inferred direct API hosts when running on `/api` without an explicit fallback, reducing proxy-driven SSE disconnects (`ERR_HTTP2_PING_FAILED`); transient `/bot/status` poll timeouts/network errors no longer force API status `down` immediately.
 - API/UI: include `egressIp` in `/binance/keys` (best-effort public backend IP lookup), and show/copy it in the Trade result key-status panel for Binance API IP allowlisting.
 - Ops/Combos: recalculate combo `final_equity` and `annualized_return` on each completed `bot.order` using that operation's realized equity delta, instead of overwriting combo metrics on every candle.
 - Deploy: add a free-tier Render deployment path via `render.yaml` and `deploy/render/README.md`, including low-resource defaults and docs for free-tier spin-down/ephemeral-state constraints plus cheapest paid fallback guidance.

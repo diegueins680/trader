@@ -159,6 +159,7 @@ import {
   fmtTimeMs,
   fmtTimeMsWithMs,
   generateIdempotencyKey,
+  inferFlyDirectApiBaseFromHostname,
   isAbortError,
   isLikelyOrderError,
   isLocalHostname,
@@ -1279,10 +1280,10 @@ function isBinanceTimestampErrorMessage(msg: string): boolean {
   );
 }
 
-function shouldMarkApiDown(err: unknown, msg: string, opts?: { includeTimeout?: boolean }): boolean {
+function shouldMarkApiDown(err: unknown, msg: string, opts?: { includeTimeout?: boolean; includeNetworkError?: boolean }): boolean {
   if (err instanceof HttpError) return err.status >= 500;
   if (err instanceof UnexpectedResponseError) return true;
-  if (err instanceof TypeError) return true;
+  if ((opts?.includeNetworkError ?? true) && err instanceof TypeError) return true;
   if (opts?.includeTimeout && isTimeoutError(err)) return true;
   return msg.toLowerCase().includes("backend unreachable");
 }
@@ -2815,16 +2816,21 @@ export function App() {
     [],
   );
 
+  const inferredFlyDirectApiBase = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return inferFlyDirectApiBaseFromHostname(window.location.hostname);
+  }, []);
+
   const listenKeyStreamBase = useMemo(() => {
     const trimmedBase = apiBase.trim().replace(/\/+$/, "");
     if (!trimmedBase.startsWith("/")) return trimmedBase;
     const trimmedFallback = apiFallbackBase.trim();
-    if (!trimmedFallback) return trimmedBase;
+    if (!trimmedFallback) return inferredFlyDirectApiBase || trimmedBase;
     if (/^https?:\/\//i.test(trimmedFallback)) {
       return trimmedFallback.replace(/\/+$/, "");
     }
     return trimmedFallback.startsWith("/") ? trimmedFallback.replace(/\/+$/, "") : trimmedBase;
-  }, [apiBase, apiFallbackBase]);
+  }, [apiBase, apiFallbackBase, inferredFlyDirectApiBase]);
 
   const apiHealthUrl = useMemo(() => {
     if (!apiBaseAbsolute) return "";
@@ -5611,7 +5617,7 @@ export function App() {
 
         setApiOk((prev) => {
           if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
-          const looksDown = shouldMarkApiDown(e, msg, { includeTimeout: true });
+          const looksDown = shouldMarkApiDown(e, msg, { includeTimeout: false, includeNetworkError: false });
           return looksDown ? "down" : prev;
         });
       } finally {
