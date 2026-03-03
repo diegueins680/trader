@@ -38,6 +38,13 @@ data RetryConfig = RetryConfig
     , rcRetryWrites :: !Bool
     }
 
+data HttpGlobals = HttpGlobals
+    { hgRetryConfig :: !RetryConfig
+    , hgSharedManager :: !(MVar (Maybe Manager))
+    , hgRateLimiter :: !(MVar (Map ByteString Integer))
+    , hgHttpLogFlag :: !(IORef (Maybe Bool))
+    }
+
 defaultRetryConfigBase :: RetryConfig
 defaultRetryConfigBase =
     RetryConfig
@@ -48,9 +55,26 @@ defaultRetryConfigBase =
         , rcRetryWrites = False
         }
 
-{-# NOINLINE defaultRetryConfig #-}
+{-# NOINLINE httpGlobals #-}
+httpGlobals :: HttpGlobals
+httpGlobals = unsafePerformIO initHttpGlobals
+
+initHttpGlobals :: IO HttpGlobals
+initHttpGlobals = do
+    retryCfg <- retryConfigFromEnv defaultRetryConfigBase
+    sharedMgr <- newMVar Nothing
+    limiter <- newMVar Map.empty
+    logFlag <- newIORef Nothing
+    pure
+        HttpGlobals
+            { hgRetryConfig = retryCfg
+            , hgSharedManager = sharedMgr
+            , hgRateLimiter = limiter
+            , hgHttpLogFlag = logFlag
+            }
+
 defaultRetryConfig :: RetryConfig
-defaultRetryConfig = unsafePerformIO (retryConfigFromEnv defaultRetryConfigBase)
+defaultRetryConfig = hgRetryConfig httpGlobals
 
 defaultTimeoutMicros :: Int
 defaultTimeoutMicros = 15 * 1000000
@@ -64,13 +88,9 @@ newHttpManager =
             , managerIdleConnectionCount = 20
             }
 
-{-# NOINLINE sharedManager #-}
-sharedManager :: MVar (Maybe Manager)
-sharedManager = unsafePerformIO (newMVar Nothing)
-
 getSharedManager :: IO Manager
 getSharedManager =
-    modifyMVar sharedManager $ \cached ->
+    modifyMVar (hgSharedManager httpGlobals) $ \cached ->
         case cached of
             Just mgr -> pure (cached, mgr)
             Nothing -> do
@@ -191,10 +211,6 @@ getTimeMs = do
     t <- getPOSIXTime
     pure (floor (t * 1000))
 
-{-# NOINLINE rateLimiter #-}
-rateLimiter :: MVar (Map ByteString Integer)
-rateLimiter = unsafePerformIO (newMVar Map.empty)
-
 applyRateLimit :: ByteString -> IO ()
 applyRateLimit host = do
     let delayMs = rateLimitMsForHost host
@@ -202,7 +218,7 @@ applyRateLimit host = do
         then pure ()
         else do
             now <- getTimeMs
-            waitMs <- modifyMVar rateLimiter $ \m -> do
+            waitMs <- modifyMVar (hgRateLimiter httpGlobals) $ \m -> do
                 let nextAllowed = Map.findWithDefault now host m
                     startAt = max now nextAllowed
                     waitFor = max 0 (startAt - now)
@@ -227,10 +243,6 @@ rateLimitMsForHost host =
                                     else 0
                                 )
                         )
-
-{-# NOINLINE httpLogFlag #-}
-httpLogFlag :: IORef (Maybe Bool)
-httpLogFlag = unsafePerformIO (newIORef Nothing)
 
 logHttpAttempt ::
     String ->
@@ -284,13 +296,14 @@ logHttpAttempt label methodBs host pathBs respOrErr latencyMs attempt willRetry 
 
 isHttpLogEnabled :: IO Bool
 isHttpLogEnabled = do
-    cached <- readIORef httpLogFlag
+    let flagRef = hgHttpLogFlag httpGlobals
+    cached <- readIORef flagRef
     case cached of
         Just v -> pure v
         Nothing -> do
             env <- lookupEnv "TRADER_HTTP_LOG"
             let v = maybe False isTruthy env
-            writeIORef httpLogFlag (Just v)
+            writeIORef flagRef (Just v)
             pure v
 
 isTruthy :: String -> Bool

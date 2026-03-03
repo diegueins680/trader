@@ -64,7 +64,7 @@ import {
 import { buildTenantKey } from "./lib/tenant";
 import { copyText } from "./lib/clipboard";
 import { TRADER_UI_CONFIG } from "./lib/deployConfig";
-import { readJson, readLocalString, readSessionString, removeLocalKey, removeSessionKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
+import { readJson, readLocalString, readSessionString, removeLocalKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { BinanceTradesPanel } from "./components/BinanceTradesPanel";
 import { CollapsibleCard } from "./components/CollapsibleCard";
@@ -318,6 +318,7 @@ import {
 import type { OptimizationCombo, OptimizationComboOperation } from "./components/TopCombosChart";
 import type { OptimizerCombosPanelProps } from "./components/OptimizerCombosPanel";
 import type { ConfigPageId, ConfigPanelDragState, ConfigPanelId } from "./app/configTypes";
+import { useStoredSecret } from "./app/useStoredSecret";
 
 const BacktestChart = lazy(() => import("./components/BacktestChart").then((mod) => ({ default: mod.BacktestChart })));
 const BotStateChart = lazy(() => import("./components/BotStateChart").then((mod) => ({ default: mod.BotStateChart })));
@@ -1312,39 +1313,15 @@ export function App() {
   const deployApiBaseUrl = TRADER_UI_CONFIG.apiBaseUrl;
   const apiToken = TRADER_UI_CONFIG.apiToken;
   const [stateSyncTargetInput, setStateSyncTargetInput] = useState<string>(() => readLocalString(STORAGE_STATE_SYNC_TARGET_KEY) ?? "");
-  const [stateSyncTargetToken, setStateSyncTargetToken] = useState<string>(() => {
-    const persisted = readLocalString(STORAGE_STATE_SYNC_TOKEN_KEY) ?? "";
-    const session = readSessionString(STORAGE_STATE_SYNC_TOKEN_KEY) ?? "";
-    return persistSecrets ? persisted || session : session;
-  });
+  const [stateSyncTargetToken, setStateSyncTargetToken] = useStoredSecret(STORAGE_STATE_SYNC_TOKEN_KEY, persistSecrets);
   const [stateSyncIncludeBots, setStateSyncIncludeBots] = useState(true);
   const [stateSyncIncludeCombos, setStateSyncIncludeCombos] = useState(true);
   const [stateSyncChunkBytesInput, setStateSyncChunkBytesInput] = useState(() => String(STATE_SYNC_CHUNK_DEFAULT_BYTES));
-  const [binanceApiKey, setBinanceApiKey] = useState<string>(() => {
-    const persisted = readLocalString(SESSION_BINANCE_KEY_KEY) ?? "";
-    const session = readSessionString(SESSION_BINANCE_KEY_KEY) ?? "";
-    return persistSecrets ? persisted || session : session;
-  });
-  const [binanceApiSecret, setBinanceApiSecret] = useState<string>(() => {
-    const persisted = readLocalString(SESSION_BINANCE_SECRET_KEY) ?? "";
-    const session = readSessionString(SESSION_BINANCE_SECRET_KEY) ?? "";
-    return persistSecrets ? persisted || session : session;
-  });
-  const [coinbaseApiKey, setCoinbaseApiKey] = useState<string>(() => {
-    const persisted = readLocalString(SESSION_COINBASE_KEY_KEY) ?? "";
-    const session = readSessionString(SESSION_COINBASE_KEY_KEY) ?? "";
-    return persistSecrets ? persisted || session : session;
-  });
-  const [coinbaseApiSecret, setCoinbaseApiSecret] = useState<string>(() => {
-    const persisted = readLocalString(SESSION_COINBASE_SECRET_KEY) ?? "";
-    const session = readSessionString(SESSION_COINBASE_SECRET_KEY) ?? "";
-    return persistSecrets ? persisted || session : session;
-  });
-  const [coinbaseApiPassphrase, setCoinbaseApiPassphrase] = useState<string>(() => {
-    const persisted = readLocalString(SESSION_COINBASE_PASSPHRASE_KEY) ?? "";
-    const session = readSessionString(SESSION_COINBASE_PASSPHRASE_KEY) ?? "";
-    return persistSecrets ? persisted || session : session;
-  });
+  const [binanceApiKey, setBinanceApiKey] = useStoredSecret(SESSION_BINANCE_KEY_KEY, persistSecrets);
+  const [binanceApiSecret, setBinanceApiSecret] = useStoredSecret(SESSION_BINANCE_SECRET_KEY, persistSecrets);
+  const [coinbaseApiKey, setCoinbaseApiKey] = useStoredSecret(SESSION_COINBASE_KEY_KEY, persistSecrets);
+  const [coinbaseApiSecret, setCoinbaseApiSecret] = useStoredSecret(SESSION_COINBASE_SECRET_KEY, persistSecrets);
+  const [coinbaseApiPassphrase, setCoinbaseApiPassphrase] = useStoredSecret(SESSION_COINBASE_PASSPHRASE_KEY, persistSecrets);
   const [binanceTenantKey, setBinanceTenantKey] = useState<string | null>(null);
   const [coinbaseTenantKey, setCoinbaseTenantKey] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(() => normalizeFormState(readJson<FormStateJson>(STORAGE_KEY)));
@@ -2466,71 +2443,6 @@ export function App() {
   );
 
   useEffect(() => {
-    const v = binanceApiKey.trim();
-    if (persistSecrets) {
-      if (!v) removeLocalKey(SESSION_BINANCE_KEY_KEY);
-      else writeLocalString(SESSION_BINANCE_KEY_KEY, v);
-      removeSessionKey(SESSION_BINANCE_KEY_KEY);
-    } else {
-      if (!v) removeSessionKey(SESSION_BINANCE_KEY_KEY);
-      else writeSessionString(SESSION_BINANCE_KEY_KEY, v);
-      removeLocalKey(SESSION_BINANCE_KEY_KEY);
-    }
-  }, [binanceApiKey, persistSecrets]);
-
-  useEffect(() => {
-    const v = binanceApiSecret.trim();
-    if (persistSecrets) {
-      if (!v) removeLocalKey(SESSION_BINANCE_SECRET_KEY);
-      else writeLocalString(SESSION_BINANCE_SECRET_KEY, v);
-      removeSessionKey(SESSION_BINANCE_SECRET_KEY);
-    } else {
-      if (!v) removeSessionKey(SESSION_BINANCE_SECRET_KEY);
-      else writeSessionString(SESSION_BINANCE_SECRET_KEY, v);
-      removeLocalKey(SESSION_BINANCE_SECRET_KEY);
-    }
-  }, [binanceApiSecret, persistSecrets]);
-
-  useEffect(() => {
-    const v = coinbaseApiKey.trim();
-    if (persistSecrets) {
-      if (!v) removeLocalKey(SESSION_COINBASE_KEY_KEY);
-      else writeLocalString(SESSION_COINBASE_KEY_KEY, v);
-      removeSessionKey(SESSION_COINBASE_KEY_KEY);
-    } else {
-      if (!v) removeSessionKey(SESSION_COINBASE_KEY_KEY);
-      else writeSessionString(SESSION_COINBASE_KEY_KEY, v);
-      removeLocalKey(SESSION_COINBASE_KEY_KEY);
-    }
-  }, [coinbaseApiKey, persistSecrets]);
-
-  useEffect(() => {
-    const v = coinbaseApiSecret.trim();
-    if (persistSecrets) {
-      if (!v) removeLocalKey(SESSION_COINBASE_SECRET_KEY);
-      else writeLocalString(SESSION_COINBASE_SECRET_KEY, v);
-      removeSessionKey(SESSION_COINBASE_SECRET_KEY);
-    } else {
-      if (!v) removeSessionKey(SESSION_COINBASE_SECRET_KEY);
-      else writeSessionString(SESSION_COINBASE_SECRET_KEY, v);
-      removeLocalKey(SESSION_COINBASE_SECRET_KEY);
-    }
-  }, [coinbaseApiSecret, persistSecrets]);
-
-  useEffect(() => {
-    const v = coinbaseApiPassphrase.trim();
-    if (persistSecrets) {
-      if (!v) removeLocalKey(SESSION_COINBASE_PASSPHRASE_KEY);
-      else writeLocalString(SESSION_COINBASE_PASSPHRASE_KEY, v);
-      removeSessionKey(SESSION_COINBASE_PASSPHRASE_KEY);
-    } else {
-      if (!v) removeSessionKey(SESSION_COINBASE_PASSPHRASE_KEY);
-      else writeSessionString(SESSION_COINBASE_PASSPHRASE_KEY, v);
-      removeLocalKey(SESSION_COINBASE_PASSPHRASE_KEY);
-    }
-  }, [coinbaseApiPassphrase, persistSecrets]);
-
-  useEffect(() => {
     let cancelled = false;
     const key = binanceApiKey.trim();
     const secret = binanceApiSecret.trim();
@@ -2576,19 +2488,6 @@ export function App() {
       cancelled = true;
     };
   }, [coinbaseApiKey, coinbaseApiPassphrase, coinbaseApiSecret]);
-
-  useEffect(() => {
-    const v = stateSyncTargetToken.trim();
-    if (persistSecrets) {
-      if (!v) removeLocalKey(STORAGE_STATE_SYNC_TOKEN_KEY);
-      else writeLocalString(STORAGE_STATE_SYNC_TOKEN_KEY, v);
-      removeSessionKey(STORAGE_STATE_SYNC_TOKEN_KEY);
-    } else {
-      if (!v) removeSessionKey(STORAGE_STATE_SYNC_TOKEN_KEY);
-      else writeSessionString(STORAGE_STATE_SYNC_TOKEN_KEY, v);
-      removeLocalKey(STORAGE_STATE_SYNC_TOKEN_KEY);
-    }
-  }, [persistSecrets, stateSyncTargetToken]);
 
   useEffect(() => {
     const v = stateSyncTargetInput.trim();

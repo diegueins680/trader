@@ -9,6 +9,7 @@ executable trader-hs
   hs-source-dirs:      app
   main-is:             Main.hs
   other-modules:       Trader.Binance
+                     , Trader.Api.Routes
                      , Trader.Cache
                      , Trader.Coinbase
                      , Trader.Config
@@ -30,6 +31,7 @@ executable trader-hs
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.OrderExecution
+                     , Trader.Ops.Migrations
                      , Trader.Optimizer.Json
                      , Trader.OnlineStats
                      , Trader.Poloniex
@@ -79,6 +81,7 @@ executable trader-hs
                      , process
                      , ad >=4.4
                      , scientific
+                     , stm
                      , text
                      , time
                      , postgresql-simple >=0.6 && <0.7
@@ -159,6 +162,7 @@ test-suite trader-tests
   hs-source-dirs:      test, app
   main-is:             TestMain.hs
   other-modules:       Trader.Binance
+                     , Trader.Api.Routes
                      , Trader.Cache
                      , Trader.Coinbase
                      , Trader.Config
@@ -198,6 +202,7 @@ test-suite trader-tests
                      , Trader.Split
                      , Trader.Symbol
                      , Trader.TopCombosStore
+                     , Trader.Test.ApiRoutes
                      , Trader.Text
                      , Trader.Trading
                      , Paths_trader

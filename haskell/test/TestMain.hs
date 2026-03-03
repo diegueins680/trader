@@ -74,6 +74,7 @@ import Trader.SignalGates (
     signalRunPostDirectionGates,
  )
 import Trader.Split (Split (..), splitTrainBacktest)
+import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.TopCombosStore (recalculateComboPerformanceFromOperation)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble)
 
@@ -81,7 +82,7 @@ main :: IO ()
 main = do
     results <-
         sequence
-            [ run "duration lookback bars" testLookbackBars
+            ( [ run "duration lookback bars" testLookbackBars
             , run "kalman fusion multi-sensor" testKalmanFusionMulti
             , run "market linear fit" testMarketLinearFit
             , run "predictors output shape" testPredictorsOutputs
@@ -140,6 +141,8 @@ main = do
             , run "operations optimization" testOptimizeOperations
             , run "binance order validation" testBinanceOrderValidation
             ]
+                ++ map (uncurry run) apiRouteSuite
+            )
     if and results then exitSuccess else exitFailure
 
 run :: String -> IO () -> IO Bool

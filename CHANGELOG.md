@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- API/Ops: refactor `ensureOpsDbSchema` into versioned migrations (`ops_schema_migrations`) and move route metadata (`apiRouteLabel`, root endpoint docs list) into dedicated modules to reduce `Main.hs` coupling.
+- API/Workers: dedupe top-combos candle-trigger backtests with a bounded STM queue and supervise long-running background workers (`bot auto-start`, `auto-optimizer`, top-combos workers) with automatic restart on non-async failures.
+- API/HTTP internals: consolidate global HTTP runtime state (retry config, shared manager, rate limiter, log flag) behind a single `HttpGlobals` initializer to reduce `unsafePerformIO` surface area.
+- Test/Web UI: add API route contract tests, centralize web platform/method IDs into shared contracts, and replace repetitive secret persistence effects with a reusable `useStoredSecret` hook.
 - Trading/Router: expand `router` and `bandit_router` candidate sets from 3 models (`kalman`, `lstm`, `blend`) to 6 by adding `cost_pick`, `regime_switch`, and `edge_blend`; router backtests now keep Kalman confidence gating active for regime-switch picks.
 - Web UI: top-combo bot auto-start now targets the top 10 unique Binance combo symbols from the full combos feed (instead of top 5 from the filtered/sorted panel view), keeping more symbols running automatically when available.
 - Dev/Docs: add `haskell/scripts/generate_roi_scorecard.sh` to auto-generate weekly ROI scorecards from local git activity and optional GitHub Actions CI outcomes (`gh`), plus README/ROI playbook usage docs.

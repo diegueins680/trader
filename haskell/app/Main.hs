@@ -8,6 +8,8 @@ import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
 import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueueIO, readTBQueue, writeTBQueue)
 import Control.Exception (AsyncException, IOException, SomeException, catch, displayException, finally, fromException, throwIO, try)
 import Control.Monad (forM, forM_, forever, unless, void, when)
 import Crypto.Hash (Digest, hash)
@@ -90,6 +92,7 @@ import Trader.App.Args (
     resolveBarsForPlatform,
     validateArgs,
  )
+import Trader.Api.Routes (apiEndpointDocs, apiRouteLabel)
 import Trader.Binance (
     BinanceEnv (..),
     BinanceLog (..),
@@ -206,6 +209,7 @@ import Trader.Optimization (
  )
 import Trader.Optimizer.Json (encodePretty)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
+import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
@@ -3232,263 +3236,6 @@ resolveDbUrl = do
     case pick of
         Nothing -> pure (Left "TRADER_DB_URL or DATABASE_URL not set.")
         Just url -> pure (Right (BS.pack url))
-
-ensureOpsDbSchema :: Connection -> IO ()
-ensureOpsDbSchema conn = do
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS platforms ("
-                <> "id SERIAL PRIMARY KEY,"
-                <> "code TEXT UNIQUE NOT NULL,"
-                <> "label TEXT NOT NULL,"
-                <> "rest_url TEXT,"
-                <> "ws_url TEXT,"
-                <> "api_docs_url TEXT,"
-                <> "connection_json JSONB,"
-                <> "created_at_ms BIGINT,"
-                <> "updated_at_ms BIGINT"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS git_commits ("
-                <> "id BIGSERIAL PRIMARY KEY,"
-                <> "commit_hash TEXT UNIQUE NOT NULL,"
-                <> "version TEXT,"
-                <> "committed_at_ms BIGINT,"
-                <> "created_at_ms BIGINT"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS platform_symbols ("
-                <> "id BIGSERIAL PRIMARY KEY,"
-                <> "platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,"
-                <> "symbol TEXT NOT NULL,"
-                <> "market TEXT,"
-                <> "base_asset TEXT,"
-                <> "quote_asset TEXT,"
-                <> "status TEXT,"
-                <> "metadata_json JSONB,"
-                <> "created_at_ms BIGINT,"
-                <> "updated_at_ms BIGINT,"
-                <> "UNIQUE (platform_id, symbol, market)"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS bots ("
-                <> "id BIGSERIAL PRIMARY KEY,"
-                <> "tenant_key TEXT,"
-                <> "platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,"
-                <> "symbol_id BIGINT REFERENCES platform_symbols(id) ON DELETE SET NULL,"
-                <> "symbol TEXT NOT NULL,"
-                <> "market TEXT,"
-                <> "interval TEXT,"
-                <> "live BOOLEAN,"
-                <> "trade_enabled BOOLEAN,"
-                <> "running BOOLEAN,"
-                <> "combo_uuid UUID,"
-                <> "args_json JSONB,"
-                <> "status_json JSONB,"
-                <> "started_at_ms BIGINT,"
-                <> "updated_at_ms BIGINT,"
-                <> "UNIQUE (tenant_key, platform_id, symbol, market, interval)"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS positions ("
-                <> "id BIGSERIAL PRIMARY KEY,"
-                <> "platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,"
-                <> "symbol_id BIGINT REFERENCES platform_symbols(id) ON DELETE SET NULL,"
-                <> "bot_id BIGINT REFERENCES bots(id) ON DELETE SET NULL,"
-                <> "symbol TEXT NOT NULL,"
-                <> "market TEXT,"
-                <> "side TEXT,"
-                <> "quantity DOUBLE PRECISION,"
-                <> "entry_price DOUBLE PRECISION,"
-                <> "mark_price DOUBLE PRECISION,"
-                <> "leverage DOUBLE PRECISION,"
-                <> "pnl_unrealized DOUBLE PRECISION,"
-                <> "position_json JSONB,"
-                <> "opened_at_ms BIGINT,"
-                <> "updated_at_ms BIGINT"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS position_origins ("
-                <> "tenant_key TEXT NOT NULL,"
-                <> "platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,"
-                <> "symbol TEXT NOT NULL,"
-                <> "market TEXT NOT NULL,"
-                <> "side TEXT NOT NULL,"
-                <> "combo_uuid UUID,"
-                <> "opened_at_ms BIGINT,"
-                <> "order_id TEXT,"
-                <> "updated_at_ms BIGINT,"
-                <> "PRIMARY KEY (tenant_key, platform_id, symbol, market)"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS strategies ("
-                <> "id SERIAL PRIMARY KEY,"
-                <> "code TEXT UNIQUE NOT NULL,"
-                <> "label TEXT NOT NULL"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS combos ("
-                <> "combo_uuid UUID PRIMARY KEY,"
-                <> "strategy_id INTEGER REFERENCES strategies(id),"
-                <> "symbol TEXT,"
-                <> "interval TEXT,"
-                <> "objective TEXT,"
-                <> "final_equity DOUBLE PRECISION,"
-                <> "annualized_return DOUBLE PRECISION,"
-                <> "score DOUBLE PRECISION,"
-                <> "open_threshold DOUBLE PRECISION,"
-                <> "close_threshold DOUBLE PRECISION,"
-                <> "params_json JSONB,"
-                <> "metrics_json JSONB,"
-                <> "operation_count INTEGER NOT NULL DEFAULT 0,"
-                <> "created_at_ms BIGINT,"
-                <> "updated_at_ms BIGINT"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS combo_parameters ("
-                <> "combo_uuid UUID NOT NULL REFERENCES combos(combo_uuid) ON DELETE CASCADE,"
-                <> "name TEXT NOT NULL,"
-                <> "value_json JSONB,"
-                <> "strategy_id INTEGER REFERENCES strategies(id),"
-                <> "PRIMARY KEY (combo_uuid, name)"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS ops ("
-                <> "id BIGSERIAL PRIMARY KEY,"
-                <> "tenant_key TEXT,"
-                <> "at_ms BIGINT NOT NULL,"
-                <> "kind TEXT NOT NULL,"
-                <> "symbol TEXT,"
-                <> "combo_uuid UUID,"
-                <> "order_id TEXT,"
-                <> "params_json JSONB,"
-                <> "args_json JSONB,"
-                <> "result_json JSONB,"
-                <> "equity DOUBLE PRECISION,"
-                <> "git_commit_id BIGINT REFERENCES git_commits(id)"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS async_jobs ("
-                <> "job_id TEXT PRIMARY KEY,"
-                <> "job_type TEXT NOT NULL,"
-                <> "status TEXT NOT NULL,"
-                <> "payload_json JSONB NOT NULL,"
-                <> "created_at_ms BIGINT,"
-                <> "completed_at_ms BIGINT,"
-                <> "updated_at_ms BIGINT NOT NULL"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS trade_requests ("
-                <> "tenant_scope TEXT NOT NULL,"
-                <> "tenant_key TEXT,"
-                <> "idempotency_key TEXT NOT NULL,"
-                <> "request_hash TEXT NOT NULL,"
-                <> "status TEXT NOT NULL,"
-                <> "response_json JSONB,"
-                <> "error_text TEXT,"
-                <> "created_at_ms BIGINT NOT NULL,"
-                <> "updated_at_ms BIGINT NOT NULL,"
-                <> "completed_at_ms BIGINT,"
-                <> "PRIMARY KEY (tenant_scope, idempotency_key)"
-                <> ")"
-            )
-    _ <-
-        execute_
-            conn
-            ( "CREATE TABLE IF NOT EXISTS outbox_events ("
-                <> "id BIGSERIAL PRIMARY KEY,"
-                <> "tenant_key TEXT,"
-                <> "topic TEXT NOT NULL,"
-                <> "event_key TEXT,"
-                <> "payload_json JSONB NOT NULL,"
-                <> "status TEXT NOT NULL DEFAULT 'pending',"
-                <> "attempts INTEGER NOT NULL DEFAULT 0,"
-                <> "next_attempt_at_ms BIGINT,"
-                <> "last_error TEXT,"
-                <> "created_at_ms BIGINT NOT NULL,"
-                <> "updated_at_ms BIGINT NOT NULL,"
-                <> "published_at_ms BIGINT"
-                <> ")"
-            )
-    _ <- execute_ conn "ALTER TABLE bots ADD COLUMN IF NOT EXISTS tenant_key TEXT"
-    _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS tenant_key TEXT"
-    _ <- execute_ conn "ALTER TABLE bots DROP CONSTRAINT IF EXISTS bots_platform_id_symbol_market_interval_key"
-    _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS platform_id INTEGER REFERENCES platforms(id)"
-    _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS symbol_id BIGINT REFERENCES platform_symbols(id)"
-    _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS git_commit_id BIGINT REFERENCES git_commits(id)"
-    _ <- execute_ conn "ALTER TABLE git_commits ADD COLUMN IF NOT EXISTS committed_at_ms BIGINT"
-    _ <- execute_ conn "CREATE UNIQUE INDEX IF NOT EXISTS bots_tenant_platform_symbol_interval_idx ON bots(tenant_key, platform_id, symbol, market, interval)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_kind_idx ON ops(kind)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_combo_uuid_idx ON ops(combo_uuid)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_idx ON ops(symbol)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_platform_idx ON ops(platform_id)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_tenant_key_idx ON ops(tenant_key)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_id_idx ON ops(symbol_id)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_git_commit_id_idx ON ops(git_commit_id)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS git_commits_committed_at_ms_idx ON git_commits(committed_at_ms)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_order_id_idx ON ops(order_id)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS async_jobs_type_status_idx ON async_jobs(job_type, status)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS async_jobs_updated_at_ms_idx ON async_jobs(updated_at_ms)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS trade_requests_tenant_status_idx ON trade_requests(tenant_scope, status)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS trade_requests_updated_at_ms_idx ON trade_requests(updated_at_ms)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS outbox_events_status_next_attempt_idx ON outbox_events(status, next_attempt_at_ms)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS outbox_events_created_at_ms_idx ON outbox_events(created_at_ms)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS outbox_events_tenant_topic_idx ON outbox_events(tenant_key, topic)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_at_ms_idx ON ops(at_ms)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_at_ms_idx ON ops(symbol, at_ms)"
-    _ <- execute_ conn "CREATE UNIQUE INDEX IF NOT EXISTS platforms_code_idx ON platforms(code)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS platform_symbols_platform_idx ON platform_symbols(platform_id)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS platform_symbols_symbol_idx ON platform_symbols(symbol)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS platform_symbols_market_idx ON platform_symbols(market)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS bots_platform_symbol_idx ON bots(platform_id, symbol)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS bots_running_idx ON bots(running)"
-    _ <- execute_ conn "CREATE UNIQUE INDEX IF NOT EXISTS positions_bot_id_uniq ON positions(bot_id) WHERE bot_id IS NOT NULL"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS positions_platform_symbol_idx ON positions(platform_id, symbol)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS positions_market_idx ON positions(market)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS position_origins_combo_uuid_idx ON position_origins(combo_uuid)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS position_origins_symbol_idx ON position_origins(symbol)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS position_origins_updated_at_ms_idx ON position_origins(updated_at_ms)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_symbol_idx ON combos(symbol)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_interval_idx ON combos(interval)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_strategy_idx ON combos(strategy_id)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_operation_count_idx ON combos(operation_count)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_annualized_return_idx ON combos(annualized_return)"
-    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combo_parameters_name_idx ON combo_parameters(name)"
-    pure ()
 
 seedStrategies :: Connection -> IO ()
 seedStrategies conn = do
@@ -8542,7 +8289,7 @@ data TopCombosBacktestCtx = TopCombosBacktestCtx
     , tcbcStore :: !TopCombosStore
     , tcbcStateSync :: !(Maybe StateSyncTarget)
     , tcbcLock :: !(MVar ())
-    , tcbcCandleChan :: !(Chan ())
+    , tcbcCandleQueue :: !(TBQueue ())
     , tcbcEnabled :: !Bool
     }
 
@@ -8717,7 +8464,7 @@ backtestTopCombosOnce topNRaw ctx = do
 topCombosCandleWorker :: TopCombosBacktestCtx -> IO ()
 topCombosCandleWorker ctx = do
     let loop = do
-            _ <- readChan (tcbcCandleChan ctx)
+            _ <- atomically (readTBQueue (tcbcCandleQueue ctx))
             when (tcbcEnabled ctx) $ do
                 _ <- try (withTopCombosBacktestLock ctx (backtestTopCombosOnce 5 ctx)) :: IO (Either SomeException ())
                 pure ()
@@ -8727,7 +8474,32 @@ topCombosCandleWorker ctx = do
 triggerTopCombosBacktestOnCandle :: TopCombosBacktestCtx -> IO ()
 triggerTopCombosBacktestOnCandle ctx =
     when (tcbcEnabled ctx) $
-        writeChan (tcbcCandleChan ctx) ()
+        atomically $ do
+            let q = tcbcCandleQueue ctx
+            full <- isFullTBQueue q
+            unless full (writeTBQueue q ())
+
+forkSupervisedWorker :: String -> IO () -> IO ThreadId
+forkSupervisedWorker name action =
+    forkIO (loop 0)
+  where
+    restartDelayUs = 1000000
+
+    loop :: Int -> IO ()
+    loop restartCount = do
+        result <- try action
+        case result of
+            Right () -> do
+                putStrLn (printf "Background worker '%s' exited; restarting (count=%d)." name (restartCount + 1))
+                threadDelay restartDelayUs
+                loop (restartCount + 1)
+            Left ex ->
+                case fromException ex :: Maybe AsyncException of
+                    Just asyncEx -> throwIO asyncEx
+                    Nothing -> do
+                        putStrLn (printf "Background worker '%s' crashed: %s" name (displayException ex))
+                        threadDelay restartDelayUs
+                        loop (restartCount + 1)
 
 autoTopCombosBacktestLoop :: TopCombosBacktestCtx -> IO ()
 autoTopCombosBacktestLoop ctx =
@@ -10222,6 +9994,13 @@ runRestApi baseArgs mWebhook = do
             maxBacktestRunning
             backtestTimeoutSec
         )
+    putStrLn
+        ( printf
+            "API request limits: maxBodyBytes=%d, maxOptimizerOutputBytes=%d, botStatusTailMax=%d"
+            (arlMaxBodyBytes reqLimits)
+            (arlMaxOptimizerOutputBytes reqLimits)
+            (arlMaxBotStatusTail reqLimits)
+        )
     if ccAllowAnyOrigin corsConfig
         then putStrLn "CORS: allowed origin *"
         else case ccAllowedOrigins corsConfig of
@@ -10262,7 +10041,7 @@ runRestApi baseArgs mWebhook = do
     topCombosEnabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
     let topCombosEnabled = readEnvBool topCombosEnabledEnv True
     topCombosLock <- newMVar ()
-    topCombosCandleChan <- newChan
+    topCombosCandleQueue <- newTBQueueIO 1
     let topCombosCtx =
             TopCombosBacktestCtx
                 { tcbcBaseArgs = baseArgs
@@ -10273,7 +10052,7 @@ runRestApi baseArgs mWebhook = do
                 , tcbcStore = topCombosStore
                 , tcbcStateSync = mStateSyncTarget
                 , tcbcLock = topCombosLock
-                , tcbcCandleChan = topCombosCandleChan
+                , tcbcCandleQueue = topCombosCandleQueue
                 , tcbcEnabled = topCombosEnabled
                 }
     let defaultAsyncDir = maybe (tmpRoot </> "async") (</> "async") mStateDir
@@ -10308,125 +10087,13 @@ runRestApi baseArgs mWebhook = do
     case mAutoBotTenant of
         Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
         Just tenantKey -> do
-            _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
+            _ <- forkSupervisedWorker "bot-auto-start" (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
             pure ()
-    _ <- forkIO (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
-    _ <- forkIO (topCombosCandleWorker topCombosCtx)
-    _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
-    asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
-    asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
-    asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
-    hFlush stdout
-    res <-
-        ( try
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
-                IO (Either IOException ())
-            )
-    case res of
-        Right () -> pure ()
-        Left e ->
-            ioError
-                ( userError
-                    ( printf
-                        "Failed to start REST API on %s:%d: %s\nTry a different --port (or check permissions / sandbox restrictions)."
-                        bindHostStr
-                        port
-                        (show e)
-                    )
-                )
-    putStrLn
-        ( printf
-            "API request limits: maxBodyBytes=%d, maxOptimizerOutputBytes=%d, botStatusTailMax=%d"
-            (arlMaxBodyBytes reqLimits)
-            (arlMaxOptimizerOutputBytes reqLimits)
-            (arlMaxBotStatusTail reqLimits)
-        )
-    if ccAllowAnyOrigin corsConfig
-        then putStrLn "CORS: allowed origin *"
-        else case ccAllowedOrigins corsConfig of
-            [] ->
-                if ccAllowAuthOrigin corsConfig
-                    then putStrLn "CORS: auth-origin allowed (Origin echoed when auth headers present)"
-                    else putStrLn "CORS: disabled (set TRADER_CORS_ORIGIN to allow a specific origin)"
-            origins ->
-                putStrLn ("CORS: allowed origins " ++ intercalate ", " (map BS.unpack origins))
-    apiCache <- newApiCache cacheMaxEntries cacheTtlMs
-    putStrLn
-        ( printf
-            "API cache: ttlMs=%d maxEntries=%d"
-            cacheTtlMs
-            cacheMaxEntries
-        )
-    projectRoot <- getCurrentDirectory
-    mStateDir <- stateDirFromEnv
-    let tmpRoot = projectRoot </> ".tmp"
-    createDirectoryIfMissing True tmpRoot
-    let optimizerTmp = maybe (tmpRoot </> "optimizer") (</> "optimizer") mStateDir
-    createDirectoryIfMissing True optimizerTmp
-    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-    topCombosHistoryDir <- resolveOptimizerCombosHistoryDir topJsonPath
-    topCombosStore <- newTopCombosStore topJsonPath topCombosHistoryDir
-    metrics <- newMetrics
-    mJournal <- newJournalFromEnv
-    mOps <- newOpsStoreFromEnv
-    mStateSyncTarget <- newStateSyncTargetFromEnv
-    listenKeyManager <- newListenKeyManager
-    mBotStateDir <- resolveBotStateDir
-    backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
-    topCombosEnabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
-    let topCombosEnabled = readEnvBool topCombosEnabledEnv True
-    topCombosLock <- newMVar ()
-    topCombosCandleChan <- newChan
-    let topCombosCtx =
-            TopCombosBacktestCtx
-                { tcbcBaseArgs = baseArgs
-                , tcbcLimits = limits
-                , tcbcGate = backtestGate
-                , tcbcOps = mOps
-                , tcbcJournal = mJournal
-                , tcbcStore = topCombosStore
-                , tcbcStateSync = mStateSyncTarget
-                , tcbcLock = topCombosLock
-                , tcbcCandleChan = topCombosCandleChan
-                , tcbcEnabled = topCombosEnabled
-                }
-    let defaultAsyncDir = maybe (tmpRoot </> "async") (</> "async") mStateDir
-    asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
-    let asyncDirTrimmed = trim <$> asyncDirEnv
-        mAsyncDir =
-            case asyncDirTrimmed of
-                Nothing -> Just defaultAsyncDir
-                Just dir | null dir -> Nothing
-                Just dir -> Just dir
-        asyncDirFromEnv =
-            case asyncDirTrimmed of
-                Nothing -> False
-                Just dir -> not (null dir)
-        asyncDirFromState = isNothing asyncDirTrimmed && isJust mStateDir
-    case mAsyncDir of
-        Nothing -> pure ()
-        Just dir -> do
-            let suffix :: String
-                suffix
-                    | asyncDirFromEnv = ""
-                    | asyncDirFromState = " (from TRADER_STATE_DIR; set TRADER_API_ASYNC_DIR to override)"
-                    | otherwise = " (default; set TRADER_API_ASYNC_DIR to override)"
-            putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
-    now <- getTimestampMs
-    journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
-    opsAppendMaybe mOps Nothing "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
-    autoBotKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey baseArgs)
-    autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
-    let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
-    bot <- newBotController
-    case mAutoBotTenant of
-        Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
-        Just tenantKey -> do
-            _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
-            pure ()
-    _ <- forkIO (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
-    _ <- forkIO (topCombosCandleWorker topCombosCtx)
-    _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
+    _ <- forkSupervisedWorker "auto-optimizer" (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
+    when topCombosEnabled $ do
+        _ <- forkSupervisedWorker "top-combos-candle" (topCombosCandleWorker topCombosCtx)
+        _ <- forkSupervisedWorker "top-combos-scheduled-backtest" (autoTopCombosBacktestLoop topCombosCtx)
+        pure ()
     asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
     asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
     asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
@@ -11563,24 +11230,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                 putStrLn (printf "Request %s %s -> %d (%dms)" method pathLabel code durMs)
             respond resp
         respondCors = respondLogged . withCors corsConfig req
-        label =
-            case path of
-                ["signal", "async", _, "cancel"] -> "signal/async/:jobId/cancel"
-                ["backtest", "async", _, "cancel"] -> "backtest/async/:jobId/cancel"
-                ["trade", "async", _, "cancel"] -> "trade/async/:jobId/cancel"
-                ["signal", "async", _] -> "signal/async/:jobId"
-                ["backtest", "async", _] -> "backtest/async/:jobId"
-                ["trade", "async", _] -> "trade/async/:jobId"
-                ["optimizer", "run"] -> "optimizer/run"
-                ["optimizer", "combos"] -> "optimizer/combos"
-                ["state", "sync"] -> "state/sync"
-                _ ->
-                    let go xs =
-                            case xs of
-                                [] -> "root"
-                                [x] -> T.unpack x
-                                (x : rest) -> T.unpack x ++ "/" ++ go rest
-                     in go path
+        label = apiRouteLabel path
 
     let handleRequest =
             case Wai.requestMethod req of
@@ -11602,43 +11252,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                                       ]
                                                         ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
                                                         ++ [ "endpoints"
-                                                                .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/version" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/ops/performance" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/outbox" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/cache" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/cache/clear" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async/:jobId/cancel" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async/:jobId/cancel" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/trades" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/positions" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/binance/proxy/health" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/coinbase/keys" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/binance/listenKey/stream" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/close" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/optimizer/run" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/optimizer/combos" :: String)]
-                                                                   , object ["method" .= ("GET" :: String), "path" .= ("/state/sync" :: String)]
-                                                                   , object ["method" .= ("POST" :: String), "path" .= ("/state/sync" :: String)]
-                                                                   ]
+                                                                .= apiEndpointDocs
                                                            ]
                                                     )
                                                 )

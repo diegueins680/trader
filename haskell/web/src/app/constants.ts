@@ -1,5 +1,6 @@
 import type { Platform } from "../lib/types";
 import { TRADER_UI_CONFIG } from "../lib/deployConfig";
+import { PLATFORM_IDS } from "./contracts";
 
 export const STORAGE_KEY = "trader.ui.form.v1";
 export const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
@@ -53,7 +54,7 @@ export const RATE_LIMIT_BASE_MS = 10_000;
 export const RATE_LIMIT_MAX_MS = 120_000;
 export const RATE_LIMIT_TOAST_MIN_MS = 12_000;
 
-export const PLATFORMS: Platform[] = ["binance", "coinbase", "kraken", "poloniex"];
+export const PLATFORMS: Platform[] = [...PLATFORM_IDS];
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   binance: "Binance",

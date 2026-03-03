@@ -1,37 +1,8 @@
+import type { Method as ContractMethod, Platform as ContractPlatform } from "../app/contracts";
+
 export type Market = "spot" | "margin" | "futures";
-export type Platform = "binance" | "coinbase" | "kraken" | "poloniex";
-export type Method =
-  | "11"
-  | "10"
-  | "01"
-  | "blend"
-  | "conf_blend"
-  | "conf_pick"
-  | "conformal_clip"
-  | "cost_pick"
-  | "harmonic_blend"
-  | "disagreement_guard"
-  | "median_blend"
-  | "neutral_guard"
-  | "risk_parity_blend"
-  | "consensus_boost"
-  | "anchor_blend"
-  | "tension_gate"
-  | "entropy_blend"
-  | "coherence_gate"
-  | "divergence_gate"
-  | "fractal_blend"
-  | "phase_cancel"
-  | "softmax_blend"
-  | "smooth_softmax_blend"
-  | "hedge_blend"
-  | "net_softmax_blend"
-  | "edge_blend"
-  | "edge_pick"
-  | "geo_blend"
-  | "regime_switch"
-  | "router"
-  | "bandit_router";
+export type Platform = ContractPlatform;
+export type Method = ContractMethod;
 export type Normalization = "none" | "minmax" | "standard" | "log";
 export type Positioning = "long-flat" | "long-short";
 export type IntrabarFill = "stop-first" | "take-profit-first";

@@ -25,6 +25,8 @@ Features
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
 - Router and bandit-router adaptive model selection now evaluate six strategy candidates (`kalman`, `lstm`, `blend`, `cost_pick`, `regime_switch`, `edge_blend`) to improve risk-adjusted selection under changing regimes.
 - Ensemble simulation helpers return `Either` with validation errors instead of throwing exceptions.
+- API background workers (bot auto-start, optimizer loops) run under supervision and auto-restart on non-async failures; top-combo candle-trigger backtests are deduped via a bounded queue to prevent unbounded trigger backlog.
+- Ops DB schema setup is versioned via `ops_schema_migrations`, allowing idempotent, incremental schema rollout instead of a monolithic startup DDL block.
 - Optional tri-layer entry gating: Kalman cloud trend + price-action reversal triggers (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, Sortino, Calmar, VaR/CVaR, max drawdown) (`haskell/app/Trader/Metrics.hs`).
 - Data sources: CSV or exchange klines (Binance/Coinbase/Kraken/Poloniex).
