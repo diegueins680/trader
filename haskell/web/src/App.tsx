@@ -9677,65 +9677,70 @@ export function App() {
 
           {botRunningCharts.map((entry) => {
             const st = entry.status;
-            const botStatePoints = botStatusPointsBySymbol.get(normalizeSymbolKey(st.symbol)) ?? [];
-            const botStateRangeOk = botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error;
             const panelId = `panel-bot-${botStatusKey(st).replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`;
+            const panelOpen = isPanelOpen(panelId, false);
+            const panelMaximized = isPanelMaximized(panelId);
+            const panelExpanded = panelOpen || panelMaximized;
             const subtitle = `${marketLabel(st.market)} / ${st.interval} / ${methodLabel(st.method)}`;
             return (
               <CollapsibleCard
                 key={panelId}
                 panelId={panelId}
-                open={isPanelOpen(panelId, true)}
+                open={panelOpen}
                 onToggle={handlePanelToggle(panelId)}
-                maximized={isPanelMaximized(panelId)}
+                maximized={panelMaximized}
                 onToggleMaximize={() => togglePanelMaximize(panelId)}
                 title={`Bot ${st.symbol}`}
                 subtitle={subtitle}
                 className="chartCard"
               >
-                <div className="pillRow" style={{ marginBottom: 10 }}>
-                  <span className="badge">{st.symbol}</span>
-                  <span className="badge">{st.interval}</span>
-                  <span className="badge">{marketLabel(st.market)}</span>
-                  <span className="badge">{methodLabel(st.method)}</span>
-                  <span className="badge">open {fmtPct(st.openThreshold ?? st.threshold, 3)}</span>
-                  <span className="badge">close {fmtPct(st.closeThreshold ?? st.openThreshold ?? st.threshold, 3)}</span>
-                  <span className="badge">{st.halted ? "HALTED" : "ACTIVE"}</span>
-                  <span className="badge">{st.error ? "Error" : "OK"}</span>
-                </div>
-                <ChartSuspense height={CHART_HEIGHT}>
-                  <BacktestChart
-                    prices={st.prices}
-                    equityCurve={st.equityCurve}
-                    openTimes={st.openTimes}
-                    kalmanPredNext={st.kalmanPredNext}
-                    positions={botChartOverlays.get(botStatusKey(st))?.positions ?? st.positions}
-                    trades={st.trades}
-                    operations={botChartOverlays.get(botStatusKey(st))?.operations ?? st.operations}
-                    backtestStartIndex={st.startIndex}
-                    height={CHART_HEIGHT}
-                  />
-                </ChartSuspense>
-                <div style={{ marginTop: 8 }}>
-                  <div className="hint" style={{ marginBottom: 6 }}>
-                    Bot state timeline
-                  </div>
-                  {botStateRangeOk ? (
-                    <ChartSuspense height={160} label="Loading timeline...">
-                      <BotStateChart
-                        points={botStatePoints}
-                        startMs={botStatusRange.startMs}
-                        endMs={botStatusRange.endMs}
-                        height={160}
-                        label={`Bot state timeline (${st.symbol})`}
+                {panelExpanded ? (
+                  <>
+                    <div className="pillRow" style={{ marginBottom: 10 }}>
+                      <span className="badge">{st.symbol}</span>
+                      <span className="badge">{st.interval}</span>
+                      <span className="badge">{marketLabel(st.market)}</span>
+                      <span className="badge">{methodLabel(st.method)}</span>
+                      <span className="badge">open {fmtPct(st.openThreshold ?? st.threshold, 3)}</span>
+                      <span className="badge">close {fmtPct(st.closeThreshold ?? st.openThreshold ?? st.threshold, 3)}</span>
+                      <span className="badge">{st.halted ? "HALTED" : "ACTIVE"}</span>
+                      <span className="badge">{st.error ? "Error" : "OK"}</span>
+                    </div>
+                    <ChartSuspense height={CHART_HEIGHT}>
+                      <BacktestChart
+                        prices={st.prices}
+                        equityCurve={st.equityCurve}
+                        openTimes={st.openTimes}
+                        kalmanPredNext={st.kalmanPredNext}
+                        positions={botChartOverlays.get(botStatusKey(st))?.positions ?? st.positions}
+                        trades={st.trades}
+                        operations={botChartOverlays.get(botStatusKey(st))?.operations ?? st.operations}
+                        backtestStartIndex={st.startIndex}
+                        height={CHART_HEIGHT}
                       />
                     </ChartSuspense>
-                  ) : (
-                    <div className="chart" style={{ height: 160 }}>
-                      <div className="chartEmpty">Select a valid time range</div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="hint" style={{ marginBottom: 6 }}>
+                        Bot state timeline
+                      </div>
+                      {botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error ? (
+                        <ChartSuspense height={160} label="Loading timeline...">
+                          <BotStateChart
+                            points={botStatusPointsBySymbol.get(normalizeSymbolKey(st.symbol)) ?? []}
+                            startMs={botStatusRange.startMs}
+                            endMs={botStatusRange.endMs}
+                            height={160}
+                            label={`Bot state timeline (${st.symbol})`}
+                          />
+                        </ChartSuspense>
+                      ) : (
+                        <div className="chart" style={{ height: 160 }}>
+                          <div className="chartEmpty">Select a valid time range</div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </>
+                ) : null}
               </CollapsibleCard>
             );
           })}

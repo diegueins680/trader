@@ -955,6 +955,7 @@ The Live bot panel keeps the last bot status and bot list visible while bots are
 A floating “Bot activity” panel summarizes the selected bot’s status, phase, latest action, poll timing, and last event/order, and can be minimized into a header-only strip that collapses the panel height or dragged to a new position.
 The Bot activity panel includes a bot selector so you can switch between running bots.
 Live bot and per-bot panels expand to show full chart contents without internal clipping, while the optimizer combos panel keeps controls fixed with the combos list in a scrollable pane when docked; when maximized, the whole panel scrolls so long lists stay reachable. Restoring a maximized panel resets its scroll position so header controls reappear immediately.
+Per-running-bot chart panels now start collapsed by default and lazily populate chart/timeline content only when expanded or maximized.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API LSTM compute limits reported by `/health`.
