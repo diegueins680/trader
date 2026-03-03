@@ -42,7 +42,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX (getPOSIXTime, utcTimeToPOSIXSeconds)
-import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Data.Version (showVersion)
@@ -83,8 +82,10 @@ import Trader.App.Args (
     Args (..),
     argBinanceMarket,
     argLookback,
+    normalizeEpochMs,
     intrabarFillCode,
     opts,
+    parseTimestampMs,
     parseIntrabarFill,
     parsePositioning,
     positioningCode,
@@ -197,17 +198,7 @@ import Trader.Method (Method (..), methodCode, parseMethod, runtimeMethod, selec
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Ops.Migrations (ensureOpsDbSchema)
-import Trader.Optimization (
-    TuneConfig (..),
-    TuneObjective (..),
-    TuneStats (..),
-    optimizeOperationsWith,
-    optimizeOperationsWithHLWith,
-    parseTuneObjective,
-    sweepThresholdWith,
-    sweepThresholdWithHLWith,
-    tuneObjectiveCode,
- )
+import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
@@ -463,7 +454,7 @@ sortCsvRowsByTime timeKey rows =
         Nothing -> rows
         Just rawTimes ->
             let times = map (trim . BS.unpack) rawTimes
-             in case traverse parseTimeMs times of
+             in case traverse parseTimestampMs times of
                     Just ts ->
                         let pairs = zip ts rows
                          in map snd (sortOn fst pairs)
@@ -477,7 +468,7 @@ parseCsvTimes timeKey rows =
         Just rawTimes ->
             let times = map (trim . BS.unpack) rawTimes
                 parseAt (idx, s) =
-                    case parseTimeMs s of
+                    case parseTimestampMs s of
                         Just t -> Right t
                         Nothing ->
                             Left
@@ -492,65 +483,6 @@ parseCsvTimes timeKey rows =
 
 lookupCell :: BS.ByteString -> Csv.NamedRecord -> Maybe BS.ByteString
 lookupCell = HM.lookup
-
-parseTimeInt64 :: String -> Maybe Int64
-parseTimeInt64 s =
-    case (readMaybe s :: Maybe Int64) of
-        Just n -> Just n
-        Nothing ->
-            case (readMaybe s :: Maybe Double) of
-                Just d -> Just (floor d)
-                Nothing -> Nothing
-
-normalizeEpochMs :: Int64 -> Int64
-normalizeEpochMs n =
-    if n < 100000000000
-        then n * 1000
-        else n
-
-parseTimeMs :: String -> Maybe Int64
-parseTimeMs s =
-    case parseTimeInt64 s of
-        Just n -> Just (normalizeEpochMs n)
-        Nothing ->
-            if looksLikeIso8601Prefix s
-                then parseIsoTimeMs s
-                else Nothing
-
-parseIsoTimeMs :: String -> Maybe Int64
-parseIsoTimeMs s =
-    let s' = normalizeIsoOffsetSuffix s
-        formats =
-            [ "%Y-%m-%d"
-            , "%Y-%m-%d %H:%M:%S"
-            , "%Y-%m-%dT%H:%M:%S"
-            , "%Y-%m-%d %H:%M:%S%z"
-            , "%Y-%m-%dT%H:%M:%S%z"
-            , "%Y-%m-%d %H:%M:%S%Q"
-            , "%Y-%m-%dT%H:%M:%S%Q"
-            , "%Y-%m-%d %H:%M:%S%Q%z"
-            , "%Y-%m-%dT%H:%M:%S%Q%z"
-            , "%Y-%m-%dT%H:%M:%S%QZ"
-            , "%Y-%m-%d %H:%M:%S%QZ"
-            ]
-        parseWith fmt = parseTimeM True defaultTimeLocale fmt s'
-     in case mapMaybe parseWith formats of
-            [] -> Nothing
-            (t : _) -> Just (floor (utcTimeToPOSIXSeconds t * 1000))
-
-normalizeIsoOffsetSuffix :: String -> String
-normalizeIsoOffsetSuffix raw =
-    case reverse raw of
-        m2 : m1 : ':' : h2 : h1 : sign : rest
-            | (sign == '+' || sign == '-') && all isDigit [h1, h2, m1, m2] ->
-                reverse rest ++ [sign, h1, h2, m1, m2]
-        _ -> raw
-
-looksLikeIso8601Prefix :: String -> Bool
-looksLikeIso8601Prefix s =
-    case s of
-        (a : b : c : d : '-' : e : f : '-' : g : h : _) -> all isDigit [a, b, c, d, e, f, g, h]
-        _ -> False
 
 firstJust :: [Maybe a] -> Maybe a
 firstJust xs =
@@ -7209,6 +7141,8 @@ botOptimizeAfterOperation st = do
                     let win = min n (min 1000 (max (lookback + 3) (bsTrainBars settings)))
                         start = n - win
                         prices = V.toList (V.drop start pricesV)
+                        highs = V.toList (V.drop start (botHighs st))
+                        lows = V.toList (V.drop start (botLows st))
                         kalPred = V.toList (V.slice start (win - 1) (botKalmanPredNext st))
                         lstmPred = V.toList (V.slice start (win - 1) (botLstmPredNext st))
                         baseOpenThr = argOpenThreshold args
@@ -7361,11 +7295,11 @@ botOptimizeAfterOperation st = do
                                 then
                                     fmap
                                         (\(m, openThr, closeThr, _bt, _stats) -> (m, openThr, closeThr))
-                                        (optimizeOperationsWith tuneCfg baseCfg prices kalPred lstmPred Nothing)
+                                        (optimizeOperationsWithHLWith tuneCfg baseCfg prices highs lows kalPred lstmPred Nothing)
                                 else
                                     fmap
                                         (\(openThr, closeThr, _bt, _stats) -> (runtimeMethod (argMethod args), openThr, closeThr))
-                                        (sweepThresholdWith tuneCfg (runtimeMethod (argMethod args)) baseCfg prices kalPred lstmPred Nothing)
+                                        (sweepThresholdWithHLWith tuneCfg (runtimeMethod (argMethod args)) baseCfg prices highs lows kalPred lstmPred Nothing)
                     (newMethod, newOpenThr, newCloseThr) <-
                         case thresholdResult of
                             Right res -> pure res
@@ -19849,7 +19783,7 @@ backtestTimeBoundsMs args =
             case raw of
                 Nothing -> Right Nothing
                 Just s ->
-                    case parseTimeMs s of
+                    case parseTimestampMs s of
                         Just t -> Right (Just t)
                         Nothing ->
                             Left

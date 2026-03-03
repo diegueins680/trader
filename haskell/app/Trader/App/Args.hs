@@ -13,6 +13,8 @@ module Trader.App.Args (
     opts,
     argBinanceMarket,
     argLookback,
+    normalizeEpochMs,
+    parseTimestampMs,
     validateArgs,
 ) where
 
@@ -357,8 +359,8 @@ looksLikeIso8601Prefix s =
         (a : b : c : d : '-' : e : f : '-' : g : h : _) -> all isDigit [a, b, c, d, e, f, g, h]
         _ -> False
 
-parseBacktestTimeMs :: String -> Maybe Int64
-parseBacktestTimeMs s =
+parseTimestampMs :: String -> Maybe Int64
+parseTimestampMs s =
     case parseTimeInt64 s of
         Just n -> Just (normalizeEpochMs n)
         Nothing ->
@@ -1075,7 +1077,7 @@ validateArgs args0 = do
     ensure "--val-ratio must be >= 0 and < 1" (argValRatio args >= 0 && argValRatio args < 1)
     ensure "--backtest-ratio must be between 0 and 1" (argBacktestRatio args > 0 && argBacktestRatio args < 1)
     let parseWindowBound flag raw =
-            case parseBacktestTimeMs raw of
+            case parseTimestampMs raw of
                 Just t -> Right t
                 Nothing ->
                     Left

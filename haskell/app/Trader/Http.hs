@@ -15,9 +15,9 @@ import Control.Exception (SomeException, displayException, throwIO, try)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (toLower)
+import Data.Char (isSpace, toLower)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import Data.List (isInfixOf)
+import Data.List (dropWhileEnd, isInfixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -204,25 +204,35 @@ retryAfterMs resp =
 
 parseRetryAfterMsAt :: Integer -> ByteString -> Maybe Int
 parseRetryAfterMsAt nowMs raw =
-    case readMaybe (BS.unpack raw) :: Maybe Int of
-        Just sec | sec > 0 -> Just (sec * 1000)
-        _ ->
-            let parseDate fmt =
-                    (parseTimeM True defaultTimeLocale fmt (BS.unpack raw) :: Maybe UTCTime)
-                formats =
-                    [ "%a, %d %b %Y %H:%M:%S GMT"
-                    , "%A, %d-%b-%y %H:%M:%S GMT"
-                    , "%a %b %e %H:%M:%S %Y"
-                    ]
-                toDelayMs t =
-                    let targetMs = floor (utcTimeToPOSIXSeconds t * 1000) :: Integer
-                        delta = targetMs - nowMs
-                     in if delta <= 0
-                            then Nothing
-                            else Just (fromInteger (min delta (toInteger (maxBound :: Int))))
-             in case mapMaybe parseDate formats of
-                    [] -> Nothing
-                    (t : _) -> toDelayMs t
+    let txt = trimSpaces (BS.unpack raw)
+        clampMs ms =
+            let bounded = max 0 (min ms (toInteger (maxBound :: Int)))
+             in fromInteger bounded
+     in if null txt
+            then Nothing
+            else
+                case readMaybe txt :: Maybe Integer of
+                    Just sec | sec > 0 -> Just (clampMs (sec * 1000))
+                    _ ->
+                        let parseDate fmt =
+                                (parseTimeM True defaultTimeLocale fmt txt :: Maybe UTCTime)
+                            formats =
+                                [ "%a, %d %b %Y %H:%M:%S GMT"
+                                , "%A, %d-%b-%y %H:%M:%S GMT"
+                                , "%a %b %e %H:%M:%S %Y"
+                                ]
+                            toDelayMs t =
+                                let targetMs = floor (utcTimeToPOSIXSeconds t * 1000) :: Integer
+                                    delta = targetMs - nowMs
+                                 in if delta <= 0
+                                        then Nothing
+                                        else Just (clampMs delta)
+                         in case mapMaybe parseDate formats of
+                                [] -> Nothing
+                                (t : _) -> toDelayMs t
+
+trimSpaces :: String -> String
+trimSpaces = dropWhileEnd isSpace . dropWhile isSpace
 
 sleepMs :: Int -> IO ()
 sleepMs ms =

@@ -903,9 +903,15 @@ testRetryAfterDateParsing :: IO ()
 testRetryAfterDateParsing = do
     let nowMs = 1735689600000 -- 2025-01-01T00:00:00Z
         delaySeconds = parseRetryAfterMsAt nowMs "5"
+        delaySecondsSpaced = parseRetryAfterMsAt nowMs " 5 "
         delayDate = parseRetryAfterMsAt nowMs "Wed, 01 Jan 2025 00:00:05 GMT"
+        delayDateSpaced = parseRetryAfterMsAt nowMs " Wed, 01 Jan 2025 00:00:05 GMT "
+        delayHuge = parseRetryAfterMsAt nowMs "999999999999999999999999999999"
     assert "retry-after seconds parses" (delaySeconds == Just 5000)
+    assert "retry-after seconds trims spaces" (delaySecondsSpaced == Just 5000)
     assert "retry-after HTTP-date parses" (delayDate == Just 5000)
+    assert "retry-after HTTP-date trims spaces" (delayDateSpaced == Just 5000)
+    assert "retry-after huge value clamps" (delayHuge == Just (maxBound :: Int))
 
 testInitialBalanceValidation :: IO ()
 testInitialBalanceValidation =
