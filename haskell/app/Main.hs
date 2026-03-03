@@ -5803,6 +5803,22 @@ comboPollSecondsFromEnv = do
             Just n | n >= 5 -> n
             _ -> 30
 
+topComboBotCountFromEnv :: IO Int
+topComboBotCountFromEnv = do
+    raw <- lookupEnv "TRADER_BOT_TOP_COMBO_BOTS"
+    pure $
+        case raw >>= readMaybe of
+            Just n | n >= 0 -> min 200 n
+            _ -> 50
+
+topComboStartupBotCountFromEnv :: Int -> IO Int
+topComboStartupBotCountFromEnv fallback = do
+    raw <- lookupEnv "TRADER_BOT_TOP_COMBO_BOTS_STARTUP"
+    pure $
+        case raw >>= readMaybe of
+            Just n | n >= 0 -> min 200 n
+            _ -> fallback
+
 data AdoptRequirement = AdoptRequirement
     { arActive :: !Bool
     , arRequiresLongShort :: !Bool
@@ -6449,8 +6465,6 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                     case symbolsOrErr of
                         Left _ -> []
                         Right xs -> xs
-                minTopComboBots = 50
-                maxTopComboBots = 50
             case symbolsOrErr of
                 Left err -> putStrLn ("Live bot auto-start base symbols missing: " ++ err)
                 Right _ -> pure ()
@@ -6466,6 +6480,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                     Nothing -> do
                         let argsBase = baseArgs{argTradeOnly = True}
                             settings = defaultBotSettings argsBase
+                        topComboBotCount <- topComboBotCountFromEnv
+                        topComboStartupBotCount <- topComboStartupBotCountFromEnv topComboBotCount
                         pollSec <- comboPollSecondsFromEnv
                         let topJsonPath = tcsPath topCombosStore
                         errRef <- newIORef HM.empty
@@ -6473,6 +6489,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         topTargetsRef <- newIORef []
                         topTargetsWarnRef <- newIORef Nothing
                         targetsRef <- newIORef []
+                        startupPhaseRef <- newIORef (topComboStartupBotCount /= topComboBotCount)
                         let formatList xs =
                                 if null xs
                                     then "none"
@@ -6480,6 +6497,10 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         putStrLn
                             ( "Live bot auto-start enabled. Base symbols: "
                                 ++ formatList baseSymbols
+                                ++ ". Top combo bot target count: startup="
+                                ++ show topComboStartupBotCount
+                                ++ ", steady="
+                                ++ show topComboBotCount
                                 ++ ". Top combos path: "
                                 ++ topJsonPath
                             )
@@ -6493,7 +6514,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                         writeIORef errRef (HM.insert sym msg prev)
                                         putStrLn ("Live bot auto-start failed for " ++ sym ++ ": " ++ msg)
                             clearError sym = modifyIORef' errRef (HM.delete sym)
-                            loadTopTargets = do
+                            loadTopTargets topComboTargetCount = do
                                 combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
                                 case combosOrErr of
                                     Left err -> do
@@ -6505,11 +6526,11 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                 putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
                                                 readIORef topTargetsRef
                                     Right export -> do
-                                        let targets = topCombosTopTargets maxTopComboBots export
+                                        let targets = topCombosTopTargets topComboTargetCount export
                                             targetCount = length targets
                                         writeIORef topTargetsRef targets
                                         writeIORef topErrRef Nothing
-                                        if targetCount < minTopComboBots
+                                        if targetCount < topComboTargetCount
                                             then do
                                                 prev <- readIORef topTargetsWarnRef
                                                 when (prev /= Just targetCount) $ do
@@ -6518,7 +6539,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         ( "Live bot auto-start warning: only "
                                                             ++ show targetCount
                                                             ++ " unique top-combo symbol(s) available; unable to start all "
-                                                            ++ show minTopComboBots
+                                                            ++ show topComboTargetCount
                                                             ++ " top-combo bots."
                                                         )
                                             else writeIORef topTargetsWarnRef Nothing
@@ -6611,7 +6632,12 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                     Left err -> recordError sym err
                                                     Right _ -> clearError sym
                             loop = do
-                                topTargets <- loadTopTargets
+                                startupPhase <- readIORef startupPhaseRef
+                                let topComboTargetCount =
+                                        if startupPhase
+                                            then topComboStartupBotCount
+                                            else topComboBotCount
+                                topTargets <- loadTopTargets topComboTargetCount
                                 let topTargetMap =
                                         foldl'
                                             (\acc (sym, combo) -> HM.insertWith (\_ old -> old) sym combo acc)
@@ -6636,6 +6662,9 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrtAfterRestart)
                                 let missing = filter (not . (`HM.member` tenantMap)) targetSymbols
                                 mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap) (sym `elem` orphanSymbols)) missing
+                                when startupPhase $ do
+                                    writeIORef startupPhaseRef False
+                                    putStrLn "Live bot auto-start startup phase complete; enabling steady-state top-combo targets."
                                 sleepSec pollSec
                                 loop
                         loop
@@ -10008,7 +10037,15 @@ runRestApi cliArgs mWebhook = do
     topCombosStore <- newTopCombosStore topJsonPath topCombosHistoryDir
     metrics <- newMetrics
     mJournal <- newJournalFromEnv
-    mOps <- newOpsStoreFromEnv
+    mOpsRaw <- newOpsStoreFromEnv
+    mOps <-
+        case mOpsRaw of
+            Just store -> pure (Just store)
+            Nothing ->
+                ioError
+                    ( userError
+                        "Ops persistence is required in --serve mode. Set TRADER_DB_URL (or DATABASE_URL) and ensure the database is reachable."
+                    )
     mStateSyncTarget <- newStateSyncTargetFromEnv
     listenKeyManager <- newListenKeyManager
     mBotStateDir <- resolveBotStateDir

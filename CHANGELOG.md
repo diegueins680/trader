@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Live bot/Fly defaults: add `TRADER_BOT_TOP_COMBO_BOTS` (steady-state cap, default `50`) plus `TRADER_BOT_TOP_COMBO_BOTS_STARTUP` (startup-phase cap, default steady value), set Fly startup/steady values to `0`/`10` to reduce boot pressure while re-enabling top-combo expansion after startup, and increase Fly VM memory from `2048mb` to `4096mb`.
+- API/Ops: `--serve` now requires ops persistence initialization at startup (DB URL + connectivity); API boot fails fast instead of silently running with ops disabled.
 - API: when running `--serve`, request payloads that omit `binanceTestnet` now default to mainnet (`false`) even if the process was started with `--binance-testnet`; callers can still opt into testnet explicitly per request.
 - Live bot auto-start: orphan open futures positions now trigger auto-start/adoption even when the base bot market is non-futures, and orphan starts enforce market-compatible top-combo selection before fallback.
 - Web UI: startup `/health` probing now retries transient `down`-classified failures (up to 3 attempts with 4s spacing) before settling on `API unreachable`, reducing false down states on cold starts/proxy warm-ups.

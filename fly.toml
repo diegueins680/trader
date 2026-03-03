@@ -6,6 +6,8 @@ primary_region = "fra"
 
 [env]
   TRADER_BOT_SYMBOLS = "AAVEUSDT,ARBUSDT,ATOMUSDT,AVAXUSDT,BCHUSDT,BTCUSDT,DOGEUSDT,DOTUSDT,ETHUSDT,FILUSDT"
+  TRADER_BOT_TOP_COMBO_BOTS = "10"
+  TRADER_BOT_TOP_COMBO_BOTS_STARTUP = "0"
 
 [http_service]
   internal_port = 8080
@@ -17,4 +19,4 @@ primary_region = "fra"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "2048mb"
+  memory = "4096mb"

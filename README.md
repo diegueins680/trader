@@ -510,6 +510,7 @@ Run the bot as a REST API:
 - The optional **live bot** endpoints (`/bot/*`) start a **stateful, non-stop** loop that ingests new bars, fine-tunes the model each bar, and (optionally) places orders until stopped.
 - `GET /metrics` exposes a small Prometheus-style endpoint.
 - `binanceTestnet` defaults to `false` for REST requests when omitted; set `binanceTestnet=true` per request when you intentionally want Binance testnet.
+- Ops persistence is required in `--serve` mode: set `TRADER_DB_URL` (or `DATABASE_URL`) and ensure DB connectivity, otherwise API startup fails.
 ```
 cd haskell
 cabal run trader-hs -- --serve --port 8080
@@ -544,9 +545,9 @@ Endpoints:
 - `GET /health`
 - `GET /version` → build metadata (`name`, `version`, and `commit`; `commit` is `null` when unset)
 - `GET /metrics`
-- `GET /ops` → persisted operations feed (enabled via `TRADER_DB_URL`; requires `tenantKey` when `TRADER_MULTI_USER=true`)
+- `GET /ops` → persisted operations feed (requires DB-backed ops persistence via `TRADER_DB_URL`/`DATABASE_URL`; requires `tenantKey` when `TRADER_MULTI_USER=true`)
 - `GET /ops/performance` → ops rollups/deltas (requires `haskell/scripts/rollup_performance.sh`; `tenantKey` required when `TRADER_MULTI_USER=true`)
-- `GET /outbox` → outbox queue stats (counts by status + oldest pending age; enabled via `TRADER_DB_URL`; when `TRADER_MULTI_USER=true`, `tenantKey` is required and results are tenant-scoped)
+- `GET /outbox` → outbox queue stats (counts by status + oldest pending age; requires DB-backed ops persistence via `TRADER_DB_URL`/`DATABASE_URL`; when `TRADER_MULTI_USER=true`, `tenantKey` is required and results are tenant-scoped)
 - `GET /cache` → in-memory cache stats (entries + hit/miss)
 - `POST /cache/clear` → clears the in-memory cache
 - `POST /signal` → returns the latest signal (no orders)
@@ -593,7 +594,7 @@ Endpoints:
 - The Web UI now blocks `POST /bot/start` locally unless it has a Binance `tenantKey` or inline Binance API key+secret, mirroring backend tenant requirements and avoiding avoidable `400` calls.
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
 - `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000, and open trade entries are clamped to the tail).
-- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`), keeps bots running for the current top 50 unique combo symbols in `top-combos.json` (Binance only), prioritized by annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker, and scans for orphan open futures positions to auto-adopt them with a top compatible combo. Orphan detection now runs against Binance futures positions even when the base bot market config is not futures, and orphan restarts enforce market-compatible combo selection (falling back to the latest compatible combo/base args when needed). When ops persistence is enabled (`TRADER_DB_URL`), the bot also stores the combo UUID used to open/switch each position (only for live, sent orders) and adoption (manual and auto-start) prefers reusing that exact combo when possible. Trading is enabled by default (requires Binance API keys), missing bots restart on the next poll interval, and orphaned symbols already running with a non-adopting bot state are recycled/restarted automatically so adoption can proceed. Set `TRADER_BOT_AUTOSTART=false` to disable auto-start on boot.
+- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`), keeps bots running for the current top combo symbols in `top-combos.json` (Binance only), prioritized by annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker, and scans for orphan open futures positions to auto-adopt them with a top compatible combo. Use `TRADER_BOT_TOP_COMBO_BOTS` to control steady-state top-combo symbol targets (default `50`, set `0` to disable top-combo expansion and keep only base/orphan symbols), and `TRADER_BOT_TOP_COMBO_BOTS_STARTUP` to set startup-phase targets before steady state kicks in (default: same as steady). Orphan detection now runs against Binance futures positions even when the base bot market config is not futures, and orphan restarts enforce market-compatible combo selection (falling back to the latest compatible combo/base args when needed). With ops persistence (required in `--serve` mode), the bot also stores the combo UUID used to open/switch each position (only for live, sent orders) and adoption (manual and auto-start) prefers reusing that exact combo when possible. Trading is enabled by default (requires Binance API keys), missing bots restart on the next poll interval, and orphaned symbols already running with a non-adopting bot state are recycled/restarted automatically so adoption can proceed. Set `TRADER_BOT_AUTOSTART=false` to disable auto-start on boot.
 
 Always-on live bot (cron watchdog):
 - Use `deploy/ensure-bot-running.sh` to check `/bot/status` and call `/bot/start` if the bot is not running.
@@ -738,6 +739,8 @@ Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 - When unset, defaults to `TRADER_STATE_DIR/bot` (if set) or `.tmp/bot` (local only).
 - When S3 persistence is enabled, the API serves local snapshots first and only falls back to S3 when local data is missing.
 - `TRADER_BOT_AUTOSTART` (default: `true`) enables auto-starting the live bot on API boot (set to `false` to disable).
+- `TRADER_BOT_TOP_COMBO_BOTS` (default: `50`, min: `0`) caps how many top-combo symbols auto-start targets; set `0` to disable top-combo expansion.
+- `TRADER_BOT_TOP_COMBO_BOTS_STARTUP` (default: steady-state value, min: `0`) sets startup-phase top-combo target count before switching to steady-state auto-start targets.
 
 Optional optimizer combo persistence (keeps `/optimizer/combos` data across restarts/deploys):
 - Set `TRADER_OPTIMIZER_COMBOS_DIR` to a writable directory (writes `top-combos.json`)
