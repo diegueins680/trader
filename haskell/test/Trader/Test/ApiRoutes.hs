@@ -40,8 +40,8 @@ testEndpointDocsUnique = do
     expectEq "endpoint list has unique method/path pairs" (length uniq) (length endpoints)
 
 endpointPairs :: [Value] -> [(String, String)]
-endpointPairs vals =
-    foldr gather [] vals
+endpointPairs =
+    foldr gather []
   where
     gather value acc =
         case value of

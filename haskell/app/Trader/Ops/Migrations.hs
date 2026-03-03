@@ -248,7 +248,7 @@ ensureOpsDbSchema conn = do
     forM_ ordered $ \migration ->
         unless (Set.member (migVersion migration) applied) $
             withTransaction conn $ do
-                forM_ (migStatements migration) (void . execute_ conn . fromString)
+                forM_ (migStatements migration) (execute_ conn . fromString)
                 now <- getTimestampMs
                 void $
                     execute
