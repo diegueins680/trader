@@ -78,6 +78,7 @@ import Text.Printf (printf)
 import Text.Read (readMaybe)
 import qualified Wuss
 
+import Trader.Api.Routes (apiEndpointDocs, apiRouteLabel)
 import Trader.App.Args (
     Args (..),
     argBinanceMarket,
@@ -92,7 +93,6 @@ import Trader.App.Args (
     resolveBarsForPlatform,
     validateArgs,
  )
-import Trader.Api.Routes (apiEndpointDocs, apiRouteLabel)
 import Trader.Binance (
     BinanceEnv (..),
     BinanceLog (..),
@@ -196,6 +196,7 @@ import Trader.MarketContext (MarketModel (..), buildMarketModel, marketMeasureme
 import Trader.Method (Method (..), methodCode, parseMethod, runtimeMethod, selectPredictions)
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
+import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Optimization (
     TuneConfig (..),
     TuneObjective (..),
@@ -209,7 +210,6 @@ import Trader.Optimization (
  )
 import Trader.Optimizer.Json (encodePretty)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
-import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,

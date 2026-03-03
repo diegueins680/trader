@@ -83,64 +83,64 @@ main = do
     results <-
         sequence
             ( [ run "duration lookback bars" testLookbackBars
-            , run "kalman fusion multi-sensor" testKalmanFusionMulti
-            , run "market linear fit" testMarketLinearFit
-            , run "predictors output shape" testPredictorsOutputs
-            , run "kalman constant series" testKalmanConstant
-            , run "kalman forecast constant" testKalmanForecast
-            , run "kalman innovation sign" testKalmanInnovationSign
-            , run "forward return sign" testForwardReturnSign
-            , run "lstm training improves loss" testLstmImprovesLoss
-            , run "lstm key uses platform" testLstmModelKeyPlatform
-            , run "ensemble agreement gate" testAgreementGate
-            , run "hold on close agreement" testHoldOnCloseAgree
-            , run "min-hold blocks exit" testMinHoldBars
-            , run "max-hold forces exit" testMaxHoldBars
-            , run "cooldown blocks re-entry" testCooldownBars
-            , run "entry block holds position (no-trade window)" testEntryBlockNoTradeWindow
-            , run "entry block holds position (max trades)" testEntryBlockMaxTradesPerDay
-            , run "weekly loss resets on UTC calendar week boundary" testWeeklyLossResetsOnUtcWeekBoundary
-            , run "flip fees apply per side" testFlipFeesPerSide
-            , run "long-short down move" testLongShortDownMove
-            , run "liquidation clamps equity" testLiquidationClamp
-            , run "metrics max drawdown" testMetricsMaxDrawdown
-            , run "metrics profit factor pnl" testMetricsProfitFactorPnL
-            , run "binance signature length" testBinanceSignatureLength
-            , run "binance kline json parsing" testBinanceKlineParsing
-            , run "method parsing" testMethodParsing
-            , run "platform parsing" testPlatformParsing
-            , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
-            , run "dry-run requires trade flag" testDryRunRequiresTrade
-            , run "dry-run trade bypasses runtime credentials" testDryRunBypassesRuntimeCredentials
-            , run "dry-run skips non-owner API key requirement" testDryRunSkipsNonOwnerUserKeyRequirement
-            , run "live trade keeps non-owner API key requirement" testLiveTradeRequiresNonOwnerUserKeys
-            , run "empty cli credentials rejected" testEmptyCliCredentialsRejected
-            , run "backtest window validates time formats" testBacktestWindowTimeValidation
-            , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
-            , run "initial balance must be positive" testInitialBalanceValidation
-            , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
-            , run "bot/auto-start resolves origin combo for active adoption" testAutoStartResolvesOriginComboForActiveAdopt
-            , run "bot/start preserves provided combo for active adoption" testBotStartPreservesProvidedComboForActiveAdopt
-            , run "bot/start clears origin only when adoptable and flat" testBotStartClearOriginGate
-            , run "position origin persists only for live sent switches" testPersistPositionOriginGate
-            , run "order execution uses fill evidence for live orders" testOrderAppliedQuantity
-            , run "order execution updates position by executed qty" testApplyExecutedQuantity
-            , run "signal gate emits MTF_WARMUP reason" testSignalGateMtfWarmup
-            , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
-            , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
-            , run "signal gate emits META_LABEL reason" testSignalGateMetaLabel
-            , run "signal gate emits REGIME_BANK reason" testSignalGateRegimeBank
-            , run "signal gate emits FUNDING_OI reason" testSignalGateFundingOi
-            , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
-            , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
-            , run "platform intervals" testPlatformIntervals
-            , run "platform interval mapping" testPlatformIntervalMapping
-            , run "method selects predictions" testMethodSelection
-            , run "train/backtest split" testTrainBacktestSplit
-            , run "threshold sweep" testSweepThreshold
-            , run "operations optimization" testOptimizeOperations
-            , run "binance order validation" testBinanceOrderValidation
-            ]
+              , run "kalman fusion multi-sensor" testKalmanFusionMulti
+              , run "market linear fit" testMarketLinearFit
+              , run "predictors output shape" testPredictorsOutputs
+              , run "kalman constant series" testKalmanConstant
+              , run "kalman forecast constant" testKalmanForecast
+              , run "kalman innovation sign" testKalmanInnovationSign
+              , run "forward return sign" testForwardReturnSign
+              , run "lstm training improves loss" testLstmImprovesLoss
+              , run "lstm key uses platform" testLstmModelKeyPlatform
+              , run "ensemble agreement gate" testAgreementGate
+              , run "hold on close agreement" testHoldOnCloseAgree
+              , run "min-hold blocks exit" testMinHoldBars
+              , run "max-hold forces exit" testMaxHoldBars
+              , run "cooldown blocks re-entry" testCooldownBars
+              , run "entry block holds position (no-trade window)" testEntryBlockNoTradeWindow
+              , run "entry block holds position (max trades)" testEntryBlockMaxTradesPerDay
+              , run "weekly loss resets on UTC calendar week boundary" testWeeklyLossResetsOnUtcWeekBoundary
+              , run "flip fees apply per side" testFlipFeesPerSide
+              , run "long-short down move" testLongShortDownMove
+              , run "liquidation clamps equity" testLiquidationClamp
+              , run "metrics max drawdown" testMetricsMaxDrawdown
+              , run "metrics profit factor pnl" testMetricsProfitFactorPnL
+              , run "binance signature length" testBinanceSignatureLength
+              , run "binance kline json parsing" testBinanceKlineParsing
+              , run "method parsing" testMethodParsing
+              , run "platform parsing" testPlatformParsing
+              , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+              , run "dry-run requires trade flag" testDryRunRequiresTrade
+              , run "dry-run trade bypasses runtime credentials" testDryRunBypassesRuntimeCredentials
+              , run "dry-run skips non-owner API key requirement" testDryRunSkipsNonOwnerUserKeyRequirement
+              , run "live trade keeps non-owner API key requirement" testLiveTradeRequiresNonOwnerUserKeys
+              , run "empty cli credentials rejected" testEmptyCliCredentialsRejected
+              , run "backtest window validates time formats" testBacktestWindowTimeValidation
+              , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
+              , run "initial balance must be positive" testInitialBalanceValidation
+              , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
+              , run "bot/auto-start resolves origin combo for active adoption" testAutoStartResolvesOriginComboForActiveAdopt
+              , run "bot/start preserves provided combo for active adoption" testBotStartPreservesProvidedComboForActiveAdopt
+              , run "bot/start clears origin only when adoptable and flat" testBotStartClearOriginGate
+              , run "position origin persists only for live sent switches" testPersistPositionOriginGate
+              , run "order execution uses fill evidence for live orders" testOrderAppliedQuantity
+              , run "order execution updates position by executed qty" testApplyExecutedQuantity
+              , run "signal gate emits MTF_WARMUP reason" testSignalGateMtfWarmup
+              , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
+              , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
+              , run "signal gate emits META_LABEL reason" testSignalGateMetaLabel
+              , run "signal gate emits REGIME_BANK reason" testSignalGateRegimeBank
+              , run "signal gate emits FUNDING_OI reason" testSignalGateFundingOi
+              , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
+              , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
+              , run "platform intervals" testPlatformIntervals
+              , run "platform interval mapping" testPlatformIntervalMapping
+              , run "method selects predictions" testMethodSelection
+              , run "train/backtest split" testTrainBacktestSplit
+              , run "threshold sweep" testSweepThreshold
+              , run "operations optimization" testOptimizeOperations
+              , run "binance order validation" testBinanceOrderValidation
+              ]
                 ++ map (uncurry run) apiRouteSuite
             )
     if and results then exitSuccess else exitFailure
