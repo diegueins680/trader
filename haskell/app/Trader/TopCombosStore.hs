@@ -136,10 +136,10 @@ withTopCombosProcessLock path action =
                     Right modifiedAt -> pure (diffUTCTime now modifiedAt > processLockStaleAfter)
 
 processLockStaleAfter :: NominalDiffTime
-processLockStaleAfter = 900
+processLockStaleAfter = 45
 
 lockHeartbeatDelayMicros :: Int
-lockHeartbeatDelayMicros = 60 * 1000000
+lockHeartbeatDelayMicros = 10 * 1000000
 
 readTopCombosValueLocal :: FilePath -> IO (Either String Aeson.Value)
 readTopCombosValueLocal path = do

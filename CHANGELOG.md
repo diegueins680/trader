@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- API/Top-combos: reduce process-lock stale recovery time (10s heartbeat, 45s stale cutoff) so abandoned optimizer locks stop blocking `/optimizer/combos` for long periods after crashes/restarts.
 - API/Top-combos: harden `/optimizer/combos` against transient process-lock and ops-DB read failures so it falls back cleanly instead of returning internal-server errors.
 - Deploy/Fly: add a default multi-symbol `TRADER_BOT_SYMBOLS` set in `fly.toml` and seed container fallback combos from `top-combos.s3.json` so fresh Fly instances can start more than one bot without manual combo imports.
 - Web UI: block live bot starts before request when neither Binance tenant key nor inline Binance API key+secret are present, replacing avoidable `/bot/start` `400` calls with a local actionable error.
