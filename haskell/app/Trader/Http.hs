@@ -210,26 +210,25 @@ parseRetryAfterMsAt nowMs raw =
              in fromInteger bounded
      in if null txt
             then Nothing
-            else
-                case readMaybe txt :: Maybe Integer of
-                    Just sec | sec > 0 -> Just (clampMs (sec * 1000))
-                    _ ->
-                        let parseDate fmt =
-                                (parseTimeM True defaultTimeLocale fmt txt :: Maybe UTCTime)
-                            formats =
-                                [ "%a, %d %b %Y %H:%M:%S GMT"
-                                , "%A, %d-%b-%y %H:%M:%S GMT"
-                                , "%a %b %e %H:%M:%S %Y"
-                                ]
-                            toDelayMs t =
-                                let targetMs = floor (utcTimeToPOSIXSeconds t * 1000) :: Integer
-                                    delta = targetMs - nowMs
-                                 in if delta <= 0
-                                        then Nothing
-                                        else Just (clampMs delta)
-                         in case mapMaybe parseDate formats of
-                                [] -> Nothing
-                                (t : _) -> toDelayMs t
+            else case readMaybe txt :: Maybe Integer of
+                Just sec | sec > 0 -> Just (clampMs (sec * 1000))
+                _ ->
+                    let parseDate fmt =
+                            (parseTimeM True defaultTimeLocale fmt txt :: Maybe UTCTime)
+                        formats =
+                            [ "%a, %d %b %Y %H:%M:%S GMT"
+                            , "%A, %d-%b-%y %H:%M:%S GMT"
+                            , "%a %b %e %H:%M:%S %Y"
+                            ]
+                        toDelayMs t =
+                            let targetMs = floor (utcTimeToPOSIXSeconds t * 1000) :: Integer
+                                delta = targetMs - nowMs
+                             in if delta <= 0
+                                    then Nothing
+                                    else Just (clampMs delta)
+                     in case mapMaybe parseDate formats of
+                            [] -> Nothing
+                            (t : _) -> toDelayMs t
 
 trimSpaces :: String -> String
 trimSpaces = dropWhileEnd isSpace . dropWhile isSpace
