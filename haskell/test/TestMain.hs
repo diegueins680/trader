@@ -1138,7 +1138,11 @@ testMethodSelection = do
     assert "edge_blend falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgeBlend w kal lstm == (blend, blend))
     assert "edge_pick falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgePick w kal lstm == (blend, blend))
     assert "geo_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodGeoBlend w kal lstm == (blend, blend))
-    assert "regime_switch falls back to weighted average when context is unavailable" (selectPredictions MethodRegimeSwitch w kal lstm == (blend, blend))
+    let regimeKal = [100.0, 106.0, 107.0, 101.0]
+        regimeLstm = [100.0, 104.0, 98.0, 99.0]
+        regimeBlendWeight = 0.25
+        regimeExpected = [100.0, 105.2, 102.5, 99.5]
+    assert "regime_switch applies momentum/divergence routing" (selectPredictions MethodRegimeSwitch regimeBlendWeight regimeKal regimeLstm == (regimeExpected, regimeExpected))
     assert "bandit_router preserves both prediction streams for routing" (selectPredictions MethodBanditRouter w kal lstm == (kal, lstm))
 
 testTrainBacktestSplit :: IO ()

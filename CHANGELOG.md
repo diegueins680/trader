@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Trading: make `--method regime_switch` materially adaptive in the context-free selector by switching between momentum-following (agreement), midpoint mean-reversion (strong disagreement), and weighted blend fallback.
 - API/Web UI: improve split-host browser compatibility by echoing CORS origins only for auth-like headers (`Authorization`/`X-API-Key`/`X-Tenant-Key`), auto-forwarding tenant keys as `X-Tenant-Key`, and switching default Fly split-app UI routing to `/api` primary with inferred direct-host fallback (`apiBaseUrlInferred=true`); inferred mode now keeps listenKey SSE on `/api` unless explicitly configured otherwise.
 - Web UI: increase Binance listenKey action request timeout to 90s (start/keep-alive/close) and surface clearer timeout messages, reducing false `Timeout` failures during backend retry/backoff windows.
 - API/Top-combos: reduce process-lock stale recovery time (10s heartbeat, 45s stale cutoff) so abandoned optimizer locks stop blocking `/optimizer/combos` for long periods after crashes/restarts.

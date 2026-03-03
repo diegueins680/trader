@@ -296,114 +296,88 @@ selectPredictions m blendWeight kalPred lstmPred =
         MethodBoth -> (kalPred, lstmPred)
         MethodKalmanOnly -> (kalPred, kalPred)
         MethodLstmOnly -> (lstmPred, lstmPred)
-        MethodBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodConfBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodConfPick ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodConformalClip ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodCostPick ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodHarmonicBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodDisagreementGuard ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodMedianBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodNeutralGuard ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodRiskParityBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodConsensusBoost ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodAnchorBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodTensionGate ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodEntropyBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodCoherenceGate ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodDivergenceGate ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodFractalBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodPhaseCancel ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodSoftmaxBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodSmoothSoftmaxBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodHedgeBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodNetSoftmaxBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodEdgeBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodEdgePick ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodGeoBlend ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
-        MethodRegimeSwitch ->
-            let w = clamp01 blendWeight
-                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
-             in (blend, blend)
+        MethodBlend -> blendedPredictions
+        MethodConfBlend -> blendedPredictions
+        MethodConfPick -> blendedPredictions
+        MethodConformalClip -> blendedPredictions
+        MethodCostPick -> blendedPredictions
+        MethodHarmonicBlend -> blendedPredictions
+        MethodDisagreementGuard -> blendedPredictions
+        MethodMedianBlend -> blendedPredictions
+        MethodNeutralGuard -> blendedPredictions
+        MethodRiskParityBlend -> blendedPredictions
+        MethodConsensusBoost -> blendedPredictions
+        MethodAnchorBlend -> blendedPredictions
+        MethodTensionGate -> blendedPredictions
+        MethodEntropyBlend -> blendedPredictions
+        MethodCoherenceGate -> blendedPredictions
+        MethodDivergenceGate -> blendedPredictions
+        MethodFractalBlend -> blendedPredictions
+        MethodPhaseCancel -> blendedPredictions
+        MethodSoftmaxBlend -> blendedPredictions
+        MethodSmoothSoftmaxBlend -> blendedPredictions
+        MethodHedgeBlend -> blendedPredictions
+        MethodNetSoftmaxBlend -> blendedPredictions
+        MethodEdgeBlend -> blendedPredictions
+        MethodEdgePick -> blendedPredictions
+        MethodGeoBlend -> blendedPredictions
+        MethodRegimeSwitch -> regimeSwitchedPredictions
         MethodRouter -> (kalPred, lstmPred)
         MethodBanditRouter -> (kalPred, lstmPred)
   where
-    clamp01 x = max 0 (min 1 x)
+    w = clamp01 blendWeight
+    blendedPredictions = (blendPredictions w kalPred lstmPred, blendPredictions w kalPred lstmPred)
+    regimeSwitchedPredictions = (regimeSwitchPredictions w kalPred lstmPred, regimeSwitchPredictions w kalPred lstmPred)
+
+clamp01 :: Double -> Double
+clamp01 x = max 0 (min 1 x)
+
+blendPredictions :: Double -> [Double] -> [Double] -> [Double]
+blendPredictions w = zipWith (\k l -> w * k + (1 - w) * l)
+
+regimeSwitchPredictions :: Double -> [Double] -> [Double] -> [Double]
+regimeSwitchPredictions w kalPred lstmPred =
+    case zip kalPred lstmPred of
+        [] -> []
+        _ : pairs ->
+            let baseBlend = blendPredictions w kalPred lstmPred
+                stepped = zip3 pairs (zip kalPred (drop 1 kalPred)) (zip lstmPred (drop 1 lstmPred))
+             in case baseBlend of
+                    [] -> []
+                    b0 : rest ->
+                        b0
+                            : zipWith applyRegime rest stepped
+  where
+    applyRegime :: Double -> ((Double, Double), (Double, Double), (Double, Double)) -> Double
+    applyRegime blended ((k, l), (kPrev, _), (lPrev, _))
+        | sameMomentumDirection kMomentum lMomentum = trendBlend
+        | isStrongDivergence k l = (k + l) / 2
+        | otherwise = blended
+      where
+        kMomentum = k - kPrev
+        lMomentum = l - lPrev
+        trendBlend = weightedByMagnitude (abs kMomentum) (abs lMomentum) k l
+
+    weightedByMagnitude :: Double -> Double -> Double -> Double -> Double
+    weightedByMagnitude kMag lMag k l
+        | kMag + lMag <= 1.0e-12 = (k + l) / 2
+        | otherwise =
+            let kalWeight = kMag / (kMag + lMag)
+             in kalWeight * k + (1 - kalWeight) * l
+
+    sameMomentumDirection :: Double -> Double -> Bool
+    sameMomentumDirection a b = signWithTolerance a == signWithTolerance b && signWithTolerance a /= 0
+
+    signWithTolerance :: Double -> Int
+    signWithTolerance x
+        | x > 1.0e-9 = 1
+        | x < -1.0e-9 = -1
+        | otherwise = 0
+
+    isStrongDivergence :: Double -> Double -> Bool
+    isStrongDivergence k l =
+        let denom = max 1 (max (abs k) (abs l))
+         in abs (k - l) / denom >= 0.02
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
