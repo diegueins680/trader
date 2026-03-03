@@ -4,6 +4,9 @@ primary_region = "ord"
 [build]
   dockerfile = "Dockerfile"
 
+[env]
+  TRADER_BOT_SYMBOLS = "AAVEUSDT,ARBUSDT,ATOMUSDT,AVAXUSDT,BCHUSDT,BTCUSDT,DOGEUSDT,DOTUSDT,ETHUSDT,FILUSDT"
+
 [http_service]
   internal_port = 8080
   force_https = true

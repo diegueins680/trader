@@ -12862,46 +12862,52 @@ persistTopCombosHistoryMaybe topJsonPath st contents = do
 
 readTopCombosValueFromDb :: OpsStore -> IO (Either String Aeson.Value)
 readTopCombosValueFromDb store = do
-    maxCombos <- optimizerMaxCombosFromEnv
-    let limitSafe = max 1 maxCombos
-    rows <-
-        withMVar (osLock store) $ \_ ->
-            query
-                (osConn store)
-                ( "SELECT combo_uuid, final_equity, annualized_return, objective, score, open_threshold, close_threshold, "
-                    <> "params_json::text, metrics_json::text, created_at_ms, updated_at_ms "
-                    <> "FROM combos "
-                    <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, updated_at_ms DESC NULLS LAST "
-                    <> "LIMIT ?"
-                )
-                (Only limitSafe) ::
-                IO [PersistedComboRow]
-    let combos = mapMaybe persistedComboToValue rows
-    if null combos
-        then pure (Left "No persisted combos found in the database.")
-        else do
-            now <- getTimestampMs
-            let combosRanked = zipWith addRank [1 ..] (sortOn comboPerformanceKey combos)
-                payload =
-                    object
-                        [ "generatedAtMs" .= now
-                        , "source" .= ("db" :: String)
-                        , "combos" .= combosRanked
-                        ]
-                (sanitized, _) = sanitizeTopCombosValue payload
-                ranked =
-                    case sanitized of
-                        Aeson.Object o ->
-                            case KM.lookup (AK.fromString "combos") o of
-                                Just (Aeson.Array arr) ->
-                                    let combos' = V.toList arr
-                                        combosRanked' = zipWith addRank [1 ..] (sortOn comboPerformanceKey combos')
-                                        o' = KM.insert (AK.fromString "combos") (Aeson.Array (V.fromList combosRanked')) o
-                                     in Aeson.Object o'
-                                _ -> sanitized
-                        _ -> sanitized
-            pure (Right ranked)
+    result <- try readDb :: IO (Either SomeException (Either String Aeson.Value))
+    case result of
+        Left e -> pure (Left ("Failed to read top combos from the database: " ++ show e))
+        Right out -> pure out
   where
+    readDb = do
+        maxCombos <- optimizerMaxCombosFromEnv
+        let limitSafe = max 1 maxCombos
+        rows <-
+            withMVar (osLock store) $ \_ ->
+                query
+                    (osConn store)
+                    ( "SELECT combo_uuid, final_equity, annualized_return, objective, score, open_threshold, close_threshold, "
+                        <> "params_json::text, metrics_json::text, created_at_ms, updated_at_ms "
+                        <> "FROM combos "
+                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, updated_at_ms DESC NULLS LAST "
+                        <> "LIMIT ?"
+                    )
+                    (Only limitSafe) ::
+                    IO [PersistedComboRow]
+        let combos = mapMaybe persistedComboToValue rows
+        if null combos
+            then pure (Left "No persisted combos found in the database.")
+            else do
+                now <- getTimestampMs
+                let combosRanked = zipWith addRank [1 ..] (sortOn comboPerformanceKey combos)
+                    payload =
+                        object
+                            [ "generatedAtMs" .= now
+                            , "source" .= ("db" :: String)
+                            , "combos" .= combosRanked
+                            ]
+                    (sanitized, _) = sanitizeTopCombosValue payload
+                    ranked =
+                        case sanitized of
+                            Aeson.Object o ->
+                                case KM.lookup (AK.fromString "combos") o of
+                                    Just (Aeson.Array arr) ->
+                                        let combos' = V.toList arr
+                                            combosRanked' = zipWith addRank [1 ..] (sortOn comboPerformanceKey combos')
+                                            o' = KM.insert (AK.fromString "combos") (Aeson.Array (V.fromList combosRanked')) o
+                                         in Aeson.Object o'
+                                    _ -> sanitized
+                            _ -> sanitized
+                pure (Right ranked)
+
     addRank :: Int -> Aeson.Value -> Aeson.Value
     addRank rank val =
         case val of

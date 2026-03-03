@@ -586,6 +586,7 @@ Endpoints:
 - If Binance returns `-1125` (listenKey expired), the backend marks the stream as expired and the UI automatically restarts the listenKey stream.
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail). When `botSymbols` is provided without `binanceSymbol`, the first symbol is used as the data source for validation.
 - `POST /bot/start` skips top-combo candidates that exceed API compute limits and falls back to the base args.
+- The Web UI now blocks `POST /bot/start` locally unless it has a Binance `tenantKey` or inline Binance API key+secret, mirroring backend tenant requirements and avoiding avoidable `400` calls.
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
 - `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000, and open trade entries are clamped to the tail).
 - On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`), keeps bots running for the current top 10 unique combo symbols in `top-combos.json` (Binance only), prioritized by annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker, and scans for orphan open futures positions to auto-adopt them with a top compatible combo. When ops persistence is enabled (`TRADER_DB_URL`), the bot also stores the combo UUID used to open/switch each position (only for live, sent orders) and adoption (manual and auto-start) prefers reusing that exact combo when possible. Trading is enabled by default (requires Binance API keys), missing bots restart on the next poll interval, and orphaned symbols already running with a non-adopting bot state are recycled/restarted automatically so adoption can proceed. Set `TRADER_BOT_AUTOSTART=false` to disable auto-start on boot.
@@ -747,6 +748,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - When `TRADER_STATE_SYNC_URL` is set, new optimizer runs merge against the sync target's `top-combos` on-the-fly; if state sync is unavailable and S3 persistence is enabled, it falls back to S3. History snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
 - When `TRADER_DB_URL` is set, the API can rebuild `top-combos.json` from Postgres if local/S3 state is missing, so combos persist across deploys.
+- The API container image seeds `web/public/top-combos.json` from the repo-level `top-combos.s3.json` so fresh deploys have a multi-symbol fallback payload.
 - `top-combos.json` drops combos with `finalEquity <= 1` on read/write (including numeric strings), sanitizes combo symbols, and persists the filtered file to S3 when configured.
 - The UI auto-sanitizes combo symbols when applying them to the form so exchange symbol validation stays clean.
 
@@ -839,6 +841,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/start \
 
 Multi-symbol notes:
 - Use `botSymbols` (array) or `TRADER_BOT_SYMBOLS=BTCUSDT,ETHUSDT` to define the bot symbol set.
+- If both `botSymbols` and `TRADER_BOT_SYMBOLS` are unset, `/bot/start` falls back to `binanceSymbol` (single-symbol start).
 - `GET /bot/status?symbol=BTCUSDT` returns a single bot; omit `symbol` to get `multi=true` with `bots[]`.
 - `POST /bot/stop?symbol=BTCUSDT` stops one bot; omit `symbol` to stop all.
 

@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- API/Top-combos: harden `/optimizer/combos` against transient process-lock and ops-DB read failures so it falls back cleanly instead of returning internal-server errors.
+- Deploy/Fly: add a default multi-symbol `TRADER_BOT_SYMBOLS` set in `fly.toml` and seed container fallback combos from `top-combos.s3.json` so fresh Fly instances can start more than one bot without manual combo imports.
+- Web UI: block live bot starts before request when neither Binance tenant key nor inline Binance API key+secret are present, replacing avoidable `/bot/start` `400` calls with a local actionable error.
 - API/Ops: refactor `ensureOpsDbSchema` into versioned migrations (`ops_schema_migrations`) and move route metadata (`apiRouteLabel`, root endpoint docs list) into dedicated modules to reduce `Main.hs` coupling.
 - API/Workers: dedupe top-combos candle-trigger backtests with a bounded STM queue and supervise long-running background workers (`bot auto-start`, `auto-optimizer`, top-combos workers) with automatic restart on non-async failures.
 - API/HTTP internals: consolidate global HTTP runtime state (retry config, shared manager, rate limiter, log flag) behind a single `HttpGlobals` initializer to reduce `unsafePerformIO` surface area.

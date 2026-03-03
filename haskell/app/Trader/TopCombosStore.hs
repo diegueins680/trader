@@ -44,7 +44,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, listToMaybe, maybeToList)
 import qualified Data.Maybe
 import qualified Data.Text as T
-import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
+import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import qualified Data.Vector as V
 import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, removeDirectory, removeFile, renameFile, setModificationTime)
 import System.FilePath (takeDirectory)
@@ -130,8 +130,10 @@ withTopCombosProcessLock path action =
             then pure False
             else do
                 now <- getCurrentTime
-                modifiedAt <- getModificationTime lockPath
-                pure (diffUTCTime now modifiedAt > processLockStaleAfter)
+                modifiedAtResult <- try (getModificationTime lockPath) :: IO (Either SomeException UTCTime)
+                case modifiedAtResult of
+                    Left _ -> pure True
+                    Right modifiedAt -> pure (diffUTCTime now modifiedAt > processLockStaleAfter)
 
 processLockStaleAfter :: NominalDiffTime
 processLockStaleAfter = 900

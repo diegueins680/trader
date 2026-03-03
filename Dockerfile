@@ -35,6 +35,7 @@ COPY --from=build /opt/trader/trader-hs /usr/local/bin/trader-hs
 
 WORKDIR /opt/trader/haskell
 COPY haskell/web/public /opt/trader/haskell/web/public
+COPY top-combos.s3.json /opt/trader/haskell/web/public/top-combos.json
 
 ENV TRADER_STATE_DIR=/var/lib/trader/state
 ENV TRADER_API_ASYNC_DIR=/var/lib/trader/async

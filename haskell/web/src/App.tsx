@@ -5533,6 +5533,8 @@ export function App() {
       const silent = Boolean(opts?.silent);
       const forceAdopt = Boolean(opts?.forceAdopt);
       const symbolsOverride = opts?.symbolsOverride ? parseSymbolsInput(opts.symbolsOverride.join(",")) : [];
+      const tenantKey = binanceTenantKeyResolved?.trim() ?? "";
+      const hasBinanceInlineKeys = Boolean(binanceApiKey.trim() && binanceApiSecret.trim());
       if (!opts?.auto) botAutoStartSuppressedRef.current = false;
       const startSymbols = symbolsOverride.length > 0 ? symbolsOverride : botSymbolsInput;
       const primarySymbolRaw = startSymbols[0] ?? form.binanceSymbol.trim();
@@ -5543,6 +5545,14 @@ export function App() {
       if (requestedSymbols.length === 0) {
         if (!silent) {
           setBot((s) => ({ ...s, error: "Symbol is required to start the live bot." }));
+          showToast("Bot start failed");
+        }
+        return;
+      }
+      if (!tenantKey && !hasBinanceInlineKeys) {
+        const msg = "Tenant key required. Add Binance API keys (or check keys) before starting the live bot.";
+        if (!silent) {
+          setBot((s) => ({ ...s, error: msg }));
           showToast("Bot start failed");
         }
         return;
@@ -5729,6 +5739,9 @@ export function App() {
       form.botProtectionOrders,
       form.botTrainBars,
       form.tradeArmed,
+      binanceApiKey,
+      binanceApiSecret,
+      binanceTenantKeyResolved,
       showToast,
       tradeParams,
       withPlatformKeys,
