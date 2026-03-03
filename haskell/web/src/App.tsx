@@ -342,6 +342,8 @@ type BotPanelDragState = {
 const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
+const AUTO_HEALTH_MAX_ATTEMPTS = 3;
+const AUTO_HEALTH_RETRY_DELAY_MS = 4_000;
 const LISTEN_KEY_ACTION_TIMEOUT_MS = 90_000;
 const BINANCE_POSITIONS_OPEN_TIME_LIMIT = 200;
 const CHART_HEIGHT = "var(--chart-height)";
@@ -3476,26 +3478,39 @@ export function App() {
 
   useEffect(() => {
     let mounted = true;
-    health(apiBase, { timeoutMs: 10_000, headers: authHeaders })
-      .then((out) => {
-        if (!mounted) return;
-        setHealthInfo(out);
-        if (out.authRequired && out.authOk !== true) setApiOk("auth");
-        else setApiOk("ok");
-        appendDataLog("Health Response (auto)", out, { background: true });
-      })
-      .catch((e) => {
-        if (!mounted) return;
-        const msg = e instanceof Error ? e.message : "API unreachable";
-        const status = classifyHealthErrorStatus(e, msg);
-        if (status) {
-          setHealthInfo(null);
-          setApiOk(status);
-        }
-        appendDataLog("Health Error (auto)", buildDataLogError(e, msg), { background: true, error: true });
-      });
+    let retryTimer: number | null = null;
+
+    const runAutoHealth = (attempt: number) => {
+      health(apiBase, { timeoutMs: 10_000, headers: authHeaders })
+        .then((out) => {
+          if (!mounted) return;
+          setHealthInfo(out);
+          if (out.authRequired && out.authOk !== true) setApiOk("auth");
+          else setApiOk("ok");
+          appendDataLog("Health Response (auto)", out, { background: true });
+        })
+        .catch((e) => {
+          if (!mounted) return;
+          const msg = e instanceof Error ? e.message : "API unreachable";
+          const status = classifyHealthErrorStatus(e, msg);
+          if (status) {
+            setHealthInfo(null);
+            setApiOk(status);
+          }
+          appendDataLog("Health Error (auto)", buildDataLogError(e, msg), { background: true, error: true });
+          if (status === "down" && attempt < AUTO_HEALTH_MAX_ATTEMPTS) {
+            retryTimer = window.setTimeout(() => {
+              retryTimer = null;
+              runAutoHealth(attempt + 1);
+            }, AUTO_HEALTH_RETRY_DELAY_MS);
+          }
+        });
+    };
+
+    runAutoHealth(1);
     return () => {
       mounted = false;
+      if (retryTimer != null) window.clearTimeout(retryTimer);
     };
   }, [apiBase, appendDataLog, authHeaders, buildDataLogError]);
 

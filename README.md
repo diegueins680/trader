@@ -1081,6 +1081,7 @@ Optimizer objectives are validated by the CLI; if validation is bypassed, unknow
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` and `/version` require auth.
 In the UI status badge, health-check `401/403` responses are treated as auth errors (not generic down) to surface token issues clearly.
 Health-check `429` and other non-availability client errors no longer force the UI status to `down`; the last known status is preserved while the error is logged (including manual Recheck API probes, which now use the same classification and rate-limit handling).
+On page load, the UI retries startup `/health` probes up to 3 times (4s delay, `down`-classified failures only) before settling on `API unreachable`, reducing false negatives during cold starts/proxy warm-up.
 The UI now preserves `/health` `version`/`commit` metadata, so the API build label reflects the server response consistently.
 Non-JSON proxy/base misroutes (for example HTML error pages returned to API requests) now mark API status as `down` in regular request flows, not just health probes.
 Health summary details in the Config dock now render even when `computeLimits` is absent, so build/auth/cache metadata from older or minimal `/health` responses remains visible.

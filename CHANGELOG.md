@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: startup `/health` probing now retries transient `down`-classified failures (up to 3 attempts with 4s spacing) before settling on `API unreachable`, reducing false down states on cold starts/proxy warm-ups.
 - Web UI: per-running-bot chart panels now start collapsed by default and lazily mount their chart/timeline contents only after expand or maximize.
 - Trading/Backtests: candle-pattern gates now use real bar open prices when available (`CSV open` / exchange OHLC opens) instead of always synthesizing opens from prior closes.
 - CLI/API: `--from`/`--to` backtest window parsing now accepts ISO-8601 timezone offsets (for example `+00:00`, `-05:00`, and `+0000`) in addition to existing epoch/`Z` forms.
