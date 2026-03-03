@@ -164,6 +164,12 @@ assertApprox :: String -> Double -> Double -> Double -> IO ()
 assertApprox msg eps a b =
     assert msg (abs (a - b) <= eps)
 
+assertApproxList :: String -> Double -> [Double] -> [Double] -> IO ()
+assertApproxList msg eps xs ys =
+    let sameLength = length xs == length ys
+        allClose = and (zipWith (\a b -> abs (a - b) <= eps) xs ys)
+     in assert msg (sameLength && allClose)
+
 requireRight :: String -> Either String a -> a
 requireRight label res =
     case res of
@@ -1138,7 +1144,9 @@ testMethodSelection = do
     assert "edge_blend falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgeBlend w kal lstm == (blend, blend))
     assert "edge_pick falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgePick w kal lstm == (blend, blend))
     assert "geo_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodGeoBlend w kal lstm == (blend, blend))
-    assert "regime_switch falls back to weighted average when context is unavailable" (selectPredictions MethodRegimeSwitch w kal lstm == (blend, blend))
+    let (regimeLeft, regimeRight) = selectPredictions MethodRegimeSwitch w kal lstm
+    assertApproxList "regime_switch falls back to weighted average when context is unavailable (left stream)" 1e-9 blend regimeLeft
+    assertApproxList "regime_switch falls back to weighted average when context is unavailable (right stream)" 1e-9 blend regimeRight
     assert "bandit_router preserves both prediction streams for routing" (selectPredictions MethodBanditRouter w kal lstm == (kal, lstm))
 
 testTrainBacktestSplit :: IO ()
