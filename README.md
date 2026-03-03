@@ -1058,6 +1058,7 @@ Timeouts:
 - Backend: set `TRADER_API_TIMEOUT_SEC` (default: `1800`) when starting `trader-hs`.
 - Frontend: set `timeoutsMs` in `haskell/web/public/trader-config.js` to increase UI request timeouts (e.g. long backtests).
 - Frontend: `timeoutsMs.botStatusMs` controls live bot status polling timeouts (useful if `/bot/status` is slow).
+- Frontend: Binance listenKey start/keep-alive/close requests use a 90s UI timeout to tolerate backend retry/backoff under transient Binance/API network issues.
 - Frontend (dev proxy): set `TRADER_UI_PROXY_TIMEOUT_MS` to increase the Vite `/api` proxy timeout.
 
 Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors. Async signal/backtest starts retry transient 5xx/timeouts and can fail over to `apiFallbackUrl`; ensure the fallback points at the same backend to avoid mismatched job IDs. Live bot starts (`POST /bot/start`) also retry transient 502/503/504/network/timeouts (up to two retries), and the UI shows a retry toast while those retries are in progress. Live bot status/ops polling auto-reduces history sizes on proxy 502/503/504 or client timeouts to keep the dashboard responsive, and `/bot/status` is capped at 1000 points by default to avoid upstream 5xx responses.

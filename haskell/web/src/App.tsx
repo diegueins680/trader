@@ -343,6 +343,7 @@ type BotPanelDragState = {
 const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
+const LISTEN_KEY_ACTION_TIMEOUT_MS = 90_000;
 const BINANCE_POSITIONS_OPEN_TIME_LIMIT = 200;
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
@@ -5003,11 +5004,15 @@ export function App() {
           await binanceListenKeyClose(
             apiBase,
             { ...withBinanceKeys(base), listenKey: info.listenKey },
-            { headers: authHeaders, timeoutMs: 30_000 },
+            { headers: authHeaders, timeoutMs: LISTEN_KEY_ACTION_TIMEOUT_MS },
           );
         } catch (e) {
           if (!opts?.silent) {
-            const msg = e instanceof Error ? e.message : String(e);
+            const msg = isTimeoutError(e)
+              ? `Listen key close timed out after ${Math.round(LISTEN_KEY_ACTION_TIMEOUT_MS / 1000)}s.`
+              : e instanceof Error
+                ? e.message
+                : String(e);
             showToast(`Listen key close failed: ${msg}`);
           }
         }
@@ -5038,12 +5043,16 @@ export function App() {
         const out = await binanceListenKeyKeepAlive(
           apiBase,
           { ...withBinanceKeys(base), listenKey: info.listenKey },
-          { headers: authHeaders, timeoutMs: 30_000 },
+          { headers: authHeaders, timeoutMs: LISTEN_KEY_ACTION_TIMEOUT_MS },
         );
         setListenKeyUi((s) => ({ ...s, keepAliveAtMs: out.atMs, keepAliveError: null }));
         if (!opts?.silent) showToast("Listen key kept alive");
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = isTimeoutError(e)
+          ? `Listen key keep-alive timed out after ${Math.round(LISTEN_KEY_ACTION_TIMEOUT_MS / 1000)}s.`
+          : e instanceof Error
+            ? e.message
+            : String(e);
         setListenKeyUi((s) => ({ ...s, keepAliveError: msg }));
         if (!opts?.silent) showToast("Listen key keep-alive failed");
       }
@@ -5218,14 +5227,21 @@ export function App() {
       setListenKeyUi((s) => ({ ...s, loading: true, error: null, wsError: null, keepAliveError: null, wsStatus: "connecting" }));
       try {
         const base: ApiParams = { market: form.market, binanceTestnet: form.binanceTestnet };
-        const out = await binanceListenKey(apiBase, withBinanceKeys(base), { headers: authHeaders, timeoutMs: 30_000 });
+        const out = await binanceListenKey(apiBase, withBinanceKeys(base), {
+          headers: authHeaders,
+          timeoutMs: LISTEN_KEY_ACTION_TIMEOUT_MS,
+        });
 
         setListenKeyUi((s) => ({ ...s, loading: false, error: null, info: out, wsStatus: "connecting" }));
         listenKeyInfoRef.current = out;
         void openListenKeyStream({ silent });
         if (!silent) showToast("Listen key started");
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = isTimeoutError(e)
+          ? `Listen key start timed out after ${Math.round(LISTEN_KEY_ACTION_TIMEOUT_MS / 1000)}s. Check API egress/connectivity and retry.`
+          : e instanceof Error
+            ? e.message
+            : String(e);
         setListenKeyUi((s) => ({ ...s, loading: false, error: msg, wsStatus: "disconnected" }));
         if (!silent) showToast("Listen key start failed");
       }
