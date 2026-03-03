@@ -206,12 +206,12 @@ parseRetryAfterMsAt :: Integer -> ByteString -> Maybe Int
 parseRetryAfterMsAt nowMs raw =
     let txt = trimSpaces (BS.unpack raw)
         clampMs ms =
-            let bounded = max 0 (min ms (toInteger (maxBound :: Int)))
+            let bounded = max 0 (min ms (toInteger maxSleepMs))
              in fromInteger bounded
      in if null txt
             then Nothing
             else case readMaybe txt :: Maybe Integer of
-                Just sec | sec > 0 -> Just (clampMs (sec * 1000))
+                Just sec | sec >= 0 -> Just (clampMs (sec * 1000))
                 _ ->
                     let parseDate fmt =
                             (parseTimeM True defaultTimeLocale fmt txt :: Maybe UTCTime)
@@ -237,7 +237,12 @@ sleepMs :: Int -> IO ()
 sleepMs ms =
     if ms <= 0
         then pure ()
-        else threadDelay (ms * 1000)
+        else do
+            let clampedMs = min maxSleepMs ms
+            threadDelay (clampedMs * 1000)
+
+maxSleepMs :: Int
+maxSleepMs = (maxBound :: Int) `div` 1000
 
 getTimeMs :: IO Integer
 getTimeMs = do
