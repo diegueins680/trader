@@ -519,19 +519,32 @@ parseTimeMs s =
 
 parseIsoTimeMs :: String -> Maybe Int64
 parseIsoTimeMs s =
-    let formats =
+    let s' = normalizeIsoOffsetSuffix s
+        formats =
             [ "%Y-%m-%d"
             , "%Y-%m-%d %H:%M:%S"
             , "%Y-%m-%dT%H:%M:%S"
+            , "%Y-%m-%d %H:%M:%S%z"
+            , "%Y-%m-%dT%H:%M:%S%z"
             , "%Y-%m-%d %H:%M:%S%Q"
             , "%Y-%m-%dT%H:%M:%S%Q"
+            , "%Y-%m-%d %H:%M:%S%Q%z"
+            , "%Y-%m-%dT%H:%M:%S%Q%z"
             , "%Y-%m-%dT%H:%M:%S%QZ"
             , "%Y-%m-%d %H:%M:%S%QZ"
             ]
-        parseWith fmt = parseTimeM True defaultTimeLocale fmt s
+        parseWith fmt = parseTimeM True defaultTimeLocale fmt s'
      in case mapMaybe parseWith formats of
             [] -> Nothing
             (t : _) -> Just (floor (utcTimeToPOSIXSeconds t * 1000))
+
+normalizeIsoOffsetSuffix :: String -> String
+normalizeIsoOffsetSuffix raw =
+    case reverse raw of
+        m2 : m1 : ':' : h2 : h1 : sign : rest
+            | (sign == '+' || sign == '-') && all isDigit [h1, h2, m1, m2] ->
+                reverse rest ++ [sign, h1, h2, m1, m2]
+        _ -> raw
 
 looksLikeIso8601Prefix :: String -> Bool
 looksLikeIso8601Prefix s =
@@ -7257,6 +7270,7 @@ botOptimizeAfterOperation st = do
                                 , ecNoTradeWindows = argNoTradeWindows args
                                 , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
                                 , ecOpenTimes = Just (V.drop start (botOpenTimes st))
+                                , ecOpenPrices = Nothing
                                 , ecMetaMask = Nothing
                                 , ecPositioning = argPositioning args
                                 , ecIntrabarFill = argIntrabarFill args
@@ -20721,10 +20735,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         fitPrices = take predStart prices
 
         tunePrices = drop fitSize trainPrices
+        tuneOpens = take tuneSize (drop fitSize opensAll)
         tuneHighs = take tuneSize (drop fitSize highsAll)
         tuneLows = take tuneSize (drop fitSize lowsAll)
         tuneOpenTimes = fmap (take tuneSize . drop fitSize) openTimesAll
 
+        backtestOpens = drop trainEnd opensAll
         backtestHighs = drop trainEnd highsAll
         backtestLows = drop trainEnd lowsAll
         backtestOpenTimes = fmap (drop trainEnd) openTimesAll
@@ -20988,6 +21004,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecNoTradeWindows = argNoTradeWindows args
                 , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
                 , ecOpenTimes = Nothing
+                , ecOpenPrices = Nothing
                 , ecMetaMask = Nothing
                 , ecPositioning = argPositioning args
                 , ecIntrabarFill = argIntrabarFill args
@@ -21059,8 +21076,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecMinPositionSize = argMinPositionSize args
                 }
 
-        baseCfgTune = baseCfg{ecOpenTimes = V.fromList <$> tuneOpenTimes}
-        baseCfgBacktest = baseCfg{ecOpenTimes = V.fromList <$> backtestOpenTimes}
+        baseCfgTune = baseCfg{ecOpenTimes = V.fromList <$> tuneOpenTimes, ecOpenPrices = Just (V.fromList tuneOpens)}
+        baseCfgBacktest = baseCfg{ecOpenTimes = V.fromList <$> backtestOpenTimes, ecOpenPrices = Just (V.fromList backtestOpens)}
 
         offsetBacktestPred = max 0 (trainEnd - predStart)
         kalPredBacktest = drop offsetBacktestPred kalPredAll
@@ -21495,7 +21512,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         metaF = fmap (take steps . drop t0) metaUsedBacktest
                         openTimesF = fmap (V.slice t0 (steps + 1)) (ecOpenTimes backtestCfg)
                         metaMaskF = fmap (V.slice t0 steps) metaMaskUsedBacktest
-                        backtestCfgFold = backtestCfg{ecOpenTimes = openTimesF, ecMetaMask = metaMaskF}
+                        openPricesF = fmap (V.slice t0 (steps + 1)) (ecOpenPrices backtestCfg)
+                        backtestCfgFold = backtestCfg{ecOpenTimes = openTimesF, ecOpenPrices = openPricesF, ecMetaMask = metaMaskF}
                      in case simulateEnsembleWithHLChecked backtestCfgFold 1 pricesF highsF lowsF kalF lstmF metaF of
                             Left err -> Left err
                             Right bt ->

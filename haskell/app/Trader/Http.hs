@@ -6,6 +6,7 @@ module Trader.Http (
     newHttpManager,
     getSharedManager,
     httpLbsWithRetry,
+    parseRetryAfterMsAt,
     defaultTimeoutMicros,
 ) where
 
@@ -19,8 +20,9 @@ import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (isInfixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
-import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Time (UTCTime, defaultTimeLocale, parseTimeM)
+import Data.Time.Clock.POSIX (getPOSIXTime, utcTimeToPOSIXSeconds)
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
@@ -134,7 +136,8 @@ httpLbsWithRetry cfg mLabel mgr req0 = go 0
                 ( if retryable
                         then
                             ( do
-                                delayMs <- computeDelay cfg attempt (retryAfterMs resp)
+                                retryAfter <- retryAfterMs resp
+                                delayMs <- computeDelay cfg attempt retryAfter
                                 logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt True
                                 sleepMs delayMs
                                 go (attempt + 1)
@@ -191,14 +194,35 @@ applyJitter delayMs jitterFrac =
             let scaled = fromIntegral delayMs * (1 + skew)
             pure (max 0 (round scaled))
 
-retryAfterMs :: Response BL.ByteString -> Maybe Int
+retryAfterMs :: Response BL.ByteString -> IO (Maybe Int)
 retryAfterMs resp =
     case lookup "Retry-After" (responseHeaders resp) of
-        Nothing -> Nothing
-        Just v ->
-            case readMaybe (BS.unpack v) :: Maybe Int of
-                Just sec | sec > 0 -> Just (sec * 1000)
-                _ -> Nothing
+        Nothing -> pure Nothing
+        Just v -> do
+            nowMs <- getTimeMs
+            pure (parseRetryAfterMsAt nowMs v)
+
+parseRetryAfterMsAt :: Integer -> ByteString -> Maybe Int
+parseRetryAfterMsAt nowMs raw =
+    case readMaybe (BS.unpack raw) :: Maybe Int of
+        Just sec | sec > 0 -> Just (sec * 1000)
+        _ ->
+            let parseDate fmt =
+                    (parseTimeM True defaultTimeLocale fmt (BS.unpack raw) :: Maybe UTCTime)
+                formats =
+                    [ "%a, %d %b %Y %H:%M:%S GMT"
+                    , "%A, %d-%b-%y %H:%M:%S GMT"
+                    , "%a %b %e %H:%M:%S %Y"
+                    ]
+                toDelayMs t =
+                    let targetMs = floor (utcTimeToPOSIXSeconds t * 1000) :: Integer
+                        delta = targetMs - nowMs
+                     in if delta <= 0
+                            then Nothing
+                            else Just (fromInteger (min delta (toInteger (maxBound :: Int))))
+             in case mapMaybe parseDate formats of
+                    [] -> Nothing
+                    (t : _) -> toDelayMs t
 
 sleepMs :: Int -> IO ()
 sleepMs ms =

@@ -36,6 +36,7 @@ import Trader.BotStartSemantics (
  )
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Duration (TimeWindow (..), lookbackBarsFrom)
+import Trader.Http (parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, trainLSTM)
@@ -76,7 +77,7 @@ import Trader.SignalGates (
 import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.TopCombosStore (recalculateComboPerformanceFromOperation)
-import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble)
+import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
 main :: IO ()
 main = do
@@ -97,6 +98,7 @@ main = do
               , run "min-hold blocks exit" testMinHoldBars
               , run "max-hold forces exit" testMaxHoldBars
               , run "cooldown blocks re-entry" testCooldownBars
+              , run "tri-layer uses provided open prices for candle patterns" testTriLayerUsesProvidedOpenPrices
               , run "entry block holds position (no-trade window)" testEntryBlockNoTradeWindow
               , run "entry block holds position (max trades)" testEntryBlockMaxTradesPerDay
               , run "weekly loss resets on UTC calendar week boundary" testWeeklyLossResetsOnUtcWeekBoundary
@@ -116,7 +118,9 @@ main = do
               , run "live trade keeps non-owner API key requirement" testLiveTradeRequiresNonOwnerUserKeys
               , run "empty cli credentials rejected" testEmptyCliCredentialsRejected
               , run "backtest window validates time formats" testBacktestWindowTimeValidation
+              , run "backtest window accepts ISO offsets" testBacktestWindowIsoOffsetValidation
               , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
+              , run "retry-after date parsing" testRetryAfterDateParsing
               , run "initial balance must be positive" testInitialBalanceValidation
               , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
               , run "bot/auto-start resolves origin combo for active adoption" testAutoStartResolvesOriginComboForActiveAdopt
@@ -247,6 +251,7 @@ baseEnsembleConfig =
         , ecNoTradeWindows = []
         , ecIntervalSeconds = Nothing
         , ecOpenTimes = Nothing
+        , ecOpenPrices = Nothing
         , ecMetaMask = Nothing
         , ecPositioning = LongFlat
         , ecIntrabarFill = StopFirst
@@ -523,6 +528,32 @@ testCooldownBars = do
         cfg = baseEnsembleConfig{ecCooldownBars = 1}
         bt = requireRight "simulateEnsemble cooldown" (simulateEnsemble cfg lookback prices preds preds Nothing)
     assert "cooldown blocks entry for 1 bar after exit" (brPositions bt == [1, 0, 0, 1])
+
+testTriLayerUsesProvidedOpenPrices :: IO ()
+testTriLayerUsesProvidedOpenPrices = do
+    let prices = [70, 80, 100, 110]
+        highs = [70, 80, 100.5, 110]
+        lows = [70, 80, 95, 110]
+        opens = V.fromList [70, 80, 99, 110]
+        lookback = 1
+        preds = [70, 80, 120]
+        baseCfg =
+            baseEnsembleConfig
+                { ecTriLayer = True
+                , ecTriLayerRequirePriceAction = True
+                , ecTriLayerCloudPadding = 1
+                , ecTriLayerCloudSlope = 0
+                }
+        btWithoutOpen =
+            requireRight
+                "simulateEnsemble without open prices"
+                (simulateEnsembleWithHLChecked baseCfg lookback prices highs lows preds preds Nothing)
+        btWithOpen =
+            requireRight
+                "simulateEnsemble with open prices"
+                (simulateEnsembleWithHLChecked (baseCfg{ecOpenPrices = Just opens}) lookback prices highs lows preds preds Nothing)
+    assert "without open prices remains flat" (brPositions btWithoutOpen == [0, 0, 0])
+    assert "with open prices enters on hammer at t=2" (brPositions btWithOpen == [0, 0, 1])
 
 testEntryBlockNoTradeWindow :: IO ()
 testEntryBlockNoTradeWindow = do
@@ -856,11 +887,25 @@ testBacktestWindowTimeValidation =
                 ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
         Right _ -> error "expected invalid --from to fail validation"
 
+testBacktestWindowIsoOffsetValidation :: IO ()
+testBacktestWindowIsoOffsetValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-01T00:00:00+00:00", "--to", "2025-01-01T00:05:00+00:00"] of
+        Left err -> error ("expected ISO offset to parse: " ++ err)
+        Right _ -> pure ()
+
 testBacktestWindowOrderValidation :: IO ()
 testBacktestWindowOrderValidation =
     case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-02", "--to", "2025-01-01"] of
         Left err -> assert "from<=to enforced" ("--from must be <= --to" `isInfixOf` err)
         Right _ -> error "expected --from > --to to fail validation"
+
+testRetryAfterDateParsing :: IO ()
+testRetryAfterDateParsing = do
+    let nowMs = 1735689600000 -- 2025-01-01T00:00:00Z
+        delaySeconds = parseRetryAfterMsAt nowMs "5"
+        delayDate = parseRetryAfterMsAt nowMs "Wed, 01 Jan 2025 00:00:05 GMT"
+    assert "retry-after seconds parses" (delaySeconds == Just 5000)
+    assert "retry-after HTTP-date parses" (delayDate == Just 5000)
 
 testInitialBalanceValidation :: IO ()
 testInitialBalanceValidation =

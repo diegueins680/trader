@@ -476,8 +476,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 - Metrics
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
     - The split must leave at least `lookback+1` training bars and 2 backtest bars, otherwise it errors.
-  - `--from TIME` / `--to TIME` optional backtest window bounds (epoch seconds/ms or ISO-8601, for example `2025-01-01` or `2025-01-01T00:00:00Z`)
+  - `--from TIME` / `--to TIME` optional backtest window bounds (epoch seconds/ms or ISO-8601, for example `2025-01-01`, `2025-01-01T00:00:00Z`, or `2025-01-01T00:00:00+00:00`)
     - Backtest window filtering requires bar timestamps (exchange candles or CSV with a parseable time column).
+    - ISO-8601 timezone offsets (`+HH:MM` / `-HH:MM`, and compact `+HHMM`) are supported.
   - `--initial-balance B` initial backtest balance (`> 0`, default `1.0`); scales equity outputs while keeping return/risk ratios unchanged.
   - `--periods-per-year N` (default: inferred from `--interval`)
     - Used for annualized metrics and tune scoring (optimize/sweep).
@@ -491,6 +492,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
     - Trade responses include `txHash` when a DEX swap is submitted.
     - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match with non-neutral directions; agreement rate only counts bars where both models emit a non-neutral open direction.
+    - Candle-pattern gates (tri-layer price action) use real bar opens when available from the data source; otherwise they fall back to close-to-close synthetic opens.
     - Latest signal output includes `closeDirection` to indicate the close-threshold direction (when available).
     - When confidence gating is enabled, `closeDirection` respects the gated signal direction (matching backtests).
 

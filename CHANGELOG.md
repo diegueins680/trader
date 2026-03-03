@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Trading/Backtests: candle-pattern gates now use real bar open prices when available (`CSV open` / exchange OHLC opens) instead of always synthesizing opens from prior closes.
+- CLI/API: `--from`/`--to` backtest window parsing now accepts ISO-8601 timezone offsets (for example `+00:00`, `-05:00`, and `+0000`) in addition to existing epoch/`Z` forms.
+- HTTP retries: `Retry-After` handling now supports both delta-seconds and HTTP-date header values when computing retry backoff.
 - Web UI: during cross-origin direct-host fallback, stop auto-injecting `X-Tenant-Key` request headers and rely on `tenantKey` query/body fields instead, reducing CORS preflight failures on strict API gateways.
 - Web UI: for auto-inferred Fly split-host routing, request timeouts now trigger fallback in both directions (`direct-host -> /api` and `/api -> direct-host`), matching existing network/5xx failover behavior and reducing false timeout errors when either path stalls.
 - API/Web UI: improve split-host browser compatibility by echoing CORS origins only for auth-like headers (`Authorization`/`X-API-Key`/`X-Tenant-Key`), auto-forwarding tenant keys as `X-Tenant-Key`, and switching default Fly split-app UI routing to `/api` primary with inferred direct-host fallback (`apiBaseUrlInferred=true`); inferred mode now keeps listenKey SSE on `/api` unless explicitly configured otherwise.

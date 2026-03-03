@@ -324,19 +324,32 @@ normalizeEpochMs n =
 
 parseIsoTimeMs :: String -> Maybe Int64
 parseIsoTimeMs s =
-    let formats =
+    let s' = normalizeIsoOffsetSuffix s
+        formats =
             [ "%Y-%m-%d"
             , "%Y-%m-%d %H:%M:%S"
             , "%Y-%m-%dT%H:%M:%S"
+            , "%Y-%m-%d %H:%M:%S%z"
+            , "%Y-%m-%dT%H:%M:%S%z"
             , "%Y-%m-%d %H:%M:%S%Q"
             , "%Y-%m-%dT%H:%M:%S%Q"
+            , "%Y-%m-%d %H:%M:%S%Q%z"
+            , "%Y-%m-%dT%H:%M:%S%Q%z"
             , "%Y-%m-%dT%H:%M:%S%QZ"
             , "%Y-%m-%d %H:%M:%S%QZ"
             ]
-        parseWith fmt = parseTimeM True defaultTimeLocale fmt s
+        parseWith fmt = parseTimeM True defaultTimeLocale fmt s'
      in case mapMaybe parseWith formats of
             [] -> Nothing
             (t : _) -> Just (floor (utcTimeToPOSIXSeconds t * 1000))
+
+normalizeIsoOffsetSuffix :: String -> String
+normalizeIsoOffsetSuffix raw =
+    case reverse raw of
+        m2 : m1 : ':' : h2 : h1 : sign : rest
+            | (sign == '+' || sign == '-') && all isDigit [h1, h2, m1, m2] ->
+                reverse rest ++ [sign, h1, h2, m1, m2]
+        _ -> raw
 
 looksLikeIso8601Prefix :: String -> Bool
 looksLikeIso8601Prefix s =

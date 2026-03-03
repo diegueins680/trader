@@ -2708,7 +2708,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                                       metaF = fmap (V.slice t0 steps) metaUsed
                                                       openTimesF = fmap (V.slice t0 (steps + 1)) (ecOpenTimes btCfg)
                                                       metaMaskF = fmap (V.slice t0 steps) metaMask
-                                                      btCfgFold = btCfg{ecOpenTimes = openTimesF, ecMetaMask = metaMaskF}
+                                                      openPricesF = fmap (V.slice t0 (steps + 1)) (ecOpenPrices btCfg)
+                                                      btCfgFold = btCfg{ecOpenTimes = openTimesF, ecOpenPrices = openPricesF, ecMetaMask = metaMaskF}
                                                       btFoldE = simulateEnsembleVWithHLChecked btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
                                                    in case btFoldE of
                                                         Left _ -> ineligibleScore
