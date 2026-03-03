@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Live bot auto-start: orphan open futures positions now trigger auto-start/adoption even when the base bot market is non-futures, and orphan starts enforce market-compatible top-combo selection before fallback.
 - Web UI: startup `/health` probing now retries transient `down`-classified failures (up to 3 attempts with 4s spacing) before settling on `API unreachable`, reducing false down states on cold starts/proxy warm-ups.
 - Web UI: per-running-bot chart panels now start collapsed by default and lazily mount their chart/timeline contents only after expand or maximize.
 - Trading/Backtests: candle-pattern gates now use real bar open prices when available (`CSV open` / exchange OHLC opens) instead of always synthesizing opens from prior closes.

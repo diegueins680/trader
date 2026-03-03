@@ -5887,11 +5887,12 @@ selectCompatibleTopComboArgs limits sym args req export =
             case applyTopComboForStartWithUuid args combo of
                 Left _ -> pick rest
                 Right (args', mUuid) ->
-                    if argsCompatibleWithAdoption args' req
-                        then case validateApiComputeLimits limits args' of
-                            Left _ -> pick rest
-                            Right args'' -> Just (args'', mUuid)
-                        else pick rest
+                    let marketCompatible = argBinanceMarket args' == argBinanceMarket args
+                     in if marketCompatible && argsCompatibleWithAdoption args' req
+                            then case validateApiComputeLimits limits args' of
+                                Left _ -> pick rest
+                                Right args'' -> Just (args'', mUuid)
+                            else pick rest
      in pick sortedCombos
 
 applyLatestTopCombo :: Maybe OpsStore -> TopCombosStore -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO (Args, Maybe Text)
@@ -6115,12 +6116,17 @@ positionAdoptedByRuntime mInfo pos =
 
 resolveOrphanOpenPositionActions :: Maybe OpsStore -> Args -> BotRuntimeMap -> IO ([String], [String])
 resolveOrphanOpenPositionActions mOps args tenantMap =
-    if not (platformSupportsLiveBot (argPlatform args)) || argBinanceMarket args /= MarketFutures
+    if not (platformSupportsLiveBot (argPlatform args))
         then pure ([], [])
         else do
+            let argsFutures =
+                    args
+                        { argBinanceFutures = True
+                        , argBinanceMargin = False
+                        }
             positionsOrErr <-
                 ( try $ do
-                    env <- makeBinanceEnv mOps args
+                    env <- makeBinanceEnv mOps argsFutures
                     ensureBinanceKeysPresent env
                     fetchFuturesPositionRisks env
                 ) ::
@@ -6517,8 +6523,16 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         )
                                             else writeIORef topTargetsWarnRef Nothing
                                         pure targets
-                            startSymbol argsStart sym mCombo = do
-                                let argsSym = argsStart{argBinanceSymbol = Just sym}
+                            startSymbol argsStart sym mCombo preferFutures = do
+                                let argsSym0 = argsStart{argBinanceSymbol = Just sym}
+                                    argsSym =
+                                        if preferFutures
+                                            then
+                                                argsSym0
+                                                    { argBinanceFutures = True
+                                                    , argBinanceMargin = False
+                                                    }
+                                            else argsSym0
                                     adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
                                 adoptReqOrErr <-
                                     if adoptable
@@ -6549,7 +6563,12 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                         Left err -> do
                                                                             recordError sym ("Top combo parse failed: " ++ err)
                                                                             applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                                        Right (args', uuid) -> pure (args', uuid)
+                                                                        Right (args', uuid) ->
+                                                                            if argBinanceMarket args' == argBinanceMarket argsSym
+                                                                                then pure (args', uuid)
+                                                                                else do
+                                                                                    recordError sym "Top combo market mismatch; falling back to latest compatible combo."
+                                                                                    applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                 else do
                                                     when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
                                                         clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
@@ -6560,7 +6579,12 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                                 Left err -> do
                                                                     recordError sym ("Top combo parse failed: " ++ err)
                                                                     applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                                Right (args', uuid) -> pure (args', uuid)
+                                                                Right (args', uuid) ->
+                                                                    if argBinanceMarket args' == argBinanceMarket argsSym
+                                                                        then pure (args', uuid)
+                                                                        else do
+                                                                            recordError sym "Top combo market mismatch; falling back to latest compatible combo."
+                                                                            applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                         case validateApiComputeLimits limits argsCombo of
                                             Left err -> recordError sym err
                                             Right argsOk -> do
@@ -6611,7 +6635,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 mrtAfterRestart <- readMVar (bcRuntime botCtrl)
                                 let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrtAfterRestart)
                                 let missing = filter (not . (`HM.member` tenantMap)) targetSymbols
-                                mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap)) missing
+                                mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap) (sym `elem` orphanSymbols)) missing
                                 sleepSec pollSec
                                 loop
                         loop
