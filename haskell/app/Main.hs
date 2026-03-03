@@ -9858,7 +9858,10 @@ placeBotCloseOrder args sym sig env =
      in placeOrderForSignalEx args' sym sig' env Nothing False
 
 runRestApi :: Args -> Maybe Webhook -> IO ()
-runRestApi baseArgs mWebhook = do
+runRestApi cliArgs mWebhook = do
+    -- REST requests should default to mainnet unless callers explicitly set binanceTestnet=true.
+    -- This keeps production-safe defaults even if the process was started with --binance-testnet.
+    let baseArgs = cliArgs{argBinanceTestnet = False}
     mCommit <- getBuildCommit
     let buildInfo = BuildInfo traderVersion mCommit
     apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"

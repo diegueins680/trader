@@ -509,6 +509,7 @@ Run the bot as a REST API:
 - Most endpoints are **stateless** (each request loads data and computes/trains as needed).
 - The optional **live bot** endpoints (`/bot/*`) start a **stateful, non-stop** loop that ingests new bars, fine-tunes the model each bar, and (optionally) places orders until stopped.
 - `GET /metrics` exposes a small Prometheus-style endpoint.
+- `binanceTestnet` defaults to `false` for REST requests when omitted; set `binanceTestnet=true` per request when you intentionally want Binance testnet.
 ```
 cd haskell
 cabal run trader-hs -- --serve --port 8080
