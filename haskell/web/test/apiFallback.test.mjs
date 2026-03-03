@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const apiBundleUrl = new URL("../.tmp/web-tests/api.js", import.meta.url);
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 function jsonResponse(status, body) {
   return new Response(JSON.stringify(body), {
@@ -320,6 +321,28 @@ test("api fallback ignores future-dated fallback cache entries", async () => {
     { localStorage: futureStorage },
   );
   assert.deepEqual(calls, ["https://api.example.com/health"]);
+});
+
+test("health clamps huge Retry-After header to safe timer delay", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => {
+      const res = jsonResponse(503, { error: "Service unavailable" });
+      res.headers.set("retry-after", "999999999999999999999999999999");
+      return res;
+    },
+    async (api) => {
+      await assert.rejects(
+        () => api.health("https://api.example.com", { timeoutMs: 5_000 }),
+        (err) => err?.name === "HttpError" && err.status === 503 && err.retryAfterMs === MAX_TIMER_DELAY_MS,
+      );
+    },
+  );
 });
 
 test("api fallback allows inferred /api primary to fail over to cross-origin fallback", async () => {

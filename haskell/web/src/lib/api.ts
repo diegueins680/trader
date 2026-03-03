@@ -324,18 +324,26 @@ function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, strin
   return merged;
 }
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+function clampDelayMs(raw: number): number | null {
+  if (!Number.isFinite(raw)) return null;
+  return Math.max(0, Math.min(MAX_TIMER_DELAY_MS, Math.floor(raw)));
+}
+
 function parseRetryAfterMs(raw: string | null): number | null {
   if (!raw) return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  if (/^\d+$/.test(trimmed)) return Math.max(0, Number(trimmed) * 1000);
+  if (/^\d+$/.test(trimmed)) return clampDelayMs(Number(trimmed) * 1000);
   const parsed = Date.parse(trimmed);
-  if (!Number.isNaN(parsed)) return Math.max(0, parsed - Date.now());
+  if (!Number.isNaN(parsed)) return clampDelayMs(parsed - Date.now());
   return null;
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
+  const clampedMs = clampDelayMs(ms) ?? 0;
+  if (clampedMs <= 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const onAbort = () => {
       cleanup();
@@ -345,7 +353,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     const timer = window.setTimeout(() => {
       cleanup();
       resolve();
-    }, ms);
+    }, clampedMs);
 
     const cleanup = () => {
       window.clearTimeout(timer);

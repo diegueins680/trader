@@ -118,6 +118,7 @@ main = do
               , run "live trade keeps non-owner API key requirement" testLiveTradeRequiresNonOwnerUserKeys
               , run "empty cli credentials rejected" testEmptyCliCredentialsRejected
               , run "backtest window validates time formats" testBacktestWindowTimeValidation
+              , run "backtest window rejects overflow scientific timestamp" testBacktestWindowOverflowScientificValidation
               , run "backtest window accepts ISO offsets" testBacktestWindowIsoOffsetValidation
               , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
               , run "retry-after date parsing" testRetryAfterDateParsing
@@ -886,6 +887,15 @@ testBacktestWindowTimeValidation =
                 "invalid --from rejected"
                 ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
         Right _ -> error "expected invalid --from to fail validation"
+
+testBacktestWindowOverflowScientificValidation :: IO ()
+testBacktestWindowOverflowScientificValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "1e400"] of
+        Left err ->
+            assert
+                "overflow scientific --from rejected"
+                ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
+        Right _ -> error "expected overflow scientific --from to fail validation"
 
 testBacktestWindowIsoOffsetValidation :: IO ()
 testBacktestWindowIsoOffsetValidation =

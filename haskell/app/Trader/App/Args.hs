@@ -315,7 +315,15 @@ parseTimeInt64 s =
         Just n -> Just n
         Nothing ->
             case (readMaybe s :: Maybe Double) of
-                Just d -> Just (floor d)
+                Just d
+                    | isNaN d || isInfinite d -> Nothing
+                    | otherwise ->
+                        let n = floor d :: Integer
+                            lo = toInteger (minBound :: Int64)
+                            hi = toInteger (maxBound :: Int64)
+                         in if n < lo || n > hi
+                                then Nothing
+                                else Just (fromInteger n)
                 Nothing -> Nothing
 
 normalizeEpochMs :: Int64 -> Int64
