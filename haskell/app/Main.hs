@@ -6498,8 +6498,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                     case symbolsOrErr of
                         Left _ -> []
                         Right xs -> xs
-                minTopComboBots = 10
-                maxTopComboBots = 10
+                minTopComboBots = 50
+                maxTopComboBots = 50
             case symbolsOrErr of
                 Left err -> putStrLn ("Live bot auto-start base symbols missing: " ++ err)
                 Right _ -> pure ()
