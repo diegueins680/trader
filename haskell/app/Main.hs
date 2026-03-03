@@ -10006,7 +10006,7 @@ runRestApi baseArgs mWebhook = do
         else case ccAllowedOrigins corsConfig of
             [] ->
                 if ccAllowAuthOrigin corsConfig
-                    then putStrLn "CORS: auth-origin allowed (Origin echoed when auth headers present)"
+                    then putStrLn "CORS: auth-origin allowed (Origin echoed when Authorization/X-API-Key/X-Tenant-Key is present)"
                     else putStrLn "CORS: disabled (set TRADER_CORS_ORIGIN to allow a specific origin)"
             origins ->
                 putStrLn ("CORS: allowed origins " ++ intercalate ", " (map BS.unpack origins))
@@ -10123,7 +10123,7 @@ data CorsConfig = CorsConfig
     }
 
 resolveCorsConfig :: Maybe BS.ByteString -> IO CorsConfig
-resolveCorsConfig mToken = do
+resolveCorsConfig _mToken = do
     mOriginEnv <- lookupEnv "TRADER_CORS_ORIGIN"
     let rawOrigins = maybe [] splitEnvList mOriginEnv
         trimmed = map (T.strip . T.pack) rawOrigins
@@ -10136,7 +10136,7 @@ resolveCorsConfig mToken = do
             , t /= "*"
             , tok /= "*"
             ]
-        allowAuth = null origins && not allowAny && isJust mToken
+        allowAuth = null origins && not allowAny
     pure (CorsConfig origins allowAny allowAuth)
 
 lookupHeaderNormalized :: String -> RequestHeaders -> Maybe BS.ByteString
@@ -10153,17 +10153,17 @@ corsRequestHasAuthHeaders req =
                 Nothing -> []
                 Just raw -> map normalizeKey (splitEnvList (BS.unpack raw))
         requestedHasAuth =
-            let authHeaderKeys = map normalizeKey ["authorization", "x-api-key"]
+            let authHeaderKeys = map normalizeKey ["authorization", "x-api-key", "x-tenant-key"]
              in any (`elem` authHeaderKeys) requested
      in case Wai.requestMethod req of
             "OPTIONS" -> requestedHasAuth
-            _ -> hasHeader "Authorization" || hasHeader "X-API-Key"
+            _ -> hasHeader "Authorization" || hasHeader "X-API-Key" || hasHeader "X-Tenant-Key"
 
 corsHeadersFor :: CorsConfig -> Wai.Request -> ResponseHeaders
 corsHeadersFor cors req =
     let base =
             [ ("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-            , ("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key")
+            , ("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key,X-Tenant-Key")
             , ("Access-Control-Max-Age", "86400")
             ]
         mAllowed
@@ -10171,7 +10171,7 @@ corsHeadersFor cors req =
             | otherwise =
                 case lookupHeaderNormalized "Origin" (Wai.requestHeaders req) of
                     Just origin | origin `elem` ccAllowedOrigins cors -> Just origin
-                    Just origin | ccAllowAuthOrigin cors -> Just origin
+                    Just origin | ccAllowAuthOrigin cors && corsRequestHasAuthHeaders req -> Just origin
                     _ -> Nothing
         extra =
             case mAllowed of

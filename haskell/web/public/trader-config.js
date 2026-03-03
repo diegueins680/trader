@@ -10,8 +10,8 @@
 //   // Use "https://your-api-host" for direct API calls when you are not proxying via /api.
 //   apiBaseUrl: "/api",
 //   // Optional: set apiFallbackUrl to "/api" for same-origin fallback when the UI uses direct API calls.
-//   // Cross-origin fallbacks are ignored when apiBaseUrl is "/api" (proxy mode) to avoid CORS loops;
-//   // use apiBaseUrl=https://<api-host> if you want cross-origin failover.
+//   // With apiBaseUrl="/api", cross-origin fallbacks are only used in inferred split-host mode
+//   // (apiBaseUrlInferred=true) to avoid accidental CORS loops in explicit proxy configs.
 //   apiFallbackUrl: "",
 //   apiToken: "TRADER_API_TOKEN",
 //   timeoutsMs: {
@@ -58,10 +58,10 @@
   const apiBaseUrlInferred = Boolean(inferredDirectApiBaseUrl);
   globalThis.__TRADER_CONFIG__ = {
     // For split Fly apps (for example, trader-web-hs.fly.dev + trader-hs.fly.dev),
-    // infer the direct API host and fall back to /api if it is unavailable.
-    apiBaseUrl: inferredDirectApiBaseUrl || "/api",
+    // prefer same-origin /api first and keep the inferred direct API host as fallback.
+    apiBaseUrl: "/api",
     apiBaseUrlInferred,
-    apiFallbackUrl: inferredDirectApiBaseUrl ? "/api" : "",
+    apiFallbackUrl: inferredDirectApiBaseUrl || "",
     apiToken: "",
     timeoutsMs: { botStatusMs: 120000 },
   };

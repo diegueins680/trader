@@ -297,6 +297,84 @@ test("api fallback ignores future-dated fallback cache entries", async () => {
   assert.deepEqual(calls, ["https://api.example.com/health"]);
 });
 
+test("api fallback allows inferred /api primary to fail over to cross-origin fallback", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: true,
+      apiFallbackUrl: "https://api.example.com",
+      apiToken: "",
+    },
+    async (url) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "/api/health") {
+        return jsonResponse(502, { error: "Bad Gateway" });
+      }
+      if (href === "https://api.example.com/health") {
+        return jsonResponse(200, { status: "ok" });
+      }
+      throw new Error(`unexpected request: ${href}`);
+    },
+    async (api) => {
+      const out = await api.health("/api", { timeoutMs: 5_000 });
+      assert.equal(out.status, "ok");
+    },
+  );
+  assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
+});
+
+test("api client forwards tenant key as X-Tenant-Key from JSON body params", async () => {
+  let tenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const href = String(url);
+      if (href !== "https://api.example.com/bot/start") throw new Error(`unexpected request: ${href}`);
+      tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+      return jsonResponse(202, { starting: true, symbol: "BTCUSDT" });
+    },
+    async (api) => {
+      const out = await api.botStart(
+        "https://api.example.com",
+        { tenantKey: "tenant-body", binanceSymbol: "BTCUSDT" },
+        { timeoutMs: 5_000 },
+      );
+      assert.equal(out.starting, true);
+    },
+  );
+  assert.equal(tenantHeader, "tenant-body");
+});
+
+test("api client forwards tenant key as X-Tenant-Key from query params", async () => {
+  let tenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const href = String(url);
+      if (!href.startsWith("https://api.example.com/bot/status?")) throw new Error(`unexpected request: ${href}`);
+      tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+      return jsonResponse(200, { running: false });
+    },
+    async (api) => {
+      const out = await api.botStatus("https://api.example.com", { timeoutMs: 5_000 }, 100, undefined, "tenant-query");
+      assert.equal(out.running, false);
+    },
+  );
+  assert.equal(tenantHeader, "tenant-query");
+});
+
 test("health preserves version and commit metadata", async () => {
   await withApiModule(
     {

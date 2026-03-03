@@ -18,9 +18,9 @@ function runTraderConfig(hostname, existingConfig) {
 
 test("trader-config infers direct Fly API host for -web-hs naming", () => {
   const config = runTraderConfig("trader-web-hs.fly.dev");
-  assert.equal(config.apiBaseUrl, "https://trader-hs.fly.dev");
+  assert.equal(config.apiBaseUrl, "/api");
   assert.equal(config.apiBaseUrlInferred, true);
-  assert.equal(config.apiFallbackUrl, "/api");
+  assert.equal(config.apiFallbackUrl, "https://trader-hs.fly.dev");
 });
 
 test("trader-config does not infer direct Fly API host for plain -web suffix naming", () => {
@@ -53,9 +53,9 @@ test("trader-config does not infer -web-hs names with unsupported suffixes", () 
 
 test("trader-config strips the rightmost -web- marker for hs backend suffixes", () => {
   const config = runTraderConfig("alpha-web-api-web-hs.fly.dev");
-  assert.equal(config.apiBaseUrl, "https://alpha-web-api-hs.fly.dev");
+  assert.equal(config.apiBaseUrl, "/api");
   assert.equal(config.apiBaseUrlInferred, true);
-  assert.equal(config.apiFallbackUrl, "/api");
+  assert.equal(config.apiFallbackUrl, "https://alpha-web-api-hs.fly.dev");
 });
 
 test("trader-config keeps existing config object intact", () => {

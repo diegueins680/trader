@@ -159,7 +159,6 @@ import {
   fmtTimeMs,
   fmtTimeMsWithMs,
   generateIdempotencyKey,
-  inferFlyDirectApiBaseFromHostname,
   isAbortError,
   isLikelyOrderError,
   isLocalHostname,
@@ -2716,21 +2715,17 @@ export function App() {
     [],
   );
 
-  const inferredFlyDirectApiBase = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return inferFlyDirectApiBaseFromHostname(window.location.hostname);
-  }, []);
-
   const listenKeyStreamBase = useMemo(() => {
     const trimmedBase = apiBase.trim().replace(/\/+$/, "");
     if (!trimmedBase.startsWith("/")) return trimmedBase;
     const trimmedFallback = apiFallbackBase.trim();
-    if (!trimmedFallback) return inferredFlyDirectApiBase || trimmedBase;
+    if (!trimmedFallback) return trimmedBase;
     if (/^https?:\/\//i.test(trimmedFallback)) {
+      if (TRADER_UI_CONFIG.apiBaseUrlInferred) return trimmedBase;
       return trimmedFallback.replace(/\/+$/, "");
     }
     return trimmedFallback.startsWith("/") ? trimmedFallback.replace(/\/+$/, "") : trimmedBase;
-  }, [apiBase, apiFallbackBase, inferredFlyDirectApiBase]);
+  }, [apiBase, apiFallbackBase]);
 
   const apiHealthUrl = useMemo(() => {
     if (!apiBaseAbsolute) return "";

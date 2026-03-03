@@ -140,6 +140,54 @@ function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
+const TENANT_HEADER = "X-Tenant-Key";
+
+function normalizeTenantKeyValue(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : null;
+}
+
+function tenantKeyFromPath(path: string): string | null {
+  const queryIndex = path.indexOf("?");
+  if (queryIndex < 0) return null;
+  const hashIndex = path.indexOf("#", queryIndex);
+  const rawQuery = hashIndex >= 0 ? path.slice(queryIndex + 1, hashIndex) : path.slice(queryIndex + 1);
+  if (!rawQuery) return null;
+  try {
+    const query = new URLSearchParams(rawQuery);
+    return normalizeTenantKeyValue(query.get("tenantKey"));
+  } catch {
+    return null;
+  }
+}
+
+function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
+  if (!body) return null;
+  if (typeof body === "string") {
+    const trimmed = body.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object") return null;
+      return normalizeTenantKeyValue((parsed as { tenantKey?: unknown }).tenantKey);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) {
+    return normalizeTenantKeyValue(body.get("tenantKey"));
+  }
+  return null;
+}
+
+function withTenantHeader(headers: Headers, path: string, body: BodyInit | null | undefined): Headers {
+  if (headers.has(TENANT_HEADER)) return headers;
+  const tenantKey = tenantKeyFromPath(path) ?? tenantKeyFromBody(body);
+  if (tenantKey) headers.set(TENANT_HEADER, tenantKey);
+  return headers;
+}
+
 // v4 drops legacy persisted fallback preferences so older auth-driven entries
 // cannot override the current explicit-host fallback rules after upgrades.
 const FALLBACK_STORAGE_KEY = "trader_api_fallback_v4";
@@ -236,7 +284,7 @@ function resolveFallbackBase(primaryBase: string): string | null {
   const primary = normalizeBaseUrl(primaryBase);
   const fallback = normalizeBaseUrl(fallbackRaw);
   if (!fallback || fallback === primary) return null;
-  if (primary.startsWith("/") && isCrossOriginBase(fallback)) return null;
+  if (primary.startsWith("/") && isCrossOriginBase(fallback) && !TRADER_UI_CONFIG.apiBaseUrlInferred) return null;
   if (!primary.startsWith("/") && blockedFallbackBases.has(fallback)) return null;
   return fallback;
 }
@@ -350,10 +398,11 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
     const url = resolveUrl(baseUrl, path);
+    const headers = withTenantHeader(new Headers(mergeHeaders(init.headers, opts?.headers)), path, init.body);
     const res = await fetch(url, {
       ...init,
       cache: init.cache ?? "no-store",
-      headers: mergeHeaders(init.headers, opts?.headers),
+      headers,
       signal,
     });
     const contentType = res.headers.get("content-type") || "";
