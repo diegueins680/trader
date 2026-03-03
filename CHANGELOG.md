@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: during cross-origin direct-host fallback, stop auto-injecting `X-Tenant-Key` request headers and rely on `tenantKey` query/body fields instead, reducing CORS preflight failures on strict API gateways.
+- Web UI: for auto-inferred Fly split-host routing, request timeouts now trigger fallback in both directions (`direct-host -> /api` and `/api -> direct-host`), matching existing network/5xx failover behavior and reducing false timeout errors when either path stalls.
 - API/Web UI: improve split-host browser compatibility by echoing CORS origins only for auth-like headers (`Authorization`/`X-API-Key`/`X-Tenant-Key`), auto-forwarding tenant keys as `X-Tenant-Key`, and switching default Fly split-app UI routing to `/api` primary with inferred direct-host fallback (`apiBaseUrlInferred=true`); inferred mode now keeps listenKey SSE on `/api` unless explicitly configured otherwise.
 - Web UI: increase Binance listenKey action request timeout to 90s (start/keep-alive/close) and surface clearer timeout messages, reducing false `Timeout` failures during backend retry/backoff windows.
 - API/Top-combos: reduce process-lock stale recovery time (10s heartbeat, 45s stale cutoff) so abandoned optimizer locks stop blocking `/optimizer/combos` for long periods after crashes/restarts.
