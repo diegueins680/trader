@@ -588,7 +588,7 @@ Endpoints:
 - `POST /binance/keys` (futures): `binanceSymbol` is optional for the signed probe; the trade test is skipped when `binanceSymbol` is missing, and dataset-style suffixes are trimmed before the trade test runs.
 - `GET /binance/proxy/health` → checks Binance proxy connectivity (reports `status=ok|error|not_configured`)
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
-- `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting
+- `GET /binance/positions` and `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting
 - `POST /binance/positions/close` → sends a reduce-only futures market order to close a position (optionally include `positionSide`)
 - `POST /coinbase/keys` → checks Coinbase key/secret/passphrase via a signed `/accounts` probe
 - `POST /binance/listenKey` → creates a Binance user-data listenKey and starts the backend user-data stream (returns WebSocket URL for reference)

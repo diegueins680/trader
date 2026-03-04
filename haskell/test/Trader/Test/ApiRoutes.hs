@@ -14,7 +14,7 @@ import Trader.Api.Routes (apiEndpointDocs, apiRouteLabel)
 apiRouteSuite :: [(String, IO ())]
 apiRouteSuite =
     [ ("api route labels normalize async placeholders", testRouteLabels)
-    , ("api endpoint docs include core endpoints", testEndpointDocsCore)
+    , ("api endpoint docs include route coverage", testEndpointDocsCoverage)
     , ("api endpoint docs have unique method/path pairs", testEndpointDocsUnique)
     ]
 
@@ -25,13 +25,22 @@ testRouteLabels = do
     expectEq "state sync label" "state/sync" (apiRouteLabel ["state", "sync"])
     expectEq "root label" "root" (apiRouteLabel [])
 
-testEndpointDocsCore :: IO ()
-testEndpointDocsCore = do
+testEndpointDocsCoverage :: IO ()
+testEndpointDocsCoverage = do
     let endpoints = endpointPairs apiEndpointDocs
     expectTrue "contains GET /health" (("GET", "/health") `elem` endpoints)
     expectTrue "contains GET /version" (("GET", "/version") `elem` endpoints)
     expectTrue "contains POST /trade" (("POST", "/trade") `elem` endpoints)
     expectTrue "contains POST /bot/start" (("POST", "/bot/start") `elem` endpoints)
+    expectTrue "contains GET /signal/async/:jobId" (("GET", "/signal/async/:jobId") `elem` endpoints)
+    expectTrue "contains POST /signal/async/:jobId" (("POST", "/signal/async/:jobId") `elem` endpoints)
+    expectTrue "contains GET /trade/async/:jobId" (("GET", "/trade/async/:jobId") `elem` endpoints)
+    expectTrue "contains POST /trade/async/:jobId" (("POST", "/trade/async/:jobId") `elem` endpoints)
+    expectTrue "contains GET /backtest/async/:jobId" (("GET", "/backtest/async/:jobId") `elem` endpoints)
+    expectTrue "contains POST /backtest/async/:jobId" (("POST", "/backtest/async/:jobId") `elem` endpoints)
+    expectTrue "contains GET /binance/positions" (("GET", "/binance/positions") `elem` endpoints)
+    expectTrue "contains POST /binance/positions" (("POST", "/binance/positions") `elem` endpoints)
+    expectTrue "contains POST /binance/positions/close" (("POST", "/binance/positions/close") `elem` endpoints)
 
 testEndpointDocsUnique :: IO ()
 testEndpointDocsUnique = do
