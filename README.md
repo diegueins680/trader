@@ -488,6 +488,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--initial-balance B` initial backtest balance (`> 0`, default `1.0`); scales equity outputs while keeping return/risk ratios unchanged.
   - `--periods-per-year N` (default: inferred from `--interval`)
     - Used for annualized metrics and tune scoring (optimize/sweep).
+    - Inference uses a 365-day year divided by parsed interval seconds (for example `1w ~= 52.14`, `1M ~= 12.17` with `M = 30d`).
 
 - Output
   - `--version` (or `-V`) print `trader-hs` version

@@ -52,8 +52,8 @@ timeWindowContains (TimeWindow start end) minuteRaw =
 
 minuteOfDayFromMs :: Int64 -> Int
 minuteOfDayFromMs ts =
-    let minutes = fromIntegral (ts `div` 60000) :: Int
-     in minutes `mod` 1440
+    let minutes = toInteger ts `div` 60000
+     in fromInteger (minutes `mod` 1440)
 
 {- | Parse a human duration like \"24h\", \"15m\", \"1d\" into seconds.
 Supports units: s, m, h, d, w, M (month ~= 30d).
@@ -131,29 +131,12 @@ lookbackBarsFrom intervalStr lookbackWindowStr = do
 
 inferPeriodsPerYear :: String -> Double
 inferPeriodsPerYear interval =
-    case interval of
-        "1m" -> 60 * 24 * 365
-        "3m" -> 20 * 24 * 365
-        "5m" -> 12 * 24 * 365
-        "15m" -> 4 * 24 * 365
-        "30m" -> 2 * 24 * 365
-        "1h" -> 24 * 365
-        "2h" -> 12 * 365
-        "4h" -> 6 * 365
-        "6h" -> 4 * 365
-        "8h" -> 3 * 365
-        "12h" -> 2 * 365
-        "1d" -> 365
-        "3d" -> 365 / 3
-        "1w" -> 52
-        "1M" -> 12
-        _ ->
-            case parseIntervalSeconds interval of
-                Just sec
-                    | sec > 0 ->
-                        let yearSec = 365 * 24 * 60 * 60 :: Int
-                         in fromIntegral yearSec / fromIntegral sec
-                _ -> 365
+    case parseIntervalSeconds interval of
+        Just sec
+            | sec > 0 ->
+                let yearSec = 365 * 24 * 60 * 60 :: Int
+                 in fromIntegral yearSec / fromIntegral sec
+        _ -> 365
 
 unitSeconds :: Char -> Maybe Int
 unitSeconds u =

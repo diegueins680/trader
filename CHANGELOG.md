@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Metrics/CLI/API: infer `periodsPerYear` from parsed interval seconds for all interval codes (including `1w` and `1M`) so annualized metrics use consistent interval math across backend/frontend.
 - Backtests/Signals: align post-backtest prediction histories to full-series bar indices before latest-signal computation (fixes threshold-factor/router history context drift), and source `kalman_physics_error` latest-signal prediction from physics-model history when available.
 - CLI/HTTP: fix `--idempotency-key` validation to enforce the documented `1..36` length limit; make `--from/--to` numeric timestamp parsing reject fractional numeric epochs while preserving negative and 11-digit millisecond inputs; and harden exponential retry backoff math against integer overflow for very large retry counts.
 - CLI/Duration parsing: reject overflowed integer literals instead of accepting wrapped values for `--bars`, `--lookback-window`, and numeric `--from/--to` timestamps (bounded `Int`/`Int64` parsing), including overflow during duration-unit multiplication and lookback-window to bars conversion.

@@ -35,7 +35,7 @@ import Trader.BotStartSemantics (
     shouldResolveOriginComboOnAutoStart,
  )
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
-import Trader.Duration (TimeWindow (..), lookbackBarsFrom, parseDurationSeconds)
+import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds)
 import Trader.Http (boundedBackoffMs, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
@@ -87,6 +87,9 @@ main = do
               , run "duration rejects overflow integers" testLookbackBarsOverflowDuration
               , run "duration rejects overflow unit multiplication" testDurationOverflowUnitMultiplication
               , run "duration rejects lookback arithmetic overflow" testLookbackBarsOverflowArithmetic
+              , run "duration infers weekly periods from interval seconds" testInferPeriodsPerYearWeekly
+              , run "duration infers monthly periods from interval seconds" testInferPeriodsPerYearMonthly
+              , run "minute-of-day handles extreme epoch bounds" testMinuteOfDayFromMsBounds
               , run "kalman fusion multi-sensor" testKalmanFusionMulti
               , run "market linear fit" testMarketLinearFit
               , run "predictors output shape" testPredictorsOutputs
@@ -364,6 +367,28 @@ testLookbackBarsOverflowArithmetic =
                 assert
                     ("expected ceil(maxBound/2) bars, got " ++ show n)
                     (n == expected)
+
+testInferPeriodsPerYearWeekly :: IO ()
+testInferPeriodsPerYearWeekly =
+    assertApprox
+        "expected weekly periods/year to use 365-day second conversion"
+        1e-12
+        (inferPeriodsPerYear "1w")
+        (365 / 7)
+
+testInferPeriodsPerYearMonthly :: IO ()
+testInferPeriodsPerYearMonthly =
+    assertApprox
+        "expected monthly periods/year to use 30-day month seconds"
+        1e-12
+        (inferPeriodsPerYear "1M")
+        (365 / 30)
+
+testMinuteOfDayFromMsBounds :: IO ()
+testMinuteOfDayFromMsBounds = do
+    let expected ts = fromInteger ((toInteger ts `div` 60000) `mod` 1440)
+    assert "minute-of-day should stay bounded for maxBound Int64" (minuteOfDayFromMs (maxBound :: Int64) == expected (maxBound :: Int64))
+    assert "minute-of-day should stay bounded for minBound Int64" (minuteOfDayFromMs (minBound :: Int64) == expected (minBound :: Int64))
 
 testKalmanFusionMulti :: IO ()
 testKalmanFusionMulti = do
