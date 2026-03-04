@@ -19,8 +19,8 @@ module Trader.Platform (
     poloniexIntervalSeconds,
 ) where
 
-import Data.Char (toLower)
-import Data.List (intercalate)
+import Data.Char (isSpace, toLower)
+import Data.List (dropWhileEnd, intercalate)
 
 import Trader.BinanceIntervals (binanceIntervals)
 
@@ -67,7 +67,7 @@ platformLabel p =
 
 parsePlatform :: String -> Either String Platform
 parsePlatform raw =
-    case map toLower raw of
+    case map toLower (trim raw) of
         "binance" -> Right PlatformBinance
         "coinbase" -> Right PlatformCoinbase
         "kraken" -> Right PlatformKraken
@@ -80,6 +80,9 @@ parsePlatform raw =
         "1inch" -> Right PlatformOneInch
         "oneinch" -> Right PlatformOneInch
         other -> Left ("Invalid platform: " ++ show other ++ " (expected binance|coinbase|kraken|poloniex|uniswap|curve|sushiswap|balancer|pancakeswap|1inch)")
+
+trim :: String -> String
+trim = dropWhileEnd isSpace . dropWhile isSpace
 
 platformIntervals :: Platform -> [String]
 platformIntervals p =

@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- CLI/API: platform parsing now trims surrounding whitespace (still case-insensitive), so values like `--platform "  Binance  "` are accepted.
 - Deploy/Docker: fix `trader-hs` image builds that use `--disable-optimization` by resolving the binary path with `cabal list-bin --disable-optimization exe:trader-hs` (avoids missing-binary failures during `fly deploy`).
 - Deploy/Fly: keep both split apps warm by default (`auto_stop_machines="off"`, `min_machines_running=1` in `fly.toml` and `haskell/web/fly.frontend.toml`) to reduce cold-start proxy `502` windows on `trader-hs`/`trader-web-hs`.
 - Live bot/Fly defaults: add `TRADER_BOT_TOP_COMBO_BOTS` (steady-state cap, default `50`) plus `TRADER_BOT_TOP_COMBO_BOTS_STARTUP` (startup-phase cap, default steady value), set Fly startup/steady values to `0`/`10` to reduce boot pressure while re-enabling top-combo expansion after startup, and upgrade Fly VM sizing from `shared-cpu-2x/2048mb` to `shared-cpu-4x/8192mb`.

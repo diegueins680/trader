@@ -218,6 +218,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - If a time column is detected, CSV rows are sorted by parsed timestamps; unparseable timestamps keep file order.
   - `--symbol SYMBOL` (alias `--binance-symbol`) exchange symbol to fetch klines
   - `--platform binance` exchange platform for `--symbol` (`binance|coinbase|kraken|poloniex|uniswap|curve|sushiswap|balancer|pancakeswap|1inch`)
+    - Platform parsing is case-insensitive and trims surrounding whitespace (for example `--platform "  Coinbase  "`).
     - Coinbase products use `BASE-QUOTE` (for example `BTC-USD`).
     - Poloniex symbols use `BASE_QUOTE` (for example `BTC_USDT`); legacy `USDT_BTC` is auto-swapped.
 

@@ -799,6 +799,7 @@ testPlatformParsing = do
     assert "parse platform coinbase" (parsePlatform "Coinbase" == Right PlatformCoinbase)
     assert "parse platform kraken" (parsePlatform "KrAkEn" == Right PlatformKraken)
     assert "parse platform poloniex" (parsePlatform "poloniex" == Right PlatformPoloniex)
+    assert "parse platform trims whitespace" (parsePlatform "  Binance  " == Right PlatformBinance)
     case parsePlatform "nope" of
         Left _ -> pure ()
         Right _ -> error "expected parsePlatform to reject unknown platforms"
