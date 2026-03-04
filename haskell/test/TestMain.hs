@@ -28,7 +28,6 @@ import Trader.Binance (
     placeMarketOrder,
     signQuery,
  )
-import Trader.Coinbase (decodeCoinbaseCandles)
 import Trader.BotStartSemantics (
     botTradeEnabledFromApi,
     shouldClearPositionOriginOnStart,
@@ -36,11 +35,13 @@ import Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
     shouldResolveOriginComboOnAutoStart,
  )
+import Trader.Coinbase (CoinbaseCandle (..), decodeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds)
 import Trader.Http (boundedBackoffMs, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
+import Trader.Kraken (decodeKrakenCandles)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, trainLSTM)
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (fitLinearRange)
@@ -50,7 +51,6 @@ import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
 import Trader.Optimizer.Optimize (sampleTakeProfitPartial)
 import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
-import Trader.Kraken (decodeKrakenCandles)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
@@ -60,7 +60,7 @@ import Trader.Platform (
     poloniexIntervalLabel,
     poloniexIntervalSeconds,
  )
-import Trader.Poloniex (decodePoloniexCandles)
+import Trader.Poloniex (PoloniexCandle (..), decodePoloniexCandles)
 import Trader.Predictors (
     Interval (..),
     Quantiles (..),
@@ -122,8 +122,11 @@ main = do
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
               , run "coinbase candle parser rejects fractional numeric timestamp" testCoinbaseFractionalTimestampRejected
+              , run "coinbase candle parser normalizes millisecond timestamp boundaries" testCoinbaseTimestampBoundaryNormalization
               , run "kraken candle parser rejects fractional numeric timestamp" testKrakenFractionalTimestampRejected
               , run "poloniex candle parser rejects fractional numeric timestamp" testPoloniexFractionalTimestampRejected
+              , run "poloniex candle parser normalizes millisecond timestamp boundaries" testPoloniexTimestampBoundaryNormalization
+              , run "exchange candle parsers reject non-finite numeric strings" testExchangeNonFiniteNumericStringRejected
               , run "method parsing" testMethodParsing
               , run "platform parsing" testPlatformParsing
               , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
@@ -832,6 +835,15 @@ testCoinbaseFractionalTimestampRejected = do
         Left _ -> pure ()
         Right _ -> error "expected Coinbase fractional timestamp to fail"
 
+testCoinbaseTimestampBoundaryNormalization :: IO ()
+testCoinbaseTimestampBoundaryNormalization = do
+    let boundaryJson = "[[1000000000000, \"1\", \"2\", \"1.5\", \"1.8\", \"42\"],[-1000000000000, \"1\", \"2\", \"1.5\", \"1.8\", \"42\"]]"
+    case decodeCoinbaseCandles (BL.fromStrict (BS.pack boundaryJson)) of
+        Left err -> error ("expected Coinbase millisecond boundaries to parse: " ++ err)
+        Right xs -> do
+            assert "coinbase positive ms boundary normalized" (ccOpenTime (requireHead "missing first Coinbase candle" xs) == 1000000000)
+            assert "coinbase negative ms boundary normalized" (ccOpenTime (requireLast "missing last Coinbase candle" xs) == -1000000000)
+
 testKrakenFractionalTimestampRejected :: IO ()
 testKrakenFractionalTimestampRejected = do
     let okJson =
@@ -855,6 +867,42 @@ testPoloniexFractionalTimestampRejected = do
     case decodePoloniexCandles (BL.fromStrict (BS.pack badJson)) of
         Left _ -> pure ()
         Right _ -> error "expected Poloniex fractional timestamp to fail"
+
+testPoloniexTimestampBoundaryNormalization :: IO ()
+testPoloniexTimestampBoundaryNormalization = do
+    let boundaryJson =
+            "[\
+            \{\"ts\":1000000000000,\"high\":\"2\",\"low\":\"1\",\"close\":\"1.8\"},\
+            \{\"ts\":-1000000000000,\"high\":\"2\",\"low\":\"1\",\"close\":\"1.8\"}\
+            \]"
+    case decodePoloniexCandles (BL.fromStrict (BS.pack boundaryJson)) of
+        Left err -> error ("expected Poloniex millisecond boundaries to parse: " ++ err)
+        Right xs -> do
+            assert "poloniex positive ms boundary normalized" (pcOpenTime (requireHead "missing first Poloniex candle" xs) == 1000000000)
+            assert "poloniex negative ms boundary normalized" (pcOpenTime (requireLast "missing last Poloniex candle" xs) == -1000000000)
+
+testExchangeNonFiniteNumericStringRejected :: IO ()
+testExchangeNonFiniteNumericStringRejected = do
+    let coinbaseNan = "[[1700000000, \"1\", \"2\", \"1.5\", \"NaN\", \"42\"]]"
+        krakenNan =
+            "{\"error\":[],\"result\":{\"XXBTZUSD\":[[1700000000,\"0\",\"2\",\"1\",\"NaN\",\"0\",\"0\",\"0\"]],\"last\":1700000001}}"
+        poloniexNan = "[{\"ts\":1700000000000,\"high\":\"2\",\"low\":\"1\",\"close\":\"NaN\"}]"
+        binanceNan =
+            "[\
+            \[1499040000000,\"0\",\"0\",\"0\",\"NaN\",\"0\",0,\"0\",0,0,0,\"0\"]\
+            \]"
+    case decodeCoinbaseCandles (BL.fromStrict (BS.pack coinbaseNan)) of
+        Left _ -> pure ()
+        Right _ -> error "expected Coinbase NaN string to fail"
+    case decodeKrakenCandles "XXBTZUSD" (BL.fromStrict (BS.pack krakenNan)) of
+        Left _ -> pure ()
+        Right _ -> error "expected Kraken NaN string to fail"
+    case decodePoloniexCandles (BL.fromStrict (BS.pack poloniexNan)) of
+        Left _ -> pure ()
+        Right _ -> error "expected Poloniex NaN string to fail"
+    case (eitherDecode (BL.fromStrict (BS.pack binanceNan)) :: Either String [Kline]) of
+        Left _ -> pure ()
+        Right _ -> error "expected Binance NaN string to fail"
 
 testMethodParsing :: IO ()
 testMethodParsing = do

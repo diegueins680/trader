@@ -145,10 +145,10 @@ parseInt64Value v =
 parseDoubleValue :: Value -> AT.Parser Double
 parseDoubleValue v =
     case v of
-        Number n -> pure (realToFrac n)
+        Number n -> parseFiniteDouble (realToFrac n)
         String t ->
             case readMaybeDouble (T.unpack t) of
-                Just x -> pure x
+                Just x -> parseFiniteDouble x
                 Nothing -> fail ("Invalid double: " ++ T.unpack t)
         _ -> fail "Expected number"
 
@@ -163,3 +163,9 @@ readMaybeDouble s =
     case reads s of
         [(x, "")] -> Just x
         _ -> Nothing
+
+parseFiniteDouble :: Double -> AT.Parser Double
+parseFiniteDouble x =
+    if isNaN x || isInfinite x
+        then fail "Invalid finite double"
+        else pure x

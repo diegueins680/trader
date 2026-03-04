@@ -546,7 +546,10 @@ instance FromJSON Kline where
 parseDoubleText :: Text -> AT.Parser Double
 parseDoubleText t =
     case readMaybe (T.unpack t) of
-        Just d -> pure d
+        Just d ->
+            if isNaN d || isInfinite d
+                then fail ("Failed to parse finite double: " ++ T.unpack t)
+                else pure d
         Nothing -> fail ("Failed to parse double: " ++ T.unpack t)
 
 parseDoubleField :: Aeson.Object -> Text -> AT.Parser Double

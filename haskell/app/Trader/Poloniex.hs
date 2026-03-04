@@ -175,10 +175,10 @@ parseInt64Value v =
 parseDoubleValue :: Value -> AT.Parser Double
 parseDoubleValue v =
     case v of
-        Number n -> pure (realToFrac n)
+        Number n -> parseFiniteDouble (realToFrac n)
         String t ->
             case readMaybeDouble (T.unpack t) of
-                Just x -> pure x
+                Just x -> parseFiniteDouble x
                 Nothing -> fail "Invalid double"
         _ -> fail "Expected number"
 
@@ -196,9 +196,15 @@ readMaybeDouble s =
 
 normalizeTimestamp :: Int64 -> Int64
 normalizeTimestamp t =
-    if t > 1000000000000
+    if abs (toInteger t) >= 1000000000000
         then t `div` 1000
         else t
+
+parseFiniteDouble :: Double -> AT.Parser Double
+parseFiniteDouble x =
+    if isNaN x || isInfinite x
+        then fail "Invalid finite double"
+        else pure x
 
 poloniexSymbolCandidates :: String -> [String]
 poloniexSymbolCandidates raw =
