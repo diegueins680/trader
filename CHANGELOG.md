@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- CSV loading: reject non-finite numeric values (`NaN`/`Infinity`) in price/high/low/open/volume cells instead of silently accepting them into backtests/trading math.
+- HTTP retries: when multiple `Retry-After` headers are present, parse the first valid value instead of failing on an earlier malformed duplicate.
+- Signal gating: harden funding/OI dampening against non-finite inputs so invalid values no longer propagate `NaN` size multipliers.
 - DEX token resolution: validate `0x` token inputs strictly (`0x` + 40 hex chars), fail fast on malformed addresses, apply native token decimal overrides consistently, and short-circuit metadata fetches when both tokens are already explicit native/address inputs with sufficient decimals.
 - CLI validation: reject non-finite numeric inputs (`NaN`/`Infinity`) across trading/risk/tuning numeric flags (including optional sizing fields like `--order-quote`) to prevent invalid runtime math.
 - HTTP internals/tests: expose a pure `Retry-After` header parsing helper and add regression coverage that validates mixed-case header names.

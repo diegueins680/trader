@@ -220,6 +220,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--high-column high` CSV column name for high (requires `--low-column`; enables intrabar stop-loss/take-profit/trailing-stop realism)
   - `--low-column low` CSV column name for low (requires `--high-column`)
   - If a time column is detected, CSV rows are sorted by parsed timestamps; unparseable timestamps keep file order.
+  - CSV numeric cells for price/high/low/open/volume must be finite numbers; `NaN`/`Infinity` values are rejected.
   - `--symbol SYMBOL` (alias `--binance-symbol`) exchange symbol to fetch klines
   - `--platform binance` exchange platform for `--symbol` (`binance|coinbase|kraken|poloniex|uniswap|curve|sushiswap|balancer|pancakeswap|1inch`)
     - Platform parsing is case-insensitive and trims surrounding whitespace (for example `--platform "  Coinbase  "`).

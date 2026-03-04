@@ -353,7 +353,18 @@ extractCellDoubleAt rowIndex key rec =
         Just raw ->
             let s = trim (BS.unpack raw)
              in case readMaybe s of
-                    Just d -> Right d
+                    Just d ->
+                        if isNaN d || isInfinite d
+                            then
+                                Left
+                                    ( "Failed to parse finite value at row "
+                                        ++ show rowIndex
+                                        ++ " ("
+                                        ++ BS.unpack key
+                                        ++ "): "
+                                        ++ s
+                                    )
+                            else Right d
                     Nothing ->
                         Left
                             ( "Failed to parse value at row "

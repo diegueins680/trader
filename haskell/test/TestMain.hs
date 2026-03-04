@@ -153,6 +153,7 @@ main = do
               , run "cli numeric args reject non-finite values" testNumericArgsFiniteValidation
               , run "retry-after date parsing" testRetryAfterDateParsing
               , run "retry-after header lookup is case-insensitive" testRetryAfterHeaderLookupCaseInsensitive
+              , run "retry-after uses first parseable duplicate header value" testRetryAfterDuplicateHeaderFallback
               , run "retry backoff clamps without overflow" testRetryBackoffOverflowClamp
               , run "initial balance must be positive" testInitialBalanceValidation
               , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
@@ -168,6 +169,7 @@ main = do
               , run "signal gate emits META_LABEL reason" testSignalGateMetaLabel
               , run "signal gate emits REGIME_BANK reason" testSignalGateRegimeBank
               , run "signal gate emits FUNDING_OI reason" testSignalGateFundingOi
+              , run "signal funding/OI damp stays finite on non-finite inputs" testSignalFundingOiFiniteDamp
               , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
               , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
               , run "dex token resolution rejects malformed token addresses" testDexResolveTokensRejectsMalformedAddress
@@ -1185,6 +1187,17 @@ testRetryAfterHeaderLookupCaseInsensitive = do
     assert "retry-after uppercase header parses" (delayUpper == Just 7000)
     assert "retry-after missing header returns nothing" (isNothing delayMissing)
 
+testRetryAfterDuplicateHeaderFallback :: IO ()
+testRetryAfterDuplicateHeaderFallback = do
+    let nowMs = 1735689600000 -- 2025-01-01T00:00:00Z
+        delay =
+            parseRetryAfterFromHeadersAt
+                nowMs
+                [ ("Retry-After", "not-a-number")
+                , ("retry-after", "9")
+                ]
+    assert "retry-after falls back to later parseable duplicate header value" (delay == Just 9000)
+
 testRetryBackoffOverflowClamp :: IO ()
 testRetryBackoffOverflowClamp = do
     let cap = maxBound :: Int
@@ -1363,6 +1376,16 @@ testSignalGateFundingOi = do
                 (const True)
                 fundingCheck
     assert "funding pressure above cap returns FUNDING_OI" (result == (Nothing, Just "FUNDING_OI"))
+
+testSignalFundingOiFiniteDamp :: IO ()
+testSignalFundingOiFiniteDamp = do
+    let (okNoCaps, dampNoCaps) = signalFundingOiCheck True Nothing Nothing (0 / 0) (0 / 0) (Just (1 / 0))
+        (okWithCaps, dampWithCaps) = signalFundingOiCheck True (Just 0.001) (Just 0.5) 0.7 (0 / 0) (Just 0.1)
+        finite x = not (isNaN x || isInfinite x)
+    assert "non-finite inputs without caps keep funding/OI gate open" okNoCaps
+    assert "non-finite inputs without caps keep damp finite" (finite dampNoCaps && dampNoCaps == 1)
+    assert "non-finite funding with cap blocks entry" (not okWithCaps)
+    assert "non-finite funding with cap keeps damp finite" (finite dampWithCaps && dampWithCaps >= 0.7 && dampWithCaps <= 1)
 
 testRecalculateComboPerformanceFromCompletedOperation :: IO ()
 testRecalculateComboPerformanceFromCompletedOperation = do

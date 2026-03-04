@@ -218,9 +218,13 @@ retryAfterMs resp =
 
 parseRetryAfterFromHeadersAt :: Integer -> ResponseHeaders -> Maybe Int
 parseRetryAfterFromHeadersAt nowMs headers =
-    case lookup "Retry-After" headers of
-        Nothing -> Nothing
-        Just v -> parseRetryAfterMsAt nowMs v
+    case mapMaybe parseRetryAfterValue headers of
+        [] -> Nothing
+        (delayMs : _) -> Just delayMs
+  where
+    parseRetryAfterValue (name, value)
+        | name == "Retry-After" = parseRetryAfterMsAt nowMs value
+        | otherwise = Nothing
 
 parseRetryAfterMsAt :: Integer -> ByteString -> Maybe Int
 parseRetryAfterMsAt nowMs raw =
