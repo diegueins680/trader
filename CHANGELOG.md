@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Trading/Bot: when reconciling live orders, prioritize explicit `executedQty` over terminal `status` gates so partially filled `CANCELED`/`EXPIRED` orders still apply the filled quantity to in-memory position/equity state.
 - Optimizer/CLI: fix `optimize-equity` partial take-profit sampling when `--take-profit-partial-min/max` disables the range (avoid a self-referential RNG hang), and validate both min/max to enforce documented `0 <= value < 1` bounds.
 - API docs/contracts: keep root endpoint metadata in sync with implemented routes by adding missing entries for async poll `POST` aliases, `GET /binance/positions`, and `POST /binance/positions/close`; expand API route tests to enforce this coverage.
 - Metrics/CLI/API: infer `periodsPerYear` from parsed interval seconds for all interval codes (including `1w` and `1M`) so annualized metrics use consistent interval math across backend/frontend.

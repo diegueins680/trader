@@ -1107,6 +1107,8 @@ testOrderAppliedQuantity = do
     assert "paper mode uses fallback qty when sent" (orderAppliedQuantity (mk True False Nothing Nothing) 2.5 == Just 2.5)
     assert "live NEW status blocks apply without fills" (isNothing (orderAppliedQuantity (mk True True (Just "NEW") Nothing) 2.5))
     assert "live partial fill uses executed qty" (orderAppliedQuantity (mk True True (Just "PARTIALLY_FILLED") (Just 0.4)) 2.5 == Just 0.4)
+    assert "live canceled status still applies executed qty when present" (orderAppliedQuantity (mk True True (Just "CANCELED") (Just 0.4)) 2.5 == Just 0.4)
+    assert "live expired status still applies executed qty when present" (orderAppliedQuantity (mk True True (Just "EXPIRED") (Just 0.2)) 2.5 == Just 0.2)
     assert "live filled status falls back when executed qty missing" (orderAppliedQuantity (mk True True (Just "FILLED") Nothing) 2.5 == Just 2.5)
 
 testApplyExecutedQuantity :: IO ()

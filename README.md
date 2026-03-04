@@ -131,7 +131,7 @@ Futures protection orders (live):
 - The continuous `/bot` loop skips exchange-native protection orders by default; set `botProtectionOrders=true` on `/bot/start` to place reduce-only `STOP_MARKET` / `TAKE_PROFIT_MARKET` protection orders on Binance futures (trailing stops remain internal).
 - If Binance requires the Algo Order API for futures trigger orders, the backend will automatically retry via `/fapi/v1/algoOrder` for those protections (live-only).
 - When a futures position is closed with a reduce-only order, the backend attempts to cancel any remaining bot-owned algo protection orders for the same symbol.
-- Live bot position/equity transitions reconcile from exchange fill evidence (`status`/`executedQty`) and executed size. Partial fills update in-memory position size proportionally instead of assuming full requested quantity.
+- Live bot position/equity transitions reconcile from exchange fill evidence (`status`/`executedQty`) and executed size. Explicit `executedQty` is honored even when the terminal status is `CANCELED`/`EXPIRED`, so partial fills still update in-memory position size proportionally instead of assuming full requested quantity.
 
 Environment variables:
 - `BINANCE_API_KEY`
