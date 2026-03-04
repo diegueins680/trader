@@ -6,6 +6,8 @@ import Control.Exception (SomeException, evaluate, try)
 import qualified Control.Monad
 import Data.Aeson (eitherDecode, object, (.=))
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
@@ -83,7 +85,7 @@ import Trader.SignalGates (
  )
 import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Test.ApiRoutes (apiRouteSuite)
-import Trader.TopCombosStore (recalculateComboPerformanceFromOperation)
+import Trader.TopCombosStore (mergeTopCombosPayloads, recalculateComboPerformanceFromOperation)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
 main :: IO ()
@@ -171,6 +173,8 @@ main = do
               , run "signal gate emits FUNDING_OI reason" testSignalGateFundingOi
               , run "signal funding/OI damp stays finite on non-finite inputs" testSignalFundingOiFiniteDamp
               , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
+              , run "top combos merge ranks by nested metrics score" testMergeTopCombosRanksByNestedScore
+              , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
               , run "dex token resolution rejects malformed token addresses" testDexResolveTokensRejectsMalformedAddress
               , run "dex token resolution applies native decimals overrides" testDexResolveTokensNativeDecimalsOverride
@@ -231,6 +235,39 @@ requireLast label xs =
     case foldl' (\_ x -> Just x) Nothing xs of
         Just y -> y
         Nothing -> error label
+
+requireCombosArray :: String -> Aeson.Value -> [Aeson.Value]
+requireCombosArray label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "combos" o of
+                Just (Aeson.Array arr) -> V.toList arr
+                _ -> error (label ++ ": missing combos array")
+        _ -> error (label ++ ": payload root is not an object")
+
+requireComboSymbol :: String -> Aeson.Value -> String
+requireComboSymbol label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "params" o of
+                Just (Aeson.Object params) ->
+                    case KM.lookup "symbol" params >>= AT.parseMaybe Aeson.parseJSON of
+                        Just sym -> sym
+                        Nothing -> error (label ++ ": missing params.symbol")
+                _ -> error (label ++ ": missing params object")
+        _ -> error (label ++ ": combo is not an object")
+
+requireComboMetricsScore :: String -> Aeson.Value -> Double
+requireComboMetricsScore label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "metrics" o of
+                Just (Aeson.Object metrics) ->
+                    case KM.lookup "score" metrics >>= AT.parseMaybe Aeson.parseJSON of
+                        Just score -> score
+                        Nothing -> error (label ++ ": missing metrics.score")
+                _ -> error (label ++ ": missing metrics object")
+        _ -> error (label ++ ": combo is not an object")
 
 parseArgs :: [String] -> IO Args
 parseArgs argv = do
@@ -1413,6 +1450,49 @@ testRecalculateComboPerformanceFromCompletedOperation = do
     assertApprox "period-based annualized return updated" 1e-12 nextAnn1 0.35
     assertApprox "delta scales from updated baseline" 1e-12 nextEq2 1.215
     assertApprox "annualized return follows updated equity" 1e-12 nextAnn2 0.215
+
+testMergeTopCombosRanksByNestedScore :: IO ()
+testMergeTopCombosRanksByNestedScore = do
+    let mkCombo sym score =
+            object
+                [ "params" .= object ["symbol" .= sym]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= (1.5 :: Double), "score" .= score]
+                ]
+        payload =
+            object
+                [ "source" .= ("unit-test" :: String)
+                , "generatedAtMs" .= (1 :: Int64)
+                , "combos" .= [mkCombo ("AAAUSDT" :: String) (0.1 :: Double), mkCombo ("BBBUSDT" :: String) (0.9 :: Double)]
+                ]
+        merged = mergeTopCombosPayloads 5 2 [payload]
+        combos = requireCombosArray "merged payload" merged
+        first = requireHead "expected at least one merged combo" combos
+    assert "higher nested metrics.score should rank first" (requireComboSymbol "merged first combo" first == "BBBUSDT")
+
+testMergeTopCombosDedupPrefersNestedScore :: IO ()
+testMergeTopCombosDedupPrefersNestedScore = do
+    let mkCombo finalEq score =
+            object
+                [ "params" .= object ["symbol" .= ("BTCUSDT" :: String)]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= finalEq, "score" .= score]
+                ]
+        payload =
+            object
+                [ "source" .= ("unit-test" :: String)
+                , "generatedAtMs" .= (1 :: Int64)
+                , "combos" .= [mkCombo (5.0 :: Double) (0.1 :: Double), mkCombo (1.2 :: Double) (0.9 :: Double)]
+                ]
+        merged = mergeTopCombosPayloads 5 2 [payload]
+        combos = requireCombosArray "dedup merged payload" merged
+        picked = requireHead "expected one deduped combo" combos
+    assert "duplicate merge should keep exactly one combo" (length combos == 1)
+    assertApprox "dedupe should prefer higher nested metrics.score" 1e-12 (requireComboMetricsScore "dedup picked combo" picked) 0.9
 
 testDexTradeArgsRequireTokensNotSymbol :: IO ()
 testDexTradeArgsRequireTokensNotSymbol = do

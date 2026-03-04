@@ -581,7 +581,7 @@ Endpoints:
 - `POST /optimizer/run` → runs the optimizer executable, merges the run into `top-combos.json`, and returns the last JSONL record
   - The Web UI applies guardrails for trials/timeout/bars to avoid runaway optimizer runs (see UI constants).
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
-  - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), using score and final equity as tie-breakers.
+  - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), using score (`score` or `metrics.score`) and final equity as tie-breakers.
   - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist.
   - Top-combo merges backfill missing `metrics.annualizedReturn`, and new optimizer runs stamp `params.binanceSymbol` so combos stay labeled.
   - Abandoned optimizer lock directories are reclaimed quickly (10s heartbeat, 45s stale cutoff) so stale locks do not block `/optimizer/combos` for long after crashes/restarts.

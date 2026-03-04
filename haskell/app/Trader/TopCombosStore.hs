@@ -256,6 +256,10 @@ comboFinalEquityValue :: Aeson.Value -> Maybe Double
 comboFinalEquityValue val =
     comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val
 
+comboScoreValue :: Aeson.Value -> Maybe Double
+comboScoreValue val =
+    comboMetricDouble "score" val <|> comboMetricsDouble "score" val
+
 recalculateComboPerformanceFromOperation ::
     Maybe String ->
     Maybe Double ->
@@ -556,7 +560,7 @@ comboPerformanceKey val =
                 (negate (1 / 0))
                 (comboMetricsDouble "annualizedReturn" val <|> comboMetricDouble "annualizedReturn" val)
         eq = fromMaybe 0 (comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val)
-        score = fromMaybe (negate (1 / 0)) (comboMetricDouble "score" val)
+        score = fromMaybe (negate (1 / 0)) (comboScoreValue val)
         rank =
             case val of
                 Aeson.Object o -> fromMaybe maxBound (KM.lookup (AK.fromString "rank") o >>= AT.parseMaybe Aeson.parseJSON)
@@ -628,8 +632,8 @@ mergeTopCombosPayloads maxItems now payloads =
     compareCombos a b =
         let annA = comboAnnualizedReturn a
             annB = comboAnnualizedReturn b
-            scoreA = sanitizeScore (fromMaybe (negate (1 / 0)) (comboMetricDouble "score" a))
-            scoreB = sanitizeScore (fromMaybe (negate (1 / 0)) (comboMetricDouble "score" b))
+            scoreA = sanitizeScore (fromMaybe (negate (1 / 0)) (comboScoreValue a))
+            scoreB = sanitizeScore (fromMaybe (negate (1 / 0)) (comboScoreValue b))
             eqA = sanitizeEq (fromMaybe 0 (comboFinalEquityValue a))
             eqB = sanitizeEq (fromMaybe 0 (comboFinalEquityValue b))
          in case compareDesc annA annB of
@@ -642,8 +646,8 @@ mergeTopCombosPayloads maxItems now payloads =
     pickBestCombo newer prev =
         let objNew = comboMetricString "objective" newer
             objPrev = comboMetricString "objective" prev
-            scoreNew = comboMetricDouble "score" newer
-            scorePrev = comboMetricDouble "score" prev
+            scoreNew = comboScoreValue newer
+            scorePrev = comboScoreValue prev
             scoreVal = fromMaybe (negate (1 / 0))
             finalEqNew = fromMaybe 0 (comboFinalEquityValue newer)
             finalEqPrev = fromMaybe 0 (comboFinalEquityValue prev)
