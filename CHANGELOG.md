@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Deploy/Docker: fix `trader-hs` image builds that use `--disable-optimization` by resolving the binary path with `cabal list-bin --disable-optimization exe:trader-hs` (avoids missing-binary failures during `fly deploy`).
 - Deploy/Fly: keep both split apps warm by default (`auto_stop_machines="off"`, `min_machines_running=1` in `fly.toml` and `haskell/web/fly.frontend.toml`) to reduce cold-start proxy `502` windows on `trader-hs`/`trader-web-hs`.
 - Live bot/Fly defaults: add `TRADER_BOT_TOP_COMBO_BOTS` (steady-state cap, default `50`) plus `TRADER_BOT_TOP_COMBO_BOTS_STARTUP` (startup-phase cap, default steady value), set Fly startup/steady values to `0`/`10` to reduce boot pressure while re-enabling top-combo expansion after startup, and increase Fly VM memory from `2048mb` to `4096mb`.
 - API/Ops: `--serve` now requires ops persistence initialization at startup (DB URL + connectivity); API boot fails fast instead of silently running with ops disabled.
