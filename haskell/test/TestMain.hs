@@ -28,6 +28,7 @@ import Trader.Binance (
     placeMarketOrder,
     signQuery,
  )
+import Trader.Coinbase (decodeCoinbaseCandles)
 import Trader.BotStartSemantics (
     botTradeEnabledFromApi,
     shouldClearPositionOriginOnStart,
@@ -49,6 +50,7 @@ import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
 import Trader.Optimizer.Optimize (sampleTakeProfitPartial)
 import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
+import Trader.Kraken (decodeKrakenCandles)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
@@ -58,6 +60,7 @@ import Trader.Platform (
     poloniexIntervalLabel,
     poloniexIntervalSeconds,
  )
+import Trader.Poloniex (decodePoloniexCandles)
 import Trader.Predictors (
     Interval (..),
     Quantiles (..),
@@ -118,6 +121,9 @@ main = do
               , run "metrics profit factor pnl" testMetricsProfitFactorPnL
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
+              , run "coinbase candle parser rejects fractional numeric timestamp" testCoinbaseFractionalTimestampRejected
+              , run "kraken candle parser rejects fractional numeric timestamp" testKrakenFractionalTimestampRejected
+              , run "poloniex candle parser rejects fractional numeric timestamp" testPoloniexFractionalTimestampRejected
               , run "method parsing" testMethodParsing
               , run "platform parsing" testPlatformParsing
               , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
@@ -814,6 +820,41 @@ testBinanceKlineParsing = do
             assert "kline count" (length ks == 2)
             assertApprox "close parse" 1e-12 (kClose (requireHead "missing first kline" ks)) 123.45
             assertApprox "volume parse" 1e-12 (kVolume (requireHead "missing first kline" ks)) 0
+
+testCoinbaseFractionalTimestampRejected :: IO ()
+testCoinbaseFractionalTimestampRejected = do
+    let okJson = "[[1700000000, \"1\", \"2\", \"1.5\", \"1.8\", \"42\"]]"
+        badJson = "[[1700000000.5, \"1\", \"2\", \"1.5\", \"1.8\", \"42\"]]"
+    case decodeCoinbaseCandles (BL.fromStrict (BS.pack okJson)) of
+        Left err -> error ("expected Coinbase integer timestamp to parse: " ++ err)
+        Right _ -> pure ()
+    case decodeCoinbaseCandles (BL.fromStrict (BS.pack badJson)) of
+        Left _ -> pure ()
+        Right _ -> error "expected Coinbase fractional timestamp to fail"
+
+testKrakenFractionalTimestampRejected :: IO ()
+testKrakenFractionalTimestampRejected = do
+    let okJson =
+            "{\"error\":[],\"result\":{\"XXBTZUSD\":[[1700000000,\"0\",\"2\",\"1\",\"1.8\",\"0\",\"0\",\"0\"]],\"last\":1700000001}}"
+        badJson =
+            "{\"error\":[],\"result\":{\"XXBTZUSD\":[[1700000000.5,\"0\",\"2\",\"1\",\"1.8\",\"0\",\"0\",\"0\"]],\"last\":1700000001}}"
+    case decodeKrakenCandles "XXBTZUSD" (BL.fromStrict (BS.pack okJson)) of
+        Left err -> error ("expected Kraken integer timestamp to parse: " ++ err)
+        Right _ -> pure ()
+    case decodeKrakenCandles "XXBTZUSD" (BL.fromStrict (BS.pack badJson)) of
+        Left _ -> pure ()
+        Right _ -> error "expected Kraken fractional timestamp to fail"
+
+testPoloniexFractionalTimestampRejected :: IO ()
+testPoloniexFractionalTimestampRejected = do
+    let okJson = "[{\"ts\":1700000000000,\"high\":\"2\",\"low\":\"1\",\"close\":\"1.8\"}]"
+        badJson = "[{\"ts\":1700000000000.5,\"high\":\"2\",\"low\":\"1\",\"close\":\"1.8\"}]"
+    case decodePoloniexCandles (BL.fromStrict (BS.pack okJson)) of
+        Left err -> error ("expected Poloniex integer timestamp to parse: " ++ err)
+        Right _ -> pure ()
+    case decodePoloniexCandles (BL.fromStrict (BS.pack badJson)) of
+        Left _ -> pure ()
+        Right _ -> error "expected Poloniex fractional timestamp to fail"
 
 testMethodParsing :: IO ()
 testMethodParsing = do

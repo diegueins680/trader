@@ -4,6 +4,7 @@ module Trader.Poloniex (
     PoloniexCandle (..),
     poloniexBaseUrl,
     fetchPoloniexCandles,
+    decodePoloniexCandles,
 ) where
 
 import Control.Applicative ((<|>))
@@ -11,9 +12,11 @@ import Control.Exception (throwIO)
 import Data.Aeson (Value (..), eitherDecode, withObject, (.:), (.:?))
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as BL
 import Data.Char (toUpper)
 import Data.Int (Int64)
 import Data.List (sortOn)
+import qualified Data.Scientific as Scientific
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime)
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -54,7 +57,7 @@ fetchPoloniexCandles pair intervalLabel periodSec bars = do
     let key = map toUpper (trim pair) ++ ":" ++ intervalLabel ++ ":" ++ show periodSec ++ ":" ++ show bars
     fetchWithCache poloniexCandlesCache poloniexCandlesFreshTtl poloniexCandlesStaleTtl key $ do
         mgr <- getSharedManager
-        now <- round <$> getPOSIXTime
+        now <- floor <$> getPOSIXTime
         let lookbackBars = max 1 bars
             endMs = max 0 (fromIntegral now * 1000)
             startMs = max 0 (endMs - fromIntegral lookbackBars * fromIntegral periodSec * 1000)
@@ -95,12 +98,19 @@ fetchPoloniexCandles pair intervalLabel periodSec bars = do
         let code = statusCode (responseStatus resp)
         if code < 200 || code >= 300
             then pure (Left code)
-            else case eitherDecode (responseBody resp) of
-                Left err -> throwIO (userError ("Failed to decode Poloniex chart data: " ++ err))
-                Right v ->
-                    case AT.parseEither parsePoloniexResponse v of
-                        Left err -> throwIO (userError ("Failed to parse Poloniex chart data: " ++ err))
-                        Right xs -> pure (Right xs)
+            else case decodePoloniexCandles (responseBody resp) of
+                Left err -> throwIO (userError err)
+                Right xs -> pure (Right xs)
+
+decodePoloniexCandles :: BL.ByteString -> Either String [PoloniexCandle]
+decodePoloniexCandles raw = do
+    v <-
+        case eitherDecode raw of
+            Left err -> Left ("Failed to decode Poloniex chart data: " ++ err)
+            Right ok -> Right ok
+    case AT.parseEither parsePoloniexResponse v of
+        Left err -> Left ("Failed to parse Poloniex chart data: " ++ err)
+        Right xs -> Right xs
 
 parsePoloniexResponse :: Value -> AT.Parser [PoloniexCandle]
 parsePoloniexResponse v =
@@ -152,7 +162,10 @@ parseArrayIndex i arr =
 parseInt64Value :: Value -> AT.Parser Int64
 parseInt64Value v =
     case v of
-        Number n -> pure (round n)
+        Number n ->
+            case Scientific.toBoundedInteger n of
+                Just x -> pure x
+                Nothing -> fail "Invalid integer"
         String t ->
             case readMaybeInt64 (T.unpack t) of
                 Just x -> pure x

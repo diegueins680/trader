@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Exchange data parsing: make Coinbase/Kraken/Poloniex candle timestamp parsing strict for numeric JSON values (integral-only) so fractional timestamps are rejected instead of being silently rounded; also use floor-based current time when building exchange candle windows to avoid future-boundary drift.
 - Trading/Bot: when reconciling live orders, prioritize explicit `executedQty` over terminal `status` gates so partially filled `CANCELED`/`EXPIRED` orders still apply the filled quantity to in-memory position/equity state.
 - Optimizer/CLI: fix `optimize-equity` partial take-profit sampling when `--take-profit-partial-min/max` disables the range (avoid a self-referential RNG hang), and validate both min/max to enforce documented `0 <= value < 1` bounds.
 - API docs/contracts: keep root endpoint metadata in sync with implemented routes by adding missing entries for async poll `POST` aliases, `GET /binance/positions`, and `POST /binance/positions/close`; expand API route tests to enforce this coverage.

@@ -33,6 +33,7 @@ Features
 - Optional tri-layer entry gating: Kalman cloud trend + price-action reversal triggers (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, Sortino, Calmar, VaR/CVaR, max drawdown) (`haskell/app/Trader/Metrics.hs`).
 - Data sources: CSV or exchange klines (Binance/Coinbase/Kraken/Poloniex).
+- Exchange candle parsers for Coinbase/Kraken/Poloniex now require integral numeric timestamps; fractional timestamps are rejected instead of being silently rounded.
 - Sample dataset in `data/sample_prices.csv`.
 
 ROI playbook

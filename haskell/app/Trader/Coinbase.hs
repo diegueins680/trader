@@ -9,6 +9,7 @@ module Trader.Coinbase (
     fetchCoinbaseAccounts,
     fetchCoinbaseAvailableBalance,
     fetchCoinbaseCandles,
+    decodeCoinbaseCandles,
     placeCoinbaseMarketOrder,
 ) where
 
@@ -26,6 +27,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Int (Int64)
 import Data.List (find, sortOn)
+import qualified Data.Scientific as Scientific
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime)
@@ -158,7 +160,7 @@ fetchCoinbaseCandles product granularitySec bars = do
     let key = map toUpperAscii (trim product) ++ ":" ++ show granularitySec ++ ":" ++ show bars
     fetchWithCache coinbaseCandlesCache coinbaseCandlesFreshTtl coinbaseCandlesStaleTtl key $ do
         mgr <- getSharedManager
-        now <- round <$> getPOSIXTime
+        now <- floor <$> getPOSIXTime
         let totalBars = max 1 bars
             ranges = buildRanges (fromIntegral now) (fromIntegral granularitySec) totalBars
         chunks <- mapM (fetchRange mgr) ranges
@@ -187,12 +189,19 @@ fetchCoinbaseCandles product granularitySec bars = do
                     }
         resp <- httpLbsWithRetry defaultRetryConfig (Just "coinbase.candles") manager req'
         ensure2xx "Coinbase candles" resp
-        case eitherDecode (responseBody resp) of
-            Left err -> throwIO (userError ("Failed to decode Coinbase candles: " ++ err))
-            Right v ->
-                case AT.parseEither parseCoinbaseResponse v of
-                    Left err -> throwIO (userError ("Failed to parse Coinbase candles: " ++ err))
-                    Right xs -> pure xs
+        case decodeCoinbaseCandles (responseBody resp) of
+            Left err -> throwIO (userError err)
+            Right xs -> pure xs
+
+decodeCoinbaseCandles :: BL.ByteString -> Either String [CoinbaseCandle]
+decodeCoinbaseCandles raw = do
+    v <-
+        case eitherDecode raw of
+            Left err -> Left ("Failed to decode Coinbase candles: " ++ err)
+            Right ok -> Right ok
+    case AT.parseEither parseCoinbaseResponse v of
+        Left err -> Left ("Failed to parse Coinbase candles: " ++ err)
+        Right xs -> Right xs
 
 buildRanges :: Int64 -> Int64 -> Int -> [(Int64, Int64)]
 buildRanges endSec granularitySec bars =
@@ -245,7 +254,10 @@ parseIndexDouble i arr =
 parseInt64Value :: Value -> AT.Parser Int64
 parseInt64Value v =
     case v of
-        Number n -> pure (round n)
+        Number n ->
+            case Scientific.toBoundedInteger n of
+                Just x -> pure x
+                Nothing -> fail "Invalid integer"
         String t ->
             case readMaybeInt64 (T.unpack t) of
                 Just x -> pure x

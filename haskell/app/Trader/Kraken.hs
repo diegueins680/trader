@@ -4,6 +4,7 @@ module Trader.Kraken (
     KrakenCandle (..),
     krakenBaseUrl,
     fetchKrakenCandles,
+    decodeKrakenCandles,
 ) where
 
 import Control.Exception (throwIO)
@@ -13,7 +14,9 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
+import qualified Data.Scientific as Scientific
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime)
 import qualified Data.Vector as V
@@ -59,12 +62,19 @@ fetchKrakenCandles pair intervalMin = do
         resp <- httpLbsWithRetry defaultRetryConfig (Just "kraken.ohlc") mgr req
         let code = statusCode (responseStatus resp)
         Control.Monad.when (code < 200 || code >= 300) $ throwIO (userError ("Kraken OHLC request failed (HTTP " ++ show code ++ ")"))
-        case eitherDecode (responseBody resp) of
-            Left err -> throwIO (userError ("Failed to decode Kraken OHLC: " ++ err))
-            Right v ->
-                case AT.parseEither (parseKrakenResponse pair) v of
-                    Left err -> throwIO (userError ("Failed to parse Kraken OHLC: " ++ err))
-                    Right xs -> pure xs
+        case decodeKrakenCandles pair (responseBody resp) of
+            Left err -> throwIO (userError err)
+            Right xs -> pure xs
+
+decodeKrakenCandles :: String -> BL.ByteString -> Either String [KrakenCandle]
+decodeKrakenCandles pair raw = do
+    v <-
+        case eitherDecode raw of
+            Left err -> Left ("Failed to decode Kraken OHLC: " ++ err)
+            Right ok -> Right ok
+    case AT.parseEither (parseKrakenResponse pair) v of
+        Left err -> Left ("Failed to parse Kraken OHLC: " ++ err)
+        Right xs -> Right xs
 
 parseKrakenResponse :: String -> Value -> AT.Parser [KrakenCandle]
 parseKrakenResponse pair =
@@ -122,7 +132,10 @@ parseIndexDouble i arr =
 parseInt64Value :: Value -> AT.Parser Int64
 parseInt64Value v =
     case v of
-        Number n -> pure (round n)
+        Number n ->
+            case Scientific.toBoundedInteger n of
+                Just x -> pure x
+                Nothing -> fail "Invalid integer"
         String t ->
             case readMaybeInt64 (T.unpack t) of
                 Just x -> pure x
