@@ -36,7 +36,7 @@ import Trader.BotStartSemantics (
  )
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Duration (TimeWindow (..), lookbackBarsFrom)
-import Trader.Http (parseRetryAfterMsAt)
+import Trader.Http (boundedBackoffMs, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, trainLSTM)
@@ -119,11 +119,15 @@ main = do
               , run "empty cli credentials rejected" testEmptyCliCredentialsRejected
               , run "backtest window validates time formats" testBacktestWindowTimeValidation
               , run "backtest window rejects overflow scientific timestamp" testBacktestWindowOverflowScientificValidation
+              , run "backtest window rejects fractional numeric timestamp" testBacktestWindowFractionalNumericValidation
               , run "backtest window accepts ISO offsets" testBacktestWindowIsoOffsetValidation
               , run "backtest window keeps negative millisecond epochs" testBacktestWindowNegativeMillisecondsValidation
+              , run "backtest window keeps positive 11-digit millisecond epochs" testBacktestWindowPositiveMillisecondsValidation
+              , run "backtest window normalizes second epochs to milliseconds" testBacktestWindowSecondEpochNormalization
               , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
               , run "idempotency key enforces max length" testIdempotencyKeyLengthValidation
               , run "retry-after date parsing" testRetryAfterDateParsing
+              , run "retry backoff clamps without overflow" testRetryBackoffOverflowClamp
               , run "initial balance must be positive" testInitialBalanceValidation
               , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
               , run "bot/auto-start resolves origin combo for active adoption" testAutoStartResolvesOriginComboForActiveAdopt
@@ -900,6 +904,15 @@ testBacktestWindowOverflowScientificValidation =
                 ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
         Right _ -> error "expected overflow scientific --from to fail validation"
 
+testBacktestWindowFractionalNumericValidation :: IO ()
+testBacktestWindowFractionalNumericValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "1.5"] of
+        Left err ->
+            assert
+                "fractional numeric --from rejected"
+                ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
+        Right _ -> error "expected fractional --from to fail validation"
+
 testBacktestWindowIsoOffsetValidation :: IO ()
 testBacktestWindowIsoOffsetValidation =
     case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-01T00:00:00+00:00", "--to", "2025-01-01T00:05:00+00:00"] of
@@ -912,6 +925,20 @@ testBacktestWindowNegativeMillisecondsValidation = do
     assert
         "negative millisecond epoch is preserved"
         (parseTimestampMs "-1704067200000" == Just expected)
+
+testBacktestWindowPositiveMillisecondsValidation :: IO ()
+testBacktestWindowPositiveMillisecondsValidation = do
+    let expected = 99999999999 :: Int64
+    assert
+        "positive 11-digit millisecond epoch is preserved"
+        (parseTimestampMs "99999999999" == Just expected)
+
+testBacktestWindowSecondEpochNormalization :: IO ()
+testBacktestWindowSecondEpochNormalization = do
+    let expected = 1704067200000 :: Int64
+    assert
+        "second epoch is normalized to milliseconds"
+        (parseTimestampMs "1704067200" == Just expected)
 
 testBacktestWindowOrderValidation :: IO ()
 testBacktestWindowOrderValidation =
@@ -943,6 +970,12 @@ testRetryAfterDateParsing = do
     assert "retry-after HTTP-date parses" (delayDate == Just 5000)
     assert "retry-after HTTP-date trims spaces" (delayDateSpaced == Just 5000)
     assert "retry-after huge value clamps to safe sleep bound" (delayHuge == Just ((maxBound :: Int) `div` 1000))
+
+testRetryBackoffOverflowClamp :: IO ()
+testRetryBackoffOverflowClamp = do
+    let cap = maxBound :: Int
+        delay = boundedBackoffMs (cap - 1) cap 1
+    assert "backoff clamps to max delay without overflowing" (delay == cap)
 
 testInitialBalanceValidation :: IO ()
 testInitialBalanceValidation =

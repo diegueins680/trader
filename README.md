@@ -481,7 +481,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
     - The split must leave at least `lookback+1` training bars and 2 backtest bars, otherwise it errors.
   - `--from TIME` / `--to TIME` optional backtest window bounds (epoch seconds/ms or ISO-8601, for example `2025-01-01`, `2025-01-01T00:00:00Z`, or `2025-01-01T00:00:00+00:00`)
-    - Numeric epoch parsing uses absolute magnitude for seconds-vs-milliseconds detection, so negative millisecond epochs are preserved correctly.
+    - Numeric epoch values must be integers (fractional numeric inputs are rejected). Seconds-vs-milliseconds detection now treats up to 10-digit magnitudes as seconds and larger magnitudes as milliseconds, preserving negative and 11-digit millisecond epochs correctly.
     - Backtest window filtering requires bar timestamps (exchange candles or CSV with a parseable time column).
     - ISO-8601 timezone offsets (`+HH:MM` / `-HH:MM`, and compact `+HHMM`) are supported.
   - `--initial-balance B` initial backtest balance (`> 0`, default `1.0`); scales equity outputs while keeping return/risk ratios unchanged.

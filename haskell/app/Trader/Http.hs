@@ -7,6 +7,7 @@ module Trader.Http (
     getSharedManager,
     httpLbsWithRetry,
     parseRetryAfterMsAt,
+    boundedBackoffMs,
     defaultTimeoutMicros,
 ) where
 
@@ -186,15 +187,17 @@ computeDelay cfg attempt mRetryAfter = do
 
 boundedBackoffMs :: Int -> Int -> Int -> Int
 boundedBackoffMs baseDelay maxDelay attempt =
-    let base = max 0 baseDelay
-        cap = max 0 maxDelay
+    let base = toInteger (max 0 baseDelay)
+        cap = toInteger (max 0 maxDelay)
+        intCap = toInteger (maxBound :: Int)
         steps = max 0 attempt
         go n current
             | current <= 0 = 0
             | current >= cap = cap
             | n <= 0 = min cap current
-            | otherwise = go (n - 1) (current * 2)
-     in go steps base
+            | otherwise = go (n - 1) (min cap (current * 2))
+        bounded = go steps base
+     in fromInteger (min intCap (max 0 bounded))
 
 applyJitter :: Int -> Double -> IO Int
 applyJitter delayMs jitterFrac =

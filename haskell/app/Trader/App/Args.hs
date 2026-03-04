@@ -23,6 +23,8 @@ import Control.Monad (when)
 import Data.Char (isAlphaNum, isDigit, toLower, toUpper)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Scientific (Scientific)
+import qualified Data.Scientific as Scientific
 import Data.Time (defaultTimeLocale, parseTimeM)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Text.Read (readMaybe)
@@ -314,22 +316,16 @@ parseTimeInt64 s =
     case (readMaybe s :: Maybe Int64) of
         Just n -> Just n
         Nothing ->
-            case (readMaybe s :: Maybe Double) of
-                Just d
-                    | isNaN d || isInfinite d -> Nothing
-                    | otherwise ->
-                        let n = floor d :: Integer
-                            lo = toInteger (minBound :: Int64)
-                            hi = toInteger (maxBound :: Int64)
-                         in if n < lo || n > hi
-                                then Nothing
-                                else Just (fromInteger n)
-                Nothing -> Nothing
+            case (readMaybe s :: Maybe Scientific) of
+                Just sci
+                    | Scientific.isInteger sci ->
+                        Scientific.toBoundedInteger sci
+                _ -> Nothing
 
 normalizeEpochMs :: Int64 -> Int64
 normalizeEpochMs n =
     let nInteger = toInteger n
-        threshold = 100000000000 :: Integer
+        threshold = 10000000000 :: Integer
      in if abs nInteger < threshold
             then
                 let scaled = nInteger * 1000
