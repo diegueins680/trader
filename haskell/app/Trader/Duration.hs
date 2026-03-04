@@ -174,6 +174,10 @@ unitSeconds u =
 
 readInt :: String -> Maybe Int
 readInt s =
-    case reads s of
-        [(n, "")] -> Just n
+    case reads s :: [(Integer, String)] of
+        [(n, "")]
+            | n >= lo && n <= hi -> Just (fromInteger n)
         _ -> Nothing
+  where
+    lo = toInteger (minBound :: Int)
+    hi = toInteger (maxBound :: Int)

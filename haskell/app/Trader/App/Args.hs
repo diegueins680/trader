@@ -307,20 +307,41 @@ parseBarsArg raw =
     let s = map toLower (trim raw)
      in if s == "auto"
             then Right Nothing
-            else case (readMaybe s :: Maybe Int) of
-                Just n -> Right (Just n)
+            else case (readMaybe s :: Maybe Integer) of
+                Just n ->
+                    case integerToInt n of
+                        Just bounded -> Right (Just bounded)
+                        Nothing -> Left "Expected an integer (e.g. 500) or 'auto'."
                 Nothing -> Left "Expected an integer (e.g. 500) or 'auto'."
 
 parseTimeInt64 :: String -> Maybe Int64
 parseTimeInt64 s =
-    case (readMaybe s :: Maybe Int64) of
-        Just n -> Just n
+    case (readMaybe s :: Maybe Integer) of
+        Just n -> integerToInt64 n
         Nothing ->
             case (readMaybe s :: Maybe Scientific) of
                 Just sci
                     | Scientific.isInteger sci ->
                         Scientific.toBoundedInteger sci
                 _ -> Nothing
+
+integerToInt :: Integer -> Maybe Int
+integerToInt n =
+    if n < lo || n > hi
+        then Nothing
+        else Just (fromInteger n)
+  where
+    lo = toInteger (minBound :: Int)
+    hi = toInteger (maxBound :: Int)
+
+integerToInt64 :: Integer -> Maybe Int64
+integerToInt64 n =
+    if n < lo || n > hi
+        then Nothing
+        else Just (fromInteger n)
+  where
+    lo = toInteger (minBound :: Int64)
+    hi = toInteger (maxBound :: Int64)
 
 normalizeEpochMs :: Int64 -> Int64
 normalizeEpochMs n =

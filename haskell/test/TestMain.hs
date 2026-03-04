@@ -84,6 +84,7 @@ main = do
     results <-
         sequence
             ( [ run "duration lookback bars" testLookbackBars
+              , run "duration rejects overflow integers" testLookbackBarsOverflowDuration
               , run "kalman fusion multi-sensor" testKalmanFusionMulti
               , run "market linear fit" testMarketLinearFit
               , run "predictors output shape" testPredictorsOutputs
@@ -119,6 +120,7 @@ main = do
               , run "empty cli credentials rejected" testEmptyCliCredentialsRejected
               , run "backtest window validates time formats" testBacktestWindowTimeValidation
               , run "backtest window rejects overflow scientific timestamp" testBacktestWindowOverflowScientificValidation
+              , run "backtest window rejects overflow integer timestamp" testBacktestWindowOverflowIntegerValidation
               , run "backtest window rejects fractional numeric timestamp" testBacktestWindowFractionalNumericValidation
               , run "backtest window accepts ISO offsets" testBacktestWindowIsoOffsetValidation
               , run "backtest window keeps negative millisecond epochs" testBacktestWindowNegativeMillisecondsValidation
@@ -126,6 +128,7 @@ main = do
               , run "backtest window normalizes second epochs to milliseconds" testBacktestWindowSecondEpochNormalization
               , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
               , run "idempotency key enforces max length" testIdempotencyKeyLengthValidation
+              , run "bars rejects overflow integer" testBarsOverflowValidation
               , run "retry-after date parsing" testRetryAfterDateParsing
               , run "retry backoff clamps without overflow" testRetryBackoffOverflowClamp
               , run "initial balance must be positive" testInitialBalanceValidation
@@ -335,6 +338,12 @@ testLookbackBars =
     case lookbackBarsFrom "5m" "24h" of
         Left e -> error e
         Right n -> assert "expected 288 bars" (n == 288)
+
+testLookbackBarsOverflowDuration :: IO ()
+testLookbackBarsOverflowDuration =
+    case lookbackBarsFrom "1h" "999999999999999999999999h" of
+        Left _ -> pure ()
+        Right _ -> error "expected oversized lookback window to fail"
 
 testKalmanFusionMulti :: IO ()
 testKalmanFusionMulti = do
@@ -904,6 +913,15 @@ testBacktestWindowOverflowScientificValidation =
                 ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
         Right _ -> error "expected overflow scientific --from to fail validation"
 
+testBacktestWindowOverflowIntegerValidation :: IO ()
+testBacktestWindowOverflowIntegerValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "999999999999999999999999"] of
+        Left err ->
+            assert
+                "overflow integer --from rejected"
+                ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
+        Right _ -> error "expected overflow integer --from to fail validation"
+
 testBacktestWindowFractionalNumericValidation :: IO ()
 testBacktestWindowFractionalNumericValidation =
     case parseArgsResult ["--data", "sample.csv", "--from", "1.5"] of
@@ -954,6 +972,15 @@ testIdempotencyKeyLengthValidation =
                 "idempotency key length > 36 rejected"
                 ("--idempotency-key must be 1..36 chars" `isInfixOf` err)
         Right _ -> error "expected idempotency key longer than 36 chars to fail validation"
+
+testBarsOverflowValidation :: IO ()
+testBarsOverflowValidation =
+    case parseArgsResult ["--data", "sample.csv", "--bars", "999999999999999999999999"] of
+        Left err ->
+            assert
+                "overflow bars rejected"
+                ("Expected an integer (e.g. 500) or 'auto'." `isInfixOf` err)
+        Right _ -> error "expected overflow --bars to fail validation"
 
 testRetryAfterDateParsing :: IO ()
 testRetryAfterDateParsing = do
