@@ -35,7 +35,7 @@ import Trader.BotStartSemantics (
     shouldResolveOriginComboOnAutoStart,
  )
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
-import Trader.Duration (TimeWindow (..), lookbackBarsFrom)
+import Trader.Duration (TimeWindow (..), lookbackBarsFrom, parseDurationSeconds)
 import Trader.Http (boundedBackoffMs, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
@@ -85,6 +85,8 @@ main = do
         sequence
             ( [ run "duration lookback bars" testLookbackBars
               , run "duration rejects overflow integers" testLookbackBarsOverflowDuration
+              , run "duration rejects overflow unit multiplication" testDurationOverflowUnitMultiplication
+              , run "duration rejects lookback arithmetic overflow" testLookbackBarsOverflowArithmetic
               , run "kalman fusion multi-sensor" testKalmanFusionMulti
               , run "market linear fit" testMarketLinearFit
               , run "predictors output shape" testPredictorsOutputs
@@ -344,6 +346,24 @@ testLookbackBarsOverflowDuration =
     case lookbackBarsFrom "1h" "999999999999999999999999h" of
         Left _ -> pure ()
         Right _ -> error "expected oversized lookback window to fail"
+
+testDurationOverflowUnitMultiplication :: IO ()
+testDurationOverflowUnitMultiplication = do
+    let raw = show (maxBound :: Int) ++ "m"
+    assert
+        "expected overflowing duration unit multiplication to fail"
+        (isNothing (parseDurationSeconds raw))
+
+testLookbackBarsOverflowArithmetic :: IO ()
+testLookbackBarsOverflowArithmetic =
+    let lookbackSec = maxBound :: Int
+        expected = fromInteger ((toInteger lookbackSec + 1) `div` 2)
+     in case lookbackBarsFrom "2s" (show lookbackSec ++ "s") of
+            Left e -> error ("expected lookback arithmetic to stay correct without overflow: " ++ e)
+            Right n ->
+                assert
+                    ("expected ceil(maxBound/2) bars, got " ++ show n)
+                    (n == expected)
 
 testKalmanFusionMulti :: IO ()
 testKalmanFusionMulti = do

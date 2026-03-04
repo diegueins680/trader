@@ -63,13 +63,11 @@ parseDurationSeconds raw =
     let s = trim raw
      in case span isDigit s of
             ("", _) -> Nothing
-            (nStr, unitStr) ->
-                case unitStr of
-                    [u] -> do
-                        n <- readInt nStr
-                        mult <- unitSeconds u
-                        pure (n * mult)
-                    _ -> Nothing
+            (nStr, [u]) -> do
+                n <- readIntegerStrict nStr
+                mult <- unitSeconds u
+                checkedIntProduct n mult
+            _ -> Nothing
 
 {- | Parse a Binance-style interval like \"5m\", \"1h\", \"1d\" into seconds.
 This is identical to 'parseDurationSeconds' but kept separate for clarity.
@@ -124,8 +122,12 @@ lookbackBarsFrom intervalStr lookbackWindowStr = do
                 then Left "Lookback window must be > 0"
                 else
                     -- Use ceiling so the effective history covers at least the requested duration.
-                    let bars = (lookbackSec + intervalSec - 1) `div` intervalSec
-                     in Right (max 1 bars)
+                    let intervalI = toInteger intervalSec
+                        lookbackI = toInteger lookbackSec
+                        barsI = (lookbackI + intervalI - 1) `div` intervalI
+                     in case integerToIntBounded barsI of
+                            Just bars -> Right (max 1 bars)
+                            Nothing -> Left "Lookback window too large for this interval."
 
 inferPeriodsPerYear :: String -> Double
 inferPeriodsPerYear interval =
@@ -172,12 +174,25 @@ unitSeconds u =
                 'w' -> Just (7 * 24 * 60 * 60)
                 _ -> Nothing
 
-readInt :: String -> Maybe Int
-readInt s =
+checkedIntProduct :: Integer -> Int -> Maybe Int
+checkedIntProduct a b =
+    integerToIntBounded (a * toInteger b)
+
+readIntegerStrict :: String -> Maybe Integer
+readIntegerStrict s =
     case reads s :: [(Integer, String)] of
-        [(n, "")]
-            | n >= lo && n <= hi -> Just (fromInteger n)
+        [(n, "")] -> Just n
         _ -> Nothing
+
+integerToIntBounded :: Integer -> Maybe Int
+integerToIntBounded n =
+    if n < lo || n > hi
+        then Nothing
+        else Just (fromInteger n)
   where
     lo = toInteger (minBound :: Int)
     hi = toInteger (maxBound :: Int)
+
+readInt :: String -> Maybe Int
+readInt s =
+    readIntegerStrict s >>= integerToIntBounded
