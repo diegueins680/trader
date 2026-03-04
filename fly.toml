@@ -8,6 +8,8 @@ primary_region = "fra"
   TRADER_BOT_SYMBOLS = "BTCUSDT"
   TRADER_BOT_TOP_COMBO_BOTS = "3"
   TRADER_BOT_TOP_COMBO_BOTS_STARTUP = "0"
+  TRADER_OPTIMIZER_ENABLED = "false"
+  TRADER_TOP_COMBOS_BACKTEST_ENABLED = "false"
 
 [http_service]
   internal_port = 8080
