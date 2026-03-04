@@ -3186,6 +3186,7 @@ seedStrategies :: Connection -> IO ()
 seedStrategies conn = do
     let seeds =
             [ ("kalman", "Kalman Filter")
+            , ("kalman_physics_error", "Kalman Physics Error")
             , ("lstm", "LSTM")
             , ("both", "Kalman+LSTM")
             , ("blend", "Blend")
@@ -7181,6 +7182,11 @@ botOptimizeAfterOperation st = do
     let args = botArgs st
         optimizeOps = argOptimizeOperations args
         sweepThr = argSweepThreshold args
+        methodRuntime = runtimeMethod (argMethod args)
+        methodForReporting =
+            case argMethod args of
+                MethodKalmanPhysicsError -> MethodKalmanPhysicsError
+                _ -> methodRuntime
     if not (optimizeOps || sweepThr)
         then pure st
         else do
@@ -7351,14 +7357,14 @@ botOptimizeAfterOperation st = do
                                         (optimizeOperationsWithHLWith tuneCfg baseCfg prices highs lows kalPred lstmPred Nothing)
                                 else
                                     fmap
-                                        (\(openThr, closeThr, _bt, _stats) -> (runtimeMethod (argMethod args), openThr, closeThr))
-                                        (sweepThresholdWithHLWith tuneCfg (runtimeMethod (argMethod args)) baseCfg prices highs lows kalPred lstmPred Nothing)
+                                        (\(openThr, closeThr, _bt, _stats) -> (methodForReporting, openThr, closeThr))
+                                        (sweepThresholdWithHLWith tuneCfg methodRuntime baseCfg prices highs lows kalPred lstmPred Nothing)
                     (newMethod, newOpenThr, newCloseThr) <-
                         case thresholdResult of
                             Right res -> pure res
                             Left err -> do
                                 hPutStrLn stderr ("Warning: Threshold tuning failed and was skipped: " ++ err)
-                                pure (runtimeMethod (argMethod args), baseOpenThr, baseCloseThr)
+                                pure (methodForReporting, baseOpenThr, baseCloseThr)
                     let args' =
                             args
                                 { argMethod = newMethod
@@ -7433,6 +7439,7 @@ botApplyOptimizerUpdate st upd = do
                 MethodBoth -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodRouter -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodKalmanOnly -> isJust mKalmanCtx'
+                MethodKalmanPhysicsError -> isJust mKalmanCtx'
                 MethodLstmOnly -> isJust mLstmCtx'
                 MethodBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodConfBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -7461,12 +7468,15 @@ botApplyOptimizerUpdate st upd = do
                 MethodGeoBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodRegimeSwitch -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodBanditRouter -> isJust mLstmCtx' && isJust mKalmanCtx'
-        hasLstmWindow = method /= MethodKalmanOnly && n >= lookback'
+        hasRequiredWindow =
+            case method of
+                MethodKalmanOnly -> n >= 1
+                _ -> n >= lookback'
 
     if not ctxOk
         then pure st{botError = Just "Optimizer update skipped: missing model context.", botUpdatedAtMs = now}
         else
-            if not hasLstmWindow
+            if not hasRequiredWindow
                 then pure st{botError = Just "Optimizer update skipped: not enough data for lookback.", botUpdatedAtMs = now}
                 else do
                     let argsSignal = applyBotAdjustments (botAdjustments st) argsWithKeys
@@ -7854,8 +7864,20 @@ buildOptimizerUpdate st combo = do
                                         || lookback /= botLookback st
                                    )
 
-                    if n < max 3 (lookback + 1)
-                        then pure (Left "Not enough bars to apply optimizer update.")
+                    let minBarsRequired
+                            | needsLstm' = lookback + 1
+                            | needsKalman' = 2
+                            | otherwise = 1
+                    if n < minBarsRequired
+                        then
+                            pure
+                                ( Left
+                                    ( printf
+                                        "Not enough bars to apply optimizer update (need >= %d, got %d)."
+                                        minBarsRequired
+                                        n
+                                    )
+                                )
                         else do
                             mLstmE <- if needsLstm' then Just <$> rebuildLstmCtx args0 lookback pricesV else pure Nothing
                             let mKalE = if needsKalman' then Just (rebuildKalmanCtx args0 lookback pricesV) else Nothing
@@ -11158,7 +11180,7 @@ validateApiComputeLimits limits args =
                                     ++ barsLabel
                                     ++ " (max bars="
                                     ++ show maxBars
-                                    ++ " for LSTM methods). Reduce bars or use method=10 (Kalman-only)."
+                                    ++ " for LSTM methods). Reduce bars or use method=10 (Kalman-only) or method=kalman_physics_error."
                                 )
                         else Right ()
                 Nothing ->
@@ -11169,7 +11191,7 @@ validateApiComputeLimits limits args =
                                     ++ barsLabel
                                     ++ " (max bars="
                                     ++ show maxBars
-                                    ++ " for LSTM methods). Reduce bars or use method=10 (Kalman-only)."
+                                    ++ " for LSTM methods). Reduce bars or use method=10 (Kalman-only) or method=kalman_physics_error."
                                 )
                         else Right ()
 
@@ -11197,7 +11219,7 @@ validateApiComputeLimitsAfterLoad limits args series =
                                 ++ show bars
                                 ++ ", max bars="
                                 ++ show maxBars
-                                ++ " for LSTM methods). Reduce --bars, trim the CSV, or use method=10 (Kalman-only)."
+                                ++ " for LSTM methods). Reduce --bars, trim the CSV, or use method=10 (Kalman-only) or method=kalman_physics_error."
                             )
                     else Right ()
 
@@ -12723,63 +12745,25 @@ persistTopCombosMaybe mSync path = do
 
 strategyCodeFromMethod :: Maybe String -> Text
 strategyCodeFromMethod mMethod =
-    let raw = normalizeKey <$> mMethod
-     in T.pack $ case raw of
-            Just "kalman" -> "kalman"
-            Just "10" -> "kalman"
-            Just "kalman_physics_error" -> "kalman_physics_error"
-            Just "kalman-physics-error" -> "kalman_physics_error"
-            Just "lstm" -> "lstm"
-            Just "01" -> "lstm"
-            Just "both" -> "both"
-            Just "11" -> "both"
-            Just "blend" -> "blend"
-            Just "conf_blend" -> "conf_blend"
-            Just "conf-blend" -> "conf_blend"
-            Just "conf_pick" -> "conf_pick"
-            Just "conf-pick" -> "conf_pick"
-            Just "cost_pick" -> "cost_pick"
-            Just "cost-pick" -> "cost_pick"
-            Just "harmonic_blend" -> "harmonic_blend"
-            Just "harmonic-blend" -> "harmonic_blend"
-            Just "disagreement_guard" -> "disagreement_guard"
-            Just "disagreement-guard" -> "disagreement_guard"
-            Just "median_blend" -> "median_blend"
-            Just "median-blend" -> "median_blend"
-            Just "neutral_guard" -> "neutral_guard"
-            Just "neutral-guard" -> "neutral_guard"
-            Just "risk_parity_blend" -> "risk_parity_blend"
-            Just "risk-parity-blend" -> "risk_parity_blend"
-            Just "consensus_boost" -> "consensus_boost"
-            Just "consensus-boost" -> "consensus_boost"
-            Just "anchor_blend" -> "anchor_blend"
-            Just "anchor-blend" -> "anchor_blend"
-            Just "tension_gate" -> "tension_gate"
-            Just "tension-gate" -> "tension_gate"
-            Just "entropy_blend" -> "entropy_blend"
-            Just "entropy-blend" -> "entropy_blend"
-            Just "coherence_gate" -> "coherence_gate"
-            Just "coherence-gate" -> "coherence_gate"
-            Just "fractal_blend" -> "fractal_blend"
-            Just "fractal-blend" -> "fractal_blend"
-            Just "phase_cancel" -> "phase_cancel"
-            Just "phase-cancel" -> "phase_cancel"
-            Just "softmax_blend" -> "softmax_blend"
-            Just "softmax-blend" -> "softmax_blend"
-            Just "net_softmax_blend" -> "net_softmax_blend"
-            Just "net-softmax-blend" -> "net_softmax_blend"
-            Just "edge_blend" -> "edge_blend"
-            Just "edge-blend" -> "edge_blend"
-            Just "edge_pick" -> "edge_pick"
-            Just "edge-pick" -> "edge_pick"
-            Just "geo_blend" -> "geo_blend"
-            Just "geo-blend" -> "geo_blend"
-            Just "regime_switch" -> "regime_switch"
-            Just "regime-switch" -> "regime_switch"
-            Just "router" -> "router"
-            Just "bandit_router" -> "bandit_router"
-            Just "bandit-router" -> "bandit_router"
-            _ -> "unknown"
+    let toStrategyCode method =
+            T.pack $
+                case method of
+                    MethodKalmanOnly -> "kalman"
+                    MethodLstmOnly -> "lstm"
+                    MethodBoth -> "both"
+                    _ -> methodCode method
+        parseStrategyCode raw =
+            case parseMethod raw of
+                Right method -> Just (toStrategyCode method)
+                Left _ -> Nothing
+        parseStrategyCodeNormalized raw =
+            case parseMethod (normalizeKey raw) of
+                Right method -> Just (toStrategyCode method)
+                Left _ -> Nothing
+     in fromMaybe "unknown" $
+            mMethod >>= \raw ->
+                parseStrategyCode raw
+                    <|> parseStrategyCodeNormalized raw
 
 persistTopCombosDbMaybe :: Maybe OpsStore -> TopCombosStore -> IO ()
 persistTopCombosDbMaybe mOps store =
@@ -16096,6 +16080,7 @@ placeDexOrderForSignal args sig = do
             case lsMethod sig of
                 MethodBoth -> "No order: directions disagree or neutral (direction gate)."
                 MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
+                MethodKalmanPhysicsError -> "No order: Kalman neutral (within threshold)."
                 MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
                 MethodBlend -> "No order: Blend neutral (within threshold)."
                 MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
@@ -18596,6 +18581,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodGeoBlend -> (geoBlendPred0, geoBlendPred0)
                         MethodRegimeSwitch -> (regimeSwitchPred0, regimeSwitchPred0)
                         MethodKalmanOnly -> (kalPred0, kalPred0)
+                        MethodKalmanPhysicsError -> (kalPred0, kalPred0)
                         MethodLstmOnly -> (lstmPred0, lstmPred0)
                         MethodRouter -> (routerPred, routerPred)
                         MethodBanditRouter -> (routerPred, routerPred)
@@ -18837,6 +18823,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
         case method of
             MethodBoth -> "No order: directions disagree or neutral (direction gate)."
             MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
+            MethodKalmanPhysicsError -> "No order: Kalman neutral (within threshold)."
             MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
             MethodBlend -> "No order: Blend neutral (within threshold)."
             MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
@@ -19705,6 +19692,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
         case method of
             MethodBoth -> "No order: directions disagree or neutral (direction gate)."
             MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
+            MethodKalmanPhysicsError -> "No order: Kalman neutral (within threshold)."
             MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
             MethodBlend -> "No order: Blend neutral (within threshold)."
             MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
@@ -20284,6 +20272,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                 case bsMethodUsed summary of
                     MethodBoth -> "Backtest (Kalman fusion + LSTM direction-agreement gated) complete."
                     MethodKalmanOnly -> "Backtest (Kalman fusion only) complete."
+                    MethodKalmanPhysicsError -> "Backtest (Kalman physics-error model) complete."
                     MethodLstmOnly -> "Backtest (LSTM only) complete."
                     MethodBlend -> "Backtest (Kalman + LSTM blend) complete."
                     MethodConfBlend -> "Backtest (confidence-weighted Kalman/LSTM blend) complete."
@@ -20658,6 +20647,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     let methodRequestedRaw = argMethod args
         methodRequested = runtimeMethod methodRequestedRaw
         useKalmanPhysics = methodRequestedRaw == MethodKalmanPhysicsError
+        methodRequestedForReporting =
+            if useKalmanPhysics
+                then MethodKalmanPhysicsError
+                else methodRequested
         trimForMethod xs =
             if useKalmanPhysics
                 then takeLast 1000 xs
@@ -20837,8 +20830,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , Just (predictors, kalFinal, hmmFinal, svFinal)
                 , Just meta
                 )
+        runDualPredictorBacktestNoPhysics =
+            (\(a, b, c, d, e, f) -> (a, b, c, d, e, f, Nothing)) <$> runDualPredictorBacktest
 
-    (mLstmCtx, mHistory, kalPredAll, lstmPredAll, mKalmanCtx, mMetaAll) <-
+    (mLstmCtx, mHistory, kalPredAll, lstmPredAll, mKalmanCtx, mMetaAll, mPhysicsLatestPred) <-
         case methodForComputation of
             MethodKalmanPhysicsError -> do
                 let fitPricesV = V.fromList fitPrices
@@ -20874,8 +20869,24 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     case predictKalmanPhysicsError (argKalmanDt args) (argKalmanProcessVar args) (argKalmanMeasurementVar args) predStart barsV of
                         Left err -> throwIO (userError ("kalman_physics_error: " ++ err))
                         Right preds -> pure preds
+                let mLastBar =
+                        if n <= 0
+                            then Nothing
+                            else Just (barsV V.! (n - 1))
+                mLatestPred <-
+                    case mLastBar of
+                        Nothing -> pure Nothing
+                        Just lastBar -> do
+                            let barsVExtended = V.snoc barsV lastBar
+                            case predictKalmanPhysicsError (argKalmanDt args) (argKalmanProcessVar args) (argKalmanMeasurementVar args) predStart barsVExtended of
+                                Left _ -> pure Nothing
+                                Right predsExt ->
+                                    pure $
+                                        case reverse predsExt of
+                                            p : _ | not (isNaN p || isInfinite p) -> Just p
+                                            _ -> Nothing
                 let meta = reverse metaRev
-                pure (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal), Just meta)
+                pure (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal), Just meta, mLatestPred)
             MethodKalmanOnly -> do
                 let fitPricesV = V.fromList fitPrices
                     predictors = trainPredictors (argPredictors args) lookback fitPricesV
@@ -20894,7 +20905,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                             [0 .. stepCount - 1]
                     kalPred = reverse kalPredRev
                     meta = reverse metaRev
-                pure (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal), Just meta)
+                pure (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal), Just meta, Nothing)
             MethodLstmOnly -> do
                 let normState = fitNorm (argNormalization args) fitPrices
                     obsAll = forwardSeries normState prices
@@ -20907,36 +20918,36 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                            in inverseNorm normState predObs
                         | i <- [0 .. stepCount - 1]
                         ]
-                pure (Just (normState, obsAll, lstmModel), Just history, lstmPred, lstmPred, Nothing, Nothing)
-            MethodBoth -> runDualPredictorBacktest
-            MethodBlend -> runDualPredictorBacktest
-            MethodConfBlend -> runDualPredictorBacktest
-            MethodConfPick -> runDualPredictorBacktest
-            MethodConformalClip -> runDualPredictorBacktest
-            MethodCostPick -> runDualPredictorBacktest
-            MethodHarmonicBlend -> runDualPredictorBacktest
-            MethodDisagreementGuard -> runDualPredictorBacktest
-            MethodMedianBlend -> runDualPredictorBacktest
-            MethodNeutralGuard -> runDualPredictorBacktest
-            MethodRiskParityBlend -> runDualPredictorBacktest
-            MethodConsensusBoost -> runDualPredictorBacktest
-            MethodAnchorBlend -> runDualPredictorBacktest
-            MethodTensionGate -> runDualPredictorBacktest
-            MethodEntropyBlend -> runDualPredictorBacktest
-            MethodCoherenceGate -> runDualPredictorBacktest
-            MethodDivergenceGate -> runDualPredictorBacktest
-            MethodFractalBlend -> runDualPredictorBacktest
-            MethodPhaseCancel -> runDualPredictorBacktest
-            MethodSoftmaxBlend -> runDualPredictorBacktest
-            MethodSmoothSoftmaxBlend -> runDualPredictorBacktest
-            MethodHedgeBlend -> runDualPredictorBacktest
-            MethodNetSoftmaxBlend -> runDualPredictorBacktest
-            MethodEdgeBlend -> runDualPredictorBacktest
-            MethodEdgePick -> runDualPredictorBacktest
-            MethodGeoBlend -> runDualPredictorBacktest
-            MethodRegimeSwitch -> runDualPredictorBacktest
-            MethodRouter -> runDualPredictorBacktest
-            MethodBanditRouter -> runDualPredictorBacktest
+                pure (Just (normState, obsAll, lstmModel), Just history, lstmPred, lstmPred, Nothing, Nothing, Nothing)
+            MethodBoth -> runDualPredictorBacktestNoPhysics
+            MethodBlend -> runDualPredictorBacktestNoPhysics
+            MethodConfBlend -> runDualPredictorBacktestNoPhysics
+            MethodConfPick -> runDualPredictorBacktestNoPhysics
+            MethodConformalClip -> runDualPredictorBacktestNoPhysics
+            MethodCostPick -> runDualPredictorBacktestNoPhysics
+            MethodHarmonicBlend -> runDualPredictorBacktestNoPhysics
+            MethodDisagreementGuard -> runDualPredictorBacktestNoPhysics
+            MethodMedianBlend -> runDualPredictorBacktestNoPhysics
+            MethodNeutralGuard -> runDualPredictorBacktestNoPhysics
+            MethodRiskParityBlend -> runDualPredictorBacktestNoPhysics
+            MethodConsensusBoost -> runDualPredictorBacktestNoPhysics
+            MethodAnchorBlend -> runDualPredictorBacktestNoPhysics
+            MethodTensionGate -> runDualPredictorBacktestNoPhysics
+            MethodEntropyBlend -> runDualPredictorBacktestNoPhysics
+            MethodCoherenceGate -> runDualPredictorBacktestNoPhysics
+            MethodDivergenceGate -> runDualPredictorBacktestNoPhysics
+            MethodFractalBlend -> runDualPredictorBacktestNoPhysics
+            MethodPhaseCancel -> runDualPredictorBacktestNoPhysics
+            MethodSoftmaxBlend -> runDualPredictorBacktestNoPhysics
+            MethodSmoothSoftmaxBlend -> runDualPredictorBacktestNoPhysics
+            MethodHedgeBlend -> runDualPredictorBacktestNoPhysics
+            MethodNetSoftmaxBlend -> runDualPredictorBacktestNoPhysics
+            MethodEdgeBlend -> runDualPredictorBacktestNoPhysics
+            MethodEdgePick -> runDualPredictorBacktestNoPhysics
+            MethodGeoBlend -> runDualPredictorBacktestNoPhysics
+            MethodRegimeSwitch -> runDualPredictorBacktestNoPhysics
+            MethodRouter -> runDualPredictorBacktestNoPhysics
+            MethodBanditRouter -> runDualPredictorBacktestNoPhysics
 
     let feeUsed = max 0 (argFee args)
         slippageUsed = max 0 (argSlippage args)
@@ -21119,7 +21130,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         Left e -> throwIO (userError ("sweepThreshold: " ++ e))
                         Right (openThr, closeThr, btTune, stats) ->
                             pure (methodRequested, openThr, closeThr, Just stats, Just (computeMetrics ppy btTune))
-                    else pure (methodRequested, argOpenThreshold args, argCloseThreshold args, Nothing, Nothing)
+                    else pure (methodRequestedForReporting, argOpenThreshold args, argCloseThreshold args, Nothing, Nothing)
 
     let lstmFlipEnabled method =
             case method of
@@ -21577,19 +21588,66 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 args{argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr}
             | otherwise = args
 
+        historyEnabled =
+            argThresholdFactorEnabled argsForSignal
+                || methodUsed == MethodRouter
+                || methodUsed == MethodBanditRouter
+                || methodUsed == MethodKalmanPhysicsError
+        alignPredHistory preds =
+            let targetLen = max 0 (n - 1)
+                start = max 0 (min targetLen predStart)
+                predV = V.fromList preds
+             in V.generate targetLen $ \i ->
+                    if i < start
+                        then pricesV V.! i
+                        else
+                            let j = i - start
+                             in if j < V.length predV
+                                    then predV V.! j
+                                    else pricesV V.! i
+        neutralMeta =
+            StepMeta
+                { smKalmanMean = 0
+                , smKalmanVar = 0
+                , smHighVolProb = Nothing
+                , smQuantile10 = Nothing
+                , smQuantile90 = Nothing
+                , smConformalLo = Nothing
+                , smConformalHi = Nothing
+                }
+        alignMetaHistory metas =
+            let targetLen = max 0 (n - 1)
+                start = max 0 (min targetLen predStart)
+                metaV = V.fromList metas
+             in V.generate targetLen $ \i ->
+                    if i < start
+                        then neutralMeta
+                        else
+                            let j = i - start
+                             in if j < V.length metaV
+                                    then metaV V.! j
+                                    else neutralMeta
+        kalHistBase = alignPredHistory kalPredAll
+        lstmHistBase = alignPredHistory lstmPredAll
+        kalHistAligned =
+            case (methodUsed, mPhysicsLatestPred) of
+                (MethodKalmanPhysicsError, Just p) | not (isNaN p || isInfinite p) -> V.snoc kalHistBase p
+                _ -> kalHistBase
+        lstmHistAligned =
+            case methodUsed of
+                MethodKalmanPhysicsError -> kalHistAligned
+                _ -> lstmHistBase
+        metaHistAligned = alignMetaHistory <$> mMetaAll
         mPredHistorySignal =
-            if argThresholdFactorEnabled argsForSignal || methodUsed == MethodRouter || methodUsed == MethodBanditRouter
+            if historyEnabled
                 then
-                    let kalPredV = V.fromList kalPredAll
-                        lstmPredV = V.fromList lstmPredAll
-                        metaV = V.fromList <$> mMetaAll
-                     in Just
-                            PredHistory
-                                { phKalman = kalPredV
-                                , phLstm = lstmPredV
-                                , phMeta = metaV
-                                , phLstmHealth = lstmHealth
-                                }
+                    Just
+                        PredHistory
+                            { phKalman = kalHistAligned
+                            , phLstm = lstmHistAligned
+                            , phMeta = metaHistAligned
+                            , phLstmHealth = lstmHealth
+                            }
                 else Nothing
 
     latestSignal <-
@@ -22240,7 +22298,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             MethodKalmanOnly ->
                 case mKalmanCtx of
                     Just _ -> Right compute
-                    Nothing -> Left "Method 10 requires Kalman context."
+                    Nothing -> Left missingKalmanCtxError
+            MethodKalmanPhysicsError ->
+                case mKalmanCtx of
+                    Just _ -> Right compute
+                    Nothing -> Left missingKalmanCtxError
             MethodLstmOnly ->
                 case mLstmCtxSafe of
                     Just _ -> Right compute
@@ -22358,7 +22420,16 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method bandit_router requires both Kalman and LSTM contexts."
   where
-    method = runtimeMethod (argMethod args)
+    methodRequested = argMethod args
+    method = runtimeMethod methodRequested
+    methodForReport =
+        case methodRequested of
+            MethodKalmanPhysicsError -> MethodKalmanPhysicsError
+            _ -> method
+    missingKalmanCtxError =
+        case methodForReport of
+            MethodKalmanPhysicsError -> "Method kalman_physics_error requires Kalman context."
+            _ -> "Method 10 requires Kalman context."
     nAll = V.length pricesV
     methodNeedsLstm =
         case method of
@@ -22615,6 +22686,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     window = drop (total - lb) returnsFromPrices
                                     vol = stddevList window * sqrt ppy
                                  in if bad vol then Nothing else Just vol
+
+            physicsKalNext =
+                case mPredHistory of
+                    Just PredHistory{phKalman = kalHist}
+                        | methodForReport == MethodKalmanPhysicsError && V.length kalHist > t ->
+                            let p = kalHist V.! t
+                             in if bad p then Nothing else Just p
+                    _ -> Nothing
 
             volScale =
                 case volTarget of
@@ -22884,11 +22963,16 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                             mI = listToMaybe [i | (_sid, out) <- sensorOuts, Just i <- [soInterval out]]
                             meas = mapMaybe (toMeasurement args svPrev) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
                             kalNow = stepMulti meas kalPrev
-                            kalReturn = kMean kalNow
+                            kalReturnRaw = kMean kalNow
                             kalVar = max 0 (kVar kalNow)
                             kalStd = sqrt kalVar
+                            kalNextRaw = currentPrice * (1 + kalReturnRaw)
+                            kalNext = fromMaybe kalNextRaw physicsKalNext
+                            kalReturn =
+                                if currentPrice == 0 || bad currentPrice || bad kalNext
+                                    then kalReturnRaw
+                                    else kalNext / currentPrice - 1
                             kalZ = if kalStd <= 0 then 0 else abs kalReturn / kalStd
-                            kalNext = currentPrice * (1 + kalReturn)
                             dirRaw = directionPrice openThrAdj kalNext
                             closeDirRaw = directionPrice closeThrAdj kalNext
                             confScore = confidenceScoreKalman args kalZ mReg mI mQ
@@ -23365,6 +23449,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case method of
                     MethodBoth -> mLstmNext
                     MethodKalmanOnly -> mKalNext
+                    MethodKalmanPhysicsError -> mKalNext
                     MethodLstmOnly -> mLstmNext
                     MethodBlend -> blendNext
                     MethodConfBlend -> confBlendNext
@@ -23438,6 +23523,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                             (Just a, Just b) -> Just (min a b)
                             _ -> Nothing
                     MethodKalmanOnly -> edgeKal
+                    MethodKalmanPhysicsError -> edgeKal
                     MethodLstmOnly -> edgeLstm
                     MethodBlend -> edgeBlend
                     MethodConfBlend -> edgeConfBlend
@@ -24220,6 +24306,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                             then kalCloseDir
                             else Nothing
                     MethodKalmanOnly -> kalCloseDir
+                    MethodKalmanPhysicsError -> kalCloseDir
                     MethodLstmOnly -> lstmCloseDir
                     MethodBlend -> blendCloseDirGated
                     MethodConfBlend -> confBlendCloseDirGated
@@ -24258,6 +24345,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case method of
                     MethodBoth -> agreeDir
                     MethodKalmanOnly -> kalDir
+                    MethodKalmanPhysicsError -> kalDir
                     MethodLstmOnly -> lstmDir
                     MethodBlend -> blendDirGated
                     MethodConfBlend -> confBlendDirGated
@@ -24398,6 +24486,15 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                         Nothing -> "HOLD (directions disagree)"
                                 _ -> "HOLD (directions disagree)"
                         MethodKalmanOnly ->
+                            case (kalDirRaw, chosenDir) of
+                                (Just 1, Just 1) -> "LONG"
+                                (Just (-1), Just (-1)) -> downAction
+                                (Just _, Nothing) ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (confidence gate)"
+                                _ -> "HOLD (Kalman neutral)"
+                        MethodKalmanPhysicsError ->
                             case (kalDirRaw, chosenDir) of
                                 (Just 1, Just 1) -> "LONG"
                                 (Just (-1), Just (-1)) -> downAction
@@ -24702,7 +24799,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBanditRouter -> mRouterReason <|> routerGateReason
                     _ -> mGateReason
          in LatestSignal
-                { lsMethod = method
+                { lsMethod = methodForReport
                 , lsCurrentPrice = currentPrice
                 , lsOpenThreshold = openThrAdj
                 , lsCloseThreshold = closeThrAdj
@@ -25375,6 +25472,7 @@ printMetrics method initialBalance m = do
             case method of
                 MethodBoth -> "Direction agreement rate"
                 MethodKalmanOnly -> "Signal rate (Kalman)"
+                MethodKalmanPhysicsError -> "Signal rate (Kalman)"
                 MethodLstmOnly -> "Signal rate (LSTM)"
                 MethodBlend -> "Signal rate (Blend)"
                 MethodConfBlend -> "Signal rate (Conf blend)"

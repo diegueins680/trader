@@ -1777,6 +1777,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodRegimeSwitch -> 2
                 MethodBlend -> 2
                 MethodKalmanOnly -> 1
+                MethodKalmanPhysicsError -> 1
                 MethodLstmOnly -> 0
         eval m =
             case sweepThresholdWithHLWith cfg m baseCfg closes highs lows kalPred lstmPred mMeta of
@@ -2010,6 +2011,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodGeoBlend -> (geoBlendV0, geoBlendV0)
                 MethodRegimeSwitch -> (regimeSwitchV0, regimeSwitchV0)
                 MethodKalmanOnly -> (kalV, kalV)
+                MethodKalmanPhysicsError -> (kalV, kalV)
                 MethodLstmOnly -> (lstmV, lstmV)
 
         validationError
@@ -2490,6 +2492,15 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodKalmanPhysicsError
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodLstmOnly
                     | V.length lstmV < stepCount ->
                         Just
@@ -2532,6 +2543,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodGeoBlend -> [geoBlendV0]
                 MethodRegimeSwitch -> [regimeSwitchV0]
                 MethodKalmanOnly -> [kalV]
+                MethodKalmanPhysicsError -> [kalV]
                 MethodLstmOnly -> [lstmV]
         epsilonFor v =
             let rel = abs v * 1e-9

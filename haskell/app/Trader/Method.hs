@@ -295,6 +295,7 @@ selectPredictions m blendWeight kalPred lstmPred =
     case runtimeMethod m of
         MethodBoth -> (kalPred, lstmPred)
         MethodKalmanOnly -> (kalPred, kalPred)
+        MethodKalmanPhysicsError -> (kalPred, kalPred)
         MethodLstmOnly -> (lstmPred, lstmPred)
         MethodBlend ->
             let w = clamp01 blendWeight

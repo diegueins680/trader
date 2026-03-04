@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Backtests/Signals: align post-backtest prediction histories to full-series bar indices before latest-signal computation (fixes threshold-factor/router history context drift), and source `kalman_physics_error` latest-signal prediction from physics-model history when available.
+- Bot/Ops: fix top-combo optimizer update gating so Kalman-only bots no longer get blocked by an unnecessary LSTM lookback check, and normalize persisted top-combo method codes via `parseMethod` so all supported methods map to the correct strategy (including `conformal_clip`, `divergence_gate`, `smooth_softmax_blend`, `hedge_blend`, and `kalman_physics_error`).
+- Backtests/API/Bot: preserve `kalman_physics_error` as the reported method in summaries/latest-signal output and post-trade threshold retuning (instead of collapsing it to `10`/`kalman`) so strategy labels stay consistent end-to-end.
 - CLI/API: platform parsing now trims surrounding whitespace (still case-insensitive), so values like `--platform "  Binance  "` are accepted.
 - Deploy/Docker: fix `trader-hs` image builds that use `--disable-optimization` by resolving the binary path with `cabal list-bin --disable-optimization exe:trader-hs` (avoids missing-binary failures during `fly deploy`).
 - Deploy/Fly: keep both split apps warm by default (`auto_stop_machines="off"`, `min_machines_running=1` in `fly.toml` and `haskell/web/fly.frontend.toml`) to reduce cold-start proxy `502` windows on `trader-hs`/`trader-web-hs`.
