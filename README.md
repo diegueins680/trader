@@ -265,6 +265,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--dex-base-decimals N` / `--dex-quote-decimals N` (optional overrides when token metadata lookup fails)
     - `--dex-protocols LIST` (optional 1inch protocols restriction, comma-separated)
     - `--dex-auto-approve` / `--no-dex-auto-approve` (default on)
+  - Token values with a `0x` prefix must be valid addresses (`0x` + exactly 40 hex characters); malformed addresses are rejected during validation.
+  - Native tokens (`native`/`eth`/`bnb`/etc.) accept decimal overrides (`--dex-base-decimals` / `--dex-quote-decimals`) and these overrides are applied consistently.
+  - When both tokens are explicit native/address inputs (with required decimals for addresses), resolution no longer depends on fetching 1inch token metadata.
   - Requires Foundry's `cast` on the PATH to sign/send transactions.
   - DEX sizing: use `--order-quote` for BUY and `--order-quantity` for SELL (fractional sizing is not supported).
 

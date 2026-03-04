@@ -37,6 +37,7 @@ import Trader.BotStartSemantics (
  )
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
+import Trader.Dex (DexEnv (..), DexToken (..), resolveDexTokens)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds)
 import Trader.Http (boundedBackoffMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
@@ -169,6 +170,8 @@ main = do
               , run "signal gate emits FUNDING_OI reason" testSignalGateFundingOi
               , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
               , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
+              , run "dex token resolution rejects malformed token addresses" testDexResolveTokensRejectsMalformedAddress
+              , run "dex token resolution applies native decimals overrides" testDexResolveTokensNativeDecimalsOverride
               , run "platform intervals" testPlatformIntervals
               , run "platform interval mapping" testPlatformIntervalMapping
               , run "method selects predictions" testMethodSelection
@@ -1420,6 +1423,39 @@ testDexTradeArgsRequireTokensNotSymbol = do
     case parseArgsResult (dexBaseArgs ++ ["--dex-base-token", "ETH"]) of
         Left err -> assert "missing quote token rejected" ("--binance-trade requires --symbol/--binance-symbol" `isInfixOf` err)
         Right _ -> error "expected missing dex quote token to be rejected"
+
+testDexResolveTokensRejectsMalformedAddress :: IO ()
+testDexResolveTokensRejectsMalformedAddress = do
+    let env = mkDexTestEnv
+        malformed = "0x" ++ replicate 40 'g'
+    resolved <- resolveDexTokens env malformed "native" (Just 18) Nothing
+    case resolved of
+        Left err -> assert "malformed 0x token is rejected" ("Invalid token address" `isInfixOf` err)
+        Right _ -> error "expected malformed DEX token address to be rejected"
+
+testDexResolveTokensNativeDecimalsOverride :: IO ()
+testDexResolveTokensNativeDecimalsOverride = do
+    let env = mkDexTestEnv
+    resolved <- resolveDexTokens env "native" "eth" (Just 6) (Just 8)
+    case resolved of
+        Left err -> error ("unexpected native override resolution failure: " ++ err)
+        Right (baseTok, quoteTok) -> do
+            assert "base native decimals override applied" (dtDecimals baseTok == 6)
+            assert "quote native decimals override applied" (dtDecimals quoteTok == 8)
+
+mkDexTestEnv :: DexEnv
+mkDexTestEnv =
+    DexEnv
+        { deChainId = 1
+        , deRpcUrl = "http://127.0.0.1:8545"
+        , dePrivateKey = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        , deAddress = "0x1111111111111111111111111111111111111111"
+        , deBaseUrl = "http://127.0.0.1:1"
+        , deApiKey = Nothing
+        , deProtocols = Nothing
+        , deAutoApprove = False
+        , deApproveWaitSec = 0
+        }
 
 testPlatformIntervals :: IO ()
 testPlatformIntervals = do

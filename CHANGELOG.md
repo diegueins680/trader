@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- DEX token resolution: validate `0x` token inputs strictly (`0x` + 40 hex chars), fail fast on malformed addresses, apply native token decimal overrides consistently, and short-circuit metadata fetches when both tokens are already explicit native/address inputs with sufficient decimals.
 - CLI validation: reject non-finite numeric inputs (`NaN`/`Infinity`) across trading/risk/tuning numeric flags (including optional sizing fields like `--order-quote`) to prevent invalid runtime math.
 - HTTP internals/tests: expose a pure `Retry-After` header parsing helper and add regression coverage that validates mixed-case header names.
 - CLI/Coinbase/Poloniex: normalize slash-delimited symbols during argument validation (`BTC/USD` -> `BTC-USD`, `BTC/USDT` -> `BTC_USDT`) so platform-delimited symbols are accepted consistently.
