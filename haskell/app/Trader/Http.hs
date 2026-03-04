@@ -7,6 +7,7 @@ module Trader.Http (
     getSharedManager,
     httpLbsWithRetry,
     parseRetryAfterMsAt,
+    parseRetryAfterFromHeadersAt,
     boundedBackoffMs,
     defaultTimeoutMicros,
 ) where
@@ -26,6 +27,7 @@ import Data.Time (UTCTime, defaultTimeLocale, parseTimeM)
 import Data.Time.Clock.POSIX (getPOSIXTime, utcTimeToPOSIXSeconds)
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Types.Header (ResponseHeaders)
 import Network.HTTP.Types.Status (statusCode)
 import System.Environment (lookupEnv)
 import System.IO (hPutStrLn, stderr)
@@ -210,11 +212,15 @@ applyJitter delayMs jitterFrac =
 
 retryAfterMs :: Response BL.ByteString -> IO (Maybe Int)
 retryAfterMs resp =
-    case lookup "Retry-After" (responseHeaders resp) of
-        Nothing -> pure Nothing
-        Just v -> do
-            nowMs <- getTimeMs
-            pure (parseRetryAfterMsAt nowMs v)
+    do
+        nowMs <- getTimeMs
+        pure (parseRetryAfterFromHeadersAt nowMs (responseHeaders resp))
+
+parseRetryAfterFromHeadersAt :: Integer -> ResponseHeaders -> Maybe Int
+parseRetryAfterFromHeadersAt nowMs headers =
+    case lookup "Retry-After" headers of
+        Nothing -> Nothing
+        Just v -> parseRetryAfterMsAt nowMs v
 
 parseRetryAfterMsAt :: Integer -> ByteString -> Maybe Int
 parseRetryAfterMsAt nowMs raw =

@@ -252,6 +252,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders (must be `1..36` chars, `[A-Za-z0-9_-]`)
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
+  - Numeric CLI parameters reject non-finite values (`NaN`, `Infinity`) during validation.
   - Order sizes are applied as specified (no extra multiplier).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
   - Non-dry-run trading validates required credentials and DEX runtime settings before execution (fail-fast with a user error/HTTP 400).

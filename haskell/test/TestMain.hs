@@ -38,7 +38,7 @@ import Trader.BotStartSemantics (
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds)
-import Trader.Http (boundedBackoffMs, parseRetryAfterMsAt)
+import Trader.Http (boundedBackoffMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Kraken (decodeKrakenCandles)
@@ -149,7 +149,9 @@ main = do
               , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
               , run "idempotency key enforces max length" testIdempotencyKeyLengthValidation
               , run "bars rejects overflow integer" testBarsOverflowValidation
+              , run "cli numeric args reject non-finite values" testNumericArgsFiniteValidation
               , run "retry-after date parsing" testRetryAfterDateParsing
+              , run "retry-after header lookup is case-insensitive" testRetryAfterHeaderLookupCaseInsensitive
               , run "retry backoff clamps without overflow" testRetryBackoffOverflowClamp
               , run "initial balance must be positive" testInitialBalanceValidation
               , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
@@ -1142,6 +1144,18 @@ testBarsOverflowValidation =
                 ("Expected an integer (e.g. 500) or 'auto'." `isInfixOf` err)
         Right _ -> error "expected overflow --bars to fail validation"
 
+testNumericArgsFiniteValidation :: IO ()
+testNumericArgsFiniteValidation = do
+    case parseArgsResult ["--data", "sample.csv", "--fee", "Infinity"] of
+        Left err -> assert "fee rejects Infinity" ("--fee must be finite" `isInfixOf` err)
+        Right _ -> error "expected Infinity fee to fail validation"
+    case parseArgsResult ["--data", "sample.csv", "--order-quote", "Infinity"] of
+        Left err -> assert "order-quote rejects Infinity" ("--order-quote must be finite" `isInfixOf` err)
+        Right _ -> error "expected Infinity order-quote to fail validation"
+    case parseArgsResult ["--data", "sample.csv", "--tune-stress-shock", "NaN"] of
+        Left err -> assert "tune-stress-shock rejects NaN" ("--tune-stress-shock must be finite" `isInfixOf` err)
+        Right _ -> error "expected NaN tune-stress-shock to fail validation"
+
 testRetryAfterDateParsing :: IO ()
 testRetryAfterDateParsing = do
     let nowMs = 1735689600000 -- 2025-01-01T00:00:00Z
@@ -1157,6 +1171,16 @@ testRetryAfterDateParsing = do
     assert "retry-after HTTP-date parses" (delayDate == Just 5000)
     assert "retry-after HTTP-date trims spaces" (delayDateSpaced == Just 5000)
     assert "retry-after huge value clamps to safe sleep bound" (delayHuge == Just ((maxBound :: Int) `div` 1000))
+
+testRetryAfterHeaderLookupCaseInsensitive :: IO ()
+testRetryAfterHeaderLookupCaseInsensitive = do
+    let nowMs = 1735689600000 -- 2025-01-01T00:00:00Z
+        delayLower = parseRetryAfterFromHeadersAt nowMs [("retry-after", "5")]
+        delayUpper = parseRetryAfterFromHeadersAt nowMs [("RETRY-AFTER", "7")]
+        delayMissing = parseRetryAfterFromHeadersAt nowMs [("x-retry-after", "9")]
+    assert "retry-after lowercase header parses" (delayLower == Just 5000)
+    assert "retry-after uppercase header parses" (delayUpper == Just 7000)
+    assert "retry-after missing header returns nothing" (delayMissing == Nothing)
 
 testRetryBackoffOverflowClamp :: IO ()
 testRetryBackoffOverflowClamp = do

@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- CLI validation: reject non-finite numeric inputs (`NaN`/`Infinity`) across trading/risk/tuning numeric flags (including optional sizing fields like `--order-quote`) to prevent invalid runtime math.
+- HTTP internals/tests: expose a pure `Retry-After` header parsing helper and add regression coverage that validates mixed-case header names.
 - CLI/Coinbase/Poloniex: normalize slash-delimited symbols during argument validation (`BTC/USD` -> `BTC-USD`, `BTC/USDT` -> `BTC_USDT`) so platform-delimited symbols are accepted consistently.
 - Coinbase data loader: stop historical range chunking once the epoch boundary is reached to avoid redundant `(0,0)` request windows on oversized lookbacks.
 - Exchange parsing hardening: reject non-finite numeric strings (`NaN`/`Infinity`) in Binance/Coinbase/Kraken/Poloniex candle parsing and normalize exact/negative millisecond timestamp boundaries for Coinbase/Poloniex candles.
