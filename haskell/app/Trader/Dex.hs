@@ -25,7 +25,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isSpace, toLower)
+import Data.Char (isDigit, isSpace, toLower)
 import qualified Data.HashMap.Strict as HM
 import Data.List (dropWhileEnd, find)
 import Data.Maybe (fromMaybe)
@@ -612,7 +612,7 @@ isHexAddress t =
 
 isHexDigitAscii :: Char -> Bool
 isHexDigitAscii c =
-    ('0' <= c && c <= '9')
+    isDigit c
         || ('a' <= c && c <= 'f')
 
 hasExactLength :: Int -> [a] -> Bool

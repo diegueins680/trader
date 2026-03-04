@@ -1183,7 +1183,7 @@ testRetryAfterHeaderLookupCaseInsensitive = do
         delayMissing = parseRetryAfterFromHeadersAt nowMs [("x-retry-after", "9")]
     assert "retry-after lowercase header parses" (delayLower == Just 5000)
     assert "retry-after uppercase header parses" (delayUpper == Just 7000)
-    assert "retry-after missing header returns nothing" (delayMissing == Nothing)
+    assert "retry-after missing header returns nothing" (isNothing delayMissing)
 
 testRetryBackoffOverflowClamp :: IO ()
 testRetryBackoffOverflowClamp = do
