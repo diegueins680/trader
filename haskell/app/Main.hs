@@ -10101,7 +10101,13 @@ runRestApi cliArgs mWebhook = do
         Just tenantKey -> do
             _ <- forkSupervisedWorker "bot-auto-start" (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
             pure ()
-    _ <- forkSupervisedWorker "auto-optimizer" (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
+    autoOptimizerEnabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
+    let autoOptimizerEnabled = readEnvBool autoOptimizerEnabledEnv True
+    if autoOptimizerEnabled
+        then do
+            _ <- forkSupervisedWorker "auto-optimizer" (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
+            pure ()
+        else putStrLn "Auto optimizer background worker disabled (TRADER_OPTIMIZER_ENABLED=false)."
     when topCombosEnabled $ do
         _ <- forkSupervisedWorker "top-combos-candle" (topCombosCandleWorker topCombosCtx)
         _ <- forkSupervisedWorker "top-combos-scheduled-backtest" (autoTopCombosBacktestLoop topCombosCtx)
