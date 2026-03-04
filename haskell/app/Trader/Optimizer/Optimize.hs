@@ -4,6 +4,7 @@ module Trader.Optimizer.Optimize (
     OptimizerArgs (..),
     applyQualityPreset,
     runOptimizer,
+    sampleTakeProfitPartial,
 ) where
 
 import Control.Concurrent (forkIO, threadDelay)
@@ -98,6 +99,22 @@ clamp x lo hi = max lo (min hi x)
 
 clampInt :: Int -> Int -> Int -> Int
 clampInt x lo hi = max lo (min hi x)
+
+orderedPair :: (Ord a) => (a, a) -> (a, a)
+orderedPair (a, b) = if a <= b then (a, b) else (b, a)
+
+sampleTakeProfitPartial :: (Double, Double) -> Double -> Rng -> (Maybe Double, Rng)
+sampleTakeProfitPartial takeProfitPartialRange pDisableTakeProfitPartial rng0 =
+    let (lo, hi) = orderedPair takeProfitPartialRange
+        lo' = clamp lo 0 0.999999
+        hi' = clamp hi 0 0.999999
+     in if hi' <= 0
+            then (Nothing, rng0)
+            else
+                nextMaybe
+                    pDisableTakeProfitPartial
+                    (nextUniform lo' (max lo' hi'))
+                    rng0
 
 normalizeSymbol :: Maybe String -> Maybe String
 normalizeSymbol raw =
@@ -2406,10 +2423,10 @@ sampleParams
                 let (lo, hi) = ordered spreadVolMultRange
                  in nextUniform (max 0 lo) (max 0 hi) rng81
             (takeProfitPartial, rng83) =
-                let (lo, hi) = ordered takeProfitPartialRange
-                    lo' = clamp lo 0 0.999999
-                    hi' = clamp hi 0 0.999999
-                 in if hi' <= 0 then (Nothing, rng83) else nextMaybe pDisableTakeProfitPartial (nextUniform lo' (max lo' hi')) rng82
+                sampleTakeProfitPartial
+                    takeProfitPartialRange
+                    pDisableTakeProfitPartial
+                    rng82
             (maxTradesPerDay, rng84) =
                 nextMaybe pDisableMaxTradesPerDay (uncurry nextIntRange maxTradesPerDayRange) rng83
             (expectancyLookback, rng85) =

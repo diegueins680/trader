@@ -439,8 +439,13 @@ validateArgs args = do
         Left "--threshold-factor-floor-min/max must be >= 0."
     when (oaRouterLookbackMin args < 2 || oaRouterLookbackMax args < 2) $
         Left "--router-lookback-min/max must be >= 2."
-    when (oaTakeProfitPartialMin args < 0 || oaTakeProfitPartialMax args >= 1) $
-        Left "--take-profit-partial-min/max must be >= 0 and < 1."
+    when
+        ( oaTakeProfitPartialMin args < 0
+            || oaTakeProfitPartialMin args >= 1
+            || oaTakeProfitPartialMax args < 0
+            || oaTakeProfitPartialMax args >= 1
+        )
+        $ Left "--take-profit-partial-min/max must be >= 0 and < 1."
     when (oaMaxTradesPerDayMin args < 0 || oaMaxTradesPerDayMax args < 0) $
         Left "--max-trades-per-day-min/max must be >= 0."
     when (oaExpectancyLookbackMin args < 1 || oaExpectancyLookbackMax args < 1) $

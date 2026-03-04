@@ -185,6 +185,8 @@ test-suite trader-tests
                      , Trader.Optimization
                      , Trader.OrderExecution
                      , Trader.Optimizer.Json
+                     , Trader.Optimizer.Optimize
+                     , Trader.Optimizer.Random
                      , Trader.OnlineStats
                      , Trader.Poloniex
                      , Trader.Predictors

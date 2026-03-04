@@ -666,7 +666,7 @@ Optimizer script tips:
 - `--predictors` (comma-separated list) now participates in optimizer sampling so top-combo search can vary active predictor sets (for example `all`, `gbdt,tcn,transformer`, or `none`).
 - `--router-lookback-min/max` and `--router-min-score-min/max` now tune router memory and acceptance gating alongside `--router-score-pnl-weight-min/max`.
 - `--fee-fixed-min/max`, `--slippage-impact-min/max`, `--slippage-impact-power-min/max`, `--slippage-vol-mult-min/max`, and `--spread-vol-mult-min/max` now tune microstructure and execution-cost realism.
-- `--take-profit-partial-min/max` with `--p-disable-take-profit-partial` now samples partial take-profit behavior.
+- `--take-profit-partial-min/max` with `--p-disable-take-profit-partial` now samples partial take-profit behavior (`0 <= min,max < 1`).
 - `--max-trades-per-day-min/max` (`--p-disable-max-trades-per-day`), `--expectancy-lookback-min/max`, `--min-expectancy-min/max` (`--p-disable-min-expectancy`), `--loss-streak-max-min/max` / `--loss-streak-cooldown-bars-min/max` (`--p-disable-loss-streak-*`) now tune trade pacing/performance guardrails.
 - Exposure and concurrency caps are now optimizable via `--max-open-positions-min/max`, `--max-gross-exposure-min/max`, `--max-net-exposure-min/max`, `--max-exposure-per-base-min/max`, and `--max-open-per-base-min/max` (each with matching `--p-disable-*`).
 - Adaptive safety caps are now optimizable via `--adaptive-edge-buffer-max-min/max`, `--adaptive-min-signal-to-noise-max-min/max`, `--adaptive-trend-lookback-max-min/max`, and `--adaptive-kalman-z-min-max-min/max`.

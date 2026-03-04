@@ -15,6 +15,7 @@ import qualified Data.Maybe
 import qualified Data.Vector as V
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
 import System.Exit (exitFailure, exitSuccess)
+import System.Timeout (timeout)
 
 import Trader.App.Args (Args, argLookback, opts, parseTimestampMs, validateArgs)
 import Trader.Binance (
@@ -45,6 +46,8 @@ import Trader.MarketContext (fitLinearRange)
 import Trader.Method (Method (..), parseMethod, selectPredictions)
 import Trader.Metrics (bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
+import Trader.Optimizer.Optimize (sampleTakeProfitPartial)
+import Trader.Optimizer.Random (nextDouble, seedRng)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
     Platform (..),
@@ -158,6 +161,7 @@ main = do
               , run "train/backtest split" testTrainBacktestSplit
               , run "threshold sweep" testSweepThreshold
               , run "operations optimization" testOptimizeOperations
+              , run "optimizer partial take-profit zero-range sampler" testOptimizerPartialTakeProfitZeroRange
               , run "binance order validation" testBinanceOrderValidation
               ]
                 ++ map (uncurry run) apiRouteSuite
@@ -1386,6 +1390,23 @@ testOptimizeOperations = do
     assertApprox "open thr close to 10%" 1e-6 openThr 0.1
     assertApprox "close thr close to 10%" 1e-6 closeThr 0.1
     assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
+
+testOptimizerPartialTakeProfitZeroRange :: IO ()
+testOptimizerPartialTakeProfitZeroRange = do
+    let seed = 1337
+        rng0 = seedRng seed
+        expectedProbe =
+            let (v, _) = nextDouble rng0
+             in v
+    sampled <- timeout 1000000 $ do
+        let (mPartial, rng1) = sampleTakeProfitPartial (0, 0) 0 rng0
+        probe <- evaluate (fst (nextDouble rng1))
+        pure (mPartial, probe)
+    case sampled of
+        Nothing -> error "partial take-profit zero-range sampling timed out"
+        Just (mPartial, probe) -> do
+            assert "zero-range partial take-profit is disabled" (isNothing mPartial)
+            assertApprox "zero-range partial take-profit keeps RNG unchanged" 1e-15 probe expectedProbe
 
 assertThrowsContains :: String -> (() -> IO a) -> IO ()
 assertThrowsContains needle mkAction = do
