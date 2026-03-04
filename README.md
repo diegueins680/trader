@@ -914,6 +914,7 @@ CI/CD (GitHub Actions):
 - Optional secret: `FLY_APP` (if unset, Fly uses the app configured in `fly.toml`).
 - If `FLY_APP` is unset, the workflow falls back to repo-root `fly.toml`; if neither is present, the deploy step is skipped with a warning.
 - If `FLY_API_TOKEN` is present but invalid for CI (for example “missing third-party discharge token”), the deploy step is skipped with a warning so CI does not fail on token-shape issues.
+- Repo defaults keep Fly machines warm for split apps (`auto_stop_machines="off"`, `min_machines_running=1` in `fly.toml` and `haskell/web/fly.frontend.toml`) to reduce cold-start `/api` `502` windows.
 
 Note: `/bot/*` is stateful. Async endpoints persist job state to Postgres when ops DB is enabled (`TRADER_DB_URL`/`DATABASE_URL`), and also to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default. If DB persistence is disabled, deployments behind non-sticky load balancers (including CloudFront `/api/*`) should keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to shared writable storage.
 
