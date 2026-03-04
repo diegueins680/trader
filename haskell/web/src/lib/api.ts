@@ -331,6 +331,14 @@ function clampDelayMs(raw: number): number | null {
   return Math.max(0, Math.min(MAX_TIMER_DELAY_MS, Math.floor(raw)));
 }
 
+function runtimeSetTimeout(callback: () => void, delayMs: number): ReturnType<typeof globalThis.setTimeout> {
+  return globalThis.setTimeout(callback, delayMs);
+}
+
+function runtimeClearTimeout(timer: ReturnType<typeof globalThis.setTimeout>) {
+  globalThis.clearTimeout(timer);
+}
+
 function parseRetryAfterMs(raw: string | null): number | null {
   if (!raw) return null;
   const trimmed = raw.trim();
@@ -350,13 +358,13 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       reject((signal as AbortSignal & { reason?: unknown }).reason ?? new DOMException("Aborted", "AbortError"));
     };
 
-    const timer = window.setTimeout(() => {
+    const timer = runtimeSetTimeout(() => {
       cleanup();
       resolve();
     }, clampedMs);
 
     const cleanup = () => {
-      window.clearTimeout(timer);
+      runtimeClearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
     };
 
@@ -379,11 +387,12 @@ function withTimeout(externalSignal: AbortSignal | undefined, timeoutMs: number)
     }
   }
 
-  const timer = window.setTimeout(() => controller.abort(new DOMException("Timeout", "TimeoutError")), timeoutMs);
+  const timerDelayMs = clampDelayMs(timeoutMs) ?? 1;
+  const timer = runtimeSetTimeout(() => controller.abort(new DOMException("Timeout", "TimeoutError")), timerDelayMs);
   return {
     signal: controller.signal,
     cleanup: () => {
-      window.clearTimeout(timer);
+      runtimeClearTimeout(timer);
       if (externalSignal && onAbort) externalSignal.removeEventListener("abort", onAbort);
     },
   };

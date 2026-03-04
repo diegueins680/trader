@@ -67,6 +67,22 @@ async function withApiModule(config, fetchImpl, run, options = {}) {
   }
 }
 
+async function withApiModuleNoWindow(fetchImpl, run) {
+  const priorWindow = globalThis.window;
+  const priorFetch = globalThis.fetch;
+  try {
+    delete globalThis.window;
+    globalThis.fetch = fetchImpl;
+    const modUrl = new URL(apiBundleUrl);
+    modUrl.searchParams.set("cachebust", `${Date.now()}-${Math.random()}`);
+    const api = await import(modUrl.href);
+    return await run(api);
+  } finally {
+    restoreGlobal("window", priorWindow);
+    restoreGlobal("fetch", priorFetch);
+  }
+}
+
 test("api fallback does not use 401 for explicit direct hosts", async () => {
   const calls = [];
   await withApiModule(
@@ -85,6 +101,21 @@ test("api fallback does not use 401 for explicit direct hosts", async () => {
         () => api.health("https://api.example.com", { timeoutMs: 5_000 }),
         (err) => err?.name === "HttpError" && err.status === 401,
       );
+    },
+  );
+  assert.deepEqual(calls, ["https://api.example.com/health"]);
+});
+
+test("api client works without window global", async () => {
+  const calls = [];
+  await withApiModuleNoWindow(
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { status: "ok" });
+    },
+    async (api) => {
+      const out = await api.health("https://api.example.com", { timeoutMs: 5_000 });
+      assert.equal(out.status, "ok");
     },
   );
   assert.deepEqual(calls, ["https://api.example.com/health"]);

@@ -47,7 +47,7 @@ import Trader.Method (Method (..), parseMethod, selectPredictions)
 import Trader.Metrics (bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
 import Trader.Optimizer.Optimize (sampleTakeProfitPartial)
-import Trader.Optimizer.Random (nextDouble, seedRng)
+import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
     Platform (..),
@@ -162,6 +162,8 @@ main = do
               , run "threshold sweep" testSweepThreshold
               , run "operations optimization" testOptimizeOperations
               , run "optimizer partial take-profit zero-range sampler" testOptimizerPartialTakeProfitZeroRange
+              , run "optimizer int range keeps rng for fixed range" testOptimizerIntRangeFixedRange
+              , run "optimizer int range handles full Int span" testOptimizerIntRangeFullSpan
               , run "binance order validation" testBinanceOrderValidation
               ]
                 ++ map (uncurry run) apiRouteSuite
@@ -1407,6 +1409,26 @@ testOptimizerPartialTakeProfitZeroRange = do
         Just (mPartial, probe) -> do
             assert "zero-range partial take-profit is disabled" (isNothing mPartial)
             assertApprox "zero-range partial take-profit keeps RNG unchanged" 1e-15 probe expectedProbe
+
+testOptimizerIntRangeFixedRange :: IO ()
+testOptimizerIntRangeFixedRange = do
+    let rng0 = seedRng 2026
+        expectedProbe = fst (nextDouble rng0)
+        (v, rng1) = nextIntRange 7 7 rng0
+        probe = fst (nextDouble rng1)
+    assert "fixed range returns that value" (v == 7)
+    assertApprox "fixed range keeps RNG unchanged" 1e-15 probe expectedProbe
+
+testOptimizerIntRangeFullSpan :: IO ()
+testOptimizerIntRangeFullSpan = do
+    let rng0 = seedRng 99
+        expectedProbe = fst (nextDouble rng0)
+        (v1, rng1) = nextIntRange minBound maxBound rng0
+        (v2, rng2) = nextIntRange minBound maxBound rng1
+        probe = fst (nextDouble rng2)
+    assert "full-span sample stays in bounds (first)" (v1 >= minBound && v1 <= maxBound)
+    assert "full-span sample stays in bounds (second)" (v2 >= minBound && v2 <= maxBound)
+    assert "full-span range advances RNG state" (probe /= expectedProbe)
 
 assertThrowsContains :: String -> (() -> IO a) -> IO ()
 assertThrowsContains needle mkAction = do
