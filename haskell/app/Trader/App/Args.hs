@@ -961,10 +961,21 @@ validateArgs args0 = do
                 PlatformPancakeswap -> True
                 PlatformOneInch -> True
                 _ -> False
+        normalizeDelimitedSymbol delim raw =
+            let normalized = map toUpper (trim raw)
+             in map (normalizeDelimiter delim) normalized
+        normalizeDelimiter delim c
+            | c == delim = delim
+            | c == '/' = delim
+            | delim == '-' && c == '_' = delim
+            | delim == '_' && c == '-' = delim
+            | otherwise = c
         symbolNormalizer =
-            if isDexPlatform (argPlatform args0)
-                then trim
-                else map toUpper . trim
+            case argPlatform args0 of
+                p | isDexPlatform p -> trim
+                PlatformCoinbase -> normalizeDelimitedSymbol '-'
+                PlatformPoloniex -> normalizeDelimitedSymbol '_'
+                _ -> map toUpper . trim
     let args =
             args0
                 { argData = fmap trim (argData args0)

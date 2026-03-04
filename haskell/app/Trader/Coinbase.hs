@@ -10,6 +10,7 @@ module Trader.Coinbase (
     fetchCoinbaseAvailableBalance,
     fetchCoinbaseCandles,
     decodeCoinbaseCandles,
+    buildRanges,
     placeCoinbaseMarketOrder,
 ) where
 
@@ -207,16 +208,19 @@ buildRanges :: Int64 -> Int64 -> Int -> [(Int64, Int64)]
 buildRanges endSec granularitySec bars =
     let bars' = max 1 bars
         g = max 1 granularitySec
+        endSec' = max 0 endSec
         go acc remaining endTime =
-            if remaining <= 0
+            if remaining <= 0 || endTime <= 0
                 then reverse acc
                 else
                     let chunkBars = min coinbaseMaxBarsPerRequest remaining
                         spanSec = fromIntegral chunkBars * g
                         startTime = max 0 (endTime - spanSec)
-                        nextEnd = max 0 (startTime - g)
-                     in go ((startTime, endTime) : acc) (remaining - chunkBars) nextEnd
-     in go [] bars' endSec
+                        acc' = (startTime, endTime) : acc
+                     in if remaining - chunkBars <= 0 || startTime <= 0
+                            then reverse acc'
+                            else go acc' (remaining - chunkBars) (startTime - g)
+     in go [] bars' endSec'
 
 formatIso :: Int64 -> BS.ByteString
 formatIso sec =

@@ -225,6 +225,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Platform parsing is case-insensitive and trims surrounding whitespace (for example `--platform "  Coinbase  "`).
     - Coinbase products use `BASE-QUOTE` (for example `BTC-USD`).
     - Poloniex symbols use `BASE_QUOTE` (for example `BTC_USDT`); legacy `USDT_BTC` is auto-swapped.
+    - Coinbase/Poloniex symbol delimiters are normalized during validation, so slash inputs like `BTC/USD` and `BTC/USDT` are accepted and rewritten to `BTC-USD` / `BTC_USDT`.
 
 - Bars & lookback (defaults: `--interval 1h`, `--lookback-window 7d` → 168 bars, `--bars auto`)
 - `--interval 1h` (alias `--binance-interval`) bar interval / exchange kline interval

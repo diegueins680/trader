@@ -17,7 +17,7 @@ import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, ful
 import System.Exit (exitFailure, exitSuccess)
 import System.Timeout (timeout)
 
-import Trader.App.Args (Args, argLookback, opts, parseTimestampMs, validateArgs)
+import Trader.App.Args (Args, argBinanceSymbol, argLookback, opts, parseTimestampMs, validateArgs)
 import Trader.Binance (
     BinanceMarket (..),
     BinanceOrderMode (..),
@@ -35,7 +35,7 @@ import Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
     shouldResolveOriginComboOnAutoStart,
  )
-import Trader.Coinbase (CoinbaseCandle (..), decodeCoinbaseCandles)
+import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds)
 import Trader.Http (boundedBackoffMs, parseRetryAfterMsAt)
@@ -123,6 +123,7 @@ main = do
               , run "binance kline json parsing" testBinanceKlineParsing
               , run "coinbase candle parser rejects fractional numeric timestamp" testCoinbaseFractionalTimestampRejected
               , run "coinbase candle parser normalizes millisecond timestamp boundaries" testCoinbaseTimestampBoundaryNormalization
+              , run "coinbase range builder stops at epoch boundary" testCoinbaseBuildRangesStopsAtEpochBoundary
               , run "kraken candle parser rejects fractional numeric timestamp" testKrakenFractionalTimestampRejected
               , run "poloniex candle parser rejects fractional numeric timestamp" testPoloniexFractionalTimestampRejected
               , run "poloniex candle parser normalizes millisecond timestamp boundaries" testPoloniexTimestampBoundaryNormalization
@@ -130,6 +131,8 @@ main = do
               , run "method parsing" testMethodParsing
               , run "platform parsing" testPlatformParsing
               , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+              , run "coinbase args normalize slash symbols" testCoinbaseSlashSymbolNormalization
+              , run "poloniex args normalize slash symbols" testPoloniexSlashSymbolNormalization
               , run "dry-run requires trade flag" testDryRunRequiresTrade
               , run "dry-run trade bypasses runtime credentials" testDryRunBypassesRuntimeCredentials
               , run "dry-run skips non-owner API key requirement" testDryRunSkipsNonOwnerUserKeyRequirement
@@ -844,6 +847,11 @@ testCoinbaseTimestampBoundaryNormalization = do
             assert "coinbase positive ms boundary normalized" (ccOpenTime (requireHead "missing first Coinbase candle" xs) == 1000000000)
             assert "coinbase negative ms boundary normalized" (ccOpenTime (requireLast "missing last Coinbase candle" xs) == -1000000000)
 
+testCoinbaseBuildRangesStopsAtEpochBoundary :: IO ()
+testCoinbaseBuildRangesStopsAtEpochBoundary = do
+    let ranges = buildRanges 120 10 1000
+    assert "coinbase range builder should stop after reaching epoch start" (ranges == [(0, 120)])
+
 testKrakenFractionalTimestampRejected :: IO ()
 testKrakenFractionalTimestampRejected = do
     let okJson =
@@ -981,6 +989,18 @@ testNonBinanceArgsLiveDefault = do
     case parseArgsResult (krakenBaseArgs ++ ["--binance-live"]) of
         Left err -> assert "explicit --binance-live rejected on kraken" ("--binance-live is only supported on Binance/Coinbase" `isInfixOf` err)
         Right _ -> error "expected explicit --binance-live to be rejected on kraken"
+
+testCoinbaseSlashSymbolNormalization :: IO ()
+testCoinbaseSlashSymbolNormalization =
+    case parseArgsResult ["--platform", "coinbase", "--symbol", "btc/usd"] of
+        Left err -> error ("expected Coinbase slash symbol normalization to pass: " ++ err)
+        Right args -> assert "coinbase slash symbol normalized to dash" (argBinanceSymbol args == Just "BTC-USD")
+
+testPoloniexSlashSymbolNormalization :: IO ()
+testPoloniexSlashSymbolNormalization =
+    case parseArgsResult ["--platform", "poloniex", "--symbol", "btc/usdt", "--interval", "2h"] of
+        Left err -> error ("expected Poloniex slash symbol normalization to pass: " ++ err)
+        Right args -> assert "poloniex slash symbol normalized to underscore" (argBinanceSymbol args == Just "BTC_USDT")
 
 testDryRunRequiresTrade :: IO ()
 testDryRunRequiresTrade =
