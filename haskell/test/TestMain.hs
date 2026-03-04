@@ -16,7 +16,7 @@ import qualified Data.Vector as V
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
 import System.Exit (exitFailure, exitSuccess)
 
-import Trader.App.Args (Args, argLookback, opts, validateArgs)
+import Trader.App.Args (Args, argLookback, opts, parseTimestampMs, validateArgs)
 import Trader.Binance (
     BinanceMarket (..),
     BinanceOrderMode (..),
@@ -120,7 +120,9 @@ main = do
               , run "backtest window validates time formats" testBacktestWindowTimeValidation
               , run "backtest window rejects overflow scientific timestamp" testBacktestWindowOverflowScientificValidation
               , run "backtest window accepts ISO offsets" testBacktestWindowIsoOffsetValidation
+              , run "backtest window keeps negative millisecond epochs" testBacktestWindowNegativeMillisecondsValidation
               , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
+              , run "idempotency key enforces max length" testIdempotencyKeyLengthValidation
               , run "retry-after date parsing" testRetryAfterDateParsing
               , run "initial balance must be positive" testInitialBalanceValidation
               , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
@@ -904,11 +906,27 @@ testBacktestWindowIsoOffsetValidation =
         Left err -> error ("expected ISO offset to parse: " ++ err)
         Right _ -> pure ()
 
+testBacktestWindowNegativeMillisecondsValidation :: IO ()
+testBacktestWindowNegativeMillisecondsValidation = do
+    let expected = -1704067200000 :: Int64
+    assert
+        "negative millisecond epoch is preserved"
+        (parseTimestampMs "-1704067200000" == Just expected)
+
 testBacktestWindowOrderValidation :: IO ()
 testBacktestWindowOrderValidation =
     case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-02", "--to", "2025-01-01"] of
         Left err -> assert "from<=to enforced" ("--from must be <= --to" `isInfixOf` err)
         Right _ -> error "expected --from > --to to fail validation"
+
+testIdempotencyKeyLengthValidation :: IO ()
+testIdempotencyKeyLengthValidation =
+    case parseArgsResult ["--data", "sample.csv", "--idempotency-key", replicate 37 'a'] of
+        Left err ->
+            assert
+                "idempotency key length > 36 rejected"
+                ("--idempotency-key must be 1..36 chars" `isInfixOf` err)
+        Right _ -> error "expected idempotency key longer than 36 chars to fail validation"
 
 testRetryAfterDateParsing :: IO ()
 testRetryAfterDateParsing = do

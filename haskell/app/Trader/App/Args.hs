@@ -328,9 +328,17 @@ parseTimeInt64 s =
 
 normalizeEpochMs :: Int64 -> Int64
 normalizeEpochMs n =
-    if n < 100000000000
-        then n * 1000
-        else n
+    let nInteger = toInteger n
+        threshold = 100000000000 :: Integer
+     in if abs nInteger < threshold
+            then
+                let scaled = nInteger * 1000
+                    lo = toInteger (minBound :: Int64)
+                    hi = toInteger (maxBound :: Int64)
+                 in if scaled < lo || scaled > hi
+                        then n
+                        else fromInteger scaled
+            else n
 
 parseIsoTimeMs :: String -> Maybe Int64
 parseIsoTimeMs s =
@@ -368,13 +376,14 @@ looksLikeIso8601Prefix s =
         _ -> False
 
 parseTimestampMs :: String -> Maybe Int64
-parseTimestampMs s =
-    case parseTimeInt64 s of
-        Just n -> Just (normalizeEpochMs n)
-        Nothing ->
-            if looksLikeIso8601Prefix s
-                then parseIsoTimeMs s
-                else Nothing
+parseTimestampMs raw =
+    let s = trim raw
+     in case parseTimeInt64 s of
+            Just n -> Just (normalizeEpochMs n)
+            Nothing ->
+                if looksLikeIso8601Prefix s
+                    then parseIsoTimeMs s
+                    else Nothing
 
 positioningCode :: Positioning -> String
 positioningCode p =
@@ -1332,11 +1341,8 @@ validateArgs args0 = do
         Nothing -> pure ()
         Just raw ->
             let k = trim raw
-                okLen =
-                    case splitAt 37 k of
-                        ("", _) -> False
-                        (_, []) -> True
-                        _ -> False
+                len = length k
+                okLen = len >= 1 && len <= 36
                 okChars = all (\c -> isAlphaNum c || c == '-' || c == '_') k
              in ensure "--idempotency-key must be 1..36 chars of [A-Za-z0-9_-]" (okLen && okChars)
     case argDexChainId args of

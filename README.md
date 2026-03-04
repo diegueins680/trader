@@ -247,7 +247,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`)
   - `--order-quote-fraction F` (default: none) size BUY orders as a fraction of the free quote balance (`0 < F <= 1`)
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
-  - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
+  - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders (must be `1..36` chars, `[A-Za-z0-9_-]`)
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
   - Order sizes are applied as specified (no extra multiplier).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
@@ -481,6 +481,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
     - The split must leave at least `lookback+1` training bars and 2 backtest bars, otherwise it errors.
   - `--from TIME` / `--to TIME` optional backtest window bounds (epoch seconds/ms or ISO-8601, for example `2025-01-01`, `2025-01-01T00:00:00Z`, or `2025-01-01T00:00:00+00:00`)
+    - Numeric epoch parsing uses absolute magnitude for seconds-vs-milliseconds detection, so negative millisecond epochs are preserved correctly.
     - Backtest window filtering requires bar timestamps (exchange candles or CSV with a parseable time column).
     - ISO-8601 timezone offsets (`+HH:MM` / `-HH:MM`, and compact `+HHMM`) are supported.
   - `--initial-balance B` initial backtest balance (`> 0`, default `1.0`); scales equity outputs while keeping return/risk ratios unchanged.

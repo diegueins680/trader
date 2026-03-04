@@ -177,13 +177,24 @@ isRetryableStatus code =
 
 computeDelay :: RetryConfig -> Int -> Maybe Int -> IO Int
 computeDelay cfg attempt mRetryAfter = do
-    let base = rcBaseDelayMs cfg * (2 ^ attempt)
-        capped = min (rcMaxDelayMs cfg) base
+    let capped = boundedBackoffMs (rcBaseDelayMs cfg) (rcMaxDelayMs cfg) attempt
     jittered <- applyJitter capped (rcJitterFrac cfg)
     pure $
         case mRetryAfter of
             Nothing -> jittered
             Just ra -> max jittered ra
+
+boundedBackoffMs :: Int -> Int -> Int -> Int
+boundedBackoffMs baseDelay maxDelay attempt =
+    let base = max 0 baseDelay
+        cap = max 0 maxDelay
+        steps = max 0 attempt
+        go n current
+            | current <= 0 = 0
+            | current >= cap = cap
+            | n <= 0 = min cap current
+            | otherwise = go (n - 1) (current * 2)
+     in go steps base
 
 applyJitter :: Int -> Double -> IO Int
 applyJitter delayMs jitterFrac =
