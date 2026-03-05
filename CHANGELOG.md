@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - CLI parsing: tighten `--from`/`--to` and `--bars` numeric parsing to strict base-10 integers only (reject scientific notation and non-decimal literals like `0x10`) so epoch/window and bars inputs cannot be silently reinterpreted.
 - CSV loading: reject non-finite numeric values (`NaN`/`Infinity`) in price/high/low/open/volume cells instead of silently accepting them into backtests/trading math.
 - Optimizer/top-combos merge: treat nested `metrics.score` as equivalent to top-level `score` when ranking and de-duplicating combos, so mixed payload shapes keep the best-scored records.
+- Optimizer/top-combos merge: inherit payload-level `source` into combos when combo `source` is missing so de-duplication by full identity (`params + thresholds + objective + source`) preserves same-parameter combos from different sources.
 - HTTP retries: when multiple `Retry-After` headers are present, parse the first valid value instead of failing on an earlier malformed duplicate.
 - Signal gating: harden funding/OI dampening against non-finite inputs so invalid values no longer propagate `NaN` size multipliers.
 - Signal gating: treat `--funding-oi-funding-cap` / `--funding-oi-vol-cap` values `<= 0` as disabled (matching documented `0 disables`) instead of applying them as strict blocking caps.

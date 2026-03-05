@@ -591,7 +591,7 @@ Endpoints:
   - The Web UI applies guardrails for trials/timeout/bars to avoid runaway optimizer runs (see UI constants).
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
   - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), using score (`score` or `metrics.score`) and final equity as tie-breakers.
-  - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist.
+  - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist; when a combo omits `source`, merge inherits the payload-level `source` before de-duplication.
   - Top-combo merges backfill missing `metrics.annualizedReturn`, and new optimizer runs stamp `params.binanceSymbol` so combos stay labeled.
   - Abandoned optimizer lock directories are reclaimed quickly (10s heartbeat, 45s stale cutoff) so stale locks do not block `/optimizer/combos` for long after crashes/restarts.
   - Combo symbols are normalized for Binance (e.g., `BTC/USDT` → `BTCUSDT`) and trim dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` → `BNBUSDT`) when read/merged.

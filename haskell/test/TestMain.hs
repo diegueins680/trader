@@ -11,7 +11,7 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
-import Data.List (foldl', isInfixOf)
+import Data.List (foldl', isInfixOf, sort)
 import Data.Maybe (isNothing)
 import qualified Data.Maybe
 import qualified Data.Vector as V
@@ -193,6 +193,7 @@ main = do
               , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
               , run "top combos merge ranks by nested metrics score" testMergeTopCombosRanksByNestedScore
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
+              , run "top combos merge keeps same params across distinct sources" testMergeTopCombosKeepsDistinctSources
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
               , run "top combos infer compact symbol from unknown delimited pair" testTopCombosUnknownPlatformPairNormalization
               , run "top combos reject numeric-only delimited symbols" testTopCombosRejectNumericOnlyDelimitedSymbols
@@ -296,6 +297,15 @@ requireComboMetricsScore label val =
                         Just score -> score
                         Nothing -> error (label ++ ": missing metrics.score")
                 _ -> error (label ++ ": missing metrics object")
+        _ -> error (label ++ ": combo is not an object")
+
+requireComboSource :: String -> Aeson.Value -> String
+requireComboSource label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "source" o >>= AT.parseMaybe Aeson.parseJSON of
+                Just source -> source
+                Nothing -> error (label ++ ": missing source")
         _ -> error (label ++ ": combo is not an object")
 
 parseArgs :: [String] -> IO Args
@@ -1703,6 +1713,34 @@ testMergeTopCombosDedupPrefersNestedScore = do
         picked = requireHead "expected one deduped combo" combos
     assert "duplicate merge should keep exactly one combo" (length combos == 1)
     assertApprox "dedupe should prefer higher nested metrics.score" 1e-12 (requireComboMetricsScore "dedup picked combo" picked) 0.9
+
+testMergeTopCombosKeepsDistinctSources :: IO ()
+testMergeTopCombosKeepsDistinctSources = do
+    let mkCombo finalEq =
+            object
+                [ "params" .= object ["symbol" .= ("BTCUSDT" :: String)]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= finalEq, "score" .= (0.8 :: Double)]
+                ]
+        payload source finalEq generatedAtMs =
+            object
+                [ "source" .= source
+                , "generatedAtMs" .= generatedAtMs
+                , "combos" .= [mkCombo finalEq]
+                ]
+        merged =
+            mergeTopCombosPayloads
+                5
+                3
+                [ payload ("unit-source-a" :: String) (1.2 :: Double) (1 :: Int64)
+                , payload ("unit-source-b" :: String) (1.3 :: Double) (2 :: Int64)
+                ]
+        combos = requireCombosArray "distinct sources merged payload" merged
+        sources = sort (map (requireComboSource "distinct source combo") combos)
+    assert "same params should be kept when payload sources differ" (length combos == 2)
+    assert "merged combos preserve distinct payload sources" (sources == ["unit-source-a", "unit-source-b"])
 
 testDexTradeArgsRequireTokensNotSymbol :: IO ()
 testDexTradeArgsRequireTokensNotSymbol = do

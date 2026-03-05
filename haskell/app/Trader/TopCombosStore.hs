@@ -388,8 +388,8 @@ isPoloniexPlatformKey :: String -> Bool
 isPoloniexPlatformKey key = key == "poloniex" || "poloniex" `isPrefixOf` key
 
 sanitizeComboSymbolForPlatform :: Maybe String -> String -> Maybe String
-sanitizeComboSymbolForPlatform platform raw =
-    Symbol.sanitizeComboSymbolForPlatform (canonicalComboPlatform platform) raw
+sanitizeComboSymbolForPlatform platform =
+    Symbol.sanitizeComboSymbolForPlatform (canonicalComboPlatform platform)
 
 canonicalComboPlatform :: Maybe String -> Maybe String
 canonicalComboPlatform platform =
@@ -494,19 +494,31 @@ extractPayloadSource val =
     case val of
         Aeson.Object o -> KM.lookup (AK.fromString "source") o >>= AT.parseMaybe Aeson.parseJSON >>= cleanPayloadSource
         _ -> Nothing
-  where
-    cleanPayloadSource = nonEmptyString . trim
+
+cleanPayloadSource :: String -> Maybe String
+cleanPayloadSource = nonEmptyString . trim
 
 extractCombos :: Aeson.Value -> [Aeson.Value]
 extractCombos val =
     case val of
         Aeson.Object o ->
             let generatedAtMs = KM.lookup (AK.fromString "generatedAtMs") o >>= AT.parseMaybe Aeson.parseJSON
-                applyCreatedAt = applyComboCreatedAt generatedAtMs
+                payloadSource = KM.lookup (AK.fromString "source") o >>= AT.parseMaybe Aeson.parseJSON >>= cleanPayloadSource
+                applyPayloadMetadata = applyComboCreatedAt generatedAtMs . applyComboSource payloadSource
              in case KM.lookup (AK.fromString "combos") o of
-                    Just (Aeson.Array arr) -> map applyCreatedAt (V.toList arr)
+                    Just (Aeson.Array arr) -> map applyPayloadMetadata (V.toList arr)
                     _ -> []
         _ -> []
+
+applyComboSource :: Maybe String -> Aeson.Value -> Aeson.Value
+applyComboSource source val =
+    case (source, val) of
+        (Just src, Aeson.Object o) ->
+            case KM.lookup (AK.fromString "source") o of
+                Just Aeson.Null -> Aeson.Object (KM.insert (AK.fromString "source") (toJSON src) o)
+                Just _ -> val
+                Nothing -> Aeson.Object (KM.insert (AK.fromString "source") (toJSON src) o)
+        _ -> val
 
 applyComboCreatedAt :: Maybe Int64 -> Aeson.Value -> Aeson.Value
 applyComboCreatedAt createdAtMs val =
