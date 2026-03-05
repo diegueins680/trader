@@ -19,7 +19,7 @@ module Trader.Platform (
     poloniexIntervalSeconds,
 ) where
 
-import Data.Char (isSpace, toLower)
+import Data.Char (isDigit, isSpace, toLower)
 import Data.List (dropWhileEnd, intercalate)
 
 import Trader.BinanceIntervals (binanceIntervals)
@@ -84,6 +84,15 @@ parsePlatform raw =
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
 
+normalizeIntervalCode :: String -> String
+normalizeIntervalCode raw =
+    let s = trim raw
+     in case span isDigit s of
+            (digits, [u])
+                | not (null digits) ->
+                    digits ++ [if u == 'M' then 'M' else toLower u]
+            _ -> s
+
 platformIntervals :: Platform -> [String]
 platformIntervals p =
     case p of
@@ -102,7 +111,9 @@ platformIntervalsCsv :: Platform -> String
 platformIntervalsCsv = intercalate "," . platformIntervals
 
 isPlatformInterval :: Platform -> String -> Bool
-isPlatformInterval p v = v `elem` platformIntervals p
+isPlatformInterval p v =
+    let normalized = normalizeIntervalCode v
+     in any ((== normalized) . normalizeIntervalCode) (platformIntervals p)
 
 platformDefaultBars :: Platform -> Int
 platformDefaultBars p =
@@ -138,7 +149,7 @@ platformSupportsMarketContext p = p == PlatformBinance
 
 coinbaseIntervalSeconds :: String -> Maybe Int
 coinbaseIntervalSeconds interval =
-    case interval of
+    case normalizeIntervalCode interval of
         "1m" -> Just 60
         "5m" -> Just 300
         "15m" -> Just 900
@@ -149,7 +160,7 @@ coinbaseIntervalSeconds interval =
 
 krakenIntervalMinutes :: String -> Maybe Int
 krakenIntervalMinutes interval =
-    case interval of
+    case normalizeIntervalCode interval of
         "1m" -> Just 1
         "5m" -> Just 5
         "15m" -> Just 15
@@ -162,7 +173,7 @@ krakenIntervalMinutes interval =
 
 poloniexIntervalSeconds :: String -> Maybe Int
 poloniexIntervalSeconds interval =
-    case interval of
+    case normalizeIntervalCode interval of
         "5m" -> Just 300
         "15m" -> Just 900
         "30m" -> Just 1800
@@ -173,7 +184,7 @@ poloniexIntervalSeconds interval =
 
 poloniexIntervalLabel :: String -> Maybe String
 poloniexIntervalLabel interval =
-    case interval of
+    case normalizeIntervalCode interval of
         "5m" -> Just "MINUTE_5"
         "15m" -> Just "MINUTE_15"
         "30m" -> Just "MINUTE_30"

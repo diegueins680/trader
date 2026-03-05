@@ -414,6 +414,15 @@ parseTimestampMs raw =
                     then parseIsoTimeMs s
                     else Nothing
 
+normalizeIntervalCode :: String -> String
+normalizeIntervalCode raw =
+    let s = trim raw
+     in case span isDigit s of
+            (digits, [u])
+                | not (null digits) ->
+                    digits ++ [if u == 'M' then 'M' else toLower u]
+            _ -> s
+
 positioningCode :: Positioning -> String
 positioningCode p =
     case p of
@@ -478,7 +487,10 @@ opts = do
             )
     argBinanceFutures <- switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders (Binance only)")
     argBinanceMargin <- switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance (Binance only)")
-    argInterval <- strOption (long "interval" <> long "binance-interval" <> value "1h" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)")
+    argInterval <-
+        fmap
+            normalizeIntervalCode
+            (strOption (long "interval" <> long "binance-interval" <> value "1h" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)"))
     argBars <-
         option
             (eitherReader parseBarsArg)
@@ -999,7 +1011,7 @@ validateArgs args0 = do
             args0
                 { argData = fmap trim (argData args0)
                 , argBinanceSymbol = fmap symbolNormalizer (argBinanceSymbol args0)
-                , argInterval = trim (argInterval args0)
+                , argInterval = normalizeIntervalCode (argInterval args0)
                 , argPriceCol = trim (argPriceCol args0)
                 , argHighCol = fmap trim (argHighCol args0)
                 , argLowCol = fmap trim (argLowCol args0)

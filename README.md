@@ -232,6 +232,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 
 - Bars & lookback (defaults: `--interval 1h`, `--lookback-window 7d` → 168 bars, `--bars auto`)
 - `--interval 1h` (alias `--binance-interval`) bar interval / exchange kline interval
+  - Interval inputs are trimmed and normalized for unit casing (`1H` -> `1h`, `2D` -> `2d`); Binance monthly `1M` remains distinct from minute `1m`.
 - `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or platform default for exchanges: Binance/Kraken/Poloniex=500, Coinbase=300; CSV also supports `0` = all; Binance 2..1000)
   - `--lookback-window 7d` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars

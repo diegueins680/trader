@@ -19,7 +19,7 @@ import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, ful
 import System.Exit (exitFailure, exitSuccess)
 import System.Timeout (timeout)
 
-import Trader.App.Args (Args, argBinanceSymbol, argLookback, opts, parseTimestampMs, validateArgs)
+import Trader.App.Args (Args, argBinanceSymbol, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
 import Trader.Binance (
     BinanceMarket (..),
     BinanceOrderMode (..),
@@ -137,6 +137,7 @@ main = do
               , run "binance args normalize slash symbols" testBinanceSlashSymbolNormalization
               , run "coinbase args normalize slash symbols" testCoinbaseSlashSymbolNormalization
               , run "poloniex args normalize slash symbols" testPoloniexSlashSymbolNormalization
+              , run "args normalize interval casing/spacing" testArgsNormalizeIntervalCode
               , run "coinbase args reject compact symbols without delimiter" testCoinbaseCompactSymbolRejected
               , run "poloniex args reject compact symbols without delimiter" testPoloniexCompactSymbolRejected
               , run "binance args reject malformed non-alnum symbols" testBinanceMalformedSymbolRejected
@@ -1063,6 +1064,12 @@ testPoloniexSlashSymbolNormalization =
         Left err -> error ("expected Poloniex slash symbol normalization to pass: " ++ err)
         Right args -> assert "poloniex slash symbol normalized to underscore" (argBinanceSymbol args == Just "BTC_USDT")
 
+testArgsNormalizeIntervalCode :: IO ()
+testArgsNormalizeIntervalCode =
+    case parseArgsResult ["--platform", "binance", "--symbol", "BTCUSDT", "--interval", " 1H "] of
+        Left err -> error ("expected interval normalization to pass: " ++ err)
+        Right args -> assert "interval normalized to canonical code" (argInterval args == "1h")
+
 testCoinbaseCompactSymbolRejected :: IO ()
 testCoinbaseCompactSymbolRejected =
     case parseArgsResult ["--platform", "coinbase", "--symbol", "BTCUSD"] of
@@ -1677,17 +1684,25 @@ mkDexTestEnv =
 testPlatformIntervals :: IO ()
 testPlatformIntervals = do
     assert "binance supports 3m" (isPlatformInterval PlatformBinance "3m")
+    assert "binance supports uppercase hour interval" (isPlatformInterval PlatformBinance "1H")
+    assert "binance supports trimmed interval input" (isPlatformInterval PlatformBinance " 1h ")
+    assert "binance keeps monthly interval distinct" (isPlatformInterval PlatformBinance "1M")
     assert "coinbase supports 1h" (isPlatformInterval PlatformCoinbase "1h")
+    assert "coinbase supports uppercase interval input" (isPlatformInterval PlatformCoinbase "1H")
     assert "kraken rejects 3m" (not (isPlatformInterval PlatformKraken "3m"))
     assert "poloniex supports 2h" (isPlatformInterval PlatformPoloniex "2h")
 
 testPlatformIntervalMapping :: IO ()
 testPlatformIntervalMapping = do
     assert "coinbase 1h -> 3600s" (coinbaseIntervalSeconds "1h" == Just 3600)
+    assert "coinbase trims + normalizes casing" (coinbaseIntervalSeconds " 1H " == Just 3600)
     assert "coinbase rejects 30m" (isNothing (coinbaseIntervalSeconds "30m"))
     assert "kraken 1h -> 60m" (krakenIntervalMinutes "1h" == Just 60)
+    assert "kraken trims + normalizes casing" (krakenIntervalMinutes " 1H " == Just 60)
     assert "poloniex 2h -> HOUR_2" (poloniexIntervalLabel "2h" == Just "HOUR_2")
+    assert "poloniex trims + normalizes casing (label)" (poloniexIntervalLabel " 2H " == Just "HOUR_2")
     assert "poloniex 2h -> 7200s" (poloniexIntervalSeconds "2h" == Just 7200)
+    assert "poloniex trims + normalizes casing (seconds)" (poloniexIntervalSeconds " 2H " == Just 7200)
     assert "poloniex rejects 1m" (isNothing (poloniexIntervalSeconds "1m"))
 
 testMethodSelection :: IO ()
