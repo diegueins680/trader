@@ -11,6 +11,7 @@ module Trader.Coinbase (
     fetchCoinbaseCandles,
     decodeCoinbaseCandles,
     buildRanges,
+    normalizeCoinbaseCandles,
     placeCoinbaseMarketOrder,
 ) where
 
@@ -158,24 +159,23 @@ placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId =
 
 fetchCoinbaseCandles :: String -> Int -> Int -> IO [CoinbaseCandle]
 fetchCoinbaseCandles product granularitySec bars = do
-    let key = map toUpperAscii (trim product) ++ ":" ++ show granularitySec ++ ":" ++ show bars
+    let totalBars = max 1 bars
+        key = map toUpperAscii (trim product) ++ ":" ++ show granularity ++ ":" ++ show totalBars
     fetchWithCache coinbaseCandlesCache coinbaseCandlesFreshTtl coinbaseCandlesStaleTtl key $ do
         mgr <- getSharedManager
         now <- floor <$> getPOSIXTime
-        let totalBars = max 1 bars
-            ranges = buildRanges (fromIntegral now) (fromIntegral granularitySec) totalBars
+        let ranges = buildRanges (fromIntegral now) (fromIntegral granularity) totalBars
         chunks <- mapM (fetchRange mgr) ranges
-        let candles = concat chunks
-            sorted = sortOn ccOpenTime candles
-        pure (dedupByTime sorted)
+        pure (normalizeCoinbaseCandles totalBars (concat chunks))
   where
     cleaned = map toUpperAscii (trim product)
+    granularity = max 1 granularitySec
 
     fetchRange manager (startSec, endSec) = do
         req0 <- parseRequest (coinbaseBaseUrl ++ "/products/" ++ cleaned ++ "/candles")
         let req =
                 setQueryString
-                    [ ("granularity", Just (BS8.pack (show granularitySec)))
+                    [ ("granularity", Just (BS8.pack (show granularity)))
                     , ("start", Just (formatIso startSec))
                     , ("end", Just (formatIso endSec))
                     ]
@@ -305,6 +305,19 @@ dedupByTime = go Set.empty
     go seen (y : ys)
         | Set.member (ccOpenTime y) seen = go seen ys
         | otherwise = y : go (Set.insert (ccOpenTime y) seen) ys
+
+normalizeCoinbaseCandles :: Int -> [CoinbaseCandle] -> [CoinbaseCandle]
+normalizeCoinbaseCandles bars candles =
+    takeLast bars' (dedupByTime (sortOn ccOpenTime candles))
+  where
+    bars' = max 1 bars
+
+takeLast :: Int -> [a] -> [a]
+takeLast n xs
+    | n <= 0 = []
+    | otherwise =
+        let k = length xs - n
+         in if k <= 0 then xs else drop k xs
 
 signCoinbaseRequest :: CoinbaseEnv -> String -> String -> BS.ByteString -> Request -> IO Request
 signCoinbaseRequest env method path body req0 = do

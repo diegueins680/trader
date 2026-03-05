@@ -5,6 +5,7 @@ module Trader.Poloniex (
     poloniexBaseUrl,
     fetchPoloniexCandles,
     decodePoloniexCandles,
+    normalizePoloniexCandles,
 ) where
 
 import Control.Applicative ((<|>))
@@ -17,6 +18,7 @@ import Data.Char (toUpper)
 import Data.Int (Int64)
 import Data.List (sortOn)
 import qualified Data.Scientific as Scientific
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime)
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -54,13 +56,14 @@ poloniexCandlesStaleTtl = 300
 
 fetchPoloniexCandles :: String -> String -> Int -> Int -> IO [PoloniexCandle]
 fetchPoloniexCandles pair intervalLabel periodSec bars = do
-    let key = map toUpper (trim pair) ++ ":" ++ intervalLabel ++ ":" ++ show periodSec ++ ":" ++ show bars
+    let lookbackBars = max 1 bars
+        period = max 1 periodSec
+        key = map toUpper (trim pair) ++ ":" ++ intervalLabel ++ ":" ++ show period ++ ":" ++ show lookbackBars
     fetchWithCache poloniexCandlesCache poloniexCandlesFreshTtl poloniexCandlesStaleTtl key $ do
         mgr <- getSharedManager
         now <- floor <$> getPOSIXTime
-        let lookbackBars = max 1 bars
-            endMs = max 0 (fromIntegral now * 1000)
-            startMs = max 0 (endMs - fromIntegral lookbackBars * fromIntegral periodSec * 1000)
+        let endMs = max 0 (fromIntegral now * 1000)
+            startMs = max 0 (endMs - fromIntegral lookbackBars * fromIntegral period * 1000)
             candidates = poloniexSymbolCandidates pair
         go mgr startMs endMs candidates Nothing
   where
@@ -69,7 +72,7 @@ fetchPoloniexCandles pair intervalLabel periodSec bars = do
     go manager startMs endMs (sym : rest) lastErr = do
         res <- fetchSymbol manager startMs endMs sym
         case res of
-            Right xs -> pure (sortOn pcOpenTime xs)
+            Right xs -> pure (normalizePoloniexCandles bars xs)
             Left code ->
                 let err = userError ("Poloniex chart request failed for " ++ sym ++ " (HTTP " ++ show code ++ ")")
                     retryable = code `elem` [400, 404, 422]
@@ -222,3 +225,24 @@ splitOnUnderscore s =
     case break (== '_') s of
         (a, "") -> [a]
         (a, _ : rest) -> a : splitOnUnderscore rest
+
+normalizePoloniexCandles :: Int -> [PoloniexCandle] -> [PoloniexCandle]
+normalizePoloniexCandles bars candles =
+    takeLast bars' (dedupByTime (sortOn pcOpenTime candles))
+  where
+    bars' = max 1 bars
+
+dedupByTime :: [PoloniexCandle] -> [PoloniexCandle]
+dedupByTime = go Set.empty
+  where
+    go _ [] = []
+    go seen (x : xs)
+        | Set.member (pcOpenTime x) seen = go seen xs
+        | otherwise = x : go (Set.insert (pcOpenTime x) seen) xs
+
+takeLast :: Int -> [a] -> [a]
+takeLast n xs
+    | n <= 0 = []
+    | otherwise =
+        let k = length xs - n
+         in if k <= 0 then xs else drop k xs

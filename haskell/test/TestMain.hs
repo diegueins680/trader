@@ -39,7 +39,7 @@ import Trader.BotStartSemantics (
     shouldResolveOriginComboOnAutoStart,
  )
 import Trader.Cache (fetchWithCache, insertCache, newTtlCache)
-import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles)
+import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles, normalizeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds)
@@ -65,7 +65,7 @@ import Trader.Platform (
     poloniexIntervalLabel,
     poloniexIntervalSeconds,
  )
-import Trader.Poloniex (PoloniexCandle (..), decodePoloniexCandles)
+import Trader.Poloniex (PoloniexCandle (..), decodePoloniexCandles, normalizePoloniexCandles)
 import Trader.Predictors (
     Interval (..),
     Quantiles (..),
@@ -135,9 +135,11 @@ main = do
               , run "coinbase candle parser normalizes millisecond timestamp boundaries" testCoinbaseTimestampBoundaryNormalization
               , run "coinbase range builder stops at epoch boundary" testCoinbaseBuildRangesStopsAtEpochBoundary
               , run "coinbase range builder keeps chunk boundaries contiguous" testCoinbaseBuildRangesAreContiguous
+              , run "coinbase candle normalization dedupes and caps bars" testCoinbaseNormalizeCandlesDedupeAndLimit
               , run "kraken candle parser rejects fractional numeric timestamp" testKrakenFractionalTimestampRejected
               , run "poloniex candle parser rejects fractional numeric timestamp" testPoloniexFractionalTimestampRejected
               , run "poloniex candle parser normalizes millisecond timestamp boundaries" testPoloniexTimestampBoundaryNormalization
+              , run "poloniex candle normalization dedupes and caps bars" testPoloniexNormalizeCandlesDedupeAndLimit
               , run "exchange candle parsers reject non-finite numeric strings" testExchangeNonFiniteNumericStringRejected
               , run "method parsing" testMethodParsing
               , run "platform parsing" testPlatformParsing
@@ -984,6 +986,18 @@ testCoinbaseBuildRangesAreContiguous = do
     assert "coinbase newest chunk starts where oldest chunk ends" (fst newest == snd oldest)
     assert "coinbase oldest chunk should include exactly one bar" (oldest == (6990, 7000))
 
+testCoinbaseNormalizeCandlesDedupeAndLimit :: IO ()
+testCoinbaseNormalizeCandlesDedupeAndLimit = do
+    let candles =
+            [ CoinbaseCandle{ccOpenTime = 300, ccHigh = 3.0, ccLow = 2.8, ccClose = 2.9}
+            , CoinbaseCandle{ccOpenTime = 100, ccHigh = 1.2, ccLow = 0.8, ccClose = 1.0}
+            , CoinbaseCandle{ccOpenTime = 200, ccHigh = 2.2, ccLow = 1.8, ccClose = 2.0}
+            , CoinbaseCandle{ccOpenTime = 200, ccHigh = 9.9, ccLow = 9.8, ccClose = 9.7}
+            ]
+        normalized = normalizeCoinbaseCandles 2 candles
+    assert "coinbase normalization keeps requested bar count" (length normalized == 2)
+    assert "coinbase normalization keeps latest unique bars" (map ccOpenTime normalized == [200, 300])
+
 testKrakenFractionalTimestampRejected :: IO ()
 testKrakenFractionalTimestampRejected = do
     let okJson =
@@ -1020,6 +1034,18 @@ testPoloniexTimestampBoundaryNormalization = do
         Right xs -> do
             assert "poloniex positive ms boundary normalized" (pcOpenTime (requireHead "missing first Poloniex candle" xs) == 1000000000)
             assert "poloniex negative ms boundary normalized" (pcOpenTime (requireLast "missing last Poloniex candle" xs) == -1000000000)
+
+testPoloniexNormalizeCandlesDedupeAndLimit :: IO ()
+testPoloniexNormalizeCandlesDedupeAndLimit = do
+    let candles =
+            [ PoloniexCandle{pcOpenTime = 200, pcHigh = 2.0, pcLow = 1.5, pcClose = 1.8}
+            , PoloniexCandle{pcOpenTime = 100, pcHigh = 1.1, pcLow = 0.9, pcClose = 1.0}
+            , PoloniexCandle{pcOpenTime = 300, pcHigh = 3.0, pcLow = 2.5, pcClose = 2.8}
+            , PoloniexCandle{pcOpenTime = 300, pcHigh = 9.0, pcLow = 8.5, pcClose = 8.8}
+            ]
+        normalized = normalizePoloniexCandles 2 candles
+    assert "poloniex normalization keeps requested bar count" (length normalized == 2)
+    assert "poloniex normalization keeps latest unique bars" (map pcOpenTime normalized == [200, 300])
 
 testExchangeNonFiniteNumericStringRejected :: IO ()
 testExchangeNonFiniteNumericStringRejected = do
