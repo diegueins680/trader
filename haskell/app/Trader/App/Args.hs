@@ -1510,10 +1510,10 @@ validateArgs args0 = do
         Just v -> ensure "--periods-per-year must be > 0" (v > 0)
     case argOrderQuote args of
         Nothing -> pure ()
-        Just q -> ensure "--order-quote must be >= 0" (q >= 0)
+        Just q -> ensure "--order-quote must be > 0" (q > 0)
     case argOrderQuantity args of
         Nothing -> pure ()
-        Just q -> ensure "--order-quantity must be >= 0" (q >= 0)
+        Just q -> ensure "--order-quantity must be > 0" (q > 0)
 
     let qtyOn = maybe False (> 0) (argOrderQuantity args)
         quoteOn = maybe False (> 0) (argOrderQuote args)
@@ -1526,10 +1526,10 @@ validateArgs args0 = do
         Just f -> ensure "--order-quote-fraction must be > 0 and <= 1" (f > 0 && f <= 1)
     case argMaxOrderQuote args of
         Nothing -> pure ()
-        Just q -> ensure "--max-order-quote must be >= 0" (q >= 0)
+        Just q -> ensure "--max-order-quote must be > 0" (q > 0)
 
     case argMaxOrderQuote args of
-        Just q | q > 0 -> ensure "--max-order-quote requires --order-quote-fraction" fracOn
+        Just _ -> ensure "--max-order-quote requires --order-quote-fraction" fracOn
         _ -> pure ()
 
     let market = argBinanceMarket args

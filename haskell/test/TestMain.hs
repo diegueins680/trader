@@ -159,6 +159,7 @@ main = do
               , run "idempotency key enforces max length" testIdempotencyKeyLengthValidation
               , run "bars rejects overflow integer" testBarsOverflowValidation
               , run "cli numeric args reject non-finite values" testNumericArgsFiniteValidation
+              , run "trade sizing args reject zero values" testTradeSizingPositiveValidation
               , run "retry-after date parsing" testRetryAfterDateParsing
               , run "retry-after header lookup is case-insensitive" testRetryAfterHeaderLookupCaseInsensitive
               , run "retry-after uses first parseable duplicate header value" testRetryAfterDuplicateHeaderFallback
@@ -1271,6 +1272,18 @@ testNumericArgsFiniteValidation = do
     case parseArgsResult ["--data", "sample.csv", "--tune-stress-shock", "NaN"] of
         Left err -> assert "tune-stress-shock rejects NaN" ("--tune-stress-shock must be finite" `isInfixOf` err)
         Right _ -> error "expected NaN tune-stress-shock to fail validation"
+
+testTradeSizingPositiveValidation :: IO ()
+testTradeSizingPositiveValidation = do
+    case parseArgsResult ["--data", "sample.csv", "--order-quote", "0"] of
+        Left err -> assert "order-quote rejects zero" ("--order-quote must be > 0" `isInfixOf` err)
+        Right _ -> error "expected --order-quote=0 to fail validation"
+    case parseArgsResult ["--data", "sample.csv", "--order-quantity", "0"] of
+        Left err -> assert "order-quantity rejects zero" ("--order-quantity must be > 0" `isInfixOf` err)
+        Right _ -> error "expected --order-quantity=0 to fail validation"
+    case parseArgsResult ["--data", "sample.csv", "--order-quote-fraction", "0.5", "--max-order-quote", "0"] of
+        Left err -> assert "max-order-quote rejects zero" ("--max-order-quote must be > 0" `isInfixOf` err)
+        Right _ -> error "expected --max-order-quote=0 to fail validation"
 
 testRetryAfterDateParsing :: IO ()
 testRetryAfterDateParsing = do

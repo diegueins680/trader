@@ -249,10 +249,10 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--dry-run` (default: off) requires `--binance-trade`; computes signals and returns a simulated trade response, but never sends exchange/DEX requests
   - `--binance-live` (default: off) send LIVE orders
   - `--no-binance-live` send TEST orders (Binance only; Coinbase has no test endpoint)
-  - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`)
-  - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`)
+  - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`, must be `> 0`)
+  - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`, must be `> 0`)
   - `--order-quote-fraction F` (default: none) size BUY orders as a fraction of the free quote balance (`0 < F <= 1`)
-  - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
+  - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction` (must be `> 0`)
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders (must be `1..36` chars, `[A-Za-z0-9_-]`)
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
   - Numeric CLI parameters reject non-finite values (`NaN`, `Infinity`) during validation.
