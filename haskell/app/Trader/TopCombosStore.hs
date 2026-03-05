@@ -34,6 +34,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
+import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiUpper, isDigit, toUpper)
@@ -300,17 +301,17 @@ recalculateComboPerformanceFromOperation mInterval mStoredFinalEq mStoredAnnuali
 
     finiteMaybe mX = do
         x <- mX
-        if isFiniteDouble x then Just x else Nothing
+        bool Nothing (Just x) (isFiniteDouble x)
 
     positiveFiniteMaybe mX = do
         x <- finiteMaybe mX
-        if x > 0 then Just x else Nothing
+        bool Nothing (Just x) (x > 0)
 
     positiveFinite = positiveFiniteMaybe . Just
 
     nonNegativeFiniteMaybe mX = do
         x <- finiteMaybe mX
-        if x >= 0 then Just x else Nothing
+        bool Nothing (Just x) (x >= 0)
 
     nonNegativeFinite = nonNegativeFiniteMaybe . Just
 
@@ -406,7 +407,7 @@ sanitizeBinanceComboSymbol raw =
         pickTokenCandidate =
             case tokens of
                 [] -> Nothing
-                [a] -> if isValid a then Just a else Nothing
+                [a] -> bool Nothing (Just a) (isValid a)
                 a : b : _rest ->
                     let joined = a ++ b
                      in if b `elem` commonQuotes && isValid joined
@@ -416,7 +417,7 @@ sanitizeBinanceComboSymbol raw =
                                     then Just a
                                     else Nothing
         pickQuoteSuffix = trimBinanceComboSuffix s
-     in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
+     in pickQuoteSuffix <|> pickTokenCandidate <|> bool Nothing (Just s) (isValidBinanceSymbol s)
 
 splitAlphaNumTokens :: String -> [String]
 splitAlphaNumTokens =

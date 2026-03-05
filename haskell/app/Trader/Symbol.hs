@@ -8,6 +8,7 @@ module Trader.Symbol (
 
 import Control.Applicative ((<|>))
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
+import Data.Bool (bool)
 import Data.List (dropWhileEnd, find, foldl', isPrefixOf, isSuffixOf, maximumBy)
 import Data.Maybe (listToMaybe)
 import Data.Ord (comparing)
@@ -126,7 +127,7 @@ sanitizeDelimitedSymbol delim alt s =
         then Just s
         else
             let s' = map (\c -> if c == alt then delim else c) s
-             in if s' /= s && isValidDelimitedSymbol delim s' then Just s' else Nothing
+             in bool Nothing (Just s') (s' /= s && isValidDelimitedSymbol delim s')
 
 salvageBinanceSymbol :: String -> Maybe String
 salvageBinanceSymbol raw =
@@ -175,7 +176,7 @@ sanitizeBinanceComboSymbol raw =
         pickTokenCandidate =
             case tokens of
                 [] -> Nothing
-                [a] -> if isValid a then Just a else Nothing
+                [a] -> bool Nothing (Just a) (isValid a)
                 a : b : _rest ->
                     let joined = a ++ b
                      in if b `elem` commonQuotes && isValid joined
@@ -185,7 +186,7 @@ sanitizeBinanceComboSymbol raw =
                                     then Just a
                                     else Nothing
         pickQuoteSuffix = trimBinanceComboSuffix s
-     in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
+     in pickQuoteSuffix <|> pickTokenCandidate <|> bool Nothing (Just s) (isValidBinanceSymbol s)
 
 trimBinanceComboSuffix :: String -> Maybe String
 trimBinanceComboSuffix raw =
