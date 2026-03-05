@@ -19,7 +19,7 @@ import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, ful
 import System.Exit (exitFailure, exitSuccess)
 import System.Timeout (timeout)
 
-import Trader.App.Args (Args, argBinanceSymbol, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
+import Trader.App.Args (Args, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
 import Trader.Binance (
     BinanceMarket (..),
     BinanceOrderMode (..),
@@ -166,6 +166,8 @@ main = do
               , run "backtest window normalizes second epochs to milliseconds" testBacktestWindowSecondEpochNormalization
               , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
               , run "idempotency key enforces max length" testIdempotencyKeyLengthValidation
+              , run "idempotency key rejects non-ascii characters" testIdempotencyKeyAsciiValidation
+              , run "idempotency key trims surrounding whitespace" testIdempotencyKeyTrimValidation
               , run "bars rejects overflow integer" testBarsOverflowValidation
               , run "bars rejects non-decimal integer" testBarsNonDecimalValidation
               , run "cli numeric args reject non-finite values" testNumericArgsFiniteValidation
@@ -1368,6 +1370,24 @@ testIdempotencyKeyLengthValidation =
                 "idempotency key length > 36 rejected"
                 ("--idempotency-key must be 1..36 chars" `isInfixOf` err)
         Right _ -> error "expected idempotency key longer than 36 chars to fail validation"
+
+testIdempotencyKeyAsciiValidation :: IO ()
+testIdempotencyKeyAsciiValidation =
+    case parseArgsResult ["--data", "sample.csv", "--idempotency-key", "abc-ñ"] of
+        Left err ->
+            assert
+                "idempotency key rejects non-ascii characters"
+                ("--idempotency-key must be 1..36 chars" `isInfixOf` err)
+        Right _ -> error "expected non-ascii idempotency key to fail validation"
+
+testIdempotencyKeyTrimValidation :: IO ()
+testIdempotencyKeyTrimValidation =
+    case parseArgsResult ["--data", "sample.csv", "--idempotency-key", "  abc_123  "] of
+        Left err -> error ("expected idempotency key with surrounding spaces to be accepted after trimming: " ++ err)
+        Right args ->
+            assert
+                "idempotency key is trimmed before runtime use"
+                (argIdempotencyKey args == Just "abc_123")
 
 testBarsOverflowValidation :: IO ()
 testBarsOverflowValidation =

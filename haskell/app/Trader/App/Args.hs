@@ -20,7 +20,7 @@ module Trader.App.Args (
 
 import Control.Applicative ((<|>))
 import Control.Monad (forM_, when)
-import Data.Char (isAlphaNum, isDigit, toLower, toUpper)
+import Data.Char (isDigit, toLower, toUpper)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Time (defaultTimeLocale, parseTimeM)
@@ -1026,6 +1026,7 @@ validateArgs args0 = do
                 , argDexProtocols = fmap trim (argDexProtocols args0)
                 , argBacktestFrom = fmap trim (argBacktestFrom args0)
                 , argBacktestTo = fmap trim (argBacktestTo args0)
+                , argIdempotencyKey = fmap trim (argIdempotencyKey args0)
                 }
         present = maybe False (not . null)
     case argData args of
@@ -1562,7 +1563,7 @@ validateArgs args0 = do
             let k = trim raw
                 len = length k
                 okLen = len >= 1 && len <= 36
-                okChars = all (\c -> isAlphaNum c || c == '-' || c == '_') k
+                okChars = all (\c -> isAsciiAlphaNum c || c == '-' || c == '_') k
              in ensure "--idempotency-key must be 1..36 chars of [A-Za-z0-9_-]" (okLen && okChars)
     case argDexChainId args of
         Nothing -> pure ()
@@ -1609,3 +1610,12 @@ validateArgs args0 = do
 
     isFiniteNumber :: Double -> Bool
     isFiniteNumber x = not (isNaN x || isInfinite x)
+
+    isAsciiAlphaNum :: Char -> Bool
+    isAsciiAlphaNum c = isDigit c || isAsciiUpper c || isAsciiLower c
+
+    isAsciiUpper :: Char -> Bool
+    isAsciiUpper c = c >= 'A' && c <= 'Z'
+
+    isAsciiLower :: Char -> Bool
+    isAsciiLower c = c >= 'a' && c <= 'z'

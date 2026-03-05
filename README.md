@@ -256,7 +256,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`, must be `> 0`)
   - `--order-quote-fraction F` (default: none) size BUY orders as a fraction of the free quote balance (`0 < F <= 1`)
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction` (must be `> 0`)
-  - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders (must be `1..36` chars, `[A-Za-z0-9_-]`)
+  - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders (trimmed before use; must be `1..36` ASCII chars, `[A-Za-z0-9_-]`)
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
   - Numeric CLI parameters reject non-finite values (`NaN`, `Infinity`) during validation.
   - Order sizes are applied as specified (no extra multiplier).
