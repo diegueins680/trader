@@ -943,6 +943,8 @@ Outbox publisher worker (Phase 1 scaffold):
   - `noop` (default) leaves events pending (no publish attempts).
   - `stdout` prints each event and marks it published (placeholder publisher).
   - `kafka-rest` publishes events to Kafka via REST Proxy (`TRADER_OUTBOX_KAFKA_REST_URL` base URL; topic path auto-appended).
+- Invalid `TRADER_OUTBOX_PUBLISHER_MODE` values now fail startup (expected: `noop|stdout|kafka-rest`) instead of silently downgrading to `noop`.
+- `TRADER_OUTBOX_KAFKA_REST_URL` is required and URL-validated at startup when `TRADER_OUTBOX_PUBLISHER_MODE=kafka-rest`.
 - Optional tuning: `TRADER_OUTBOX_POLL_MS` (default `1000`), `TRADER_OUTBOX_BATCH_SIZE` (default `100`), `TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS` (default `60000`, reclaims stale `publishing` rows after worker crashes/restarts), `TRADER_OUTBOX_PUBLISHED_RETENTION_MS` (default `604800000` = 7 days; `0` disables cleanup).
 - `GET /outbox` optional query params: `status=pending|publishing|published|failed`.
 

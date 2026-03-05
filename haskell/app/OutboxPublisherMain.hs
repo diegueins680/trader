@@ -17,7 +17,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, query)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
-import Network.HTTP.Client (Manager, RequestBody (..), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
+import Network.HTTP.Client (Manager, Request (..), RequestBody (..), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (hContentType, statusCode)
 import System.Environment (lookupEnv)
@@ -115,11 +115,35 @@ resolveMode :: IO PublishMode
 resolveMode = do
     mRaw <- lookupEnv "TRADER_OUTBOX_PUBLISHER_MODE"
     let mode = map toLower (maybe "noop" trim mRaw)
-    pure $
-        case mode of
-            "stdout" -> PublishStdout
-            "kafka-rest" -> PublishKafkaRest
-            _ -> PublishNoop
+    case mode of
+        "noop" -> pure PublishNoop
+        "stdout" -> pure PublishStdout
+        "kafka-rest" -> pure PublishKafkaRest
+        _ ->
+            die
+                ( "Invalid TRADER_OUTBOX_PUBLISHER_MODE="
+                    ++ show mode
+                    ++ " (expected noop|stdout|kafka-rest)."
+                )
+
+validatePublisherConfig :: PublishMode -> Maybe String -> IO ()
+validatePublisherConfig mode kafkaRestBaseUrl =
+    case mode of
+        PublishKafkaRest ->
+            case kafkaRestBaseUrl of
+                Nothing -> die "TRADER_OUTBOX_KAFKA_REST_URL is required when TRADER_OUTBOX_PUBLISHER_MODE=kafka-rest."
+                Just baseUrl -> do
+                    let probeUrl = trim baseUrl ++ "/topics/trader-healthcheck"
+                    parsed <- try (parseRequest probeUrl) :: IO (Either SomeException Request)
+                    case parsed of
+                        Left _ ->
+                            die
+                                ( "Invalid TRADER_OUTBOX_KAFKA_REST_URL="
+                                    ++ show baseUrl
+                                    ++ "; expected an absolute http(s) URL."
+                                )
+                        Right _ -> pure ()
+        _ -> pure ()
 
 getTimestampMs :: IO Int64
 getTimestampMs = round . (* 1000) <$> getPOSIXTime
@@ -271,6 +295,7 @@ main = do
     publishedRetentionMs <- parseInt64EnvAllowZero "TRADER_OUTBOX_PUBLISHED_RETENTION_MS" 604800000
     mode <- resolveMode
     kafkaRestBaseUrl <- parseTextEnv "TRADER_OUTBOX_KAFKA_REST_URL"
+    validatePublisherConfig mode kafkaRestBaseUrl
     manager <- newManager tlsManagerSettings
     let ctx = PublisherCtx{pcMode = mode, pcKafkaRestBaseUrl = kafkaRestBaseUrl, pcManager = manager}
     conn <- connectPostgreSQL (TE.encodeUtf8 (T.pack dbUrl))

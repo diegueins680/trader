@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Outbox publisher: fail fast on invalid `TRADER_OUTBOX_PUBLISHER_MODE` values (instead of silently falling back to `noop`), and require/validate `TRADER_OUTBOX_KAFKA_REST_URL` at startup when using `kafka-rest` mode.
 - Top-combo symbol cleanup: when platform metadata is missing, normalize delimited pair symbols by preserving both legs (for example `BTC-USD` -> `BTCUSD`) and reject numeric-only delimited inputs (for example `2024-01-01`) instead of collapsing to a partial token.
 - Symbol sanitization: fix Binance slash-delimited pair normalization so inputs like `BTC/USDT` are normalized to `BTCUSDT` (instead of potentially collapsing to a standalone quote token) across CLI args and top-combo symbol cleanup paths.
 - CLI symbol validation: enforce platform-specific symbol formats up front (Coinbase requires `BASE-QUOTE`, Poloniex requires `BASE_QUOTE`, Binance rejects malformed non-alphanumeric symbols) so malformed symbols fail fast during argument validation.

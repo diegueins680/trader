@@ -1104,7 +1104,7 @@ testTopCombosRejectNumericOnlyDelimitedSymbols :: IO ()
 testTopCombosRejectNumericOnlyDelimitedSymbols =
     assert
         "numeric-only delimited symbol rejected"
-        (sanitizeComboSymbolForPlatform Nothing "2024-01-01" == Nothing)
+        (isNothing (sanitizeComboSymbolForPlatform Nothing "2024-01-01"))
 
 testDryRunRequiresTrade :: IO ()
 testDryRunRequiresTrade =
