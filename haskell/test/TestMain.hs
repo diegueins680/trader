@@ -2,6 +2,7 @@
 
 module Main where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, evaluate, try)
 import qualified Control.Monad
 import Data.Aeson (eitherDecode, object, (.=))
@@ -37,6 +38,7 @@ import Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
     shouldResolveOriginComboOnAutoStart,
  )
+import Trader.Cache (fetchWithCache, insertCache, newTtlCache)
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), resolveDexTokens, tokenAmountToInteger)
@@ -176,6 +178,8 @@ main = do
               , run "retry-after header lookup is case-insensitive" testRetryAfterHeaderLookupCaseInsensitive
               , run "retry-after uses first parseable duplicate header value" testRetryAfterDuplicateHeaderFallback
               , run "retry backoff clamps without overflow" testRetryBackoffOverflowClamp
+              , run "cache returns stale value on quick upstream failure" testCacheQuickFailureUsesStale
+              , run "cache rejects stale value after slow upstream failure" testCacheSlowFailureRejectsExpiredStale
               , run "initial balance must be positive" testInitialBalanceValidation
               , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
               , run "bot/auto-start resolves origin combo for active adoption" testAutoStartResolvesOriginComboForActiveAdopt
@@ -1473,6 +1477,26 @@ testRetryBackoffOverflowClamp = do
     let cap = maxBound :: Int
         delay = boundedBackoffMs (cap - 1) cap 1
     assert "backoff clamps to max delay without overflowing" (delay == cap)
+
+testCacheQuickFailureUsesStale :: IO ()
+testCacheQuickFailureUsesStale = do
+    cache <- newTtlCache
+    insertCache cache ("btc-usdt" :: String) (42 :: Int)
+    threadDelay 20000
+    result <- try (fetchWithCache cache 0 0.2 "btc-usdt" (fail "upstream failed")) :: IO (Either SomeException Int)
+    case result of
+        Left e -> error ("expected stale cache fallback on quick failure: " ++ show e)
+        Right v -> assert "cache serves stale value while within stale ttl" (v == 42)
+
+testCacheSlowFailureRejectsExpiredStale :: IO ()
+testCacheSlowFailureRejectsExpiredStale = do
+    cache <- newTtlCache
+    insertCache cache ("btc-usdt" :: String) (42 :: Int)
+    threadDelay 20000
+    result <- try (fetchWithCache cache 0 0.1 "btc-usdt" (threadDelay 150000 >> fail "upstream failed")) :: IO (Either SomeException Int)
+    case result of
+        Left _ -> pure ()
+        Right _ -> error "expected expired stale cache entry to be rejected after slow failure"
 
 testInitialBalanceValidation :: IO ()
 testInitialBalanceValidation =
