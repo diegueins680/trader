@@ -7,8 +7,8 @@ module Trader.Symbol (
 ) where
 
 import Control.Applicative ((<|>))
-import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
 import Data.Bool (bool)
+import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
 import Data.List (dropWhileEnd, find, foldl', isPrefixOf, isSuffixOf, maximumBy)
 import Data.Maybe (listToMaybe)
 import Data.Ord (comparing)
