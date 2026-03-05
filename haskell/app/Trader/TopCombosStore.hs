@@ -29,7 +29,7 @@ import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (SomeException, bracket, throwIO, try)
-import Data.Aeson (Value (..), object, toJSON, (.=))
+import Data.Aeson (object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
@@ -41,7 +41,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.List (foldl', isPrefixOf, sortBy)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, listToMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Maybe
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
@@ -486,7 +486,7 @@ comboPerformanceKey val =
         ann' = if isNaN ann || isInfinite ann then negate (1 / 0) else ann
         eq' = if isNaN eq || isInfinite eq then 0 else eq
         score' = if isNaN score || isInfinite score then negate (1 / 0) else score
-     in (negate ann', negate eq', negate score', rank)
+     in (negate ann', negate score', negate eq', rank)
 
 extractPayloadSource :: Aeson.Value -> Maybe String
 extractPayloadSource val =

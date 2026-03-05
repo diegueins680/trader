@@ -12,7 +12,7 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
-import Data.List (foldl', isInfixOf, sort)
+import Data.List (foldl', isInfixOf, sort, sortOn)
 import Data.Maybe (isNothing)
 import qualified Data.Maybe
 import qualified Data.Vector as V
@@ -89,7 +89,7 @@ import Trader.SignalGates (
 import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
-import Trader.TopCombosStore (mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, sanitizeComboSymbolForPlatform)
+import Trader.TopCombosStore (comboPerformanceKey, mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, sanitizeComboSymbolForPlatform)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
 main :: IO ()
@@ -207,6 +207,7 @@ main = do
               , run "top combos merge ignores non-numeric boolean scores" testMergeTopCombosIgnoresBooleanScore
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "top combos merge keeps same params across distinct sources" testMergeTopCombosKeepsDistinctSources
+              , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
               , run "top combos recover compact binance symbol from prefixed pair text" testTopCombosPrefixedPairNormalization
               , run "top combos recover compact binance symbol from separated base/quote tokens" testTopCombosSeparatedTokenPairNormalization
@@ -1883,6 +1884,22 @@ testMergeTopCombosKeepsDistinctSources = do
         sources = sort (map (requireComboSource "distinct source combo") combos)
     assert "same params should be kept when payload sources differ" (length combos == 2)
     assert "merged combos preserve distinct payload sources" (sources == ["unit-source-a", "unit-source-b"])
+
+testComboPerformanceKeyRanksScoreBeforeEquity :: IO ()
+testComboPerformanceKeyRanksScoreBeforeEquity = do
+    let mkCombo sym score eq =
+            object
+                [ "params" .= object ["symbol" .= sym]
+                , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "score" .= score, "finalEquity" .= eq]
+                ]
+        ranked =
+            sortOn
+                comboPerformanceKey
+                [ mkCombo ("AAAUSDT" :: String) (0.1 :: Double) (5.0 :: Double)
+                , mkCombo ("BBBUSDT" :: String) (0.9 :: Double) (1.1 :: Double)
+                ]
+        first = requireHead "expected ranked combos" ranked
+    assert "higher score should outrank higher equity when annualized return ties" (requireComboSymbol "performance key first combo" first == "BBBUSDT")
 
 testDexTradeArgsRequireTokensNotSymbol :: IO ()
 testDexTradeArgsRequireTokensNotSymbol = do
