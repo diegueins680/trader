@@ -198,6 +198,7 @@ main = do
               , run "signal funding/OI zero caps disable gating" testSignalFundingOiZeroCapsDisable
               , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
               , run "top combos merge ranks by nested metrics score" testMergeTopCombosRanksByNestedScore
+              , run "top combos merge ignores non-numeric boolean scores" testMergeTopCombosIgnoresBooleanScore
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "top combos merge keeps same params across distinct sources" testMergeTopCombosKeepsDistinctSources
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
@@ -1737,6 +1738,27 @@ testMergeTopCombosRanksByNestedScore = do
         combos = requireCombosArray "merged payload" merged
         first = requireHead "expected at least one merged combo" combos
     assert "higher nested metrics.score should rank first" (requireComboSymbol "merged first combo" first == "BBBUSDT")
+
+testMergeTopCombosIgnoresBooleanScore :: IO ()
+testMergeTopCombosIgnoresBooleanScore = do
+    let mkCombo sym scoreVal =
+            object
+                [ "params" .= object ["symbol" .= sym]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= (1.5 :: Double), "score" .= scoreVal]
+                ]
+        payload =
+            object
+                [ "source" .= ("unit-test" :: String)
+                , "generatedAtMs" .= (1 :: Int64)
+                , "combos" .= [mkCombo ("AAAUSDT" :: String) (Aeson.toJSON True), mkCombo ("BBBUSDT" :: String) (Aeson.toJSON (0.6 :: Double))]
+                ]
+        merged = mergeTopCombosPayloads 5 2 [payload]
+        combos = requireCombosArray "merged payload with boolean score" merged
+        first = requireHead "expected at least one merged combo" combos
+    assert "boolean score should not outrank numeric score" (requireComboSymbol "merged first combo" first == "BBBUSDT")
 
 testMergeTopCombosDedupPrefersNestedScore :: IO ()
 testMergeTopCombosDedupPrefersNestedScore = do

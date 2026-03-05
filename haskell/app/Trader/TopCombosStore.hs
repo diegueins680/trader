@@ -240,7 +240,6 @@ coerceDoubleValue value =
                      in case readMaybe trimmed of
                             Just v | not (isNaN v || isInfinite v) -> Just v
                             _ -> Nothing
-                Aeson.Bool v -> Just (if v then 1 else 0)
                 _ -> Nothing
 
 comboMetricDouble :: String -> Aeson.Value -> Maybe Double
