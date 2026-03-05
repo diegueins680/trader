@@ -78,6 +78,7 @@ import Trader.Predictors (
  )
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors)
+import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
 import Trader.SignalGates (
     signalCrossAssetCheck,
     signalFundingOiCheck,
@@ -202,6 +203,8 @@ main = do
               , run "signal gate emits FUNDING_OI reason" testSignalGateFundingOi
               , run "signal funding/OI damp stays finite on non-finite inputs" testSignalFundingOiFiniteDamp
               , run "signal funding/OI zero caps disable gating" testSignalFundingOiZeroCapsDisable
+              , run "sensor variance ignores non-finite residuals" testSensorVarianceIgnoresNonFiniteResiduals
+              , run "sensor variance keeps prior estimate after non-finite residuals" testSensorVarianceNonFiniteNoMutation
               , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
               , run "top combos merge ranks by nested metrics score" testMergeTopCombosRanksByNestedScore
               , run "top combos merge ignores non-numeric boolean scores" testMergeTopCombosIgnoresBooleanScore
@@ -1779,6 +1782,29 @@ testSignalFundingOiZeroCapsDisable = do
     assert "zero funding/OI caps keep full size damp" (dampZeroCaps == 1)
     assert "negative funding/OI caps are treated as disabled" okNegativeCaps
     assert "negative funding/OI caps keep full size damp" (dampNegativeCaps == 1)
+
+testSensorVarianceIgnoresNonFiniteResiduals :: IO ()
+testSensorVarianceIgnoresNonFiniteResiduals = do
+    let sv0 = emptySensorVar
+        sv1 = updateResidual SensorGBT (0 / 0) sv0
+        sv2 = updateResidual SensorGBT (1 / 0) sv1
+        sv3 = updateResidual SensorGBT (-1 / 0) sv2
+    assert "non-finite residual updates are ignored" (isNothing (varianceFor SensorGBT sv3))
+
+testSensorVarianceNonFiniteNoMutation :: IO ()
+testSensorVarianceNonFiniteNoMutation = do
+    let svBase =
+            foldl'
+                (\acc resid -> updateResidual SensorGBT resid acc)
+                emptySensorVar
+                [0.01, -0.02, 0.03, -0.01]
+        before = varianceFor SensorGBT svBase
+        svAfter = updateResidual SensorGBT (0 / 0) (updateResidual SensorGBT (1 / 0) svBase)
+        after = varianceFor SensorGBT svAfter
+    case (before, after) of
+        (Just beforeVar, Just afterVar) ->
+            assertApprox "non-finite residual does not mutate prior variance estimate" 1e-12 afterVar beforeVar
+        _ -> error "expected finite variance before and after non-finite residual updates"
 
 testRecalculateComboPerformanceFromCompletedOperation :: IO ()
 testRecalculateComboPerformanceFromCompletedOperation = do
