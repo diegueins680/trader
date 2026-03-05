@@ -25,16 +25,15 @@ orderAppliedQuantity ev fallbackQty =
             else
                 if not (oeeLive ev)
                     then fallback
-                    else
-                        case executed of
-                            -- Trust explicit fill evidence first, even on canceled/expired statuses,
-                            -- because exchanges can report partial fills alongside terminal statuses.
-                            Just q -> Just q
-                            Nothing ->
-                                case status of
-                                    Just s | statusHasNoFill s -> Nothing
-                                    Just s | statusImpliesFilled s -> fallback
-                                    _ -> Nothing
+                    else case executed of
+                        -- Trust explicit fill evidence first, even on canceled/expired statuses,
+                        -- because exchanges can report partial fills alongside terminal statuses.
+                        Just q -> Just q
+                        Nothing ->
+                            case status of
+                                Just s | statusHasNoFill s -> Nothing
+                                Just s | statusImpliesFilled s -> fallback
+                                _ -> Nothing
 
 applyExecutedQuantity :: Int -> Double -> Bool -> Double -> (Int, Double, Double, Double)
 applyExecutedQuantity prevPos prevSize isBuy qtyRaw =

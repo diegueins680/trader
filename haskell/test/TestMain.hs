@@ -146,6 +146,8 @@ main = do
               , run "backtest window rejects overflow integer timestamp" testBacktestWindowOverflowIntegerValidation
               , run "backtest window rejects fractional numeric timestamp" testBacktestWindowFractionalNumericValidation
               , run "backtest window accepts ISO offsets" testBacktestWindowIsoOffsetValidation
+              , run "backtest window accepts expanded-year ISO dates" testBacktestWindowExpandedYearIsoValidation
+              , run "backtest window rejects out-of-range expanded-year ISO dates" testBacktestWindowExpandedYearOverflowValidation
               , run "backtest window keeps negative millisecond epochs" testBacktestWindowNegativeMillisecondsValidation
               , run "backtest window keeps positive 11-digit millisecond epochs" testBacktestWindowPositiveMillisecondsValidation
               , run "backtest window normalizes second epochs to milliseconds" testBacktestWindowSecondEpochNormalization
@@ -1140,6 +1142,19 @@ testBacktestWindowIsoOffsetValidation =
     case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-01T00:00:00+00:00", "--to", "2025-01-01T00:05:00+00:00"] of
         Left err -> error ("expected ISO offset to parse: " ++ err)
         Right _ -> pure ()
+
+testBacktestWindowExpandedYearIsoValidation :: IO ()
+testBacktestWindowExpandedYearIsoValidation = do
+    let expected = 253402300800000 :: Int64
+    assert
+        "expanded-year ISO date parses"
+        (parseTimestampMs "10000-01-01" == Just expected)
+
+testBacktestWindowExpandedYearOverflowValidation :: IO ()
+testBacktestWindowExpandedYearOverflowValidation =
+    assert
+        "overflowed expanded-year ISO date rejected"
+        (isNothing (parseTimestampMs "1000000000000-01-01"))
 
 testBacktestWindowNegativeMillisecondsValidation :: IO ()
 testBacktestWindowNegativeMillisecondsValidation = do

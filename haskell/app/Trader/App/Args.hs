@@ -374,9 +374,12 @@ parseIsoTimeMs s =
             , "%Y-%m-%d %H:%M:%S%QZ"
             ]
         parseWith fmt = parseTimeM True defaultTimeLocale fmt s'
+        toMsBounded t =
+            let ms = floor (utcTimeToPOSIXSeconds t * 1000) :: Integer
+             in integerToInt64 ms
      in case mapMaybe parseWith formats of
             [] -> Nothing
-            (t : _) -> Just (floor (utcTimeToPOSIXSeconds t * 1000))
+            (t : _) -> toMsBounded t
 
 normalizeIsoOffsetSuffix :: String -> String
 normalizeIsoOffsetSuffix raw =
@@ -388,9 +391,17 @@ normalizeIsoOffsetSuffix raw =
 
 looksLikeIso8601Prefix :: String -> Bool
 looksLikeIso8601Prefix s =
-    case s of
-        (a : b : c : d : '-' : e : f : '-' : g : h : _) -> all isDigit [a, b, c, d, e, f, g, h]
-        _ -> False
+    let s' =
+            case s of
+                ('+' : rest) -> rest
+                ('-' : rest) -> rest
+                _ -> s
+        (yearDigits, rest) = span isDigit s'
+     in length yearDigits >= 4
+            && case rest of
+                ('-' : m1 : m2 : '-' : d1 : d2 : _)
+                    | all isDigit [m1, m2, d1, d2] -> True
+                _ -> False
 
 parseTimestampMs :: String -> Maybe Int64
 parseTimestampMs raw =

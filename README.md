@@ -492,6 +492,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Numeric epoch values must be integers within `Int64` range (fractional/overflowing numeric inputs are rejected). Seconds-vs-milliseconds detection now treats up to 10-digit magnitudes as seconds and larger magnitudes as milliseconds, preserving negative and 11-digit millisecond epochs correctly.
     - Backtest window filtering requires bar timestamps (exchange candles or CSV with a parseable time column).
     - ISO-8601 timezone offsets (`+HH:MM` / `-HH:MM`, and compact `+HHMM`) are supported.
+    - Expanded/signed ISO years (for example `10000-01-01`, `-0001-01-01`) are accepted when the resulting Unix-millisecond value fits `Int64`; out-of-range ISO timestamps are rejected.
   - `--initial-balance B` initial backtest balance (`> 0`, default `1.0`); scales equity outputs while keeping return/risk ratios unchanged.
   - `--periods-per-year N` (default: inferred from `--interval`)
     - Used for annualized metrics and tune scoring (optimize/sweep).

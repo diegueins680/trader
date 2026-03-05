@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- CLI timestamp parsing: accept expanded/signed ISO-8601 years for `--from/--to` (for example `10000-01-01`, `-0001-01-01`) and reject ISO timestamps whose converted Unix-millisecond values would overflow `Int64`.
 - CSV loading: reject non-finite numeric values (`NaN`/`Infinity`) in price/high/low/open/volume cells instead of silently accepting them into backtests/trading math.
 - Optimizer/top-combos merge: treat nested `metrics.score` as equivalent to top-level `score` when ranking and de-duplicating combos, so mixed payload shapes keep the best-scored records.
 - HTTP retries: when multiple `Retry-After` headers are present, parse the first valid value instead of failing on an earlier malformed duplicate.
