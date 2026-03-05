@@ -179,6 +179,8 @@ main = do
               , run "top combos merge ranks by nested metrics score" testMergeTopCombosRanksByNestedScore
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
+              , run "top combos infer compact symbol from unknown delimited pair" testTopCombosUnknownPlatformPairNormalization
+              , run "top combos reject numeric-only delimited symbols" testTopCombosRejectNumericOnlyDelimitedSymbols
               , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
               , run "dex token resolution rejects malformed token addresses" testDexResolveTokensRejectsMalformedAddress
               , run "dex token resolution applies native decimals overrides" testDexResolveTokensNativeDecimalsOverride
@@ -1061,6 +1063,18 @@ testTopCombosBinanceSlashSymbolSanitization =
     assert
         "top combos binance slash symbol normalized to compact pair"
         (sanitizeComboSymbolForPlatform (Just "binance") "BTC/USDT" == Just "BTCUSDT")
+
+testTopCombosUnknownPlatformPairNormalization :: IO ()
+testTopCombosUnknownPlatformPairNormalization =
+    assert
+        "unknown-platform delimited pair keeps both legs"
+        (sanitizeComboSymbolForPlatform Nothing "BTC-USD" == Just "BTCUSD")
+
+testTopCombosRejectNumericOnlyDelimitedSymbols :: IO ()
+testTopCombosRejectNumericOnlyDelimitedSymbols =
+    assert
+        "numeric-only delimited symbol rejected"
+        (sanitizeComboSymbolForPlatform Nothing "2024-01-01" == Nothing)
 
 testDryRunRequiresTrade :: IO ()
 testDryRunRequiresTrade =

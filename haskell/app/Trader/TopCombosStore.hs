@@ -402,8 +402,7 @@ sanitizeBinanceComboSymbol raw =
     let s = normalizeSymbol raw
         tokens = splitAlphaNumTokens s
         isValid sym =
-            let n = length sym
-             in n >= 3 && n <= 30 && sym `notElem` commonQuotes && all isAsciiAlphaNum sym
+            sym `notElem` commonQuotes && isValidBinanceSymbol sym
         pickTokenCandidate =
             case tokens of
                 [] -> Nothing
@@ -415,12 +414,8 @@ sanitizeBinanceComboSymbol raw =
                             else
                                 if isValid a && endsWithKnownQuotePair a
                                     then Just a
-                                    else
-                                        if isValid a && isSuffixToken b
-                                            then Just a
-                                            else Nothing
+                                    else Nothing
         pickQuoteSuffix = trimBinanceComboSuffix s
-        isSuffixToken = any isDigit
      in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
 
 splitAlphaNumTokens :: String -> [String]
@@ -476,7 +471,7 @@ findSubstrPositions needle hay =
 isValidBinanceSymbol :: String -> Bool
 isValidBinanceSymbol s =
     let n = length s
-     in n >= 3 && n <= 30 && all isAsciiAlphaNum s
+     in n >= 3 && n <= 30 && all isAsciiAlphaNum s && any isAsciiUpper s
 
 isAsciiAlphaNum :: Char -> Bool
 isAsciiAlphaNum c =

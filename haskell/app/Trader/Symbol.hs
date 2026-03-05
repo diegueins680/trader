@@ -108,7 +108,7 @@ sanitizeComboSymbolForPlatform platform raw =
 isValidBinanceSymbol :: String -> Bool
 isValidBinanceSymbol s =
     let n = length s
-     in n >= 3 && n <= 30 && all isAsciiAlphaNum s
+     in n >= 3 && n <= 30 && all isAsciiAlphaNum s && any isAsciiUpper s
 
 isValidDelimitedSymbol :: Char -> String -> Bool
 isValidDelimitedSymbol delim s =
@@ -137,14 +137,20 @@ salvageBinanceSymbol raw =
             , b `elem` commonQuotes
             , let joined = a ++ b
             ]
+        joinedPairCandidates =
+            [ joined
+            | (a, b) <- zip tokens (drop 1 tokens)
+            , let joined = a ++ b
+            ]
         quoteCandidates = filter endsWithKnownQuotePair tokens
         pickFromJoinedQuotes = find isValidBinanceSymbol joinedQuoteCandidates
+        pickFromJoinedPairs = find isValidBinanceSymbol joinedPairCandidates
         pickFromQuotes = find isValidBinanceSymbol quoteCandidates
         pickLongest =
             case filter isValidBinanceSymbol tokens of
                 [] -> Nothing
                 xs -> Just (maximumBy (comparing length) xs)
-     in pickFromJoinedQuotes <|> pickFromQuotes <|> pickLongest
+     in pickFromJoinedQuotes <|> pickFromJoinedPairs <|> pickFromQuotes <|> pickLongest
 
 splitAlphaNumTokens :: String -> [String]
 splitAlphaNumTokens =
@@ -165,8 +171,7 @@ sanitizeBinanceComboSymbol raw =
     let s = normalizeSymbolText raw
         tokens = splitAlphaNumTokens s
         isValid sym =
-            let n = length sym
-             in n >= 3 && n <= 30 && sym `notElem` commonQuotes && all isAsciiAlphaNum sym
+            sym `notElem` commonQuotes && isValidBinanceSymbol sym
         pickTokenCandidate =
             case tokens of
                 [] -> Nothing
@@ -178,12 +183,8 @@ sanitizeBinanceComboSymbol raw =
                             else
                                 if isValid a && endsWithKnownQuotePair a
                                     then Just a
-                                    else
-                                        if isValid a && isSuffixToken b
-                                            then Just a
-                                            else Nothing
+                                    else Nothing
         pickQuoteSuffix = trimBinanceComboSuffix s
-        isSuffixToken = any isDigit
      in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
 
 trimBinanceComboSuffix :: String -> Maybe String
