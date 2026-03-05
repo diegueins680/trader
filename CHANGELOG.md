@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- DEX validation hardening: enforce `dexChainId > 0`, reject empty runtime DEX env values, require `TRADER_DEX_PRIVATE_KEY` (`0x` + 64 hex chars) and `TRADER_DEX_ADDRESS` (`0x` + 40 hex chars), and bound token decimals to `0..255` to avoid invalid precision math/overflow paths.
 - Interval normalization: canonicalize `--interval`/API interval inputs by trimming whitespace and normalizing unit casing (`1H` -> `1h`, `2D` -> `2d`) across CLI validation and platform interval mapping, while preserving Binance `1M` month semantics.
 - CLI validation: require strictly positive explicit trade sizing values for `--order-quote`, `--order-quantity`, and `--max-order-quote` (zero values are now rejected instead of being silently treated as no-size/no-cap).
 - Outbox publisher: fail fast on invalid `TRADER_OUTBOX_PUBLISHER_MODE` values (instead of silently falling back to `noop`), and require/validate `TRADER_OUTBOX_KAFKA_REST_URL` at startup when using `kafka-rest` mode.

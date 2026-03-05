@@ -266,12 +266,13 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 
 - DEX execution (Uniswap/Curve/Sushi/Balancer/Pancake/1inch via 1inch)
   - DEX trades require CSV price data (`--data`) and the following config:
-    - `--dex-chain-id ID` (or env `TRADER_DEX_CHAIN_ID`)
+    - `--dex-chain-id ID` (or env `TRADER_DEX_CHAIN_ID`; must be `> 0`)
     - `--dex-base-token TOKEN` / `--dex-quote-token TOKEN` (address or symbol; base is the asset you buy when LONG)
       - `--dex-base-token` and `--dex-quote-token` must be provided together; partial overrides are rejected.
-    - `--dex-base-decimals N` / `--dex-quote-decimals N` (optional overrides when token metadata lookup fails)
+    - `--dex-base-decimals N` / `--dex-quote-decimals N` (optional overrides when token metadata lookup fails; valid range `0..255`)
     - `--dex-protocols LIST` (optional 1inch protocols restriction, comma-separated)
     - `--dex-auto-approve` / `--no-dex-auto-approve` (default on)
+  - Runtime DEX env validation is strict: `TRADER_DEX_RPC_URL` must be non-empty, `TRADER_DEX_PRIVATE_KEY` must be `0x` + 64 hex chars, and `TRADER_DEX_ADDRESS` must be `0x` + 40 hex chars.
   - Token values with a `0x` prefix must be valid addresses (`0x` + exactly 40 hex characters); malformed addresses are rejected during validation.
   - Native tokens (`native`/`eth`/`bnb`/etc.) accept decimal overrides (`--dex-base-decimals` / `--dex-quote-decimals`) and these overrides are applied consistently.
   - When both tokens are explicit native/address inputs (with required decimals for addresses), resolution no longer depends on fetching 1inch token metadata.
