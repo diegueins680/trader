@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Symbol normalization: canonicalize prefixed DEX platform keys (`uniswap*`, `curve*`, `sushiswap*`, `balancer*`, `pancakeswap*`, `1inch*`) and preserve DEX pair delimiters during combo-symbol sanitization instead of incorrectly compacting into Binance-style symbols.
 - HTTP env parsing: reject non-finite retry-jitter values (`NaN`/`Infinity`) and trim whitespace for retry env vars/flags so invalid `TRADER_HTTP_RETRY_JITTER` values cannot corrupt backoff scheduling.
 - CLI timestamp parsing: accept expanded/signed ISO-8601 years for `--from/--to` (for example `10000-01-01`, `-0001-01-01`) and reject ISO timestamps whose converted Unix-millisecond values would overflow `Int64`.
+- CLI timestamp parsing: accept ISO-8601 minute-precision datetime inputs (for example `2025-01-01T00:00Z`) and normalize lowercase `t` datetime separators / lowercase `z` timezone suffixes for `--from/--to`.
 - CLI parsing: tighten `--from`/`--to` and `--bars` numeric parsing to strict base-10 integers only (reject scientific notation and non-decimal literals like `0x10`) so epoch/window and bars inputs cannot be silently reinterpreted.
 - CSV loading: reject non-finite numeric values (`NaN`/`Infinity`) in price/high/low/open/volume cells instead of silently accepting them into backtests/trading math.
 - Optimizer/top-combos merge: treat nested `metrics.score` as equivalent to top-level `score` when ranking and de-duplicating combos, so mixed payload shapes keep the best-scored records.

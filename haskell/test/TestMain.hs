@@ -164,6 +164,9 @@ main = do
               , run "backtest window rejects decimal-like integer timestamp" testBacktestWindowDecimalIntegerValidation
               , run "backtest window rejects non-decimal integer timestamp" testBacktestWindowNonDecimalIntegerValidation
               , run "backtest window accepts ISO offsets" testBacktestWindowIsoOffsetValidation
+              , run "backtest window accepts ISO minute precision timestamps" testBacktestWindowIsoMinutePrecisionValidation
+              , run "backtest window accepts lowercase zulu timestamps" testBacktestWindowLowercaseZuluValidation
+              , run "backtest window accepts lowercase t separator timestamps" testBacktestWindowLowercaseTSeparatorValidation
               , run "backtest window accepts expanded-year ISO dates" testBacktestWindowExpandedYearIsoValidation
               , run "backtest window rejects out-of-range expanded-year ISO dates" testBacktestWindowExpandedYearOverflowValidation
               , run "backtest window keeps negative millisecond epochs" testBacktestWindowNegativeMillisecondsValidation
@@ -1361,6 +1364,24 @@ testBacktestWindowIsoOffsetValidation :: IO ()
 testBacktestWindowIsoOffsetValidation =
     case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-01T00:00:00+00:00", "--to", "2025-01-01T00:05:00+00:00"] of
         Left err -> error ("expected ISO offset to parse: " ++ err)
+        Right _ -> pure ()
+
+testBacktestWindowIsoMinutePrecisionValidation :: IO ()
+testBacktestWindowIsoMinutePrecisionValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-01T00:00Z", "--to", "2025-01-01T00:05Z"] of
+        Left err -> error ("expected ISO minute-precision timestamp to parse: " ++ err)
+        Right _ -> pure ()
+
+testBacktestWindowLowercaseZuluValidation :: IO ()
+testBacktestWindowLowercaseZuluValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-01T00:00:00z", "--to", "2025-01-01T00:05:00z"] of
+        Left err -> error ("expected lowercase zulu timestamp to parse: " ++ err)
+        Right _ -> pure ()
+
+testBacktestWindowLowercaseTSeparatorValidation :: IO ()
+testBacktestWindowLowercaseTSeparatorValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-01t00:00:00z", "--to", "2025-01-01t00:05:00z"] of
+        Left err -> error ("expected lowercase t separator timestamp to parse: " ++ err)
         Right _ -> pure ()
 
 testBacktestWindowExpandedYearIsoValidation :: IO ()

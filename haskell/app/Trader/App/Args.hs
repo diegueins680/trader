@@ -369,6 +369,12 @@ parseIsoTimeMs s =
     let s' = normalizeIsoOffsetSuffix s
         formats =
             [ "%Y-%m-%d"
+            , "%Y-%m-%d %H:%M"
+            , "%Y-%m-%dT%H:%M"
+            , "%Y-%m-%d %H:%M%z"
+            , "%Y-%m-%dT%H:%M%z"
+            , "%Y-%m-%d %H:%MZ"
+            , "%Y-%m-%dT%H:%MZ"
             , "%Y-%m-%d %H:%M:%S"
             , "%Y-%m-%dT%H:%M:%S"
             , "%Y-%m-%d %H:%M:%S%z"
@@ -390,11 +396,16 @@ parseIsoTimeMs s =
 
 normalizeIsoOffsetSuffix :: String -> String
 normalizeIsoOffsetSuffix raw =
-    case reverse raw of
-        m2 : m1 : ':' : h2 : h1 : sign : rest
-            | (sign == '+' || sign == '-') && all isDigit [h1, h2, m1, m2] ->
-                reverse rest ++ [sign, h1, h2, m1, m2]
-        _ -> raw
+    let rawT = map (\c -> if c == 't' then 'T' else c) raw
+        raw' =
+            case reverse rawT of
+                'z' : rest -> reverse rest ++ "Z"
+                _ -> rawT
+     in case reverse raw' of
+            m2 : m1 : ':' : h2 : h1 : sign : rest
+                | (sign == '+' || sign == '-') && all isDigit [h1, h2, m1, m2] ->
+                    reverse rest ++ [sign, h1, h2, m1, m2]
+            _ -> raw'
 
 looksLikeIso8601Prefix :: String -> Bool
 looksLikeIso8601Prefix s =
