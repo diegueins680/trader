@@ -84,6 +84,7 @@ import Trader.SignalGates (
     signalRunPostDirectionGates,
  )
 import Trader.Split (Split (..), splitTrainBacktest)
+import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.TopCombosStore (mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, sanitizeComboSymbolForPlatform)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
@@ -186,6 +187,10 @@ main = do
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
               , run "top combos infer compact symbol from unknown delimited pair" testTopCombosUnknownPlatformPairNormalization
               , run "top combos reject numeric-only delimited symbols" testTopCombosRejectNumericOnlyDelimitedSymbols
+              , run "symbol sanitization canonicalizes coinbase-prefixed platform keys" testSymbolCoinbasePrefixedPlatformNormalization
+              , run "top combos sanitize coinbase-prefixed platform symbols" testTopCombosCoinbasePrefixedPlatformSymbolSanitization
+              , run "symbol sanitization keeps dex symbol format for prefixed platform keys" testSymbolDexPrefixedPlatformNormalization
+              , run "top combos keep dex symbol format for prefixed platform keys" testTopCombosDexPrefixedPlatformSymbolSanitization
               , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
               , run "dex trade args reject single-token override even with symbol" testDexTradeArgsRejectPartialTokenOverrides
               , run "dex token resolution rejects malformed token addresses" testDexResolveTokensRejectsMalformedAddress
@@ -1114,6 +1119,30 @@ testTopCombosRejectNumericOnlyDelimitedSymbols =
     assert
         "numeric-only delimited symbol rejected"
         (isNothing (sanitizeComboSymbolForPlatform Nothing "2024-01-01"))
+
+testSymbolCoinbasePrefixedPlatformNormalization :: IO ()
+testSymbolCoinbasePrefixedPlatformNormalization =
+    assert
+        "coinbase-prefixed platform keeps coinbase BASE-QUOTE format"
+        (Symbol.sanitizeSymbolForPlatform (Just "coinbase-advanced") "BTC/USD" == Just "BTC-USD")
+
+testTopCombosCoinbasePrefixedPlatformSymbolSanitization :: IO ()
+testTopCombosCoinbasePrefixedPlatformSymbolSanitization =
+    assert
+        "top combos coinbase-prefixed platform keeps coinbase BASE-QUOTE format"
+        (sanitizeComboSymbolForPlatform (Just "coinbase-advanced") "BTC/USD" == Just "BTC-USD")
+
+testSymbolDexPrefixedPlatformNormalization :: IO ()
+testSymbolDexPrefixedPlatformNormalization =
+    assert
+        "dex-prefixed platform keeps dex symbol delimiter"
+        (Symbol.sanitizeComboSymbolForPlatform (Just "uniswap-v3") "ETH/USDT" == Just "ETH/USDT")
+
+testTopCombosDexPrefixedPlatformSymbolSanitization :: IO ()
+testTopCombosDexPrefixedPlatformSymbolSanitization =
+    assert
+        "top combos dex-prefixed platform keeps dex symbol delimiter"
+        (sanitizeComboSymbolForPlatform (Just "uniswap-v3") "ETH/USDT" == Just "ETH/USDT")
 
 testDryRunRequiresTrade :: IO ()
 testDryRunRequiresTrade =

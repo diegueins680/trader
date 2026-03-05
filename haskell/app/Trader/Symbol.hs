@@ -7,7 +7,7 @@ module Trader.Symbol (
 ) where
 
 import Control.Applicative ((<|>))
-import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
+import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
 import Data.Bool (bool)
 import Data.List (dropWhileEnd, find, foldl', isPrefixOf, isSuffixOf, maximumBy)
 import Data.Maybe (listToMaybe)
@@ -50,7 +50,24 @@ nonEmptyString s =
         _ -> Just s
 
 normalizePlatform :: Maybe String -> Maybe String
-normalizePlatform raw = raw >>= nonEmptyString . map toLower . trim
+normalizePlatform raw = raw >>= nonEmptyString . canonicalPlatformKey . normalizePlatformKey
+
+normalizePlatformKey :: String -> String
+normalizePlatformKey = map toLower . filter isAlphaNum . trim
+
+canonicalPlatformKey :: String -> String
+canonicalPlatformKey key
+    | "coinbase" `isPrefixOf` key = "coinbase"
+    | "poloniex" `isPrefixOf` key = "poloniex"
+    | "binance" `isPrefixOf` key = "binance"
+    | "uniswap" `isPrefixOf` key = "uniswap"
+    | "curve" `isPrefixOf` key = "curve"
+    | "sushiswap" `isPrefixOf` key = "sushiswap"
+    | "balancer" `isPrefixOf` key = "balancer"
+    | "pancakeswap" `isPrefixOf` key = "pancakeswap"
+    | "1inch" `isPrefixOf` key = "oneinch"
+    | "oneinch" `isPrefixOf` key = "oneinch"
+    | otherwise = key
 
 isDexPlatformKey :: String -> Bool
 isDexPlatformKey key =
@@ -102,6 +119,7 @@ sanitizeSymbolForPlatform platform raw =
 sanitizeComboSymbolForPlatform :: Maybe String -> String -> Maybe String
 sanitizeComboSymbolForPlatform platform raw =
     case normalizePlatform platform of
+        Just key | isDexPlatformKey key -> sanitizeSymbolForPlatform (Just key) raw
         Just "coinbase" -> sanitizeSymbolForPlatform (Just "coinbase") raw
         Just "poloniex" -> sanitizeSymbolForPlatform (Just "poloniex") raw
         _ -> sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform platform raw
@@ -126,7 +144,14 @@ sanitizeDelimitedSymbol delim alt s =
     if isValidDelimitedSymbol delim s
         then Just s
         else
-            let s' = map (\c -> if c == alt then delim else c) s
+            let s' =
+                    map
+                        ( \c ->
+                            if c == alt || c == '/'
+                                then delim
+                                else c
+                        )
+                        s
              in bool Nothing (Just s') (s' /= s && isValidDelimitedSymbol delim s')
 
 salvageBinanceSymbol :: String -> Maybe String

@@ -37,10 +37,9 @@ import qualified Data.Aeson.Types as AT
 import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isAsciiUpper, isDigit, toUpper)
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
-import Data.List (foldl', isPrefixOf, isSuffixOf, sortBy)
+import Data.List (foldl', isPrefixOf, sortBy)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, listToMaybe, maybeToList)
 import qualified Data.Maybe
@@ -55,7 +54,7 @@ import Text.Read (readMaybe)
 
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
-import Trader.Symbol (commonQuotes, sanitizeSymbolForPlatform)
+import qualified Trader.Symbol as Symbol
 import Trader.Text (normalizeKey, trim)
 
 data TopCombosStore = TopCombosStore
@@ -390,93 +389,15 @@ isPoloniexPlatformKey key = key == "poloniex" || "poloniex" `isPrefixOf` key
 
 sanitizeComboSymbolForPlatform :: Maybe String -> String -> Maybe String
 sanitizeComboSymbolForPlatform platform raw =
+    Symbol.sanitizeComboSymbolForPlatform (canonicalComboPlatform platform) raw
+
+canonicalComboPlatform :: Maybe String -> Maybe String
+canonicalComboPlatform platform =
     case normalizeComboPlatform platform of
-        Just key | isCoinbasePlatformKey key -> sanitizeSymbolForPlatform (Just "coinbase") raw
-        Just key | isPoloniexPlatformKey key -> sanitizeSymbolForPlatform (Just "poloniex") raw
-        Just key
-            | isBinancePlatformKey key ->
-                sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform (Just "binance") raw
-        _ -> sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform platform raw
-
-sanitizeBinanceComboSymbol :: String -> Maybe String
-sanitizeBinanceComboSymbol raw =
-    let s = normalizeSymbol raw
-        tokens = splitAlphaNumTokens s
-        isValid sym =
-            sym `notElem` commonQuotes && isValidBinanceSymbol sym
-        pickTokenCandidate =
-            case tokens of
-                [] -> Nothing
-                [a] -> bool Nothing (Just a) (isValid a)
-                a : b : _rest ->
-                    let joined = a ++ b
-                     in if b `elem` commonQuotes && isValid joined
-                            then Just joined
-                            else
-                                if isValid a && endsWithKnownQuotePair a
-                                    then Just a
-                                    else Nothing
-        pickQuoteSuffix = trimBinanceComboSuffix s
-     in pickQuoteSuffix <|> pickTokenCandidate <|> bool Nothing (Just s) (isValidBinanceSymbol s)
-
-splitAlphaNumTokens :: String -> [String]
-splitAlphaNumTokens =
-    filter (not . null) . foldr step [""]
-  where
-    step c acc@(w : ws)
-        | isAsciiAlphaNum c = (c : w) : ws
-        | otherwise = "" : acc
-    step _ [] = []
-
-endsWithKnownQuotePair :: String -> Bool
-endsWithKnownQuotePair token = any (matchesQuote token) commonQuotes
-  where
-    matchesQuote sym quote = length sym > length quote && quote `isSuffixOf` sym
-
-trimBinanceComboSuffix :: String -> Maybe String
-trimBinanceComboSuffix raw =
-    let compact = filter isAsciiAlphaNum (normalizeSymbol raw)
-        best = foldl' pickLongest Nothing (concatMap (trimQuoteCandidates compact) commonQuotes)
-     in best
-  where
-    pickLongest acc candidate =
-        case acc of
-            Nothing -> Just candidate
-            Just prev -> if length candidate > length prev then Just candidate else acc
-
-trimQuoteCandidates :: String -> String -> [String]
-trimQuoteCandidates compact quote =
-    let positions = findSubstrPositions quote compact
-        total = length compact
-        quoteLen = length quote
-     in [ candidate
-        | idx <- positions
-        , let end = idx + quoteLen
-        , end < total
-        , let suffix = drop end compact
-        , any isDigit suffix
-        , let candidate = take end compact
-        , isValidBinanceSymbol candidate
-        , candidate `notElem` commonQuotes
-        ]
-
-findSubstrPositions :: String -> String -> [Int]
-findSubstrPositions needle hay =
-    let go _ [] = []
-        go i xs@(_ : rest) =
-            if needle `isPrefixOf` xs
-                then i : go (i + 1) rest
-                else go (i + 1) rest
-     in if null needle then [] else go 0 hay
-
-isValidBinanceSymbol :: String -> Bool
-isValidBinanceSymbol s =
-    let n = length s
-     in n >= 3 && n <= 30 && all isAsciiAlphaNum s && any isAsciiUpper s
-
-isAsciiAlphaNum :: Char -> Bool
-isAsciiAlphaNum c =
-    isAsciiUpper c || isDigit c
+        Just key | isCoinbasePlatformKey key -> Just "coinbase"
+        Just key | isPoloniexPlatformKey key -> Just "poloniex"
+        Just key | isBinancePlatformKey key -> Just "binance"
+        other -> other
 
 sanitizeComboSymbolValue :: Aeson.Value -> (Aeson.Value, Bool)
 sanitizeComboSymbolValue val =
@@ -672,9 +593,6 @@ mergeTopCombosPayloads maxItems now payloads =
         | a > b = LT
         | a < b = GT
         | otherwise = EQ
-
-normalizeSymbol :: String -> String
-normalizeSymbol = map toUpper . trim
 
 data ComboBacktestUpdate = ComboBacktestUpdate
     { cbuMetrics :: !Aeson.Value
