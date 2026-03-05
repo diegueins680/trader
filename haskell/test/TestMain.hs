@@ -137,6 +137,9 @@ main = do
               , run "binance args normalize slash symbols" testBinanceSlashSymbolNormalization
               , run "coinbase args normalize slash symbols" testCoinbaseSlashSymbolNormalization
               , run "poloniex args normalize slash symbols" testPoloniexSlashSymbolNormalization
+              , run "coinbase args reject compact symbols without delimiter" testCoinbaseCompactSymbolRejected
+              , run "poloniex args reject compact symbols without delimiter" testPoloniexCompactSymbolRejected
+              , run "binance args reject malformed non-alnum symbols" testBinanceMalformedSymbolRejected
               , run "dry-run requires trade flag" testDryRunRequiresTrade
               , run "dry-run trade bypasses runtime credentials" testDryRunBypassesRuntimeCredentials
               , run "dry-run skips non-owner API key requirement" testDryRunSkipsNonOwnerUserKeyRequirement
@@ -590,7 +593,7 @@ testLstmModelKeyPlatform = do
     argsCoinbase <-
         parseArgs
             [ "--symbol"
-            , "BTCUSDT"
+            , "BTC-USD"
             , "--platform"
             , "coinbase"
             , "--interval"
@@ -1057,6 +1060,33 @@ testPoloniexSlashSymbolNormalization =
     case parseArgsResult ["--platform", "poloniex", "--symbol", "btc/usdt", "--interval", "2h"] of
         Left err -> error ("expected Poloniex slash symbol normalization to pass: " ++ err)
         Right args -> assert "poloniex slash symbol normalized to underscore" (argBinanceSymbol args == Just "BTC_USDT")
+
+testCoinbaseCompactSymbolRejected :: IO ()
+testCoinbaseCompactSymbolRejected =
+    case parseArgsResult ["--platform", "coinbase", "--symbol", "BTCUSD"] of
+        Left err ->
+            assert
+                "coinbase compact symbol rejected"
+                ("--symbol must use Coinbase BASE-QUOTE format" `isInfixOf` err)
+        Right _ -> error "expected compact Coinbase symbol without delimiter to fail validation"
+
+testPoloniexCompactSymbolRejected :: IO ()
+testPoloniexCompactSymbolRejected =
+    case parseArgsResult ["--platform", "poloniex", "--symbol", "BTCUSDT", "--interval", "2h"] of
+        Left err ->
+            assert
+                "poloniex compact symbol rejected"
+                ("--symbol must use Poloniex BASE_QUOTE format" `isInfixOf` err)
+        Right _ -> error "expected compact Poloniex symbol without delimiter to fail validation"
+
+testBinanceMalformedSymbolRejected :: IO ()
+testBinanceMalformedSymbolRejected =
+    case parseArgsResult ["--platform", "binance", "--symbol", "$$$"] of
+        Left err ->
+            assert
+                "binance malformed symbol rejected"
+                ("--symbol must be a valid Binance symbol" `isInfixOf` err)
+        Right _ -> error "expected malformed Binance symbol to fail validation"
 
 testTopCombosBinanceSlashSymbolSanitization :: IO ()
 testTopCombosBinanceSlashSymbolSanitization =

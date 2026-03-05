@@ -985,12 +985,16 @@ validateArgs args0 = do
         symbolNormalizer =
             case argPlatform args0 of
                 p | isDexPlatform p -> trim
-                PlatformCoinbase -> normalizeDelimitedSymbol '-'
-                PlatformPoloniex -> normalizeDelimitedSymbol '_'
+                PlatformCoinbase -> normalizeCoinbaseSymbol
+                PlatformPoloniex -> normalizePoloniexSymbol
                 PlatformBinance -> normalizeBinanceSymbol
                 _ -> map toUpper . trim
         normalizeBinanceSymbol raw =
             fromMaybe (map toUpper (trim raw)) (sanitizeSymbolForPlatform (Just "binance") raw)
+        normalizeCoinbaseSymbol raw =
+            fromMaybe (normalizeDelimitedSymbol '-' raw) (sanitizeSymbolForPlatform (Just "coinbase") raw)
+        normalizePoloniexSymbol raw =
+            fromMaybe (normalizeDelimitedSymbol '_' raw) (sanitizeSymbolForPlatform (Just "poloniex") raw)
     let args =
             args0
                 { argData = fmap trim (argData args0)
@@ -1009,6 +1013,23 @@ validateArgs args0 = do
     case argBinanceSymbol args of
         Just "" -> Left "--binance-symbol cannot be empty"
         _ -> pure ()
+    case argBinanceSymbol args of
+        Nothing -> pure ()
+        Just sym ->
+            case argPlatform args of
+                PlatformBinance ->
+                    ensure
+                        "--symbol must be a valid Binance symbol (e.g., BTCUSDT or BTC/USDT)"
+                        (isJust (sanitizeSymbolForPlatform (Just "binance") sym))
+                PlatformCoinbase ->
+                    ensure
+                        "--symbol must use Coinbase BASE-QUOTE format (e.g., BTC-USD or BTC/USD)"
+                        (isJust (sanitizeSymbolForPlatform (Just "coinbase") sym))
+                PlatformPoloniex ->
+                    ensure
+                        "--symbol must use Poloniex BASE_QUOTE format (e.g., BTC_USDT or BTC/USDT)"
+                        (isJust (sanitizeSymbolForPlatform (Just "poloniex") sym))
+                _ -> pure ()
     let isDex = isDexPlatform (argPlatform args)
     ensure
         "Provide only one of --data or --binance-symbol (unless using a DEX platform with --data)"

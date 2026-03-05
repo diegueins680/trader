@@ -227,6 +227,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Coinbase products use `BASE-QUOTE` (for example `BTC-USD`).
     - Poloniex symbols use `BASE_QUOTE` (for example `BTC_USDT`); legacy `USDT_BTC` is auto-swapped.
     - Binance/Coinbase/Poloniex symbol delimiters are normalized during validation, so slash inputs like `BTC/USDT` are accepted and rewritten to `BTCUSDT` / `BTC-USD` / `BTC_USDT`.
+    - Coinbase/Poloniex compact symbols without the required delimiter (for example `BTCUSD` or `BTCUSDT`) are rejected during CLI validation; Binance also rejects malformed non-alphanumeric symbols early.
     - Top-combo symbol cleanup preserves both legs for unknown-platform delimited pairs (`BTC-USD` -> `BTCUSD`) and rejects numeric-only delimited artifacts (`2024-01-01`).
 
 - Bars & lookback (defaults: `--interval 1h`, `--lookback-window 7d` → 168 bars, `--bars auto`)
