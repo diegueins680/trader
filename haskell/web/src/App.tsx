@@ -8415,6 +8415,13 @@ export function App() {
     return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
   };
 
+  const systemVersionRaw = healthInfo?.version?.trim() ?? "";
+  const systemCommitRaw = healthInfo?.commit?.trim() ?? "";
+  const systemVersionTag = systemVersionRaw ? (systemVersionRaw.toLowerCase().startsWith("v") ? systemVersionRaw : `v${systemVersionRaw}`) : null;
+  const systemCommitShort = systemCommitRaw ? shortCommitHash(systemCommitRaw, 12) : null;
+  const systemBuildLabel = systemVersionTag && systemCommitShort ? `${systemVersionTag} (${systemCommitShort})` : systemVersionTag ?? (systemCommitShort ? `commit ${systemCommitShort}` : "build unknown");
+  const systemBuildTitle = systemVersionRaw && systemCommitRaw ? `System build ${systemVersionRaw} (${systemCommitRaw})` : systemVersionRaw ? `System build ${systemVersionRaw}` : systemCommitRaw ? `System commit ${systemCommitRaw}` : "System build unknown";
+
   const shortComboUuid = (uuid?: string | null, size = 6): string => {
     if (!uuid) return "—";
     const trimmed = uuid.trim();
@@ -8441,7 +8448,12 @@ export function App() {
               <div className="brand">
                 <div className="logo" aria-hidden="true" />
                 <div className="title">
-                  <h1>Trader UI</h1>
+                  <h1>
+                    <span>Trader UI</span>
+                    <span className="titleBuild" title={systemBuildTitle}>
+                      {systemBuildLabel}
+                    </span>
+                  </h1>
                   <p>Configure, backtest, optimize, and trade via the local REST API.</p>
                 </div>
               </div>

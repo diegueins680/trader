@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: show backend system build metadata (version + short commit from `/health`) directly in the main header so the running deployment identity is visible at a glance.
 - CLI validation: normalize `--idempotency-key` by trimming surrounding whitespace before runtime use and enforce ASCII-only `[A-Za-z0-9_-]` characters so non-ASCII keys are rejected consistently with documented Binance constraints.
 - DEX validation hardening: enforce `dexChainId > 0`, reject empty runtime DEX env values, require `TRADER_DEX_PRIVATE_KEY` (`0x` + 64 hex chars) and `TRADER_DEX_ADDRESS` (`0x` + 40 hex chars), and bound token decimals to `0..255` to avoid invalid precision math/overflow paths.
 - Interval normalization: canonicalize `--interval`/API interval inputs by trimming whitespace and normalizing unit casing (`1H` -> `1h`, `2D` -> `2d`) across CLI validation and platform interval mapping, while preserving Binance `1M` month semantics.
