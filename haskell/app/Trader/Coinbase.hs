@@ -219,7 +219,9 @@ buildRanges endSec granularitySec bars =
                         acc' = (startTime, endTime) : acc
                      in if remaining - chunkBars <= 0 || startTime <= 0
                             then reverse acc'
-                            else go acc' (remaining - chunkBars) (startTime - g)
+                            -- Keep adjacent windows contiguous. If the API is end-inclusive,
+                            -- downstream dedup still removes the single overlap safely.
+                            else go acc' (remaining - chunkBars) startTime
      in go [] bars' endSec'
 
 formatIso :: Int64 -> BS.ByteString

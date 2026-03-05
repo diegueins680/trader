@@ -134,6 +134,7 @@ main = do
               , run "coinbase candle parser rejects fractional numeric timestamp" testCoinbaseFractionalTimestampRejected
               , run "coinbase candle parser normalizes millisecond timestamp boundaries" testCoinbaseTimestampBoundaryNormalization
               , run "coinbase range builder stops at epoch boundary" testCoinbaseBuildRangesStopsAtEpochBoundary
+              , run "coinbase range builder keeps chunk boundaries contiguous" testCoinbaseBuildRangesAreContiguous
               , run "kraken candle parser rejects fractional numeric timestamp" testKrakenFractionalTimestampRejected
               , run "poloniex candle parser rejects fractional numeric timestamp" testPoloniexFractionalTimestampRejected
               , run "poloniex candle parser normalizes millisecond timestamp boundaries" testPoloniexTimestampBoundaryNormalization
@@ -973,6 +974,15 @@ testCoinbaseBuildRangesStopsAtEpochBoundary :: IO ()
 testCoinbaseBuildRangesStopsAtEpochBoundary = do
     let ranges = buildRanges 120 10 1000
     assert "coinbase range builder should stop after reaching epoch start" (ranges == [(0, 120)])
+
+testCoinbaseBuildRangesAreContiguous :: IO ()
+testCoinbaseBuildRangesAreContiguous = do
+    let ranges = buildRanges 10000 10 301
+    assert "coinbase range builder should return two chunks for 301 bars" (length ranges == 2)
+    let newest = requireHead "missing newest Coinbase range chunk" ranges
+        oldest = requireLast "missing oldest Coinbase range chunk" ranges
+    assert "coinbase newest chunk starts where oldest chunk ends" (fst newest == snd oldest)
+    assert "coinbase oldest chunk should include exactly one bar" (oldest == (6990, 7000))
 
 testKrakenFractionalTimestampRejected :: IO ()
 testKrakenFractionalTimestampRejected = do

@@ -34,6 +34,7 @@ Features
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, Sortino, Calmar, VaR/CVaR, max drawdown) (`haskell/app/Trader/Metrics.hs`).
 - Data sources: CSV or exchange klines (Binance/Coinbase/Kraken/Poloniex).
 - Exchange candle parsers now require integral numeric timestamps (fractional timestamps are rejected), normalize exact/negative millisecond epoch boundaries consistently, and reject non-finite numeric strings (`NaN`/`Infinity`) for OHLC values.
+- Coinbase candle pagination now keeps chunk windows contiguous across the 300-candle API page boundary, so large lookbacks do not skip boundary candles.
 - Sample dataset in `data/sample_prices.csv`.
 
 ROI playbook

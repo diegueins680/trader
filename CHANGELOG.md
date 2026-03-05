@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - HTTP internals/tests: expose a pure `Retry-After` header parsing helper and add regression coverage that validates mixed-case header names.
 - CLI/Coinbase/Poloniex: normalize slash-delimited symbols during argument validation (`BTC/USD` -> `BTC-USD`, `BTC/USDT` -> `BTC_USDT`) so platform-delimited symbols are accepted consistently.
 - Coinbase data loader: stop historical range chunking once the epoch boundary is reached to avoid redundant `(0,0)` request windows on oversized lookbacks.
+- Coinbase data loader: keep paginated range chunk boundaries contiguous (no `-granularity` gap step), so lookbacks spanning multiple 300-candle requests do not skip boundary candles.
 - Exchange parsing hardening: reject non-finite numeric strings (`NaN`/`Infinity`) in Binance/Coinbase/Kraken/Poloniex candle parsing and normalize exact/negative millisecond timestamp boundaries for Coinbase/Poloniex candles.
 - Exchange data parsing: make Coinbase/Kraken/Poloniex candle timestamp parsing strict for numeric JSON values (integral-only) so fractional timestamps are rejected instead of being silently rounded; also use floor-based current time when building exchange candle windows to avoid future-boundary drift.
 - Trading/Bot: when reconciling live orders, prioritize explicit `executedQty` over terminal `status` gates so partially filled `CANCELED`/`EXPIRED` orders still apply the filled quantity to in-memory position/equity state.
