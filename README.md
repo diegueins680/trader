@@ -29,6 +29,7 @@ Features
 - API background workers (bot auto-start, optimizer loops) run under supervision and auto-restart on non-async failures; top-combo candle-trigger backtests are deduped via a bounded queue to prevent unbounded trigger backlog.
 - Ops DB schema setup is versioned via `ops_schema_migrations`, allowing idempotent, incremental schema rollout instead of a monolithic startup DDL block.
 - Top-combo persistence normalizes method aliases through shared parser logic, so all supported methods (including `kalman_physics_error`, `conformal_clip`, `divergence_gate`, `smooth_softmax_blend`, `hedge_blend`) resolve to the right strategy records.
+- Top-combo symbol cleanup recovers Binance pairs from prefixed/tokenized strings (for example `binance:btc/usdt` and `binance-btc-usdt`) so valid symbols are preserved for combo selection.
 - `kalman_physics_error` backtests/signals now preserve their method identity in outputs (instead of being reported as `10`/`kalman`), and bot post-trade threshold tuning no longer downgrades that method label, keeping API responses and ops strategy mapping consistent.
 - Backtest-to-signal handoff now aligns prediction-history indices to the full price series before latest-signal computation, and `kalman_physics_error` latest-signal paths prefer the physics-model prediction history when present.
 - Optional tri-layer entry gating: Kalman cloud trend + price-action reversal triggers (`haskell/app/Trader/Trading.hs`).

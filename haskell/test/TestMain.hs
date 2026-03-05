@@ -208,6 +208,8 @@ main = do
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "top combos merge keeps same params across distinct sources" testMergeTopCombosKeepsDistinctSources
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
+              , run "top combos recover compact binance symbol from prefixed pair text" testTopCombosPrefixedPairNormalization
+              , run "top combos recover compact binance symbol from separated base/quote tokens" testTopCombosSeparatedTokenPairNormalization
               , run "top combos infer compact symbol from unknown delimited pair" testTopCombosUnknownPlatformPairNormalization
               , run "top combos reject numeric-only delimited symbols" testTopCombosRejectNumericOnlyDelimitedSymbols
               , run "symbol sanitization canonicalizes coinbase-prefixed platform keys" testSymbolCoinbasePrefixedPlatformNormalization
@@ -1210,6 +1212,18 @@ testTopCombosBinanceSlashSymbolSanitization =
     assert
         "top combos binance slash symbol normalized to compact pair"
         (sanitizeComboSymbolForPlatform (Just "binance") "BTC/USDT" == Just "BTCUSDT")
+
+testTopCombosPrefixedPairNormalization :: IO ()
+testTopCombosPrefixedPairNormalization =
+    assert
+        "top combos prefixed binance pair normalized to compact pair"
+        (sanitizeComboSymbolForPlatform Nothing "binance:btc/usdt" == Just "BTCUSDT")
+
+testTopCombosSeparatedTokenPairNormalization :: IO ()
+testTopCombosSeparatedTokenPairNormalization =
+    assert
+        "top combos separated binance base/quote tokens normalized to compact pair"
+        (sanitizeComboSymbolForPlatform (Just "binance") "binance-btc-usdt" == Just "BTCUSDT")
 
 testTopCombosUnknownPlatformPairNormalization :: IO ()
 testTopCombosUnknownPlatformPairNormalization =

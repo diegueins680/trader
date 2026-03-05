@@ -198,18 +198,22 @@ sanitizeBinanceComboSymbol raw =
         tokens = splitAlphaNumTokens s
         isValid sym =
             sym `notElem` commonQuotes && isValidBinanceSymbol sym
-        pickTokenCandidate =
+        pickJoinedPair =
+            listToMaybe
+                [ joined
+                | quote <- commonQuotes
+                , (a, b) <- zip tokens (drop 1 tokens)
+                , b == quote
+                , let joined = a ++ b
+                , isValid joined
+                ]
+        pickQuotedToken = find (\sym -> isValid sym && endsWithKnownQuotePair sym) tokens
+        pickSingleToken =
             case tokens of
-                [] -> Nothing
                 [a] -> bool Nothing (Just a) (isValid a)
-                a : b : _rest ->
-                    let joined = a ++ b
-                     in if b `elem` commonQuotes && isValid joined
-                            then Just joined
-                            else
-                                if isValid a && endsWithKnownQuotePair a
-                                    then Just a
-                                    else Nothing
+                _ -> Nothing
+        pickTokenCandidate =
+            pickJoinedPair <|> pickQuotedToken <|> pickSingleToken
         pickQuoteSuffix = trimBinanceComboSuffix s
      in pickQuoteSuffix <|> pickTokenCandidate <|> bool Nothing (Just s) (isValidBinanceSymbol s)
 
@@ -243,7 +247,7 @@ trimQuoteCandidates compact quote =
 findSubstrPositions :: String -> String -> [Int]
 findSubstrPositions needle hay =
     let go _ [] = []
-        go i xs@(x : rest) =
+        go i xs@(_ : rest) =
             if needle `isPrefixOf` xs
                 then i : go (i + 1) rest
                 else go (i + 1) rest

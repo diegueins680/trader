@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Top-combo symbol cleanup: recover Binance pairs from prefixed/tokenized symbols (for example `binance:btc/usdt` and `binance-btc-usdt`) so valid combo symbols are not dropped during sanitization.
 - Web UI: show backend system build metadata (version + short commit from `/health`) directly in the main header, and fall back to the UI build commit when `/health` omits `commit`, so deployment identity remains visible.
 - Web UI: use the same `/api`-preferring listenKey base for start/keepAlive/close actions as SSE stream reads in inferred split-host mode, avoiding cross-origin preflight CORS failures against direct API hosts.
 - DEX CSV mode: when both `--data` and `--symbol` are provided on DEX platforms, treat CSV as the authoritative price source for lookback/bar validation, cache key bar resolution, and runtime source labeling (so optional symbols do not incorrectly force exchange/default bar semantics).
