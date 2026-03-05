@@ -370,7 +370,7 @@ isHttpLogEnabled = do
 
 isTruthy :: String -> Bool
 isTruthy raw =
-    case map toLower raw of
+    case map toLower (trimSpaces raw) of
         "1" -> True
         "true" -> True
         "yes" -> True
@@ -405,13 +405,13 @@ readEnvInt :: String -> Int -> IO Int
 readEnvInt key fallback = do
     raw <- lookupEnv key
     pure $
-        fromMaybe fallback (raw >>= readMaybe)
+        fromMaybe fallback (raw >>= parseEnvInt)
 
 readEnvDouble :: String -> Double -> IO Double
 readEnvDouble key fallback = do
     raw <- lookupEnv key
     pure $
-        fromMaybe fallback (raw >>= readMaybe)
+        fromMaybe fallback (raw >>= parseEnvFiniteDouble)
 
 readEnvBool :: String -> Bool -> IO Bool
 readEnvBool key fallback = do
@@ -420,4 +420,18 @@ readEnvBool key fallback = do
         maybe fallback isTruthy raw
 
 clampDouble :: Double -> Double -> Double -> Double
-clampDouble lo hi v = max lo (min hi v)
+clampDouble lo hi v
+    | not (isFiniteDouble v) = lo
+    | otherwise = max lo (min hi v)
+
+parseEnvInt :: String -> Maybe Int
+parseEnvInt = readMaybe . trimSpaces
+
+parseEnvFiniteDouble :: String -> Maybe Double
+parseEnvFiniteDouble txt =
+    case readMaybe (trimSpaces txt) of
+        Just v | isFiniteDouble v -> Just v
+        _ -> Nothing
+
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)

@@ -85,7 +85,7 @@ import Trader.SignalGates (
  )
 import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Test.ApiRoutes (apiRouteSuite)
-import Trader.TopCombosStore (mergeTopCombosPayloads, recalculateComboPerformanceFromOperation)
+import Trader.TopCombosStore (mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, sanitizeComboSymbolForPlatform)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
 main :: IO ()
@@ -134,6 +134,7 @@ main = do
               , run "method parsing" testMethodParsing
               , run "platform parsing" testPlatformParsing
               , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+              , run "binance args normalize slash symbols" testBinanceSlashSymbolNormalization
               , run "coinbase args normalize slash symbols" testCoinbaseSlashSymbolNormalization
               , run "poloniex args normalize slash symbols" testPoloniexSlashSymbolNormalization
               , run "dry-run requires trade flag" testDryRunRequiresTrade
@@ -177,6 +178,7 @@ main = do
               , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
               , run "top combos merge ranks by nested metrics score" testMergeTopCombosRanksByNestedScore
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
+              , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
               , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
               , run "dex token resolution rejects malformed token addresses" testDexResolveTokensRejectsMalformedAddress
               , run "dex token resolution applies native decimals overrides" testDexResolveTokensNativeDecimalsOverride
@@ -1036,6 +1038,12 @@ testNonBinanceArgsLiveDefault = do
         Left err -> assert "explicit --binance-live rejected on kraken" ("--binance-live is only supported on Binance/Coinbase" `isInfixOf` err)
         Right _ -> error "expected explicit --binance-live to be rejected on kraken"
 
+testBinanceSlashSymbolNormalization :: IO ()
+testBinanceSlashSymbolNormalization =
+    case parseArgsResult ["--platform", "binance", "--symbol", "btc/usdt"] of
+        Left err -> error ("expected Binance slash symbol normalization to pass: " ++ err)
+        Right args -> assert "binance slash symbol normalized to compact pair" (argBinanceSymbol args == Just "BTCUSDT")
+
 testCoinbaseSlashSymbolNormalization :: IO ()
 testCoinbaseSlashSymbolNormalization =
     case parseArgsResult ["--platform", "coinbase", "--symbol", "btc/usd"] of
@@ -1047,6 +1055,12 @@ testPoloniexSlashSymbolNormalization =
     case parseArgsResult ["--platform", "poloniex", "--symbol", "btc/usdt", "--interval", "2h"] of
         Left err -> error ("expected Poloniex slash symbol normalization to pass: " ++ err)
         Right args -> assert "poloniex slash symbol normalized to underscore" (argBinanceSymbol args == Just "BTC_USDT")
+
+testTopCombosBinanceSlashSymbolSanitization :: IO ()
+testTopCombosBinanceSlashSymbolSanitization =
+    assert
+        "top combos binance slash symbol normalized to compact pair"
+        (sanitizeComboSymbolForPlatform (Just "binance") "BTC/USDT" == Just "BTCUSDT")
 
 testDryRunRequiresTrade :: IO ()
 testDryRunRequiresTrade =

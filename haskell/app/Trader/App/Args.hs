@@ -51,6 +51,7 @@ import Trader.Predictors.Types (
     predictorSetFromString,
     predictorSetToCsv,
  )
+import Trader.Symbol (sanitizeSymbolForPlatform)
 import Trader.Text (normalizeKey, trim)
 import Trader.Trading (IntrabarFill (..), Positioning (..))
 
@@ -986,7 +987,10 @@ validateArgs args0 = do
                 p | isDexPlatform p -> trim
                 PlatformCoinbase -> normalizeDelimitedSymbol '-'
                 PlatformPoloniex -> normalizeDelimitedSymbol '_'
+                PlatformBinance -> normalizeBinanceSymbol
                 _ -> map toUpper . trim
+        normalizeBinanceSymbol raw =
+            fromMaybe (map toUpper (trim raw)) (sanitizeSymbolForPlatform (Just "binance") raw)
     let args =
             args0
                 { argData = fmap trim (argData args0)

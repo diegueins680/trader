@@ -131,13 +131,20 @@ sanitizeDelimitedSymbol delim alt s =
 salvageBinanceSymbol :: String -> Maybe String
 salvageBinanceSymbol raw =
     let tokens = splitAlphaNumTokens raw
-        quoteCandidates = filter endsWithQuote tokens
+        joinedQuoteCandidates =
+            [ joined
+            | (a, b) <- zip tokens (drop 1 tokens)
+            , b `elem` commonQuotes
+            , let joined = a ++ b
+            ]
+        quoteCandidates = filter endsWithKnownQuotePair tokens
+        pickFromJoinedQuotes = find isValidBinanceSymbol joinedQuoteCandidates
         pickFromQuotes = find isValidBinanceSymbol quoteCandidates
         pickLongest =
             case filter isValidBinanceSymbol tokens of
                 [] -> Nothing
                 xs -> Just (maximumBy (comparing length) xs)
-     in pickFromQuotes <|> pickLongest
+     in pickFromJoinedQuotes <|> pickFromQuotes <|> pickLongest
 
 splitAlphaNumTokens :: String -> [String]
 splitAlphaNumTokens =
@@ -148,8 +155,10 @@ splitAlphaNumTokens =
         | otherwise = "" : acc
     step _ [] = []
 
-endsWithQuote :: String -> Bool
-endsWithQuote token = any (`isSuffixOf` token) commonQuotes
+endsWithKnownQuotePair :: String -> Bool
+endsWithKnownQuotePair token = any (matchesQuote token) commonQuotes
+  where
+    matchesQuote sym quote = length sym > length quote && quote `isSuffixOf` sym
 
 sanitizeBinanceComboSymbol :: String -> Maybe String
 sanitizeBinanceComboSymbol raw =
@@ -164,11 +173,11 @@ sanitizeBinanceComboSymbol raw =
                 [a] -> if isValid a then Just a else Nothing
                 a : b : _rest ->
                     let joined = a ++ b
-                     in if isValid a && endsWithQuote a
-                            then Just a
+                     in if b `elem` commonQuotes && isValid joined
+                            then Just joined
                             else
-                                if b `elem` commonQuotes && isValid joined
-                                    then Just joined
+                                if isValid a && endsWithKnownQuotePair a
+                                    then Just a
                                     else
                                         if isValid a && isSuffixToken b
                                             then Just a

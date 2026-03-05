@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Symbol sanitization: fix Binance slash-delimited pair normalization so inputs like `BTC/USDT` are normalized to `BTCUSDT` (instead of potentially collapsing to a standalone quote token) across CLI args and top-combo symbol cleanup paths.
+- HTTP env parsing: reject non-finite retry-jitter values (`NaN`/`Infinity`) and trim whitespace for retry env vars/flags so invalid `TRADER_HTTP_RETRY_JITTER` values cannot corrupt backoff scheduling.
 - CLI timestamp parsing: accept expanded/signed ISO-8601 years for `--from/--to` (for example `10000-01-01`, `-0001-01-01`) and reject ISO timestamps whose converted Unix-millisecond values would overflow `Int64`.
 - CSV loading: reject non-finite numeric values (`NaN`/`Infinity`) in price/high/low/open/volume cells instead of silently accepting them into backtests/trading math.
 - Optimizer/top-combos merge: treat nested `metrics.score` as equivalent to top-level `score` when ranking and de-duplicating combos, so mixed payload shapes keep the best-scored records.
