@@ -2,7 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
-- Web UI: show backend system build metadata (version + short commit from `/health`) directly in the main header so the running deployment identity is visible at a glance.
+- Web UI: show backend system build metadata (version + short commit from `/health`) directly in the main header, and fall back to the UI build commit when `/health` omits `commit`, so deployment identity remains visible.
+- Web UI: use the same `/api`-preferring listenKey base for start/keepAlive/close actions as SSE stream reads in inferred split-host mode, avoiding cross-origin preflight CORS failures against direct API hosts.
+- DEX CSV mode: when both `--data` and `--symbol` are provided on DEX platforms, treat CSV as the authoritative price source for lookback/bar validation, cache key bar resolution, and runtime source labeling (so optional symbols do not incorrectly force exchange/default bar semantics).
 - Ensemble robustness: context-aware blend/pick methods now clamp non-finite combined predictions (`NaN`/`Infinity`) to a neutral finite fallback (current price when available, otherwise `0`) so invalid model outputs cannot leak into runtime/backtest prediction streams.
 - CLI validation: normalize `--idempotency-key` by trimming surrounding whitespace before runtime use and enforce ASCII-only `[A-Za-z0-9_-]` characters so non-ASCII keys are rejected consistently with documented Binance constraints.
 - DEX validation hardening: enforce `dexChainId > 0`, reject empty runtime DEX env values, require `TRADER_DEX_PRIVATE_KEY` (`0x` + 64 hex chars) and `TRADER_DEX_ADDRESS` (`0x` + 40 hex chars), and bound token decimals to `0..255` to avoid invalid precision math/overflow paths.

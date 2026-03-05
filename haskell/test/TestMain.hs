@@ -215,6 +215,7 @@ main = do
               , run "symbol sanitization keeps dex symbol format for prefixed platform keys" testSymbolDexPrefixedPlatformNormalization
               , run "top combos keep dex symbol format for prefixed platform keys" testTopCombosDexPrefixedPlatformSymbolSanitization
               , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
+              , run "dex csv+symbol lookback validation uses csv bars" testDexCsvSymbolLookbackUsesCsvBars
               , run "dex trade args reject single-token override even with symbol" testDexTradeArgsRejectPartialTokenOverrides
               , run "dex token resolution rejects malformed token addresses" testDexResolveTokensRejectsMalformedAddress
               , run "dex token resolution applies native decimals overrides" testDexResolveTokensNativeDecimalsOverride
@@ -1901,6 +1902,28 @@ testDexTradeArgsRequireTokensNotSymbol = do
     case parseArgsResult (dexBaseArgs ++ ["--dex-base-token", "ETH"]) of
         Left err -> assert "missing quote token rejected" ("--dex-base-token and --dex-quote-token must be provided together" `isInfixOf` err)
         Right _ -> error "expected missing dex quote token to be rejected"
+
+testDexCsvSymbolLookbackUsesCsvBars :: IO ()
+testDexCsvSymbolLookbackUsesCsvBars = do
+    let argv =
+            [ "--platform"
+            , "uniswap"
+            , "--data"
+            , "sample.csv"
+            , "--symbol"
+            , "ETH/USDC"
+            , "--interval"
+            , "1h"
+            , "--lookback-bars"
+            , "600"
+            ]
+    case parseArgsResult argv of
+        Left err ->
+            error
+                ( "expected DEX CSV+symbol args to accept large lookback with --bars auto; got: "
+                    ++ err
+                )
+        Right _ -> pure ()
 
 testDexTradeArgsRejectPartialTokenOverrides :: IO ()
 testDexTradeArgsRejectPartialTokenOverrides = do

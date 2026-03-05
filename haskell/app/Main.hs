@@ -2231,22 +2231,27 @@ sanitizeArgsKeys args =
 boolFromMaybe :: Maybe a -> Bool
 boolFromMaybe = isJust
 
+isDexPlatform :: Platform -> Bool
+isDexPlatform platform =
+    case platform of
+        PlatformUniswap -> True
+        PlatformCurve -> True
+        PlatformSushiswap -> True
+        PlatformBalancer -> True
+        PlatformPancakeswap -> True
+        PlatformOneInch -> True
+        _ -> False
+
+prefersCsvBars :: Args -> Bool
+prefersCsvBars args = isDexPlatform (argPlatform args) && isJust (argData args)
+
 argsPublicJson :: Args -> Aeson.Value
 argsPublicJson args =
     let market = marketCode (argBinanceMarket args)
         barsRaw = argBars args
         barsCsv = resolveBarsForCsv args
         barsPlatform = resolveBarsForPlatform args
-        isDexPlatform p =
-            case p of
-                PlatformUniswap -> True
-                PlatformCurve -> True
-                PlatformSushiswap -> True
-                PlatformBalancer -> True
-                PlatformPancakeswap -> True
-                PlatformOneInch -> True
-                _ -> False
-        useCsvBars = isDexPlatform (argPlatform args) && isJust (argData args)
+        useCsvBars = prefersCsvBars args
         barsUsed =
             if useCsvBars
                 then barsCsv
@@ -10351,10 +10356,12 @@ requestWantsNoCache req =
 
 barsResolvedForCache :: Args -> Int
 barsResolvedForCache args =
-    case (argBinanceSymbol args, argData args) of
-        (Just _, _) -> resolveBarsForPlatform args
-        (_, Just _) -> resolveBarsForCsv args
-        _ -> fromMaybe 0 (argBars args)
+    if prefersCsvBars args
+        then resolveBarsForCsv args
+        else case (argBinanceSymbol args, argData args) of
+            (Just _, _) -> resolveBarsForPlatform args
+            (_, Just _) -> resolveBarsForCsv args
+            _ -> fromMaybe 0 (argBars args)
 
 argsCacheJsonSignal :: Args -> Aeson.Value
 argsCacheJsonSignal args =
@@ -25070,24 +25077,30 @@ data PriceSeries = PriceSeries
 
 priceSourceLabel :: Args -> String
 priceSourceLabel args =
-    case (argBinanceSymbol args, argData args) of
-        (Just sym, _) ->
-            platformLabel (argPlatform args) ++ " " ++ sym ++ " (" ++ argInterval args ++ ")"
-        (_, Just path) ->
-            "CSV " ++ path ++ " (column " ++ show (argPriceCol args) ++ ")"
-        _ ->
-            "data source"
+    if prefersCsvBars args
+        then case argData args of
+            Just path -> "CSV " ++ path ++ " (column " ++ show (argPriceCol args) ++ ")"
+            Nothing -> "data source"
+        else case (argBinanceSymbol args, argData args) of
+            (Just sym, _) ->
+                platformLabel (argPlatform args) ++ " " ++ sym ++ " (" ++ argInterval args ++ ")"
+            (_, Just path) ->
+                "CSV " ++ path ++ " (column " ++ show (argPriceCol args) ++ ")"
+            _ ->
+                "data source"
 
 ensureMinPriceRows :: Args -> Int -> [Double] -> IO ()
 ensureMinPriceRows args minRows prices =
     let n = length prices
         hint =
-            case (argBinanceSymbol args, argData args) of
-                (Just _, _) ->
-                    " Check symbol/interval and increase --bars (requested " ++ show (resolveBarsForPlatform args) ++ ")."
-                (_, Just _) ->
-                    " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header)."
-                _ -> ""
+            if prefersCsvBars args
+                then " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header)."
+                else case (argBinanceSymbol args, argData args) of
+                    (Just _, _) ->
+                        " Check symbol/interval and increase --bars (requested " ++ show (resolveBarsForPlatform args) ++ ")."
+                    (_, Just _) ->
+                        " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header)."
+                    _ -> ""
      in (when (n < minRows) $ throwIO (userError ("Need at least " ++ show minRows ++ " price rows (got " ++ show n ++ ") from " ++ priceSourceLabel args ++ "." ++ hint)))
 
 ensureLookbackRows :: Args -> Int -> [Double] -> IO ()
@@ -25095,13 +25108,15 @@ ensureLookbackRows args lookback prices =
     let n = length prices
         minRows = lookback + 1
         hint =
-            case (argBinanceSymbol args, argData args) of
-                (Just _, _) ->
-                    " Increase --bars (requested " ++ show (resolveBarsForPlatform args) ++ ") or reduce --lookback-bars/--lookback-window."
-                (_, Just _) ->
-                    " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header), or reduce --lookback-bars/--lookback-window."
-                _ ->
-                    " Increase --bars or reduce --lookback-bars/--lookback-window."
+            if prefersCsvBars args
+                then " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header), or reduce --lookback-bars/--lookback-window."
+                else case (argBinanceSymbol args, argData args) of
+                    (Just _, _) ->
+                        " Increase --bars (requested " ++ show (resolveBarsForPlatform args) ++ ") or reduce --lookback-bars/--lookback-window."
+                    (_, Just _) ->
+                        " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header), or reduce --lookback-bars/--lookback-window."
+                    _ ->
+                        " Increase --bars or reduce --lookback-bars/--lookback-window."
      in ( when (n < minRows) $
             throwIO
                 ( userError
@@ -25121,16 +25136,7 @@ ensureLookbackRows args lookback prices =
 
 loadPrices :: Maybe OpsStore -> Args -> IO (PriceSeries, Maybe BinanceEnv)
 loadPrices mOps args =
-    let isDexPlatform p =
-            case p of
-                PlatformUniswap -> True
-                PlatformCurve -> True
-                PlatformSushiswap -> True
-                PlatformBalancer -> True
-                PlatformPancakeswap -> True
-                PlatformOneInch -> True
-                _ -> False
-        isDex = isDexPlatform (argPlatform args)
+    let isDex = isDexPlatform (argPlatform args)
         loadCsv path = do
             csvOrErr <- loadCsvPriceSeries path (argPriceCol args) (argHighCol args) (argLowCol args)
             (closes, mOpens, mHighs, mLows, mVolumes, mOpenTimes) <-

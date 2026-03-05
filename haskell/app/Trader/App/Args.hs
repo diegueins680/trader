@@ -1183,10 +1183,13 @@ validateArgs args0 = do
                         pure n
 
     let hasDataSource = present (argData args) || present (argBinanceSymbol args)
+        prefersCsvBars = isDex && present (argData args)
         barsForLookback =
-            case argBinanceSymbol args of
-                Just _ -> barsPlatform
-                Nothing -> barsCsv
+            if prefersCsvBars
+                then barsCsv
+                else case argBinanceSymbol args of
+                    Just _ -> barsPlatform
+                    Nothing -> barsCsv
     when (hasDataSource && barsForLookback > 0) $
         ensure
             ( "--bars must be >= lookback+1 (need at least "

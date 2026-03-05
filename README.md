@@ -214,7 +214,7 @@ cabal run trader-hs -- \
 
 CLI parameters
 --------------
-You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binance-symbol` (exchange; default platform is Binance). DEX trades require `--data` and accept `--dex-base-token/--dex-quote-token` (optionally `--symbol` for display).
+You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binance-symbol` (exchange; default platform is Binance). DEX trades require `--data` and accept `--dex-base-token/--dex-quote-token` (optionally `--symbol` for display; CSV remains the authoritative data source when both are present).
 
 - Data source
   - `--data PATH` (default: none) CSV file containing prices
@@ -242,6 +242,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
   - Oversized integer literals and overflow during `--lookback-window` unit conversion/bar conversion are rejected (no integer wraparound).
   - Lookback must be less than the total number of bars; CLI/API requests error when fewer than `lookback + 1` prices are available (including CSV `--bars auto/0`).
+  - On DEX platforms, providing `--data` plus optional `--symbol` still uses CSV bar semantics for lookback validation (`--bars auto/0` = all CSV rows); `--symbol` is display/trade metadata only in this mode.
 
 - Trading (Binance + Coinbase + DEX)
   - Trading flags apply only when `--platform binance`, `--platform coinbase`, or a supported DEX platform.
@@ -964,7 +965,7 @@ A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST 
 The UI layout uses a refreshed header, section grouping, and spacing for faster scanning on desktop and mobile.
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
-The header title now also shows the running system build (`version` + short `commit`) from `/health` for quick deployment verification.
+The header title now also shows the running system build (`version` + short `commit`) from `/health` for quick deployment verification, with fallback to the UI build commit when `/health` omits `commit`.
 The header also exposes layout controls (expand/collapse all, reset layout) plus per-page issue badges and a quick issues dropdown with jump links; expand/collapse all also controls the floating Bot activity panel, and the layout controls display a dismissible hint that it is included.
 Collapsible panels now include explicit Maximize/Restore and Expand/Collapse controls in their headers, including the optimizer combos dock.
 Configuration uses a menu bar to switch between single-section pages (API, Market, Lookback, Thresholds, Risk, Optimizer run, Optimization, Live bot, Trade) and expands into a full-page scroll rather than fixed-height panels; sections and result panels remain collapsible, the UI remembers open/closed state locally, and starts low-signal panels (Data Log, Request preview) collapsed by default.
@@ -981,6 +982,7 @@ The overview card summarizes connection, execution mode, and the latest signal/b
 Overview summary metadata (like API URLs or error strings) wraps so full content stays visible.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
 On startup the UI auto-checks API keys for Binance/Coinbase (when selected) and auto-starts the Binance listenKey user-data stream once keys are available.
+In inferred Fly split-host mode, listenKey start/keep-alive/close actions now use the same `/api`-preferring base as stream reads to avoid cross-origin preflight CORS failures on direct API hosts.
 The Trade result panel shows the backend server egress IP (when available) with a Copy button so Binance IP allowlisting is faster.
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 Missing/invalid saved symbols fall back to platform defaults, and trade-test skips surface as a warning callout with the skip reason.
