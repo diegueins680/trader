@@ -210,9 +210,10 @@ cleanupPublishedOlderThan conn now retentionMs = do
 
 backoffMs :: Int -> Int64
 backoffMs attempts =
-    let a = max 1 attempts
-        raw = (2 ^ min 10 a) * 1000
-     in min 300000 (fromIntegral raw)
+    let expSteps = min 10 (max 1 attempts)
+        rawMs :: Int64
+        rawMs = (2 ^ expSteps) * 1000
+     in min 300000 rawMs
 
 publishEvent :: PublisherCtx -> OutboxEvent -> IO (Either Text ())
 publishEvent ctx event =

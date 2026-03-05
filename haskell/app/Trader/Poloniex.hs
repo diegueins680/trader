@@ -61,15 +61,17 @@ fetchPoloniexCandles pair intervalLabel periodSec bars = do
         key = map toUpper (trim pair) ++ ":" ++ intervalLabel ++ ":" ++ show period ++ ":" ++ show lookbackBars
     fetchWithCache poloniexCandlesCache poloniexCandlesFreshTtl poloniexCandlesStaleTtl key $ do
         mgr <- getSharedManager
-        now <- floor <$> getPOSIXTime
-        let endMs = max 0 (fromIntegral now * 1000)
-            startMs = max 0 (endMs - fromIntegral lookbackBars * fromIntegral period * 1000)
+        nowSec <- (floor <$> getPOSIXTime) :: IO Int64
+        let endMs :: Int64
+            endMs = max 0 (nowSec * 1000)
+            lookbackMs :: Int64
+            lookbackMs = fromIntegral lookbackBars * fromIntegral period * 1000
+            startMs = max 0 (endMs - lookbackMs)
             candidates = poloniexSymbolCandidates pair
-        go mgr startMs endMs candidates Nothing
+        go mgr startMs endMs candidates
   where
-    go _ _ _ [] Nothing = throwIO (userError "Poloniex chart request failed (no symbol candidates).")
-    go _ _ _ [] (Just err) = throwIO err
-    go manager startMs endMs (sym : rest) lastErr = do
+    go _ _ _ [] = throwIO (userError "Poloniex chart request failed (no symbol candidates).")
+    go manager startMs endMs (sym : rest) = do
         res <- fetchSymbol manager startMs endMs sym
         case res of
             Right xs -> pure (normalizePoloniexCandles bars xs)
@@ -77,7 +79,7 @@ fetchPoloniexCandles pair intervalLabel periodSec bars = do
                 let err = userError ("Poloniex chart request failed for " ++ sym ++ " (HTTP " ++ show code ++ ")")
                     retryable = code `elem` [400, 404, 422]
                  in if retryable && not (null rest)
-                        then go manager startMs endMs rest (Just err)
+                        then go manager startMs endMs rest
                         else throwIO err
 
     fetchSymbol manager startMs endMs sym = do

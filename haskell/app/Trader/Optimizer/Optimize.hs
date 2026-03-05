@@ -3108,8 +3108,8 @@ runOptimizer args0 = do
                                                                                 triLayerTouchLookbackRange
                                                                                 triLayerPriceActionBodyRange
                                                                                 (oaTriLayerExitOnSlow args)
-                                                                                (oaKalmanBandLookbackMin args, oaKalmanBandLookbackMax args)
-                                                                                (oaKalmanBandStdMultMin args, oaKalmanBandStdMultMax args)
+                                                                                kalmanBandLookbackRange
+                                                                                kalmanBandStdMultRange
                                                                                 lstmExitFlipBarsRange
                                                                                 lstmExitFlipGraceBarsRange
                                                                                 (oaLstmExitFlipStrong args)

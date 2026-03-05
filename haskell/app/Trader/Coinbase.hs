@@ -163,8 +163,8 @@ fetchCoinbaseCandles product granularitySec bars = do
         key = map toUpperAscii (trim product) ++ ":" ++ show granularity ++ ":" ++ show totalBars
     fetchWithCache coinbaseCandlesCache coinbaseCandlesFreshTtl coinbaseCandlesStaleTtl key $ do
         mgr <- getSharedManager
-        now <- floor <$> getPOSIXTime
-        let ranges = buildRanges (fromIntegral now) (fromIntegral granularity) totalBars
+        nowSec <- (floor <$> getPOSIXTime) :: IO Int64
+        let ranges = buildRanges nowSec (fromIntegral granularity) totalBars
         chunks <- mapM (fetchRange mgr) ranges
         pure (normalizeCoinbaseCandles totalBars (concat chunks))
   where
