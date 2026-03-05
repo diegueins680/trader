@@ -74,6 +74,7 @@ import Trader.Predictors (
     predictSensors,
     trainPredictors,
  )
+import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors)
 import Trader.SignalGates (
     signalCrossAssetCheck,
@@ -103,6 +104,9 @@ main = do
               , run "kalman fusion multi-sensor" testKalmanFusionMulti
               , run "market linear fit" testMarketLinearFit
               , run "predictors output shape" testPredictorsOutputs
+              , run "transformer training skips invalid rows" testTransformerTrainingSanitizesDataset
+              , run "transformer prediction rejects non-finite query" testTransformerPredictionRejectsNonFiniteQuery
+              , run "transformer training normalizes invalid temperature" testTransformerInvalidTemperatureFallback
               , run "kalman constant series" testKalmanConstant
               , run "kalman forecast constant" testKalmanForecast
               , run "kalman innovation sign" testKalmanInnovationSign
@@ -239,6 +243,9 @@ assertApproxList msg eps xs ys =
     let sameLength = length xs == length ys
         allClose = and (zipWith (\a b -> abs (a - b) <= eps) xs ys)
      in assert msg (sameLength && allClose)
+
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)
 
 requireRight :: String -> Either String a -> a
 requireRight label res =
@@ -530,6 +537,36 @@ testPredictorsOutputs = do
             case soInterval o of
                 Nothing -> error "missing interval"
                 Just (Interval lo hi) -> assert "interval ordered" (lo <= hi)
+
+testTransformerTrainingSanitizesDataset :: IO ()
+testTransformerTrainingSanitizesDataset = do
+    let nan = 0 / 0
+        badInf = 1 / 0
+        rawDataset =
+            [ ([1.0, 2.0], 0.1)
+            , ([9.0], 0.9)
+            , ([2.0, 3.0], 0.2)
+            , ([3.0, badInf], 0.3)
+            , ([4.0, 5.0], nan)
+            ]
+        model = trainTransformer 2.0 10 rawDataset
+        (mu, mSigma) = predictTransformer model [2.0, 3.0]
+    assert "keeps feature dimension from valid rows" (trFeatureDim model == 2)
+    assert "keeps only valid and dimension-consistent rows" (length (trKeys model) == 2 && length (trTargets model) == 2)
+    assert "predictor still yields finite output" (isFiniteDouble mu && maybe False isFiniteDouble mSigma)
+
+testTransformerPredictionRejectsNonFiniteQuery :: IO ()
+testTransformerPredictionRejectsNonFiniteQuery = do
+    let model = trainTransformer 2.0 10 [([1.0, 2.0], 0.1), ([2.0, 3.0], 0.2)]
+        (mu, mSigma) = predictTransformer model [0 / 0, 3.0]
+    assert "non-finite query should return neutral output" (mu == 0 && isNothing mSigma)
+
+testTransformerInvalidTemperatureFallback :: IO ()
+testTransformerInvalidTemperatureFallback = do
+    let model = trainTransformer (0 / 0) 10 [([1.0, 2.0], 0.1), ([2.0, 3.0], 0.2)]
+        (mu, mSigma) = predictTransformer model [1.5, 2.5]
+    assert "invalid temperature falls back to finite positive default" (trTemperature model > 0 && isFiniteDouble (trTemperature model))
+    assert "fallback temperature still allows finite prediction" (isFiniteDouble mu && maybe False isFiniteDouble mSigma)
 
 testKalmanConstant :: IO ()
 testKalmanConstant = do

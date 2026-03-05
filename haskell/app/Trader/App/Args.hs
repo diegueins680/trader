@@ -315,9 +315,7 @@ parseBarsArg raw =
 
 parseTimeInt64 :: String -> Maybe Int64
 parseTimeInt64 s =
-    case readStrictDecimalInteger s of
-        Just n -> integerToInt64 n
-        Nothing -> Nothing
+    integerToInt64 =<< readStrictDecimalInteger s
 
 readStrictDecimalInteger :: String -> Maybe Integer
 readStrictDecimalInteger s =
