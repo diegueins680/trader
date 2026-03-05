@@ -20,7 +20,7 @@ module Trader.App.Args (
 
 import Control.Applicative ((<|>))
 import Control.Monad (forM_, when)
-import Data.Char (isDigit, toLower, toUpper)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower, toUpper)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Time (defaultTimeLocale, parseTimeM)
@@ -1613,9 +1613,3 @@ validateArgs args0 = do
 
     isAsciiAlphaNum :: Char -> Bool
     isAsciiAlphaNum c = isDigit c || isAsciiUpper c || isAsciiLower c
-
-    isAsciiUpper :: Char -> Bool
-    isAsciiUpper c = c >= 'A' && c <= 'Z'
-
-    isAsciiLower :: Char -> Bool
-    isAsciiLower c = c >= 'a' && c <= 'z'
