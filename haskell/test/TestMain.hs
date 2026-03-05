@@ -213,6 +213,8 @@ main = do
               , run "top combos recover compact binance symbol from separated base/quote tokens" testTopCombosSeparatedTokenPairNormalization
               , run "top combos infer compact symbol from unknown delimited pair" testTopCombosUnknownPlatformPairNormalization
               , run "top combos reject numeric-only delimited symbols" testTopCombosRejectNumericOnlyDelimitedSymbols
+              , run "symbol split handles delimited pairs" testSplitSymbolDelimitedPairs
+              , run "symbol split keeps compact pairs" testSplitSymbolCompactPairs
               , run "symbol sanitization canonicalizes coinbase-prefixed platform keys" testSymbolCoinbasePrefixedPlatformNormalization
               , run "top combos sanitize coinbase-prefixed platform symbols" testTopCombosCoinbasePrefixedPlatformSymbolSanitization
               , run "symbol sanitization keeps dex symbol format for prefixed platform keys" testSymbolDexPrefixedPlatformNormalization
@@ -1237,6 +1239,18 @@ testTopCombosRejectNumericOnlyDelimitedSymbols =
     assert
         "numeric-only delimited symbol rejected"
         (isNothing (sanitizeComboSymbolForPlatform Nothing "2024-01-01"))
+
+testSplitSymbolDelimitedPairs :: IO ()
+testSplitSymbolDelimitedPairs = do
+    assert "coinbase-style split" (Symbol.splitSymbol "BTC-USD" == ("BTC", "USD"))
+    assert "poloniex-style split" (Symbol.splitSymbol "BTC_USDT" == ("BTC", "USDT"))
+    assert "slash-delimited split trims and uppercases" (Symbol.splitSymbol " eth/usdc " == ("ETH", "USDC"))
+
+testSplitSymbolCompactPairs :: IO ()
+testSplitSymbolCompactPairs =
+    assert
+        "compact split keeps known quote suffix logic"
+        (Symbol.splitSymbol "BTCUSDT" == ("BTC", "USDT"))
 
 testSymbolCoinbasePrefixedPlatformNormalization :: IO ()
 testSymbolCoinbasePrefixedPlatformNormalization =

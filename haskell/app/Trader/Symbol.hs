@@ -27,12 +27,31 @@ commonQuotes =
 
 splitSymbol :: String -> (String, String)
 splitSymbol symbol =
-    let sym = map toUpperAscii symbol
-     in case filter (`isSuffixOf` sym) commonQuotes of
-            (q : _) -> (take (length sym - length q) sym, q)
-            [] ->
-                let n = length sym
-                 in splitAt (max 0 (n - 3)) sym
+    let sym = map toUpperAscii (trim symbol)
+     in case splitDelimitedPair sym of
+            Just pair -> pair
+            Nothing ->
+                case filter (`isSuffixOf` sym) commonQuotes of
+                    (q : _) -> (take (length sym - length q) sym, q)
+                    [] ->
+                        let n = length sym
+                         in splitAt (max 0 (n - 3)) sym
+
+splitDelimitedPair :: String -> Maybe (String, String)
+splitDelimitedPair sym =
+    case break isPairDelimiter sym of
+        (base, delim : quote)
+            | isPairDelimiter delim
+                && not (null base)
+                && not (null quote)
+                && all isAsciiAlphaNum base
+                && all isAsciiAlphaNum quote ->
+                Just (base, quote)
+        _ -> Nothing
+
+isPairDelimiter :: Char -> Bool
+isPairDelimiter c =
+    c == '/' || c == '-' || c == '_'
 
 toUpperAscii :: Char -> Char
 toUpperAscii c =
