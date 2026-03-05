@@ -4784,6 +4784,43 @@ perfGateReason args stats =
 clamp01 :: Double -> Double
 clamp01 x = max 0 (min 1 x)
 
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)
+
+neutralPredFromPrev :: Double -> Double
+neutralPredFromPrev prev =
+    if isFiniteDouble prev
+        then prev
+        else 0
+
+finiteBlendOrNeutral :: Double -> Double -> Double -> Double -> Double
+finiteBlendOrNeutral weight prev kalPred lstmPred =
+    let w = clamp01 weight
+        blended = w * kalPred + (1 - w) * lstmPred
+     in if isFiniteDouble blended
+            then blended
+            else neutralPredFromPrev prev
+
+blendPredFromPreds :: Double -> Double -> Double -> Double -> Double
+blendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        w = clamp01 fallbackWeight
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) -> finiteBlendOrNeutral w prev kalPred lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> neutralPredFromPrev prev
+
+blendPredictionsV :: Double -> V.Vector Double -> V.Vector Double -> V.Vector Double -> V.Vector Double
+blendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in blendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 computeAdaptiveAdjustments :: Args -> BotPerfStats -> BotAdjustments
 computeAdaptiveAdjustments args stats =
     let lookback = max 0 (argPerfLookback args)
@@ -6082,7 +6119,8 @@ resolveOrphanOpenPositionSymbols mOps _limits args requested =
                     pure (dedupeStable orphans)
 
 data RuntimeAdoptionInfo = RuntimeAdoptionInfo
-    { raiStarting :: !Bool
+    { raiRunning :: !Bool
+    , raiStarting :: !Bool
     , raiTradeEnabled :: !Bool
     , raiSide :: !(Maybe Int)
     }
@@ -6101,7 +6139,8 @@ runtimeAdoptionInfo rtState =
         BotStarting rt ->
             pure
                 RuntimeAdoptionInfo
-                    { raiStarting = True
+                    { raiRunning = False
+                    , raiStarting = True
                     , raiTradeEnabled = bsTradeEnabled (bsrSettings rt)
                     , raiSide = Nothing
                     }
@@ -6111,13 +6150,15 @@ runtimeAdoptionInfo rtState =
                 case stOrErr of
                     Left _ ->
                         RuntimeAdoptionInfo
-                            { raiStarting = False
+                            { raiRunning = True
+                            , raiStarting = False
                             , raiTradeEnabled = False
                             , raiSide = Nothing
                             }
                     Right st ->
                         RuntimeAdoptionInfo
-                            { raiStarting = False
+                            { raiRunning = True
+                            , raiStarting = False
                             , raiTradeEnabled = bsTradeEnabled (botSettings st)
                             , raiSide = botPositionSign st
                             }
@@ -6140,7 +6181,8 @@ positionAdoptedByRuntime mInfo pos =
                     Just posSide ->
                         let activeSides = maybeToList (raiSide info)
                             hasStarting = raiStarting info
-                         in posSide `elem` activeSides || (null activeSides && hasStarting)
+                            hasRunning = raiRunning info
+                         in posSide `elem` activeSides || (null activeSides && (hasStarting || hasRunning))
 
 resolveOrphanOpenPositionActions :: Maybe OpsStore -> Args -> BotRuntimeMap -> IO ([String], [String])
 resolveOrphanOpenPositionActions mOps args tenantMap =
@@ -16981,7 +17023,7 @@ confidenceBlendPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmP
                  in w * kalPred + (1 - w) * lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 confidenceBlendPredictionsV ::
     Double ->
@@ -17028,7 +17070,7 @@ confidencePickPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPr
             (True, False) -> lstmPred
             (True, True) ->
                 let wFallback = clamp01 fallbackWeight
-                 in wFallback * kalPred + (1 - wFallback) * lstmPred
+                 in finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 confidencePickPredictionsV ::
     Double ->
@@ -17098,7 +17140,7 @@ costPickPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
             (True, False) -> lstmPred
             (True, True) ->
                 let wFallback = clamp01 fallbackWeight
-                 in wFallback * kalPred + (1 - wFallback) * lstmPred
+                 in finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 costPickPredictionsV ::
     Double ->
@@ -17125,7 +17167,7 @@ harmonicBlendPredFromPreds ::
 harmonicBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         w = clamp01 fallbackWeight
-        arithmetic = w * kalPred + (1 - w) * lstmPred
+        arithmetic = finiteBlendOrNeutral w prev kalPred lstmPred
         eps = 1e-12
      in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
             (False, False, False) ->
@@ -17193,7 +17235,7 @@ disagreementGuardPredFromPreds fallbackWeight prev kalPred lstmPred =
                     _ -> if wFallback >= 0.5 then kalPred else lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 disagreementGuardPredictionsV ::
     Double ->
@@ -17219,7 +17261,7 @@ medianBlendPredFromPreds ::
 medianBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         w = clamp01 fallbackWeight
-        arithmetic = w * kalPred + (1 - w) * lstmPred
+        arithmetic = finiteBlendOrNeutral w prev kalPred lstmPred
         median3 a b c
             | a <= b = if b <= c then b else max a c
             | a <= c = a
@@ -17261,7 +17303,7 @@ neutralGuardPredFromPreds ::
 neutralGuardPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -17353,7 +17395,7 @@ riskParityBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                  in w * kalPred + (1 - w) * lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 riskParityBlendPredictionsV ::
     Double ->
@@ -17379,7 +17421,7 @@ consensusBoostPredFromPreds ::
 consensusBoostPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -17437,7 +17479,7 @@ anchorBlendPredFromPreds ::
 anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -17498,7 +17540,7 @@ tensionGatePredFromPreds ::
 tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -17565,7 +17607,7 @@ entropyBlendPredFromPreds ::
 entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -17633,7 +17675,7 @@ coherenceGatePredFromPreds ::
 coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -17711,7 +17753,7 @@ fractalBlendPredFromPreds ::
 fractalBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -17766,7 +17808,7 @@ phaseCancelPredFromPreds ::
 phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -17859,10 +17901,10 @@ softmaxBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
             (False, False) ->
                 let w = softmaxBlendWeightFromPreds wFallback prev kalPred lstmPred
                     pred = w * kalPred + (1 - w) * lstmPred
-                 in if bad pred then wFallback * kalPred + (1 - wFallback) * lstmPred else pred
+                 in if bad pred then finiteBlendOrNeutral wFallback prev kalPred lstmPred else pred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 softmaxBlendPredictionsV ::
     Double ->
@@ -17922,10 +17964,10 @@ netSoftmaxBlendPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred 
             (False, False) ->
                 let w = netSoftmaxBlendWeightFromPreds wFallback roundTripCost prev kalPred lstmPred
                     pred = w * kalPred + (1 - w) * lstmPred
-                 in if bad pred then wFallback * kalPred + (1 - wFallback) * lstmPred else pred
+                 in if bad pred then finiteBlendOrNeutral wFallback prev kalPred lstmPred else pred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 netSoftmaxBlendPredictionsV ::
     Double ->
@@ -17972,10 +18014,10 @@ smoothSoftmaxBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
                             case (bad kalPred, bad lstmPred) of
                                 (False, False) ->
                                     let v = w * kalPred + (1 - w) * lstmPred
-                                     in if bad v then wFallback * kalPred + (1 - wFallback) * lstmPred else v
+                                     in if bad v then finiteBlendOrNeutral wFallback prev kalPred lstmPred else v
                                 (False, True) -> kalPred
                                 (True, False) -> lstmPred
-                                (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+                                (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
                      in Just (pred, (t + 1, w))
      in V.unfoldrN (max 0 stepCount) step (0, wFallback)
 
@@ -17990,7 +18032,7 @@ divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
         thr = max 1e-12 (abs openThr)
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -18072,7 +18114,7 @@ edgeBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                  in w * kalPred + (1 - w) * lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 edgeBlendPredictionsV ::
     Double ->
@@ -18105,7 +18147,7 @@ edgePickPredFromPreds fallbackWeight prev kalPred lstmPred =
             (True, False) -> lstmPred
             (True, True) ->
                 let wFallback = clamp01 fallbackWeight
-                 in wFallback * kalPred + (1 - wFallback) * lstmPred
+                 in finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 edgePickPredictionsV ::
     Double ->
@@ -18131,7 +18173,7 @@ geometricBlendPredFromPreds ::
 geometricBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         w = clamp01 fallbackWeight
-        arithmetic = w * kalPred + (1 - w) * lstmPred
+        arithmetic = finiteBlendOrNeutral w prev kalPred lstmPred
      in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
             (False, False, False) ->
                 if kalPred > 0 && lstmPred > 0
@@ -18167,12 +18209,12 @@ regimeSwitchPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Maybe StepMeta ->
     Double
-regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred mMeta =
+regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff prev kalPred lstmPred mMeta =
     let bad x = isNaN x || isInfinite x
-        wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = blendPredFromPreds fallbackWeight prev kalPred lstmPred
         kalZMeta = mMeta >>= kalmanZFromMeta
         hvMeta = mMeta >>= smHighVolProb
      in case (bad kalPred, bad lstmPred) of
@@ -18191,19 +18233,21 @@ regimeSwitchPredictionsV ::
     Double ->
     V.Vector Double ->
     V.Vector Double ->
+    V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     V.Vector Double
-regimeSwitchPredictionsV fallbackWeight highVolCutoff kalZCutoff kalPredV lstmPredV mMetaV =
-    let stepCount = min (V.length kalPredV) (V.length lstmPredV)
+regimeSwitchPredictionsV fallbackWeight highVolCutoff kalZCutoff pricesV kalPredV lstmPredV mMetaV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         metaAt t =
             case mMetaV of
                 Just metaV
                     | t >= 0 && t < V.length metaV -> Just (metaV V.! t)
                 _ -> Nothing
         pick t =
-            let kalPred = kalPredV V.! t
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred (metaAt t)
+             in regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff prev kalPred lstmPred (metaAt t)
      in V.generate (max 0 stepCount) pick
 
 conformalClipBoundsFromMeta :: StepMeta -> Maybe (Double, Double)
@@ -18292,14 +18336,12 @@ hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
             case (bad kalPred, bad lstmPred) of
                 (False, False) ->
                     let v = w * kalPred + (1 - w) * lstmPred
-                        fallback = w0 * kalPred + (1 - w0) * lstmPred
+                        fallback = finiteBlendOrNeutral w0 prev kalPred lstmPred
                      in if bad v then fallback else v
                 (False, True) -> kalPred
                 (True, False) -> lstmPred
                 (True, True) ->
-                    if bad prev || prev <= 0
-                        then w0 * kalPred + (1 - w0) * lstmPred
-                        else prev
+                    neutralPredFromPrev prev
         ret prev x =
             if prev <= 0 || bad prev || bad x
                 then Nothing
@@ -18481,7 +18523,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 kalPred0 = phKalman hist
                 lstmPred0 = phLstm hist
                 blendWeight = clamp01 (argBlendWeight args)
-                blendPred0 = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPred0 lstmPred0
+                blendPred0 = blendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 harmonicBlendPred0 = harmonicBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 disagreementGuardPred0 = disagreementGuardPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 medianBlendPred0 = medianBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
@@ -18535,6 +18577,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         blendWeight
                         0.6
                         1.0
+                        pricesV
                         kalPred0
                         lstmPred0
                         (phMeta hist)
@@ -21157,7 +21200,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         blendWeight = max 0 (min 1 blendWeight0)
         kalZMinForBlend = max 0 (argKalmanZMin args)
         kalZMaxForBlend = max kalZMinForBlend (argKalmanZMax args)
-        blendPredBacktest = zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredBacktest lstmPredBacktest
+        blendPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (blendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         edgeBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -21297,7 +21344,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 metaBacktestV = V.fromList <$> metaBacktest
              in V.toList (conformalClipPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV metaBacktestV)
         regimeSwitchPredBacktest =
-            let kalBacktestV = V.fromList kalPredBacktest
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
                 metaBacktestV = V.fromList <$> metaBacktest
              in V.toList
@@ -21305,6 +21353,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         blendWeight
                         0.6
                         1.0
+                        pricesBacktestV
                         kalBacktestV
                         lstmBacktestV
                         metaBacktestV
@@ -23031,7 +23080,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
 
             blendNext =
                 case (mKalNext, mLstmNext) of
-                    (Just k, Just l) -> Just (blendWeight * k + (1 - blendWeight) * l)
+                    (Just k, Just l) -> Just (blendPredFromPreds blendWeight currentPrice k l)
                     _ -> Nothing
             confBlendNext =
                 case (mKalNext, mLstmNext) of
@@ -23117,7 +23166,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 if bad wRaw
                                     then wPrev
                                     else clamp01 wRaw
-                            fallbackPred = w0 * k + (1 - w0) * l
+                            fallbackPred = finiteBlendOrNeutral w0 currentPrice k l
                             pred = w * k + (1 - w) * l
                          in Just (if bad pred then fallbackPred else pred)
                     _ -> Nothing
@@ -23138,11 +23187,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 case (bad kalPred, bad lstmPred) of
                                     (False, False) ->
                                         let v = w * kalPred + (1 - w) * lstmPred
-                                            fallback = w0 * kalPred + (1 - w0) * lstmPred
+                                            fallback = finiteBlendOrNeutral w0 prev kalPred lstmPred
                                          in if bad v then fallback else v
                                     (False, True) -> kalPred
                                     (True, False) -> lstmPred
-                                    (True, True) -> prev
+                                    (True, True) -> neutralPredFromPrev prev
                             ret prev x =
                                 if prev <= 0 || bad prev || bad x
                                     then Nothing
@@ -23360,14 +23409,16 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     (Just k, Just l) ->
                         let highVolCutoff = 0.6
                             kalZCutoff = 1.0
-                            blend = blendWeight * k + (1 - blendWeight) * l
+                            blend = blendPredFromPreds blendWeight currentPrice k l
                          in Just
                                 ( case (mKalZ, mRegimes) of
                                     (Just _, Just r)
                                         | rpHighVol r >= highVolCutoff -> blend
                                     (Just z, _)
-                                        | z >= kalZCutoff -> k
-                                    _ -> l
+                                        | z >= kalZCutoff ->
+                                            if bad k then blend else k
+                                    _ ->
+                                        if bad l then blend else l
                                 )
                     _ -> Nothing
             routerLookback = max 1 (argRouterLookback args)
@@ -23383,13 +23434,13 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                             | V.length kalHist >= stepCount && V.length lstmHist >= stepCount ->
                                                 let kalPredV = V.take stepCount kalHist
                                                     lstmPredV = V.take stepCount lstmHist
-                                                    blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
+                                                    blendPredV = blendPredictionsV blendWeight pricesV kalPredV lstmPredV
                                                     costPickPredV = costPickPredictionsV blendWeight roundTripCost pricesV kalPredV lstmPredV
                                                     mMetaV =
                                                         case metaHist of
                                                             Just mv | V.length mv >= stepCount -> Just (V.take stepCount mv)
                                                             _ -> Nothing
-                                                    regimeSwitchPredV = regimeSwitchPredictionsV blendWeight 0.6 1.0 kalPredV lstmPredV mMetaV
+                                                    regimeSwitchPredV = regimeSwitchPredictionsV blendWeight 0.6 1.0 pricesV kalPredV lstmPredV mMetaV
                                                     edgeBlendPredV = edgeBlendPredictionsV blendWeight pricesV kalPredV lstmPredV
                                                  in Just (kalPredV, lstmPredV, blendPredV, costPickPredV, regimeSwitchPredV, edgeBlendPredV, mMetaV)
                                         _ -> Nothing
@@ -23420,9 +23471,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                                                 let window = V.toList (V.slice (i - lookback + 1) lookback obsV)
                                                                     predObs = predictNext lstmModel window
                                                                  in inverseNorm normState predObs
-                                                blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
+                                                blendPredV = blendPredictionsV blendWeight pricesV kalPredV lstmPredV
                                                 costPickPredV = costPickPredictionsV blendWeight roundTripCost pricesV kalPredV lstmPredV
-                                                regimeSwitchPredV = regimeSwitchPredictionsV blendWeight 0.6 1.0 kalPredV lstmPredV metaV
+                                                regimeSwitchPredV = regimeSwitchPredictionsV blendWeight 0.6 1.0 pricesV kalPredV lstmPredV metaV
                                                 edgeBlendPredV = edgeBlendPredictionsV blendWeight pricesV kalPredV lstmPredV
                                              in (kalPredV, lstmPredV, blendPredV, costPickPredV, regimeSwitchPredV, edgeBlendPredV, metaV)
                                 selectAt =

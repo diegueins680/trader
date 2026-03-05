@@ -262,6 +262,43 @@ stddev xs =
 clamp01 :: Double -> Double
 clamp01 x = max 0 (min 1 x)
 
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)
+
+neutralPredFromPrev :: Double -> Double
+neutralPredFromPrev prev =
+    if isFiniteDouble prev
+        then prev
+        else 0
+
+finiteBlendOrNeutral :: Double -> Double -> Double -> Double -> Double
+finiteBlendOrNeutral weight prev kalPred lstmPred =
+    let w = clamp01 weight
+        blended = w * kalPred + (1 - w) * lstmPred
+     in if isFiniteDouble blended
+            then blended
+            else neutralPredFromPrev prev
+
+blendPredFromPreds :: Double -> Double -> Double -> Double -> Double
+blendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        w = clamp01 fallbackWeight
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) -> finiteBlendOrNeutral w prev kalPred lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> neutralPredFromPrev prev
+
+blendPredictionsV :: Double -> V.Vector Double -> V.Vector Double -> V.Vector Double -> V.Vector Double
+blendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in blendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 scale01 :: Double -> Double -> Double -> Double
 scale01 lo hi x =
     let lo' = min lo hi
@@ -331,7 +368,7 @@ confidenceBlendPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmP
                  in w * kalPred + (1 - w) * lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 confidenceBlendPredictionsV ::
     Double ->
@@ -378,7 +415,7 @@ confidencePickPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPr
             (True, False) -> lstmPred
             (True, True) ->
                 let wFallback = clamp01 fallbackWeight
-                 in wFallback * kalPred + (1 - wFallback) * lstmPred
+                 in finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 confidencePickPredictionsV ::
     Double ->
@@ -448,7 +485,7 @@ costPickPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
             (True, False) -> lstmPred
             (True, True) ->
                 let wFallback = clamp01 fallbackWeight
-                 in wFallback * kalPred + (1 - wFallback) * lstmPred
+                 in finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 costPickPredictionsV ::
     Double ->
@@ -475,7 +512,7 @@ harmonicBlendPredFromPreds ::
 harmonicBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         w = clamp01 fallbackWeight
-        arithmetic = w * kalPred + (1 - w) * lstmPred
+        arithmetic = finiteBlendOrNeutral w prev kalPred lstmPred
         eps = 1e-12
      in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
             (False, False, False) ->
@@ -549,7 +586,7 @@ disagreementGuardPredFromPreds fallbackWeight prev kalPred lstmPred =
                     _ -> if wFallback >= 0.5 then kalPred else lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 disagreementGuardPredictionsV ::
     Double ->
@@ -575,7 +612,7 @@ medianBlendPredFromPreds ::
 medianBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         w = clamp01 fallbackWeight
-        arithmetic = w * kalPred + (1 - w) * lstmPred
+        arithmetic = finiteBlendOrNeutral w prev kalPred lstmPred
      in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
             (False, False, False) ->
                 let rKal = kalPred / prev
@@ -619,7 +656,7 @@ neutralGuardPredFromPreds ::
 neutralGuardPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -713,7 +750,7 @@ riskParityBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                  in w * kalPred + (1 - w) * lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 riskParityBlendPredictionsV ::
     Double ->
@@ -739,7 +776,7 @@ consensusBoostPredFromPreds ::
 consensusBoostPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -799,7 +836,7 @@ anchorBlendPredFromPreds ::
 anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -860,7 +897,7 @@ tensionGatePredFromPreds ::
 tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -927,7 +964,7 @@ entropyBlendPredFromPreds ::
 entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -995,7 +1032,7 @@ coherenceGatePredFromPreds ::
 coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -1078,7 +1115,7 @@ fractalBlendPredFromPreds ::
 fractalBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -1133,7 +1170,7 @@ phaseCancelPredFromPreds ::
 phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -1226,10 +1263,10 @@ softmaxBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
             (False, False) ->
                 let w = softmaxBlendWeightFromPreds wFallback prev kalPred lstmPred
                     pred = w * kalPred + (1 - w) * lstmPred
-                 in if bad pred then wFallback * kalPred + (1 - wFallback) * lstmPred else pred
+                 in if bad pred then finiteBlendOrNeutral wFallback prev kalPred lstmPred else pred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 softmaxBlendPredictionsV ::
     Double ->
@@ -1289,10 +1326,10 @@ netSoftmaxBlendPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred 
             (False, False) ->
                 let w = netSoftmaxBlendWeightFromPreds wFallback roundTripCost prev kalPred lstmPred
                     pred = w * kalPred + (1 - w) * lstmPred
-                 in if bad pred then wFallback * kalPred + (1 - wFallback) * lstmPred else pred
+                 in if bad pred then finiteBlendOrNeutral wFallback prev kalPred lstmPred else pred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 netSoftmaxBlendPredictionsV ::
     Double ->
@@ -1339,10 +1376,10 @@ smoothSoftmaxBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
                             case (bad kalPred, bad lstmPred) of
                                 (False, False) ->
                                     let v = w * kalPred + (1 - w) * lstmPred
-                                     in if bad v then wFallback * kalPred + (1 - wFallback) * lstmPred else v
+                                     in if bad v then finiteBlendOrNeutral wFallback prev kalPred lstmPred else v
                                 (False, True) -> kalPred
                                 (True, False) -> lstmPred
-                                (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+                                (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
                      in Just (pred, (t + 1, w))
      in V.unfoldrN (max 0 stepCount) step (0, wFallback)
 
@@ -1357,7 +1394,7 @@ divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
         thr = max 1e-12 (abs openThr)
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
                 then blend
@@ -1439,7 +1476,7 @@ edgeBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                  in w * kalPred + (1 - w) * lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
-            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+            (True, True) -> finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 edgeBlendPredictionsV ::
     Double ->
@@ -1472,7 +1509,7 @@ edgePickPredFromPreds fallbackWeight prev kalPred lstmPred =
             (True, False) -> lstmPred
             (True, True) ->
                 let wFallback = clamp01 fallbackWeight
-                 in wFallback * kalPred + (1 - wFallback) * lstmPred
+                 in finiteBlendOrNeutral wFallback prev kalPred lstmPred
 
 edgePickPredictionsV ::
     Double ->
@@ -1498,7 +1535,7 @@ geometricBlendPredFromPreds ::
 geometricBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         w = clamp01 fallbackWeight
-        arithmetic = w * kalPred + (1 - w) * lstmPred
+        arithmetic = finiteBlendOrNeutral w prev kalPred lstmPred
      in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
             (False, False, False) ->
                 if kalPred > 0 && lstmPred > 0
@@ -1534,12 +1571,12 @@ regimeSwitchPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Maybe StepMeta ->
     Double
-regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred mMeta =
+regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff prev kalPred lstmPred mMeta =
     let bad x = isNaN x || isInfinite x
-        wFallback = clamp01 fallbackWeight
-        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        blend = blendPredFromPreds fallbackWeight prev kalPred lstmPred
         kalZMeta = mMeta >>= kalmanZFromMeta
         hvMeta = mMeta >>= smHighVolProb
      in case (bad kalPred, bad lstmPred) of
@@ -1558,19 +1595,21 @@ regimeSwitchPredictionsV ::
     Double ->
     V.Vector Double ->
     V.Vector Double ->
+    V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     V.Vector Double
-regimeSwitchPredictionsV fallbackWeight highVolCutoff kalZCutoff kalPredV lstmPredV mMetaV =
-    let stepCount = min (V.length kalPredV) (V.length lstmPredV)
+regimeSwitchPredictionsV fallbackWeight highVolCutoff kalZCutoff pricesV kalPredV lstmPredV mMetaV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         metaAt t =
             case mMetaV of
                 Just metaV
                     | t >= 0 && t < V.length metaV -> Just (metaV V.! t)
                 _ -> Nothing
         pick t =
-            let kalPred = kalPredV V.! t
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred (metaAt t)
+             in regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff prev kalPred lstmPred (metaAt t)
      in V.generate (max 0 stepCount) pick
 
 conformalClipBoundsFromMeta :: StepMeta -> Maybe (Double, Double)
@@ -1661,14 +1700,12 @@ hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
             case (bad kalPred, bad lstmPred) of
                 (False, False) ->
                     let v = w * kalPred + (1 - w) * lstmPred
-                        fallback = w0 * kalPred + (1 - w0) * lstmPred
+                        fallback = finiteBlendOrNeutral w0 prev kalPred lstmPred
                      in if bad v then fallback else v
                 (False, True) -> kalPred
                 (True, False) -> lstmPred
                 (True, True) ->
-                    if bad prev || prev <= 0
-                        then w0 * kalPred + (1 - w0) * lstmPred
-                        else prev
+                    neutralPredFromPrev prev
         ret prev x =
             if prev <= 0 || bad prev || bad x
                 then Nothing
@@ -1949,7 +1986,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 _ -> metaV
 
         blendWeight = clamp01 (ecBlendWeight baseCfg)
-        blendV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalV lstmV
+        blendV = blendPredictionsV blendWeight pricesV kalV lstmV
         edgeBlendV0 = edgeBlendPredictionsV blendWeight pricesV kalV lstmV
         edgePickV0 = edgePickPredictionsV blendWeight pricesV kalV lstmV
         costPickV0 = costPickPredictionsV blendWeight roundTripCost pricesV kalV lstmV
@@ -1977,7 +2014,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         conformalClipV0 = conformalClipPredictionsV blendWeight pricesV kalV lstmV metaV
         divergenceGateV0 = divergenceGatePredictionsV blendWeight confBlendOpenThr0 pricesV kalV lstmV
         hedgeBlendV0 = hedgeBlendPredictionsV blendWeight pricesV kalV lstmV
-        regimeSwitchV0 = regimeSwitchPredictionsV blendWeight 0.6 1.0 kalV lstmV metaV
+        regimeSwitchV0 = regimeSwitchPredictionsV blendWeight 0.6 1.0 pricesV kalV lstmV metaV
 
         (kalUsedV0, lstmUsedV0) =
             case method of
@@ -2686,7 +2723,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                         lstmV
                              in (divergenceGateV, divergenceGateV, Nothing)
                         MethodRegimeSwitch ->
-                            let regimeSwitchV = regimeSwitchPredictionsV blendWeight 0.6 1.0 kalV lstmV metaV
+                            let regimeSwitchV = regimeSwitchPredictionsV blendWeight 0.6 1.0 pricesV kalV lstmV metaV
                              in (regimeSwitchV, regimeSwitchV, Nothing)
                         _ -> (kalUsedV0, lstmUsedV0, Nothing)
                 evalClose closeThr =

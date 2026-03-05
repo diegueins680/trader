@@ -225,6 +225,8 @@ main = do
               , run "method selects predictions" testMethodSelection
               , run "train/backtest split" testTrainBacktestSplit
               , run "threshold sweep" testSweepThreshold
+              , run "threshold sweep keeps non-finite context methods finite" testSweepThresholdFiniteOnNonFinitePredictions
+              , run "threshold sweep regime-switch stays neutral with non-finite inputs" testSweepThresholdRegimeSwitchNonFiniteStaysNeutral
               , run "operations optimization" testOptimizeOperations
               , run "optimizer partial take-profit zero-range sampler" testOptimizerPartialTakeProfitZeroRange
               , run "optimizer int range keeps rng for fixed range" testOptimizerIntRangeFixedRange
@@ -2079,6 +2081,59 @@ testSweepThreshold = do
     assertApprox "open thr close to 10%" 1e-6 openThr 0.1
     assertApprox "close thr close to 10%" 1e-6 closeThr 0.1
     assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
+
+testSweepThresholdFiniteOnNonFinitePredictions :: IO ()
+testSweepThresholdFiniteOnNonFinitePredictions = do
+    let prices = [100, 101, 102, 103]
+        kalPred = [0 / 0, 0 / 0, 0 / 0]
+        lstmPred = [1 / 0, 0 / 0, negate (1 / 0)]
+        cfg = baseEnsembleConfig
+        methods =
+            [ MethodBlend
+            , MethodConfBlend
+            , MethodConfPick
+            , MethodConformalClip
+            , MethodCostPick
+            , MethodHarmonicBlend
+            , MethodDisagreementGuard
+            , MethodMedianBlend
+            , MethodNeutralGuard
+            , MethodRiskParityBlend
+            , MethodConsensusBoost
+            , MethodAnchorBlend
+            , MethodTensionGate
+            , MethodEntropyBlend
+            , MethodCoherenceGate
+            , MethodDivergenceGate
+            , MethodFractalBlend
+            , MethodPhaseCancel
+            , MethodSoftmaxBlend
+            , MethodSmoothSoftmaxBlend
+            , MethodHedgeBlend
+            , MethodNetSoftmaxBlend
+            , MethodEdgeBlend
+            , MethodEdgePick
+            , MethodGeoBlend
+            , MethodRegimeSwitch
+            ]
+        finite x = not (isNaN x || isInfinite x)
+        assertMethod m =
+            case sweepThreshold m cfg prices kalPred lstmPred Nothing of
+                Left err -> error ("expected finite fallback for " ++ show m ++ ": " ++ err)
+                Right (_, _, bt) ->
+                    assert ("bestFinalEquity stays finite for " ++ show m) (finite (bestFinalEquity bt))
+    mapM_ assertMethod methods
+
+testSweepThresholdRegimeSwitchNonFiniteStaysNeutral :: IO ()
+testSweepThresholdRegimeSwitchNonFiniteStaysNeutral = do
+    let prices = [100, 101, 102, 103]
+        kalPred = [0 / 0, 0 / 0, 0 / 0]
+        lstmPred = [1 / 0, 0 / 0, negate (1 / 0)]
+        cfg = baseEnsembleConfig
+    case sweepThreshold MethodRegimeSwitch cfg prices kalPred lstmPred Nothing of
+        Left err -> error ("expected neutral regime-switch fallback: " ++ err)
+        Right (_, _, bt) ->
+            assertApprox "regime-switch fallback stays neutral" 1e-12 (bestFinalEquity bt) 1
 
 testOptimizeOperations :: IO ()
 testOptimizeOperations = do
