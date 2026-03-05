@@ -369,13 +369,7 @@ isHttpLogEnabled = do
             pure v
 
 isTruthy :: String -> Bool
-isTruthy raw =
-    case map toLower (trimSpaces raw) of
-        "1" -> True
-        "true" -> True
-        "yes" -> True
-        "on" -> True
-        _ -> False
+isTruthy raw = fromMaybe False (parseEnvBool raw)
 
 sanitize :: String -> String
 sanitize =
@@ -417,7 +411,7 @@ readEnvBool :: String -> Bool -> IO Bool
 readEnvBool key fallback = do
     raw <- lookupEnv key
     pure $
-        maybe fallback isTruthy raw
+        fromMaybe fallback (raw >>= parseEnvBool)
 
 clampDouble :: Double -> Double -> Double -> Double
 clampDouble lo hi v
@@ -431,6 +425,19 @@ parseEnvFiniteDouble :: String -> Maybe Double
 parseEnvFiniteDouble txt =
     case readMaybe (trimSpaces txt) of
         Just v | isFiniteDouble v -> Just v
+        _ -> Nothing
+
+parseEnvBool :: String -> Maybe Bool
+parseEnvBool raw =
+    case map toLower (trimSpaces raw) of
+        "1" -> Just True
+        "true" -> Just True
+        "yes" -> Just True
+        "on" -> Just True
+        "0" -> Just False
+        "false" -> Just False
+        "no" -> Just False
+        "off" -> Just False
         _ -> Nothing
 
 isFiniteDouble :: Double -> Bool

@@ -1683,6 +1683,10 @@ testMethodSelection = do
         lstm = [10.0, 20.0]
         w = 0.25
         blend = [w * 1.0 + (1 - w) * 10.0, w * 2.0 + (1 - w) * 20.0]
+        badWeight = 0 / 0
+        badKal = [0 / 0, 5.0]
+        badLstm = [20.0, 1 / 0]
+        finite x = not (isNaN x || isInfinite x)
     assert "both keeps both" (selectPredictions MethodBoth w kal lstm == (kal, lstm))
     assert "kalman-only duplicates kalman" (selectPredictions MethodKalmanOnly w kal lstm == (kal, kal))
     assert "kalman_physics_error duplicates kalman stream" (selectPredictions MethodKalmanPhysicsError w kal lstm == (kal, kal))
@@ -1715,6 +1719,13 @@ testMethodSelection = do
     let (regimeLeft, regimeRight) = selectPredictions MethodRegimeSwitch w kal lstm
     assertApproxList "regime_switch falls back to weighted average when context is unavailable (left stream)" 1e-9 blend regimeLeft
     assertApproxList "regime_switch falls back to weighted average when context is unavailable (right stream)" 1e-9 blend regimeRight
+    let (safeBlendLeft, safeBlendRight) = selectPredictions MethodBlend badWeight badKal badLstm
+    assert "blend with non-finite weight/preds keeps output finite (left stream)" (all finite safeBlendLeft)
+    assert "blend with non-finite weight/preds keeps output finite (right stream)" (all finite safeBlendRight)
+    assertApproxList "blend with one bad input per step keeps finite counterpart" 1e-9 [20.0, 5.0] safeBlendLeft
+    let (bothBadLeft, bothBadRight) = selectPredictions MethodBlend badWeight [0 / 0] [negate (1 / 0)]
+    assert "blend with both bad inputs returns neutral zero fallback (left stream)" (bothBadLeft == [0.0])
+    assert "blend with both bad inputs returns neutral zero fallback (right stream)" (bothBadRight == [0.0])
     assert "bandit_router preserves both prediction streams for routing" (selectPredictions MethodBanditRouter w kal lstm == (kal, lstm))
 
 testTrainBacktestSplit :: IO ()
