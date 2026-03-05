@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Optimizer/CLI: harden `resolveBars` lookback derivation so invalid interval/lookback conversions fail fast with explicit errors (and empty interval sets are rejected) instead of silently falling back to zero.
 - Top-combo ranking: make `comboPerformanceKey` match merge/UI tie-break semantics by ordering ties as annualized return, then score, then final equity (instead of annualized return, final equity, score).
 - Top-combo symbol cleanup: recover Binance pairs from prefixed/tokenized symbols (for example `binance:btc/usdt` and `binance-btc-usdt`) so valid combo symbols are not dropped during sanitization.
 - Symbol parsing: fix base/quote extraction for delimited pair formats (`BASE-QUOTE`, `BASE_QUOTE`, `BASE/QUOTE`) so delimiter characters are not treated as part of base assets in market/exposure logic.
