@@ -149,8 +149,11 @@ main = do
               , run "empty cli credentials rejected" testEmptyCliCredentialsRejected
               , run "backtest window validates time formats" testBacktestWindowTimeValidation
               , run "backtest window rejects overflow scientific timestamp" testBacktestWindowOverflowScientificValidation
+              , run "backtest window rejects scientific integer timestamp" testBacktestWindowScientificIntegerValidation
               , run "backtest window rejects overflow integer timestamp" testBacktestWindowOverflowIntegerValidation
               , run "backtest window rejects fractional numeric timestamp" testBacktestWindowFractionalNumericValidation
+              , run "backtest window rejects decimal-like integer timestamp" testBacktestWindowDecimalIntegerValidation
+              , run "backtest window rejects non-decimal integer timestamp" testBacktestWindowNonDecimalIntegerValidation
               , run "backtest window accepts ISO offsets" testBacktestWindowIsoOffsetValidation
               , run "backtest window accepts expanded-year ISO dates" testBacktestWindowExpandedYearIsoValidation
               , run "backtest window rejects out-of-range expanded-year ISO dates" testBacktestWindowExpandedYearOverflowValidation
@@ -160,6 +163,7 @@ main = do
               , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
               , run "idempotency key enforces max length" testIdempotencyKeyLengthValidation
               , run "bars rejects overflow integer" testBarsOverflowValidation
+              , run "bars rejects non-decimal integer" testBarsNonDecimalValidation
               , run "cli numeric args reject non-finite values" testNumericArgsFiniteValidation
               , run "trade sizing args reject zero values" testTradeSizingPositiveValidation
               , run "retry-after date parsing" testRetryAfterDateParsing
@@ -1215,6 +1219,15 @@ testBacktestWindowOverflowScientificValidation =
                 ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
         Right _ -> error "expected overflow scientific --from to fail validation"
 
+testBacktestWindowScientificIntegerValidation :: IO ()
+testBacktestWindowScientificIntegerValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "1e3"] of
+        Left err ->
+            assert
+                "scientific integer --from rejected"
+                ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
+        Right _ -> error "expected scientific integer --from to fail validation"
+
 testBacktestWindowOverflowIntegerValidation :: IO ()
 testBacktestWindowOverflowIntegerValidation =
     case parseArgsResult ["--data", "sample.csv", "--from", "999999999999999999999999"] of
@@ -1232,6 +1245,24 @@ testBacktestWindowFractionalNumericValidation =
                 "fractional numeric --from rejected"
                 ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
         Right _ -> error "expected fractional --from to fail validation"
+
+testBacktestWindowDecimalIntegerValidation :: IO ()
+testBacktestWindowDecimalIntegerValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "1704067200.0"] of
+        Left err ->
+            assert
+                "decimal-like integer --from rejected"
+                ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
+        Right _ -> error "expected decimal-like integer --from to fail validation"
+
+testBacktestWindowNonDecimalIntegerValidation :: IO ()
+testBacktestWindowNonDecimalIntegerValidation =
+    case parseArgsResult ["--data", "sample.csv", "--from", "0x10"] of
+        Left err ->
+            assert
+                "non-decimal integer --from rejected"
+                ("--from must be epoch seconds/ms or ISO-8601" `isInfixOf` err)
+        Right _ -> error "expected non-decimal integer --from to fail validation"
 
 testBacktestWindowIsoOffsetValidation :: IO ()
 testBacktestWindowIsoOffsetValidation =
@@ -1296,6 +1327,15 @@ testBarsOverflowValidation =
                 "overflow bars rejected"
                 ("Expected an integer (e.g. 500) or 'auto'." `isInfixOf` err)
         Right _ -> error "expected overflow --bars to fail validation"
+
+testBarsNonDecimalValidation :: IO ()
+testBarsNonDecimalValidation =
+    case parseArgsResult ["--data", "sample.csv", "--bars", "0x10"] of
+        Left err ->
+            assert
+                "non-decimal bars rejected"
+                ("Expected an integer (e.g. 500) or 'auto'." `isInfixOf` err)
+        Right _ -> error "expected non-decimal --bars to fail validation"
 
 testNumericArgsFiniteValidation :: IO ()
 testNumericArgsFiniteValidation = do

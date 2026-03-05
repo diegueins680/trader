@@ -23,8 +23,6 @@ import Control.Monad (forM_, when)
 import Data.Char (isAlphaNum, isDigit, toLower, toUpper)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
-import Data.Scientific (Scientific)
-import qualified Data.Scientific as Scientific
 import Data.Time (defaultTimeLocale, parseTimeM)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Text.Read (readMaybe)
@@ -308,7 +306,7 @@ parseBarsArg raw =
     let s = map toLower (trim raw)
      in if s == "auto"
             then Right Nothing
-            else case (readMaybe s :: Maybe Integer) of
+            else case readStrictDecimalInteger s of
                 Just n ->
                     case integerToInt n of
                         Just bounded -> Right (Just bounded)
@@ -317,14 +315,24 @@ parseBarsArg raw =
 
 parseTimeInt64 :: String -> Maybe Int64
 parseTimeInt64 s =
-    case (readMaybe s :: Maybe Integer) of
+    case readStrictDecimalInteger s of
         Just n -> integerToInt64 n
-        Nothing ->
-            case (readMaybe s :: Maybe Scientific) of
-                Just sci
-                    | Scientific.isInteger sci ->
-                        Scientific.toBoundedInteger sci
-                _ -> Nothing
+        Nothing -> Nothing
+
+readStrictDecimalInteger :: String -> Maybe Integer
+readStrictDecimalInteger s =
+    if isStrictSignedDecimal s
+        then readMaybe s
+        else Nothing
+
+isStrictSignedDecimal :: String -> Bool
+isStrictSignedDecimal txt =
+    case txt of
+        ('+' : rest) -> hasDigits rest
+        ('-' : rest) -> hasDigits rest
+        _ -> hasDigits txt
+  where
+    hasDigits xs = not (null xs) && all isDigit xs
 
 integerToInt :: Integer -> Maybe Int
 integerToInt n =
