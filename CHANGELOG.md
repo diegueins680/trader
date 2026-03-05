@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer/top-combos merge: treat nested `metrics.score` as equivalent to top-level `score` when ranking and de-duplicating combos, so mixed payload shapes keep the best-scored records.
 - HTTP retries: when multiple `Retry-After` headers are present, parse the first valid value instead of failing on an earlier malformed duplicate.
 - Signal gating: harden funding/OI dampening against non-finite inputs so invalid values no longer propagate `NaN` size multipliers.
+- Signal gating: treat `--funding-oi-funding-cap` / `--funding-oi-vol-cap` values `<= 0` as disabled (matching documented `0 disables`) instead of applying them as strict blocking caps.
 - DEX token resolution: validate `0x` token inputs strictly (`0x` + 40 hex chars), fail fast on malformed addresses, apply native token decimal overrides consistently, and short-circuit metadata fetches when both tokens are already explicit native/address inputs with sufficient decimals.
 - CLI validation: reject non-finite numeric inputs (`NaN`/`Infinity`) across trading/risk/tuning numeric flags (including optional sizing fields like `--order-quote`) to prevent invalid runtime math.
 - HTTP internals/tests: expose a pure `Retry-After` header parsing helper and add regression coverage that validates mixed-case header names.

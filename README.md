@@ -452,6 +452,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--funding-by-side` optional: apply funding sign by side (long pays positive, short receives)
     - Without `--funding-by-side`, the funding rate is applied uniformly (negative values credit both sides).
   - `--funding-on-open` optional: charge funding for bars opened with a position (even if exited intrabar)
+  - `--funding-oi-funding-cap F` optional: block entries when side-adjusted funding exceeds `F` (`0` disables; default: disabled)
+  - `--funding-oi-vol-cap F` optional: block entries when the OI-volatility proxy exceeds `F` (`0` disables; default: disabled)
   - Entries and latest-signal actions that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
   - `--kalman-z-min 0.5` minimum Kalman |mean|/std required to treat Kalman as directional (`0` disables)
   - `--kalman-z-max 3` Z-score mapped to full position size when confidence sizing is enabled

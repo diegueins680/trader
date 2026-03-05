@@ -185,6 +185,7 @@ main = do
               , run "signal gate emits REGIME_BANK reason" testSignalGateRegimeBank
               , run "signal gate emits FUNDING_OI reason" testSignalGateFundingOi
               , run "signal funding/OI damp stays finite on non-finite inputs" testSignalFundingOiFiniteDamp
+              , run "signal funding/OI zero caps disable gating" testSignalFundingOiZeroCapsDisable
               , run "combo performance recalculates from completed operation delta" testRecalculateComboPerformanceFromCompletedOperation
               , run "top combos merge ranks by nested metrics score" testMergeTopCombosRanksByNestedScore
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
@@ -1586,6 +1587,15 @@ testSignalFundingOiFiniteDamp = do
     assert "non-finite inputs without caps keep damp finite" (finite dampNoCaps && dampNoCaps == 1)
     assert "non-finite funding with cap blocks entry" (not okWithCaps)
     assert "non-finite funding with cap keeps damp finite" (finite dampWithCaps && dampWithCaps >= 0.7 && dampWithCaps <= 1)
+
+testSignalFundingOiZeroCapsDisable :: IO ()
+testSignalFundingOiZeroCapsDisable = do
+    let (okZeroCaps, dampZeroCaps) = signalFundingOiCheck True (Just 0) (Just 0) 0.7 0.2 (Just 0.3)
+        (okNegativeCaps, dampNegativeCaps) = signalFundingOiCheck True (Just (-1)) (Just (-1)) 0.4 0.2 (Just 0.3)
+    assert "zero funding/OI caps disable gating" okZeroCaps
+    assert "zero funding/OI caps keep full size damp" (dampZeroCaps == 1)
+    assert "negative funding/OI caps are treated as disabled" okNegativeCaps
+    assert "negative funding/OI caps keep full size damp" (dampNegativeCaps == 1)
 
 testRecalculateComboPerformanceFromCompletedOperation :: IO ()
 testRecalculateComboPerformanceFromCompletedOperation = do

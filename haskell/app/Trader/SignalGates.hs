@@ -76,7 +76,8 @@ signalFundingOiCheck enabled fundingCap volCap sizeMult funding oiVolProxy =
                         else 0
                 cleanCap mCap =
                     case mCap of
-                        Just cap | finite cap -> Just cap
+                        -- Zero/negative caps are treated as disabled, matching CLI/docs semantics.
+                        Just cap | finite cap && cap > 0 -> Just cap
                         _ -> Nothing
                 fundingCap' = cleanCap fundingCap
                 volCap' = cleanCap volCap
