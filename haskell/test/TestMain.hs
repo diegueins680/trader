@@ -185,6 +185,7 @@ main = do
               , run "top combos infer compact symbol from unknown delimited pair" testTopCombosUnknownPlatformPairNormalization
               , run "top combos reject numeric-only delimited symbols" testTopCombosRejectNumericOnlyDelimitedSymbols
               , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
+              , run "dex trade args reject single-token override even with symbol" testDexTradeArgsRejectPartialTokenOverrides
               , run "dex token resolution rejects malformed token addresses" testDexResolveTokensRejectsMalformedAddress
               , run "dex token resolution applies native decimals overrides" testDexResolveTokensNativeDecimalsOverride
               , run "platform intervals" testPlatformIntervals
@@ -1597,8 +1598,35 @@ testDexTradeArgsRequireTokensNotSymbol = do
         Left err -> error ("unexpected validation failure for dex token trade: " ++ err)
         Right _ -> pure ()
     case parseArgsResult (dexBaseArgs ++ ["--dex-base-token", "ETH"]) of
-        Left err -> assert "missing quote token rejected" ("--binance-trade requires --symbol/--binance-symbol" `isInfixOf` err)
+        Left err -> assert "missing quote token rejected" ("--dex-base-token and --dex-quote-token must be provided together" `isInfixOf` err)
         Right _ -> error "expected missing dex quote token to be rejected"
+
+testDexTradeArgsRejectPartialTokenOverrides :: IO ()
+testDexTradeArgsRejectPartialTokenOverrides = do
+    let argv =
+            [ "--platform"
+            , "uniswap"
+            , "--data"
+            , "sample.csv"
+            , "--price-column"
+            , "close"
+            , "--interval"
+            , "1h"
+            , "--bars"
+            , "100"
+            , "--lookback-bars"
+            , "10"
+            , "--trade-only"
+            , "--binance-trade"
+            , "--no-binance-live"
+            , "--symbol"
+            , "ETH/USDC"
+            , "--dex-base-token"
+            , "WETH"
+            ]
+    case parseArgsResult argv of
+        Left err -> assert "partial DEX token override is rejected" ("--dex-base-token and --dex-quote-token must be provided together" `isInfixOf` err)
+        Right _ -> error "expected partial DEX token override to fail validation"
 
 testDexResolveTokensRejectsMalformedAddress :: IO ()
 testDexResolveTokensRejectsMalformedAddress = do

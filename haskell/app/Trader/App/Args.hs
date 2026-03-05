@@ -1003,6 +1003,9 @@ validateArgs args0 = do
                 , argPriceCol = trim (argPriceCol args0)
                 , argHighCol = fmap trim (argHighCol args0)
                 , argLowCol = fmap trim (argLowCol args0)
+                , argDexBaseToken = fmap trim (argDexBaseToken args0)
+                , argDexQuoteToken = fmap trim (argDexQuoteToken args0)
+                , argDexProtocols = fmap trim (argDexProtocols args0)
                 , argBacktestFrom = fmap trim (argBacktestFrom args0)
                 , argBacktestTo = fmap trim (argBacktestTo args0)
                 }
@@ -1030,6 +1033,15 @@ validateArgs args0 = do
                         "--symbol must use Poloniex BASE_QUOTE format (e.g., BTC_USDT or BTC/USDT)"
                         (isJust (sanitizeSymbolForPlatform (Just "poloniex") sym))
                 _ -> pure ()
+    case argDexBaseToken args of
+        Just "" -> Left "--dex-base-token cannot be empty"
+        _ -> pure ()
+    case argDexQuoteToken args of
+        Just "" -> Left "--dex-quote-token cannot be empty"
+        _ -> pure ()
+    case argDexProtocols args of
+        Just "" -> Left "--dex-protocols cannot be empty"
+        _ -> pure ()
     let isDex = isDexPlatform (argPlatform args)
     ensure
         "Provide only one of --data or --binance-symbol (unless using a DEX platform with --data)"
@@ -1045,7 +1057,10 @@ validateArgs args0 = do
         isCoinbase = argPlatform args == PlatformCoinbase
         supportsTrading = platformSupportsTrading (argPlatform args)
         supportsLiveMode = isBinance || isCoinbase
-        hasDexTokens = isJust (argDexBaseToken args) && isJust (argDexQuoteToken args)
+        hasDexBaseToken = present (argDexBaseToken args)
+        hasDexQuoteToken = present (argDexQuoteToken args)
+        hasDexTokens = hasDexBaseToken && hasDexQuoteToken
+    ensure "--dex-base-token and --dex-quote-token must be provided together" (hasDexBaseToken == hasDexQuoteToken)
     ensure "--futures/--margin are only supported on Binance" (isBinance || not (argBinanceFutures args || argBinanceMargin args))
     ensure "--binance-testnet is only supported on Binance" (isBinance || not (argBinanceTestnet args))
     ensure "--binance-live is only supported on Binance/Coinbase" (supportsLiveMode || not (argBinanceLive args))

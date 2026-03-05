@@ -265,6 +265,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - DEX trades require CSV price data (`--data`) and the following config:
     - `--dex-chain-id ID` (or env `TRADER_DEX_CHAIN_ID`)
     - `--dex-base-token TOKEN` / `--dex-quote-token TOKEN` (address or symbol; base is the asset you buy when LONG)
+      - `--dex-base-token` and `--dex-quote-token` must be provided together; partial overrides are rejected.
     - `--dex-base-decimals N` / `--dex-quote-decimals N` (optional overrides when token metadata lookup fails)
     - `--dex-protocols LIST` (optional 1inch protocols restriction, comma-separated)
     - `--dex-auto-approve` / `--no-dex-auto-approve` (default on)
@@ -946,6 +947,7 @@ Outbox publisher worker (Phase 1 scaffold):
 - Invalid `TRADER_OUTBOX_PUBLISHER_MODE` values now fail startup (expected: `noop|stdout|kafka-rest`) instead of silently downgrading to `noop`.
 - `TRADER_OUTBOX_KAFKA_REST_URL` is required and URL-validated at startup when `TRADER_OUTBOX_PUBLISHER_MODE=kafka-rest`.
 - Optional tuning: `TRADER_OUTBOX_POLL_MS` (default `1000`), `TRADER_OUTBOX_BATCH_SIZE` (default `100`), `TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS` (default `60000`, reclaims stale `publishing` rows after worker crashes/restarts), `TRADER_OUTBOX_PUBLISHED_RETENTION_MS` (default `604800000` = 7 days; `0` disables cleanup).
+- Invalid numeric outbox tuning values now fail startup (instead of silently falling back to defaults) for `TRADER_OUTBOX_POLL_MS`, `TRADER_OUTBOX_BATCH_SIZE`, `TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS`, and `TRADER_OUTBOX_PUBLISHED_RETENTION_MS`.
 - `GET /outbox` optional query params: `status=pending|publishing|published|failed`.
 
 Web UI
