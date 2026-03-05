@@ -23,6 +23,7 @@ Features
 - Feature engineering includes psychological round-number proximity (big figures/halves/quarters/tenths) plus short/mid momentum and volatility spread features.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
+- Context-aware blend/pick methods guard against non-finite model outputs (`NaN`/`Infinity`) by falling back to a neutral finite prediction (current price when available).
 - Router and bandit-router adaptive model selection now evaluate six strategy candidates (`kalman`, `lstm`, `blend`, `cost_pick`, `regime_switch`, `edge_blend`) to improve risk-adjusted selection under changing regimes.
 - Ensemble simulation helpers return `Either` with validation errors instead of throwing exceptions.
 - API background workers (bot auto-start, optimizer loops) run under supervision and auto-restart on non-async failures; top-combo candle-trigger backtests are deduped via a bounded queue to prevent unbounded trigger backlog.
@@ -1015,7 +1016,7 @@ Binance account trade tables now show separate `Opened` and `Closed` timestamps 
 The Binance trade P&L breakdown also reports total filled quantity and quote volume for the analyzed fills.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes). It also shows the Binance account UID when available so you can confirm which account is queried, plus inferred position open times based on recent Binance trades (cache duration is configurable in the UI). Open positions and orphaned operations include a “Close position” button that sends a reduce-only futures market order; in hedge mode the request includes `positionSide` (enable Live orders to use it).
 The Binance listenKey stream auto-reconnects with backoff after transient disconnects and automatically restarts when the listenKey expires.
-The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
+The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off). Running trade-enabled bots with unknown internal side now count as adopted/reconciling for single-side futures exposure (adopt-first behavior).
 The UI includes a “State sync” panel to export bot snapshots and optimizer combos, import combos from state-sync/top-combos JSON files, and push payloads to another API via `/state/sync`, with controls to limit per-request payload size.
 The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available; open-position charts also show inferred position open times when available ("opened before" means the position predates the fetched trade window).

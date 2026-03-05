@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Web UI: show backend system build metadata (version + short commit from `/health`) directly in the main header so the running deployment identity is visible at a glance.
+- Ensemble robustness: context-aware blend/pick methods now clamp non-finite combined predictions (`NaN`/`Infinity`) to a neutral finite fallback (current price when available, otherwise `0`) so invalid model outputs cannot leak into runtime/backtest prediction streams.
 - CLI validation: normalize `--idempotency-key` by trimming surrounding whitespace before runtime use and enforce ASCII-only `[A-Za-z0-9_-]` characters so non-ASCII keys are rejected consistently with documented Binance constraints.
 - DEX validation hardening: enforce `dexChainId > 0`, reject empty runtime DEX env values, require `TRADER_DEX_PRIVATE_KEY` (`0x` + 64 hex chars) and `TRADER_DEX_ADDRESS` (`0x` + 40 hex chars), and bound token decimals to `0..255` to avoid invalid precision math/overflow paths.
 - Interval normalization: canonicalize `--interval`/API interval inputs by trimming whitespace and normalizing unit casing (`1H` -> `1h`, `2D` -> `2d`) across CLI validation and platform interval mapping, while preserving Binance `1M` month semantics.
@@ -48,6 +49,7 @@ All notable changes to this project will be documented in this file.
 - Live bot/Fly defaults: add `TRADER_BOT_TOP_COMBO_BOTS` (steady-state cap, default `50`) plus `TRADER_BOT_TOP_COMBO_BOTS_STARTUP` (startup-phase cap, default steady value), set Fly startup/steady values to `0`/`10` to reduce boot pressure while re-enabling top-combo expansion after startup, and upgrade Fly VM sizing from `shared-cpu-2x/2048mb` to `shared-cpu-4x/8192mb`.
 - API/Ops: `--serve` now requires ops persistence initialization at startup (DB URL + connectivity); API boot fails fast instead of silently running with ops disabled.
 - Deploy/Fly stability: disable background optimizer workers by default on Fly (`TRADER_OPTIMIZER_ENABLED=false`, `TRADER_TOP_COMBOS_BACKTEST_ENABLED=false`) to reduce OOM restart pressure while keeping bot auto-start enabled.
+- API/Web UI orphan adoption: prefer adopt/reconcile-first behavior for single-side futures exposure by treating running trade-enabled bots with unknown internal side as adopted/reconciling (instead of orphaned), reducing unnecessary orphan flags during side reconciliation.
 - API: when running `--serve`, request payloads that omit `binanceTestnet` now default to mainnet (`false`) even if the process was started with `--binance-testnet`; callers can still opt into testnet explicitly per request.
 - Live bot auto-start: orphan open futures positions now trigger auto-start/adoption even when the base bot market is non-futures, and orphan starts enforce market-compatible top-combo selection before fallback.
 - Web UI: startup `/health` probing now retries transient `down`-classified failures (up to 3 attempts with 4s spacing) before settling on `API unreachable`, reducing false down states on cold starts/proxy warm-ups.
