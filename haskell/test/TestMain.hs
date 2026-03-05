@@ -39,7 +39,7 @@ import Trader.BotStartSemantics (
  )
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
-import Trader.Dex (DexEnv (..), DexToken (..), resolveDexTokens)
+import Trader.Dex (DexEnv (..), DexToken (..), resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds)
 import Trader.Http (boundedBackoffMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
@@ -205,6 +205,8 @@ main = do
               , run "dex trade args reject single-token override even with symbol" testDexTradeArgsRejectPartialTokenOverrides
               , run "dex token resolution rejects malformed token addresses" testDexResolveTokensRejectsMalformedAddress
               , run "dex token resolution applies native decimals overrides" testDexResolveTokensNativeDecimalsOverride
+              , run "dex token resolution rejects excessive decimals overrides" testDexResolveTokensRejectsExcessiveDecimalsOverride
+              , run "dex token amount conversion rejects excessive decimals" testTokenAmountToIntegerRejectsExcessiveDecimals
               , run "platform intervals" testPlatformIntervals
               , run "platform interval mapping" testPlatformIntervalMapping
               , run "method selects predictions" testMethodSelection
@@ -1820,6 +1822,20 @@ testDexResolveTokensNativeDecimalsOverride = do
         Right (baseTok, quoteTok) -> do
             assert "base native decimals override applied" (dtDecimals baseTok == 6)
             assert "quote native decimals override applied" (dtDecimals quoteTok == 8)
+
+testDexResolveTokensRejectsExcessiveDecimalsOverride :: IO ()
+testDexResolveTokensRejectsExcessiveDecimalsOverride = do
+    let env = mkDexTestEnv
+    resolved <- resolveDexTokens env "native" "eth" (Just 256) Nothing
+    case resolved of
+        Left err -> assert "excessive decimals override is rejected" ("Token decimals must be <= 255" `isInfixOf` err)
+        Right _ -> error "expected excessive decimals override to be rejected"
+
+testTokenAmountToIntegerRejectsExcessiveDecimals :: IO ()
+testTokenAmountToIntegerRejectsExcessiveDecimals =
+    case tokenAmountToInteger 1.0 256 of
+        Left err -> assert "token amount conversion rejects excessive decimals" ("Token decimals must be <= 255" `isInfixOf` err)
+        Right _ -> error "expected token amount conversion to reject excessive decimals"
 
 mkDexTestEnv :: DexEnv
 mkDexTestEnv =
