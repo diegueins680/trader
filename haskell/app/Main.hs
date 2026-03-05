@@ -27,7 +27,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.CaseInsensitive as CI
 import Data.Char (isAlphaNum, isDigit, isHexDigit, isSpace, toLower, toUpper)
 import qualified Data.Csv as Csv
-import Data.Either (fromRight, rights)
+import Data.Either (rights)
 import Data.Foldable (for_, toList)
 import qualified Data.Foldable
 import qualified Data.HashMap.Strict as HM
@@ -5767,7 +5767,11 @@ fetchAdoptedPositionSize args env sym price =
                         _ -> spotSizing
                     ) ::
                     IO (Either SomeException (Maybe Double))
-            pure (fromRight Nothing r)
+            case r of
+                Right sized -> pure sized
+                Left ex -> do
+                    hPutStrLn stderr ("WARN: failed to infer adopted position size for " ++ sym ++ ": " ++ displayException ex)
+                    pure Nothing
 
 fetchAdoptableAccountPos :: Args -> BinanceEnv -> String -> IO Int
 fetchAdoptableAccountPos args env sym =
@@ -8518,27 +8522,34 @@ backtestTopCombosOnce topNRaw ctx = do
                                 else do
                                     withTopCombosLock store $ do
                                         latestValOrErr <- readTopCombosValueWithDbFallbackUnlocked (tcbcOps ctx) store
-                                        now <- getTimestampMs
-                                        let latestVal = fromRight baseVal latestValOrErr
-                                            updateMap = HM.fromList updates
-                                        case applyComboUpdates now updateMap latestVal of
-                                            Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                                            Right (updatedVal, updatedCount) ->
-                                                if updatedCount <= 0
-                                                    then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
-                                                    else do
-                                                        writeResult <- writeTopCombosValue topJsonPath updatedVal
-                                                        case writeResult of
-                                                            Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                                                            Right _ -> do
-                                                                persistTopCombosMaybe (tcbcStateSync ctx) topJsonPath
-                                                                persistTopCombosDbMaybeUnlocked mOps store
-                                                                recordEvent
-                                                                    "optimizer.combos.backtest_updated"
-                                                                    [ "updated" .= updatedCount
-                                                                    , "topN" .= topN
-                                                                    , "path" .= topJsonPath
-                                                                    ]
+                                        case latestValOrErr of
+                                            Left err ->
+                                                recordError
+                                                    "optimizer.combos.backtest_failed"
+                                                    ("Failed to read latest top combos before applying updates: " ++ err)
+                                                    Nothing
+                                                    Nothing
+                                            Right latestVal -> do
+                                                now <- getTimestampMs
+                                                let updateMap = HM.fromList updates
+                                                case applyComboUpdates now updateMap latestVal of
+                                                    Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                                                    Right (updatedVal, updatedCount) ->
+                                                        if updatedCount <= 0
+                                                            then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
+                                                            else do
+                                                                writeResult <- writeTopCombosValue topJsonPath updatedVal
+                                                                case writeResult of
+                                                                    Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                                                                    Right _ -> do
+                                                                        persistTopCombosMaybe (tcbcStateSync ctx) topJsonPath
+                                                                        persistTopCombosDbMaybeUnlocked mOps store
+                                                                        recordEvent
+                                                                            "optimizer.combos.backtest_updated"
+                                                                            [ "updated" .= updatedCount
+                                                                            , "topN" .= topN
+                                                                            , "path" .= topJsonPath
+                                                                            ]
                         _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON missing combos array." Nothing Nothing
                 _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON root must be an object." Nothing Nothing
 
@@ -20448,7 +20459,11 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
             (_, Just env, Just sym)
                 | platformSupportsMarketContext (argPlatform args) -> do
                     r <- try (buildMarketModel args env sym n pricesV) :: IO (Either SomeException (Maybe MarketModel))
-                    pure (fromRight Nothing r)
+                    case r of
+                        Right model -> pure model
+                        Left ex -> do
+                            hPutStrLn stderr ("WARN: failed to build market context model (trade-only) for " ++ sym ++ ": " ++ displayException ex)
+                            pure Nothing
             _ -> pure Nothing
 
     (mLstmCtx, mLstmPredHistory, mLstmHealth) <-
@@ -20857,7 +20872,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             (MethodLstmOnly, _, _) -> pure Nothing
             (_, Just env, Just sym) -> do
                 r <- try (buildMarketModel args env sym predStart pricesV) :: IO (Either SomeException (Maybe MarketModel))
-                pure (fromRight Nothing r)
+                case r of
+                    Right model -> pure model
+                    Left ex -> do
+                        hPutStrLn stderr ("WARN: failed to build market context model (backtest) for " ++ sym ++ ": " ++ displayException ex)
+                        pure Nothing
             _ -> pure Nothing
 
     let runDualPredictorBacktest = do
