@@ -16040,13 +16040,11 @@ computeBinanceKeysStatusFromArgs mOps args = do
                                                                                 Just . appendProbeContext ctx
                                                                                     <$> probeBinance "futures/order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args)))
 
-            let normalizeTradeProbe p =
-                    if abpOk p || abpSkipped p || not (abpOk signedProbe)
-                        then p
-                        else
-                            if binanceTradeTestConfirmsAuth (abpCode p) (abpSummary p)
-                                then p{abpOk = True, abpSummary = "Auth OK, but order rejected: " ++ abpSummary p}
-                                else p
+            let normalizeTradeProbe p
+                    | abpOk p || abpSkipped p || not (abpOk signedProbe) = p
+                    | binanceTradeTestConfirmsAuth (abpCode p) (abpSummary p) =
+                        p{abpOk = True, abpSummary = "Auth OK, but order rejected: " ++ abpSummary p}
+                    | otherwise = p
             pure baseStatus{abkSigned = Just signedProbe, abkTradeTest = normalizeTradeProbe <$> tradeProbe}
   where
     missingSizingMsg =

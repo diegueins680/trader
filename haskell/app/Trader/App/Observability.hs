@@ -32,6 +32,7 @@ import Data.Aeson (encode, object, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.Char (isAsciiUpper)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
@@ -217,7 +218,7 @@ normalizeWebhookEvent :: String -> String
 normalizeWebhookEvent = map toLowerAscii . trim
   where
     toLowerAscii c
-        | 'A' <= c && c <= 'Z' = toEnum (fromEnum c + 32)
+        | isAsciiUpper c = toEnum (fromEnum c + 32)
         | otherwise = c
 
 parseWebhookEvents :: Maybe String -> Maybe [String]

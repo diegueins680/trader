@@ -108,7 +108,7 @@ looksLikeAuthFailure mCode summary =
     maybe False (`elem` authFailureCodes) mCode || any (`isInfixOf` lowerSummary) authFailurePhrases
   where
     lowerSummary = map toLower summary
-    authFailureCodes = [(-2015), (-2014), (-1022), (-1021), 401, 403]
+    authFailureCodes = [-2015, -2014, -1022, -1021, 401, 403]
     authFailurePhrases =
         [ "invalid api-key"
         , "invalid api key"
