@@ -92,6 +92,7 @@ import Trader.App.Args (
     resolveBarsForPlatform,
     validateArgs,
  )
+import Trader.App.BinanceProbe (BinanceErrorInfo (..), binanceTradeTestConfirmsAuth, parseBinanceError)
 import Trader.App.Csv (loadCsvPriceSeries)
 import Trader.App.Env (getBuildCommit, loadEnvFile, traderVersion)
 import Trader.App.Observability (
@@ -15707,19 +15708,6 @@ computeTradeFromSeries args series mBinanceEnv = do
     order <- placeOrderForSignalPlatform args sig mBinanceEnv
     pure ApiTradeResponse{atrSignal = sig, atrOrder = order}
 
-data BinanceApiErrorBody = BinanceApiErrorBody
-    { baeCode :: !Int
-    , baeMsg :: !String
-    }
-    deriving (Eq, Show, Generic)
-
-instance FromJSON BinanceApiErrorBody where
-    parseJSON =
-        Aeson.withObject "BinanceApiErrorBody" $ \o ->
-            BinanceApiErrorBody
-                <$> o Aeson..: "code"
-                <*> o Aeson..: "msg"
-
 truncateString :: Int -> String -> String
 truncateString n s =
     if length s <= n then s else take n s ++ "..."
@@ -15741,22 +15729,6 @@ extractJsonObject msg =
             case break (== '}') s0 of
                 (obj, '}' : _) -> Just (obj ++ "}")
                 _ -> Nothing
-
-parseBinanceError :: String -> (Maybe Int, Maybe String, String)
-parseBinanceError raw =
-    let raw' = truncateString 240 raw
-        httpCode = extractHttpStatusCode raw'
-        decoded =
-            case extractJsonObject raw' of
-                Nothing -> Nothing
-                Just json ->
-                    case eitherDecode (BL.fromStrict (BS.pack json)) of
-                        Right b -> Just (b :: BinanceApiErrorBody)
-                        Left _ -> Nothing
-        outCode = maybe httpCode (Just . baeCode) decoded
-        outMsg = baeMsg <$> decoded
-        summary = fromMaybe raw' outMsg
-     in (outCode, outMsg, summary)
 
 parseCoinbaseError :: String -> (Maybe Int, Maybe String, String)
 parseCoinbaseError raw =
@@ -15785,7 +15757,10 @@ probeBinance step action = do
                     case (fromException ex :: Maybe IOError) of
                         Just io | isUserError io -> ioeGetErrorString io
                         _ -> show ex
-                (code, m, summary) = parseBinanceError msg
+                err = parseBinanceError msg
+                code = beiCode err
+                m = beiMsg err
+                summary = beiSummary err
                 isMinNotional = code == Just (-4164) && "order/test" `isInfixOf` step
             pure $
                 if isMinNotional
@@ -16065,15 +16040,13 @@ computeBinanceKeysStatusFromArgs mOps args = do
                                                                                 Just . appendProbeContext ctx
                                                                                     <$> probeBinance "futures/order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args)))
 
-            let isAuthFailureCode c = c == (-1022) || c == (-2014) || c == (-2015)
-                normalizeTradeProbe p =
-                    if abpOk p
+            let normalizeTradeProbe p =
+                    if abpOk p || abpSkipped p || not (abpOk signedProbe)
                         then p
-                        else case abpCode p of
-                            Just c
-                                | not (isAuthFailureCode c) ->
-                                    p{abpOk = True, abpSummary = "Auth OK, but order rejected: " ++ abpSummary p}
-                            _ -> p
+                        else
+                            if binanceTradeTestConfirmsAuth (abpCode p) (abpSummary p)
+                                then p{abpOk = True, abpSummary = "Auth OK, but order rejected: " ++ abpSummary p}
+                                else p
             pure baseStatus{abkSigned = Just signedProbe, abkTradeTest = normalizeTradeProbe <$> tradeProbe}
   where
     missingSizingMsg =
@@ -16113,7 +16086,7 @@ computeBinanceKeysStatusFromArgs mOps args = do
                 case (fromException ex :: Maybe IOError) of
                     Just io | isUserError io -> ioeGetErrorString io
                     _ -> show ex
-            (_code, _m, summary) = parseBinanceError msg
+            summary = beiSummary (parseBinanceError msg)
             flattened = map (\c -> if c == '\n' || c == '\r' then ' ' else c) summary
          in truncateString 240 (trim flattened)
 

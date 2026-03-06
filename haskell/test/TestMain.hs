@@ -97,6 +97,7 @@ import Trader.SignalGates (
 import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
+import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.TopCombosStore (comboPerformanceKey, mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, sanitizeComboSymbolForPlatform)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
@@ -280,6 +281,7 @@ main = do
               , run "binance order validation" testBinanceOrderValidation
               ]
                 ++ map (uncurry run) apiRouteSuite
+                ++ map (uncurry run) binanceProbeSuite
             )
     if and results then exitSuccess else exitFailure
 
