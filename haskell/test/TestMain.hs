@@ -15,13 +15,13 @@ import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, sort, sortOn)
 import Data.Maybe (isNothing)
 import qualified Data.Maybe
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
 import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
-import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Trader.App.Args (Args, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
 import Trader.Binance (
@@ -217,6 +217,7 @@ main = do
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
+              , run "optimizer merge preserves dex platform/symbol semantics" testRunMergePreservesDexPlatformSymbolSemantics
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
               , run "top combos recover compact binance symbol from prefixed pair text" testTopCombosPrefixedPairNormalization
               , run "top combos recover compact binance symbol from separated base/quote tokens" testTopCombosSeparatedTokenPairNormalization
@@ -349,6 +350,26 @@ requireComboBars label val =
                     case KM.lookup "bars" params >>= AT.parseMaybe Aeson.parseJSON of
                         Just bars -> bars
                         Nothing -> error (label ++ ": missing params.bars")
+                _ -> error (label ++ ": missing params object")
+        _ -> error (label ++ ": combo is not an object")
+
+requireComboPlatform :: String -> Aeson.Value -> Maybe String
+requireComboPlatform label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "params" o of
+                Just (Aeson.Object params) ->
+                    KM.lookup "platform" params >>= AT.parseMaybe Aeson.parseJSON
+                _ -> error (label ++ ": missing params object")
+        _ -> error (label ++ ": combo is not an object")
+
+requireComboBinanceSymbol :: String -> Aeson.Value -> Maybe String
+requireComboBinanceSymbol label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "params" o of
+                Just (Aeson.Object params) ->
+                    KM.lookup "binanceSymbol" params >>= AT.parseMaybe Aeson.parseJSON
                 _ -> error (label ++ ": missing params object")
         _ -> error (label ++ ": combo is not an object")
 
@@ -2023,6 +2044,52 @@ testRunMergeRejectsFractionalIntegerString :: IO ()
 testRunMergeRejectsFractionalIntegerString = do
     combo <- runMergeAndReadFirstCombo "merge-fractional-int-string" (Aeson.String "10.9")
     assert "fractional integer-like string should not be truncated" (requireComboBars "fractional bars" combo == 0)
+
+testRunMergePreservesDexPlatformSymbolSemantics :: IO ()
+testRunMergePreservesDexPlatformSymbolSemantics =
+    withTempTestDir "merge-dex-platform-symbol" $ \dir -> do
+        let topPath = dir </> "top-combos-input.json"
+            outPath = dir </> "top-combos-output.json"
+            dummyJsonlPath = dir </> "no-discovery.jsonl"
+            dexSymbol = "0xabc/0xdef"
+            topPayload =
+                object
+                    [ "generatedAtMs" .= (1 :: Int)
+                    , "combos"
+                        .= [ object
+                                [ "finalEquity" .= (1.5 :: Double)
+                                , "params"
+                                    .= object
+                                        [ "platform" .= ("uniswap" :: String)
+                                        , "symbol" .= dexSymbol
+                                        , "interval" .= ("1h" :: String)
+                                        , "bars" .= (100 :: Int)
+                                        ]
+                                ]
+                           ]
+                    ]
+            mergeArgs =
+                MergeArgs
+                    { maTopJson = topPath
+                    , maFromJsonl = [dummyJsonlPath]
+                    , maFromTopJson = []
+                    , maOut = outPath
+                    , maMax = 5
+                    , maHistoryDir = Nothing
+                    , maCopyToDist = False
+                    }
+        BL.writeFile topPath (Aeson.encode topPayload)
+        code <- runMerge mergeArgs
+        assert "runMerge should complete successfully" (code == 0)
+        outContents <- BL.readFile outPath
+        outValue <-
+            case eitherDecode outContents of
+                Left err -> error ("failed to parse merge output JSON: " ++ err)
+                Right v -> pure v
+        let combos = requireCombosArray "merge output combos" outValue
+            combo = requireHead "merge output should contain one combo" combos
+        assert "DEX platform should be preserved in merged params" (requireComboPlatform "dex combo platform" combo == Just "uniswap")
+        assert "DEX symbol should not be Binance-normalized in merged params.binanceSymbol" (requireComboBinanceSymbol "dex combo binanceSymbol" combo == Just dexSymbol)
 
 testDexTradeArgsRequireTokensNotSymbol :: IO ()
 testDexTradeArgsRequireTokensNotSymbol = do

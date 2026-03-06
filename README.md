@@ -601,6 +601,7 @@ Endpoints:
   - Top-combo merges backfill missing `metrics.annualizedReturn`, and new optimizer runs stamp `params.binanceSymbol` so combos stay labeled.
   - Abandoned optimizer lock directories are reclaimed quickly (10s heartbeat, 45s stale cutoff) so stale locks do not block `/optimizer/combos` for long after crashes/restarts.
   - Combo symbols are normalized for Binance (e.g., `BTC/USDT` → `BTCUSDT`) and trim dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` → `BNBUSDT`) when read/merged.
+  - DEX combo platform metadata and token-pair symbols are preserved during merge normalization (for example, `platform=uniswap` + `symbol=0xabc/0xdef` stay DEX-formatted instead of being compacted as Binance symbols).
   - Combos can include sizing params (`orderQuote`, `orderQuantity`, `orderQuoteFraction`, `maxOrderQuote`); applying combos will honor them so orders have a usable size.
   - `top-combos.json` also includes `bestOptimizationTechniques`, a curated list of optimization best practices with short explanations for downstream consumers, plus `optimizationTechniquesApplied`/`ensemble` sections that summarize the Sobol seeding, successive halving, Bayesian-inspired exploitation, walk-forward validation, and ensemble construction applied during a run.
 - `GET /state/sync` → exports bot snapshots and optimizer `top-combos.json` for syncing between deployments

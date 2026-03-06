@@ -585,26 +585,52 @@ normalizeSource :: Maybe Value -> Maybe String
 normalizeSource value =
     case value of
         Just (String s) ->
-            case map toLower (trim (T.unpack s)) of
-                "binance" -> Just "binance"
-                "coinbase" -> Just "coinbase"
-                "kraken" -> Just "kraken"
-                "poloniex" -> Just "poloniex"
-                "csv" -> Just "csv"
-                _ -> Nothing
+            normalizeKnownSource (trim (T.unpack s))
         _ -> Nothing
 
 normalizePlatform :: KM.KeyMap Value -> Maybe String -> Maybe String
 normalizePlatform params source =
-    let raw =
+    let fromParams =
             case KM.lookup (Key.fromString "platform") params of
-                Just (String s) -> map toLower (trim (T.unpack s))
-                _ -> ""
-     in if raw `elem` ["binance", "coinbase", "kraken", "poloniex"]
-            then Just raw
-            else case source of
-                Just s | s `elem` ["binance", "coinbase", "kraken", "poloniex"] -> Just s
+                Just (String s) -> normalizeKnownPlatform (T.unpack s)
                 _ -> Nothing
+        fromSource = source >>= normalizeKnownPlatform
+     in fromParams <|> fromSource
+
+normalizeKnownSource :: String -> Maybe String
+normalizeKnownSource raw =
+    case normalized of
+        "csv" -> Just "csv"
+        _ -> normalizeKnownPlatform normalized
+  where
+    normalized = map toLower (trim raw)
+
+normalizeKnownPlatform :: String -> Maybe String
+normalizeKnownPlatform raw =
+    let normalized = canonicalPlatformKey raw
+     in if normalized `elem` knownPlatformKeys
+            then Just normalized
+            else Nothing
+
+knownPlatformKeys :: [String]
+knownPlatformKeys =
+    [ "binance"
+    , "coinbase"
+    , "kraken"
+    , "poloniex"
+    , "uniswap"
+    , "curve"
+    , "sushiswap"
+    , "balancer"
+    , "pancakeswap"
+    , "1inch"
+    ]
+
+canonicalPlatformKey :: String -> String
+canonicalPlatformKey raw =
+    case map toLower (trim raw) of
+        "oneinch" -> "1inch"
+        other -> other
 
 normalizeObjectiveValue :: Value -> Maybe String
 normalizeObjectiveValue value =

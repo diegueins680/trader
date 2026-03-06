@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer/CLI: harden `resolveBars` lookback derivation so invalid interval/lookback conversions fail fast with explicit errors (and empty interval sets are rejected) instead of silently falling back to zero.
 - Top-combo ranking: make `comboPerformanceKey` match merge/UI tie-break semantics by ordering ties as annualized return, then score, then final equity (instead of annualized return, final equity, score).
 - Top-combo symbol cleanup: recover Binance pairs from prefixed/tokenized symbols (for example `binance:btc/usdt` and `binance-btc-usdt`) so valid combo symbols are not dropped during sanitization.
+- Optimizer/top-combos merge: preserve recognized DEX `params.platform` values (including `oneinch` alias normalization) and keep DEX token-pair symbols in DEX format during merge normalization, instead of falling back to Binance-style symbol compaction.
 - Symbol parsing: fix base/quote extraction for delimited pair formats (`BASE-QUOTE`, `BASE_QUOTE`, `BASE/QUOTE`) so delimiter characters are not treated as part of base assets in market/exposure logic.
 - Web UI: show backend system build metadata (version + short commit from `/health`) directly in the main header, and fall back to the UI build commit when `/health` omits `commit`, so deployment identity remains visible.
 - Web UI: use the same `/api`-preferring listenKey base for start/keepAlive/close actions as SSE stream reads in inferred split-host mode, avoiding cross-origin preflight CORS failures against direct API hosts.
