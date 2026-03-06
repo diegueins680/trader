@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- DEX execution: require a valid transaction hash in successful `cast send` output (including structured stdout), and fail fast when no `0x` + 64 hex hash is present instead of treating raw stdout as a tx hash.
 - Metrics hardening: sanitize non-finite trade returns/equity deltas and position values when computing backtest metrics so malformed payloads cannot propagate `NaN`/`Infinity` into metric outputs.
 - CLI/optimizer parsing: make `--tune-objective` whitespace-tolerant (including tabs/newlines) while preserving existing objective aliases, so API/CLI wrappers that include non-space whitespace no longer fail objective validation.
 - Symbol splitting hardening: for quote-only compact tokens (for example `USDT`), keep the token in the base slot and avoid emitting an empty base asset when extracting `(base, quote)` pairs.

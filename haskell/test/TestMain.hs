@@ -44,7 +44,7 @@ import Trader.BotStartSemantics (
 import Trader.Cache (fetchWithCache, insertCache, newTtlCache)
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles, normalizeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
-import Trader.Dex (DexEnv (..), DexToken (..), resolveDexTokens, tokenAmountToInteger)
+import Trader.Dex (DexEnv (..), DexToken (..), extractTxHash, resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
 import Trader.Http (boundedBackoffMs, jitteredDelayMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
@@ -246,6 +246,9 @@ main = do
               , run "dex token resolution applies native decimals overrides" testDexResolveTokensNativeDecimalsOverride
               , run "dex token resolution rejects excessive decimals overrides" testDexResolveTokensRejectsExcessiveDecimalsOverride
               , run "dex token amount conversion rejects excessive decimals" testTokenAmountToIntegerRejectsExcessiveDecimals
+              , run "dex tx hash parser handles plain output" testDexExtractTxHashPlainOutput
+              , run "dex tx hash parser handles structured output" testDexExtractTxHashStructuredOutput
+              , run "dex tx hash parser rejects malformed output" testDexExtractTxHashRejectsMalformedOutput
               , run "platform intervals" testPlatformIntervals
               , run "platform interval mapping" testPlatformIntervalMapping
               , run "method selects predictions" testMethodSelection
@@ -2334,6 +2337,27 @@ testTokenAmountToIntegerRejectsExcessiveDecimals =
     case tokenAmountToInteger 1.0 256 of
         Left err -> assert "token amount conversion rejects excessive decimals" ("Token decimals must be <= 255" `isInfixOf` err)
         Right _ -> error "expected token amount conversion to reject excessive decimals"
+
+testDexExtractTxHashPlainOutput :: IO ()
+testDexExtractTxHashPlainOutput = do
+    let hash = "0x" ++ replicate 64 'a'
+    assert "plain cast output hash is extracted" (extractTxHash (hash ++ "\n") == Just hash)
+
+testDexExtractTxHashStructuredOutput :: IO ()
+testDexExtractTxHashStructuredOutput = do
+    let hash = "0x" ++ replicate 64 'b'
+        out = "{\"transactionHash\":\"" ++ hash ++ "\",\"status\":\"0x1\"}"
+        upperOut = "tx=0X" ++ replicate 64 'C' ++ ",ok"
+    assert "json-wrapped tx hash is extracted" (extractTxHash out == Just hash)
+    assert "uppercase 0X hash is normalized and extracted" (extractTxHash upperOut == Just ("0x" ++ replicate 64 'c'))
+
+testDexExtractTxHashRejectsMalformedOutput :: IO ()
+testDexExtractTxHashRejectsMalformedOutput = do
+    let tooShort = "0x" ++ replicate 63 'a'
+        tooLong = "0x" ++ replicate 65 'a'
+    assert "missing tx hash returns Nothing" (isNothing (extractTxHash "{\"status\":\"ok\"}"))
+    assert "short hex payload is rejected" (isNothing (extractTxHash tooShort))
+    assert "long hex payload is rejected" (isNothing (extractTxHash tooLong))
 
 mkDexTestEnv :: DexEnv
 mkDexTestEnv =

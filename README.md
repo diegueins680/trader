@@ -283,6 +283,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Native tokens (`native`/`eth`/`bnb`/etc.) accept decimal overrides (`--dex-base-decimals` / `--dex-quote-decimals`) and these overrides are applied consistently.
   - When both tokens are explicit native/address inputs (with required decimals for addresses), resolution no longer depends on fetching 1inch token metadata.
   - Requires Foundry's `cast` on the PATH to sign/send transactions.
+  - `cast send` success output must include a valid `0x` + 64 hex transaction hash (plain or embedded in structured output); if no hash is detected, the trade fails with a validation error instead of using raw stdout as a hash.
   - DEX sizing: use `--order-quote` for BUY and `--order-quantity` for SELL (fractional sizing is not supported).
 
 - Coinbase API keys (optional; used for `/coinbase/keys` checks and Coinbase trades)

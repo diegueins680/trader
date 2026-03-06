@@ -7,6 +7,7 @@ module Trader.Dex (
     DexSwapTx (..),
     DexSwapResult (..),
     dexNativeAddress,
+    extractTxHash,
     resolveDexEnv,
     resolveDexTokens,
     swapDexExactIn,
@@ -423,9 +424,10 @@ sendDexTx env tx = do
                     case extractTxHash stdoutText of
                         Just h -> pure (Right h)
                         Nothing ->
-                            if null (trimString stdoutText)
-                                then pure (Left "cast send succeeded but no tx hash was returned.")
-                                else pure (Right (trimString stdoutText))
+                            let output = trimString stdoutText
+                             in if null output
+                                    then pure (Left "cast send succeeded but no tx hash was returned.")
+                                    else pure (Left ("cast send succeeded but no tx hash was found in output: " ++ output))
                 ExitFailure _ ->
                     pure (Left ("cast send failed: " ++ trimString (stdoutText ++ " " ++ stderrText)))
 
@@ -731,11 +733,30 @@ scientificToString n =
 
 extractTxHash :: String -> Maybe String
 extractTxHash raw =
-    let tokens = words raw
-        isHash t =
-            let t' = map toLower t
-             in "0x" `isPrefixOf` t' && hasExactLength 66 t'
-     in find isHash tokens
+    findTxHash raw
+  where
+    findTxHash :: String -> Maybe String
+    findTxHash [] = Nothing
+    findTxHash s@(_ : xs) =
+        case s of
+            ('0' : prefixX : rest)
+                | toLower prefixX == 'x' ->
+                    case parseHashBody rest of
+                        Just hashBody -> Just ("0x" ++ hashBody)
+                        Nothing -> findTxHash xs
+            _ -> findTxHash xs
+
+    parseHashBody :: String -> Maybe String
+    parseHashBody txt =
+        let (candidateRaw, trailing) = splitAt 64 txt
+            candidate = map toLower candidateRaw
+            trailingOk =
+                case trailing of
+                    [] -> True
+                    (c : _) -> not (isHexDigitAscii (toLower c))
+         in if hasExactLength 64 candidate && all isHexDigitAscii candidate && trailingOk
+                then Just candidate
+                else Nothing
 
 isInfixOf :: String -> String -> Bool
 isInfixOf needle hay =
