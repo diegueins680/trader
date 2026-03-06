@@ -23,6 +23,11 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 
+import Trader.Formal.Optimization (
+    preferTieBreakImplementation,
+    roiImplementationScore,
+    tieBreakCandidateFromMetrics,
+ )
 import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
@@ -152,7 +157,7 @@ scoreObjective cfg m =
      in case tcObjective cfg of
             TuneFinalEquity -> finalEq
             TuneAnnualizedEquity -> bmAnnualizedReturn m
-            TuneRoi -> roiObjectiveScore pDd pTurn m
+            TuneRoi -> roiImplementationScore pDd pTurn m
             TuneSharpe -> bmSharpe m
             TuneCalmar ->
                 if maxDd <= 0
@@ -162,45 +167,6 @@ scoreObjective cfg m =
                          in bmAnnualizedReturn m / denom
             TuneEquityDd -> finalEq - pDd * maxDd
             TuneEquityDdTurnover -> finalEq - pDd * maxDd - pTurn * turnover
-
-roiObjectiveScore :: Double -> Double -> BacktestMetrics -> Double
-roiObjectiveScore penaltyMaxDd penaltyTurnover m =
-    let bad x = isNaN x || isInfinite x
-        clean x =
-            if bad x
-                then 0
-                else x
-        annRet = clean (bmAnnualizedReturn m)
-        maxDd = max 0 (clean (bmMaxDrawdown m))
-        tailLoss = max 0 (clean (bmCVaR95 m))
-        turnover = max 0 (clean (bmTurnover m))
-        expectancy = clean (bmAvgTradeReturn m)
-        avgHold = max 0 (clean (bmAvgHoldingPeriods m))
-        roundTrips = max 0 (bmRoundTrips m)
-        tradeCount = max 0 (bmTradeCount m)
-        exposure = max 0 (clean (bmExposure m))
-        activityCount = max roundTrips tradeCount
-        activityPenalty
-            | activityCount <= 0 = 0.25
-            | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
-            | otherwise = 0
-        exposurePenalty
-            | exposure <= 0 = 0.05
-            | exposure < 0.01 = 0.02
-            | otherwise = 0
-        paybackBonus =
-            if avgHold <= 0
-                then 0
-                else min 0.05 (1 / (1 + avgHold))
-        pDd = max 0 penaltyMaxDd
-        pTurn = max 0 penaltyTurnover
-     in annRet
-            - pDd * (maxDd + tailLoss)
-            - pTurn * turnover
-            + 0.5 * expectancy
-            + paybackBonus
-            - activityPenalty
-            - exposurePenalty
 
 stressEquityCurve :: Double -> Double -> [Double] -> [Double]
 stressEquityCurve volMult shock eq =
@@ -2780,28 +2746,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
             evalForOpen baseOpenThreshold baseCloseThreshold
         eqEps = 1e-12
         preferTie metrics openThr closeThr bestMetrics bestOpen bestClose =
-            let eq = bmFinalEquity metrics
-                bestEq = bmFinalEquity bestMetrics
-                turnover = bmTurnover metrics
-                bestTurnover = bmTurnover bestMetrics
-                roundTrips = bmRoundTrips metrics
-                bestRoundTrips = bmRoundTrips bestMetrics
-                inverted = closeThr > openThr + eqEps
-                bestInverted = bestClose > bestOpen + eqEps
-             in (eq > bestEq + eqEps)
-                    || ( abs (eq - bestEq) <= eqEps
-                            && ( turnover < bestTurnover - eqEps
-                                    || ( abs (turnover - bestTurnover) <= eqEps
-                                            && ( roundTrips > bestRoundTrips
-                                                    || ( roundTrips == bestRoundTrips
-                                                            && ( (not inverted && bestInverted)
-                                                                    || (inverted == bestInverted && (openThr, closeThr) > (bestOpen, bestClose))
-                                                               )
-                                                       )
-                                               )
-                                       )
-                               )
-                       )
+            preferTieBreakImplementation
+                (tieBreakCandidateFromMetrics metrics openThr closeThr)
+                (tieBreakCandidateFromMetrics bestMetrics bestOpen bestClose)
         pickResult (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics) (eligible, m, s, openThr', closeThr', bt, stats, metrics) =
             case (bestEligible, eligible) of
                 (False, True) -> (True, m, s, openThr', closeThr', bt, stats, metrics)

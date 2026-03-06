@@ -45,6 +45,7 @@ ROI playbook
 ------------
 For a concrete Codex workflow focused on speed + quality (task lanes, guardrails, command packs, and weekly scorecard), see `ROI_PLAYBOOK.md`.
 Generate a weekly scorecard automatically with `./haskell/scripts/generate_roi_scorecard.sh` (use `--week YYYY-WW` for a specific ISO week).
+For the optimizer's machine-checked ROI contract and bounded formal verification, see `FORMAL_METHODS.md`.
 
 Quick start
 -----------
@@ -389,6 +390,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `annualized-equity` | `roi` | `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
     - Objective parsing is whitespace-tolerant (including tabs/newlines) and treats `_` / `-` separators equivalently.
     - `roi` scores annualized return net of drawdown/CVaR and turnover penalties, then rewards faster payback and positive expectancy.
+    - The `roi` scoring contract and threshold tie-break are formalized in `FORMAL_METHODS.md` and exhaustively checked by `cd haskell && cabal test`.
     - Calmar falls back to annualized return when max drawdown is zero (avoids infinite scores).
     - To maximize annualized equity, set `--tune-objective annualized-equity` (alias: `annualized-return`).
   - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips (excludes end-of-series EOD exits), and non-inverted hysteresis (close <= open) without reducing equity.

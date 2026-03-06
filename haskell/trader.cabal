@@ -23,6 +23,7 @@ executable trader-hs
                      , Trader.BinanceIntervals
                      , Trader.BotStartSemantics
                      , Trader.Duration
+                     , Trader.Formal.Optimization
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
@@ -177,6 +178,7 @@ test-suite trader-tests
                      , Trader.BinanceIntervals
                      , Trader.BotStartSemantics
                      , Trader.Duration
+                     , Trader.Formal.Optimization
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
@@ -252,6 +254,7 @@ benchmark trader-bench
                      , Trader.App.Args
                      , Trader.BinanceIntervals
                      , Trader.Duration
+                     , Trader.Formal.Optimization
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3

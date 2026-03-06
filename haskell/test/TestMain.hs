@@ -48,6 +48,12 @@ import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles,
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), extractTxHash, resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
+import Trader.Formal.Optimization (
+    FormalVerificationReport (..),
+    roiRequirementClauses,
+    roiRequirementSummary,
+    verifyFormalOptimization,
+ )
 import Trader.Http (boundedBackoffMs, jitteredDelayMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
@@ -144,6 +150,11 @@ main = do
               , run "metrics max drawdown" testMetricsMaxDrawdown
               , run "metrics profit factor pnl" testMetricsProfitFactorPnL
               , run "metrics sanitize non-finite trade payloads" testMetricsSanitizeNonFiniteInputs
+              , run "formal ROI requirements stay concise" testFormalRoiRequirementsSummary
+              , run "formal ROI spec matches implementation" testFormalRoiSpecMatchesImplementation
+              , run "formal ROI monotonicity holds" testFormalRoiMonotonicity
+              , run "formal ROI penalties stay ordered" testFormalRoiPenaltyOrdering
+              , run "formal tune tie-break matches spec" testFormalTieBreakMatchesSpec
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
               , run "binance trade parser accepts numeric and whitespace fields" testBinanceTradeParserAcceptsNumericAndWhitespace
@@ -1123,6 +1134,35 @@ testMetricsSanitizeNonFiniteInputs = do
     assert "exposure stays finite" (isFinite (bmExposure m))
   where
     isFinite x = not (isNaN x || isInfinite x)
+
+testFormalRoiRequirementsSummary :: IO ()
+testFormalRoiRequirementsSummary = do
+    assert "summary mentions ROI" ("ROI" `isInfixOf` roiRequirementSummary)
+    assert "requirements stay concise" (length roiRequirementClauses == 6)
+
+testFormalRoiSpecMatchesImplementation :: IO ()
+testFormalRoiSpecMatchesImplementation =
+    assert "formal ROI spec matches implementation across the bounded model" (fvrRoiSpecMatchesImplementation formalVerificationReport)
+
+testFormalRoiMonotonicity :: IO ()
+testFormalRoiMonotonicity = do
+    assert "return monotonicity holds" (fvrReturnMonotone formalVerificationReport)
+    assert "drawdown monotonicity holds" (fvrDrawdownMonotone formalVerificationReport)
+    assert "tail-loss monotonicity holds" (fvrTailLossMonotone formalVerificationReport)
+    assert "turnover monotonicity holds" (fvrTurnoverMonotone formalVerificationReport)
+    assert "expectancy monotonicity holds" (fvrExpectancyMonotone formalVerificationReport)
+    assert "payback monotonicity holds" (fvrPaybackMonotone formalVerificationReport)
+
+testFormalRoiPenaltyOrdering :: IO ()
+testFormalRoiPenaltyOrdering = do
+    assert "activity penalty ordering holds" (fvrActivityPenaltyOrdered formalVerificationReport)
+    assert "exposure penalty ordering holds" (fvrExposurePenaltyOrdered formalVerificationReport)
+    assert "formal verifier explored ROI states" (fvrRoiStateCount formalVerificationReport > 0)
+
+testFormalTieBreakMatchesSpec :: IO ()
+testFormalTieBreakMatchesSpec = do
+    assert "formal tie-break spec matches implementation" (fvrTieBreakSpecMatchesImplementation formalVerificationReport)
+    assert "formal verifier explored tie-break pairs" (fvrTieBreakPairCount formalVerificationReport > 0)
 
 testBinanceSignatureLength :: IO ()
 testBinanceSignatureLength = do
@@ -2805,6 +2845,9 @@ testOptimizerIntRangeFullSpan = do
     assert "full-span sample stays in bounds (first)" (v1 >= minBound && v1 <= maxBound)
     assert "full-span sample stays in bounds (second)" (v2 >= minBound && v2 <= maxBound)
     assert "full-span range advances RNG state" (probe /= expectedProbe)
+
+formalVerificationReport :: FormalVerificationReport
+formalVerificationReport = verifyFormalOptimization
 
 assertThrowsContains :: String -> (() -> IO a) -> IO ()
 assertThrowsContains needle mkAction = do

@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Formal methods: specify the optimizer ROI contract and threshold tie-break in executable form, then exhaustively model-check them in `cabal test` against the production Haskell implementation.
 - Web UI/API: keep Binance key-check trade permission at `FAIL` for auth/IP/permission errors (for example wrapped `HTTP 401` + Binance `-2015`) instead of rewriting them to `Auth OK`.
 - Optimizer/top-combos merge: canonicalize prefixed platform keys (for example `coinbase-advanced` -> `coinbase`, `uniswap-v3` -> `uniswap`) so merged `params.platform` is preserved and symbol normalization keeps exchange/DEX-specific delimiters (`BTC/USD` -> `BTC-USD`, `ETH/USDT` stays delimited for DEX).
 - CLI numeric parsing: accept an optional leading `+` for strict decimal integer inputs used by `--bars` and backtest epoch timestamps (`--from`/`--to`), fixing a mismatch where `+` was syntactically allowed but rejected by runtime parsing.
