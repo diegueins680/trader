@@ -320,7 +320,9 @@ parseTimeInt64 s =
 readStrictDecimalInteger :: String -> Maybe Integer
 readStrictDecimalInteger s =
     if isStrictSignedDecimal s
-        then readMaybe s
+        then case s of
+            '+' : rest -> readMaybe rest
+            _ -> readMaybe s
         else Nothing
 
 isStrictSignedDecimal :: String -> Bool

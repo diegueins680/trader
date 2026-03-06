@@ -187,11 +187,13 @@ main = do
               , run "backtest window keeps negative millisecond epochs" testBacktestWindowNegativeMillisecondsValidation
               , run "backtest window keeps positive 11-digit millisecond epochs" testBacktestWindowPositiveMillisecondsValidation
               , run "backtest window normalizes second epochs to milliseconds" testBacktestWindowSecondEpochNormalization
+              , run "backtest window accepts signed positive second epochs" testBacktestWindowSignedSecondEpochValidation
               , run "backtest window enforces from<=to" testBacktestWindowOrderValidation
               , run "idempotency key enforces max length" testIdempotencyKeyLengthValidation
               , run "idempotency key rejects non-ascii characters" testIdempotencyKeyAsciiValidation
               , run "idempotency key trims surrounding whitespace" testIdempotencyKeyTrimValidation
               , run "bars rejects overflow integer" testBarsOverflowValidation
+              , run "bars accepts signed positive integers" testBarsSignedIntegerValidation
               , run "bars rejects non-decimal integer" testBarsNonDecimalValidation
               , run "cli numeric args reject non-finite values" testNumericArgsFiniteValidation
               , run "trade sizing args reject zero values" testTradeSizingPositiveValidation
@@ -1686,6 +1688,13 @@ testBacktestWindowSecondEpochNormalization = do
         "second epoch is normalized to milliseconds"
         (parseTimestampMs "1704067200" == Just expected)
 
+testBacktestWindowSignedSecondEpochValidation :: IO ()
+testBacktestWindowSignedSecondEpochValidation = do
+    let expected = 1704067200000 :: Int64
+    assert
+        "signed positive second epoch is normalized to milliseconds"
+        (parseTimestampMs "+1704067200" == Just expected)
+
 testBacktestWindowOrderValidation :: IO ()
 testBacktestWindowOrderValidation =
     case parseArgsResult ["--data", "sample.csv", "--from", "2025-01-02", "--to", "2025-01-01"] of
@@ -1727,6 +1736,12 @@ testBarsOverflowValidation =
                 "overflow bars rejected"
                 ("Expected an integer (e.g. 500) or 'auto'." `isInfixOf` err)
         Right _ -> error "expected overflow --bars to fail validation"
+
+testBarsSignedIntegerValidation :: IO ()
+testBarsSignedIntegerValidation =
+    case parseArgsResult ["--data", "sample.csv", "--bars", "+500"] of
+        Left err -> error ("expected signed positive --bars value to parse: " ++ err)
+        Right _ -> pure ()
 
 testBarsNonDecimalValidation :: IO ()
 testBarsNonDecimalValidation =

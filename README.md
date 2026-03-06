@@ -241,6 +241,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 - `--interval 1h` (alias `--binance-interval`) bar interval / exchange kline interval
   - Interval inputs are trimmed and normalized for unit casing (`1H` -> `1h`, `2D` -> `2d`); Binance monthly `1M` remains distinct from minute `1m`.
 - `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or platform default for exchanges: Binance/Kraken/Poloniex=500, Coinbase=300; CSV also supports `0` = all; Binance 2..1000)
+  - Numeric `--bars` values accept optional leading `+` (for example `+500`) in addition to plain decimal integers.
   - `--lookback-window 7d` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
   - Oversized integer literals and overflow during `--lookback-window` unit conversion/bar conversion are rejected (no integer wraparound).
@@ -506,7 +507,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
     - The split must leave at least `lookback+1` training bars and 2 backtest bars, otherwise it errors.
   - `--from TIME` / `--to TIME` optional backtest window bounds (epoch seconds/ms or ISO-8601, for example `2025-01-01`, `2025-01-01T00:00Z`, `2025-01-01T00:00:00Z`, or `2025-01-01T00:00:00+00:00`)
-    - Numeric epoch values must be base-10 integers within `Int64` range (scientific notation, non-decimal literals like `0x10`, fractional values, and overflowing numeric inputs are rejected). Seconds-vs-milliseconds detection now treats up to 10-digit magnitudes as seconds and larger magnitudes as milliseconds, preserving negative and 11-digit millisecond epochs correctly.
+    - Numeric epoch values must be base-10 integers within `Int64` range (scientific notation, non-decimal literals like `0x10`, fractional values, and overflowing numeric inputs are rejected). An optional leading `+` is accepted (`+1704067200`). Seconds-vs-milliseconds detection now treats up to 10-digit magnitudes as seconds and larger magnitudes as milliseconds, preserving negative and 11-digit millisecond epochs correctly.
     - Backtest window filtering requires bar timestamps (exchange candles or CSV with a parseable time column).
     - ISO-8601 timezone offsets (`+HH:MM` / `-HH:MM`, and compact `+HHMM`) are supported; lowercase `t` datetime separators and lowercase `z` timezone suffixes are normalized and accepted.
     - Expanded/signed ISO years (for example `10000-01-01`, `-0001-01-01`) are accepted when the resulting Unix-millisecond value fits `Int64`; out-of-range ISO timestamps are rejected.
