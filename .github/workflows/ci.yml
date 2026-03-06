@@ -45,6 +45,7 @@ jobs:
           find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check
       - run: hlint app test bench
       - run: cabal build
+      - run: bash scripts/ci_smoke.sh
       - run: cabal test --test-show-details=direct
 
   web:
