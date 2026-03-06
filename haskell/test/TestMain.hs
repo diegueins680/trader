@@ -226,6 +226,8 @@ main = do
               , run "top combos infer compact symbol from unknown delimited pair" testTopCombosUnknownPlatformPairNormalization
               , run "top combos reject numeric-only delimited symbols" testTopCombosRejectNumericOnlyDelimitedSymbols
               , run "top combos reject quote-only symbols" testTopCombosRejectQuoteOnlySymbols
+              , run "top combos trim known binance suffixes" testTopCombosTrimKnownBinanceSuffixes
+              , run "top combos keep unknown alpha suffixes" testTopCombosKeepUnknownAlphaSuffixes
               , run "symbol split handles delimited pairs" testSplitSymbolDelimitedPairs
               , run "symbol split keeps compact pairs" testSplitSymbolCompactPairs
               , run "symbol sanitization canonicalizes coinbase-prefixed platform keys" testSymbolCoinbasePrefixedPlatformNormalization
@@ -1310,6 +1312,21 @@ testTopCombosRejectQuoteOnlySymbols =
     assert
         "quote-only symbol rejected"
         (isNothing (sanitizeComboSymbolForPlatform Nothing "USDT"))
+
+testTopCombosTrimKnownBinanceSuffixes :: IO ()
+testTopCombosTrimKnownBinanceSuffixes = do
+    assert
+        "perp suffix trimmed to canonical binance pair"
+        (sanitizeComboSymbolForPlatform (Just "binance") "BTCUSDTPERP" == Just "BTCUSDT")
+    assert
+        "swap suffix trimmed for unknown-platform symbol text"
+        (sanitizeComboSymbolForPlatform Nothing "ethusdtswap" == Just "ETHUSDT")
+
+testTopCombosKeepUnknownAlphaSuffixes :: IO ()
+testTopCombosKeepUnknownAlphaSuffixes =
+    assert
+        "unknown alpha suffix is kept to avoid over-trimming"
+        (sanitizeComboSymbolForPlatform (Just "binance") "BTCUSDTXYZ" == Just "BTCUSDTXYZ")
 
 testSplitSymbolDelimitedPairs :: IO ()
 testSplitSymbolDelimitedPairs = do

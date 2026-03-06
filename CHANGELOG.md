@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Top-combo symbol cleanup: trim known Binance perpetual/contract suffixes (for example `BTCUSDTPERP` -> `BTCUSDT`, `ETHUSDTSWAP` -> `ETHUSDT`) during combo-symbol sanitization while preserving unknown alphabetic suffixes to avoid over-trimming.
 - HTTP retries: clamp jittered exponential backoff delays to `TRADER_HTTP_RETRY_MAX_MS` so positive jitter cannot exceed the configured maximum delay.
 - Optimizer/CLI: harden `resolveBars` lookback derivation so invalid interval/lookback conversions fail fast with explicit errors (and empty interval sets are rejected) instead of silently falling back to zero.
 - Symbol validation: reject quote-only Binance symbols (for example `USDT`, `USDC`, `BTC`) in CLI/top-combo sanitization so single-asset tokens cannot be treated as tradable pairs.

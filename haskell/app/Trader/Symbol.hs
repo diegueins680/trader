@@ -265,11 +265,29 @@ trimQuoteCandidates compact quote =
         , let end = idx + quoteLen
         , end < total
         , let suffix = drop end compact
-        , any isDigit suffix
+        , suffixLooksAuxiliary suffix
         , let candidate = take end compact
         , isValidBinanceSymbol candidate
         , candidate `notElem` commonQuotes
         ]
+
+suffixLooksAuxiliary :: String -> Bool
+suffixLooksAuxiliary suffix =
+    any isDigit suffix || any (`isPrefixOf` suffix) knownComboSuffixes
+
+knownComboSuffixes :: [String]
+knownComboSuffixes =
+    [ "PERP"
+    , "SWAP"
+    , "FUT"
+    , "FUTURE"
+    , "FUTURES"
+    , "TRAIN"
+    , "BACKTEST"
+    , "TEST"
+    , "VAL"
+    , "VALIDATION"
+    ]
 
 findSubstrPositions :: String -> String -> [Int]
 findSubstrPositions needle hay =
