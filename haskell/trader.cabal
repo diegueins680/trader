@@ -12,6 +12,7 @@ executable trader-hs
                      , Trader.Api.Routes
                      , Trader.App.Csv
                      , Trader.App.Env
+                     , Trader.App.Observability
                      , Trader.Cache
                      , Trader.Coinbase
                      , Trader.Config
