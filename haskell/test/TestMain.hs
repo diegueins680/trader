@@ -24,6 +24,7 @@ import System.FilePath ((</>))
 import System.Timeout (timeout)
 
 import Trader.App.Args (Args, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
+import Trader.BinanceIntervals (isBinanceInterval)
 import Trader.Binance (
     BinanceMarket (..),
     BinanceOrderMode (..),
@@ -258,6 +259,7 @@ main = do
               , run "dex tx hash parser handles structured output" testDexExtractTxHashStructuredOutput
               , run "dex tx hash parser rejects malformed output" testDexExtractTxHashRejectsMalformedOutput
               , run "platform intervals" testPlatformIntervals
+              , run "binance interval helper normalizes casing/spacing" testBinanceIntervalHelperNormalization
               , run "platform interval mapping" testPlatformIntervalMapping
               , run "method selects predictions" testMethodSelection
               , run "train/backtest split" testTrainBacktestSplit
@@ -2505,6 +2507,13 @@ testPlatformIntervals = do
     assert "coinbase supports uppercase interval input" (isPlatformInterval PlatformCoinbase "1H")
     assert "kraken rejects 3m" (not (isPlatformInterval PlatformKraken "3m"))
     assert "poloniex supports 2h" (isPlatformInterval PlatformPoloniex "2h")
+
+testBinanceIntervalHelperNormalization :: IO ()
+testBinanceIntervalHelperNormalization = do
+    assert "binance helper supports uppercase hour interval" (isBinanceInterval "1H")
+    assert "binance helper supports trimmed interval input" (isBinanceInterval " 1h ")
+    assert "binance helper preserves monthly interval distinctness" (isBinanceInterval "1M")
+    assert "binance helper rejects invalid interval" (not (isBinanceInterval "13m"))
 
 testPlatformIntervalMapping :: IO ()
 testPlatformIntervalMapping = do
