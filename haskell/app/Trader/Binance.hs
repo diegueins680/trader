@@ -215,10 +215,14 @@ instance FromJSON BinanceTrade where
                             Just True -> Just "BUY"
                             Just False -> Just "SELL"
                             Nothing -> Nothing
-            quoteQty =
-                case quoteQtyRaw of
-                    Just q -> q
-                    Nothing -> price * qty
+        quoteQty <-
+            case quoteQtyRaw of
+                Just q -> pure q
+                Nothing ->
+                    let inferred = price * qty
+                     in if isNaN inferred || isInfinite inferred
+                            then fail "Invalid inferred quoteQty"
+                            else pure inferred
         pure
             BinanceTrade
                 { btSymbol = sym
@@ -545,24 +549,34 @@ instance FromJSON Kline where
 
 parseDoubleText :: Text -> AT.Parser Double
 parseDoubleText t =
-    case readMaybe (T.unpack t) of
-        Just d ->
-            if isNaN d || isInfinite d
-                then fail ("Failed to parse finite double: " ++ T.unpack t)
-                else pure d
+    case readMaybe (T.unpack (T.strip t)) of
+        Just d -> parseFiniteDouble d t
         Nothing -> fail ("Failed to parse double: " ++ T.unpack t)
+
+parseFiniteDouble :: Double -> Text -> AT.Parser Double
+parseFiniteDouble d raw =
+    if isNaN d || isInfinite d
+        then fail ("Failed to parse finite double: " ++ T.unpack raw)
+        else pure d
+
+parseDoubleValue :: Aeson.Value -> AT.Parser Double
+parseDoubleValue value =
+    case value of
+        Aeson.String t -> parseDoubleText t
+        Aeson.Number n -> parseFiniteDouble (realToFrac n) (T.pack (show n))
+        _ -> fail "Expected string or number"
 
 parseDoubleField :: Aeson.Object -> Text -> AT.Parser Double
 parseDoubleField o k = do
-    t <- o .: AK.fromText k
-    parseDoubleText t
+    value <- o .: AK.fromText k
+    parseDoubleValue value
 
 parseMaybeDoubleField :: Aeson.Object -> Text -> AT.Parser (Maybe Double)
 parseMaybeDoubleField o k = do
-    mt <- o AT..:? AK.fromText k
+    mt <- o AT..:? AK.fromText k :: AT.Parser (Maybe Aeson.Value)
     case mt of
         Nothing -> pure Nothing
-        Just t -> Just <$> parseDoubleText t
+        Just value -> Just <$> parseDoubleValue value
 
 -- Binance symbol filters (exchangeInfo)
 

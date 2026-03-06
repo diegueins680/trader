@@ -27,6 +27,7 @@ import Trader.App.Args (Args (..), argBinanceMarket, argBinanceSymbol, argIdempo
 import Trader.Binance (
     BinanceMarket (..),
     BinanceOrderMode (..),
+    BinanceTrade (..),
     Kline (..),
     OrderSide (..),
     binanceBaseUrl,
@@ -144,6 +145,8 @@ main = do
               , run "metrics sanitize non-finite trade payloads" testMetricsSanitizeNonFiniteInputs
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
+              , run "binance trade parser accepts numeric and whitespace fields" testBinanceTradeParserAcceptsNumericAndWhitespace
+              , run "binance trade parser rejects non-finite inferred quote qty" testBinanceTradeParserRejectsNonFiniteInferredQuoteQty
               , run "coinbase candle parser rejects fractional numeric timestamp" testCoinbaseFractionalTimestampRejected
               , run "coinbase candle parser normalizes millisecond timestamp boundaries" testCoinbaseTimestampBoundaryNormalization
               , run "coinbase range builder stops at epoch boundary" testCoinbaseBuildRangesStopsAtEpochBoundary
@@ -1137,6 +1140,25 @@ testBinanceKlineParsing = do
             assert "kline count" (length ks == 2)
             assertApprox "close parse" 1e-12 (kClose (requireHead "missing first kline" ks)) 123.45
             assertApprox "volume parse" 1e-12 (kVolume (requireHead "missing first kline" ks)) 0
+
+testBinanceTradeParserAcceptsNumericAndWhitespace :: IO ()
+testBinanceTradeParserAcceptsNumericAndWhitespace = do
+    let json =
+            "{\"symbol\":\"BTCUSDT\",\"id\":1,\"price\":123.4,\"qty\":\" 2 \",\"time\":1700000000000}"
+    case (eitherDecode (BL.fromStrict (BS.pack json)) :: Either String BinanceTrade) of
+        Left e -> error ("decode failed: " ++ e)
+        Right trade -> do
+            assertApprox "binance trade price parses from numeric JSON" 1e-12 (btPrice trade) 123.4
+            assertApprox "binance trade qty parses from whitespace string" 1e-12 (btQty trade) 2.0
+            assertApprox "binance trade infers quoteQty when absent" 1e-12 (btQuoteQty trade) 246.8
+
+testBinanceTradeParserRejectsNonFiniteInferredQuoteQty :: IO ()
+testBinanceTradeParserRejectsNonFiniteInferredQuoteQty = do
+    let json =
+            "{\"symbol\":\"BTCUSDT\",\"id\":1,\"price\":\"1e308\",\"qty\":\"1e308\",\"time\":1700000000000}"
+    case (eitherDecode (BL.fromStrict (BS.pack json)) :: Either String BinanceTrade) of
+        Left _ -> pure ()
+        Right _ -> error "expected trade decode to fail when inferred quoteQty is non-finite"
 
 testCoinbaseFractionalTimestampRejected :: IO ()
 testCoinbaseFractionalTimestampRejected = do
