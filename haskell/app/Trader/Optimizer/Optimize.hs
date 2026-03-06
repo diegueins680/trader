@@ -29,7 +29,7 @@ import Data.List (foldl', intercalate, sort, sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Ord
-import Data.Scientific (Scientific, toRealFloat)
+import Data.Scientific (Scientific, toBoundedInteger, toRealFloat)
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -241,7 +241,7 @@ metricInt m key def =
             case KM.lookup (Key.fromString key) metrics of
                 Just (Bool v) -> if v then 1 else 0
                 Just (Number n) ->
-                    maybe def truncate (scientificToDouble n)
+                    fromMaybe def (scientificToBoundedInt n)
                 _ -> def
 
 metricProfitFactor :: Maybe (KM.KeyMap Value) -> Maybe Double
@@ -332,18 +332,18 @@ coerceIntValue value =
     case value of
         Null -> Nothing
         Bool v -> Just (if v then 1 else 0)
-        Number n ->
-            case scientificToDouble n of
-                Just d -> Just (truncate d)
-                Nothing -> Nothing
+        Number n -> scientificToBoundedInt n
         String s ->
             let trimmed = trim (T.unpack s)
              in if null trimmed
                     then Nothing
-                    else case reads trimmed of
-                        [(v, "")] -> Just (truncate (v :: Double))
+                    else case readMaybe trimmed :: Maybe Scientific of
+                        Just n -> scientificToBoundedInt n
                         _ -> Nothing
         _ -> Nothing
+
+scientificToBoundedInt :: Scientific -> Maybe Int
+scientificToBoundedInt = toBoundedInteger
 
 sanitizeFinalEquity :: Double -> Double
 sanitizeFinalEquity eq

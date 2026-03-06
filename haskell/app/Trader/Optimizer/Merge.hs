@@ -24,8 +24,7 @@ import Data.Char (isSpace, toLower)
 import Data.List (foldl', intercalate, isPrefixOf, isSuffixOf, sort, sortBy)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
-import Data.Ord (comparing)
-import Data.Scientific (FPFormat (..), Scientific, formatScientific, fromFloatDigits, toRealFloat)
+import Data.Scientific (FPFormat (..), Scientific, formatScientific, fromFloatDigits, toBoundedInteger, toRealFloat)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
@@ -41,6 +40,7 @@ import System.Directory (
  )
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, hPutStrLn, openBinaryTempFile, stderr)
+import Text.Read (readMaybe)
 
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
@@ -655,16 +655,13 @@ coerceIntValue value =
     case value of
         Null -> Nothing
         Bool v -> Just (if v then 1 else 0)
-        Number n ->
-            case scientificToDouble n of
-                Just d -> Just (truncate d)
-                Nothing -> Nothing
+        Number n -> scientificToBoundedInt n
         String s ->
             let trimmed = trim (T.unpack s)
              in if null trimmed
                     then Nothing
-                    else case reads trimmed of
-                        [(v, "")] -> Just (truncate (v :: Double))
+                    else case readMaybe trimmed :: Maybe Scientific of
+                        Just n -> scientificToBoundedInt n
                         _ -> Nothing
         _ -> Nothing
 
@@ -712,6 +709,9 @@ scientificToDouble :: Scientific -> Maybe Double
 scientificToDouble n =
     let d = toRealFloat n
      in if isInfinite d || isNaN d then Nothing else Just d
+
+scientificToBoundedInt :: Scientific -> Maybe Int
+scientificToBoundedInt = toBoundedInteger
 
 addField :: String -> Value -> Value -> Value
 addField key value val =

@@ -3,7 +3,7 @@
 module Main where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, evaluate, try)
+import Control.Exception (SomeException, evaluate, finally, try)
 import qualified Control.Monad
 import Data.Aeson (eitherDecode, object, (.=))
 import qualified Data.Aeson as Aeson
@@ -17,8 +17,11 @@ import Data.Maybe (isNothing)
 import qualified Data.Maybe
 import qualified Data.Vector as V
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
+import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
 import System.Exit (exitFailure, exitSuccess)
+import System.FilePath ((</>))
 import System.Timeout (timeout)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Trader.App.Args (Args, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
 import Trader.Binance (
@@ -53,6 +56,7 @@ import Trader.MarketContext (fitLinearRange)
 import Trader.Method (Method (..), parseMethod, selectPredictions)
 import Trader.Metrics (bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
+import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (sampleTakeProfitPartial)
 import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
@@ -211,6 +215,8 @@ main = do
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "top combos merge keeps same params across distinct sources" testMergeTopCombosKeepsDistinctSources
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
+              , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
+              , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
               , run "top combos recover compact binance symbol from prefixed pair text" testTopCombosPrefixedPairNormalization
               , run "top combos recover compact binance symbol from separated base/quote tokens" testTopCombosSeparatedTokenPairNormalization
@@ -333,6 +339,29 @@ requireComboSource label val =
                 Just source -> source
                 Nothing -> error (label ++ ": missing source")
         _ -> error (label ++ ": combo is not an object")
+
+requireComboBars :: String -> Aeson.Value -> Int
+requireComboBars label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "params" o of
+                Just (Aeson.Object params) ->
+                    case KM.lookup "bars" params >>= AT.parseMaybe Aeson.parseJSON of
+                        Just bars -> bars
+                        Nothing -> error (label ++ ": missing params.bars")
+                _ -> error (label ++ ": missing params object")
+        _ -> error (label ++ ": combo is not an object")
+
+withTempTestDir :: String -> (FilePath -> IO a) -> IO a
+withTempTestDir prefix action = do
+    ts <- fmap (floor . (* 1000000)) getPOSIXTime
+    let dir = ".tmp" </> ("trader-tests-" ++ prefix ++ "-" ++ show (ts :: Integer))
+    createDirectoryIfMissing True dir
+    action dir `finally` cleanup dir
+  where
+    cleanup dir = do
+        _ <- try (removeDirectoryRecursive dir) :: IO (Either SomeException ())
+        pure ()
 
 parseArgs :: [String] -> IO Args
 parseArgs argv = do
@@ -1788,14 +1817,14 @@ testSensorVarianceIgnoresNonFiniteResiduals = do
     let sv0 = emptySensorVar
         sv1 = updateResidual SensorGBT (0 / 0) sv0
         sv2 = updateResidual SensorGBT (1 / 0) sv1
-        sv3 = updateResidual SensorGBT (-1 / 0) sv2
+        sv3 = updateResidual SensorGBT (negate (1 / 0)) sv2
     assert "non-finite residual updates are ignored" (isNothing (varianceFor SensorGBT sv3))
 
 testSensorVarianceNonFiniteNoMutation :: IO ()
 testSensorVarianceNonFiniteNoMutation = do
     let svBase =
             foldl'
-                (\acc resid -> updateResidual SensorGBT resid acc)
+                (flip (updateResidual SensorGBT))
                 emptySensorVar
                 [0.01, -0.02, 0.03, -0.01]
         before = varianceFor SensorGBT svBase
@@ -1940,6 +1969,60 @@ testComboPerformanceKeyRanksScoreBeforeEquity = do
                 ]
         first = requireHead "expected ranked combos" ranked
     assert "higher score should outrank higher equity when annualized return ties" (requireComboSymbol "performance key first combo" first == "BBBUSDT")
+
+runMergeAndReadFirstCombo :: String -> Aeson.Value -> IO Aeson.Value
+runMergeAndReadFirstCombo label barsValue =
+    withTempTestDir label $ \dir -> do
+        let topPath = dir </> "top-combos-input.json"
+            outPath = dir </> "top-combos-output.json"
+            dummyJsonlPath = dir </> "no-discovery.jsonl"
+            topPayload =
+                object
+                    [ "generatedAtMs" .= (1 :: Int)
+                    , "combos"
+                        .= [ object
+                                [ "finalEquity" .= (1.5 :: Double)
+                                , "params"
+                                    .= object
+                                        [ "interval" .= ("1h" :: String)
+                                        , "bars" .= barsValue
+                                        , "symbol" .= ("BTC/USDT" :: String)
+                                        ]
+                                ]
+                           ]
+                    ]
+            mergeArgs =
+                MergeArgs
+                    { maTopJson = topPath
+                    , maFromJsonl = [dummyJsonlPath]
+                    , maFromTopJson = []
+                    , maOut = outPath
+                    , maMax = 5
+                    , maHistoryDir = Nothing
+                    , maCopyToDist = False
+                    }
+        BL.writeFile topPath (Aeson.encode topPayload)
+        result <- try (runMerge mergeArgs) :: IO (Either SomeException Int)
+        case result of
+            Left err -> error ("runMerge unexpectedly threw: " ++ show err)
+            Right code -> assert "runMerge should complete successfully" (code == 0)
+        outContents <- BL.readFile outPath
+        outValue <-
+            case eitherDecode outContents of
+                Left err -> error ("failed to parse merge output JSON: " ++ err)
+                Right v -> pure v
+        let combos = requireCombosArray "merge output combos" outValue
+        pure (requireHead "merge output should contain one combo" combos)
+
+testRunMergeIgnoresOverflowScientificIntegerString :: IO ()
+testRunMergeIgnoresOverflowScientificIntegerString = do
+    combo <- runMergeAndReadFirstCombo "merge-overflow-int-string" (Aeson.String "1e309")
+    assert "overflow scientific integer string should be ignored instead of crashing/truncating" (requireComboBars "overflow bars" combo == 0)
+
+testRunMergeRejectsFractionalIntegerString :: IO ()
+testRunMergeRejectsFractionalIntegerString = do
+    combo <- runMergeAndReadFirstCombo "merge-fractional-int-string" (Aeson.String "10.9")
+    assert "fractional integer-like string should not be truncated" (requireComboBars "fractional bars" combo == 0)
 
 testDexTradeArgsRequireTokensNotSymbol :: IO ()
 testDexTradeArgsRequireTokensNotSymbol = do
