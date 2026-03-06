@@ -46,7 +46,7 @@ import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles,
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds)
-import Trader.Http (boundedBackoffMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
+import Trader.Http (boundedBackoffMs, jitteredDelayMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Kraken (decodeKrakenCandles)
@@ -189,6 +189,7 @@ main = do
               , run "retry-after header lookup is case-insensitive" testRetryAfterHeaderLookupCaseInsensitive
               , run "retry-after uses first parseable duplicate header value" testRetryAfterDuplicateHeaderFallback
               , run "retry backoff clamps without overflow" testRetryBackoffOverflowClamp
+              , run "retry jitter respects configured max delay" testRetryJitterMaxDelayClamp
               , run "cache returns stale value on quick upstream failure" testCacheQuickFailureUsesStale
               , run "cache rejects stale value after slow upstream failure" testCacheSlowFailureRejectsExpiredStale
               , run "initial balance must be positive" testInitialBalanceValidation
@@ -1620,6 +1621,14 @@ testRetryBackoffOverflowClamp = do
     let cap = maxBound :: Int
         delay = boundedBackoffMs (cap - 1) cap 1
     assert "backoff clamps to max delay without overflowing" (delay == cap)
+
+testRetryJitterMaxDelayClamp :: IO ()
+testRetryJitterMaxDelayClamp = do
+    let cap = 12000
+    assert "jitter caps positive skew at configured max delay" (jitteredDelayMs cap cap 0.25 == cap)
+    assert "jitter can increase delay while remaining under cap" (jitteredDelayMs cap 8000 0.25 == 10000)
+    assert "jitter never returns negative delays" (jitteredDelayMs cap 8000 (-2.0) == 0)
+    assert "jitter respects zero max-delay cap" (jitteredDelayMs 0 8000 0.5 == 0)
 
 testCacheQuickFailureUsesStale :: IO ()
 testCacheQuickFailureUsesStale = do

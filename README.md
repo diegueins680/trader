@@ -145,7 +145,7 @@ Environment variables:
 - `COINBASE_API_SECRET`
 - `COINBASE_API_PASSPHRASE`
 - `TRADER_HTTP_LOG` (optional; set to `1`/`true` to log outgoing HTTP requests and retries)
-- `TRADER_HTTP_RETRY_MAX` / `TRADER_HTTP_RETRY_BASE_MS` / `TRADER_HTTP_RETRY_MAX_MS` / `TRADER_HTTP_RETRY_JITTER` / `TRADER_HTTP_RETRY_WRITES` (optional; override HTTP retry/backoff defaults)
+- `TRADER_HTTP_RETRY_MAX` / `TRADER_HTTP_RETRY_BASE_MS` / `TRADER_HTTP_RETRY_MAX_MS` / `TRADER_HTTP_RETRY_JITTER` / `TRADER_HTTP_RETRY_WRITES` (optional; override HTTP retry/backoff defaults; jittered delays stay capped by `TRADER_HTTP_RETRY_MAX_MS`)
 - `TRADER_BINANCE_REST_URL` / `TRADER_BINANCE_TESTNET_REST_URL` (optional; override Binance spot REST base URLs)
 - `TRADER_BINANCE_FUTURES_REST_URL` / `TRADER_BINANCE_FUTURES_TESTNET_REST_URL` (optional; override Binance futures REST base URLs)
 - `TRADER_BINANCE_PROXY_URL` (optional; route Binance HTTP requests through a fixed-IP proxy, `http://user:pass@host:port`)

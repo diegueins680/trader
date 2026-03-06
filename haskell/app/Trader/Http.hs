@@ -9,6 +9,7 @@ module Trader.Http (
     parseRetryAfterMsAt,
     parseRetryAfterFromHeadersAt,
     boundedBackoffMs,
+    jitteredDelayMs,
     defaultTimeoutMicros,
 ) where
 
@@ -181,7 +182,7 @@ isRetryableStatus code =
 computeDelay :: RetryConfig -> Int -> Maybe Int -> IO Int
 computeDelay cfg attempt mRetryAfter = do
     let capped = boundedBackoffMs (rcBaseDelayMs cfg) (rcMaxDelayMs cfg) attempt
-    jittered <- applyJitter capped (rcJitterFrac cfg)
+    jittered <- applyJitter (rcMaxDelayMs cfg) capped (rcJitterFrac cfg)
     pure $
         case mRetryAfter of
             Nothing -> jittered
@@ -201,14 +202,21 @@ boundedBackoffMs baseDelay maxDelay attempt =
         bounded = go steps base
      in fromInteger (min intCap (max 0 bounded))
 
-applyJitter :: Int -> Double -> IO Int
-applyJitter delayMs jitterFrac =
+applyJitter :: Int -> Int -> Double -> IO Int
+applyJitter maxDelay delayMs jitterFrac =
     if delayMs <= 0 || jitterFrac <= 0
-        then pure delayMs
+        then pure (jitteredDelayMs maxDelay delayMs 0)
         else do
             skew <- randomRIO (-jitterFrac, jitterFrac)
-            let scaled = fromIntegral delayMs * (1 + skew)
-            pure (max 0 (round scaled))
+            pure (jitteredDelayMs maxDelay delayMs skew)
+
+jitteredDelayMs :: Int -> Int -> Double -> Int
+jitteredDelayMs maxDelay delayMs skew =
+    let cap = max 0 maxDelay
+        base = max 0 delayMs
+        scaled = fromIntegral base * (1 + skew)
+        rounded = round scaled
+     in max 0 (min cap rounded)
 
 retryAfterMs :: Response BL.ByteString -> IO (Maybe Int)
 retryAfterMs resp =
