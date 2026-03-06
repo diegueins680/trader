@@ -33,14 +33,13 @@ splitSymbol symbol =
             Nothing ->
                 if isKnownQuoteToken sym
                     then (sym, "")
-                    else
-                        case longestKnownQuoteSuffix sym of
-                            Just q -> (take (length sym - length q) sym, q)
-                            Nothing ->
-                                let n = length sym
-                                 in if n <= 3
-                                        then (sym, "")
-                                        else splitAt (n - 3) sym
+                    else case longestKnownQuoteSuffix sym of
+                        Just q -> (take (length sym - length q) sym, q)
+                        Nothing ->
+                            let n = length sym
+                             in if n <= 3
+                                    then (sym, "")
+                                    else splitAt (n - 3) sym
 
 longestKnownQuoteSuffix :: String -> Maybe String
 longestKnownQuoteSuffix sym =

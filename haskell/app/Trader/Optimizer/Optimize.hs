@@ -3550,48 +3550,47 @@ resolveBars args intervals maxBarsCap useSweepThreshold = do
         then do
             let barsMin = max 2 (min barsMin0 barsMax)
             pure (Right (barsMin, barsMax))
-        else
-            case deriveWorstLookback (oaLookbackWindow args) intervals of
-                Left err -> pure (Left err)
-                Right worstLb -> do
-                    let minRequired0 = worstLb + 3
-                    if useSweepThreshold
-                        then do
-                            let br = oaBacktestRatio args
-                                tr = oaTuneRatio args
-                            if br <= 0 || br >= 1
-                                then pure (Left "--backtest-ratio must be between 0 and 1.")
-                                else
-                                    if tr <= 0 || tr >= 1
-                                        then pure (Left "--tune-ratio must be between 0 and 1 when sweep-threshold is enabled.")
-                                        else do
-                                            let denom = max 1e-12 ((1 - br) * (1 - tr))
-                                                minRequired1 = max minRequired0 (ceiling ((fromIntegral worstLb + 1) / denom) + 2)
-                                                minTrain = ceiling (2 / tr)
-                                                minRequired2 =
-                                                    max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - br)) + 2)
-                                                autoBars = if isNothing (oaBinanceSymbol args) then maxBarsCap else 500
-                                            if minRequired2 > max barsMax autoBars
-                                                then
-                                                    pure
-                                                        ( Left
-                                                            ( "Not enough bars for lookback="
-                                                                ++ show worstLb
-                                                                ++ " with backtest-ratio="
-                                                                ++ show br
-                                                                ++ " and tune-ratio="
-                                                                ++ show tr
-                                                                ++ ". Need bars >= "
-                                                                ++ show minRequired2
-                                                                ++ ". Increase --bars-max, reduce --tune-ratio/--backtest-ratio, reduce --lookback-window, or pass --no-sweep-threshold."
-                                                            )
+        else case deriveWorstLookback (oaLookbackWindow args) intervals of
+            Left err -> pure (Left err)
+            Right worstLb -> do
+                let minRequired0 = worstLb + 3
+                if useSweepThreshold
+                    then do
+                        let br = oaBacktestRatio args
+                            tr = oaTuneRatio args
+                        if br <= 0 || br >= 1
+                            then pure (Left "--backtest-ratio must be between 0 and 1.")
+                            else
+                                if tr <= 0 || tr >= 1
+                                    then pure (Left "--tune-ratio must be between 0 and 1 when sweep-threshold is enabled.")
+                                    else do
+                                        let denom = max 1e-12 ((1 - br) * (1 - tr))
+                                            minRequired1 = max minRequired0 (ceiling ((fromIntegral worstLb + 1) / denom) + 2)
+                                            minTrain = ceiling (2 / tr)
+                                            minRequired2 =
+                                                max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - br)) + 2)
+                                            autoBars = if isNothing (oaBinanceSymbol args) then maxBarsCap else 500
+                                        if minRequired2 > max barsMax autoBars
+                                            then
+                                                pure
+                                                    ( Left
+                                                        ( "Not enough bars for lookback="
+                                                            ++ show worstLb
+                                                            ++ " with backtest-ratio="
+                                                            ++ show br
+                                                            ++ " and tune-ratio="
+                                                            ++ show tr
+                                                            ++ ". Need bars >= "
+                                                            ++ show minRequired2
+                                                            ++ ". Increase --bars-max, reduce --tune-ratio/--backtest-ratio, reduce --lookback-window, or pass --no-sweep-threshold."
                                                         )
-                                                else do
-                                                    let barsMin = min barsMax (max 10 minRequired2)
-                                                    pure (Right (max 2 (min barsMin barsMax), barsMax))
-                        else do
-                            let barsMin = min barsMax (max 10 minRequired0)
-                            pure (Right (max 2 (min barsMin barsMax), barsMax))
+                                                    )
+                                            else do
+                                                let barsMin = min barsMax (max 10 minRequired2)
+                                                pure (Right (max 2 (min barsMin barsMax), barsMax))
+                    else do
+                        let barsMin = min barsMax (max 10 minRequired0)
+                        pure (Right (max 2 (min barsMin barsMax), barsMax))
   where
     deriveWorstLookback lookbackWindow itvs =
         case traverse (lookbackForInterval lookbackWindow) itvs of
