@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Optimizer threshold sweep: fix per-bar volatility estimation for cost-aware methods so the return series uses every adjacent close pair (including the latest bar) instead of a shifted series that dropped the newest return.
 - DEX execution: require a valid transaction hash in successful `cast send` output (including structured stdout), and fail fast when no `0x` + 64 hex hash is present instead of treating raw stdout as a tx hash.
 - Metrics hardening: sanitize non-finite trade returns/equity deltas and position values when computing backtest metrics so malformed payloads cannot propagate `NaN`/`Infinity` into metric outputs.
 - CLI/optimizer parsing: make `--tune-objective` whitespace-tolerant (including tabs/newlines) while preserving existing objective aliases, so API/CLI wrappers that include non-space whitespace no longer fail objective validation.

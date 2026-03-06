@@ -1942,13 +1942,10 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 then 0
                 else
                     let rets = V.generate stepCount $ \i ->
-                            if i <= 0
-                                then 0
-                                else
-                                    let p0 = pricesV V.! (i - 1)
-                                        p1 = pricesV V.! i
-                                        r = if p0 == 0 then 0 else p1 / p0 - 1
-                                     in if isNaN r || isInfinite r then 0 else r
+                            let p0 = pricesV V.! i
+                                p1 = pricesV V.! (i + 1)
+                                r = if p0 == 0 then 0 else p1 / p0 - 1
+                             in if isNaN r || isInfinite r then 0 else r
                         m = if stepCount <= 0 then 0 else V.sum rets / fromIntegral stepCount
                         var =
                             if stepCount < 2

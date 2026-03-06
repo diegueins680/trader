@@ -257,6 +257,7 @@ main = do
               , run "method selects predictions" testMethodSelection
               , run "train/backtest split" testTrainBacktestSplit
               , run "threshold sweep" testSweepThreshold
+              , run "threshold sweep cost-pick uses latest return volatility" testSweepThresholdCostPickUsesLatestReturnVolatility
               , run "threshold sweep keeps non-finite context methods finite" testSweepThresholdFiniteOnNonFinitePredictions
               , run "threshold sweep regime-switch stays neutral with non-finite inputs" testSweepThresholdRegimeSwitchNonFiniteStaysNeutral
               , run "operations optimization" testOptimizeOperations
@@ -2497,6 +2498,24 @@ testSweepThreshold = do
     assertApprox "open thr close to 10%" 1e-6 openThr 0.1
     assertApprox "close thr close to 10%" 1e-6 closeThr 0.1
     assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
+
+testSweepThresholdCostPickUsesLatestReturnVolatility :: IO ()
+testSweepThresholdCostPickUsesLatestReturnVolatility = do
+    let prices = [100, 100, 120]
+        kalPred = [100, 104]
+        lstmPred = [100, 99]
+        cfg =
+            baseEnsembleConfig
+                { ecOpenThreshold = 0.02
+                , ecCloseThreshold = 0.02
+                , ecBlendWeight = 0.2
+                , ecSlippageVolMult = 2.0
+                }
+    (_openThr, _closeThr, bt) <-
+        case sweepThreshold MethodCostPick cfg prices kalPred lstmPred Nothing of
+            Left e -> error e
+            Right v -> pure v
+    assertApprox "cost-pick stays flat when latest bar volatility implies high costs" 1e-12 (bestFinalEquity bt) 1.0
 
 testSweepThresholdFiniteOnNonFinitePredictions :: IO ()
 testSweepThresholdFiniteOnNonFinitePredictions = do
