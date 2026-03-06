@@ -101,19 +101,16 @@ buildDatasetWithIndex fs prices =
                 let p0 = prices V.! i
                     p1 = prices V.! (i + 1)
                  in finiteReturn p0 p1
-        retRows =
-            V.map
-                ( \mRet ->
-                    case mRet of
-                        Just r
-                            | isFiniteDouble r ->
-                                let r2 = r * r
-                                 in if isFiniteDouble r2
-                                        then (r, r2, 0 :: Int)
-                                        else (0, 0, 1)
-                        _ -> (0, 0, 1)
-                )
-                returns
+        retRows = V.map retRow returns
+        retRow mRet =
+            case mRet of
+                Just r
+                    | isFiniteDouble r ->
+                        let r2 = r * r
+                         in if isFiniteDouble r2
+                                then (r, r2, 0 :: Int)
+                                else (0, 0, 1)
+                _ -> (0, 0, 1)
         retVals = V.map (\(r, _, _) -> r) retRows
         retSqVals = V.map (\(_, r2, _) -> r2) retRows
         retInvalid = V.map (\(_, _, bad) -> bad) retRows
@@ -200,8 +197,8 @@ buildDatasetWithIndex fs prices =
                 [ (t, f, y)
                 | t <- [startT .. endT]
                 , Just f <- [featuresAtFast t]
-                , Just y <- [forwardReturnFast t]
                 , all isFiniteDouble f
+                , Just y <- [forwardReturnFast t]
                 , isFiniteDouble y
                 ]
 
