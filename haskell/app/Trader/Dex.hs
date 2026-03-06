@@ -732,8 +732,8 @@ scientificToString n =
         Left _ -> formatScientific Fixed Nothing n
 
 extractTxHash :: String -> Maybe String
-extractTxHash raw =
-    findTxHash raw
+extractTxHash =
+    findTxHash
   where
     findTxHash :: String -> Maybe String
     findTxHash [] = Nothing
