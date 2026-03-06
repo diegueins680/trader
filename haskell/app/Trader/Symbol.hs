@@ -31,11 +31,24 @@ splitSymbol symbol =
      in case splitDelimitedPair sym of
             Just pair -> pair
             Nothing ->
-                case filter (`isSuffixOf` sym) commonQuotes of
-                    (q : _) -> (take (length sym - length q) sym, q)
-                    [] ->
-                        let n = length sym
-                         in splitAt (max 0 (n - 3)) sym
+                if isKnownQuoteToken sym
+                    then (sym, "")
+                    else
+                        case longestKnownQuoteSuffix sym of
+                            Just q -> (take (length sym - length q) sym, q)
+                            Nothing ->
+                                let n = length sym
+                                 in if n <= 3
+                                        then (sym, "")
+                                        else splitAt (n - 3) sym
+
+longestKnownQuoteSuffix :: String -> Maybe String
+longestKnownQuoteSuffix sym =
+    case filter matches commonQuotes of
+        [] -> Nothing
+        xs -> Just (maximumBy (comparing length) xs)
+  where
+    matches quote = length sym > length quote && quote `isSuffixOf` sym
 
 splitDelimitedPair :: String -> Maybe (String, String)
 splitDelimitedPair sym =

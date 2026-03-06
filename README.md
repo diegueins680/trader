@@ -384,6 +384,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.
   - `--tune-objective roi` objective used by `--optimize-operations` / `--sweep-threshold`:
     - `annualized-equity` | `roi` | `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
+    - Objective parsing is whitespace-tolerant (including tabs/newlines) and treats `_` / `-` separators equivalently.
     - `roi` scores annualized return net of drawdown/CVaR and turnover penalties, then rewards faster payback and positive expectancy.
     - Calmar falls back to annualized return when max drawdown is zero (avoids infinite scores).
     - To maximize annualized equity, set `--tune-objective annualized-equity` (alias: `annualized-return`).

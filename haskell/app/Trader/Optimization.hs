@@ -81,7 +81,7 @@ parseTuneObjective raw =
                     ++ ")"
                 )
   where
-    normalize = map (\c -> if c == '_' then '-' else c) . filter (/= ' ') . map toLower
+    normalize = map (\c -> if c == '_' then '-' else c) . filter (not . Data.Char.isSpace) . map toLower
     toLower c =
         if Data.Char.isAsciiUpper c then toEnum (fromEnum c + 32) else c
 

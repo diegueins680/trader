@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- CLI/optimizer parsing: make `--tune-objective` whitespace-tolerant (including tabs/newlines) while preserving existing objective aliases, so API/CLI wrappers that include non-space whitespace no longer fail objective validation.
+- Symbol splitting hardening: for quote-only compact tokens (for example `USDT`), keep the token in the base slot and avoid emitting an empty base asset when extracting `(base, quote)` pairs.
 - CLI time-window parsing: enforce strict zero-padded `HH:MM-HH:MM` format for `--no-trade-window` (for example `09:30-16:00`) so ambiguous single-digit inputs are rejected instead of being silently accepted.
 - Top-combo symbol cleanup: trim known Binance perpetual/contract suffixes (for example `BTCUSDTPERP` -> `BTCUSDT`, `ETHUSDTSWAP` -> `ETHUSDT`) during combo-symbol sanitization while preserving unknown alphabetic suffixes to avoid over-trimming.
 - HTTP retries: clamp jittered exponential backoff delays to `TRADER_HTTP_RETRY_MAX_MS` so positive jitter cannot exceed the configured maximum delay.

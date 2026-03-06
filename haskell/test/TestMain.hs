@@ -55,7 +55,7 @@ import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (fitLinearRange)
 import Trader.Method (Method (..), parseMethod, selectPredictions)
 import Trader.Metrics (bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
-import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
+import Trader.Optimization (TuneObjective (..), bestFinalEquity, optimizeOperations, parseTuneObjective, sweepThreshold)
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (sampleTakeProfitPartial)
 import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
@@ -148,6 +148,7 @@ main = do
               , run "poloniex candle normalization dedupes and caps bars" testPoloniexNormalizeCandlesDedupeAndLimit
               , run "exchange candle parsers reject non-finite numeric strings" testExchangeNonFiniteNumericStringRejected
               , run "method parsing" testMethodParsing
+              , run "tune objective parsing" testTuneObjectiveParsing
               , run "platform parsing" testPlatformParsing
               , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
               , run "binance args normalize slash symbols" testBinanceSlashSymbolNormalization
@@ -231,6 +232,7 @@ main = do
               , run "top combos keep unknown alpha suffixes" testTopCombosKeepUnknownAlphaSuffixes
               , run "symbol split handles delimited pairs" testSplitSymbolDelimitedPairs
               , run "symbol split keeps compact pairs" testSplitSymbolCompactPairs
+              , run "symbol split handles quote-only input safely" testSplitSymbolQuoteOnly
               , run "symbol sanitization canonicalizes coinbase-prefixed platform keys" testSymbolCoinbasePrefixedPlatformNormalization
               , run "top combos sanitize coinbase-prefixed platform symbols" testTopCombosCoinbasePrefixedPlatformSymbolSanitization
               , run "symbol sanitization keeps dex symbol format for prefixed platform keys" testSymbolDexPrefixedPlatformNormalization
@@ -1197,6 +1199,16 @@ testMethodParsing = do
         Left _ -> pure ()
         Right _ -> error "expected parse failure"
 
+testTuneObjectiveParsing :: IO ()
+testTuneObjectiveParsing = do
+    assert "parse tune objective canonical code" (parseTuneObjective "equity-dd-turnover" == Right TuneEquityDdTurnover)
+    assert "parse tune objective underscore alias" (parseTuneObjective "annualized_return" == Right TuneAnnualizedEquity)
+    assert "parse tune objective trims tabs/newlines" (parseTuneObjective "\tROI\n" == Right TuneRoi)
+    assert "parse tune objective normalizes mixed whitespace with separators" (parseTuneObjective "  final_equity\t" == Right TuneFinalEquity)
+    case parseTuneObjective "invalid-objective" of
+        Left _ -> pure ()
+        Right _ -> error "expected parseTuneObjective to reject unknown objective"
+
 testPlatformParsing :: IO ()
 testPlatformParsing = do
     assert "parse platform binance" (parsePlatform "binance" == Right PlatformBinance)
@@ -1353,6 +1365,12 @@ testSplitSymbolCompactPairs =
     assert
         "compact split keeps known quote suffix logic"
         (Symbol.splitSymbol "BTCUSDT" == ("BTC", "USDT"))
+
+testSplitSymbolQuoteOnly :: IO ()
+testSplitSymbolQuoteOnly =
+    assert
+        "quote-only symbol keeps token in base slot and avoids empty base"
+        (Symbol.splitSymbol "USDT" == ("USDT", ""))
 
 testSymbolCoinbasePrefixedPlatformNormalization :: IO ()
 testSymbolCoinbasePrefixedPlatformNormalization =
