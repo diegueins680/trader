@@ -629,9 +629,34 @@ knownPlatformKeys =
 
 canonicalPlatformKey :: String -> String
 canonicalPlatformKey raw =
-    case map toLower (trim raw) of
-        "oneinch" -> "1inch"
-        other -> other
+    let key = map toLower (trim raw)
+     in if "coinbase" `isPrefixOf` key
+            then "coinbase"
+            else
+                if "poloniex" `isPrefixOf` key
+                    then "poloniex"
+                    else
+                        if "binance" `isPrefixOf` key
+                            then "binance"
+                            else
+                                if "uniswap" `isPrefixOf` key
+                                    then "uniswap"
+                                    else
+                                        if "curve" `isPrefixOf` key
+                                            then "curve"
+                                            else
+                                                if "sushiswap" `isPrefixOf` key
+                                                    then "sushiswap"
+                                                    else
+                                                        if "balancer" `isPrefixOf` key
+                                                            then "balancer"
+                                                            else
+                                                                if "pancakeswap" `isPrefixOf` key
+                                                                    then "pancakeswap"
+                                                                    else
+                                                                        if "1inch" `isPrefixOf` key || "oneinch" `isPrefixOf` key
+                                                                            then "1inch"
+                                                                            else key
 
 normalizeObjectiveValue :: Value -> Maybe String
 normalizeObjectiveValue value =

@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Optimizer/top-combos merge: canonicalize prefixed platform keys (for example `coinbase-advanced` -> `coinbase`, `uniswap-v3` -> `uniswap`) so merged `params.platform` is preserved and symbol normalization keeps exchange/DEX-specific delimiters (`BTC/USD` -> `BTC-USD`, `ETH/USDT` stays delimited for DEX).
 - CLI numeric parsing: accept an optional leading `+` for strict decimal integer inputs used by `--bars` and backtest epoch timestamps (`--from`/`--to`), fixing a mismatch where `+` was syntactically allowed but rejected by runtime parsing.
 - Optimizer/top-combos merge: tolerate malformed UTF-8 bytes in JSONL merge inputs by using lenient decoding and skipping unparseable lines instead of aborting the whole merge run.
 - Optimizer threshold sweep: fix per-bar volatility estimation for cost-aware methods so the return series uses every adjacent close pair (including the latest bar) instead of a shifted series that dropped the newest return.

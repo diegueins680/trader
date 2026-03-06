@@ -232,6 +232,8 @@ main = do
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
               , run "optimizer merge preserves dex platform/symbol semantics" testRunMergePreservesDexPlatformSymbolSemantics
+              , run "optimizer merge canonicalizes coinbase-prefixed platform keys" testRunMergeCanonicalizesCoinbasePrefixedPlatform
+              , run "optimizer merge canonicalizes dex-prefixed platform keys" testRunMergeCanonicalizesDexPrefixedPlatform
               , run "optimizer merge skips invalid utf8 jsonl lines" testRunMergeSkipsInvalidUtf8JsonlLines
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
               , run "top combos recover compact binance symbol from prefixed pair text" testTopCombosPrefixedPairNormalization
@@ -2213,25 +2215,30 @@ testComboPerformanceKeyRanksScoreBeforeEquity = do
 
 runMergeAndReadFirstCombo :: String -> Aeson.Value -> IO Aeson.Value
 runMergeAndReadFirstCombo label barsValue =
+    runMergeAndReadFirstComboFromPayload label topPayload
+  where
+    topPayload =
+        object
+            [ "generatedAtMs" .= (1 :: Int)
+            , "combos"
+                .= [ object
+                        [ "finalEquity" .= (1.5 :: Double)
+                        , "params"
+                            .= object
+                                [ "interval" .= ("1h" :: String)
+                                , "bars" .= barsValue
+                                , "symbol" .= ("BTC/USDT" :: String)
+                                ]
+                        ]
+                   ]
+            ]
+
+runMergeAndReadFirstComboFromPayload :: String -> Aeson.Value -> IO Aeson.Value
+runMergeAndReadFirstComboFromPayload label topPayload =
     withTempTestDir label $ \dir -> do
         let topPath = dir </> "top-combos-input.json"
             outPath = dir </> "top-combos-output.json"
             dummyJsonlPath = dir </> "no-discovery.jsonl"
-            topPayload =
-                object
-                    [ "generatedAtMs" .= (1 :: Int)
-                    , "combos"
-                        .= [ object
-                                [ "finalEquity" .= (1.5 :: Double)
-                                , "params"
-                                    .= object
-                                        [ "interval" .= ("1h" :: String)
-                                        , "bars" .= barsValue
-                                        , "symbol" .= ("BTC/USDT" :: String)
-                                        ]
-                                ]
-                           ]
-                    ]
             mergeArgs =
                 MergeArgs
                     { maTopJson = topPath
@@ -2267,11 +2274,8 @@ testRunMergeRejectsFractionalIntegerString = do
 
 testRunMergePreservesDexPlatformSymbolSemantics :: IO ()
 testRunMergePreservesDexPlatformSymbolSemantics =
-    withTempTestDir "merge-dex-platform-symbol" $ \dir -> do
-        let topPath = dir </> "top-combos-input.json"
-            outPath = dir </> "top-combos-output.json"
-            dummyJsonlPath = dir </> "no-discovery.jsonl"
-            dexSymbol = "0xabc/0xdef"
+    do
+        let dexSymbol = "0xabc/0xdef"
             topPayload =
                 object
                     [ "generatedAtMs" .= (1 :: Int)
@@ -2288,28 +2292,55 @@ testRunMergePreservesDexPlatformSymbolSemantics =
                                 ]
                            ]
                     ]
-            mergeArgs =
-                MergeArgs
-                    { maTopJson = topPath
-                    , maFromJsonl = [dummyJsonlPath]
-                    , maFromTopJson = []
-                    , maOut = outPath
-                    , maMax = 5
-                    , maHistoryDir = Nothing
-                    , maCopyToDist = False
-                    }
-        BL.writeFile topPath (Aeson.encode topPayload)
-        code <- runMerge mergeArgs
-        assert "runMerge should complete successfully" (code == 0)
-        outContents <- BL.readFile outPath
-        outValue <-
-            case eitherDecode outContents of
-                Left err -> error ("failed to parse merge output JSON: " ++ err)
-                Right v -> pure v
-        let combos = requireCombosArray "merge output combos" outValue
-            combo = requireHead "merge output should contain one combo" combos
+        combo <- runMergeAndReadFirstComboFromPayload "merge-dex-platform-symbol" topPayload
         assert "DEX platform should be preserved in merged params" (requireComboPlatform "dex combo platform" combo == Just "uniswap")
         assert "DEX symbol should not be Binance-normalized in merged params.binanceSymbol" (requireComboBinanceSymbol "dex combo binanceSymbol" combo == Just dexSymbol)
+
+testRunMergeCanonicalizesCoinbasePrefixedPlatform :: IO ()
+testRunMergeCanonicalizesCoinbasePrefixedPlatform =
+    do
+        let topPayload =
+                object
+                    [ "generatedAtMs" .= (1 :: Int)
+                    , "combos"
+                        .= [ object
+                                [ "finalEquity" .= (1.5 :: Double)
+                                , "params"
+                                    .= object
+                                        [ "platform" .= ("coinbase-advanced" :: String)
+                                        , "symbol" .= ("BTC/USD" :: String)
+                                        , "interval" .= ("1h" :: String)
+                                        , "bars" .= (100 :: Int)
+                                        ]
+                                ]
+                           ]
+                    ]
+        combo <- runMergeAndReadFirstComboFromPayload "merge-coinbase-prefixed-platform" topPayload
+        assert "coinbase-prefixed platform should be canonicalized in merged params" (requireComboPlatform "coinbase combo platform" combo == Just "coinbase")
+        assert "coinbase-prefixed symbols should keep coinbase delimiter semantics" (requireComboBinanceSymbol "coinbase combo binanceSymbol" combo == Just "BTC-USD")
+
+testRunMergeCanonicalizesDexPrefixedPlatform :: IO ()
+testRunMergeCanonicalizesDexPrefixedPlatform =
+    do
+        let topPayload =
+                object
+                    [ "generatedAtMs" .= (1 :: Int)
+                    , "combos"
+                        .= [ object
+                                [ "finalEquity" .= (1.5 :: Double)
+                                , "params"
+                                    .= object
+                                        [ "platform" .= ("uniswap-v3" :: String)
+                                        , "symbol" .= ("ETH/USDT" :: String)
+                                        , "interval" .= ("1h" :: String)
+                                        , "bars" .= (100 :: Int)
+                                        ]
+                                ]
+                           ]
+                    ]
+        combo <- runMergeAndReadFirstComboFromPayload "merge-dex-prefixed-platform" topPayload
+        assert "dex-prefixed platform should be canonicalized in merged params" (requireComboPlatform "dex-prefixed combo platform" combo == Just "uniswap")
+        assert "dex-prefixed symbols should preserve dex delimiter semantics" (requireComboBinanceSymbol "dex-prefixed combo binanceSymbol" combo == Just "ETH/USDT")
 
 testRunMergeSkipsInvalidUtf8JsonlLines :: IO ()
 testRunMergeSkipsInvalidUtf8JsonlLines =

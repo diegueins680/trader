@@ -30,6 +30,7 @@ Features
 - Ops DB schema setup is versioned via `ops_schema_migrations`, allowing idempotent, incremental schema rollout instead of a monolithic startup DDL block.
 - Top-combo persistence normalizes method aliases through shared parser logic, so all supported methods (including `kalman_physics_error`, `conformal_clip`, `divergence_gate`, `smooth_softmax_blend`, `hedge_blend`) resolve to the right strategy records.
 - Top-combo symbol cleanup recovers Binance pairs from prefixed/tokenized strings (for example `binance:btc/usdt` and `binance-btc-usdt`) so valid symbols are preserved for combo selection.
+- `merge-top-combos` canonicalizes prefixed platform keys (for example `coinbase-advanced` -> `coinbase`, `uniswap-v3` -> `uniswap`) so merged combo platform/symbol fields keep exchange-specific delimiter semantics.
 - Base/quote symbol splitting now handles delimited exchange formats (`BASE-QUOTE`, `BASE_QUOTE`, `BASE/QUOTE`) without leaking delimiter characters into the extracted asset legs.
 - `kalman_physics_error` backtests/signals now preserve their method identity in outputs (instead of being reported as `10`/`kalman`), and bot post-trade threshold tuning no longer downgrades that method label, keeping API responses and ops strategy mapping consistent.
 - Backtest-to-signal handoff now aligns prediction-history indices to the full price series before latest-signal computation, and `kalman_physics_error` latest-signal paths prefer the physics-model prediction history when present.
