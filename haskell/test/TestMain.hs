@@ -23,7 +23,7 @@ import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 
-import Trader.App.Args (Args, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
+import Trader.App.Args (Args (..), argBinanceMarket, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
 import Trader.Binance (
     BinanceMarket (..),
     BinanceOrderMode (..),
@@ -159,6 +159,7 @@ main = do
               , run "tune objective parsing" testTuneObjectiveParsing
               , run "platform parsing" testPlatformParsing
               , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+              , run "binance market helper prioritizes futures on conflicting flags" testBinanceMarketConflictingFlagsPreferFutures
               , run "binance args normalize slash symbols" testBinanceSlashSymbolNormalization
               , run "coinbase args normalize slash symbols" testCoinbaseSlashSymbolNormalization
               , run "poloniex args normalize slash symbols" testPoloniexSlashSymbolNormalization
@@ -1364,6 +1365,14 @@ testNonBinanceArgsLiveDefault = do
     case parseArgsResult (krakenBaseArgs ++ ["--binance-live"]) of
         Left err -> assert "explicit --binance-live rejected on kraken" ("--binance-live is only supported on Binance/Coinbase" `isInfixOf` err)
         Right _ -> error "expected explicit --binance-live to be rejected on kraken"
+
+testBinanceMarketConflictingFlagsPreferFutures :: IO ()
+testBinanceMarketConflictingFlagsPreferFutures = do
+    args <- parseArgs ["--data", "sample.csv"]
+    let conflicting = args{argBinanceFutures = True, argBinanceMargin = True}
+    assert
+        "argBinanceMarket prefers futures when both market flags are set"
+        (argBinanceMarket conflicting == MarketFutures)
 
 testBinanceSlashSymbolNormalization :: IO ()
 testBinanceSlashSymbolNormalization =

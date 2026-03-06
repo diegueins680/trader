@@ -977,7 +977,10 @@ opts = do
 argBinanceMarket :: Args -> BinanceMarket
 argBinanceMarket args =
     case (argBinanceFutures args, argBinanceMargin args) of
-        (True, True) -> MarketSpot
+        -- Validation rejects this combination, but if it still slips through,
+        -- keep behavior aligned with the explicit futures flag rather than
+        -- silently downgrading to spot.
+        (True, True) -> MarketFutures
         (True, False) -> MarketFutures
         (False, True) -> MarketMargin
         (False, False) -> MarketSpot

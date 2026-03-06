@@ -149,6 +149,13 @@ validatePublisherConfig mode kafkaRestBaseUrl =
 getTimestampMs :: IO Int64
 getTimestampMs = round . (* 1000) <$> getPOSIXTime
 
+safeDelayMicrosFromMs :: Int -> Int
+safeDelayMicrosFromMs ms =
+    let boundedMs = max 0 ms
+        micros = toInteger boundedMs * 1000
+        cap = toInteger (maxBound :: Int)
+     in fromInteger (min cap micros)
+
 claimOutboxBatch :: Connection -> Int64 -> Int -> IO [OutboxEvent]
 claimOutboxBatch conn now limitN =
     query
@@ -318,4 +325,4 @@ main = do
         )
     forever $ do
         runBatch conn ctx batchSize staleTimeoutMs publishedRetentionMs
-        threadDelay (pollMs * 1000)
+        threadDelay (safeDelayMicrosFromMs pollMs)
