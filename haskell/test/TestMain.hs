@@ -1908,6 +1908,18 @@ testApplyExecutedQuantity = do
     assertApprox "flat entry has no close leg" 1e-12 close3 0
     assertApprox "flat entry open leg" 1e-12 open3 1.2
 
+    let (pos4, size4, close4, open4) = applyExecutedQuantity 0 0 True 5e-10
+    assert "dust fill stays flat" (pos4 == 0)
+    assertApprox "dust fill keeps zero size" 1e-12 size4 0
+    assertApprox "dust fill has no close leg" 1e-12 close4 0
+    assertApprox "dust fill has no open leg" 1e-12 open4 0
+
+    let (pos5, size5, close5, open5) = applyExecutedQuantity 1 1 False 1.0000000005
+    assert "dust over-close stays flat" (pos5 == 0)
+    assertApprox "dust over-close keeps zero size" 1e-12 size5 0
+    assertApprox "dust over-close still closes prior size" 1e-9 close5 1
+    assertApprox "dust over-close does not open opposite side" 1e-12 open5 0
+
 runSignalPostGate ::
     Bool ->
     (Int -> (Bool, Maybe String)) ->
