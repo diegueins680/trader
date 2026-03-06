@@ -15088,24 +15088,23 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                             if allSymbols && market /= MarketFutures
                                                 then respond (jsonError status400 "binance trades require symbol for spot/margin markets")
                                                 else do
-                                                    trades <- do
-                                                        if allSymbols
-                                                            then fetchAccountTrades env Nothing limit startTime endTime fromId
-                                                            else
-                                                                concat
-                                                                    <$> mapM
-                                                                        (\sym -> fetchAccountTrades env (Just sym) limit startTime endTime fromId)
-                                                                        symbols
-                                                    let tradesSorted = sortOn (negate . btTime) trades
-                                                    tradesWithIps <-
-                                                        case (mOps, mOpsTenant) of
-                                                            (Just store, Just tenantKey) ->
-                                                                attachBinanceTradeOriginIps store tenantKey tradesSorted
-                                                            _ -> pure tradesSorted
-                                                    now <- getTimestampMs
-                                                    respond $
-                                                        jsonValue
-                                                            status200
+                                                    result <- try $ do
+                                                        trades <-
+                                                            if allSymbols
+                                                                then fetchAccountTrades env Nothing limit startTime endTime fromId
+                                                                else
+                                                                    concat
+                                                                        <$> mapM
+                                                                            (\sym -> fetchAccountTrades env (Just sym) limit startTime endTime fromId)
+                                                                            symbols
+                                                        let tradesSorted = sortOn (negate . btTime) trades
+                                                        tradesWithIps <-
+                                                            case (mOps, mOpsTenant) of
+                                                                (Just store, Just tenantKey) ->
+                                                                    attachBinanceTradeOriginIps store tenantKey tradesSorted
+                                                                _ -> pure tradesSorted
+                                                        now <- getTimestampMs
+                                                        pure
                                                             ApiBinanceTradesResponse
                                                                 { abtrMarket = marketCode market
                                                                 , abtrTestnet = testnet
@@ -15114,6 +15113,12 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                                 , abtrTrades = tradesWithIps
                                                                 , abtrFetchedAtMs = now
                                                                 }
+                                                    case result of
+                                                        Left ex ->
+                                                            let (st, msg) = exceptionToHttp ex
+                                                             in respond (jsonError st msg)
+                                                        Right payload ->
+                                                            respond (jsonValue status200 payload)
 
 handleBinancePositions :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinancePositions reqLimits mOps baseArgs req respond = do

@@ -478,6 +478,11 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
 async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
   const primaryBase = normalizeBaseUrl(baseUrl);
   const fallbackBase = resolveFallbackBase(primaryBase);
+  const method = String(init.method ?? "GET").toUpperCase();
+  const proxyToDirectCrossOrigin = Boolean(primaryBase.startsWith("/") && fallbackBase && isCrossOriginBase(fallbackBase));
+  // Keep inferred /api -> direct-host failover for reads, but avoid cross-origin
+  // POST/PUT/PATCH/DELETE preflight loops when the fallback host is not CORS-enabled.
+  const allowCrossOriginProxyFallbackForMethod = !proxyToDirectCrossOrigin || method === "GET" || method === "HEAD";
   const allowAuthStatusFallback = Boolean(
     TRADER_UI_CONFIG.apiBaseUrlInferred &&
       fallbackBase &&
@@ -489,7 +494,7 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
       (allowAuthStatusFallback ||
         (TRADER_UI_CONFIG.apiBaseUrlInferred && primaryBase.startsWith("/") && isCrossOriginBase(fallbackBase))),
   );
-  const allowFallback = opts?.allowFallback !== false;
+  const allowFallback = opts?.allowFallback !== false && allowCrossOriginProxyFallbackForMethod;
   const preferredBase = allowFallback ? resolvePreferredFallback(primaryBase, fallbackBase) : null;
 
   if (preferredBase) {

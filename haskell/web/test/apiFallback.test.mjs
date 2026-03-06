@@ -432,6 +432,33 @@ test("api fallback allows inferred /api primary timeout failover to cross-origin
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
 });
 
+test("api fallback skips inferred /api cross-origin failover for non-GET requests", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: true,
+      apiFallbackUrl: "https://api.example.com",
+      apiToken: "",
+    },
+    async (url) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "/api/binance/listenKey") {
+        return jsonResponse(502, { error: "Bad Gateway" });
+      }
+      throw new Error(`unexpected request: ${href}`);
+    },
+    async (api) => {
+      await assert.rejects(
+        () => api.binanceListenKey("/api", { tenantKey: "tenant" }, { timeoutMs: 5_000 }),
+        (err) => err?.name === "HttpError" && err.status === 502,
+      );
+    },
+  );
+  assert.deepEqual(calls, ["/api/binance/listenKey"]);
+});
+
 test("api client forwards tenant key as X-Tenant-Key from JSON body params", async () => {
   let tenantHeader = null;
   await withApiModule(
