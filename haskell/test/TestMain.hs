@@ -80,6 +80,7 @@ import Trader.Predictors (
     predictSensors,
     trainPredictors,
  )
+import Trader.Predictors.Features (buildDatasetWithIndex, featuresAt, forwardReturnAt, mkFeatureSpec)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
@@ -112,6 +113,8 @@ main = do
               , run "kalman fusion multi-sensor" testKalmanFusionMulti
               , run "market linear fit" testMarketLinearFit
               , run "predictors output shape" testPredictorsOutputs
+              , run "predictor features reject non-finite price inputs" testPredictorFeaturesRejectNonFinitePrices
+              , run "predictor dataset skips non-finite rows" testBuildDatasetSkipsNonFiniteRows
               , run "transformer training skips invalid rows" testTransformerTrainingSanitizesDataset
               , run "transformer prediction rejects non-finite query" testTransformerPredictionRejectsNonFiniteQuery
               , run "transformer training normalizes invalid temperature" testTransformerInvalidTemperatureFallback
@@ -649,6 +652,22 @@ testPredictorsOutputs = do
             case soInterval o of
                 Nothing -> error "missing interval"
                 Just (Interval lo hi) -> assert "interval ordered" (lo <= hi)
+
+testPredictorFeaturesRejectNonFinitePrices :: IO ()
+testPredictorFeaturesRejectNonFinitePrices = do
+    let nan = 0 / 0
+        fs = mkFeatureSpec 3
+        prices = V.fromList [100.0, 101.0, nan, 103.0, 104.0]
+    assert "forwardReturnAt rejects non-finite prices" (isNothing (forwardReturnAt prices 1))
+    assert "featuresAt rejects windows containing non-finite prices" (isNothing (featuresAt fs prices 2))
+
+testBuildDatasetSkipsNonFiniteRows :: IO ()
+testBuildDatasetSkipsNonFiniteRows = do
+    let nan = 0 / 0
+        fs = mkFeatureSpec 3
+        prices = V.fromList [100.0, 101.0, nan, 103.0, 104.0]
+        dataset = buildDatasetWithIndex fs prices
+    assert "dataset skips rows whose features/targets are non-finite" (null dataset)
 
 testTransformerTrainingSanitizesDataset :: IO ()
 testTransformerTrainingSanitizesDataset = do

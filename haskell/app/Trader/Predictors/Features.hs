@@ -32,7 +32,7 @@ forwardReturnAt prices t =
         else
             let p0 = prices V.! t
                 p1 = prices V.! (t + 1)
-             in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+             in finiteReturn p0 p1
 
 {- | Feature vector at bar t using only prices up to t.
 Requires at least fsLookbackBars history (prices window ending at t).
@@ -98,7 +98,7 @@ buildDatasetWithIndex fs prices =
             V.generate retLen $ \i ->
                 let p0 = prices V.! i
                     p1 = prices V.! (i + 1)
-                 in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+                 in finiteReturn p0 p1
         retVals = V.map (Data.Maybe.fromMaybe 0) returns
         retSqVals = V.map (maybe 0 (\r -> r * r)) returns
         retInvalid = V.map (maybe 1 (const 0)) returns
@@ -132,7 +132,7 @@ buildDatasetWithIndex fs prices =
                 else
                     let p0 = prices V.! (t - bars)
                         p1 = prices V.! t
-                     in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+                     in finiteReturn p0 p1
 
         featuresAtFast t = do
             if t < fsLookbackBars fs - 1 || t >= n
@@ -197,7 +197,7 @@ retOver prices t bars =
         else
             let p0 = prices V.! (t - bars)
                 p1 = prices V.! t
-             in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+             in finiteReturn p0 p1
 
 returnsEndingAt :: V.Vector Double -> Int -> Int -> Maybe [Double]
 returnsEndingAt prices t k =
@@ -207,7 +207,7 @@ returnsEndingAt prices t k =
             let rs =
                     [ let p0 = prices V.! i
                           p1 = prices V.! (i + 1)
-                       in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+                       in finiteReturn p0 p1
                     | i <- [t - k .. t - 1]
                     ]
              in sequence rs
@@ -229,6 +229,7 @@ meanStd xs =
 
 psychologicalFeatures :: Double -> [Double]
 psychologicalFeatures price
+    | not (isFiniteDouble price) = replicate 12 0
     | price <= 0 = replicate 12 0
     | otherwise =
         let base = 10 ** fromIntegral (floor (logBase 10 price) :: Int)
@@ -252,3 +253,14 @@ roundOffset price step
 clamp :: Double -> Double -> Double -> Double
 clamp lo hi x =
     max lo (min hi x)
+
+finiteReturn :: Double -> Double -> Maybe Double
+finiteReturn p0 p1
+    | not (isFiniteDouble p0 && isFiniteDouble p1) = Nothing
+    | p0 == 0 = Nothing
+    | otherwise =
+        let r = p1 / p0 - 1
+         in if isFiniteDouble r then Just r else Nothing
+
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)
