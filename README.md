@@ -234,6 +234,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Symbol normalization also canonicalizes prefixed exchange keys (for example `coinbase-advanced`, `poloniex-v2`, `binanceusdm`) before applying exchange-specific delimiter rules.
     - DEX-prefixed platform keys (for example `uniswap-v3`, `1inch-v6`) keep DEX symbol delimiters during combo-symbol sanitization instead of forcing Binance-style compaction.
     - Coinbase/Poloniex compact symbols without the required delimiter (for example `BTCUSD` or `BTCUSDT`) are rejected during CLI validation; Binance also rejects malformed non-alphanumeric symbols early.
+    - Binance quote-only tokens (for example `USDT`, `USDC`, `BTC`) are rejected; symbols must represent a trade pair.
     - Top-combo symbol cleanup preserves both legs for unknown-platform delimited pairs (`BTC-USD` -> `BTCUSD`) and rejects numeric-only delimited artifacts (`2024-01-01`).
 
 - Bars & lookback (defaults: `--interval 1h`, `--lookback-window 7d` → 168 bars, `--bars auto`)

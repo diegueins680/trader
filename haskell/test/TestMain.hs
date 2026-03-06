@@ -156,6 +156,7 @@ main = do
               , run "coinbase args reject compact symbols without delimiter" testCoinbaseCompactSymbolRejected
               , run "poloniex args reject compact symbols without delimiter" testPoloniexCompactSymbolRejected
               , run "binance args reject malformed non-alnum symbols" testBinanceMalformedSymbolRejected
+              , run "binance args reject quote-only symbols" testBinanceQuoteOnlySymbolRejected
               , run "dry-run requires trade flag" testDryRunRequiresTrade
               , run "dry-run trade bypasses runtime credentials" testDryRunBypassesRuntimeCredentials
               , run "dry-run skips non-owner API key requirement" testDryRunSkipsNonOwnerUserKeyRequirement
@@ -224,6 +225,7 @@ main = do
               , run "top combos recover compact binance symbol from separated base/quote tokens" testTopCombosSeparatedTokenPairNormalization
               , run "top combos infer compact symbol from unknown delimited pair" testTopCombosUnknownPlatformPairNormalization
               , run "top combos reject numeric-only delimited symbols" testTopCombosRejectNumericOnlyDelimitedSymbols
+              , run "top combos reject quote-only symbols" testTopCombosRejectQuoteOnlySymbols
               , run "symbol split handles delimited pairs" testSplitSymbolDelimitedPairs
               , run "symbol split keeps compact pairs" testSplitSymbolCompactPairs
               , run "symbol sanitization canonicalizes coinbase-prefixed platform keys" testSymbolCoinbasePrefixedPlatformNormalization
@@ -1264,6 +1266,15 @@ testBinanceMalformedSymbolRejected =
                 ("--symbol must be a valid Binance symbol" `isInfixOf` err)
         Right _ -> error "expected malformed Binance symbol to fail validation"
 
+testBinanceQuoteOnlySymbolRejected :: IO ()
+testBinanceQuoteOnlySymbolRejected =
+    case parseArgsResult ["--platform", "binance", "--symbol", "USDT"] of
+        Left err ->
+            assert
+                "binance quote-only symbol rejected"
+                ("--symbol must be a valid Binance symbol" `isInfixOf` err)
+        Right _ -> error "expected quote-only Binance symbol to fail validation"
+
 testTopCombosBinanceSlashSymbolSanitization :: IO ()
 testTopCombosBinanceSlashSymbolSanitization =
     assert
@@ -1293,6 +1304,12 @@ testTopCombosRejectNumericOnlyDelimitedSymbols =
     assert
         "numeric-only delimited symbol rejected"
         (isNothing (sanitizeComboSymbolForPlatform Nothing "2024-01-01"))
+
+testTopCombosRejectQuoteOnlySymbols :: IO ()
+testTopCombosRejectQuoteOnlySymbols =
+    assert
+        "quote-only symbol rejected"
+        (isNothing (sanitizeComboSymbolForPlatform Nothing "USDT"))
 
 testSplitSymbolDelimitedPairs :: IO ()
 testSplitSymbolDelimitedPairs = do

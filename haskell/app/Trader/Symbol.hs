@@ -146,7 +146,15 @@ sanitizeComboSymbolForPlatform platform raw =
 isValidBinanceSymbol :: String -> Bool
 isValidBinanceSymbol s =
     let n = length s
-     in n >= 3 && n <= 30 && all isAsciiAlphaNum s && any isAsciiUpper s
+     in n >= 3
+            && n <= 30
+            && all isAsciiAlphaNum s
+            && any isAsciiUpper s
+            && not (isKnownQuoteToken s)
+
+isKnownQuoteToken :: String -> Bool
+isKnownQuoteToken s =
+    s `elem` commonQuotes
 
 isValidDelimitedSymbol :: Char -> String -> Bool
 isValidDelimitedSymbol delim s =
@@ -216,7 +224,7 @@ sanitizeBinanceComboSymbol raw =
     let s = normalizeSymbolText raw
         tokens = splitAlphaNumTokens s
         isValid sym =
-            sym `notElem` commonQuotes && isValidBinanceSymbol sym
+            not (isKnownQuoteToken sym) && isValidBinanceSymbol sym
         pickJoinedPair =
             listToMaybe
                 [ joined
@@ -234,7 +242,7 @@ sanitizeBinanceComboSymbol raw =
         pickTokenCandidate =
             pickJoinedPair <|> pickQuotedToken <|> pickSingleToken
         pickQuoteSuffix = trimBinanceComboSuffix s
-     in pickQuoteSuffix <|> pickTokenCandidate <|> bool Nothing (Just s) (isValidBinanceSymbol s)
+     in pickQuoteSuffix <|> pickTokenCandidate <|> bool Nothing (Just s) (isValid s)
 
 trimBinanceComboSuffix :: String -> Maybe String
 trimBinanceComboSuffix raw =
