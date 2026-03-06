@@ -26,7 +26,6 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.CaseInsensitive as CI
 import Data.Char (isAlphaNum, isDigit, isHexDigit, isSpace, toLower, toUpper)
-import qualified Data.Csv as Csv
 import Data.Either (rights)
 import Data.Foldable (for_, toList)
 import qualified Data.Foldable
@@ -63,7 +62,6 @@ import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Internal as WaiInternal
 import qualified Network.WebSockets as WS
 import Options.Applicative
-import qualified Paths_trader as Paths
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getCurrentDirectory, getFileSize, getModificationTime, listDirectory, removeFile, renameFile)
 import System.Environment (getExecutablePath, lookupEnv, setEnv)
 import System.Exit (ExitCode (..), die, exitFailure)
@@ -94,6 +92,8 @@ import Trader.App.Args (
     resolveBarsForPlatform,
     validateArgs,
  )
+import Trader.App.Csv (loadCsvPriceSeries)
+import Trader.App.Env (getBuildCommit, loadEnvFile, traderVersion)
 import Trader.Binance (
     BinanceEnv (..),
     BinanceLog (..),
@@ -287,214 +287,6 @@ import Trader.Trading (
     simulateEnsembleWithHLChecked,
  )
 
--- CSV loading
-
-resolveCsvColumnKey :: FilePath -> String -> [BS.ByteString] -> String -> Either String BS.ByteString
-resolveCsvColumnKey path flagName hdrList raw =
-    let wanted = trim raw
-        wantedLower = map toLower wanted
-        wantedNorm = normalizeKey wanted
-        wantedBs = BS.pack wanted
-        mKeyExact =
-            if wantedBs `elem` hdrList then Just wantedBs else Nothing
-        mKeyNorm =
-            case filter (\h -> normalizeKey (BS.unpack h) == wantedNorm) hdrList of
-                (h : _) -> Just h
-                [] -> Nothing
-        mKey =
-            case mKeyExact of
-                Just k -> Just k
-                Nothing ->
-                    case filter (\h -> map toLower (BS.unpack h) == wantedLower) hdrList of
-                        (h : _) -> Just h
-                        [] -> mKeyNorm
-        available = BS.unpack (BS.intercalate ", " hdrList)
-        suggestions =
-            let commonPrefixLen :: String -> String -> Int
-                commonPrefixLen a b = length (takeWhile id (zipWith (==) a b))
-                score hn =
-                    let pref = commonPrefixLen wantedNorm hn
-                        contains = if wantedNorm `isInfixOf` hn then 100 else 0
-                     in contains + pref
-                scored =
-                    [ (negate s, h)
-                    | h <- hdrList
-                    , let hn = normalizeKey (BS.unpack h)
-                    , let s = score hn
-                    , s > 0
-                    ]
-             in take 5 (map snd (sortOn fst scored))
-     in if null wanted
-            then Left (flagName ++ " cannot be empty")
-            else case mKey of
-                Just k -> Right k
-                Nothing ->
-                    let hint =
-                            if null suggestions
-                                then ""
-                                else " Suggestions: " ++ BS.unpack (BS.intercalate ", " suggestions) ++ "."
-                     in Left
-                            ( "Column not found for "
-                                ++ flagName
-                                ++ ": "
-                                ++ wanted
-                                ++ " (file: "
-                                ++ path
-                                ++ "). Available columns: "
-                                ++ available
-                                ++ "."
-                                ++ hint
-                            )
-
-extractCellDoubleAt :: Int -> BS.ByteString -> Csv.NamedRecord -> Either String Double
-extractCellDoubleAt rowIndex key rec =
-    case HM.lookup key rec of
-        Nothing -> Left ("Column not found: " ++ BS.unpack key)
-        Just raw ->
-            let s = trim (BS.unpack raw)
-             in case readMaybe s of
-                    Just d ->
-                        if isNaN d || isInfinite d
-                            then
-                                Left
-                                    ( "Failed to parse finite value at row "
-                                        ++ show rowIndex
-                                        ++ " ("
-                                        ++ BS.unpack key
-                                        ++ "): "
-                                        ++ s
-                                    )
-                            else Right d
-                    Nothing ->
-                        Left
-                            ( "Failed to parse value at row "
-                                ++ show rowIndex
-                                ++ " ("
-                                ++ BS.unpack key
-                                ++ "): "
-                                ++ s
-                            )
-
-loadCsvPriceSeries ::
-    FilePath ->
-    String ->
-    Maybe String ->
-    Maybe String ->
-    IO (Either String ([Double], Maybe [Double], Maybe [Double], Maybe [Double], Maybe [Double], Maybe [Int64]))
-loadCsvPriceSeries path closeCol mHighCol mLowCol = do
-    exists <- doesFileExist path
-    if not exists
-        then do
-            cwd <- getCurrentDirectory
-            pure (Left ("CSV path not found: " ++ path ++ " (cwd: " ++ cwd ++ ")"))
-        else do
-            bs <- BL.readFile path
-            case Csv.decodeByName bs of
-                Left err -> pure (Left ("CSV decode failed (" ++ path ++ "): " ++ err))
-                Right (hdr, rows) -> do
-                    let hdrList = V.toList hdr
-                        rowsList0 = V.toList rows
-                        mTimeKey = csvTimeKey hdrList
-                        mOpenKey = csvOpenKey hdrList
-                        mVolumeKey = csvVolumeKey hdrList
-                        rowsList = maybe rowsList0 (`sortCsvRowsByTime` rowsList0) mTimeKey
-                        rowPairs = zip [1 :: Int ..] rowsList
-                        seriesFor key = traverse (\(i, row) -> extractCellDoubleAt i key row) rowPairs
-                        openTimesE =
-                            case mTimeKey of
-                                Nothing -> Right Nothing
-                                Just tk -> Just <$> parseCsvTimes tk rowsList
-                    pure $ do
-                        closeKey <- resolveCsvColumnKey path "--price-column" hdrList closeCol
-                        mHighKey <- traverse (resolveCsvColumnKey path "--high-column" hdrList) mHighCol
-                        mLowKey <- traverse (resolveCsvColumnKey path "--low-column" hdrList) mLowCol
-                        closeSeries <- seriesFor closeKey
-                        openSeries <- traverse seriesFor mOpenKey
-                        highSeries <- traverse seriesFor mHighKey
-                        lowSeries <- traverse seriesFor mLowKey
-                        volumeSeries <- traverse seriesFor mVolumeKey
-                        openTimes <- openTimesE
-                        pure (closeSeries, openSeries, highSeries, lowSeries, volumeSeries, openTimes)
-
-csvTimeKey :: [BS.ByteString] -> Maybe BS.ByteString
-csvTimeKey hdrList =
-    let candidates =
-            [ "openTimeMs"
-            , "open_time_ms"
-            , "openTime"
-            , "open_time"
-            , "timestamp"
-            , "datetime"
-            , "date"
-            , "time"
-            ]
-     in firstJust [findHeaderKey hdrList c | c <- candidates]
-
-csvOpenKey :: [BS.ByteString] -> Maybe BS.ByteString
-csvOpenKey hdrList =
-    let candidates =
-            [ "open"
-            , "openPrice"
-            , "open_price"
-            ]
-     in firstJust [findHeaderKey hdrList c | c <- candidates]
-
-csvVolumeKey :: [BS.ByteString] -> Maybe BS.ByteString
-csvVolumeKey hdrList =
-    let candidates =
-            [ "volume"
-            , "vol"
-            , "baseVolume"
-            , "base_volume"
-            , "quoteVolume"
-            , "quote_volume"
-            ]
-     in firstJust [findHeaderKey hdrList c | c <- candidates]
-
-findHeaderKey :: [BS.ByteString] -> String -> Maybe BS.ByteString
-findHeaderKey hdrList wanted =
-    let w = normalizeKey wanted
-        matches = filter (\h -> normalizeKey (BS.unpack h) == w) hdrList
-     in case matches of
-            (h : _) -> Just h
-            [] -> Nothing
-
-sortCsvRowsByTime :: BS.ByteString -> [Csv.NamedRecord] -> [Csv.NamedRecord]
-sortCsvRowsByTime timeKey rows =
-    case traverse (lookupCell timeKey) rows of
-        Nothing -> rows
-        Just rawTimes ->
-            let times = map (trim . BS.unpack) rawTimes
-             in case traverse parseTimestampMs times of
-                    Just ts ->
-                        let pairs = zip ts rows
-                         in map snd (sortOn fst pairs)
-                    Nothing -> rows
-
-parseCsvTimes :: BS.ByteString -> [Csv.NamedRecord] -> Either String [Int64]
-parseCsvTimes timeKey rows =
-    case traverse (lookupCell timeKey) rows of
-        Nothing ->
-            Left ("Time column missing: " ++ BS.unpack timeKey)
-        Just rawTimes ->
-            let times = map (trim . BS.unpack) rawTimes
-                parseAt (idx, s) =
-                    case parseTimestampMs s of
-                        Just t -> Right t
-                        Nothing ->
-                            Left
-                                ( "Failed to parse time value at row "
-                                    ++ show idx
-                                    ++ " ("
-                                    ++ BS.unpack timeKey
-                                    ++ "): "
-                                    ++ s
-                                )
-             in traverse parseAt (zip [1 :: Int ..] times)
-
-lookupCell :: BS.ByteString -> Csv.NamedRecord -> Maybe BS.ByteString
-lookupCell = HM.lookup
-
 firstJust :: [Maybe a] -> Maybe a
 firstJust xs =
     case xs of
@@ -673,155 +465,14 @@ data WalkForwardReport = WalkForwardReport
     }
     deriving (Eq, Show)
 
--- CLI
-
--- (moved to Trader.App.Args)
-
-traderVersion :: String
-traderVersion = showVersion Paths.version
-
 data BuildInfo = BuildInfo
     { biVersion :: !String
     , biCommit :: !(Maybe String)
     }
     deriving (Eq, Show)
-
-getBuildCommit :: IO (Maybe String)
-getBuildCommit = do
-    let keys = ["TRADER_GIT_COMMIT", "TRADER_COMMIT", "GIT_COMMIT", "COMMIT_SHA"]
-    m <- firstJust <$> mapM lookupEnv keys
-    case fmap trim m of
-        Just s | not (null s) -> pure (Just s)
-        _ -> pure Nothing
-
-loadEnvFile :: IO ()
-loadEnvFile = do
-    mEnvFileRaw <- lookupEnv "TRADER_ENV_FILE"
-    let envFileRaw = maybe ".env" trim mEnvFileRaw
-        envFileName = trim envFileRaw
-    if null envFileName
-        then pure ()
-        else do
-            mPath <- resolveEnvFilePath envFileName
-            case mPath of
-                Nothing -> do
-                    when (isJust mEnvFileRaw) $
-                        hPutStrLn stderr ("WARN: TRADER_ENV_FILE not found: " ++ envFileName)
-                Just path -> do
-                    contentsResult <- try (readFile path) :: IO (Either IOException String)
-                    case contentsResult of
-                        Left err ->
-                            hPutStrLn stderr ("WARN: failed to read TRADER_ENV_FILE (" ++ path ++ "): " ++ displayException err)
-                        Right contents -> do
-                            let entries = parseEnvFile contents
-                            forM_ entries $ \(key, value) -> do
-                                existing <- lookupEnv key
-                                case existing of
-                                    Nothing -> setEnv key value
-                                    Just _ -> pure ()
-
-resolveEnvFilePath :: FilePath -> IO (Maybe FilePath)
-resolveEnvFilePath raw = do
-    let trimmed = trim raw
-    if null trimmed
-        then pure Nothing
-        else
-            if isAbsolute trimmed
-                then do
-                    exists <- doesFileExist trimmed
-                    pure (if exists then Just trimmed else Nothing)
-                else do
-                    cwd <- getCurrentDirectory
-                    let cwdPath = cwd </> trimmed
-                    cwdExists <- doesFileExist cwdPath
-                    if cwdExists
-                        then pure (Just cwdPath)
-                        else do
-                            let parent = takeDirectory cwd
-                                parentPath = parent </> trimmed
-                            parentExists <- doesFileExist parentPath
-                            if parentExists
-                                then pure (Just parentPath)
-                                else do
-                                    gitExe <- findExecutable "git"
-                                    case gitExe of
-                                        Nothing -> pure Nothing
-                                        Just _ -> do
-                                            rootResult <- try resolveGitRepoRoot :: IO (Either SomeException (Either String FilePath))
-                                            case rootResult of
-                                                Left _ -> pure Nothing
-                                                Right (Right root) -> do
-                                                    let rootPath = root </> trimmed
-                                                    rootExists <- doesFileExist rootPath
-                                                    pure (if rootExists then Just rootPath else Nothing)
-                                                Right (Left _) -> pure Nothing
-
-parseEnvFile :: String -> [(String, String)]
-parseEnvFile =
-    mapMaybe parseEnvLine . lines
-
-parseEnvLine :: String -> Maybe (String, String)
-parseEnvLine raw =
-    let stripped = trim raw
-     in if null stripped || "#" `isPrefixOf` stripped
-            then Nothing
-            else
-                let withoutExport = fromMaybe stripped (stripPrefix "export " stripped)
-                    (keyRaw, rest) = break (== '=') withoutExport
-                 in case rest of
-                        '=' : valueRaw ->
-                            let key = trim keyRaw
-                                value = parseEnvValue valueRaw
-                             in if null key then Nothing else Just (key, value)
-                        _ -> Nothing
-
-parseEnvValue :: String -> String
-parseEnvValue raw =
-    let trimmed = trim (stripInlineComment raw)
-        stripWrappedQuote q s =
-            case s of
-                first : rest
-                    | first == q ->
-                        case reverse rest of
-                            lastChar : innerRev
-                                | lastChar == q -> Just (reverse innerRev)
-                            _ -> Nothing
-                _ -> Nothing
-     in fromMaybe trimmed $
-            (unescapeDoubleQuoted <$> stripWrappedQuote '"' trimmed)
-                <|> stripWrappedQuote '\'' trimmed
-
-stripInlineComment :: String -> String
-stripInlineComment = go False False False []
-  where
-    go _ _ _ acc [] = reverse acc
-    go inSingle inDouble escaped acc (c : cs)
-        | escaped = go inSingle inDouble False (c : acc) cs
-        | c == '\\' && inDouble = go inSingle inDouble True (c : acc) cs
-        | c == '\'' && not inDouble = go (not inSingle) inDouble False (c : acc) cs
-        | c == '"' && not inSingle = go inSingle (not inDouble) False (c : acc) cs
-        | c == '#' && not inSingle && not inDouble =
-            let prev = case acc of
-                    [] -> Nothing
-                    (p : _) -> Just p
-             in if maybe True isSpace prev then reverse acc else go inSingle inDouble False (c : acc) cs
-        | otherwise = go inSingle inDouble False (c : acc) cs
-
-unescapeDoubleQuoted :: String -> String
-unescapeDoubleQuoted = go
-  where
-    go [] = []
-    go ('\\' : 'n' : rest) = '\n' : go rest
-    go ('\\' : 'r' : rest) = '\r' : go rest
-    go ('\\' : 't' : rest) = '\t' : go rest
-    go ('\\' : '"' : rest) = '"' : go rest
-    go ('\\' : '\\' : rest) = '\\' : go rest
-    go ('\\' : c : rest) = c : go rest
-    go (c : rest) = c : go rest
-
 main :: IO ()
 main = do
-    loadEnvFile
+    loadEnvFile resolveGitRepoRoot
     let versionOption =
             infoOption
                 ("trader-hs " ++ traderVersion)

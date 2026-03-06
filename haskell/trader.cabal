@@ -10,6 +10,8 @@ executable trader-hs
   main-is:             Main.hs
   other-modules:       Trader.Binance
                      , Trader.Api.Routes
+                     , Trader.App.Csv
+                     , Trader.App.Env
                      , Trader.Cache
                      , Trader.Coinbase
                      , Trader.Config
