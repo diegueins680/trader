@@ -26,6 +26,7 @@ import qualified Data.Vector as V
 import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
 import System.IO.Unsafe (unsafePerformIO)
+import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
 import Trader.Text (dedupeStable, trim)
@@ -189,15 +190,11 @@ parseDoubleValue v =
 
 readMaybeInt64 :: String -> Maybe Int64
 readMaybeInt64 s =
-    case reads s of
-        [(x, "")] -> Just x
-        _ -> Nothing
+    readMaybe (trim s)
 
 readMaybeDouble :: String -> Maybe Double
 readMaybeDouble s =
-    case reads s of
-        [(x, "")] -> Just x
-        _ -> Nothing
+    readMaybe (trim s)
 
 normalizeTimestamp :: Int64 -> Int64
 normalizeTimestamp t =

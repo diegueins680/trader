@@ -40,6 +40,7 @@ import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
 import Numeric (showFFloat)
 import System.IO.Unsafe (unsafePerformIO)
+import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
 import Trader.Text (trim)
@@ -275,16 +276,14 @@ parseDoubleValue v =
     case v of
         Number n -> parseFiniteDouble (realToFrac n)
         String t ->
-            case reads (T.unpack t) of
-                [(x, "")] -> parseFiniteDouble x
+            case readMaybe (trim (T.unpack t)) of
+                Just x -> parseFiniteDouble x
                 _ -> fail "Invalid double"
         _ -> fail "Expected number"
 
 readMaybeInt64 :: String -> Maybe Int64
 readMaybeInt64 s =
-    case reads s of
-        [(x, "")] -> Just x
-        _ -> Nothing
+    readMaybe (trim s)
 
 normalizeTimestamp :: Int64 -> Int64
 normalizeTimestamp t =

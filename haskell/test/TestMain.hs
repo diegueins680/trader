@@ -49,7 +49,7 @@ import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, 
 import Trader.Http (boundedBackoffMs, jitteredDelayMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
-import Trader.Kraken (decodeKrakenCandles)
+import Trader.Kraken (KrakenCandle (..), decodeKrakenCandles)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, trainLSTM)
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (fitLinearRange)
@@ -147,6 +147,7 @@ main = do
               , run "poloniex candle parser normalizes millisecond timestamp boundaries" testPoloniexTimestampBoundaryNormalization
               , run "poloniex candle normalization dedupes and caps bars" testPoloniexNormalizeCandlesDedupeAndLimit
               , run "exchange candle parsers reject non-finite numeric strings" testExchangeNonFiniteNumericStringRejected
+              , run "exchange candle parsers accept whitespace-padded numeric strings" testExchangeNumericStringWhitespaceAcceptance
               , run "method parsing" testMethodParsing
               , run "tune objective parsing" testTuneObjectiveParsing
               , run "platform parsing" testPlatformParsing
@@ -1154,6 +1155,28 @@ testExchangeNonFiniteNumericStringRejected = do
     case (eitherDecode (BL.fromStrict (BS.pack binanceNan)) :: Either String [Kline]) of
         Left _ -> pure ()
         Right _ -> error "expected Binance NaN string to fail"
+
+testExchangeNumericStringWhitespaceAcceptance :: IO ()
+testExchangeNumericStringWhitespaceAcceptance = do
+    let coinbaseSpaced = "[[\" 1700000000 \", \" 1 \", \" 2 \", \" 1.5 \", \" 1.8 \", \" 42 \"]]"
+        krakenSpaced =
+            "{\"error\":[],\"result\":{\"XXBTZUSD\":[[\" 1700000000 \",\"0\",\" 2 \",\" 1 \",\" 1.8 \",\"0\",\"0\",\"0\"]],\"last\":1700000001}}"
+        poloniexSpaced = "[{\"ts\":\" 1700000000000 \",\"high\":\" 2 \",\"low\":\" 1 \",\"close\":\" 1.8 \"}]"
+    case decodeCoinbaseCandles (BL.fromStrict (BS.pack coinbaseSpaced)) of
+        Left err -> error ("expected Coinbase spaced numeric strings to parse: " ++ err)
+        Right xs -> do
+            assert "coinbase spaced timestamp parsed" (ccOpenTime (requireHead "missing Coinbase candle" xs) == 1700000000)
+            assertApprox "coinbase spaced close parsed" 1e-12 (ccClose (requireHead "missing Coinbase candle" xs)) 1.8
+    case decodeKrakenCandles "XXBTZUSD" (BL.fromStrict (BS.pack krakenSpaced)) of
+        Left err -> error ("expected Kraken spaced numeric strings to parse: " ++ err)
+        Right xs -> do
+            assert "kraken spaced timestamp parsed" (kcOpenTime (requireHead "missing Kraken candle" xs) == 1700000000)
+            assertApprox "kraken spaced close parsed" 1e-12 (kcClose (requireHead "missing Kraken candle" xs)) 1.8
+    case decodePoloniexCandles (BL.fromStrict (BS.pack poloniexSpaced)) of
+        Left err -> error ("expected Poloniex spaced numeric strings to parse: " ++ err)
+        Right xs -> do
+            assert "poloniex spaced timestamp parsed" (pcOpenTime (requireHead "missing Poloniex candle" xs) == 1700000000)
+            assertApprox "poloniex spaced close parsed" 1e-12 (pcClose (requireHead "missing Poloniex candle" xs)) 1.8
 
 testMethodParsing :: IO ()
 testMethodParsing = do
