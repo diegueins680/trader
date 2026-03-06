@@ -5012,7 +5012,7 @@ export function App() {
         try {
           const base: ApiParams = { market: info.market, binanceTestnet: info.testnet };
           await binanceListenKeyClose(
-            apiBase,
+            listenKeyStreamBase,
             { ...withBinanceKeys(base), listenKey: info.listenKey },
             { headers: authHeaders, timeoutMs: LISTEN_KEY_ACTION_TIMEOUT_MS },
           );
@@ -5042,7 +5042,7 @@ export function App() {
       }));
       listenKeyInfoRef.current = null;
     },
-    [apiBase, authHeaders, listenKeyUi.info, showToast, withBinanceKeys],
+    [authHeaders, listenKeyStreamBase, listenKeyUi.info, showToast, withBinanceKeys],
   );
 
   const keepAliveListenKeyStream = useCallback(
@@ -5051,7 +5051,7 @@ export function App() {
       try {
         const base: ApiParams = { market: info.market, binanceTestnet: info.testnet };
         const out = await binanceListenKeyKeepAlive(
-          apiBase,
+          listenKeyStreamBase,
           { ...withBinanceKeys(base), listenKey: info.listenKey },
           { headers: authHeaders, timeoutMs: LISTEN_KEY_ACTION_TIMEOUT_MS },
         );
@@ -5067,7 +5067,7 @@ export function App() {
         if (!opts?.silent) showToast("Listen key keep-alive failed");
       }
     },
-    [apiBase, authHeaders, showToast, withBinanceKeys],
+    [authHeaders, listenKeyStreamBase, showToast, withBinanceKeys],
   );
 
   const openListenKeyStream = useCallback(
@@ -5237,7 +5237,7 @@ export function App() {
       setListenKeyUi((s) => ({ ...s, loading: true, error: null, wsError: null, keepAliveError: null, wsStatus: "connecting" }));
       try {
         const base: ApiParams = { market: form.market, binanceTestnet: form.binanceTestnet };
-        const out = await binanceListenKey(apiBase, withBinanceKeys(base), {
+        const out = await binanceListenKey(listenKeyStreamBase, withBinanceKeys(base), {
           headers: authHeaders,
           timeoutMs: LISTEN_KEY_ACTION_TIMEOUT_MS,
         });
@@ -5257,12 +5257,12 @@ export function App() {
       }
     },
     [
-      apiBase,
       apiOk,
       authHeaders,
       form.binanceTestnet,
       form.market,
       isBinancePlatform,
+      listenKeyStreamBase,
       openListenKeyStream,
       showToast,
       stopListenKeyStream,
@@ -8416,7 +8416,7 @@ export function App() {
   };
 
   const systemVersionRaw = healthInfo?.version?.trim() ?? "";
-  const systemCommitRaw = healthInfo?.commit?.trim() ?? "";
+  const systemCommitRaw = healthInfo?.commit?.trim() || __TRADER_UI_COMMIT__.trim();
   const systemVersionTag = systemVersionRaw ? (systemVersionRaw.toLowerCase().startsWith("v") ? systemVersionRaw : `v${systemVersionRaw}`) : null;
   const systemCommitShort = systemCommitRaw ? shortCommitHash(systemCommitRaw, 12) : null;
   const systemBuildLabel = systemVersionTag && systemCommitShort ? `${systemVersionTag} (${systemCommitShort})` : systemVersionTag ?? (systemCommitShort ? `commit ${systemCommitShort}` : "build unknown");
