@@ -124,6 +124,7 @@ main = do
               , run "kalman innovation sign" testKalmanInnovationSign
               , run "forward return sign" testForwardReturnSign
               , run "lstm training improves loss" testLstmImprovesLoss
+              , run "lstm training tolerates non-finite val ratio" testLstmInvalidValRatioFallback
               , run "lstm key uses platform" testLstmModelKeyPlatform
               , run "ensemble agreement gate" testAgreementGate
               , run "hold on close agreement" testHoldOnCloseAgree
@@ -772,6 +773,27 @@ testLstmImprovesLoss = do
         l0 = evaluateLoss lookback hidden dataset (lmParams m0)
         l1 = evaluateLoss lookback hidden dataset (lmParams m1)
     assert ("loss did not decrease: " ++ show (l0, l1)) (l1 < l0)
+
+testLstmInvalidValRatioFallback :: IO ()
+testLstmInvalidValRatioFallback = do
+    let series = replicate 80 1.0
+        lookback = 10
+        hidden = 4
+        cfg =
+            LSTMConfig
+                { lcLookback = lookback
+                , lcHiddenSize = hidden
+                , lcEpochs = 2
+                , lcLearningRate = 5e-2
+                , lcValRatio = 0 / 0
+                , lcPatience = 0
+                , lcGradClip = Just 1.0
+                , lcSeed = 123
+                }
+        (model, history) = trainLSTM cfg series
+        loss = evaluateLoss lookback hidden (buildSequences lookback series) (lmParams model)
+    assert "non-finite val ratio should still produce training history" (not (null history))
+    assert "non-finite val ratio should still produce finite loss" (isFiniteDouble loss)
 
 testLstmModelKeyPlatform :: IO ()
 testLstmModelKeyPlatform = do
@@ -2500,6 +2522,10 @@ testTrainBacktestSplit = do
     case splitTrainBacktest 50 0.9 xs2 of
         Left e -> assert "ratio too large" ("training bars" `isInfixOf` e)
         Right _ -> error "expected splitTrainBacktest to reject ratios with too few training bars"
+
+    case splitTrainBacktest 5 (0 / 0) xs of
+        Left e -> assert "non-finite ratio rejected" ("between 0 and 1" `isInfixOf` e)
+        Right _ -> error "expected splitTrainBacktest to reject non-finite ratios"
 
 testSweepThreshold :: IO ()
 testSweepThreshold = do

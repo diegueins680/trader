@@ -19,7 +19,7 @@ splitTrainBacktest lookback backtestRatio xs =
         trainEndRaw = floor (fromIntegral n * (1 - backtestRatio) + 1e-9)
         minTrainEnd = lookback + 1
         maxTrainEnd = n - 2
-     in if backtestRatio <= 0 || backtestRatio >= 1
+     in if not (isFiniteDouble backtestRatio) || backtestRatio <= 0 || backtestRatio >= 1
             then Left "--backtest-ratio must be between 0 and 1"
             else
                 if n < lookback + 3
@@ -59,3 +59,6 @@ splitTrainBacktest lookback backtestRatio xs =
                                                 , splitTrain = take trainEndRaw xs
                                                 , splitBacktest = drop trainEndRaw xs
                                                 }
+
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)
