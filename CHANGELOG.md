@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Metrics hardening: sanitize non-finite trade returns/equity deltas and position values when computing backtest metrics so malformed payloads cannot propagate `NaN`/`Infinity` into metric outputs.
 - CLI/optimizer parsing: make `--tune-objective` whitespace-tolerant (including tabs/newlines) while preserving existing objective aliases, so API/CLI wrappers that include non-space whitespace no longer fail objective validation.
 - Symbol splitting hardening: for quote-only compact tokens (for example `USDT`), keep the token in the base slot and avoid emitting an empty base asset when extracting `(base, quote)` pairs.
 - CLI time-window parsing: enforce strict zero-padded `HH:MM-HH:MM` format for `--no-trade-window` (for example `09:30-16:00`) so ambiguous single-digit inputs are rejected instead of being silently accepted.

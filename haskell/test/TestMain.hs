@@ -54,7 +54,7 @@ import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLos
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (fitLinearRange)
 import Trader.Method (Method (..), parseMethod, selectPredictions)
-import Trader.Metrics (bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
+import Trader.Metrics (bmAvgTradeReturn, bmExposure, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (TuneObjective (..), bestFinalEquity, optimizeOperations, parseTuneObjective, sweepThreshold)
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (sampleTakeProfitPartial)
@@ -135,6 +135,7 @@ main = do
               , run "liquidation clamps equity" testLiquidationClamp
               , run "metrics max drawdown" testMetricsMaxDrawdown
               , run "metrics profit factor pnl" testMetricsProfitFactorPnL
+              , run "metrics sanitize non-finite trade payloads" testMetricsSanitizeNonFiniteInputs
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
               , run "coinbase candle parser rejects fractional numeric timestamp" testCoinbaseFractionalTimestampRejected
@@ -1018,6 +1019,36 @@ testMetricsProfitFactorPnL = do
     assertApprox "gross profit (PnL)" 1e-12 (bmGrossProfit m) 1.0
     assertApprox "gross loss (PnL)" 1e-12 (bmGrossLoss m) 1.0
     assertApprox "profit factor" 1e-12 (Data.Maybe.fromMaybe 0 (bmProfitFactor m)) 1.0
+
+testMetricsSanitizeNonFiniteInputs :: IO ()
+testMetricsSanitizeNonFiniteInputs = do
+    let trBad =
+            Trade
+                { trEntryIndex = 0
+                , trExitIndex = 1
+                , trEntryEquity = 1.0
+                , trExitEquity = 0 / 0
+                , trReturn = 0 / 0
+                , trHoldingPeriods = -3
+                , trEntryHighVolProb = Nothing
+                , trExitReason = Just ExitSignal
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
+                }
+        br =
+            BacktestResult
+                { brEquityCurve = [1.0, 1.1]
+                , brPositions = [0 / 0]
+                , brAgreementOk = [True]
+                , brAgreementValid = [True]
+                , brPositionChanges = 1
+                , brTrades = [trBad]
+                }
+        m = computeMetrics 365 br
+    assert "avg trade return stays finite" (isFinite (bmAvgTradeReturn m))
+    assert "exposure stays finite" (isFinite (bmExposure m))
+  where
+    isFinite x = not (isNaN x || isInfinite x)
 
 testBinanceSignatureLength :: IO ()
 testBinanceSignatureLength = do
