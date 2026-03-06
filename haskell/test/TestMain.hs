@@ -24,7 +24,6 @@ import System.FilePath ((</>))
 import System.Timeout (timeout)
 
 import Trader.App.Args (Args, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
-import Trader.BinanceIntervals (isBinanceInterval)
 import Trader.Binance (
     BinanceMarket (..),
     BinanceOrderMode (..),
@@ -35,6 +34,7 @@ import Trader.Binance (
     placeMarketOrder,
     signQuery,
  )
+import Trader.BinanceIntervals (isBinanceInterval)
 import Trader.BotStartSemantics (
     botTradeEnabledFromApi,
     shouldClearPositionOriginOnStart,
