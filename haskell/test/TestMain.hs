@@ -115,6 +115,7 @@ main = do
               , run "predictors output shape" testPredictorsOutputs
               , run "predictor features reject non-finite price inputs" testPredictorFeaturesRejectNonFinitePrices
               , run "predictor dataset skips non-finite rows" testBuildDatasetSkipsNonFiniteRows
+              , run "predictor dataset skips overflowed finite feature rows" testBuildDatasetSkipsOverflowedFiniteRows
               , run "transformer training skips invalid rows" testTransformerTrainingSanitizesDataset
               , run "transformer prediction rejects non-finite query" testTransformerPredictionRejectsNonFiniteQuery
               , run "transformer training normalizes invalid temperature" testTransformerInvalidTemperatureFallback
@@ -669,6 +670,21 @@ testBuildDatasetSkipsNonFiniteRows = do
         prices = V.fromList [100.0, 101.0, nan, 103.0, 104.0]
         dataset = buildDatasetWithIndex fs prices
     assert "dataset skips rows whose features/targets are non-finite" (null dataset)
+
+testBuildDatasetSkipsOverflowedFiniteRows :: IO ()
+testBuildDatasetSkipsOverflowedFiniteRows = do
+    let fs = mkFeatureSpec 3
+        prices = V.fromList [1e-308, 1.0, 1.0, 1.0, 1.0]
+        dataset = buildDatasetWithIndex fs prices
+        indices = map (\(t, _, _) -> t) dataset
+        allFiniteRows =
+            and
+                [ all isFiniteDouble feats && isFiniteDouble target
+                | (_, feats, target) <- dataset
+                ]
+    assert "featuresAt rejects overflowed variance window with non-finite stats" (isNothing (featuresAt fs prices 2))
+    assert "dataset keeps only stable rows after overflowed-return window" (indices == [3])
+    assert "dataset rows remain finite after overflow guard" allFiniteRows
 
 testTransformerTrainingSanitizesDataset :: IO ()
 testTransformerTrainingSanitizesDataset = do

@@ -63,23 +63,25 @@ featuresAt fs prices t = do
                 retMeanReversion = ret1 - muS
                 volRatio = if abs sigM <= eps then 0 else sigS / sigM
                 trendSlope = muS - muM
-            pure
-                ( [ ret1
-                  , ret3
-                  , retShort
-                  , retMid
-                  , retLb
-                  , muS
-                  , sigS
-                  , muM
-                  , sigM
-                  , retSpread
-                  , retMeanReversion
-                  , volRatio
-                  , trendSlope
-                  ]
-                    ++ psych
-                )
+                feats =
+                    [ ret1
+                    , ret3
+                    , retShort
+                    , retMid
+                    , retLb
+                    , muS
+                    , sigS
+                    , muM
+                    , sigM
+                    , retSpread
+                    , retMeanReversion
+                    , volRatio
+                    , trendSlope
+                    ]
+                        ++ psych
+            if all isFiniteDouble feats
+                then pure feats
+                else Nothing
 
 {- | Build a supervised dataset (features at t, target forward return at t) with bar indices.
 Uses t in [lookbackBars-1 .. n-2].
@@ -99,9 +101,22 @@ buildDatasetWithIndex fs prices =
                 let p0 = prices V.! i
                     p1 = prices V.! (i + 1)
                  in finiteReturn p0 p1
-        retVals = V.map (Data.Maybe.fromMaybe 0) returns
-        retSqVals = V.map (maybe 0 (\r -> r * r)) returns
-        retInvalid = V.map (maybe 1 (const 0)) returns
+        retRows =
+            V.map
+                ( \mRet ->
+                    case mRet of
+                        Just r
+                            | isFiniteDouble r ->
+                                let r2 = r * r
+                                 in if isFiniteDouble r2
+                                        then (r, r2, 0 :: Int)
+                                        else (0, 0, 1)
+                        _ -> (0, 0, 1)
+                )
+                returns
+        retVals = V.map (\(r, _, _) -> r) retRows
+        retSqVals = V.map (\(_, r2, _) -> r2) retRows
+        retInvalid = V.map (\(_, _, bad) -> bad) retRows
         prefixSum = V.scanl' (+) 0 retVals
         prefixSumSq = V.scanl' (+) 0 retSqVals
         prefixInvalid = V.scanl' (+) 0 retInvalid
@@ -120,11 +135,14 @@ buildDatasetWithIndex fs prices =
                                     ss = prefixSumSq V.! (i1 + 1) - prefixSumSq V.! i0
                                     k' = fromIntegral k
                                     mu = s / k'
-                                    var =
+                                    varRaw =
                                         if k < 2
                                             then 0
                                             else (ss - k' * mu * mu) / fromIntegral (k - 1)
-                                 in Just (mu, sqrt (var + 1e-12))
+                                    var = max 0 varRaw
+                                 in if all isFiniteDouble [s, ss, mu, var]
+                                        then Just (mu, sqrt (var + 1e-12))
+                                        else Nothing
 
         retOverFast t bars =
             if bars <= 0 || t - bars < 0
@@ -152,23 +170,25 @@ buildDatasetWithIndex fs prices =
                         retMeanReversion = ret1 - muS
                         volRatio = if abs sigM <= eps then 0 else sigS / sigM
                         trendSlope = muS - muM
-                    pure
-                        ( [ ret1
-                          , ret3
-                          , retShort
-                          , retMid
-                          , retLb
-                          , muS
-                          , sigS
-                          , muM
-                          , sigM
-                          , retSpread
-                          , retMeanReversion
-                          , volRatio
-                          , trendSlope
-                          ]
-                            ++ psych
-                        )
+                        feats =
+                            [ ret1
+                            , ret3
+                            , retShort
+                            , retMid
+                            , retLb
+                            , muS
+                            , sigS
+                            , muM
+                            , sigM
+                            , retSpread
+                            , retMeanReversion
+                            , volRatio
+                            , trendSlope
+                            ]
+                                ++ psych
+                    if all isFiniteDouble feats
+                        then pure feats
+                        else Nothing
 
         forwardReturnFast t =
             if t < 0 || t >= retLen
@@ -181,6 +201,8 @@ buildDatasetWithIndex fs prices =
                 | t <- [startT .. endT]
                 , Just f <- [featuresAtFast t]
                 , Just y <- [forwardReturnFast t]
+                , all isFiniteDouble f
+                , isFiniteDouble y
                 ]
 
 {- | Build a supervised dataset (features at t, target forward return at t).
