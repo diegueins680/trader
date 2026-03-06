@@ -421,7 +421,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-hold-bars N` minimum holding periods before allowing a signal-based exit (`0` disables; default: `4`; bracket exits still apply)
   - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
   - `--max-trades-per-day N` block new entries after `N` entries per UTC day (`0` disables; requires bar timestamps)
-  - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows; requires bar timestamps)
+  - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows; requires bar timestamps; strict zero-padded clock, e.g. `09:30-16:00`)
     - Entry gates block new entries/reversals; existing positions are held until the gate clears.
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables; LSTM methods only)

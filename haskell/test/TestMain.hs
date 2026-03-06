@@ -45,7 +45,7 @@ import Trader.Cache (fetchWithCache, insertCache, newTtlCache)
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles, normalizeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), resolveDexTokens, tokenAmountToInteger)
-import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds)
+import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
 import Trader.Http (boundedBackoffMs, jitteredDelayMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
@@ -108,6 +108,7 @@ main = do
               , run "duration infers weekly periods from interval seconds" testInferPeriodsPerYearWeekly
               , run "duration infers monthly periods from interval seconds" testInferPeriodsPerYearMonthly
               , run "minute-of-day handles extreme epoch bounds" testMinuteOfDayFromMsBounds
+              , run "time window parser enforces zero-padded HH:MM" testParseTimeWindowStrictClockFormat
               , run "kalman fusion multi-sensor" testKalmanFusionMulti
               , run "market linear fit" testMarketLinearFit
               , run "predictors output shape" testPredictorsOutputs
@@ -571,6 +572,19 @@ testMinuteOfDayFromMsBounds = do
     let expected ts = fromInteger ((toInteger ts `div` 60000) `mod` 1440)
     assert "minute-of-day should stay bounded for maxBound Int64" (minuteOfDayFromMs (maxBound :: Int64) == expected (maxBound :: Int64))
     assert "minute-of-day should stay bounded for minBound Int64" (minuteOfDayFromMs (minBound :: Int64) == expected (minBound :: Int64))
+
+testParseTimeWindowStrictClockFormat :: IO ()
+testParseTimeWindowStrictClockFormat = do
+    let valid = parseTimeWindow "09:05-16:30"
+        rejects raw =
+            case parseTimeWindow raw of
+                Left _ -> True
+                Right _ -> False
+    assert "zero-padded time window parses" (valid == Right (TimeWindow (9 * 60 + 5) (16 * 60 + 30)))
+    assert "single-digit start hour is rejected" (rejects "9:05-16:30")
+    assert "single-digit start minute is rejected" (rejects "09:5-16:30")
+    assert "single-digit end hour is rejected" (rejects "09:05-6:30")
+    assert "single-digit end minute is rejected" (rejects "09:05-16:3")
 
 testKalmanFusionMulti :: IO ()
 testKalmanFusionMulti = do

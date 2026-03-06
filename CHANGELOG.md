@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- CLI time-window parsing: enforce strict zero-padded `HH:MM-HH:MM` format for `--no-trade-window` (for example `09:30-16:00`) so ambiguous single-digit inputs are rejected instead of being silently accepted.
 - Top-combo symbol cleanup: trim known Binance perpetual/contract suffixes (for example `BTCUSDTPERP` -> `BTCUSDT`, `ETHUSDTSWAP` -> `ETHUSDT`) during combo-symbol sanitization while preserving unknown alphabetic suffixes to avoid over-trimming.
 - HTTP retries: clamp jittered exponential backoff delays to `TRADER_HTTP_RETRY_MAX_MS` so positive jitter cannot exceed the configured maximum delay.
 - Optimizer/CLI: harden `resolveBars` lookback derivation so invalid interval/lookback conversions fail fast with explicit errors (and empty interval sets are rejected) instead of silently falling back to zero.

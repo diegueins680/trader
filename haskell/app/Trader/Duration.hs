@@ -79,16 +79,24 @@ parseTimeOfDay :: String -> Either String Int
 parseTimeOfDay raw =
     let s = trim raw
      in case break (== ':') s of
-            (hStr, ':' : mStr) -> do
-                h <- readIntEither hStr
-                m <- readIntEither mStr
-                if h < 0 || h > 23
-                    then Left "Hour must be between 0 and 23."
-                    else
-                        if m < 0 || m > 59
-                            then Left "Minute must be between 0 and 59."
-                            else Right (h * 60 + m)
+            (hStr, ':' : mStr)
+                | isTwoDigitClockPart hStr && isTwoDigitClockPart mStr -> do
+                    h <- readIntEither hStr
+                    m <- readIntEither mStr
+                    if h < 0 || h > 23
+                        then Left "Hour must be between 0 and 23."
+                        else
+                            if m < 0 || m > 59
+                                then Left "Minute must be between 0 and 59."
+                                else Right (h * 60 + m)
+                | otherwise -> Left "Expected HH:MM."
             _ -> Left "Expected HH:MM."
+
+isTwoDigitClockPart :: String -> Bool
+isTwoDigitClockPart part =
+    case part of
+        [a, b] -> isDigit a && isDigit b
+        _ -> False
 
 pad2 :: Int -> String
 pad2 n =
