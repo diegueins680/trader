@@ -791,6 +791,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - When `TRADER_DB_URL` is set, the API can rebuild `top-combos.json` from Postgres if local/S3 state is missing, so combos persist across deploys.
 - The API container image seeds `web/public/top-combos.json` from the repo-level `top-combos.s3.json` so fresh deploys have a multi-symbol fallback payload.
 - `top-combos.json` drops combos with `finalEquity <= 1` on read/write (including numeric strings), sanitizes combo symbols, and persists the filtered file to S3 when configured.
+- `merge-top-combos` now tolerates malformed UTF-8 bytes in JSONL input files by skipping unparseable lines instead of failing the entire merge.
 - The UI auto-sanitizes combo symbols when applying them to the form so exchange symbol validation stays clean.
 
 Optional daily top-combo backtests (refreshes metrics for the best performers):

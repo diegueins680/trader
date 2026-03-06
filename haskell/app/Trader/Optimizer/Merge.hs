@@ -27,6 +27,7 @@ import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Scientific (FPFormat (..), Scientific, formatScientific, fromFloatDigits, toBoundedInteger, toRealFloat)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Encoding.Error as TEE
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import qualified Data.Vector as V
 import System.Directory (
@@ -163,7 +164,7 @@ loadCombosFromJsonl path = do
             case raw of
                 Left _ -> pure []
                 Right contents ->
-                    let lines' = filter (not . T.null . T.strip) (T.lines (TE.decodeUtf8 (BL.toStrict contents)))
+                    let lines' = filter (not . T.null . T.strip) (T.lines (TE.decodeUtf8With TEE.lenientDecode (BL.toStrict contents)))
                      in pure (mapMaybe parseJsonlLine lines')
   where
     parseJsonlLine line =

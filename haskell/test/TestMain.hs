@@ -229,6 +229,7 @@ main = do
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
               , run "optimizer merge preserves dex platform/symbol semantics" testRunMergePreservesDexPlatformSymbolSemantics
+              , run "optimizer merge skips invalid utf8 jsonl lines" testRunMergeSkipsInvalidUtf8JsonlLines
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
               , run "top combos recover compact binance symbol from prefixed pair text" testTopCombosPrefixedPairNormalization
               , run "top combos recover compact binance symbol from separated base/quote tokens" testTopCombosSeparatedTokenPairNormalization
@@ -2280,6 +2281,42 @@ testRunMergePreservesDexPlatformSymbolSemantics =
             combo = requireHead "merge output should contain one combo" combos
         assert "DEX platform should be preserved in merged params" (requireComboPlatform "dex combo platform" combo == Just "uniswap")
         assert "DEX symbol should not be Binance-normalized in merged params.binanceSymbol" (requireComboBinanceSymbol "dex combo binanceSymbol" combo == Just dexSymbol)
+
+testRunMergeSkipsInvalidUtf8JsonlLines :: IO ()
+testRunMergeSkipsInvalidUtf8JsonlLines =
+    withTempTestDir "merge-invalid-utf8-jsonl" $ \dir -> do
+        let topPath = dir </> "top-combos-input.json"
+            outPath = dir </> "top-combos-output.json"
+            jsonlPath = dir </> "optimize_equity_invalid_utf8.jsonl"
+            validLine =
+                BS.pack
+                    "{\"ok\":true,\"finalEquity\":1.5,\"source\":\"jsonl\",\"params\":{\"interval\":\"1h\",\"bars\":120,\"symbol\":\"BTCUSDT\"}}"
+            invalidLine = BS.pack "\255"
+            jsonlPayload = BL.fromStrict (BS.intercalate "\n" [validLine, invalidLine] <> "\n")
+            topPayload = object ["generatedAtMs" .= (1 :: Int), "combos" .= ([] :: [Aeson.Value])]
+            mergeArgs =
+                MergeArgs
+                    { maTopJson = topPath
+                    , maFromJsonl = [jsonlPath]
+                    , maFromTopJson = []
+                    , maOut = outPath
+                    , maMax = 5
+                    , maHistoryDir = Nothing
+                    , maCopyToDist = False
+                    }
+        BL.writeFile topPath (Aeson.encode topPayload)
+        BL.writeFile jsonlPath jsonlPayload
+        code <- runMerge mergeArgs
+        assert "runMerge should complete successfully despite invalid utf8 line" (code == 0)
+        outContents <- BL.readFile outPath
+        outValue <-
+            case eitherDecode outContents of
+                Left err -> error ("failed to parse merge output JSON: " ++ err)
+                Right v -> pure v
+        let combos = requireCombosArray "merge output combos" outValue
+            combo = requireHead "merge output should contain one combo" combos
+        assert "valid jsonl combo should still be retained" (length combos == 1)
+        assert "merged combo should preserve parsed bars from valid line" (requireComboBars "jsonl combo bars" combo == 120)
 
 testDexTradeArgsRequireTokensNotSymbol :: IO ()
 testDexTradeArgsRequireTokensNotSymbol = do
