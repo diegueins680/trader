@@ -178,6 +178,10 @@ function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
   if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) {
     return normalizeTenantKeyValue(body.get("tenantKey"));
   }
+  if (typeof FormData !== "undefined" && body instanceof FormData) {
+    const tenantKey = body.get("tenantKey");
+    return typeof tenantKey === "string" ? normalizeTenantKeyValue(tenantKey) : null;
+  }
   return null;
 }
 
