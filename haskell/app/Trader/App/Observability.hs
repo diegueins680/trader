@@ -56,6 +56,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
+import Trader.App.Runtime (splitEnvList)
 import Trader.Binance (getTimestampMs)
 import Trader.Text (trim)
 
@@ -272,8 +273,3 @@ webhookSend wh ev = do
         req = (whRequest wh){requestBody = RequestBodyLBS (encode payload)}
     _ <- try (httpLbs req (whManager wh)) :: IO (Either SomeException (Response BL.ByteString))
     pure ()
-
-splitEnvList :: String -> [String]
-splitEnvList raw =
-    let cleaned = map (\c -> if c == ',' then ' ' else c) raw
-     in filter (not . null) (map trim (words cleaned))

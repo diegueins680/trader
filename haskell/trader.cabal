@@ -13,6 +13,7 @@ executable trader-hs
                      , Trader.App.Csv
                      , Trader.App.Env
                      , Trader.App.Observability
+                     , Trader.App.Runtime
                      , Trader.Cache
                      , Trader.Coinbase
                      , Trader.Config

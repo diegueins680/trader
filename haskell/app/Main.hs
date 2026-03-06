@@ -116,6 +116,19 @@ import Trader.App.Observability (
     webhookNotifyMaybe,
     webhookNotifyMaybeSync,
  )
+import Trader.App.Runtime (
+    TenantKey,
+    hashKeyHex,
+    marketCode,
+    normalizeBinanceCredential,
+    normalizeSymbol,
+    normalizeTenantKey,
+    readEnvBool,
+    resolveTenantKeyFromParams,
+    splitEnvList,
+    tenantKeyFromBinanceKeys,
+    tenantKeyFromCoinbaseKeys,
+ )
 import Trader.Binance (
     BinanceEnv (..),
     BinanceLog (..),
@@ -4929,77 +4942,11 @@ data BotOrderEvent = BotOrderEvent
 instance ToJSON BotOrderEvent where
     toJSON = Aeson.genericToJSON (jsonOptions 3)
 
-marketCode :: BinanceMarket -> String
-marketCode m =
-    case m of
-        MarketSpot -> "spot"
-        MarketMargin -> "margin"
-        MarketFutures -> "futures"
-
 ensureBinanceKeysPresent :: BinanceEnv -> IO ()
 ensureBinanceKeysPresent env =
     let missingKey = maybe True BS.null (beApiKey env)
         missingSecret = maybe True BS.null (beApiSecret env)
      in (when (missingKey || missingSecret) $ throwIO (userError "botTrade=true requires BINANCE_API_KEY and BINANCE_API_SECRET (or pass binanceApiKey/binanceApiSecret in request)"))
-
-normalizeBinanceCredential :: Maybe String -> Maybe String
-normalizeBinanceCredential raw =
-    case raw of
-        Nothing -> Nothing
-        Just v ->
-            let trimmed = trim v
-             in if null trimmed then Nothing else Just trimmed
-
-type TenantKey = Text
-
-tenantKeyPrefixBinance :: String
-tenantKeyPrefixBinance = "binance"
-
-tenantKeyPrefixCoinbase :: String
-tenantKeyPrefixCoinbase = "coinbase"
-
-normalizeTenantKey :: Maybe String -> Maybe TenantKey
-normalizeTenantKey raw =
-    case raw of
-        Nothing -> Nothing
-        Just v ->
-            let trimmed = trim v
-             in if null trimmed then Nothing else Just (T.pack trimmed)
-
-tenantKeyFromBinanceKeys :: Maybe String -> Maybe String -> Maybe TenantKey
-tenantKeyFromBinanceKeys mKey mSecret = do
-    key <- normalizeBinanceCredential mKey
-    secret <- normalizeBinanceCredential mSecret
-    let payload = key ++ ":" ++ secret
-    pure (T.pack (tenantKeyPrefixBinance ++ ":" ++ hashKeyHex payload))
-
-tenantKeyFromCoinbaseKeys :: Maybe String -> Maybe String -> Maybe String -> Maybe TenantKey
-tenantKeyFromCoinbaseKeys mKey mSecret mPass = do
-    key <- normalizeBinanceCredential mKey
-    secret <- normalizeBinanceCredential mSecret
-    passphrase <- normalizeBinanceCredential mPass
-    let payload = key ++ ":" ++ secret ++ ":" ++ passphrase
-    pure (T.pack (tenantKeyPrefixCoinbase ++ ":" ++ hashKeyHex payload))
-
-resolveTenantKeyFromParams ::
-    Maybe String ->
-    Maybe String ->
-    Maybe String ->
-    Maybe String ->
-    Maybe String ->
-    Maybe String ->
-    Either String (Maybe TenantKey)
-resolveTenantKeyFromParams mTenantRaw bKey bSecret cKey cSecret cPass =
-    let explicit = normalizeTenantKey mTenantRaw
-        computed = tenantKeyFromBinanceKeys bKey bSecret <|> tenantKeyFromCoinbaseKeys cKey cSecret cPass
-     in case (explicit, computed) of
-            (Just e, Just c) ->
-                if e == c
-                    then Right (Just c)
-                    else Left "tenantKey does not match provided API keys."
-            (Just e, Nothing) -> Right (Just e)
-            (Nothing, Just c) -> Right (Just c)
-            (Nothing, Nothing) -> Right Nothing
 
 resolveTenantKeyFromApiParams :: ApiParams -> Either String (Maybe TenantKey)
 resolveTenantKeyFromApiParams p =
@@ -11181,27 +11128,6 @@ defaultOptimizerSymbols =
     , "ARBUSDT"
     , "SUIUSDT"
     ]
-
-splitEnvList :: String -> [String]
-splitEnvList raw =
-    let cleaned = map (\c -> if c == ',' then ' ' else c) raw
-     in filter (not . null) (map trim (words cleaned))
-
-readEnvBool :: Maybe String -> Bool -> Bool
-readEnvBool raw def =
-    case fmap (map toLower . trim) raw of
-        Just "1" -> True
-        Just "true" -> True
-        Just "yes" -> True
-        Just "on" -> True
-        Just "0" -> False
-        Just "false" -> False
-        Just "no" -> False
-        Just "off" -> False
-        _ -> def
-
-normalizeSymbol :: String -> String
-normalizeSymbol = map toUpper . trim
 
 parsePlatformsArg :: String -> Either String [Platform]
 parsePlatformsArg raw =
@@ -20082,12 +20008,6 @@ resolveLstmWeightsDir = do
         Nothing -> do
             mStateDir <- stateSubdirFromEnv "lstm"
             pure (Just (fromMaybe defaultLstmWeightsDir mStateDir))
-
-hashKeyHex :: String -> String
-hashKeyHex s =
-    let digest :: Digest SHA256
-        digest = hash (TE.encodeUtf8 (T.pack s))
-     in BS.unpack (B16.encode (convert digest))
 
 hashBytesHex :: BL.ByteString -> String
 hashBytesHex bs =
