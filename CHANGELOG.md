@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Optimizer/ROI: wire rolling performance gates into `optimize-equity` by adding optimizer sampling for `--adaptive-filters`, `--perf-lookback`, `--perf-min-win-rate`, and `--perf-min-profit-factor`, so adaptive edge/SNR/Kalman tightening is actually explored during quality-mode searches instead of varying inactive caps.
+- Optimizer/ROI: add `optimize-equity` sampling for meta-label gating (`--p-meta-label-filter`, `--meta-label-min-edge-min/max`, `--meta-label-min-confidence-min/max`, `--p-meta-label-require-band`) so quality-mode searches can tune confidence/edge confirmation instead of leaving the filter fixed off.
 - Formal methods: specify the optimizer ROI contract and threshold tie-break in executable form, then exhaustively model-check them in `cabal test` against the production Haskell implementation.
 - Web UI/API: keep Binance key-check trade permission at `FAIL` for auth/IP/permission errors (for example wrapped `HTTP 401` + Binance `-2015`) instead of rewriting them to `Auth OK`.
 - Optimizer/top-combos merge: canonicalize prefixed platform keys (for example `coinbase-advanced` -> `coinbase`, `uniswap-v3` -> `uniswap`) so merged `params.platform` is preserved and symbol normalization keeps exchange/DEX-specific delimiters (`BTC/USD` -> `BTC-USD`, `ETH/USDT` stays delimited for DEX).

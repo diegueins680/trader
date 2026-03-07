@@ -848,6 +848,12 @@ data OptimizerArgs = OptimizerArgs
     , oaPerfMinProfitFactorMin :: !Double
     , oaPerfMinProfitFactorMax :: !Double
     , oaPDisablePerfMinProfitFactor :: !Double
+    , oaPMetaLabelFilter :: !Double
+    , oaMetaLabelMinEdgeMin :: !Double
+    , oaMetaLabelMinEdgeMax :: !Double
+    , oaMetaLabelMinConfidenceMin :: !Double
+    , oaMetaLabelMinConfidenceMax :: !Double
+    , oaPMetaLabelRequireBand :: !Double
     }
     deriving (Eq, Show)
 
@@ -921,6 +927,11 @@ applyQualityPreset args =
             , oaPerfMinProfitFactorMin = maxIf (oaPerfMinProfitFactorMin args) 1.05
             , oaPerfMinProfitFactorMax = maxIf (oaPerfMinProfitFactorMax args) 1.8
             , oaPDisablePerfMinProfitFactor = minIf (oaPDisablePerfMinProfitFactor args) 0.35
+            , oaPMetaLabelFilter = maxIf (oaPMetaLabelFilter args) 0.3
+            , oaMetaLabelMinEdgeMax = maxIf (oaMetaLabelMinEdgeMax args) 0.001
+            , oaMetaLabelMinConfidenceMin = maxIf (oaMetaLabelMinConfidenceMin args) 0.45
+            , oaMetaLabelMinConfidenceMax = maxIf (oaMetaLabelMinConfidenceMax args) 0.8
+            , oaPMetaLabelRequireBand = maxIf (oaPMetaLabelRequireBand args) 0.75
             , oaInterval = if intervalReset then Nothing else oaInterval args
             , oaIntervals = intervals'
             }
@@ -1057,6 +1068,10 @@ data TrialParams = TrialParams
     , tpPerfLookback :: !Int
     , tpPerfMinWinRate :: !(Maybe Double)
     , tpPerfMinProfitFactor :: !(Maybe Double)
+    , tpMetaLabelFilter :: !Bool
+    , tpMetaLabelMinEdge :: !Double
+    , tpMetaLabelMinConfidence :: !Double
+    , tpMetaLabelRequireBand :: !Bool
     }
     deriving (Eq, Show)
 
@@ -1285,6 +1300,13 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                 ++ (if tpAdaptiveFilters params then ["--adaptive-filters"] else ["--no-adaptive-filters"])
                 ++ maybe [] (\v -> ["--perf-min-win-rate", printf "%.12g" (clamp v 0 1)]) (tpPerfMinWinRate params)
                 ++ maybe [] (\v -> ["--perf-min-profit-factor", printf "%.12g" (max 0 v)]) (tpPerfMinProfitFactor params)
+                ++ (if tpMetaLabelFilter params then ["--meta-label-filter"] else ["--no-meta-label-filter"])
+                ++ [ "--meta-label-min-edge"
+                   , printf "%.12g" (max 0 (tpMetaLabelMinEdge params))
+                   , "--meta-label-min-confidence"
+                   , printf "%.12g" (clamp (tpMetaLabelMinConfidence params) 0 1)
+                   ]
+                ++ (if tpMetaLabelRequireBand params then ["--meta-label-require-band"] else ["--no-meta-label-require-band"])
                 ++ (["--tri-layer" | tpTriLayer params])
                 ++ [ "--tri-layer-fast-mult"
                    , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
@@ -1816,6 +1838,10 @@ trialToRecord tr symbolLabel =
             , "perfLookback" .= tpPerfLookback (trParams tr)
             , "perfMinWinRate" .= tpPerfMinWinRate (trParams tr)
             , "perfMinProfitFactor" .= tpPerfMinProfitFactor (trParams tr)
+            , "metaLabelFilter" .= tpMetaLabelFilter (trParams tr)
+            , "metaLabelMinEdge" .= tpMetaLabelMinEdge (trParams tr)
+            , "metaLabelMinConfidence" .= tpMetaLabelMinConfidence (trParams tr)
+            , "metaLabelRequireBand" .= tpMetaLabelRequireBand (trParams tr)
             ]
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
         paramsPairs' =
@@ -2016,7 +2042,11 @@ sampleParams
     perfMinWinRateRange
     pDisablePerfMinWinRate
     perfMinProfitFactorRange
-    pDisablePerfMinProfitFactor =
+    pDisablePerfMinProfitFactor
+    pMetaLabelFilter
+    metaLabelMinEdgeRange
+    metaLabelMinConfidenceRange
+    pMetaLabelRequireBand =
         let (platform, rng1) =
                 case platforms of
                     [] -> (Nothing, rng0)
@@ -2524,6 +2554,18 @@ sampleParams
                 if adaptiveFiltersEnabled || isJust perfMinWinRate || isJust perfMinProfitFactor
                     then max 1 perfLookbackRaw
                     else 0
+            (metaLabelFilterEnabled, rng104) =
+                let (r, rng') = nextDouble rng103
+                 in (r < pMetaLabelFilter, rng')
+            (metaLabelMinEdge, rng105) =
+                let (lo, hi) = ordered metaLabelMinEdgeRange
+                 in nextUniform lo hi rng104
+            (metaLabelMinConfidence, rng106) =
+                let (lo, hi) = ordered metaLabelMinConfidenceRange
+                 in nextUniform lo hi rng105
+            (metaLabelRequireBand, rng107) =
+                let (r, rng') = nextDouble rng106
+                 in (r < pMetaLabelRequireBand, rng')
          in ( TrialParams
                 { tpPlatform = platform
                 , tpInterval = interval
@@ -2656,8 +2698,12 @@ sampleParams
                 , tpPerfLookback = perfLookback
                 , tpPerfMinWinRate = perfMinWinRate
                 , tpPerfMinProfitFactor = perfMinProfitFactor
+                , tpMetaLabelFilter = metaLabelFilterEnabled
+                , tpMetaLabelMinEdge = max 0 metaLabelMinEdge
+                , tpMetaLabelMinConfidence = clamp metaLabelMinConfidence 0 1
+                , tpMetaLabelRequireBand = metaLabelRequireBand
                 }
-            , rng103
+            , rng107
             )
       where
         ordered (a, b) = if a <= b then (a, b) else (b, a)
@@ -3056,6 +3102,10 @@ runOptimizer args0 = do
                                                         pDisablePerfMinWinRate = clamp (oaPDisablePerfMinWinRate args) 0 1
                                                         perfMinProfitFactorRange = (max 0 (oaPerfMinProfitFactorMin args), max 0 (oaPerfMinProfitFactorMax args))
                                                         pDisablePerfMinProfitFactor = clamp (oaPDisablePerfMinProfitFactor args) 0 1
+                                                        pMetaLabelFilter = clamp (oaPMetaLabelFilter args) 0 1
+                                                        metaLabelMinEdgeRange = (max 0 (oaMetaLabelMinEdgeMin args), max 0 (oaMetaLabelMinEdgeMax args))
+                                                        metaLabelMinConfidenceRange = (clamp (oaMetaLabelMinConfidenceMin args) 0 1, clamp (oaMetaLabelMinConfidenceMax args) 0 1)
+                                                        pMetaLabelRequireBand = clamp (oaPMetaLabelRequireBand args) 0 1
                                                     if null normalizationChoices
                                                         then do
                                                             hPutStrLn stderr "No normalizations provided."
@@ -3302,6 +3352,10 @@ runOptimizer args0 = do
                                                                                 pDisablePerfMinWinRate
                                                                                 perfMinProfitFactorRange
                                                                                 pDisablePerfMinProfitFactor
+                                                                                pMetaLabelFilter
+                                                                                metaLabelMinEdgeRange
+                                                                                metaLabelMinConfidenceRange
+                                                                                pMetaLabelRequireBand
                                                                         runTrialWith idx rng mBase mParents best recordsRev = do
                                                                             let (params, _) =
                                                                                     case mBase of
@@ -3923,6 +3977,10 @@ printBest tr = do
     putStrLn ("  perfLookback:        " ++ show (tpPerfLookback p))
     putStrLn ("  perfMinWinRate:      " ++ showMaybe (tpPerfMinWinRate p))
     putStrLn ("  perfMinProfitFactor: " ++ showMaybe (tpPerfMinProfitFactor p))
+    putStrLn ("  metaLabelFilter:     " ++ show (tpMetaLabelFilter p))
+    putStrLn ("  metaLabelMinEdge:    " ++ show (tpMetaLabelMinEdge p))
+    putStrLn ("  metaLabelMinConfidence:" ++ show (tpMetaLabelMinConfidence p))
+    putStrLn ("  metaLabelRequireBand:" ++ show (tpMetaLabelRequireBand p))
 
 showMaybe :: (Show a) => Maybe a -> String
 showMaybe = maybe "None" show
@@ -4185,6 +4243,10 @@ crossoverTrialParams a b rng0 =
         (tpPerfLookback', rng123) = pickValue (tpPerfLookback a) (tpPerfLookback b) rng122
         (tpPerfMinWinRate', rng124) = pickValue (tpPerfMinWinRate a) (tpPerfMinWinRate b) rng123
         (tpPerfMinProfitFactor', rng125) = pickValue (tpPerfMinProfitFactor a) (tpPerfMinProfitFactor b) rng124
+        (tpMetaLabelFilter', rng126) = pickValue (tpMetaLabelFilter a) (tpMetaLabelFilter b) rng125
+        (tpMetaLabelMinEdge', rng127) = pickValue (tpMetaLabelMinEdge a) (tpMetaLabelMinEdge b) rng126
+        (tpMetaLabelMinConfidence', rng128) = pickValue (tpMetaLabelMinConfidence a) (tpMetaLabelMinConfidence b) rng127
+        (tpMetaLabelRequireBand', rng129) = pickValue (tpMetaLabelRequireBand a) (tpMetaLabelRequireBand b) rng128
      in ( a
             { tpPlatform = tpPlatform'
             , tpInterval = tpInterval'
@@ -4317,8 +4379,12 @@ crossoverTrialParams a b rng0 =
             , tpPerfLookback = tpPerfLookback'
             , tpPerfMinWinRate = tpPerfMinWinRate'
             , tpPerfMinProfitFactor = tpPerfMinProfitFactor'
+            , tpMetaLabelFilter = tpMetaLabelFilter'
+            , tpMetaLabelMinEdge = tpMetaLabelMinEdge'
+            , tpMetaLabelMinConfidence = tpMetaLabelMinConfidence'
+            , tpMetaLabelRequireBand = tpMetaLabelRequireBand'
             }
-        , rng125
+        , rng129
         )
 
 clampBarsForPlatform :: Maybe String -> Int -> Int -> Int -> Int
@@ -4409,6 +4475,8 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (perfLookback', rng67) = perturbInt (tpPerfLookback p) scaleInt rng66
         (perfMinWinRate', rng68) = perturbMaybeDouble (tpPerfMinWinRate p) scaleDouble rng67
         (perfMinProfitFactor', rng69) = perturbMaybeDouble (tpPerfMinProfitFactor p) scaleDouble rng68
+        (metaLabelMinEdge', rng70) = perturbDouble (tpMetaLabelMinEdge p) scaleDouble rng69
+        (metaLabelMinConfidence', rng71) = perturbDouble (tpMetaLabelMinConfidence p) scaleDouble rng70
      in ( p
             { tpBars = bars'
             , tpBlendWeight = clamp blendWeight' 0 1
@@ -4483,8 +4551,10 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
             , tpPerfLookback = max 0 perfLookback'
             , tpPerfMinWinRate = fmap (\v -> clamp v 0 1) perfMinWinRate'
             , tpPerfMinProfitFactor = fmap (max 0) perfMinProfitFactor'
+            , tpMetaLabelMinEdge = max 0 metaLabelMinEdge'
+            , tpMetaLabelMinConfidence = clamp metaLabelMinConfidence' 0 1
             }
-        , rng69
+        , rng71
         )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
@@ -4692,6 +4762,10 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "perfLookback" .= tpPerfLookback params
                 , "perfMinWinRate" .= tpPerfMinWinRate params
                 , "perfMinProfitFactor" .= tpPerfMinProfitFactor params
+                , "metaLabelFilter" .= tpMetaLabelFilter params
+                , "metaLabelMinEdge" .= tpMetaLabelMinEdge params
+                , "metaLabelMinConfidence" .= tpMetaLabelMinConfidence params
+                , "metaLabelRequireBand" .= tpMetaLabelRequireBand params
                 , "binanceSymbol" .= symbol
                 ]
         identity =

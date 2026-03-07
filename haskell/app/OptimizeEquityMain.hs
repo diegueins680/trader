@@ -380,6 +380,12 @@ optimizerArgsParser =
         <*> option auto (long "perf-min-profit-factor-min" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "perf-min-profit-factor-max" <> value 2.5 <> metavar "FLOAT")
         <*> option auto (long "p-disable-perf-min-profit-factor" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "p-meta-label-filter" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "meta-label-min-edge-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "meta-label-min-edge-max" <> value 0.001 <> metavar "FLOAT")
+        <*> option auto (long "meta-label-min-confidence-min" <> value 0.4 <> metavar "FLOAT")
+        <*> option auto (long "meta-label-min-confidence-max" <> value 0.8 <> metavar "FLOAT")
+        <*> option auto (long "p-meta-label-require-band" <> value 1.0 <> metavar "FLOAT")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
@@ -486,6 +492,19 @@ validateArgs args = do
         Left "--perf-min-profit-factor-min/max must be >= 0."
     when (oaPDisablePerfMinProfitFactor args < 0 || oaPDisablePerfMinProfitFactor args > 1) $
         Left "--p-disable-perf-min-profit-factor must be between 0 and 1."
+    when (oaPMetaLabelFilter args < 0 || oaPMetaLabelFilter args > 1) $
+        Left "--p-meta-label-filter must be between 0 and 1."
+    when (oaMetaLabelMinEdgeMin args < 0 || oaMetaLabelMinEdgeMax args < 0) $
+        Left "--meta-label-min-edge-min/max must be >= 0."
+    when
+        ( oaMetaLabelMinConfidenceMin args < 0
+            || oaMetaLabelMinConfidenceMin args > 1
+            || oaMetaLabelMinConfidenceMax args < 0
+            || oaMetaLabelMinConfidenceMax args > 1
+        )
+        $ Left "--meta-label-min-confidence-min/max must be between 0 and 1."
+    when (oaPMetaLabelRequireBand args < 0 || oaPMetaLabelRequireBand args > 1) $
+        Left "--p-meta-label-require-band must be between 0 and 1."
     pure args'
 
 objectiveChoices :: [String]
