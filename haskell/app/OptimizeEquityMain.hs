@@ -371,6 +371,15 @@ optimizerArgsParser =
         <*> option auto (long "adaptive-trend-lookback-max-max" <> value 120 <> metavar "INT")
         <*> option auto (long "adaptive-kalman-z-min-max-min" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "adaptive-kalman-z-min-max-max" <> value 3.0 <> metavar "FLOAT")
+        <*> option auto (long "p-adaptive-filters" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "perf-lookback-min" <> value 5 <> metavar "INT")
+        <*> option auto (long "perf-lookback-max" <> value 60 <> metavar "INT")
+        <*> option auto (long "perf-min-win-rate-min" <> value 0.45 <> metavar "FLOAT")
+        <*> option auto (long "perf-min-win-rate-max" <> value 0.65 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-perf-min-win-rate" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "perf-min-profit-factor-min" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "perf-min-profit-factor-max" <> value 2.5 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-perf-min-profit-factor" <> value 1.0 <> metavar "FLOAT")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
@@ -460,6 +469,23 @@ validateArgs args = do
         Left "--max-open-per-base-min/max must be >= 0."
     when (oaAdaptiveTrendLookbackMaxMin args < 1 || oaAdaptiveTrendLookbackMaxMax args < 1) $
         Left "--adaptive-trend-lookback-max-min/max must be >= 1."
+    when (oaPAdaptiveFilters args < 0 || oaPAdaptiveFilters args > 1) $
+        Left "--p-adaptive-filters must be between 0 and 1."
+    when (oaPerfLookbackMin args < 1 || oaPerfLookbackMax args < 1) $
+        Left "--perf-lookback-min/max must be >= 1."
+    when
+        ( oaPerfMinWinRateMin args < 0
+            || oaPerfMinWinRateMin args > 1
+            || oaPerfMinWinRateMax args < 0
+            || oaPerfMinWinRateMax args > 1
+        )
+        $ Left "--perf-min-win-rate-min/max must be between 0 and 1."
+    when (oaPDisablePerfMinWinRate args < 0 || oaPDisablePerfMinWinRate args > 1) $
+        Left "--p-disable-perf-min-win-rate must be between 0 and 1."
+    when (oaPerfMinProfitFactorMin args < 0 || oaPerfMinProfitFactorMax args < 0) $
+        Left "--perf-min-profit-factor-min/max must be >= 0."
+    when (oaPDisablePerfMinProfitFactor args < 0 || oaPDisablePerfMinProfitFactor args > 1) $
+        Left "--p-disable-perf-min-profit-factor must be between 0 and 1."
     pure args'
 
 objectiveChoices :: [String]

@@ -839,6 +839,15 @@ data OptimizerArgs = OptimizerArgs
     , oaAdaptiveTrendLookbackMaxMax :: !Int
     , oaAdaptiveKalmanZMinMaxMin :: !Double
     , oaAdaptiveKalmanZMinMaxMax :: !Double
+    , oaPAdaptiveFilters :: !Double
+    , oaPerfLookbackMin :: !Int
+    , oaPerfLookbackMax :: !Int
+    , oaPerfMinWinRateMin :: !Double
+    , oaPerfMinWinRateMax :: !Double
+    , oaPDisablePerfMinWinRate :: !Double
+    , oaPerfMinProfitFactorMin :: !Double
+    , oaPerfMinProfitFactorMax :: !Double
+    , oaPDisablePerfMinProfitFactor :: !Double
     }
     deriving (Eq, Show)
 
@@ -903,6 +912,15 @@ applyQualityPreset args =
             , oaPDisableStopVolMult = minIf (oaPDisableStopVolMult args) 0.35
             , oaPDisableTpVolMult = minIf (oaPDisableTpVolMult args) 0.35
             , oaPDisableTrailVolMult = minIf (oaPDisableTrailVolMult args) 0.5
+            , oaPAdaptiveFilters = maxIf (oaPAdaptiveFilters args) 0.35
+            , oaPerfLookbackMin = maxIf (oaPerfLookbackMin args) 10
+            , oaPerfLookbackMax = maxIf (oaPerfLookbackMax args) 40
+            , oaPerfMinWinRateMin = maxIf (oaPerfMinWinRateMin args) 0.48
+            , oaPerfMinWinRateMax = maxIf (oaPerfMinWinRateMax args) 0.62
+            , oaPDisablePerfMinWinRate = minIf (oaPDisablePerfMinWinRate args) 0.35
+            , oaPerfMinProfitFactorMin = maxIf (oaPerfMinProfitFactorMin args) 1.05
+            , oaPerfMinProfitFactorMax = maxIf (oaPerfMinProfitFactorMax args) 1.8
+            , oaPDisablePerfMinProfitFactor = minIf (oaPDisablePerfMinProfitFactor args) 0.35
             , oaInterval = if intervalReset then Nothing else oaInterval args
             , oaIntervals = intervals'
             }
@@ -1035,6 +1053,10 @@ data TrialParams = TrialParams
     , tpAdaptiveMinSignalToNoiseMax :: !Double
     , tpAdaptiveTrendLookbackMax :: !Int
     , tpAdaptiveKalmanZMinMax :: !Double
+    , tpAdaptiveFilters :: !Bool
+    , tpPerfLookback :: !Int
+    , tpPerfMinWinRate :: !(Maybe Double)
+    , tpPerfMinProfitFactor :: !(Maybe Double)
     }
     deriving (Eq, Show)
 
@@ -1067,6 +1089,10 @@ fmtOptInt = maybe "null" show
 buildCommand :: FilePath -> [String] -> TrialParams -> Double -> Bool -> [String]
 buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
     let cmd0 = traderBin : baseArgs
+        perfLookbackArg =
+            if tpAdaptiveFilters params || isJust (tpPerfMinWinRate params) || isJust (tpPerfMinProfitFactor params)
+                then max 1 (tpPerfLookback params)
+                else 0
         cmd1 =
             case tpPlatform params of
                 Just platform -> cmd0 ++ ["--platform", platform]
@@ -1253,7 +1279,12 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , show (max 1 (tpAdaptiveTrendLookbackMax params))
                    , "--adaptive-kalman-z-min-max"
                    , printf "%.12g" (max 0 (tpAdaptiveKalmanZMinMax params))
+                   , "--perf-lookback"
+                   , show perfLookbackArg
                    ]
+                ++ (if tpAdaptiveFilters params then ["--adaptive-filters"] else ["--no-adaptive-filters"])
+                ++ maybe [] (\v -> ["--perf-min-win-rate", printf "%.12g" (clamp v 0 1)]) (tpPerfMinWinRate params)
+                ++ maybe [] (\v -> ["--perf-min-profit-factor", printf "%.12g" (max 0 v)]) (tpPerfMinProfitFactor params)
                 ++ (["--tri-layer" | tpTriLayer params])
                 ++ [ "--tri-layer-fast-mult"
                    , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
@@ -1781,6 +1812,10 @@ trialToRecord tr symbolLabel =
             , "adaptiveMinSignalToNoiseMax" .= tpAdaptiveMinSignalToNoiseMax (trParams tr)
             , "adaptiveTrendLookbackMax" .= tpAdaptiveTrendLookbackMax (trParams tr)
             , "adaptiveKalmanZMinMax" .= tpAdaptiveKalmanZMinMax (trParams tr)
+            , "adaptiveFilters" .= tpAdaptiveFilters (trParams tr)
+            , "perfLookback" .= tpPerfLookback (trParams tr)
+            , "perfMinWinRate" .= tpPerfMinWinRate (trParams tr)
+            , "perfMinProfitFactor" .= tpPerfMinProfitFactor (trParams tr)
             ]
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
         paramsPairs' =
@@ -1975,7 +2010,13 @@ sampleParams
     adaptiveEdgeBufferMaxRange
     adaptiveMinSignalToNoiseMaxRange
     adaptiveTrendLookbackMaxRange
-    adaptiveKalmanZMinMaxRange =
+    adaptiveKalmanZMinMaxRange
+    pAdaptiveFilters
+    perfLookbackRange
+    perfMinWinRateRange
+    pDisablePerfMinWinRate
+    perfMinProfitFactorRange
+    pDisablePerfMinProfitFactor =
         let (platform, rng1) =
                 case platforms of
                     [] -> (Nothing, rng0)
@@ -2451,6 +2492,38 @@ sampleParams
             (adaptiveMinSignalToNoiseMax, rng95) = uncurry nextUniform adaptiveMinSignalToNoiseMaxRange rng94
             (adaptiveTrendLookbackMax, rng96) = uncurry nextIntRange adaptiveTrendLookbackMaxRange rng95
             (adaptiveKalmanZMinMax, rng97) = uncurry nextUniform adaptiveKalmanZMinMaxRange rng96
+            (adaptiveFiltersEnabled, rng98) =
+                let (r, rng') = nextDouble rng97
+                 in (r < pAdaptiveFilters, rng')
+            (perfLookbackRaw, rng99) = uncurry nextIntRange perfLookbackRange rng98
+            (perfMinWinRateRaw, rng100) =
+                let (lo, hi) = ordered perfMinWinRateRange
+                 in nextUniform lo hi rng99
+            (perfMinWinRateEnabled, rng101) =
+                let (r, rng') = nextDouble rng100
+                 in (r >= pDisablePerfMinWinRate, rng')
+            (perfMinProfitFactorRaw, rng102) =
+                let (lo, hi) = ordered perfMinProfitFactorRange
+                 in nextUniform lo hi rng101
+            (perfMinProfitFactorEnabled, rng103) =
+                let (r, rng') = nextDouble rng102
+                 in (r >= pDisablePerfMinProfitFactor, rng')
+            perfMinWinRate0 =
+                if perfMinWinRateEnabled
+                    then Just (clamp perfMinWinRateRaw 0 1)
+                    else Nothing
+            perfMinProfitFactor0 =
+                if perfMinProfitFactorEnabled
+                    then Just (max 0 perfMinProfitFactorRaw)
+                    else Nothing
+            (perfMinWinRate, perfMinProfitFactor) =
+                if adaptiveFiltersEnabled && isNothing perfMinWinRate0 && isNothing perfMinProfitFactor0
+                    then (Just (clamp perfMinWinRateRaw 0 1), Nothing)
+                    else (perfMinWinRate0, perfMinProfitFactor0)
+            perfLookback =
+                if adaptiveFiltersEnabled || isJust perfMinWinRate || isJust perfMinProfitFactor
+                    then max 1 perfLookbackRaw
+                    else 0
          in ( TrialParams
                 { tpPlatform = platform
                 , tpInterval = interval
@@ -2579,8 +2652,12 @@ sampleParams
                 , tpAdaptiveMinSignalToNoiseMax = adaptiveMinSignalToNoiseMax
                 , tpAdaptiveTrendLookbackMax = adaptiveTrendLookbackMax
                 , tpAdaptiveKalmanZMinMax = adaptiveKalmanZMinMax
+                , tpAdaptiveFilters = adaptiveFiltersEnabled
+                , tpPerfLookback = perfLookback
+                , tpPerfMinWinRate = perfMinWinRate
+                , tpPerfMinProfitFactor = perfMinProfitFactor
                 }
-            , rng97
+            , rng103
             )
       where
         ordered (a, b) = if a <= b then (a, b) else (b, a)
@@ -2973,6 +3050,12 @@ runOptimizer args0 = do
                                                         adaptiveMinSignalToNoiseMaxRange = (max 0 (oaAdaptiveMinSignalToNoiseMaxMin args), max 0 (oaAdaptiveMinSignalToNoiseMaxMax args))
                                                         adaptiveTrendLookbackMaxRange = (max 1 (oaAdaptiveTrendLookbackMaxMin args), max 1 (oaAdaptiveTrendLookbackMaxMax args))
                                                         adaptiveKalmanZMinMaxRange = (max 0 (oaAdaptiveKalmanZMinMaxMin args), max 0 (oaAdaptiveKalmanZMinMaxMax args))
+                                                        pAdaptiveFilters = clamp (oaPAdaptiveFilters args) 0 1
+                                                        perfLookbackRange = (max 1 (oaPerfLookbackMin args), max 1 (oaPerfLookbackMax args))
+                                                        perfMinWinRateRange = (clamp (oaPerfMinWinRateMin args) 0 1, clamp (oaPerfMinWinRateMax args) 0 1)
+                                                        pDisablePerfMinWinRate = clamp (oaPDisablePerfMinWinRate args) 0 1
+                                                        perfMinProfitFactorRange = (max 0 (oaPerfMinProfitFactorMin args), max 0 (oaPerfMinProfitFactorMax args))
+                                                        pDisablePerfMinProfitFactor = clamp (oaPDisablePerfMinProfitFactor args) 0 1
                                                     if null normalizationChoices
                                                         then do
                                                             hPutStrLn stderr "No normalizations provided."
@@ -3213,6 +3296,12 @@ runOptimizer args0 = do
                                                                                 adaptiveMinSignalToNoiseMaxRange
                                                                                 adaptiveTrendLookbackMaxRange
                                                                                 adaptiveKalmanZMinMaxRange
+                                                                                pAdaptiveFilters
+                                                                                perfLookbackRange
+                                                                                perfMinWinRateRange
+                                                                                pDisablePerfMinWinRate
+                                                                                perfMinProfitFactorRange
+                                                                                pDisablePerfMinProfitFactor
                                                                         runTrialWith idx rng mBase mParents best recordsRev = do
                                                                             let (params, _) =
                                                                                     case mBase of
@@ -3830,6 +3919,10 @@ printBest tr = do
     putStrLn ("  confidenceSizing:    " ++ show (tpConfidenceSizing p))
     putStrLn ("  protectionMinConf:   " ++ show (tpProtectionMinConfidence p))
     putStrLn ("  minPositionSize:     " ++ show (tpMinPositionSize p))
+    putStrLn ("  adaptiveFilters:     " ++ show (tpAdaptiveFilters p))
+    putStrLn ("  perfLookback:        " ++ show (tpPerfLookback p))
+    putStrLn ("  perfMinWinRate:      " ++ showMaybe (tpPerfMinWinRate p))
+    putStrLn ("  perfMinProfitFactor: " ++ showMaybe (tpPerfMinProfitFactor p))
 
 showMaybe :: (Show a) => Maybe a -> String
 showMaybe = maybe "None" show
@@ -4088,6 +4181,10 @@ crossoverTrialParams a b rng0 =
             pickValue (tpAdaptiveMinSignalToNoiseMax a) (tpAdaptiveMinSignalToNoiseMax b) rng118
         (tpAdaptiveTrendLookbackMax', rng120) = pickValue (tpAdaptiveTrendLookbackMax a) (tpAdaptiveTrendLookbackMax b) rng119
         (tpAdaptiveKalmanZMinMax', rng121) = pickValue (tpAdaptiveKalmanZMinMax a) (tpAdaptiveKalmanZMinMax b) rng120
+        (tpAdaptiveFilters', rng122) = pickValue (tpAdaptiveFilters a) (tpAdaptiveFilters b) rng121
+        (tpPerfLookback', rng123) = pickValue (tpPerfLookback a) (tpPerfLookback b) rng122
+        (tpPerfMinWinRate', rng124) = pickValue (tpPerfMinWinRate a) (tpPerfMinWinRate b) rng123
+        (tpPerfMinProfitFactor', rng125) = pickValue (tpPerfMinProfitFactor a) (tpPerfMinProfitFactor b) rng124
      in ( a
             { tpPlatform = tpPlatform'
             , tpInterval = tpInterval'
@@ -4216,8 +4313,12 @@ crossoverTrialParams a b rng0 =
             , tpAdaptiveMinSignalToNoiseMax = tpAdaptiveMinSignalToNoiseMax'
             , tpAdaptiveTrendLookbackMax = tpAdaptiveTrendLookbackMax'
             , tpAdaptiveKalmanZMinMax = tpAdaptiveKalmanZMinMax'
+            , tpAdaptiveFilters = tpAdaptiveFilters'
+            , tpPerfLookback = tpPerfLookback'
+            , tpPerfMinWinRate = tpPerfMinWinRate'
+            , tpPerfMinProfitFactor = tpPerfMinProfitFactor'
             }
-        , rng121
+        , rng125
         )
 
 clampBarsForPlatform :: Maybe String -> Int -> Int -> Int -> Int
@@ -4305,6 +4406,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (adaptiveMinSignalToNoiseMax', rng64) = perturbDouble (tpAdaptiveMinSignalToNoiseMax p) scaleDouble rng63
         (adaptiveTrendLookbackMax', rng65) = perturbInt (tpAdaptiveTrendLookbackMax p) scaleInt rng64
         (adaptiveKalmanZMinMax', rng66) = perturbDouble (tpAdaptiveKalmanZMinMax p) scaleDouble rng65
+        (perfLookback', rng67) = perturbInt (tpPerfLookback p) scaleInt rng66
+        (perfMinWinRate', rng68) = perturbMaybeDouble (tpPerfMinWinRate p) scaleDouble rng67
+        (perfMinProfitFactor', rng69) = perturbMaybeDouble (tpPerfMinProfitFactor p) scaleDouble rng68
      in ( p
             { tpBars = bars'
             , tpBlendWeight = clamp blendWeight' 0 1
@@ -4376,8 +4480,11 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
             , tpAdaptiveMinSignalToNoiseMax = adaptiveMinSignalToNoiseMax'
             , tpAdaptiveTrendLookbackMax = adaptiveTrendLookbackMax'
             , tpAdaptiveKalmanZMinMax = adaptiveKalmanZMinMax'
+            , tpPerfLookback = max 0 perfLookback'
+            , tpPerfMinWinRate = fmap (\v -> clamp v 0 1) perfMinWinRate'
+            , tpPerfMinProfitFactor = fmap (max 0) perfMinProfitFactor'
             }
-        , rng66
+        , rng69
         )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
@@ -4581,6 +4688,10 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "adaptiveMinSignalToNoiseMax" .= tpAdaptiveMinSignalToNoiseMax params
                 , "adaptiveTrendLookbackMax" .= tpAdaptiveTrendLookbackMax params
                 , "adaptiveKalmanZMinMax" .= tpAdaptiveKalmanZMinMax params
+                , "adaptiveFilters" .= tpAdaptiveFilters params
+                , "perfLookback" .= tpPerfLookback params
+                , "perfMinWinRate" .= tpPerfMinWinRate params
+                , "perfMinProfitFactor" .= tpPerfMinProfitFactor params
                 , "binanceSymbol" .= symbol
                 ]
         identity =
