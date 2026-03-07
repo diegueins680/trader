@@ -147,10 +147,11 @@ loadTopCombos path = do
                         Left err -> pure (Left ("Failed to parse " ++ path ++ ": " ++ err))
                         Right (Object obj) ->
                             let generatedAtMs = KM.lookup (Key.fromString "generatedAtMs") obj >>= coerceIntValue
-                                applyCreatedAt = applyCreatedAtMs generatedAtMs
+                                payloadSource = KM.lookup (Key.fromString "source") obj >>= trimmedNonEmptyStringValue
+                                applyMetadata = applyCreatedAtMs generatedAtMs . applySourceValue payloadSource
                              in case KM.lookup (Key.fromString "combos") obj of
                                     Just (Array combos) ->
-                                        pure (Right ([applyCreatedAt (Object c) | Object c <- V.toList combos]))
+                                        pure (Right ([applyMetadata (Object c) | Object c <- V.toList combos]))
                                     _ -> pure (Right [])
                         Right _ -> pure (Right [])
 
@@ -587,10 +588,25 @@ normalizeCombo value =
 
 normalizeSource :: Maybe Value -> Maybe String
 normalizeSource value =
+    value >>= trimmedNonEmptyStringValue
+
+trimmedNonEmptyStringValue :: Value -> Maybe String
+trimmedNonEmptyStringValue value =
     case value of
-        Just (String s) ->
-            normalizeKnownSource (trim (T.unpack s))
+        String s ->
+            let trimmed = trim (T.unpack s)
+             in if null trimmed then Nothing else Just trimmed
         _ -> Nothing
+
+applySourceValue :: Maybe String -> Value -> Value
+applySourceValue source val =
+    case (source, val) of
+        (Just src, Object obj) ->
+            case KM.lookup (Key.fromString "source") obj of
+                Just Null -> Object (KM.insert (Key.fromString "source") (toJSON src) obj)
+                Just _ -> val
+                Nothing -> Object (KM.insert (Key.fromString "source") (toJSON src) obj)
+        _ -> val
 
 normalizePlatform :: KM.KeyMap Value -> Maybe String -> Maybe String
 normalizePlatform params source =
@@ -600,14 +616,6 @@ normalizePlatform params source =
                 _ -> Nothing
         fromSource = source >>= normalizeKnownPlatform
      in fromParams <|> fromSource
-
-normalizeKnownSource :: String -> Maybe String
-normalizeKnownSource raw =
-    case normalized of
-        "csv" -> Just "csv"
-        _ -> normalizeKnownPlatform normalized
-  where
-    normalized = map toLower (trim raw)
 
 normalizeKnownPlatform :: String -> Maybe String
 normalizeKnownPlatform raw =

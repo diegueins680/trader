@@ -257,6 +257,7 @@ main = do
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
+              , run "optimizer merge preserves distinct payload sources from top-json inputs" testRunMergePreservesDistinctPayloadSources
               , run "optimizer merge preserves dex platform/symbol semantics" testRunMergePreservesDexPlatformSymbolSemantics
               , run "optimizer merge canonicalizes coinbase-prefixed platform keys" testRunMergeCanonicalizesCoinbasePrefixedPlatform
               , run "optimizer merge canonicalizes dex-prefixed platform keys" testRunMergeCanonicalizesDexPrefixedPlatform
@@ -2399,6 +2400,39 @@ runMergeAndReadOutputFromPayload :: String -> Aeson.Value -> IO Aeson.Value
 runMergeAndReadOutputFromPayload label topPayload =
     runMergeAndReadOutputFromPayloadAndJsonl label topPayload []
 
+runMergeAndReadOutputFromTopPayloads :: String -> Aeson.Value -> [Aeson.Value] -> IO Aeson.Value
+runMergeAndReadOutputFromTopPayloads label topPayload extraTopPayloads =
+    withTempTestDir label $ \dir -> do
+        let topPath = dir </> "top-combos-input.json"
+            otherTopPaths =
+                [ dir </> ("top-combos-extra-" ++ show idx ++ ".json")
+                | idx <- [1 .. length extraTopPayloads]
+                ]
+            outPath = dir </> "top-combos-output.json"
+            jsonlPath = dir </> "optimize_equity_input.jsonl"
+            mergeArgs =
+                MergeArgs
+                    { maTopJson = topPath
+                    , maFromJsonl = [jsonlPath]
+                    , maFromTopJson = otherTopPaths
+                    , maOut = outPath
+                    , maMax = 5
+                    , maHistoryDir = Nothing
+                    , maCopyToDist = False
+                    }
+        BL.writeFile topPath (Aeson.encode topPayload)
+        Control.Monad.forM_ (zip otherTopPaths extraTopPayloads) $ \(path, payload) ->
+            BL.writeFile path (Aeson.encode payload)
+        BL.writeFile jsonlPath BL.empty
+        result <- try (runMerge mergeArgs) :: IO (Either SomeException Int)
+        case result of
+            Left err -> error ("runMerge unexpectedly threw: " ++ show err)
+            Right code -> assert "runMerge should complete successfully" (code == 0)
+        outContents <- BL.readFile outPath
+        case eitherDecode outContents of
+            Left err -> error ("failed to parse merge output JSON: " ++ err)
+            Right v -> pure v
+
 runMergeAndReadOutputFromPayloadAndJsonl :: String -> Aeson.Value -> [BS.ByteString] -> IO Aeson.Value
 runMergeAndReadOutputFromPayloadAndJsonl label topPayload jsonlLines =
     withTempTestDir label $ \dir -> do
@@ -2446,6 +2480,41 @@ testRunMergeRejectsFractionalIntegerString :: IO ()
 testRunMergeRejectsFractionalIntegerString = do
     combo <- runMergeAndReadFirstCombo "merge-fractional-int-string" (Aeson.String "10.9")
     assert "fractional integer-like string should not be truncated" (requireComboBars "fractional bars" combo == 0)
+
+testRunMergePreservesDistinctPayloadSources :: IO ()
+testRunMergePreservesDistinctPayloadSources =
+    do
+        let mkPayload source generatedAtMs finalEq =
+                object
+                    [ "source" .= source
+                    , "generatedAtMs" .= generatedAtMs
+                    , "combos"
+                        .= [ object
+                                [ "finalEquity" .= finalEq
+                                , "objective" .= ("score" :: String)
+                                , "metrics"
+                                    .= object
+                                        [ "annualizedReturn" .= (0.2 :: Double)
+                                        , "score" .= (0.8 :: Double)
+                                        ]
+                                , "params"
+                                    .= object
+                                        [ "interval" .= ("1h" :: String)
+                                        , "bars" .= (100 :: Int)
+                                        , "symbol" .= ("BTC/USDT" :: String)
+                                        ]
+                                ]
+                           ]
+                    ]
+        outValue <-
+            runMergeAndReadOutputFromTopPayloads
+                "merge-distinct-top-payload-sources"
+                (mkPayload ("unit-source-a" :: String) (1 :: Int) (1.2 :: Double))
+                [mkPayload ("unit-source-b" :: String) (2 :: Int) (1.3 :: Double)]
+        let combos = requireCombosArray "merge distinct payload source combos" outValue
+            sources = sort (map (requireComboSource "merge distinct payload source combo") combos)
+        assert "runMerge should keep combos distinct when only payload source differs" (length combos == 2)
+        assert "runMerge should propagate payload-level source metadata into merged combos" (sources == ["unit-source-a", "unit-source-b"])
 
 testRunMergePreservesDexPlatformSymbolSemantics :: IO ()
 testRunMergePreservesDexPlatformSymbolSemantics =

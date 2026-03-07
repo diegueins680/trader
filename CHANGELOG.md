@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Optimizer/top-combos merge: preserve arbitrary combo/payload `source` labels when normalizing imported top-json inputs, so same-parameter combos from different source files stay distinct instead of collapsing during `merge-top-combos`.
 - CLI/API: harden wrapped Binance key-check error parsing for normal HTTP status-line prefixes (`HTTP/1.1 401`, `HTTP/2 429`) and long JSON error bodies, so auth/trade-test classification keeps the real HTTP/code/message instead of falling back to truncated wrapper text.
 - Optimizer/top-combos merge: treat JSONL `ok` as a real boolean-like success flag (`true`/`1`/`yes`), so records like `"ok":"false"` are skipped instead of being imported accidentally.
 - Optimizer/top-combos merge: fall back to nested `metrics.finalEquity` / `metrics.score` during merge normalization, and only backfill `metrics.annualizedReturn` when a positive bar/period count is available (including `metrics.periods`) instead of silently dropping or mis-ranking mixed-shape combos.
