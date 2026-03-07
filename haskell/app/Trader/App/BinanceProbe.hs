@@ -39,15 +39,15 @@ instance FromJSON BinanceErrorBody where
 parseBinanceError :: String -> BinanceErrorInfo
 parseBinanceError raw =
     let raw' = truncateString 240 raw
-        httpCode = extractHttpStatusCode raw'
+        httpCode = extractHttpStatusCode raw
         decoded =
-            case extractJsonObject raw' of
+            case extractJsonObject raw of
                 Nothing -> Nothing
                 Just json ->
                     case eitherDecode (BL.fromStrict (BS.pack json)) of
                         Right body -> Just (body :: BinanceErrorBody)
                         Left _ -> Nothing
-        labeled = extractLabeledBinanceError raw'
+        labeled = extractLabeledBinanceError raw
         outCode = (bebCode =<< decoded) <|> (fst =<< labeled) <|> httpCode
         outMsg = (bebMsg =<< decoded) <|> (snd =<< labeled)
         summary = fromMaybe raw' outMsg
@@ -67,11 +67,24 @@ binanceTradeTestConfirmsAuth mCode summary =
 extractHttpStatusCode :: String -> Maybe Int
 extractHttpStatusCode msg =
     let go [] = Nothing
-        go ('H' : 'T' : 'T' : 'P' : ' ' : rest) =
-            let digits = takeWhile isDigit rest
-             in readMaybe digits
-        go (_ : xs) = go xs
+        go s@(_ : xs) =
+            case stripHttpPrefix s of
+                Just rest ->
+                    let digits = takeWhile isDigit (dropWhile isSpace (dropHttpVersion rest))
+                     in case readMaybe digits of
+                            Just code -> Just code
+                            Nothing -> go xs
+                Nothing -> go xs
      in go msg
+  where
+    stripHttpPrefix (a : b : c : d : rest)
+        | map toLower [a, b, c, d] == "http" = Just rest
+    stripHttpPrefix _ = Nothing
+
+    dropHttpVersion rest =
+        case rest of
+            '/' : more -> dropWhile (not . isSpace) more
+            _ -> rest
 
 extractJsonObject :: String -> Maybe String
 extractJsonObject msg =

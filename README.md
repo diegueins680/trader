@@ -1157,6 +1157,7 @@ Use the Layout menu to show the Bot activity panel (hidden by default); the pref
 When trading is armed, the UI blocks live bot start until Binance keys are provided or verified via “Check keys” (otherwise switch to paper mode).
 Binance account panels (positions/trades) require keys; the UI blocks refresh until keys are provided or verified via “Check keys”.
 If Binance rejects the trade test with auth/IP/permission errors (for example `-2015`), “Check keys” keeps the trade-permission status as `FAIL` instead of mislabeling it as `OK`.
+Wrapped Binance failures now also preserve normal HTTP status-line prefixes (`HTTP/1.1 401`, `HTTP/2 429`) and long JSON `msg` bodies during parsing, so key-check diagnostics keep the real status/code/message instead of degraded wrapper text.
 When starting multi-symbol live bots, the UI uses the first bot symbol as the request symbol so `/bot/start` validation succeeds even if the main Symbol field is empty.
 Optimizer combos are clamped to the API LSTM compute limits reported by `/health` when available.
 
