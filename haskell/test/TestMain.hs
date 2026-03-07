@@ -111,6 +111,7 @@ import Trader.TopCombosStore (
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
     sanitizeComboSymbolForPlatform,
+    sanitizeTopCombosValue,
  )
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
@@ -274,11 +275,13 @@ main = do
               , run "top combos resolve coinbase symbols outside Binance" testResolveComboSymbolCoinbase
               , run "top combos resolve dex symbols outside Binance" testResolveComboSymbolDex
               , run "top combos resolve symbols from payload source fallback" testResolveComboSymbolSourceFallback
+              , run "top combos ignore blank platform when source metadata exists" testResolveComboSymbolBlankPlatformFallsBackToSource
               , run "symbol split handles delimited pairs" testSplitSymbolDelimitedPairs
               , run "symbol split keeps compact pairs" testSplitSymbolCompactPairs
               , run "symbol split handles quote-only input safely" testSplitSymbolQuoteOnly
               , run "symbol sanitization canonicalizes coinbase-prefixed platform keys" testSymbolCoinbasePrefixedPlatformNormalization
               , run "top combos sanitize coinbase-prefixed platform symbols" testTopCombosCoinbasePrefixedPlatformSymbolSanitization
+              , run "top combos sanitize payload symbols via source when platform is blank" testTopCombosPayloadBlankPlatformFallsBackToSource
               , run "symbol sanitization keeps dex symbol format for prefixed platform keys" testSymbolDexPrefixedPlatformNormalization
               , run "top combos keep dex symbol format for prefixed platform keys" testTopCombosDexPrefixedPlatformSymbolSanitization
               , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
@@ -1607,6 +1610,12 @@ testResolveComboSymbolSourceFallback =
         "combo symbol falls back to payload source metadata"
         (resolveComboSymbol Nothing (Just "coinbase-advanced") (Just "ETH/USD") == Just "ETH-USD")
 
+testResolveComboSymbolBlankPlatformFallsBackToSource :: IO ()
+testResolveComboSymbolBlankPlatformFallsBackToSource =
+    assert
+        "blank combo platform should not block source-based normalization"
+        (resolveComboSymbol (Just "   ") (Just "coinbase-advanced") (Just "ETH/USD") == Just "ETH-USD")
+
 testSplitSymbolDelimitedPairs :: IO ()
 testSplitSymbolDelimitedPairs = do
     assert "coinbase-style split" (Symbol.splitSymbol "BTC-USD" == ("BTC", "USD"))
@@ -1636,6 +1645,28 @@ testTopCombosCoinbasePrefixedPlatformSymbolSanitization =
     assert
         "top combos coinbase-prefixed platform keeps coinbase BASE-QUOTE format"
         (sanitizeComboSymbolForPlatform (Just "coinbase-advanced") "BTC/USD" == Just "BTC-USD")
+
+testTopCombosPayloadBlankPlatformFallsBackToSource :: IO ()
+testTopCombosPayloadBlankPlatformFallsBackToSource =
+    let payload =
+            object
+                [ "combos"
+                    .= [ object
+                            [ "source" .= ("coinbase-advanced" :: String)
+                            , "finalEquity" .= (1.5 :: Double)
+                            , "params"
+                                .= object
+                                    [ "platform" .= ("   " :: String)
+                                    , "symbol" .= ("BTC/USD" :: String)
+                                    ]
+                            ]
+                       ]
+                ]
+        (sanitized, changed) = sanitizeTopCombosValue payload
+        combo = requireHead "sanitized payload should keep combo" (requireCombosArray "sanitized payload combos" sanitized)
+     in do
+            assert "blank platform payload should be marked changed" (changed == 1)
+            assert "payload source should drive exchange-correct symbol cleanup" (requireComboSymbol "sanitized combo symbol" combo == "BTC-USD")
 
 testSymbolDexPrefixedPlatformNormalization :: IO ()
 testSymbolDexPrefixedPlatformNormalization =

@@ -393,7 +393,7 @@ sanitizeComboSymbolForPlatform platform =
 
 resolveComboSymbol :: Maybe String -> Maybe String -> Maybe String -> Maybe String
 resolveComboSymbol platform source symbol =
-    let platformHint = platform <|> source
+    let platformHint = preferredComboPlatform platform source
      in symbol >>= sanitizeComboSymbolForPlatform platformHint
 
 canonicalComboPlatform :: Maybe String -> Maybe String
@@ -404,15 +404,20 @@ canonicalComboPlatform platform =
         Just key | isBinancePlatformKey key -> Just "binance"
         other -> other
 
+preferredComboPlatform :: Maybe String -> Maybe String -> Maybe String
+preferredComboPlatform platform source =
+    canonicalComboPlatform platform <|> canonicalComboPlatform source
+
 sanitizeComboSymbolValue :: Aeson.Value -> (Aeson.Value, Bool)
 sanitizeComboSymbolValue val =
     case val of
         Aeson.Object comboObj ->
             case KM.lookup (AK.fromString "params") comboObj of
                 Just (Aeson.Object params) ->
-                    let platform =
+                    let platformRaw =
                             (KM.lookup (AK.fromString "platform") params >>= valueStringMaybe)
-                                <|> (KM.lookup (AK.fromString "source") comboObj >>= valueStringMaybe)
+                        sourceRaw = KM.lookup (AK.fromString "source") comboObj >>= valueStringMaybe
+                        platform = preferredComboPlatform platformRaw sourceRaw
                         symbolRaw =
                             (KM.lookup (AK.fromString "binanceSymbol") params >>= valueStringMaybe)
                                 <|> (KM.lookup (AK.fromString "symbol") params >>= valueStringMaybe)

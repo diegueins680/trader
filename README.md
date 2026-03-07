@@ -610,6 +610,7 @@ Endpoints:
   - JSONL merge inputs now require a real boolean-like success flag for `ok` (`true`, `1`, `yes`, etc.); strings like `"false"` no longer count as successful optimizer records.
   - Abandoned optimizer lock directories are reclaimed quickly (10s heartbeat, 45s stale cutoff) so stale locks do not block `/optimizer/combos` for long after crashes/restarts.
   - Combo symbols are normalized for Binance (e.g., `BTC/USDT` → `BTCUSDT`) and trim dataset/contract suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` → `BNBUSDT`, `BTCUSDTPERP` → `BTCUSDT`) when read/merged.
+  - When a combo ships a blank `params.platform`, symbol cleanup now falls back to combo/payload `source` metadata instead of silently defaulting to Binance-style compaction.
   - DEX combo platform metadata and token-pair symbols are preserved during merge normalization (for example, `platform=uniswap` + `symbol=0xabc/0xdef` stay DEX-formatted instead of being compacted as Binance symbols).
   - Combos can include sizing params (`orderQuote`, `orderQuantity`, `orderQuoteFraction`, `maxOrderQuote`); applying combos will honor them so orders have a usable size.
   - `top-combos.json` also includes `bestOptimizationTechniques`, a curated list of optimization best practices with short explanations for downstream consumers, plus `optimizationTechniquesApplied`/`ensemble` sections that summarize the Sobol seeding, successive halving, Bayesian-inspired exploitation, walk-forward validation, and ensemble construction applied during a run.
