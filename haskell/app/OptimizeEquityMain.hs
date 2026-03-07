@@ -401,6 +401,27 @@ optimizerArgsParser =
         <*> option auto (long "regime-mr-size-mult-max" <> value 0.9 <> metavar "FLOAT")
         <*> option auto (long "regime-high-vol-size-mult-min" <> value 0.7 <> metavar "FLOAT")
         <*> option auto (long "regime-high-vol-size-mult-max" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "p-multi-timeframe-consensus" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "mtf-fast-bars-min" <> value 5 <> metavar "INT")
+        <*> option auto (long "mtf-fast-bars-max" <> value 5 <> metavar "INT")
+        <*> option auto (long "mtf-mid-bars-min" <> value 20 <> metavar "INT")
+        <*> option auto (long "mtf-mid-bars-max" <> value 20 <> metavar "INT")
+        <*> option auto (long "mtf-slow-bars-min" <> value 60 <> metavar "INT")
+        <*> option auto (long "mtf-slow-bars-max" <> value 60 <> metavar "INT")
+        <*> option auto (long "mtf-min-agree-min" <> value 2 <> metavar "INT")
+        <*> option auto (long "mtf-min-agree-max" <> value 2 <> metavar "INT")
+        <*> option auto (long "p-cross-asset-confirmation" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "cross-asset-min-beta-min" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "cross-asset-min-beta-max" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "cross-asset-min-edge-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "cross-asset-min-edge-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "p-pairs-stat-arb" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "pairs-stat-arb-lookback-min" <> value 120 <> metavar "INT")
+        <*> option auto (long "pairs-stat-arb-lookback-max" <> value 120 <> metavar "INT")
+        <*> option auto (long "pairs-stat-arb-z-entry-min" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "pairs-stat-arb-z-entry-max" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "pairs-stat-arb-size-mult-min" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "pairs-stat-arb-size-mult-max" <> value 0.7 <> metavar "FLOAT")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
@@ -544,6 +565,46 @@ validateArgs args = do
             || oaRegimeHighVolSizeMultMax args < 0
         )
         $ Left "--regime-*-mult-min/max must be >= 0."
+    when (oaPMultiTimeframeConsensus args < 0 || oaPMultiTimeframeConsensus args > 1) $
+        Left "--p-multi-timeframe-consensus must be between 0 and 1."
+    when
+        ( oaMtfFastBarsMin args < 1
+            || oaMtfFastBarsMax args < 1
+            || oaMtfMidBarsMin args < 1
+            || oaMtfMidBarsMax args < 1
+            || oaMtfSlowBarsMin args < 1
+            || oaMtfSlowBarsMax args < 1
+        )
+        $ Left "--mtf-*-bars-min/max must be >= 1."
+    when
+        ( oaMtfMinAgreeMin args < 1
+            || oaMtfMinAgreeMin args > 3
+            || oaMtfMinAgreeMax args < 1
+            || oaMtfMinAgreeMax args > 3
+        )
+        $ Left "--mtf-min-agree-min/max must be between 1 and 3."
+    when (oaPCrossAssetConfirmation args < 0 || oaPCrossAssetConfirmation args > 1) $
+        Left "--p-cross-asset-confirmation must be between 0 and 1."
+    when
+        ( oaCrossAssetMinBetaMin args < 0
+            || oaCrossAssetMinBetaMax args < 0
+            || oaCrossAssetMinEdgeMin args < 0
+            || oaCrossAssetMinEdgeMax args < 0
+        )
+        $ Left "--cross-asset-min-beta/edge-min/max must be >= 0."
+    when (oaPPairsStatArb args < 0 || oaPPairsStatArb args > 1) $
+        Left "--p-pairs-stat-arb must be between 0 and 1."
+    when (oaPairsStatArbLookbackMin args < 2 || oaPairsStatArbLookbackMax args < 2) $
+        Left "--pairs-stat-arb-lookback-min/max must be >= 2."
+    when (oaPairsStatArbZEntryMin args <= 0 || oaPairsStatArbZEntryMax args <= 0) $
+        Left "--pairs-stat-arb-z-entry-min/max must be > 0."
+    when
+        ( oaPairsStatArbSizeMultMin args < 0
+            || oaPairsStatArbSizeMultMin args > 1
+            || oaPairsStatArbSizeMultMax args < 0
+            || oaPairsStatArbSizeMultMax args > 1
+        )
+        $ Left "--pairs-stat-arb-size-mult-min/max must be between 0 and 1."
     pure args'
 
 objectiveChoices :: [String]

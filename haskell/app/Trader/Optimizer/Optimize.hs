@@ -869,6 +869,27 @@ data OptimizerArgs = OptimizerArgs
     , oaRegimeMrSizeMultMax :: !Double
     , oaRegimeHighVolSizeMultMin :: !Double
     , oaRegimeHighVolSizeMultMax :: !Double
+    , oaPMultiTimeframeConsensus :: !Double
+    , oaMtfFastBarsMin :: !Int
+    , oaMtfFastBarsMax :: !Int
+    , oaMtfMidBarsMin :: !Int
+    , oaMtfMidBarsMax :: !Int
+    , oaMtfSlowBarsMin :: !Int
+    , oaMtfSlowBarsMax :: !Int
+    , oaMtfMinAgreeMin :: !Int
+    , oaMtfMinAgreeMax :: !Int
+    , oaPCrossAssetConfirmation :: !Double
+    , oaCrossAssetMinBetaMin :: !Double
+    , oaCrossAssetMinBetaMax :: !Double
+    , oaCrossAssetMinEdgeMin :: !Double
+    , oaCrossAssetMinEdgeMax :: !Double
+    , oaPPairsStatArb :: !Double
+    , oaPairsStatArbLookbackMin :: !Int
+    , oaPairsStatArbLookbackMax :: !Int
+    , oaPairsStatArbZEntryMin :: !Double
+    , oaPairsStatArbZEntryMax :: !Double
+    , oaPairsStatArbSizeMultMin :: !Double
+    , oaPairsStatArbSizeMultMax :: !Double
     }
     deriving (Eq, Show)
 
@@ -962,6 +983,27 @@ applyQualityPreset args =
             , oaRegimeMrSizeMultMax = maxIf (oaRegimeMrSizeMultMax args) 1.0
             , oaRegimeHighVolSizeMultMin = minIf (oaRegimeHighVolSizeMultMin args) 0.4
             , oaRegimeHighVolSizeMultMax = maxIf (oaRegimeHighVolSizeMultMax args) 0.9
+            , oaPMultiTimeframeConsensus = maxIf (oaPMultiTimeframeConsensus args) 0.3
+            , oaMtfFastBarsMin = minIf (oaMtfFastBarsMin args) 3
+            , oaMtfFastBarsMax = maxIf (oaMtfFastBarsMax args) 12
+            , oaMtfMidBarsMin = minIf (oaMtfMidBarsMin args) 12
+            , oaMtfMidBarsMax = maxIf (oaMtfMidBarsMax args) 36
+            , oaMtfSlowBarsMin = minIf (oaMtfSlowBarsMin args) 36
+            , oaMtfSlowBarsMax = maxIf (oaMtfSlowBarsMax args) 120
+            , oaMtfMinAgreeMin = maxIf (oaMtfMinAgreeMin args) 2
+            , oaMtfMinAgreeMax = maxIf (oaMtfMinAgreeMax args) 3
+            , oaPCrossAssetConfirmation = maxIf (oaPCrossAssetConfirmation args) 0.25
+            , oaCrossAssetMinBetaMin = minIf (oaCrossAssetMinBetaMin args) 0.0
+            , oaCrossAssetMinBetaMax = maxIf (oaCrossAssetMinBetaMax args) 0.2
+            , oaCrossAssetMinEdgeMin = minIf (oaCrossAssetMinEdgeMin args) 0.0
+            , oaCrossAssetMinEdgeMax = maxIf (oaCrossAssetMinEdgeMax args) 0.001
+            , oaPPairsStatArb = maxIf (oaPPairsStatArb args) 0.15
+            , oaPairsStatArbLookbackMin = minIf (oaPairsStatArbLookbackMin args) 60
+            , oaPairsStatArbLookbackMax = maxIf (oaPairsStatArbLookbackMax args) 180
+            , oaPairsStatArbZEntryMin = minIf (oaPairsStatArbZEntryMin args) 1.5
+            , oaPairsStatArbZEntryMax = maxIf (oaPairsStatArbZEntryMax args) 3.0
+            , oaPairsStatArbSizeMultMin = minIf (oaPairsStatArbSizeMultMin args) 0.4
+            , oaPairsStatArbSizeMultMax = maxIf (oaPairsStatArbSizeMultMax args) 0.9
             , oaInterval = if intervalReset then Nothing else oaInterval args
             , oaIntervals = intervals'
             }
@@ -1110,6 +1152,18 @@ data TrialParams = TrialParams
     , tpRegimeTrendSizeMult :: !Double
     , tpRegimeMrSizeMult :: !Double
     , tpRegimeHighVolSizeMult :: !Double
+    , tpMultiTimeframeConsensus :: !Bool
+    , tpMtfFastBars :: !Int
+    , tpMtfMidBars :: !Int
+    , tpMtfSlowBars :: !Int
+    , tpMtfMinAgree :: !Int
+    , tpCrossAssetConfirmation :: !Bool
+    , tpCrossAssetMinBeta :: !Double
+    , tpCrossAssetMinEdge :: !Double
+    , tpPairsStatArb :: !Bool
+    , tpPairsStatArbLookback :: !Int
+    , tpPairsStatArbZEntry :: !Double
+    , tpPairsStatArbSizeMult :: !Double
     }
     deriving (Eq, Show)
 
@@ -1357,9 +1411,30 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , printf "%.12g" (max 0 (tpRegimeMrSizeMult params))
                    , "--regime-high-vol-size-mult"
                    , printf "%.12g" (max 0 (tpRegimeHighVolSizeMult params))
+                   , "--mtf-fast-bars"
+                   , show (max 1 (tpMtfFastBars params))
+                   , "--mtf-mid-bars"
+                   , show (max 1 (tpMtfMidBars params))
+                   , "--mtf-slow-bars"
+                   , show (max 1 (tpMtfSlowBars params))
+                   , "--mtf-min-agree"
+                   , show (clampInt (tpMtfMinAgree params) 1 3)
+                   , "--cross-asset-min-beta"
+                   , printf "%.12g" (max 0 (tpCrossAssetMinBeta params))
+                   , "--cross-asset-min-edge"
+                   , printf "%.12g" (max 0 (tpCrossAssetMinEdge params))
+                   , "--pairs-stat-arb-lookback"
+                   , show (max 2 (tpPairsStatArbLookback params))
+                   , "--pairs-stat-arb-z-entry"
+                   , printf "%.12g" (max 1e-12 (tpPairsStatArbZEntry params))
+                   , "--pairs-stat-arb-size-mult"
+                   , printf "%.12g" (clamp (tpPairsStatArbSizeMult params) 0 1)
                    ]
                 ++ (if tpMetaLabelRequireBand params then ["--meta-label-require-band"] else ["--no-meta-label-require-band"])
                 ++ (if tpRegimeParameterBank params then ["--regime-parameter-bank"] else ["--no-regime-parameter-bank"])
+                ++ (if tpMultiTimeframeConsensus params then ["--multi-timeframe-consensus"] else ["--no-multi-timeframe-consensus"])
+                ++ (if tpCrossAssetConfirmation params then ["--cross-asset-confirmation"] else ["--no-cross-asset-confirmation"])
+                ++ (if tpPairsStatArb params then ["--pairs-stat-arb"] else ["--no-pairs-stat-arb"])
                 ++ (["--tri-layer" | tpTriLayer params])
                 ++ [ "--tri-layer-fast-mult"
                    , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
@@ -1903,6 +1978,18 @@ trialToRecord tr symbolLabel =
             , "regimeTrendSizeMult" .= tpRegimeTrendSizeMult (trParams tr)
             , "regimeMrSizeMult" .= tpRegimeMrSizeMult (trParams tr)
             , "regimeHighVolSizeMult" .= tpRegimeHighVolSizeMult (trParams tr)
+            , "multiTimeframeConsensus" .= tpMultiTimeframeConsensus (trParams tr)
+            , "mtfFastBars" .= tpMtfFastBars (trParams tr)
+            , "mtfMidBars" .= tpMtfMidBars (trParams tr)
+            , "mtfSlowBars" .= tpMtfSlowBars (trParams tr)
+            , "mtfMinAgree" .= tpMtfMinAgree (trParams tr)
+            , "crossAssetConfirmation" .= tpCrossAssetConfirmation (trParams tr)
+            , "crossAssetMinBeta" .= tpCrossAssetMinBeta (trParams tr)
+            , "crossAssetMinEdge" .= tpCrossAssetMinEdge (trParams tr)
+            , "pairsStatArb" .= tpPairsStatArb (trParams tr)
+            , "pairsStatArbLookback" .= tpPairsStatArbLookback (trParams tr)
+            , "pairsStatArbZEntry" .= tpPairsStatArbZEntry (trParams tr)
+            , "pairsStatArbSizeMult" .= tpPairsStatArbSizeMult (trParams tr)
             ]
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
         paramsPairs' =
@@ -2115,7 +2202,19 @@ sampleParams
     regimeHighVolOpenMultRange
     regimeTrendSizeMultRange
     regimeMrSizeMultRange
-    regimeHighVolSizeMultRange =
+    regimeHighVolSizeMultRange
+    pMultiTimeframeConsensus
+    mtfFastBarsRange
+    mtfMidBarsRange
+    mtfSlowBarsRange
+    mtfMinAgreeRange
+    pCrossAssetConfirmation
+    crossAssetMinBetaRange
+    crossAssetMinEdgeRange
+    pPairsStatArb
+    pairsStatArbLookbackRange
+    pairsStatArbZEntryRange
+    pairsStatArbSizeMultRange =
         let (platform, rng1) =
                 case platforms of
                     [] -> (Nothing, rng0)
@@ -2659,6 +2758,32 @@ sampleParams
             (regimeHighVolSizeMult, rng115) =
                 let (lo, hi) = ordered regimeHighVolSizeMultRange
                  in nextUniform lo hi rng114
+            (multiTimeframeConsensusEnabled, rng116) =
+                let (r, rng') = nextDouble rng115
+                 in (r < pMultiTimeframeConsensus, rng')
+            (mtfFastBars, rng117) = uncurry nextIntRange mtfFastBarsRange rng116
+            (mtfMidBars, rng118) = uncurry nextIntRange mtfMidBarsRange rng117
+            (mtfSlowBars, rng119) = uncurry nextIntRange mtfSlowBarsRange rng118
+            (mtfMinAgree, rng120) = uncurry nextIntRange mtfMinAgreeRange rng119
+            (crossAssetConfirmationEnabled, rng121) =
+                let (r, rng') = nextDouble rng120
+                 in (r < pCrossAssetConfirmation, rng')
+            (crossAssetMinBeta, rng122) =
+                let (lo, hi) = ordered crossAssetMinBetaRange
+                 in nextUniform lo hi rng121
+            (crossAssetMinEdge, rng123) =
+                let (lo, hi) = ordered crossAssetMinEdgeRange
+                 in nextUniform lo hi rng122
+            (pairsStatArbEnabled, rng124) =
+                let (r, rng') = nextDouble rng123
+                 in (r < pPairsStatArb, rng')
+            (pairsStatArbLookback, rng125) = uncurry nextIntRange pairsStatArbLookbackRange rng124
+            (pairsStatArbZEntry, rng126) =
+                let (lo, hi) = ordered pairsStatArbZEntryRange
+                 in nextUniform lo hi rng125
+            (pairsStatArbSizeMult, rng127) =
+                let (lo, hi) = ordered pairsStatArbSizeMultRange
+                 in nextUniform lo hi rng126
          in ( TrialParams
                 { tpPlatform = platform
                 , tpInterval = interval
@@ -2803,8 +2928,20 @@ sampleParams
                 , tpRegimeTrendSizeMult = max 0 regimeTrendSizeMult
                 , tpRegimeMrSizeMult = max 0 regimeMrSizeMult
                 , tpRegimeHighVolSizeMult = max 0 regimeHighVolSizeMult
+                , tpMultiTimeframeConsensus = multiTimeframeConsensusEnabled
+                , tpMtfFastBars = max 1 mtfFastBars
+                , tpMtfMidBars = max 1 mtfMidBars
+                , tpMtfSlowBars = max 1 mtfSlowBars
+                , tpMtfMinAgree = clampInt mtfMinAgree 1 3
+                , tpCrossAssetConfirmation = crossAssetConfirmationEnabled
+                , tpCrossAssetMinBeta = max 0 crossAssetMinBeta
+                , tpCrossAssetMinEdge = max 0 crossAssetMinEdge
+                , tpPairsStatArb = pairsStatArbEnabled
+                , tpPairsStatArbLookback = max 2 pairsStatArbLookback
+                , tpPairsStatArbZEntry = max 1e-12 pairsStatArbZEntry
+                , tpPairsStatArbSizeMult = clamp pairsStatArbSizeMult 0 1
                 }
-            , rng115
+            , rng127
             )
       where
         ordered (a, b) = if a <= b then (a, b) else (b, a)
@@ -3215,6 +3352,18 @@ runOptimizer args0 = do
                                                         regimeTrendSizeMultRange = (max 0 (oaRegimeTrendSizeMultMin args), max 0 (oaRegimeTrendSizeMultMax args))
                                                         regimeMrSizeMultRange = (max 0 (oaRegimeMrSizeMultMin args), max 0 (oaRegimeMrSizeMultMax args))
                                                         regimeHighVolSizeMultRange = (max 0 (oaRegimeHighVolSizeMultMin args), max 0 (oaRegimeHighVolSizeMultMax args))
+                                                        pMultiTimeframeConsensus = clamp (oaPMultiTimeframeConsensus args) 0 1
+                                                        mtfFastBarsRange = (max 1 (oaMtfFastBarsMin args), max 1 (oaMtfFastBarsMax args))
+                                                        mtfMidBarsRange = (max 1 (oaMtfMidBarsMin args), max 1 (oaMtfMidBarsMax args))
+                                                        mtfSlowBarsRange = (max 1 (oaMtfSlowBarsMin args), max 1 (oaMtfSlowBarsMax args))
+                                                        mtfMinAgreeRange = (clampInt (oaMtfMinAgreeMin args) 1 3, clampInt (oaMtfMinAgreeMax args) 1 3)
+                                                        pCrossAssetConfirmation = clamp (oaPCrossAssetConfirmation args) 0 1
+                                                        crossAssetMinBetaRange = (max 0 (oaCrossAssetMinBetaMin args), max 0 (oaCrossAssetMinBetaMax args))
+                                                        crossAssetMinEdgeRange = (max 0 (oaCrossAssetMinEdgeMin args), max 0 (oaCrossAssetMinEdgeMax args))
+                                                        pPairsStatArb = clamp (oaPPairsStatArb args) 0 1
+                                                        pairsStatArbLookbackRange = (max 2 (oaPairsStatArbLookbackMin args), max 2 (oaPairsStatArbLookbackMax args))
+                                                        pairsStatArbZEntryRange = (max 1e-12 (oaPairsStatArbZEntryMin args), max 1e-12 (oaPairsStatArbZEntryMax args))
+                                                        pairsStatArbSizeMultRange = (clamp (oaPairsStatArbSizeMultMin args) 0 1, clamp (oaPairsStatArbSizeMultMax args) 0 1)
                                                     if null normalizationChoices
                                                         then do
                                                             hPutStrLn stderr "No normalizations provided."
@@ -3473,6 +3622,18 @@ runOptimizer args0 = do
                                                                                 regimeTrendSizeMultRange
                                                                                 regimeMrSizeMultRange
                                                                                 regimeHighVolSizeMultRange
+                                                                                pMultiTimeframeConsensus
+                                                                                mtfFastBarsRange
+                                                                                mtfMidBarsRange
+                                                                                mtfSlowBarsRange
+                                                                                mtfMinAgreeRange
+                                                                                pCrossAssetConfirmation
+                                                                                crossAssetMinBetaRange
+                                                                                crossAssetMinEdgeRange
+                                                                                pPairsStatArb
+                                                                                pairsStatArbLookbackRange
+                                                                                pairsStatArbZEntryRange
+                                                                                pairsStatArbSizeMultRange
                                                                         runTrialWith idx rng mBase mParents best recordsRev = do
                                                                             let (params, _) =
                                                                                     case mBase of
@@ -4106,6 +4267,18 @@ printBest tr = do
     putStrLn ("  regimeTrendSizeMult:" ++ show (tpRegimeTrendSizeMult p))
     putStrLn ("  regimeMrSizeMult:   " ++ show (tpRegimeMrSizeMult p))
     putStrLn ("  regimeHighVolSizeMult:" ++ show (tpRegimeHighVolSizeMult p))
+    putStrLn ("  multiTimeframeConsensus:" ++ show (tpMultiTimeframeConsensus p))
+    putStrLn ("  mtfFastBars:        " ++ show (tpMtfFastBars p))
+    putStrLn ("  mtfMidBars:         " ++ show (tpMtfMidBars p))
+    putStrLn ("  mtfSlowBars:        " ++ show (tpMtfSlowBars p))
+    putStrLn ("  mtfMinAgree:        " ++ show (tpMtfMinAgree p))
+    putStrLn ("  crossAssetConfirmation:" ++ show (tpCrossAssetConfirmation p))
+    putStrLn ("  crossAssetMinBeta:  " ++ show (tpCrossAssetMinBeta p))
+    putStrLn ("  crossAssetMinEdge:  " ++ show (tpCrossAssetMinEdge p))
+    putStrLn ("  pairsStatArb:       " ++ show (tpPairsStatArb p))
+    putStrLn ("  pairsStatArbLookback:" ++ show (tpPairsStatArbLookback p))
+    putStrLn ("  pairsStatArbZEntry: " ++ show (tpPairsStatArbZEntry p))
+    putStrLn ("  pairsStatArbSizeMult:" ++ show (tpPairsStatArbSizeMult p))
 
 showMaybe :: (Show a) => Maybe a -> String
 showMaybe = maybe "None" show
@@ -4380,6 +4553,18 @@ crossoverTrialParams a b rng0 =
         (tpRegimeTrendSizeMult', rng135) = pickValue (tpRegimeTrendSizeMult a) (tpRegimeTrendSizeMult b) rng134
         (tpRegimeMrSizeMult', rng136) = pickValue (tpRegimeMrSizeMult a) (tpRegimeMrSizeMult b) rng135
         (tpRegimeHighVolSizeMult', rng137) = pickValue (tpRegimeHighVolSizeMult a) (tpRegimeHighVolSizeMult b) rng136
+        (tpMultiTimeframeConsensus', rng138) = pickValue (tpMultiTimeframeConsensus a) (tpMultiTimeframeConsensus b) rng137
+        (tpMtfFastBars', rng139) = pickValue (tpMtfFastBars a) (tpMtfFastBars b) rng138
+        (tpMtfMidBars', rng140) = pickValue (tpMtfMidBars a) (tpMtfMidBars b) rng139
+        (tpMtfSlowBars', rng141) = pickValue (tpMtfSlowBars a) (tpMtfSlowBars b) rng140
+        (tpMtfMinAgree', rng142) = pickValue (tpMtfMinAgree a) (tpMtfMinAgree b) rng141
+        (tpCrossAssetConfirmation', rng143) = pickValue (tpCrossAssetConfirmation a) (tpCrossAssetConfirmation b) rng142
+        (tpCrossAssetMinBeta', rng144) = pickValue (tpCrossAssetMinBeta a) (tpCrossAssetMinBeta b) rng143
+        (tpCrossAssetMinEdge', rng145) = pickValue (tpCrossAssetMinEdge a) (tpCrossAssetMinEdge b) rng144
+        (tpPairsStatArb', rng146) = pickValue (tpPairsStatArb a) (tpPairsStatArb b) rng145
+        (tpPairsStatArbLookback', rng147) = pickValue (tpPairsStatArbLookback a) (tpPairsStatArbLookback b) rng146
+        (tpPairsStatArbZEntry', rng148) = pickValue (tpPairsStatArbZEntry a) (tpPairsStatArbZEntry b) rng147
+        (tpPairsStatArbSizeMult', rng149) = pickValue (tpPairsStatArbSizeMult a) (tpPairsStatArbSizeMult b) rng148
      in ( a
             { tpPlatform = tpPlatform'
             , tpInterval = tpInterval'
@@ -4524,8 +4709,20 @@ crossoverTrialParams a b rng0 =
             , tpRegimeTrendSizeMult = tpRegimeTrendSizeMult'
             , tpRegimeMrSizeMult = tpRegimeMrSizeMult'
             , tpRegimeHighVolSizeMult = tpRegimeHighVolSizeMult'
+            , tpMultiTimeframeConsensus = tpMultiTimeframeConsensus'
+            , tpMtfFastBars = tpMtfFastBars'
+            , tpMtfMidBars = tpMtfMidBars'
+            , tpMtfSlowBars = tpMtfSlowBars'
+            , tpMtfMinAgree = tpMtfMinAgree'
+            , tpCrossAssetConfirmation = tpCrossAssetConfirmation'
+            , tpCrossAssetMinBeta = tpCrossAssetMinBeta'
+            , tpCrossAssetMinEdge = tpCrossAssetMinEdge'
+            , tpPairsStatArb = tpPairsStatArb'
+            , tpPairsStatArbLookback = tpPairsStatArbLookback'
+            , tpPairsStatArbZEntry = tpPairsStatArbZEntry'
+            , tpPairsStatArbSizeMult = tpPairsStatArbSizeMult'
             }
-        , rng137
+        , rng149
         )
 
 clampBarsForPlatform :: Maybe String -> Int -> Int -> Int -> Int
@@ -4625,6 +4822,15 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (regimeTrendSizeMult', rng76) = perturbDouble (tpRegimeTrendSizeMult p) scaleDouble rng75
         (regimeMrSizeMult', rng77) = perturbDouble (tpRegimeMrSizeMult p) scaleDouble rng76
         (regimeHighVolSizeMult', rng78) = perturbDouble (tpRegimeHighVolSizeMult p) scaleDouble rng77
+        (mtfFastBars', rng79) = perturbInt (tpMtfFastBars p) scaleInt rng78
+        (mtfMidBars', rng80) = perturbInt (tpMtfMidBars p) scaleInt rng79
+        (mtfSlowBars', rng81) = perturbInt (tpMtfSlowBars p) scaleInt rng80
+        (mtfMinAgree', rng82) = perturbInt (tpMtfMinAgree p) scaleInt rng81
+        (crossAssetMinBeta', rng83) = perturbDouble (tpCrossAssetMinBeta p) scaleDouble rng82
+        (crossAssetMinEdge', rng84) = perturbDouble (tpCrossAssetMinEdge p) scaleDouble rng83
+        (pairsStatArbLookback', rng85) = perturbInt (tpPairsStatArbLookback p) scaleInt rng84
+        (pairsStatArbZEntry', rng86) = perturbDouble (tpPairsStatArbZEntry p) scaleDouble rng85
+        (pairsStatArbSizeMult', rng87) = perturbDouble (tpPairsStatArbSizeMult p) scaleDouble rng86
      in ( p
             { tpBars = bars'
             , tpBlendWeight = clamp blendWeight' 0 1
@@ -4708,8 +4914,17 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
             , tpRegimeTrendSizeMult = max 0 regimeTrendSizeMult'
             , tpRegimeMrSizeMult = max 0 regimeMrSizeMult'
             , tpRegimeHighVolSizeMult = max 0 regimeHighVolSizeMult'
+            , tpMtfFastBars = max 1 mtfFastBars'
+            , tpMtfMidBars = max 1 mtfMidBars'
+            , tpMtfSlowBars = max 1 mtfSlowBars'
+            , tpMtfMinAgree = clampInt mtfMinAgree' 1 3
+            , tpCrossAssetMinBeta = max 0 crossAssetMinBeta'
+            , tpCrossAssetMinEdge = max 0 crossAssetMinEdge'
+            , tpPairsStatArbLookback = max 2 pairsStatArbLookback'
+            , tpPairsStatArbZEntry = max 1e-12 pairsStatArbZEntry'
+            , tpPairsStatArbSizeMult = clamp pairsStatArbSizeMult' 0 1
             }
-        , rng78
+        , rng87
         )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
@@ -4929,6 +5144,18 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "regimeTrendSizeMult" .= tpRegimeTrendSizeMult params
                 , "regimeMrSizeMult" .= tpRegimeMrSizeMult params
                 , "regimeHighVolSizeMult" .= tpRegimeHighVolSizeMult params
+                , "multiTimeframeConsensus" .= tpMultiTimeframeConsensus params
+                , "mtfFastBars" .= tpMtfFastBars params
+                , "mtfMidBars" .= tpMtfMidBars params
+                , "mtfSlowBars" .= tpMtfSlowBars params
+                , "mtfMinAgree" .= tpMtfMinAgree params
+                , "crossAssetConfirmation" .= tpCrossAssetConfirmation params
+                , "crossAssetMinBeta" .= tpCrossAssetMinBeta params
+                , "crossAssetMinEdge" .= tpCrossAssetMinEdge params
+                , "pairsStatArb" .= tpPairsStatArb params
+                , "pairsStatArbLookback" .= tpPairsStatArbLookback params
+                , "pairsStatArbZEntry" .= tpPairsStatArbZEntry params
+                , "pairsStatArbSizeMult" .= tpPairsStatArbSizeMult params
                 , "binanceSymbol" .= symbol
                 ]
         identity =
