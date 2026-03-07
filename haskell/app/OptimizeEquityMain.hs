@@ -386,6 +386,21 @@ optimizerArgsParser =
         <*> option auto (long "meta-label-min-confidence-min" <> value 0.4 <> metavar "FLOAT")
         <*> option auto (long "meta-label-min-confidence-max" <> value 0.8 <> metavar "FLOAT")
         <*> option auto (long "p-meta-label-require-band" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "p-regime-parameter-bank" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "regime-bank-hysteresis-min" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "regime-bank-hysteresis-max" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "regime-trend-open-mult-min" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "regime-trend-open-mult-max" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "regime-mr-open-mult-min" <> value 1.1 <> metavar "FLOAT")
+        <*> option auto (long "regime-mr-open-mult-max" <> value 1.1 <> metavar "FLOAT")
+        <*> option auto (long "regime-high-vol-open-mult-min" <> value 1.3 <> metavar "FLOAT")
+        <*> option auto (long "regime-high-vol-open-mult-max" <> value 1.3 <> metavar "FLOAT")
+        <*> option auto (long "regime-trend-size-mult-min" <> value 1.1 <> metavar "FLOAT")
+        <*> option auto (long "regime-trend-size-mult-max" <> value 1.1 <> metavar "FLOAT")
+        <*> option auto (long "regime-mr-size-mult-min" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "regime-mr-size-mult-max" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "regime-high-vol-size-mult-min" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "regime-high-vol-size-mult-max" <> value 0.7 <> metavar "FLOAT")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
@@ -505,6 +520,30 @@ validateArgs args = do
         $ Left "--meta-label-min-confidence-min/max must be between 0 and 1."
     when (oaPMetaLabelRequireBand args < 0 || oaPMetaLabelRequireBand args > 1) $
         Left "--p-meta-label-require-band must be between 0 and 1."
+    when (oaPRegimeParameterBank args < 0 || oaPRegimeParameterBank args > 1) $
+        Left "--p-regime-parameter-bank must be between 0 and 1."
+    when
+        ( oaRegimeBankHysteresisMin args < 0
+            || oaRegimeBankHysteresisMin args > 1
+            || oaRegimeBankHysteresisMax args < 0
+            || oaRegimeBankHysteresisMax args > 1
+        )
+        $ Left "--regime-bank-hysteresis-min/max must be between 0 and 1."
+    when
+        ( oaRegimeTrendOpenMultMin args < 0
+            || oaRegimeTrendOpenMultMax args < 0
+            || oaRegimeMrOpenMultMin args < 0
+            || oaRegimeMrOpenMultMax args < 0
+            || oaRegimeHighVolOpenMultMin args < 0
+            || oaRegimeHighVolOpenMultMax args < 0
+            || oaRegimeTrendSizeMultMin args < 0
+            || oaRegimeTrendSizeMultMax args < 0
+            || oaRegimeMrSizeMultMin args < 0
+            || oaRegimeMrSizeMultMax args < 0
+            || oaRegimeHighVolSizeMultMin args < 0
+            || oaRegimeHighVolSizeMultMax args < 0
+        )
+        $ Left "--regime-*-mult-min/max must be >= 0."
     pure args'
 
 objectiveChoices :: [String]

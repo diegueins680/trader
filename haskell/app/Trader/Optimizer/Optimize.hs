@@ -854,6 +854,21 @@ data OptimizerArgs = OptimizerArgs
     , oaMetaLabelMinConfidenceMin :: !Double
     , oaMetaLabelMinConfidenceMax :: !Double
     , oaPMetaLabelRequireBand :: !Double
+    , oaPRegimeParameterBank :: !Double
+    , oaRegimeBankHysteresisMin :: !Double
+    , oaRegimeBankHysteresisMax :: !Double
+    , oaRegimeTrendOpenMultMin :: !Double
+    , oaRegimeTrendOpenMultMax :: !Double
+    , oaRegimeMrOpenMultMin :: !Double
+    , oaRegimeMrOpenMultMax :: !Double
+    , oaRegimeHighVolOpenMultMin :: !Double
+    , oaRegimeHighVolOpenMultMax :: !Double
+    , oaRegimeTrendSizeMultMin :: !Double
+    , oaRegimeTrendSizeMultMax :: !Double
+    , oaRegimeMrSizeMultMin :: !Double
+    , oaRegimeMrSizeMultMax :: !Double
+    , oaRegimeHighVolSizeMultMin :: !Double
+    , oaRegimeHighVolSizeMultMax :: !Double
     }
     deriving (Eq, Show)
 
@@ -932,6 +947,21 @@ applyQualityPreset args =
             , oaMetaLabelMinConfidenceMin = maxIf (oaMetaLabelMinConfidenceMin args) 0.45
             , oaMetaLabelMinConfidenceMax = maxIf (oaMetaLabelMinConfidenceMax args) 0.8
             , oaPMetaLabelRequireBand = maxIf (oaPMetaLabelRequireBand args) 0.75
+            , oaPRegimeParameterBank = maxIf (oaPRegimeParameterBank args) 0.35
+            , oaRegimeBankHysteresisMin = minIf (oaRegimeBankHysteresisMin args) 0.0
+            , oaRegimeBankHysteresisMax = maxIf (oaRegimeBankHysteresisMax args) 0.12
+            , oaRegimeTrendOpenMultMin = minIf (oaRegimeTrendOpenMultMin args) 0.75
+            , oaRegimeTrendOpenMultMax = maxIf (oaRegimeTrendOpenMultMax args) 1.05
+            , oaRegimeMrOpenMultMin = minIf (oaRegimeMrOpenMultMin args) 1.0
+            , oaRegimeMrOpenMultMax = maxIf (oaRegimeMrOpenMultMax args) 1.35
+            , oaRegimeHighVolOpenMultMin = minIf (oaRegimeHighVolOpenMultMin args) 1.05
+            , oaRegimeHighVolOpenMultMax = maxIf (oaRegimeHighVolOpenMultMax args) 1.6
+            , oaRegimeTrendSizeMultMin = minIf (oaRegimeTrendSizeMultMin args) 0.9
+            , oaRegimeTrendSizeMultMax = maxIf (oaRegimeTrendSizeMultMax args) 1.35
+            , oaRegimeMrSizeMultMin = minIf (oaRegimeMrSizeMultMin args) 0.6
+            , oaRegimeMrSizeMultMax = maxIf (oaRegimeMrSizeMultMax args) 1.0
+            , oaRegimeHighVolSizeMultMin = minIf (oaRegimeHighVolSizeMultMin args) 0.4
+            , oaRegimeHighVolSizeMultMax = maxIf (oaRegimeHighVolSizeMultMax args) 0.9
             , oaInterval = if intervalReset then Nothing else oaInterval args
             , oaIntervals = intervals'
             }
@@ -1072,6 +1102,14 @@ data TrialParams = TrialParams
     , tpMetaLabelMinEdge :: !Double
     , tpMetaLabelMinConfidence :: !Double
     , tpMetaLabelRequireBand :: !Bool
+    , tpRegimeParameterBank :: !Bool
+    , tpRegimeBankHysteresis :: !Double
+    , tpRegimeTrendOpenMult :: !Double
+    , tpRegimeMrOpenMult :: !Double
+    , tpRegimeHighVolOpenMult :: !Double
+    , tpRegimeTrendSizeMult :: !Double
+    , tpRegimeMrSizeMult :: !Double
+    , tpRegimeHighVolSizeMult :: !Double
     }
     deriving (Eq, Show)
 
@@ -1305,8 +1343,23 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , printf "%.12g" (max 0 (tpMetaLabelMinEdge params))
                    , "--meta-label-min-confidence"
                    , printf "%.12g" (clamp (tpMetaLabelMinConfidence params) 0 1)
+                   , "--regime-bank-hysteresis"
+                   , printf "%.12g" (clamp (tpRegimeBankHysteresis params) 0 1)
+                   , "--regime-trend-open-mult"
+                   , printf "%.12g" (max 0 (tpRegimeTrendOpenMult params))
+                   , "--regime-mr-open-mult"
+                   , printf "%.12g" (max 0 (tpRegimeMrOpenMult params))
+                   , "--regime-high-vol-open-mult"
+                   , printf "%.12g" (max 0 (tpRegimeHighVolOpenMult params))
+                   , "--regime-trend-size-mult"
+                   , printf "%.12g" (max 0 (tpRegimeTrendSizeMult params))
+                   , "--regime-mr-size-mult"
+                   , printf "%.12g" (max 0 (tpRegimeMrSizeMult params))
+                   , "--regime-high-vol-size-mult"
+                   , printf "%.12g" (max 0 (tpRegimeHighVolSizeMult params))
                    ]
                 ++ (if tpMetaLabelRequireBand params then ["--meta-label-require-band"] else ["--no-meta-label-require-band"])
+                ++ (if tpRegimeParameterBank params then ["--regime-parameter-bank"] else ["--no-regime-parameter-bank"])
                 ++ (["--tri-layer" | tpTriLayer params])
                 ++ [ "--tri-layer-fast-mult"
                    , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
@@ -1842,6 +1895,14 @@ trialToRecord tr symbolLabel =
             , "metaLabelMinEdge" .= tpMetaLabelMinEdge (trParams tr)
             , "metaLabelMinConfidence" .= tpMetaLabelMinConfidence (trParams tr)
             , "metaLabelRequireBand" .= tpMetaLabelRequireBand (trParams tr)
+            , "regimeParameterBank" .= tpRegimeParameterBank (trParams tr)
+            , "regimeBankHysteresis" .= tpRegimeBankHysteresis (trParams tr)
+            , "regimeTrendOpenMult" .= tpRegimeTrendOpenMult (trParams tr)
+            , "regimeMrOpenMult" .= tpRegimeMrOpenMult (trParams tr)
+            , "regimeHighVolOpenMult" .= tpRegimeHighVolOpenMult (trParams tr)
+            , "regimeTrendSizeMult" .= tpRegimeTrendSizeMult (trParams tr)
+            , "regimeMrSizeMult" .= tpRegimeMrSizeMult (trParams tr)
+            , "regimeHighVolSizeMult" .= tpRegimeHighVolSizeMult (trParams tr)
             ]
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
         paramsPairs' =
@@ -2046,7 +2107,15 @@ sampleParams
     pMetaLabelFilter
     metaLabelMinEdgeRange
     metaLabelMinConfidenceRange
-    pMetaLabelRequireBand =
+    pMetaLabelRequireBand
+    pRegimeParameterBank
+    regimeBankHysteresisRange
+    regimeTrendOpenMultRange
+    regimeMrOpenMultRange
+    regimeHighVolOpenMultRange
+    regimeTrendSizeMultRange
+    regimeMrSizeMultRange
+    regimeHighVolSizeMultRange =
         let (platform, rng1) =
                 case platforms of
                     [] -> (Nothing, rng0)
@@ -2566,6 +2635,30 @@ sampleParams
             (metaLabelRequireBand, rng107) =
                 let (r, rng') = nextDouble rng106
                  in (r < pMetaLabelRequireBand, rng')
+            (regimeParameterBankEnabled, rng108) =
+                let (r, rng') = nextDouble rng107
+                 in (r < pRegimeParameterBank, rng')
+            (regimeBankHysteresis, rng109) =
+                let (lo, hi) = ordered regimeBankHysteresisRange
+                 in nextUniform lo hi rng108
+            (regimeTrendOpenMult, rng110) =
+                let (lo, hi) = ordered regimeTrendOpenMultRange
+                 in nextUniform lo hi rng109
+            (regimeMrOpenMult, rng111) =
+                let (lo, hi) = ordered regimeMrOpenMultRange
+                 in nextUniform lo hi rng110
+            (regimeHighVolOpenMult, rng112) =
+                let (lo, hi) = ordered regimeHighVolOpenMultRange
+                 in nextUniform lo hi rng111
+            (regimeTrendSizeMult, rng113) =
+                let (lo, hi) = ordered regimeTrendSizeMultRange
+                 in nextUniform lo hi rng112
+            (regimeMrSizeMult, rng114) =
+                let (lo, hi) = ordered regimeMrSizeMultRange
+                 in nextUniform lo hi rng113
+            (regimeHighVolSizeMult, rng115) =
+                let (lo, hi) = ordered regimeHighVolSizeMultRange
+                 in nextUniform lo hi rng114
          in ( TrialParams
                 { tpPlatform = platform
                 , tpInterval = interval
@@ -2702,8 +2795,16 @@ sampleParams
                 , tpMetaLabelMinEdge = max 0 metaLabelMinEdge
                 , tpMetaLabelMinConfidence = clamp metaLabelMinConfidence 0 1
                 , tpMetaLabelRequireBand = metaLabelRequireBand
+                , tpRegimeParameterBank = regimeParameterBankEnabled
+                , tpRegimeBankHysteresis = clamp regimeBankHysteresis 0 1
+                , tpRegimeTrendOpenMult = max 0 regimeTrendOpenMult
+                , tpRegimeMrOpenMult = max 0 regimeMrOpenMult
+                , tpRegimeHighVolOpenMult = max 0 regimeHighVolOpenMult
+                , tpRegimeTrendSizeMult = max 0 regimeTrendSizeMult
+                , tpRegimeMrSizeMult = max 0 regimeMrSizeMult
+                , tpRegimeHighVolSizeMult = max 0 regimeHighVolSizeMult
                 }
-            , rng107
+            , rng115
             )
       where
         ordered (a, b) = if a <= b then (a, b) else (b, a)
@@ -3106,6 +3207,14 @@ runOptimizer args0 = do
                                                         metaLabelMinEdgeRange = (max 0 (oaMetaLabelMinEdgeMin args), max 0 (oaMetaLabelMinEdgeMax args))
                                                         metaLabelMinConfidenceRange = (clamp (oaMetaLabelMinConfidenceMin args) 0 1, clamp (oaMetaLabelMinConfidenceMax args) 0 1)
                                                         pMetaLabelRequireBand = clamp (oaPMetaLabelRequireBand args) 0 1
+                                                        pRegimeParameterBank = clamp (oaPRegimeParameterBank args) 0 1
+                                                        regimeBankHysteresisRange = (clamp (oaRegimeBankHysteresisMin args) 0 1, clamp (oaRegimeBankHysteresisMax args) 0 1)
+                                                        regimeTrendOpenMultRange = (max 0 (oaRegimeTrendOpenMultMin args), max 0 (oaRegimeTrendOpenMultMax args))
+                                                        regimeMrOpenMultRange = (max 0 (oaRegimeMrOpenMultMin args), max 0 (oaRegimeMrOpenMultMax args))
+                                                        regimeHighVolOpenMultRange = (max 0 (oaRegimeHighVolOpenMultMin args), max 0 (oaRegimeHighVolOpenMultMax args))
+                                                        regimeTrendSizeMultRange = (max 0 (oaRegimeTrendSizeMultMin args), max 0 (oaRegimeTrendSizeMultMax args))
+                                                        regimeMrSizeMultRange = (max 0 (oaRegimeMrSizeMultMin args), max 0 (oaRegimeMrSizeMultMax args))
+                                                        regimeHighVolSizeMultRange = (max 0 (oaRegimeHighVolSizeMultMin args), max 0 (oaRegimeHighVolSizeMultMax args))
                                                     if null normalizationChoices
                                                         then do
                                                             hPutStrLn stderr "No normalizations provided."
@@ -3356,6 +3465,14 @@ runOptimizer args0 = do
                                                                                 metaLabelMinEdgeRange
                                                                                 metaLabelMinConfidenceRange
                                                                                 pMetaLabelRequireBand
+                                                                                pRegimeParameterBank
+                                                                                regimeBankHysteresisRange
+                                                                                regimeTrendOpenMultRange
+                                                                                regimeMrOpenMultRange
+                                                                                regimeHighVolOpenMultRange
+                                                                                regimeTrendSizeMultRange
+                                                                                regimeMrSizeMultRange
+                                                                                regimeHighVolSizeMultRange
                                                                         runTrialWith idx rng mBase mParents best recordsRev = do
                                                                             let (params, _) =
                                                                                     case mBase of
@@ -3981,6 +4098,14 @@ printBest tr = do
     putStrLn ("  metaLabelMinEdge:    " ++ show (tpMetaLabelMinEdge p))
     putStrLn ("  metaLabelMinConfidence:" ++ show (tpMetaLabelMinConfidence p))
     putStrLn ("  metaLabelRequireBand:" ++ show (tpMetaLabelRequireBand p))
+    putStrLn ("  regimeParameterBank:" ++ show (tpRegimeParameterBank p))
+    putStrLn ("  regimeBankHysteresis:" ++ show (tpRegimeBankHysteresis p))
+    putStrLn ("  regimeTrendOpenMult:" ++ show (tpRegimeTrendOpenMult p))
+    putStrLn ("  regimeMrOpenMult:   " ++ show (tpRegimeMrOpenMult p))
+    putStrLn ("  regimeHighVolOpenMult:" ++ show (tpRegimeHighVolOpenMult p))
+    putStrLn ("  regimeTrendSizeMult:" ++ show (tpRegimeTrendSizeMult p))
+    putStrLn ("  regimeMrSizeMult:   " ++ show (tpRegimeMrSizeMult p))
+    putStrLn ("  regimeHighVolSizeMult:" ++ show (tpRegimeHighVolSizeMult p))
 
 showMaybe :: (Show a) => Maybe a -> String
 showMaybe = maybe "None" show
@@ -4247,6 +4372,14 @@ crossoverTrialParams a b rng0 =
         (tpMetaLabelMinEdge', rng127) = pickValue (tpMetaLabelMinEdge a) (tpMetaLabelMinEdge b) rng126
         (tpMetaLabelMinConfidence', rng128) = pickValue (tpMetaLabelMinConfidence a) (tpMetaLabelMinConfidence b) rng127
         (tpMetaLabelRequireBand', rng129) = pickValue (tpMetaLabelRequireBand a) (tpMetaLabelRequireBand b) rng128
+        (tpRegimeParameterBank', rng130) = pickValue (tpRegimeParameterBank a) (tpRegimeParameterBank b) rng129
+        (tpRegimeBankHysteresis', rng131) = pickValue (tpRegimeBankHysteresis a) (tpRegimeBankHysteresis b) rng130
+        (tpRegimeTrendOpenMult', rng132) = pickValue (tpRegimeTrendOpenMult a) (tpRegimeTrendOpenMult b) rng131
+        (tpRegimeMrOpenMult', rng133) = pickValue (tpRegimeMrOpenMult a) (tpRegimeMrOpenMult b) rng132
+        (tpRegimeHighVolOpenMult', rng134) = pickValue (tpRegimeHighVolOpenMult a) (tpRegimeHighVolOpenMult b) rng133
+        (tpRegimeTrendSizeMult', rng135) = pickValue (tpRegimeTrendSizeMult a) (tpRegimeTrendSizeMult b) rng134
+        (tpRegimeMrSizeMult', rng136) = pickValue (tpRegimeMrSizeMult a) (tpRegimeMrSizeMult b) rng135
+        (tpRegimeHighVolSizeMult', rng137) = pickValue (tpRegimeHighVolSizeMult a) (tpRegimeHighVolSizeMult b) rng136
      in ( a
             { tpPlatform = tpPlatform'
             , tpInterval = tpInterval'
@@ -4383,8 +4516,16 @@ crossoverTrialParams a b rng0 =
             , tpMetaLabelMinEdge = tpMetaLabelMinEdge'
             , tpMetaLabelMinConfidence = tpMetaLabelMinConfidence'
             , tpMetaLabelRequireBand = tpMetaLabelRequireBand'
+            , tpRegimeParameterBank = tpRegimeParameterBank'
+            , tpRegimeBankHysteresis = tpRegimeBankHysteresis'
+            , tpRegimeTrendOpenMult = tpRegimeTrendOpenMult'
+            , tpRegimeMrOpenMult = tpRegimeMrOpenMult'
+            , tpRegimeHighVolOpenMult = tpRegimeHighVolOpenMult'
+            , tpRegimeTrendSizeMult = tpRegimeTrendSizeMult'
+            , tpRegimeMrSizeMult = tpRegimeMrSizeMult'
+            , tpRegimeHighVolSizeMult = tpRegimeHighVolSizeMult'
             }
-        , rng129
+        , rng137
         )
 
 clampBarsForPlatform :: Maybe String -> Int -> Int -> Int -> Int
@@ -4477,6 +4618,13 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (perfMinProfitFactor', rng69) = perturbMaybeDouble (tpPerfMinProfitFactor p) scaleDouble rng68
         (metaLabelMinEdge', rng70) = perturbDouble (tpMetaLabelMinEdge p) scaleDouble rng69
         (metaLabelMinConfidence', rng71) = perturbDouble (tpMetaLabelMinConfidence p) scaleDouble rng70
+        (regimeBankHysteresis', rng72) = perturbDouble (tpRegimeBankHysteresis p) scaleDouble rng71
+        (regimeTrendOpenMult', rng73) = perturbDouble (tpRegimeTrendOpenMult p) scaleDouble rng72
+        (regimeMrOpenMult', rng74) = perturbDouble (tpRegimeMrOpenMult p) scaleDouble rng73
+        (regimeHighVolOpenMult', rng75) = perturbDouble (tpRegimeHighVolOpenMult p) scaleDouble rng74
+        (regimeTrendSizeMult', rng76) = perturbDouble (tpRegimeTrendSizeMult p) scaleDouble rng75
+        (regimeMrSizeMult', rng77) = perturbDouble (tpRegimeMrSizeMult p) scaleDouble rng76
+        (regimeHighVolSizeMult', rng78) = perturbDouble (tpRegimeHighVolSizeMult p) scaleDouble rng77
      in ( p
             { tpBars = bars'
             , tpBlendWeight = clamp blendWeight' 0 1
@@ -4553,8 +4701,15 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
             , tpPerfMinProfitFactor = fmap (max 0) perfMinProfitFactor'
             , tpMetaLabelMinEdge = max 0 metaLabelMinEdge'
             , tpMetaLabelMinConfidence = clamp metaLabelMinConfidence' 0 1
+            , tpRegimeBankHysteresis = clamp regimeBankHysteresis' 0 1
+            , tpRegimeTrendOpenMult = max 0 regimeTrendOpenMult'
+            , tpRegimeMrOpenMult = max 0 regimeMrOpenMult'
+            , tpRegimeHighVolOpenMult = max 0 regimeHighVolOpenMult'
+            , tpRegimeTrendSizeMult = max 0 regimeTrendSizeMult'
+            , tpRegimeMrSizeMult = max 0 regimeMrSizeMult'
+            , tpRegimeHighVolSizeMult = max 0 regimeHighVolSizeMult'
             }
-        , rng71
+        , rng78
         )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
@@ -4766,6 +4921,14 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "metaLabelMinEdge" .= tpMetaLabelMinEdge params
                 , "metaLabelMinConfidence" .= tpMetaLabelMinConfidence params
                 , "metaLabelRequireBand" .= tpMetaLabelRequireBand params
+                , "regimeParameterBank" .= tpRegimeParameterBank params
+                , "regimeBankHysteresis" .= tpRegimeBankHysteresis params
+                , "regimeTrendOpenMult" .= tpRegimeTrendOpenMult params
+                , "regimeMrOpenMult" .= tpRegimeMrOpenMult params
+                , "regimeHighVolOpenMult" .= tpRegimeHighVolOpenMult params
+                , "regimeTrendSizeMult" .= tpRegimeTrendSizeMult params
+                , "regimeMrSizeMult" .= tpRegimeMrSizeMult params
+                , "regimeHighVolSizeMult" .= tpRegimeHighVolSizeMult params
                 , "binanceSymbol" .= symbol
                 ]
         identity =
