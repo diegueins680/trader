@@ -15851,10 +15851,28 @@ extractJsonObject :: String -> Maybe String
 extractJsonObject msg =
     case dropWhile (/= '{') msg of
         [] -> Nothing
-        s0 ->
-            case break (== '}') s0 of
-                (obj, '}' : _) -> Just (obj ++ "}")
-                _ -> Nothing
+        s0 -> go 0 False False [] s0
+  where
+    go _ _ _ _ [] = Nothing
+    go depth inString escaped acc (c : cs)
+        | inString =
+            let acc' = c : acc
+             in if escaped
+                    then go depth True False acc' cs
+                    else case c of
+                        '\\' -> go depth True True acc' cs
+                        '"' -> go depth False False acc' cs
+                        _ -> go depth True False acc' cs
+        | otherwise =
+            let acc' = c : acc
+             in case c of
+                    '"' -> go depth True False acc' cs
+                    '{' -> go (depth + 1) False False acc' cs
+                    '}'
+                        | depth <= 0 -> Nothing
+                        | depth == 1 -> Just (reverse acc')
+                        | otherwise -> go (depth - 1) False False acc' cs
+                    _ -> go depth False False acc' cs
 
 parseCoinbaseError :: String -> (Maybe Int, Maybe String, String)
 parseCoinbaseError raw =

@@ -12,7 +12,8 @@ import qualified Data.Text as T
 
 apiEndpointDocs :: [Value]
 apiEndpointDocs =
-    [ endpoint "GET" "/health"
+    [ endpoint "GET" "/"
+    , endpoint "GET" "/health"
     , endpoint "GET" "/version"
     , endpoint "GET" "/metrics"
     , endpoint "GET" "/ops"

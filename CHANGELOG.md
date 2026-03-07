@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- CLI/API: accept Coinbase/Poloniex symbols with delimiter whitespace (for example `BTC / USD`, `BTC - USDT`), include `GET /` in the advertised root endpoint catalog, and harden wrapped Binance error parsing so nested/braced JSON bodies still surface the correct code/message.
 - Optimizer/Signals: add `optimize-equity` sampling for multi-timeframe consensus, cross-asset confirmation, and pairs/stat-arb overlays (`--p-multi-timeframe-consensus`, `--mtf-*`, `--p-cross-asset-confirmation`, `--cross-asset-min-beta/edge-*`, `--p-pairs-stat-arb`, `--pairs-stat-arb-*`), and pass the same camelCase fields through `/optimizer/run`, so optimizer searches can tune those confirmation layers instead of leaving them fixed.
 - Optimizer/API: forward the adaptive performance, meta-label, regime-parameter-bank, and signal-gate tuning fields through `/optimizer/run`, so JSON optimizer requests now reach parity with the `optimize-equity` CLI instead of silently dropping those knobs.
 - Optimizer/ROI: wire rolling performance gates into `optimize-equity` by adding optimizer sampling for `--adaptive-filters`, `--perf-lookback`, `--perf-min-win-rate`, and `--perf-min-profit-factor`, so adaptive edge/SNR/Kalman tightening is actually explored during quality-mode searches instead of varying inactive caps.

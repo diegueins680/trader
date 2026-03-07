@@ -183,7 +183,9 @@ main = do
               , run "binance market helper prioritizes futures on conflicting flags" testBinanceMarketConflictingFlagsPreferFutures
               , run "binance args normalize slash symbols" testBinanceSlashSymbolNormalization
               , run "coinbase args normalize slash symbols" testCoinbaseSlashSymbolNormalization
+              , run "coinbase args normalize delimiter whitespace" testCoinbaseDelimiterWhitespaceNormalization
               , run "poloniex args normalize slash symbols" testPoloniexSlashSymbolNormalization
+              , run "poloniex args normalize delimiter whitespace" testPoloniexDelimiterWhitespaceNormalization
               , run "args normalize interval casing/spacing" testArgsNormalizeIntervalCode
               , run "coinbase args reject compact symbols without delimiter" testCoinbaseCompactSymbolRejected
               , run "poloniex args reject compact symbols without delimiter" testPoloniexCompactSymbolRejected
@@ -1459,11 +1461,23 @@ testCoinbaseSlashSymbolNormalization =
         Left err -> error ("expected Coinbase slash symbol normalization to pass: " ++ err)
         Right args -> assert "coinbase slash symbol normalized to dash" (argBinanceSymbol args == Just "BTC-USD")
 
+testCoinbaseDelimiterWhitespaceNormalization :: IO ()
+testCoinbaseDelimiterWhitespaceNormalization =
+    case parseArgsResult ["--platform", "coinbase", "--symbol", " btc  /  usd "] of
+        Left err -> error ("expected Coinbase delimiter whitespace normalization to pass: " ++ err)
+        Right args -> assert "coinbase spaced delimiter normalized to dash" (argBinanceSymbol args == Just "BTC-USD")
+
 testPoloniexSlashSymbolNormalization :: IO ()
 testPoloniexSlashSymbolNormalization =
     case parseArgsResult ["--platform", "poloniex", "--symbol", "btc/usdt", "--interval", "2h"] of
         Left err -> error ("expected Poloniex slash symbol normalization to pass: " ++ err)
         Right args -> assert "poloniex slash symbol normalized to underscore" (argBinanceSymbol args == Just "BTC_USDT")
+
+testPoloniexDelimiterWhitespaceNormalization :: IO ()
+testPoloniexDelimiterWhitespaceNormalization =
+    case parseArgsResult ["--platform", "poloniex", "--symbol", " btc  -  usdt ", "--interval", "2h"] of
+        Left err -> error ("expected Poloniex delimiter whitespace normalization to pass: " ++ err)
+        Right args -> assert "poloniex spaced delimiter normalized to underscore" (argBinanceSymbol args == Just "BTC_USDT")
 
 testArgsNormalizeIntervalCode :: IO ()
 testArgsNormalizeIntervalCode =

@@ -28,6 +28,7 @@ testRouteLabels = do
 testEndpointDocsCoverage :: IO ()
 testEndpointDocsCoverage = do
     let endpoints = endpointPairs apiEndpointDocs
+    expectTrue "contains GET /" (("GET", "/") `elem` endpoints)
     expectTrue "contains GET /health" (("GET", "/health") `elem` endpoints)
     expectTrue "contains GET /version" (("GET", "/version") `elem` endpoints)
     expectTrue "contains POST /trade" (("POST", "/trade") `elem` endpoints)

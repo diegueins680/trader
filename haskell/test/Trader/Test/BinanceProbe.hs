@@ -9,6 +9,8 @@ binanceProbeSuite =
     [ ("binance probe parser keeps wrapped auth failures as failures", testWrappedAuthFailure)
     , ("binance trade-test confirmation recognizes order validation rejects", testOrderValidationReject)
     , ("binance trade-test confirmation ignores transient upstream failures", testTransientFailure)
+    , ("binance probe parser handles nested json bodies", testNestedJsonBody)
+    , ("binance probe parser keeps brace characters inside messages", testBraceInMessage)
     ]
 
 testWrappedAuthFailure :: IO ()
@@ -31,6 +33,18 @@ testTransientFailure = do
     let err = parseBinanceError "order/test HTTP 503: Service Unavailable"
     expectEq "transient http code" (Just 503) (beiCode err)
     expectFalse "transient errors should not confirm auth" (binanceTradeTestConfirmsAuth (beiCode err) (beiSummary err))
+
+testNestedJsonBody :: IO ()
+testNestedJsonBody = do
+    let err = parseBinanceError "order/test HTTP 400: {\"code\":-2010,\"msg\":\"New order rejected\",\"data\":{\"reason\":\"LOT_SIZE\"}}"
+    expectEq "nested json code" (Just (-2010)) (beiCode err)
+    expectEq "nested json summary" "New order rejected" (beiSummary err)
+
+testBraceInMessage :: IO ()
+testBraceInMessage = do
+    let err = parseBinanceError "order/test HTTP 400: {\"code\":-1013,\"msg\":\"Filter failure: LOT_SIZE {qty}\"}"
+    expectEq "brace message code" (Just (-1013)) (beiCode err)
+    expectEq "brace message summary" "Filter failure: LOT_SIZE {qty}" (beiSummary err)
 
 expectEq :: (Eq a, Show a) => String -> a -> a -> IO ()
 expectEq label expected actual =

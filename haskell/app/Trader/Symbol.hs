@@ -191,7 +191,17 @@ sanitizeDelimitedSymbol delim alt s =
                                 else c
                         )
                         s
-             in bool Nothing (Just s') (s' /= s && isValidDelimitedSymbol delim s')
+                fromReplaced = bool Nothing (Just s') (s' /= s && isValidDelimitedSymbol delim s')
+                fromTokens = buildDelimitedSymbol delim (splitAlphaNumTokens s')
+             in fromReplaced <|> fromTokens
+
+buildDelimitedSymbol :: Char -> [String] -> Maybe String
+buildDelimitedSymbol delim tokens =
+    case tokens of
+        [base, quote] ->
+            let candidate = base ++ [delim] ++ quote
+             in bool Nothing (Just candidate) (isValidDelimitedSymbol delim candidate)
+        _ -> Nothing
 
 salvageBinanceSymbol :: String -> Maybe String
 salvageBinanceSymbol raw =

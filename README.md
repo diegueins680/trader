@@ -233,7 +233,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Platform parsing is case-insensitive and trims surrounding whitespace (for example `--platform "  Coinbase  "`).
     - Coinbase products use `BASE-QUOTE` (for example `BTC-USD`).
     - Poloniex symbols use `BASE_QUOTE` (for example `BTC_USDT`); legacy `USDT_BTC` is auto-swapped.
-    - Binance/Coinbase/Poloniex symbol delimiters are normalized during validation, so slash inputs like `BTC/USDT` are accepted and rewritten to `BTCUSDT` / `BTC-USD` / `BTC_USDT`.
+    - Binance/Coinbase/Poloniex symbol delimiters are normalized during validation, so slash or whitespace-padded inputs like `BTC/USDT` and `BTC / USD` are accepted and rewritten to `BTCUSDT` / `BTC-USD` / `BTC_USDT`.
     - Symbol normalization also canonicalizes prefixed exchange keys (for example `coinbase-advanced`, `poloniex-v2`, `binanceusdm`) before applying exchange-specific delimiter rules.
     - DEX-prefixed platform keys (for example `uniswap-v3`, `1inch-v6`) keep DEX symbol delimiters during combo-symbol sanitization instead of forcing Binance-style compaction.
     - Coinbase/Poloniex compact symbols without the required delimiter (for example `BTCUSD` or `BTCUSDT`) are rejected during CLI validation; Binance also rejects malformed non-alphanumeric symbols early.
@@ -578,7 +578,7 @@ Build info:
 - Commit metadata is included when env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA` is set.
 
 Endpoints:
-- `GET /` → basic endpoint list
+- `GET /` → build metadata plus the advertised endpoint list
 - `GET /health`
 - `GET /version` → build metadata (`name`, `version`, and `commit`; `commit` is `null` when unset)
 - `GET /metrics`
