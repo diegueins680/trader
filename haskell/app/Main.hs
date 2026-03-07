@@ -297,13 +297,12 @@ import Trader.TopCombosStore (
     comboIdentityKey,
     comboMetricDouble,
     comboPerformanceKey,
-    isBinancePlatformKey,
     isTopCombosPayload,
     mergeTopCombosPayloads,
     newTopCombosStore,
-    normalizeComboPlatform,
     readTopCombosValueLocal,
     recalculateComboPerformanceFromOperation,
+    resolveComboSymbol,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
     topCombosGeneratedAtMs,
@@ -3841,6 +3840,7 @@ comboParamsRowToTopCombo uuid row = do
             , tcOpenThreshold = cprOpenThreshold row
             , tcCloseThreshold = cprCloseThreshold row
             , tcUuid = Just (uuidToText uuid)
+            , tcSource = Nothing
             , tcParams = paramsObj
             , tcMetrics = metricsObj
             }
@@ -4042,6 +4042,7 @@ data TopCombo = TopCombo
     , tcOpenThreshold :: !(Maybe Double)
     , tcCloseThreshold :: !(Maybe Double)
     , tcUuid :: !(Maybe Text)
+    , tcSource :: !(Maybe String)
     , tcParams :: !Aeson.Object
     , tcMetrics :: !(Maybe Aeson.Object)
     }
@@ -4061,6 +4062,7 @@ instance FromJSON TopCombo where
             <*> o Aeson..:? "openThreshold"
             <*> o Aeson..:? "closeThreshold"
             <*> o Aeson..:? "uuid"
+            <*> o Aeson..:? "source"
             <*> pure params
             <*> pure metrics
 
@@ -5534,13 +5536,9 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =
-    let platformRaw =
-            topComboParamString "platform" combo
-                <|> topComboParamString "source" combo
+    let platformRaw = topComboParamString "platform" combo
         symbolRaw = topComboParamString "binanceSymbol" combo <|> topComboParamString "symbol" combo
-     in case normalizeComboPlatform platformRaw of
-            Just key | not (isBinancePlatformKey key) -> Nothing
-            _ -> symbolRaw >>= sanitizeComboSymbolForPlatform platformRaw
+     in resolveComboSymbol platformRaw (tcSource combo) symbolRaw
 
 dedupeTopComboTargets :: [(String, TopCombo)] -> [(String, TopCombo)]
 dedupeTopComboTargets targets =

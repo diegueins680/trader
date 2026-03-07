@@ -16,6 +16,7 @@ module Trader.TopCombosStore (
     mergeTopCombosPayloads,
     newTopCombosStore,
     recalculateComboPerformanceFromOperation,
+    resolveComboSymbol,
     normalizeComboPlatform,
     readTopCombosValueLocal,
     sanitizeComboSymbolForPlatform,
@@ -389,6 +390,11 @@ isPoloniexPlatformKey key = key == "poloniex" || "poloniex" `isPrefixOf` key
 sanitizeComboSymbolForPlatform :: Maybe String -> String -> Maybe String
 sanitizeComboSymbolForPlatform platform =
     Symbol.sanitizeComboSymbolForPlatform (canonicalComboPlatform platform)
+
+resolveComboSymbol :: Maybe String -> Maybe String -> Maybe String -> Maybe String
+resolveComboSymbol platform source symbol =
+    let platformHint = platform <|> source
+     in symbol >>= sanitizeComboSymbolForPlatform platformHint
 
 canonicalComboPlatform :: Maybe String -> Maybe String
 canonicalComboPlatform platform =

@@ -104,7 +104,13 @@ import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
-import Trader.TopCombosStore (comboPerformanceKey, mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, sanitizeComboSymbolForPlatform)
+import Trader.TopCombosStore (
+    comboPerformanceKey,
+    mergeTopCombosPayloads,
+    recalculateComboPerformanceFromOperation,
+    resolveComboSymbol,
+    sanitizeComboSymbolForPlatform,
+ )
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
 main :: IO ()
@@ -259,6 +265,9 @@ main = do
               , run "top combos reject quote-only symbols" testTopCombosRejectQuoteOnlySymbols
               , run "top combos trim known binance suffixes" testTopCombosTrimKnownBinanceSuffixes
               , run "top combos keep unknown alpha suffixes" testTopCombosKeepUnknownAlphaSuffixes
+              , run "top combos resolve coinbase symbols outside Binance" testResolveComboSymbolCoinbase
+              , run "top combos resolve dex symbols outside Binance" testResolveComboSymbolDex
+              , run "top combos resolve symbols from payload source fallback" testResolveComboSymbolSourceFallback
               , run "symbol split handles delimited pairs" testSplitSymbolDelimitedPairs
               , run "symbol split keeps compact pairs" testSplitSymbolCompactPairs
               , run "symbol split handles quote-only input safely" testSplitSymbolQuoteOnly
@@ -1548,6 +1557,24 @@ testTopCombosKeepUnknownAlphaSuffixes =
     assert
         "unknown alpha suffix is kept to avoid over-trimming"
         (sanitizeComboSymbolForPlatform (Just "binance") "BTCUSDTXYZ" == Just "BTCUSDTXYZ")
+
+testResolveComboSymbolCoinbase :: IO ()
+testResolveComboSymbolCoinbase =
+    assert
+        "coinbase combo symbol is preserved"
+        (resolveComboSymbol (Just "coinbase-advanced") Nothing (Just "BTC/USD") == Just "BTC-USD")
+
+testResolveComboSymbolDex :: IO ()
+testResolveComboSymbolDex =
+    assert
+        "dex combo symbol is preserved"
+        (resolveComboSymbol (Just "uniswap-v3") Nothing (Just "ETH/USDT") == Just "ETH/USDT")
+
+testResolveComboSymbolSourceFallback :: IO ()
+testResolveComboSymbolSourceFallback =
+    assert
+        "combo symbol falls back to payload source metadata"
+        (resolveComboSymbol Nothing (Just "coinbase-advanced") (Just "ETH/USD") == Just "ETH-USD")
 
 testSplitSymbolDelimitedPairs :: IO ()
 testSplitSymbolDelimitedPairs = do
