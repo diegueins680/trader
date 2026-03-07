@@ -65,7 +65,7 @@ import Trader.Method (Method (..), parseMethod, selectPredictions)
 import Trader.Metrics (bmAvgTradeReturn, bmExposure, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (TuneObjective (..), bestFinalEquity, optimizeOperations, parseTuneObjective, sweepThreshold)
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
-import Trader.Optimizer.Optimize (sampleTakeProfitPartial)
+import Trader.Optimizer.Optimize (normalizeOptionalPositiveFraction, sampleTakeProfitPartial)
 import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
@@ -298,6 +298,7 @@ main = do
               , run "threshold sweep regime-switch stays neutral with non-finite inputs" testSweepThresholdRegimeSwitchNonFiniteStaysNeutral
               , run "operations optimization" testOptimizeOperations
               , run "optimizer partial take-profit zero-range sampler" testOptimizerPartialTakeProfitZeroRange
+              , run "optimizer normalizes optional positive fractions" testOptimizerNormalizeOptionalPositiveFraction
               , run "optimizer int range keeps rng for fixed range" testOptimizerIntRangeFixedRange
               , run "optimizer int range handles full Int span" testOptimizerIntRangeFullSpan
               , run "binance order validation" testBinanceOrderValidation
@@ -2866,6 +2867,19 @@ testOptimizerPartialTakeProfitZeroRange = do
         Just (mPartial, probe) -> do
             assert "zero-range partial take-profit is disabled" (isNothing mPartial)
             assertApprox "zero-range partial take-profit keeps RNG unchanged" 1e-15 probe expectedProbe
+
+testOptimizerNormalizeOptionalPositiveFraction :: IO ()
+testOptimizerNormalizeOptionalPositiveFraction = do
+    assert "negative fraction is disabled" (isNothing (normalizeOptionalPositiveFraction (Just (-0.2))))
+    assert "zero fraction is disabled" (isNothing (normalizeOptionalPositiveFraction (Just 0)))
+    assert "nan fraction is disabled" (isNothing (normalizeOptionalPositiveFraction (Just (0 / 0))))
+    assert "infinite fraction is disabled" (isNothing (normalizeOptionalPositiveFraction (Just (1 / 0))))
+    case normalizeOptionalPositiveFraction (Just 0.25) of
+        Just v -> assertApprox "valid fraction is preserved" 1e-15 v 0.25
+        Nothing -> error "expected valid positive fraction to be preserved"
+    case normalizeOptionalPositiveFraction (Just 1.25) of
+        Just v -> assertApprox "oversized fraction is clamped below one" 1e-15 v 0.999999
+        Nothing -> error "expected oversized positive fraction to be clamped"
 
 testOptimizerIntRangeFixedRange :: IO ()
 testOptimizerIntRangeFixedRange = do

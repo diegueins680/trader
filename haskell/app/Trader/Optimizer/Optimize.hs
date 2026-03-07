@@ -3,6 +3,7 @@
 module Trader.Optimizer.Optimize (
     OptimizerArgs (..),
     applyQualityPreset,
+    normalizeOptionalPositiveFraction,
     runOptimizer,
     sampleTakeProfitPartial,
 ) where
@@ -114,6 +115,67 @@ sampleTakeProfitPartial takeProfitPartialRange pDisableTakeProfitPartial rng0 =
                     pDisableTakeProfitPartial
                     (nextUniform lo' (max lo' hi'))
                     rng0
+
+normalizeOptionalPositiveFraction :: Maybe Double -> Maybe Double
+normalizeOptionalPositiveFraction raw =
+    case raw of
+        Nothing -> Nothing
+        Just x
+            | isNaN x || isInfinite x -> Nothing
+            | x <= 0 -> Nothing
+            | otherwise -> Just (min x 0.999999)
+
+normalizeOptionalUnitInterval :: Maybe Double -> Maybe Double
+normalizeOptionalUnitInterval raw =
+    case raw of
+        Nothing -> Nothing
+        Just x
+            | isNaN x || isInfinite x -> Nothing
+            | otherwise -> Just (clamp x 0 1)
+
+normalizeTrialParams :: TrialParams -> TrialParams
+normalizeTrialParams p =
+    let maxPositionSize' = max 0 (tpMaxPositionSize p)
+        minPositionSize' = clamp (tpMinPositionSize p) 0 maxPositionSize'
+        thresholdFactorMin' = max 0 (tpThresholdFactorMin p)
+        thresholdFactorMax' = max thresholdFactorMin' (tpThresholdFactorMax p)
+        kalmanZMin' = max 0 (tpKalmanZMin p)
+        kalmanZMax' = max kalmanZMin' (tpKalmanZMax p)
+        lstmConfidenceHard' = clamp (tpLstmConfidenceHard p) 0 1
+        lstmConfidenceSoftMax =
+            if lstmConfidenceHard' == 0
+                then 1
+                else lstmConfidenceHard'
+        lstmConfidenceSoft' = clamp (tpLstmConfidenceSoft p) 0 lstmConfidenceSoftMax
+     in p
+            { tpBlendWeight = clamp (tpBlendWeight p) 0 1
+            , tpRouterScorePnlWeight = clamp (tpRouterScorePnlWeight p) 0 1
+            , tpSnrSizeWeight = clamp (tpSnrSizeWeight p) 0 1
+            , tpThresholdFactorAlpha = clamp (tpThresholdFactorAlpha p) 0 1
+            , tpThresholdFactorMin = thresholdFactorMin'
+            , tpThresholdFactorMax = thresholdFactorMax'
+            , tpMaxPositionSize = maxPositionSize'
+            , tpVolEwmaAlpha = normalizeOptionalPositiveFraction (tpVolEwmaAlpha p)
+            , tpLstmConfidenceSoft = lstmConfidenceSoft'
+            , tpLstmConfidenceHard = lstmConfidenceHard'
+            , tpStopLoss = normalizeOptionalPositiveFraction (tpStopLoss p)
+            , tpTakeProfit = normalizeOptionalPositiveFraction (tpTakeProfit p)
+            , tpTrailingStop = normalizeOptionalPositiveFraction (tpTrailingStop p)
+            , tpRiskPerTrade = normalizeOptionalPositiveFraction (tpRiskPerTrade p)
+            , tpMaxDrawdown = normalizeOptionalPositiveFraction (tpMaxDrawdown p)
+            , tpMaxDailyLoss = normalizeOptionalPositiveFraction (tpMaxDailyLoss p)
+            , tpKalmanZMin = kalmanZMin'
+            , tpKalmanZMax = kalmanZMax'
+            , tpMaxHighVolProb = normalizeOptionalUnitInterval (tpMaxHighVolProb p)
+            , tpProtectionMinConfidence = clamp (tpProtectionMinConfidence p) 0 1
+            , tpMinPositionSize = minPositionSize'
+            , tpRouterMinScore = clamp (tpRouterMinScore p) 0 1
+            , tpTakeProfitPartial = normalizeOptionalPositiveFraction (tpTakeProfitPartial p)
+            , tpPerfMinWinRate = normalizeOptionalUnitInterval (tpPerfMinWinRate p)
+            , tpMetaLabelMinConfidence = clamp (tpMetaLabelMinConfidence p) 0 1
+            , tpRegimeBankHysteresis = clamp (tpRegimeBankHysteresis p) 0 1
+            , tpPairsStatArbSizeMult = clamp (tpPairsStatArbSizeMult p) 0 1
+            }
 
 normalizeSymbol :: Maybe String -> Maybe String
 normalizeSymbol raw =
@@ -1194,8 +1256,9 @@ fmtOptInt :: Maybe Int -> String
 fmtOptInt = maybe "null" show
 
 buildCommand :: FilePath -> [String] -> TrialParams -> Double -> Bool -> [String]
-buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
-    let cmd0 = traderBin : baseArgs
+buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
+    let params = normalizeTrialParams params0
+        cmd0 = traderBin : baseArgs
         perfLookbackArg =
             if tpAdaptiveFilters params || isJust (tpPerfMinWinRate params) || isJust (tpPerfMinProfitFactor params)
                 then max 1 (tpPerfLookback params)
@@ -4565,8 +4628,9 @@ crossoverTrialParams a b rng0 =
         (tpPairsStatArbLookback', rng147) = pickValue (tpPairsStatArbLookback a) (tpPairsStatArbLookback b) rng146
         (tpPairsStatArbZEntry', rng148) = pickValue (tpPairsStatArbZEntry a) (tpPairsStatArbZEntry b) rng147
         (tpPairsStatArbSizeMult', rng149) = pickValue (tpPairsStatArbSizeMult a) (tpPairsStatArbSizeMult b) rng148
-     in ( a
-            { tpPlatform = tpPlatform'
+     in ( normalizeTrialParams
+            ( a
+                { tpPlatform = tpPlatform'
             , tpInterval = tpInterval'
             , tpBars = tpBars'
             , tpMethod = tpMethod'
@@ -4721,7 +4785,8 @@ crossoverTrialParams a b rng0 =
             , tpPairsStatArbLookback = tpPairsStatArbLookback'
             , tpPairsStatArbZEntry = tpPairsStatArbZEntry'
             , tpPairsStatArbSizeMult = tpPairsStatArbSizeMult'
-            }
+                }
+            )
         , rng149
         )
 
@@ -4831,8 +4896,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (pairsStatArbLookback', rng85) = perturbInt (tpPairsStatArbLookback p) scaleInt rng84
         (pairsStatArbZEntry', rng86) = perturbDouble (tpPairsStatArbZEntry p) scaleDouble rng85
         (pairsStatArbSizeMult', rng87) = perturbDouble (tpPairsStatArbSizeMult p) scaleDouble rng86
-     in ( p
-            { tpBars = bars'
+     in ( normalizeTrialParams
+            ( p
+                { tpBars = bars'
             , tpBlendWeight = clamp blendWeight' 0 1
             , tpRouterScorePnlWeight = clamp routerScorePnlWeight' 0 1
             , tpBaseOpenThreshold = openThreshold'
@@ -4923,7 +4989,8 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
             , tpPairsStatArbLookback = max 2 pairsStatArbLookback'
             , tpPairsStatArbZEntry = max 1e-12 pairsStatArbZEntry'
             , tpPairsStatArbSizeMult = clamp pairsStatArbSizeMult' 0 1
-            }
+                }
+            )
         , rng87
         )
 
