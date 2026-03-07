@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Optimizer/top-combos merge: treat JSONL `ok` as a real boolean-like success flag (`true`/`1`/`yes`), so records like `"ok":"false"` are skipped instead of being imported accidentally.
+- Optimizer/top-combos merge: fall back to nested `metrics.finalEquity` / `metrics.score` during merge normalization, and only backfill `metrics.annualizedReturn` when a positive bar/period count is available (including `metrics.periods`) instead of silently dropping or mis-ranking mixed-shape combos.
 - CLI/API: accept Coinbase/Poloniex symbols with delimiter whitespace (for example `BTC / USD`, `BTC - USDT`), include `GET /` in the advertised root endpoint catalog, and harden wrapped Binance error parsing so nested/braced JSON bodies still surface the correct code/message.
 - Optimizer/Signals: add `optimize-equity` sampling for multi-timeframe consensus, cross-asset confirmation, and pairs/stat-arb overlays (`--p-multi-timeframe-consensus`, `--mtf-*`, `--p-cross-asset-confirmation`, `--cross-asset-min-beta/edge-*`, `--p-pairs-stat-arb`, `--pairs-stat-arb-*`), and pass the same camelCase fields through `/optimizer/run`, so optimizer searches can tune those confirmation layers instead of leaving them fixed.
 - Optimizer/API: forward the adaptive performance, meta-label, regime-parameter-bank, and signal-gate tuning fields through `/optimizer/run`, so JSON optimizer requests now reach parity with the `optimize-equity` CLI instead of silently dropping those knobs.

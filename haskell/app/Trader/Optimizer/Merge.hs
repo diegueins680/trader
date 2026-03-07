@@ -170,44 +170,41 @@ loadCombosFromJsonl path = do
     parseJsonlLine line =
         case Aeson.decode (BL.fromStrict (TE.encodeUtf8 line)) of
             Just (Object rec) ->
-                case KM.lookup (Key.fromString "ok") rec of
-                    Just okVal | valueTruthy okVal ->
-                        case KM.lookup (Key.fromString "finalEquity") rec >>= coerceFloatValue of
-                            Nothing -> Nothing
-                            Just finalEq ->
-                                let source =
-                                        case KM.lookup (Key.fromString "source") rec of
-                                            Just (String s) -> Just (T.unpack s)
-                                            _ -> Nothing
-                                    params =
-                                        case KM.lookup (Key.fromString "params") rec of
-                                            Just (Object p) -> p
-                                            _ -> KM.empty
-                                    objective = KM.lookup (Key.fromString "objective") rec >>= normalizeObjectiveValue
-                                    score = KM.lookup (Key.fromString "score") rec >>= coerceFloatValue
-                                    openThr = KM.lookup (Key.fromString "openThreshold") rec >>= coerceFloatValue
-                                    closeThr = KM.lookup (Key.fromString "closeThreshold") rec >>= coerceFloatValue
-                                    metrics =
-                                        case KM.lookup (Key.fromString "metrics") rec of
-                                            Just (Object m) -> Just m
-                                            _ -> Nothing
-                                    operations = KM.lookup (Key.fromString "operations") rec >>= coerceOperations
-                                    createdAtMs = KM.lookup (Key.fromString "createdAtMs") rec >>= coerceIntValue
-                                    combo =
-                                        object
-                                            [ "finalEquity" .= finalEq
-                                            , "objective" .= objective
-                                            , "score" .= score
-                                            , "openThreshold" .= openThr
-                                            , "closeThreshold" .= closeThr
-                                            , "createdAtMs" .= createdAtMs
-                                            , "source" .= source
-                                            , "metrics" .= metrics
-                                            , "operations" .= operations
-                                            , "params" .= Object params
-                                            ]
-                                 in Just combo
-                    _ -> Nothing
+                let metrics = nestedMetricsObject rec
+                 in case KM.lookup (Key.fromString "ok") rec of
+                        Just okVal | valueTruthyFlag okVal ->
+                            case comboFloatField "finalEquity" rec metrics of
+                                Nothing -> Nothing
+                                Just finalEq ->
+                                    let source =
+                                            case KM.lookup (Key.fromString "source") rec of
+                                                Just (String s) -> Just (T.unpack s)
+                                                _ -> Nothing
+                                        params =
+                                            case KM.lookup (Key.fromString "params") rec of
+                                                Just (Object p) -> p
+                                                _ -> KM.empty
+                                        objective = KM.lookup (Key.fromString "objective") rec >>= normalizeObjectiveValue
+                                        score = comboFloatField "score" rec metrics
+                                        openThr = KM.lookup (Key.fromString "openThreshold") rec >>= coerceFloatValue
+                                        closeThr = KM.lookup (Key.fromString "closeThreshold") rec >>= coerceFloatValue
+                                        operations = KM.lookup (Key.fromString "operations") rec >>= coerceOperations
+                                        createdAtMs = KM.lookup (Key.fromString "createdAtMs") rec >>= coerceIntValue
+                                        combo =
+                                            object
+                                                [ "finalEquity" .= finalEq
+                                                , "objective" .= objective
+                                                , "score" .= score
+                                                , "openThreshold" .= openThr
+                                                , "closeThreshold" .= closeThr
+                                                , "createdAtMs" .= createdAtMs
+                                                , "source" .= source
+                                                , "metrics" .= metrics
+                                                , "operations" .= operations
+                                                , "params" .= Object params
+                                                ]
+                                     in Just combo
+                        _ -> Nothing
             _ -> Nothing
 
 discoverDefaultJsonlPaths :: IO [FilePath]
@@ -335,18 +332,22 @@ metricsHasAnnualizedReturn metrics =
         Just v -> not (isNaN v || isInfinite v)
         Nothing -> False
 
-ensureAnnualizedReturnMetrics :: Maybe (KM.KeyMap Value) -> Double -> Double -> Int -> Maybe (KM.KeyMap Value)
-ensureAnnualizedReturnMetrics metrics finalEq periodsPerYear periods =
-    let eq = max 0 (sanitizeEq finalEq)
-        annRet = calcAnnualizedReturn eq periodsPerYear periods
-        annVal = toJSON annRet
-        addMetric = KM.insert (Key.fromString "annualizedReturn") annVal
-     in case metrics of
-            Just m ->
-                if metricsHasAnnualizedReturn m
-                    then Just m
-                    else Just (addMetric m)
-            Nothing -> Just (KM.fromList [(Key.fromString "annualizedReturn", annVal)])
+ensureAnnualizedReturnMetrics :: Maybe (KM.KeyMap Value) -> Double -> Double -> Maybe Int -> Maybe (KM.KeyMap Value)
+ensureAnnualizedReturnMetrics metrics finalEq periodsPerYear mPeriods =
+    case metrics of
+        Just m
+            | metricsHasAnnualizedReturn m -> Just m
+        _ ->
+            case positivePeriodCount mPeriods of
+                Just periods ->
+                    let eq = max 0 (sanitizeEq finalEq)
+                        annRet = calcAnnualizedReturn eq periodsPerYear periods
+                        annVal = toJSON annRet
+                        addMetric = KM.insert (Key.fromString "annualizedReturn") annVal
+                     in case metrics of
+                            Just m -> Just (addMetric m)
+                            Nothing -> Just (KM.fromList [(Key.fromString "annualizedReturn", annVal)])
+                Nothing -> metrics
 
 compareDesc :: (Ord a) => a -> a -> Ordering
 compareDesc a b
@@ -433,7 +434,8 @@ normalizeCombo :: Value -> Maybe Combo
 normalizeCombo value =
     case value of
         Object obj -> do
-            finalEqRaw <- KM.lookup (Key.fromString "finalEquity") obj >>= coerceFloatValue
+            let metricsRaw = nestedMetricsObject obj
+            finalEqRaw <- comboFloatField "finalEquity" obj metricsRaw
             let finalEq = sanitizeEq finalEqRaw
             if finalEq <= 1
                 then Nothing
@@ -445,20 +447,21 @@ normalizeCombo value =
                                 _ -> KM.empty
                         platform = normalizePlatform paramsRaw source
                         objective = KM.lookup (Key.fromString "objective") obj >>= normalizeObjectiveValue
-                        score = KM.lookup (Key.fromString "score") obj >>= coerceFloatValue
-                        metricsRaw =
-                            case KM.lookup (Key.fromString "metrics") obj of
-                                Just (Object m) -> Just m
-                                _ -> Nothing
+                        score = comboFloatField "score" obj metricsRaw
                         operations = KM.lookup (Key.fromString "operations") obj >>= coerceOperations
                         createdAtMs = KM.lookup (Key.fromString "createdAtMs") obj >>= coerceIntValue
                         interval = valueToStringMaybe (KM.lookup (Key.fromString "interval") paramsRaw)
                         bars = fromMaybe 0 (KM.lookup (Key.fromString "bars") paramsRaw >>= coerceIntValue)
+                        periods =
+                            positivePeriodCount
+                                ( positivePeriodCount (Just bars)
+                                    <|> comboIntField "periods" obj metricsRaw
+                                )
                         periodsPerYear =
                             fromMaybe
                                 (inferPeriodsPerYear interval)
                                 (KM.lookup (Key.fromString "periodsPerYear") paramsRaw >>= coerceFloatValue)
-                        metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear bars
+                        metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear periods
                         method = valueToStringMaybe (KM.lookup (Key.fromString "method") paramsRaw)
                         normalization = valueToStringMaybe (KM.lookup (Key.fromString "normalization") paramsRaw)
                         epochs = fromMaybe 0 (KM.lookup (Key.fromString "epochs") paramsRaw >>= coerceIntValue)
@@ -744,18 +747,31 @@ coerceOperations value =
              in if null ops then Nothing else Just ops
         _ -> Nothing
 
-valueTruthy :: Value -> Bool
-valueTruthy value =
-    case value of
-        Null -> False
-        Bool v -> v
-        Number n ->
-            case scientificToDouble n of
-                Just d -> d /= 0
-                Nothing -> False
-        String s -> not (T.null s)
-        Array arr -> not (V.null arr)
-        Object obj -> not (KM.null obj)
+nestedMetricsObject :: KM.KeyMap Value -> Maybe (KM.KeyMap Value)
+nestedMetricsObject obj =
+    case KM.lookup (Key.fromString "metrics") obj of
+        Just (Object metrics) -> Just metrics
+        _ -> Nothing
+
+comboFloatField :: String -> KM.KeyMap Value -> Maybe (KM.KeyMap Value) -> Maybe Double
+comboFloatField key obj metrics =
+    (KM.lookup (Key.fromString key) obj >>= coerceFloatValue)
+        <|> (metrics >>= KM.lookup (Key.fromString key) >>= coerceFloatValue)
+
+comboIntField :: String -> KM.KeyMap Value -> Maybe (KM.KeyMap Value) -> Maybe Int
+comboIntField key obj metrics =
+    (KM.lookup (Key.fromString key) obj >>= coerceIntValue)
+        <|> (metrics >>= KM.lookup (Key.fromString key) >>= coerceIntValue)
+
+positivePeriodCount :: Maybe Int -> Maybe Int
+positivePeriodCount mPeriods =
+    case mPeriods of
+        Just periods | periods > 0 -> Just periods
+        _ -> Nothing
+
+valueTruthyFlag :: Value -> Bool
+valueTruthyFlag value =
+    fromMaybe False (coerceBoolValue value)
 
 scientificToDouble :: Scientific -> Maybe Double
 scientificToDouble n =

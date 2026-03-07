@@ -7,6 +7,7 @@ import Control.Exception (SomeException, evaluate, finally, try)
 import qualified Control.Monad
 import Data.Aeson (eitherDecode, object, (.=))
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
@@ -258,7 +259,10 @@ main = do
               , run "optimizer merge preserves dex platform/symbol semantics" testRunMergePreservesDexPlatformSymbolSemantics
               , run "optimizer merge canonicalizes coinbase-prefixed platform keys" testRunMergeCanonicalizesCoinbasePrefixedPlatform
               , run "optimizer merge canonicalizes dex-prefixed platform keys" testRunMergeCanonicalizesDexPrefixedPlatform
+              , run "optimizer merge uses nested metrics fallbacks" testRunMergeUsesNestedMetricsFallbacks
+              , run "optimizer merge dedupe prefers nested metrics score" testRunMergeDedupPrefersNestedMetricsScore
               , run "optimizer merge skips invalid utf8 jsonl lines" testRunMergeSkipsInvalidUtf8JsonlLines
+              , run "optimizer merge skips string false ok flag" testRunMergeSkipsFalseStringOkFlag
               , run "top combos sanitize slash-delimited binance symbols" testTopCombosBinanceSlashSymbolSanitization
               , run "top combos recover compact binance symbol from prefixed pair text" testTopCombosPrefixedPairNormalization
               , run "top combos recover compact binance symbol from separated base/quote tokens" testTopCombosSeparatedTokenPairNormalization
@@ -375,16 +379,28 @@ requireComboSymbol label val =
                 _ -> error (label ++ ": missing params object")
         _ -> error (label ++ ": combo is not an object")
 
-requireComboMetricsScore :: String -> Aeson.Value -> Double
-requireComboMetricsScore label val =
+requireComboMetricsDouble :: String -> String -> Aeson.Value -> Double
+requireComboMetricsDouble label key val =
     case val of
         Aeson.Object o ->
             case KM.lookup "metrics" o of
                 Just (Aeson.Object metrics) ->
-                    case KM.lookup "score" metrics >>= AT.parseMaybe Aeson.parseJSON of
-                        Just score -> score
-                        Nothing -> error (label ++ ": missing metrics.score")
+                    case KM.lookup (AK.fromString key) metrics >>= AT.parseMaybe Aeson.parseJSON of
+                        Just x -> x
+                        Nothing -> error (label ++ ": missing metrics." ++ key)
                 _ -> error (label ++ ": missing metrics object")
+        _ -> error (label ++ ": combo is not an object")
+
+requireComboMetricsScore :: String -> Aeson.Value -> Double
+requireComboMetricsScore label = requireComboMetricsDouble label "score"
+
+requireComboFinalEquity :: String -> Aeson.Value -> Double
+requireComboFinalEquity label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "finalEquity" o >>= AT.parseMaybe Aeson.parseJSON of
+                Just eq -> eq
+                Nothing -> error (label ++ ": missing finalEquity")
         _ -> error (label ++ ": combo is not an object")
 
 requireComboSource :: String -> Aeson.Value -> String
@@ -2348,16 +2364,24 @@ runMergeAndReadFirstCombo label barsValue =
                    ]
             ]
 
-runMergeAndReadFirstComboFromPayload :: String -> Aeson.Value -> IO Aeson.Value
-runMergeAndReadFirstComboFromPayload label topPayload =
+runMergeAndReadOutputFromPayload :: String -> Aeson.Value -> IO Aeson.Value
+runMergeAndReadOutputFromPayload label topPayload =
+    runMergeAndReadOutputFromPayloadAndJsonl label topPayload []
+
+runMergeAndReadOutputFromPayloadAndJsonl :: String -> Aeson.Value -> [BS.ByteString] -> IO Aeson.Value
+runMergeAndReadOutputFromPayloadAndJsonl label topPayload jsonlLines =
     withTempTestDir label $ \dir -> do
         let topPath = dir </> "top-combos-input.json"
             outPath = dir </> "top-combos-output.json"
-            dummyJsonlPath = dir </> "no-discovery.jsonl"
+            jsonlPath = dir </> "optimize_equity_input.jsonl"
+            jsonlPayload =
+                if null jsonlLines
+                    then BL.empty
+                    else BL.fromStrict (BS.intercalate "\n" jsonlLines <> "\n")
             mergeArgs =
                 MergeArgs
                     { maTopJson = topPath
-                    , maFromJsonl = [dummyJsonlPath]
+                    , maFromJsonl = [jsonlPath]
                     , maFromTopJson = []
                     , maOut = outPath
                     , maMax = 5
@@ -2365,15 +2389,20 @@ runMergeAndReadFirstComboFromPayload label topPayload =
                     , maCopyToDist = False
                     }
         BL.writeFile topPath (Aeson.encode topPayload)
+        BL.writeFile jsonlPath jsonlPayload
         result <- try (runMerge mergeArgs) :: IO (Either SomeException Int)
         case result of
             Left err -> error ("runMerge unexpectedly threw: " ++ show err)
             Right code -> assert "runMerge should complete successfully" (code == 0)
         outContents <- BL.readFile outPath
-        outValue <-
-            case eitherDecode outContents of
-                Left err -> error ("failed to parse merge output JSON: " ++ err)
-                Right v -> pure v
+        case eitherDecode outContents of
+            Left err -> error ("failed to parse merge output JSON: " ++ err)
+            Right v -> pure v
+
+runMergeAndReadFirstComboFromPayload :: String -> Aeson.Value -> IO Aeson.Value
+runMergeAndReadFirstComboFromPayload label topPayload =
+    do
+        outValue <- runMergeAndReadOutputFromPayload label topPayload
         let combos = requireCombosArray "merge output combos" outValue
         pure (requireHead "merge output should contain one combo" combos)
 
@@ -2457,6 +2486,63 @@ testRunMergeCanonicalizesDexPrefixedPlatform =
         assert "dex-prefixed platform should be canonicalized in merged params" (requireComboPlatform "dex-prefixed combo platform" combo == Just "uniswap")
         assert "dex-prefixed symbols should preserve dex delimiter semantics" (requireComboBinanceSymbol "dex-prefixed combo binanceSymbol" combo == Just "ETH/USDT")
 
+testRunMergeUsesNestedMetricsFallbacks :: IO ()
+testRunMergeUsesNestedMetricsFallbacks =
+    do
+        let topPayload =
+                object
+                    [ "generatedAtMs" .= (1 :: Int)
+                    , "combos"
+                        .= [ object
+                                [ "metrics"
+                                    .= object
+                                        [ "finalEquity" .= (1.5 :: Double)
+                                        , "score" .= (0.9 :: Double)
+                                        , "periods" .= (365 :: Int)
+                                        ]
+                                , "params"
+                                    .= object
+                                        [ "interval" .= ("1d" :: String)
+                                        , "symbol" .= ("BTC/USDT" :: String)
+                                        ]
+                                ]
+                           ]
+                    ]
+        combo <- runMergeAndReadFirstComboFromPayload "merge-nested-metrics-fallbacks" topPayload
+        assertApprox "nested metrics.finalEquity should keep combo during merge" 1e-12 (requireComboFinalEquity "nested metrics combo finalEquity" combo) 1.5
+        assertApprox "nested metrics.score should be preserved during merge" 1e-12 (requireComboMetricsScore "nested metrics combo score" combo) 0.9
+        assertApprox "annualizedReturn should be backfilled from nested metrics.periods when bars are missing" 1e-12 (requireComboMetricsDouble "nested metrics combo annualizedReturn" "annualizedReturn" combo) 0.5
+
+testRunMergeDedupPrefersNestedMetricsScore :: IO ()
+testRunMergeDedupPrefersNestedMetricsScore =
+    do
+        let mkCombo finalEq score =
+                object
+                    [ "objective" .= ("score" :: String)
+                    , "metrics"
+                        .= object
+                            [ "annualizedReturn" .= (0.2 :: Double)
+                            , "finalEquity" .= finalEq
+                            , "score" .= score
+                            ]
+                    , "params"
+                        .= object
+                            [ "interval" .= ("1h" :: String)
+                            , "bars" .= (100 :: Int)
+                            , "symbol" .= ("BTC/USDT" :: String)
+                            ]
+                    ]
+            topPayload =
+                object
+                    [ "generatedAtMs" .= (1 :: Int)
+                    , "combos" .= [mkCombo (5.0 :: Double) (0.1 :: Double), mkCombo (1.2 :: Double) (0.9 :: Double)]
+                    ]
+        outValue <- runMergeAndReadOutputFromPayload "merge-dedup-nested-score" topPayload
+        let combos = requireCombosArray "merge dedup nested score combos" outValue
+            combo = requireHead "merge dedup nested score should keep one combo" combos
+        assert "duplicate merge should keep exactly one combo" (length combos == 1)
+        assertApprox "nested metrics.score should drive merge dedupe tie-breaks" 1e-12 (requireComboMetricsScore "merge dedup picked combo score" combo) 0.9
+
 testRunMergeSkipsInvalidUtf8JsonlLines :: IO ()
 testRunMergeSkipsInvalidUtf8JsonlLines =
     withTempTestDir "merge-invalid-utf8-jsonl" $ \dir -> do
@@ -2492,6 +2578,18 @@ testRunMergeSkipsInvalidUtf8JsonlLines =
             combo = requireHead "merge output should contain one combo" combos
         assert "valid jsonl combo should still be retained" (length combos == 1)
         assert "merged combo should preserve parsed bars from valid line" (requireComboBars "jsonl combo bars" combo == 120)
+
+testRunMergeSkipsFalseStringOkFlag :: IO ()
+testRunMergeSkipsFalseStringOkFlag =
+    do
+        let topPayload = object ["generatedAtMs" .= (1 :: Int), "combos" .= ([] :: [Aeson.Value])]
+            jsonlLines =
+                [ BS.pack
+                    "{\"ok\":\"false\",\"finalEquity\":1.5,\"params\":{\"interval\":\"1h\",\"bars\":120,\"symbol\":\"BTCUSDT\"}}"
+                ]
+        outValue <- runMergeAndReadOutputFromPayloadAndJsonl "merge-jsonl-string-false-ok" topPayload jsonlLines
+        let combos = requireCombosArray "merge false ok output combos" outValue
+        assert "string false ok flag should not import jsonl combo" (null combos)
 
 testDexTradeArgsRequireTokensNotSymbol :: IO ()
 testDexTradeArgsRequireTokensNotSymbol = do
