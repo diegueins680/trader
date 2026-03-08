@@ -264,11 +264,14 @@ optimizerArgsParser =
         <*> option auto (long "p-disable-risk-per-trade" <> value 0.3 <> metavar "FLOAT")
         <*> option auto (long "p-disable-max-dd" <> value 0.9 <> metavar "FLOAT")
         <*> option auto (long "p-disable-max-dl" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-max-wl" <> value 0.9 <> metavar "FLOAT")
         <*> option auto (long "p-disable-max-oe" <> value 0.95 <> metavar "FLOAT")
         <*> option auto (long "max-dd-min" <> value 0.05 <> metavar "FLOAT")
         <*> option auto (long "max-dd-max" <> value 0.50 <> metavar "FLOAT")
         <*> option auto (long "max-dl-min" <> value 0.02 <> metavar "FLOAT")
         <*> option auto (long "max-dl-max" <> value 0.30 <> metavar "FLOAT")
+        <*> option auto (long "max-wl-min" <> value 0.03 <> metavar "FLOAT")
+        <*> option auto (long "max-wl-max" <> value 0.40 <> metavar "FLOAT")
         <*> option auto (long "max-oe-min" <> value 1 <> metavar "INT")
         <*> option auto (long "max-oe-max" <> value 10 <> metavar "INT")
         <*> option auto (long "method-weight-11" <> value 0.25 <> metavar "FLOAT")
@@ -527,6 +530,10 @@ validateArgs args = do
         Left "--max-open-positions-min/max must be >= 0."
     when (oaMaxOpenPerBaseMin args < 0 || oaMaxOpenPerBaseMax args < 0) $
         Left "--max-open-per-base-min/max must be >= 0."
+    when (oaPDisableMaxWl args < 0 || oaPDisableMaxWl args > 1) $
+        Left "--p-disable-max-wl must be between 0 and 1."
+    when (oaMaxWlMin args < 0 || oaMaxWlMax args < 0) $
+        Left "--max-wl-min/max must be >= 0."
     when (oaAdaptiveTrendLookbackMaxMin args < 1 || oaAdaptiveTrendLookbackMaxMax args < 1) $
         Left "--adaptive-trend-lookback-max-min/max must be >= 1."
     when (oaPAdaptiveFilters args < 0 || oaPAdaptiveFilters args > 1) $

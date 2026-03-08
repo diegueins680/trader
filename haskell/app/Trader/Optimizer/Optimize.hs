@@ -166,6 +166,7 @@ normalizeTrialParams p =
             , tpRiskPerTrade = normalizeOptionalPositiveFraction (tpRiskPerTrade p)
             , tpMaxDrawdown = normalizeOptionalPositiveFraction (tpMaxDrawdown p)
             , tpMaxDailyLoss = normalizeOptionalPositiveFraction (tpMaxDailyLoss p)
+            , tpMaxWeeklyLoss = normalizeOptionalPositiveFraction (tpMaxWeeklyLoss p)
             , tpKalmanZMin = kalmanZMin'
             , tpKalmanZMax = kalmanZMax'
             , tpMaxHighVolProb = normalizeOptionalUnitInterval (tpMaxHighVolProb p)
@@ -803,11 +804,14 @@ data OptimizerArgs = OptimizerArgs
     , oaPDisableRiskPerTrade :: !Double
     , oaPDisableMaxDd :: !Double
     , oaPDisableMaxDl :: !Double
+    , oaPDisableMaxWl :: !Double
     , oaPDisableMaxOe :: !Double
     , oaMaxDdMin :: !Double
     , oaMaxDdMax :: !Double
     , oaMaxDlMin :: !Double
     , oaMaxDlMax :: !Double
+    , oaMaxWlMin :: !Double
+    , oaMaxWlMax :: !Double
     , oaMaxOeMin :: !Int
     , oaMaxOeMax :: !Int
     , oaMethodWeight11 :: !Double
@@ -1206,6 +1210,7 @@ data TrialParams = TrialParams
     , tpRiskPerTrade :: !(Maybe Double)
     , tpMaxDrawdown :: !(Maybe Double)
     , tpMaxDailyLoss :: !(Maybe Double)
+    , tpMaxWeeklyLoss :: !(Maybe Double)
     , tpMaxOrderErrors :: !(Maybe Int)
     , tpKalmanDt :: !Double
     , tpKalmanProcessVar :: !Double
@@ -1630,11 +1635,15 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                 Just v -> cmd24 ++ ["--max-daily-loss", printf "%.8f" v]
                 Nothing -> cmd24
         cmd26 =
-            case tpMaxOrderErrors params of
-                Just v -> cmd25 ++ ["--max-order-errors", show v]
+            case tpMaxWeeklyLoss params of
+                Just v -> cmd25 ++ ["--max-weekly-loss", printf "%.8f" v]
                 Nothing -> cmd25
         cmd27 =
-            cmd26
+            case tpMaxOrderErrors params of
+                Just v -> cmd26 ++ ["--max-order-errors", show v]
+                Nothing -> cmd26
+        cmd28 =
+            cmd27
                 ++ [ "--kalman-market-top-n"
                    , show (max 0 (tpKalmanMarketTopN params))
                    , "--kalman-dt"
@@ -1648,38 +1657,39 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , "--kalman-z-max"
                    , printf "%.12g" (max (max 0 (tpKalmanZMin params)) (tpKalmanZMax params))
                    ]
-        cmd28 =
-            case tpMaxHighVolProb params of
-                Just v -> cmd27 ++ ["--max-high-vol-prob", printf "%.12g" (clamp v 0 1)]
-                Nothing -> cmd27
         cmd29 =
-            case tpMaxConformalWidth params of
-                Just v -> cmd28 ++ ["--max-conformal-width", printf "%.12g" (max 0 v)]
+            case tpMaxHighVolProb params of
+                Just v -> cmd28 ++ ["--max-high-vol-prob", printf "%.12g" (clamp v 0 1)]
                 Nothing -> cmd28
         cmd30 =
-            case tpMaxQuantileWidth params of
-                Just v -> cmd29 ++ ["--max-quantile-width", printf "%.12g" (max 0 v)]
+            case tpMaxConformalWidth params of
+                Just v -> cmd29 ++ ["--max-conformal-width", printf "%.12g" (max 0 v)]
                 Nothing -> cmd29
         cmd31 =
-            if tpConfirmConformal params
-                then cmd30 ++ ["--confirm-conformal"]
-                else cmd30 ++ ["--no-confirm-conformal"]
+            case tpMaxQuantileWidth params of
+                Just v -> cmd30 ++ ["--max-quantile-width", printf "%.12g" (max 0 v)]
+                Nothing -> cmd30
         cmd32 =
-            if tpConfirmQuantiles params
-                then cmd31 ++ ["--confirm-quantiles"]
-                else cmd31 ++ ["--no-confirm-quantiles"]
+            if tpConfirmConformal params
+                then cmd31 ++ ["--confirm-conformal"]
+                else cmd31 ++ ["--no-confirm-conformal"]
         cmd33 =
-            if tpConfidenceSizing params
-                then cmd32 ++ ["--confidence-sizing"]
-                else cmd32 ++ ["--no-confidence-sizing"]
+            if tpConfirmQuantiles params
+                then cmd32 ++ ["--confirm-quantiles"]
+                else cmd32 ++ ["--no-confirm-quantiles"]
         cmd34 =
-            cmd33
+            if tpConfidenceSizing params
+                then cmd33 ++ ["--confidence-sizing"]
+                else cmd33 ++ ["--no-confidence-sizing"]
+        cmd35 =
+            cmd34
                 ++ [ "--protection-min-confidence"
                    , printf "%.4f" (clamp (tpProtectionMinConfidence params) 0 1)
                    ]
-        cmd35 = cmd34 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
-        cmd35a0 =
-            cmd35
+        cmd36 =
+            cmd35 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
+        cmd36a0 =
+            cmd36
                 ++ [ if tpKellyLiteSizing params then "--kelly-lite-sizing" else "--no-kelly-lite-sizing"
                    , "--kelly-lite-fraction"
                    , printf "%.12g" (max 0 (tpKellyLiteFraction params))
@@ -1688,51 +1698,50 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , "--kelly-lite-cap"
                    , printf "%.12g" (max (max 0 (tpKellyLiteFloor params)) (tpKellyLiteCap params))
                    ]
-        cmd35a =
+        cmd36a =
             case tpTakeProfitPartial params of
-                Just v -> cmd35a0 ++ ["--take-profit-partial", printf "%.12g" (clamp v 0 0.999999)]
-                Nothing -> cmd35a0
-        cmd35b =
+                Just v -> cmd36a0 ++ ["--take-profit-partial", printf "%.12g" (clamp v 0 0.999999)]
+                Nothing -> cmd36a0
+        cmd36b =
             case tpMaxTradesPerDay params of
-                Just v -> cmd35a ++ ["--max-trades-per-day", show (max 0 v)]
-                Nothing -> cmd35a
-        cmd35c =
+                Just v -> cmd36a ++ ["--max-trades-per-day", show (max 0 v)]
+                Nothing -> cmd36a
+        cmd36c =
             case tpMinExpectancy params of
-                Just v -> cmd35b ++ ["--min-expectancy", printf "%.12g" v, "--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
-                Nothing -> cmd35b ++ ["--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
-        cmd35d =
+                Just v -> cmd36b ++ ["--min-expectancy", printf "%.12g" v, "--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
+                Nothing -> cmd36b ++ ["--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
+        cmd36d =
             case tpLossStreakMax params of
-                Just v -> cmd35c ++ ["--loss-streak-max", show (max 0 v)]
-                Nothing -> cmd35c
-        cmd35e =
+                Just v -> cmd36c ++ ["--loss-streak-max", show (max 0 v)]
+                Nothing -> cmd36c
+        cmd36e =
             case tpLossStreakCooldownBars params of
-                Just v -> cmd35d ++ ["--loss-streak-cooldown-bars", show (max 0 v)]
-                Nothing -> cmd35d
-        cmd35f =
+                Just v -> cmd36d ++ ["--loss-streak-cooldown-bars", show (max 0 v)]
+                Nothing -> cmd36d
+        cmd36f =
             case tpMaxOpenPositions params of
-                Just v -> cmd35e ++ ["--max-open-positions", show (max 0 v)]
-                Nothing -> cmd35e
-        cmd35g =
+                Just v -> cmd36e ++ ["--max-open-positions", show (max 0 v)]
+                Nothing -> cmd36e
+        cmd36g =
             case tpMaxGrossExposure params of
-                Just v -> cmd35f ++ ["--max-gross-exposure", printf "%.12g" (max 0 v)]
-                Nothing -> cmd35f
-        cmd35h =
+                Just v -> cmd36f ++ ["--max-gross-exposure", printf "%.12g" (max 0 v)]
+                Nothing -> cmd36f
+        cmd36h =
             case tpMaxNetExposure params of
-                Just v -> cmd35g ++ ["--max-net-exposure", printf "%.12g" (max 0 v)]
-                Nothing -> cmd35g
-        cmd35i =
+                Just v -> cmd36g ++ ["--max-net-exposure", printf "%.12g" (max 0 v)]
+                Nothing -> cmd36g
+        cmd36i =
             case tpMaxExposurePerBase params of
-                Just v -> cmd35h ++ ["--max-exposure-per-base", printf "%.12g" (max 0 v)]
-                Nothing -> cmd35h
-        cmd35j =
+                Just v -> cmd36h ++ ["--max-exposure-per-base", printf "%.12g" (max 0 v)]
+                Nothing -> cmd36h
+        cmd36j =
             case tpMaxOpenPerBase params of
-                Just v -> cmd35i ++ ["--max-open-per-base", show (max 0 v)]
-                Nothing -> cmd35i
-        cmd36 =
+                Just v -> cmd36i ++ ["--max-open-per-base", show (max 0 v)]
+                Nothing -> cmd36i
+        cmd37 =
             if useSweepThreshold
-                then cmd35j ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
-                else cmd35j
-        cmd37 = cmd36
+                then cmd36j ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
+                else cmd36j
      in cmd37 ++ ["--json"]
 
 runTrial :: FilePath -> [String] -> TrialParams -> Double -> Bool -> Double -> Bool -> IO TrialResult
@@ -2059,6 +2068,7 @@ trialToRecord tr symbolLabel =
             , "riskPerTrade" .= tpRiskPerTrade (trParams tr)
             , "maxDrawdown" .= tpMaxDrawdown (trParams tr)
             , "maxDailyLoss" .= tpMaxDailyLoss (trParams tr)
+            , "maxWeeklyLoss" .= tpMaxWeeklyLoss (trParams tr)
             , "maxOrderErrors" .= tpMaxOrderErrors (trParams tr)
             , "kalmanDt" .= tpKalmanDt (trParams tr)
             , "kalmanProcessVar" .= tpKalmanProcessVar (trParams tr)
@@ -2288,12 +2298,14 @@ sampleParams
     pDisableRiskPerTrade
     pDisableMaxDd
     pDisableMaxDl
+    pDisableMaxWl
     pDisableMaxOe
     pDisableGradClip
     pDisableVolTarget
     pDisableMaxVolatility
     maxDdRange
     maxDlRange
+    maxWlRange
     maxOeRange
     predictorChoices
     routerLookbackRange
@@ -2741,6 +2753,7 @@ sampleParams
                              in (fmap (\v -> clamp v 1e-6 0.999999) val, rng')
             (maxDrawdown, rng59) = nextMaybe pDisableMaxDd (uncurry nextUniform maxDdRange) rng58b
             (maxDailyLoss, rng60) = nextMaybe pDisableMaxDl (uncurry nextUniform maxDlRange) rng59
+            (maxWeeklyLoss, rng60a) = nextMaybe pDisableMaxWl (uncurry nextUniform maxWlRange) rng60
             (maxOrderErrors, rng61) =
                 nextMaybe
                     pDisableMaxOe
@@ -2748,7 +2761,7 @@ sampleParams
                         let (val, r') = uncurry nextIntRange maxOeRange r
                          in (val, r')
                     )
-                    rng60
+                    rng60a
             (thresholdFactorEnabled, rng62) =
                 let (r, rng') = nextDouble rng61
                  in (r < clamp pThresholdFactor 0 1, rng')
@@ -3068,6 +3081,7 @@ sampleParams
                 , tpRiskPerTrade = riskPerTrade
                 , tpMaxDrawdown = maxDrawdown
                 , tpMaxDailyLoss = maxDailyLoss
+                , tpMaxWeeklyLoss = maxWeeklyLoss
                 , tpMaxOrderErrors = maxOrderErrors
                 , tpKalmanDt = kalmanDt
                 , tpKalmanProcessVar = kalmanProcessVar
@@ -3777,12 +3791,14 @@ runOptimizer args0 = do
                                                                                 (clamp (oaPDisableRiskPerTrade args) 0 1)
                                                                                 (clamp (oaPDisableMaxDd args) 0 1)
                                                                                 (clamp (oaPDisableMaxDl args) 0 1)
+                                                                                (clamp (oaPDisableMaxWl args) 0 1)
                                                                                 (clamp (oaPDisableMaxOe args) 0 1)
                                                                                 (clamp (oaPDisableGradClip args) 0 1)
                                                                                 pDisableVolTarget
                                                                                 pDisableMaxVolatility
                                                                                 (oaMaxDdMin args, oaMaxDdMax args)
                                                                                 (oaMaxDlMin args, oaMaxDlMax args)
+                                                                                (oaMaxWlMin args, oaMaxWlMax args)
                                                                                 (oaMaxOeMin args, oaMaxOeMax args)
                                                                                 predictorChoices
                                                                                 routerLookbackRange
@@ -4304,7 +4320,7 @@ printTrialStatus i trials tr = do
         params = trParams tr
         msg =
             printf
-                "[%4d/%d] %s score=%s eq=%s t=%.2fs interval=%s bars=%d method=%s norm=%s epochs=%d slip=%.6f spr=%.6f sl=%s tp=%s trail=%s maxDD=%s maxDL=%s maxOE=%s"
+                "[%4d/%d] %s score=%s eq=%s t=%.2fs interval=%s bars=%d method=%s norm=%s epochs=%d slip=%.6f spr=%.6f sl=%s tp=%s trail=%s maxDD=%s maxDL=%s maxWL=%s maxOE=%s"
                 i
                 trials
                 status
@@ -4323,6 +4339,7 @@ printTrialStatus i trials tr = do
                 (fmtOptFloat (tpTrailingStop params))
                 (fmtOptFloat (tpMaxDrawdown params))
                 (fmtOptFloat (tpMaxDailyLoss params))
+                (fmtOptFloat (tpMaxWeeklyLoss params))
                 (fmtOptInt (tpMaxOrderErrors params))
         suffix =
             case (trFilterReason tr, trReason tr) of
@@ -4461,6 +4478,7 @@ printBest tr = do
     putStrLn ("  riskPerTrade:       " ++ showMaybe (tpRiskPerTrade p))
     putStrLn ("  maxDrawdown:   " ++ showMaybe (tpMaxDrawdown p))
     putStrLn ("  maxDailyLoss:  " ++ showMaybe (tpMaxDailyLoss p))
+    putStrLn ("  maxWeeklyLoss:" ++ showMaybe (tpMaxWeeklyLoss p))
     putStrLn ("  maxOrderErrors:" ++ showMaybe (tpMaxOrderErrors p))
     putStrLn ("  kalmanDt:            " ++ show (tpKalmanDt p))
     putStrLn ("  kalmanProcessVar:    " ++ show (tpKalmanProcessVar p))
@@ -4731,7 +4749,8 @@ crossoverTrialParams a b rng0 =
         (tpRiskPerTrade', rng83a) = pickValue (tpRiskPerTrade a) (tpRiskPerTrade b) rng83
         (tpMaxDrawdown', rng84) = pickValue (tpMaxDrawdown a) (tpMaxDrawdown b) rng83a
         (tpMaxDailyLoss', rng85) = pickValue (tpMaxDailyLoss a) (tpMaxDailyLoss b) rng84
-        (tpMaxOrderErrors', rng86) = pickValue (tpMaxOrderErrors a) (tpMaxOrderErrors b) rng85
+        (tpMaxWeeklyLoss', rng85a) = pickValue (tpMaxWeeklyLoss a) (tpMaxWeeklyLoss b) rng85
+        (tpMaxOrderErrors', rng86) = pickValue (tpMaxOrderErrors a) (tpMaxOrderErrors b) rng85a
         (tpKalmanDt', rng87) = pickValue (tpKalmanDt a) (tpKalmanDt b) rng86
         (tpKalmanProcessVar', rng88) = pickValue (tpKalmanProcessVar a) (tpKalmanProcessVar b) rng87
         (tpKalmanMeasurementVar', rng89) = pickValue (tpKalmanMeasurementVar a) (tpKalmanMeasurementVar b) rng88
@@ -4899,6 +4918,7 @@ crossoverTrialParams a b rng0 =
                 , tpRiskPerTrade = tpRiskPerTrade'
                 , tpMaxDrawdown = tpMaxDrawdown'
                 , tpMaxDailyLoss = tpMaxDailyLoss'
+                , tpMaxWeeklyLoss = tpMaxWeeklyLoss'
                 , tpMaxOrderErrors = tpMaxOrderErrors'
                 , tpKalmanDt = tpKalmanDt'
                 , tpKalmanProcessVar = tpKalmanProcessVar'
@@ -5019,7 +5039,10 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (takeProfitVolMult', rng22) = perturbMaybeDouble (tpTakeProfitVolMult p) scaleDouble rng21
         (trailingStopVolMult', rng23) = perturbMaybeDouble (tpTrailingStopVolMult p) scaleDouble rng22
         (riskPerTrade', rng23a) = perturbMaybeDouble (tpRiskPerTrade p) scaleDouble rng23
-        (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23a
+        (maxDrawdown', rng23b) = perturbMaybeDouble (tpMaxDrawdown p) scaleDouble rng23a
+        (maxDailyLoss', rng23c) = perturbMaybeDouble (tpMaxDailyLoss p) scaleDouble rng23b
+        (maxWeeklyLoss', rng23d) = perturbMaybeDouble (tpMaxWeeklyLoss p) scaleDouble rng23c
+        (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23d
         (kalmanProcessVar', rng25) = perturbDouble (tpKalmanProcessVar p) scaleDouble rng24
         (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) scaleDouble rng25
         (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26
@@ -5131,6 +5154,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpTakeProfitVolMult = takeProfitVolMult'
                 , tpTrailingStopVolMult = trailingStopVolMult'
                 , tpRiskPerTrade = riskPerTrade'
+                , tpMaxDrawdown = maxDrawdown'
+                , tpMaxDailyLoss = maxDailyLoss'
+                , tpMaxWeeklyLoss = maxWeeklyLoss'
                 , tpKalmanDt = kalmanDt'
                 , tpKalmanProcessVar = kalmanProcessVar'
                 , tpKalmanMeasurementVar = kalmanMeasurementVar'
@@ -5360,6 +5386,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "riskPerTrade" .= tpRiskPerTrade params
                 , "maxDrawdown" .= tpMaxDrawdown params
                 , "maxDailyLoss" .= tpMaxDailyLoss params
+                , "maxWeeklyLoss" .= tpMaxWeeklyLoss params
                 , "maxOrderErrors" .= tpMaxOrderErrors params
                 , "kalmanDt" .= tpKalmanDt params
                 , "kalmanProcessVar" .= tpKalmanProcessVar params
