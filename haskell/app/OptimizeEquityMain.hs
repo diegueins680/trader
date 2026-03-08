@@ -422,6 +422,17 @@ optimizerArgsParser =
         <*> option auto (long "pairs-stat-arb-z-entry-max" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "pairs-stat-arb-size-mult-min" <> value 0.7 <> metavar "FLOAT")
         <*> option auto (long "pairs-stat-arb-size-mult-max" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "p-funding-oi-aware" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-funding-cap-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-funding-cap-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-funding-oi-funding-cap" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-vol-lookback-min" <> value 48 <> metavar "INT")
+        <*> option auto (long "funding-oi-vol-lookback-max" <> value 48 <> metavar "INT")
+        <*> option auto (long "funding-oi-vol-cap-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-vol-cap-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-funding-oi-vol-cap" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-size-mult-min" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-size-mult-max" <> value 0.7 <> metavar "FLOAT")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
@@ -605,6 +616,25 @@ validateArgs args = do
             || oaPairsStatArbSizeMultMax args > 1
         )
         $ Left "--pairs-stat-arb-size-mult-min/max must be between 0 and 1."
+    when (oaPFundingOiAware args < 0 || oaPFundingOiAware args > 1) $
+        Left "--p-funding-oi-aware must be between 0 and 1."
+    when (oaFundingOiFundingCapMin args < 0 || oaFundingOiFundingCapMax args < 0) $
+        Left "--funding-oi-funding-cap-min/max must be >= 0."
+    when (oaPDisableFundingOiFundingCap args < 0 || oaPDisableFundingOiFundingCap args > 1) $
+        Left "--p-disable-funding-oi-funding-cap must be between 0 and 1."
+    when (oaFundingOiVolLookbackMin args < 2 || oaFundingOiVolLookbackMax args < 2) $
+        Left "--funding-oi-vol-lookback-min/max must be >= 2."
+    when (oaFundingOiVolCapMin args < 0 || oaFundingOiVolCapMax args < 0) $
+        Left "--funding-oi-vol-cap-min/max must be >= 0."
+    when (oaPDisableFundingOiVolCap args < 0 || oaPDisableFundingOiVolCap args > 1) $
+        Left "--p-disable-funding-oi-vol-cap must be between 0 and 1."
+    when
+        ( oaFundingOiSizeMultMin args < 0
+            || oaFundingOiSizeMultMin args > 1
+            || oaFundingOiSizeMultMax args < 0
+            || oaFundingOiSizeMultMax args > 1
+        )
+        $ Left "--funding-oi-size-mult-min/max must be between 0 and 1."
     pure args'
 
 objectiveChoices :: [String]

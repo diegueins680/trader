@@ -175,6 +175,10 @@ normalizeTrialParams p =
             , tpMetaLabelMinConfidence = clamp (tpMetaLabelMinConfidence p) 0 1
             , tpRegimeBankHysteresis = clamp (tpRegimeBankHysteresis p) 0 1
             , tpPairsStatArbSizeMult = clamp (tpPairsStatArbSizeMult p) 0 1
+            , tpFundingOiFundingCap = normalizeOptionalPositiveFraction (tpFundingOiFundingCap p)
+            , tpFundingOiVolLookback = max 2 (tpFundingOiVolLookback p)
+            , tpFundingOiVolCap = normalizeOptionalPositiveFraction (tpFundingOiVolCap p)
+            , tpFundingOiSizeMult = clamp (tpFundingOiSizeMult p) 0 1
             }
 
 normalizeSymbol :: Maybe String -> Maybe String
@@ -952,6 +956,17 @@ data OptimizerArgs = OptimizerArgs
     , oaPairsStatArbZEntryMax :: !Double
     , oaPairsStatArbSizeMultMin :: !Double
     , oaPairsStatArbSizeMultMax :: !Double
+    , oaPFundingOiAware :: !Double
+    , oaFundingOiFundingCapMin :: !Double
+    , oaFundingOiFundingCapMax :: !Double
+    , oaPDisableFundingOiFundingCap :: !Double
+    , oaFundingOiVolLookbackMin :: !Int
+    , oaFundingOiVolLookbackMax :: !Int
+    , oaFundingOiVolCapMin :: !Double
+    , oaFundingOiVolCapMax :: !Double
+    , oaPDisableFundingOiVolCap :: !Double
+    , oaFundingOiSizeMultMin :: !Double
+    , oaFundingOiSizeMultMax :: !Double
     }
     deriving (Eq, Show)
 
@@ -1066,6 +1081,17 @@ applyQualityPreset args =
             , oaPairsStatArbZEntryMax = maxIf (oaPairsStatArbZEntryMax args) 3.0
             , oaPairsStatArbSizeMultMin = minIf (oaPairsStatArbSizeMultMin args) 0.4
             , oaPairsStatArbSizeMultMax = maxIf (oaPairsStatArbSizeMultMax args) 0.9
+            , oaPFundingOiAware = maxIf (oaPFundingOiAware args) 0.2
+            , oaFundingOiFundingCapMin = minIf (oaFundingOiFundingCapMin args) 0.02
+            , oaFundingOiFundingCapMax = maxIf (oaFundingOiFundingCapMax args) 0.2
+            , oaPDisableFundingOiFundingCap = minIf (oaPDisableFundingOiFundingCap args) 0.6
+            , oaFundingOiVolLookbackMin = minIf (oaFundingOiVolLookbackMin args) 24
+            , oaFundingOiVolLookbackMax = maxIf (oaFundingOiVolLookbackMax args) 96
+            , oaFundingOiVolCapMin = minIf (oaFundingOiVolCapMin args) 0.3
+            , oaFundingOiVolCapMax = maxIf (oaFundingOiVolCapMax args) 2.0
+            , oaPDisableFundingOiVolCap = minIf (oaPDisableFundingOiVolCap args) 0.6
+            , oaFundingOiSizeMultMin = minIf (oaFundingOiSizeMultMin args) 0.4
+            , oaFundingOiSizeMultMax = maxIf (oaFundingOiSizeMultMax args) 0.9
             , oaInterval = if intervalReset then Nothing else oaInterval args
             , oaIntervals = intervals'
             }
@@ -1226,6 +1252,11 @@ data TrialParams = TrialParams
     , tpPairsStatArbLookback :: !Int
     , tpPairsStatArbZEntry :: !Double
     , tpPairsStatArbSizeMult :: !Double
+    , tpFundingOiAware :: !Bool
+    , tpFundingOiFundingCap :: !(Maybe Double)
+    , tpFundingOiVolLookback :: !Int
+    , tpFundingOiVolCap :: !(Maybe Double)
+    , tpFundingOiSizeMult :: !Double
     }
     deriving (Eq, Show)
 
@@ -1492,12 +1523,19 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , printf "%.12g" (max 1e-12 (tpPairsStatArbZEntry params))
                    , "--pairs-stat-arb-size-mult"
                    , printf "%.12g" (clamp (tpPairsStatArbSizeMult params) 0 1)
+                   , "--funding-oi-vol-lookback"
+                   , show (max 2 (tpFundingOiVolLookback params))
+                   , "--funding-oi-size-mult"
+                   , printf "%.12g" (clamp (tpFundingOiSizeMult params) 0 1)
                    ]
                 ++ (if tpMetaLabelRequireBand params then ["--meta-label-require-band"] else ["--no-meta-label-require-band"])
                 ++ (if tpRegimeParameterBank params then ["--regime-parameter-bank"] else ["--no-regime-parameter-bank"])
                 ++ (if tpMultiTimeframeConsensus params then ["--multi-timeframe-consensus"] else ["--no-multi-timeframe-consensus"])
                 ++ (if tpCrossAssetConfirmation params then ["--cross-asset-confirmation"] else ["--no-cross-asset-confirmation"])
                 ++ (if tpPairsStatArb params then ["--pairs-stat-arb"] else ["--no-pairs-stat-arb"])
+                ++ (if tpFundingOiAware params then ["--funding-oi-aware"] else ["--no-funding-oi-aware"])
+                ++ maybe [] (\v -> ["--funding-oi-funding-cap", printf "%.12g" (max 0 v)]) (tpFundingOiFundingCap params)
+                ++ maybe [] (\v -> ["--funding-oi-vol-cap", printf "%.12g" (max 0 v)]) (tpFundingOiVolCap params)
                 ++ (["--tri-layer" | tpTriLayer params])
                 ++ [ "--tri-layer-fast-mult"
                    , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
@@ -2053,6 +2091,11 @@ trialToRecord tr symbolLabel =
             , "pairsStatArbLookback" .= tpPairsStatArbLookback (trParams tr)
             , "pairsStatArbZEntry" .= tpPairsStatArbZEntry (trParams tr)
             , "pairsStatArbSizeMult" .= tpPairsStatArbSizeMult (trParams tr)
+            , "fundingOiAware" .= tpFundingOiAware (trParams tr)
+            , "fundingOiFundingCap" .= tpFundingOiFundingCap (trParams tr)
+            , "fundingOiVolLookback" .= tpFundingOiVolLookback (trParams tr)
+            , "fundingOiVolCap" .= tpFundingOiVolCap (trParams tr)
+            , "fundingOiSizeMult" .= tpFundingOiSizeMult (trParams tr)
             ]
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
         paramsPairs' =
@@ -2277,7 +2320,14 @@ sampleParams
     pPairsStatArb
     pairsStatArbLookbackRange
     pairsStatArbZEntryRange
-    pairsStatArbSizeMultRange =
+    pairsStatArbSizeMultRange
+    pFundingOiAware
+    fundingOiFundingCapRange
+    pDisableFundingOiFundingCap
+    fundingOiVolLookbackRange
+    fundingOiVolCapRange
+    pDisableFundingOiVolCap
+    fundingOiSizeMultRange =
         let (platform, rng1) =
                 case platforms of
                     [] -> (Nothing, rng0)
@@ -2847,6 +2897,33 @@ sampleParams
             (pairsStatArbSizeMult, rng127) =
                 let (lo, hi) = ordered pairsStatArbSizeMultRange
                  in nextUniform lo hi rng126
+            (fundingOiAwareEnabled, rng128) =
+                let (r, rng') = nextDouble rng127
+                 in (r < pFundingOiAware, rng')
+            (fundingOiFundingCapRaw, rng129) =
+                let (lo, hi) = ordered fundingOiFundingCapRange
+                 in nextUniform lo hi rng128
+            (fundingOiFundingCapEnabled, rng130) =
+                let (r, rng') = nextDouble rng129
+                 in (r >= pDisableFundingOiFundingCap, rng')
+            (fundingOiVolLookback, rng131) = uncurry nextIntRange fundingOiVolLookbackRange rng130
+            (fundingOiVolCapRaw, rng132) =
+                let (lo, hi) = ordered fundingOiVolCapRange
+                 in nextUniform lo hi rng131
+            (fundingOiVolCapEnabled, rng133) =
+                let (r, rng') = nextDouble rng132
+                 in (r >= pDisableFundingOiVolCap, rng')
+            (fundingOiSizeMult, rng134) =
+                let (lo, hi) = ordered fundingOiSizeMultRange
+                 in nextUniform lo hi rng133
+            fundingOiFundingCap =
+                if fundingOiFundingCapEnabled
+                    then Just (max 0 fundingOiFundingCapRaw)
+                    else Nothing
+            fundingOiVolCap =
+                if fundingOiVolCapEnabled
+                    then Just (max 0 fundingOiVolCapRaw)
+                    else Nothing
          in ( TrialParams
                 { tpPlatform = platform
                 , tpInterval = interval
@@ -3003,8 +3080,13 @@ sampleParams
                 , tpPairsStatArbLookback = max 2 pairsStatArbLookback
                 , tpPairsStatArbZEntry = max 1e-12 pairsStatArbZEntry
                 , tpPairsStatArbSizeMult = clamp pairsStatArbSizeMult 0 1
+                , tpFundingOiAware = fundingOiAwareEnabled
+                , tpFundingOiFundingCap = fundingOiFundingCap
+                , tpFundingOiVolLookback = max 2 fundingOiVolLookback
+                , tpFundingOiVolCap = fundingOiVolCap
+                , tpFundingOiSizeMult = clamp fundingOiSizeMult 0 1
                 }
-            , rng127
+            , rng134
             )
       where
         ordered (a, b) = if a <= b then (a, b) else (b, a)
@@ -3427,6 +3509,13 @@ runOptimizer args0 = do
                                                         pairsStatArbLookbackRange = (max 2 (oaPairsStatArbLookbackMin args), max 2 (oaPairsStatArbLookbackMax args))
                                                         pairsStatArbZEntryRange = (max 1e-12 (oaPairsStatArbZEntryMin args), max 1e-12 (oaPairsStatArbZEntryMax args))
                                                         pairsStatArbSizeMultRange = (clamp (oaPairsStatArbSizeMultMin args) 0 1, clamp (oaPairsStatArbSizeMultMax args) 0 1)
+                                                        pFundingOiAware = clamp (oaPFundingOiAware args) 0 1
+                                                        fundingOiFundingCapRange = (max 0 (oaFundingOiFundingCapMin args), max 0 (oaFundingOiFundingCapMax args))
+                                                        pDisableFundingOiFundingCap = clamp (oaPDisableFundingOiFundingCap args) 0 1
+                                                        fundingOiVolLookbackRange = (max 2 (oaFundingOiVolLookbackMin args), max 2 (oaFundingOiVolLookbackMax args))
+                                                        fundingOiVolCapRange = (max 0 (oaFundingOiVolCapMin args), max 0 (oaFundingOiVolCapMax args))
+                                                        pDisableFundingOiVolCap = clamp (oaPDisableFundingOiVolCap args) 0 1
+                                                        fundingOiSizeMultRange = (clamp (oaFundingOiSizeMultMin args) 0 1, clamp (oaFundingOiSizeMultMax args) 0 1)
                                                     if null normalizationChoices
                                                         then do
                                                             hPutStrLn stderr "No normalizations provided."
@@ -3697,6 +3786,13 @@ runOptimizer args0 = do
                                                                                 pairsStatArbLookbackRange
                                                                                 pairsStatArbZEntryRange
                                                                                 pairsStatArbSizeMultRange
+                                                                                pFundingOiAware
+                                                                                fundingOiFundingCapRange
+                                                                                pDisableFundingOiFundingCap
+                                                                                fundingOiVolLookbackRange
+                                                                                fundingOiVolCapRange
+                                                                                pDisableFundingOiVolCap
+                                                                                fundingOiSizeMultRange
                                                                         runTrialWith idx rng mBase mParents best recordsRev = do
                                                                             let (params, _) =
                                                                                     case mBase of
@@ -4342,6 +4438,11 @@ printBest tr = do
     putStrLn ("  pairsStatArbLookback:" ++ show (tpPairsStatArbLookback p))
     putStrLn ("  pairsStatArbZEntry: " ++ show (tpPairsStatArbZEntry p))
     putStrLn ("  pairsStatArbSizeMult:" ++ show (tpPairsStatArbSizeMult p))
+    putStrLn ("  fundingOiAware:     " ++ show (tpFundingOiAware p))
+    putStrLn ("  fundingOiFundingCap:" ++ showMaybe (tpFundingOiFundingCap p))
+    putStrLn ("  fundingOiVolLookback:" ++ show (tpFundingOiVolLookback p))
+    putStrLn ("  fundingOiVolCap:    " ++ showMaybe (tpFundingOiVolCap p))
+    putStrLn ("  fundingOiSizeMult:  " ++ show (tpFundingOiSizeMult p))
 
 showMaybe :: (Show a) => Maybe a -> String
 showMaybe = maybe "None" show
@@ -4628,6 +4729,11 @@ crossoverTrialParams a b rng0 =
         (tpPairsStatArbLookback', rng147) = pickValue (tpPairsStatArbLookback a) (tpPairsStatArbLookback b) rng146
         (tpPairsStatArbZEntry', rng148) = pickValue (tpPairsStatArbZEntry a) (tpPairsStatArbZEntry b) rng147
         (tpPairsStatArbSizeMult', rng149) = pickValue (tpPairsStatArbSizeMult a) (tpPairsStatArbSizeMult b) rng148
+        (tpFundingOiAware', rng150) = pickValue (tpFundingOiAware a) (tpFundingOiAware b) rng149
+        (tpFundingOiFundingCap', rng151) = pickValue (tpFundingOiFundingCap a) (tpFundingOiFundingCap b) rng150
+        (tpFundingOiVolLookback', rng152) = pickValue (tpFundingOiVolLookback a) (tpFundingOiVolLookback b) rng151
+        (tpFundingOiVolCap', rng153) = pickValue (tpFundingOiVolCap a) (tpFundingOiVolCap b) rng152
+        (tpFundingOiSizeMult', rng154) = pickValue (tpFundingOiSizeMult a) (tpFundingOiSizeMult b) rng153
      in ( normalizeTrialParams
             ( a
                 { tpPlatform = tpPlatform'
@@ -4785,9 +4891,14 @@ crossoverTrialParams a b rng0 =
                 , tpPairsStatArbLookback = tpPairsStatArbLookback'
                 , tpPairsStatArbZEntry = tpPairsStatArbZEntry'
                 , tpPairsStatArbSizeMult = tpPairsStatArbSizeMult'
+                , tpFundingOiAware = tpFundingOiAware'
+                , tpFundingOiFundingCap = tpFundingOiFundingCap'
+                , tpFundingOiVolLookback = tpFundingOiVolLookback'
+                , tpFundingOiVolCap = tpFundingOiVolCap'
+                , tpFundingOiSizeMult = tpFundingOiSizeMult'
                 }
             )
-        , rng149
+        , rng154
         )
 
 clampBarsForPlatform :: Maybe String -> Int -> Int -> Int -> Int
@@ -4896,6 +5007,10 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (pairsStatArbLookback', rng85) = perturbInt (tpPairsStatArbLookback p) scaleInt rng84
         (pairsStatArbZEntry', rng86) = perturbDouble (tpPairsStatArbZEntry p) scaleDouble rng85
         (pairsStatArbSizeMult', rng87) = perturbDouble (tpPairsStatArbSizeMult p) scaleDouble rng86
+        (fundingOiFundingCap', rng88) = perturbMaybeDouble (tpFundingOiFundingCap p) scaleDouble rng87
+        (fundingOiVolLookback', rng89) = perturbInt (tpFundingOiVolLookback p) scaleInt rng88
+        (fundingOiVolCap', rng90) = perturbMaybeDouble (tpFundingOiVolCap p) scaleDouble rng89
+        (fundingOiSizeMult', rng91) = perturbDouble (tpFundingOiSizeMult p) scaleDouble rng90
      in ( normalizeTrialParams
             ( p
                 { tpBars = bars'
@@ -4989,9 +5104,13 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpPairsStatArbLookback = max 2 pairsStatArbLookback'
                 , tpPairsStatArbZEntry = max 1e-12 pairsStatArbZEntry'
                 , tpPairsStatArbSizeMult = clamp pairsStatArbSizeMult' 0 1
+                , tpFundingOiFundingCap = fmap (max 0) fundingOiFundingCap'
+                , tpFundingOiVolLookback = max 2 fundingOiVolLookback'
+                , tpFundingOiVolCap = fmap (max 0) fundingOiVolCap'
+                , tpFundingOiSizeMult = clamp fundingOiSizeMult' 0 1
                 }
             )
-        , rng87
+        , rng91
         )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
@@ -5223,6 +5342,11 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "pairsStatArbLookback" .= tpPairsStatArbLookback params
                 , "pairsStatArbZEntry" .= tpPairsStatArbZEntry params
                 , "pairsStatArbSizeMult" .= tpPairsStatArbSizeMult params
+                , "fundingOiAware" .= tpFundingOiAware params
+                , "fundingOiFundingCap" .= tpFundingOiFundingCap params
+                , "fundingOiVolLookback" .= tpFundingOiVolLookback params
+                , "fundingOiVolCap" .= tpFundingOiVolCap params
+                , "fundingOiSizeMult" .= tpFundingOiSizeMult params
                 , "binanceSymbol" .= symbol
                 ]
         identity =
