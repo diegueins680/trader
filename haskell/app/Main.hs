@@ -1042,6 +1042,17 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrPairsStatArbZEntryMax :: !(Maybe Double)
     , arrPairsStatArbSizeMultMin :: !(Maybe Double)
     , arrPairsStatArbSizeMultMax :: !(Maybe Double)
+    , arrPFundingOiAware :: !(Maybe Double)
+    , arrFundingOiFundingCapMin :: !(Maybe Double)
+    , arrFundingOiFundingCapMax :: !(Maybe Double)
+    , arrPDisableFundingOiFundingCap :: !(Maybe Double)
+    , arrFundingOiVolLookbackMin :: !(Maybe Int)
+    , arrFundingOiVolLookbackMax :: !(Maybe Int)
+    , arrFundingOiVolCapMin :: !(Maybe Double)
+    , arrFundingOiVolCapMax :: !(Maybe Double)
+    , arrPDisableFundingOiVolCap :: !(Maybe Double)
+    , arrFundingOiSizeMultMin :: !(Maybe Double)
+    , arrFundingOiSizeMultMax :: !(Maybe Double)
     , arrDisableLstmPersistence :: !(Maybe Bool)
     , arrNoSweepThreshold :: !(Maybe Bool)
     }
@@ -11743,6 +11754,18 @@ prepareOptimizerArgs outputPath req = do
                         ++ maybeDoubleArg "--pairs-stat-arb-z-entry-max" (fmap (max 1e-12) (arrPairsStatArbZEntryMax req))
                         ++ maybeDoubleArg "--pairs-stat-arb-size-mult-min" (fmap clamp01 (arrPairsStatArbSizeMultMin req))
                         ++ maybeDoubleArg "--pairs-stat-arb-size-mult-max" (fmap clamp01 (arrPairsStatArbSizeMultMax req))
+                fundingOiArgs =
+                    maybeDoubleArg "--p-funding-oi-aware" (fmap clamp01 (arrPFundingOiAware req))
+                        ++ maybeDoubleArg "--funding-oi-funding-cap-min" (fmap (max 0) (arrFundingOiFundingCapMin req))
+                        ++ maybeDoubleArg "--funding-oi-funding-cap-max" (fmap (max 0) (arrFundingOiFundingCapMax req))
+                        ++ maybeDoubleArg "--p-disable-funding-oi-funding-cap" (fmap clamp01 (arrPDisableFundingOiFundingCap req))
+                        ++ maybeIntArg "--funding-oi-vol-lookback-min" (fmap (max 2) (arrFundingOiVolLookbackMin req))
+                        ++ maybeIntArg "--funding-oi-vol-lookback-max" (fmap (max 2) (arrFundingOiVolLookbackMax req))
+                        ++ maybeDoubleArg "--funding-oi-vol-cap-min" (fmap (max 0) (arrFundingOiVolCapMin req))
+                        ++ maybeDoubleArg "--funding-oi-vol-cap-max" (fmap (max 0) (arrFundingOiVolCapMax req))
+                        ++ maybeDoubleArg "--p-disable-funding-oi-vol-cap" (fmap clamp01 (arrPDisableFundingOiVolCap req))
+                        ++ maybeDoubleArg "--funding-oi-size-mult-min" (fmap clamp01 (arrFundingOiSizeMultMin req))
+                        ++ maybeDoubleArg "--funding-oi-size-mult-max" (fmap clamp01 (arrFundingOiSizeMultMax req))
                 normalizationsVal = pickDefaultString defaultOptimizerNormalizations (arrNormalizations req)
                 boolArg flag val = ([flag | val])
                 disableLstm = fromMaybe False (arrDisableLstmPersistence req)
@@ -11835,6 +11858,7 @@ prepareOptimizerArgs outputPath req = do
                         ++ metaLabelArgs
                         ++ regimeBankArgs
                         ++ signalGateArgs
+                        ++ fundingOiArgs
                         ++ intrabarArgs
                         ++ triLayerArgs
                         ++ stopRangeArgs
