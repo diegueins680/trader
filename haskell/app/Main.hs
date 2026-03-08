@@ -895,6 +895,18 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrRiskPerTradeMin :: !(Maybe Double)
     , arrRiskPerTradeMax :: !(Maybe Double)
     , arrPDisableRiskPerTrade :: !(Maybe Double)
+    , arrPDisableMaxDd :: !(Maybe Double)
+    , arrPDisableMaxDl :: !(Maybe Double)
+    , arrPDisableMaxWl :: !(Maybe Double)
+    , arrPDisableMaxOe :: !(Maybe Double)
+    , arrMaxDdMin :: !(Maybe Double)
+    , arrMaxDdMax :: !(Maybe Double)
+    , arrMaxDlMin :: !(Maybe Double)
+    , arrMaxDlMax :: !(Maybe Double)
+    , arrMaxWlMin :: !(Maybe Double)
+    , arrMaxWlMax :: !(Maybe Double)
+    , arrMaxOeMin :: !(Maybe Int)
+    , arrMaxOeMax :: !(Maybe Int)
     , arrStopMin :: !(Maybe Double)
     , arrStopMax :: !(Maybe Double)
     , arrTpMin :: !(Maybe Double)
@@ -11558,6 +11570,19 @@ prepareOptimizerArgs outputPath req = do
                     maybeDoubleArg "--risk-per-trade-min" (fmap clamp01 (arrRiskPerTradeMin req))
                         ++ maybeDoubleArg "--risk-per-trade-max" (fmap clamp01 (arrRiskPerTradeMax req))
                         ++ maybeDoubleArg "--p-disable-risk-per-trade" (fmap clamp01 (arrPDisableRiskPerTrade req))
+                riskKillSwitchArgs =
+                    maybeDoubleArg "--p-disable-max-dd" (fmap clamp01 (arrPDisableMaxDd req))
+                        ++ maybeDoubleArg "--p-disable-max-dl" (fmap clamp01 (arrPDisableMaxDl req))
+                        ++ maybeDoubleArg "--p-disable-max-wl" (fmap clamp01 (arrPDisableMaxWl req))
+                        ++ maybeDoubleArg "--p-disable-max-oe" (fmap clamp01 (arrPDisableMaxOe req))
+                        ++ maybeDoubleArg "--max-dd-min" (fmap (max 0) (arrMaxDdMin req))
+                        ++ maybeDoubleArg "--max-dd-max" (fmap (max 0) (arrMaxDdMax req))
+                        ++ maybeDoubleArg "--max-dl-min" (fmap (max 0) (arrMaxDlMin req))
+                        ++ maybeDoubleArg "--max-dl-max" (fmap (max 0) (arrMaxDlMax req))
+                        ++ maybeDoubleArg "--max-wl-min" (fmap (max 0) (arrMaxWlMin req))
+                        ++ maybeDoubleArg "--max-wl-max" (fmap (max 0) (arrMaxWlMax req))
+                        ++ maybeIntArg "--max-oe-min" (fmap (max 0) (arrMaxOeMin req))
+                        ++ maybeIntArg "--max-oe-max" (fmap (max 0) (arrMaxOeMax req))
                 fundingRateArgs =
                     maybeDoubleArg "--funding-rate-min" (arrFundingRateMin req)
                         ++ maybeDoubleArg "--funding-rate-max" (arrFundingRateMax req)
@@ -11880,6 +11905,7 @@ prepareOptimizerArgs outputPath req = do
                         ++ stopRangeArgs
                         ++ stopVolMultArgs
                         ++ riskPerTradeArgs
+                        ++ riskKillSwitchArgs
                         ++ fundingRateArgs
                         ++ fundingModeArgs
                         ++ rebalanceBarsArgs
