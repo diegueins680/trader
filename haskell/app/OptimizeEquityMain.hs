@@ -433,6 +433,13 @@ optimizerArgsParser =
         <*> option auto (long "p-disable-funding-oi-vol-cap" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "funding-oi-size-mult-min" <> value 0.7 <> metavar "FLOAT")
         <*> option auto (long "funding-oi-size-mult-max" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "p-kelly-lite-sizing" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-fraction-min" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-fraction-max" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-floor-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-floor-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-cap-min" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-cap-max" <> value 1.0 <> metavar "FLOAT")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
@@ -635,6 +642,14 @@ validateArgs args = do
             || oaFundingOiSizeMultMax args > 1
         )
         $ Left "--funding-oi-size-mult-min/max must be between 0 and 1."
+    when (oaPKellyLiteSizing args < 0 || oaPKellyLiteSizing args > 1) $
+        Left "--p-kelly-lite-sizing must be between 0 and 1."
+    when (oaKellyLiteFractionMin args < 0 || oaKellyLiteFractionMax args < 0) $
+        Left "--kelly-lite-fraction-min/max must be >= 0."
+    when (oaKellyLiteFloorMin args < 0 || oaKellyLiteFloorMax args < 0) $
+        Left "--kelly-lite-floor-min/max must be >= 0."
+    when (oaKellyLiteCapMin args < 0 || oaKellyLiteCapMax args < 0) $
+        Left "--kelly-lite-cap-min/max must be >= 0."
     pure args'
 
 objectiveChoices :: [String]

@@ -1053,6 +1053,13 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrPDisableFundingOiVolCap :: !(Maybe Double)
     , arrFundingOiSizeMultMin :: !(Maybe Double)
     , arrFundingOiSizeMultMax :: !(Maybe Double)
+    , arrPKellyLiteSizing :: !(Maybe Double)
+    , arrKellyLiteFractionMin :: !(Maybe Double)
+    , arrKellyLiteFractionMax :: !(Maybe Double)
+    , arrKellyLiteFloorMin :: !(Maybe Double)
+    , arrKellyLiteFloorMax :: !(Maybe Double)
+    , arrKellyLiteCapMin :: !(Maybe Double)
+    , arrKellyLiteCapMax :: !(Maybe Double)
     , arrDisableLstmPersistence :: !(Maybe Bool)
     , arrNoSweepThreshold :: !(Maybe Bool)
     }
@@ -11766,6 +11773,14 @@ prepareOptimizerArgs outputPath req = do
                         ++ maybeDoubleArg "--p-disable-funding-oi-vol-cap" (fmap clamp01 (arrPDisableFundingOiVolCap req))
                         ++ maybeDoubleArg "--funding-oi-size-mult-min" (fmap clamp01 (arrFundingOiSizeMultMin req))
                         ++ maybeDoubleArg "--funding-oi-size-mult-max" (fmap clamp01 (arrFundingOiSizeMultMax req))
+                kellyLiteArgs =
+                    maybeDoubleArg "--p-kelly-lite-sizing" (fmap clamp01 (arrPKellyLiteSizing req))
+                        ++ maybeDoubleArg "--kelly-lite-fraction-min" (fmap (max 0) (arrKellyLiteFractionMin req))
+                        ++ maybeDoubleArg "--kelly-lite-fraction-max" (fmap (max 0) (arrKellyLiteFractionMax req))
+                        ++ maybeDoubleArg "--kelly-lite-floor-min" (fmap (max 0) (arrKellyLiteFloorMin req))
+                        ++ maybeDoubleArg "--kelly-lite-floor-max" (fmap (max 0) (arrKellyLiteFloorMax req))
+                        ++ maybeDoubleArg "--kelly-lite-cap-min" (fmap (max 0) (arrKellyLiteCapMin req))
+                        ++ maybeDoubleArg "--kelly-lite-cap-max" (fmap (max 0) (arrKellyLiteCapMax req))
                 normalizationsVal = pickDefaultString defaultOptimizerNormalizations (arrNormalizations req)
                 boolArg flag val = ([flag | val])
                 disableLstm = fromMaybe False (arrDisableLstmPersistence req)
@@ -11859,6 +11874,7 @@ prepareOptimizerArgs outputPath req = do
                         ++ regimeBankArgs
                         ++ signalGateArgs
                         ++ fundingOiArgs
+                        ++ kellyLiteArgs
                         ++ intrabarArgs
                         ++ triLayerArgs
                         ++ stopRangeArgs

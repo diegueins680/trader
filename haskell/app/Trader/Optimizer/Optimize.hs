@@ -137,6 +137,8 @@ normalizeTrialParams :: TrialParams -> TrialParams
 normalizeTrialParams p =
     let maxPositionSize' = max 0 (tpMaxPositionSize p)
         minPositionSize' = clamp (tpMinPositionSize p) 0 maxPositionSize'
+        kellyLiteFloor' = max 0 (tpKellyLiteFloor p)
+        kellyLiteCap' = max kellyLiteFloor' (tpKellyLiteCap p)
         thresholdFactorMin' = max 0 (tpThresholdFactorMin p)
         thresholdFactorMax' = max thresholdFactorMin' (tpThresholdFactorMax p)
         kalmanZMin' = max 0 (tpKalmanZMin p)
@@ -169,6 +171,9 @@ normalizeTrialParams p =
             , tpMaxHighVolProb = normalizeOptionalUnitInterval (tpMaxHighVolProb p)
             , tpProtectionMinConfidence = clamp (tpProtectionMinConfidence p) 0 1
             , tpMinPositionSize = minPositionSize'
+            , tpKellyLiteFraction = max 0 (tpKellyLiteFraction p)
+            , tpKellyLiteFloor = kellyLiteFloor'
+            , tpKellyLiteCap = kellyLiteCap'
             , tpRouterMinScore = clamp (tpRouterMinScore p) 0 1
             , tpTakeProfitPartial = normalizeOptionalPositiveFraction (tpTakeProfitPartial p)
             , tpPerfMinWinRate = normalizeOptionalUnitInterval (tpPerfMinWinRate p)
@@ -967,6 +972,13 @@ data OptimizerArgs = OptimizerArgs
     , oaPDisableFundingOiVolCap :: !Double
     , oaFundingOiSizeMultMin :: !Double
     , oaFundingOiSizeMultMax :: !Double
+    , oaPKellyLiteSizing :: !Double
+    , oaKellyLiteFractionMin :: !Double
+    , oaKellyLiteFractionMax :: !Double
+    , oaKellyLiteFloorMin :: !Double
+    , oaKellyLiteFloorMax :: !Double
+    , oaKellyLiteCapMin :: !Double
+    , oaKellyLiteCapMax :: !Double
     }
     deriving (Eq, Show)
 
@@ -1092,6 +1104,13 @@ applyQualityPreset args =
             , oaPDisableFundingOiVolCap = minIf (oaPDisableFundingOiVolCap args) 0.6
             , oaFundingOiSizeMultMin = minIf (oaFundingOiSizeMultMin args) 0.4
             , oaFundingOiSizeMultMax = maxIf (oaFundingOiSizeMultMax args) 0.9
+            , oaPKellyLiteSizing = maxIf (oaPKellyLiteSizing args) 0.25
+            , oaKellyLiteFractionMin = minIf (oaKellyLiteFractionMin args) 0.1
+            , oaKellyLiteFractionMax = maxIf (oaKellyLiteFractionMax args) 0.8
+            , oaKellyLiteFloorMin = minIf (oaKellyLiteFloorMin args) 0.0
+            , oaKellyLiteFloorMax = maxIf (oaKellyLiteFloorMax args) 0.35
+            , oaKellyLiteCapMin = minIf (oaKellyLiteCapMin args) 0.6
+            , oaKellyLiteCapMax = maxIf (oaKellyLiteCapMax args) 1.25
             , oaInterval = if intervalReset then Nothing else oaInterval args
             , oaIntervals = intervals'
             }
@@ -1201,6 +1220,10 @@ data TrialParams = TrialParams
     , tpConfidenceSizing :: !Bool
     , tpProtectionMinConfidence :: !Double
     , tpMinPositionSize :: !Double
+    , tpKellyLiteSizing :: !Bool
+    , tpKellyLiteFraction :: !Double
+    , tpKellyLiteFloor :: !Double
+    , tpKellyLiteCap :: !Double
     , tpPredictors :: !String
     , tpRouterLookback :: !Int
     , tpRouterMinScore :: !Double
@@ -1655,10 +1678,20 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , printf "%.4f" (clamp (tpProtectionMinConfidence params) 0 1)
                    ]
         cmd35 = cmd34 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
+        cmd35a0 =
+            cmd35
+                ++ [ if tpKellyLiteSizing params then "--kelly-lite-sizing" else "--no-kelly-lite-sizing"
+                   , "--kelly-lite-fraction"
+                   , printf "%.12g" (max 0 (tpKellyLiteFraction params))
+                   , "--kelly-lite-floor"
+                   , printf "%.12g" (max 0 (tpKellyLiteFloor params))
+                   , "--kelly-lite-cap"
+                   , printf "%.12g" (max (max 0 (tpKellyLiteFloor params)) (tpKellyLiteCap params))
+                   ]
         cmd35a =
             case tpTakeProfitPartial params of
-                Just v -> cmd35 ++ ["--take-profit-partial", printf "%.12g" (clamp v 0 0.999999)]
-                Nothing -> cmd35
+                Just v -> cmd35a0 ++ ["--take-profit-partial", printf "%.12g" (clamp v 0 0.999999)]
+                Nothing -> cmd35a0
         cmd35b =
             case tpMaxTradesPerDay params of
                 Just v -> cmd35a ++ ["--max-trades-per-day", show (max 0 v)]
@@ -2040,6 +2073,10 @@ trialToRecord tr symbolLabel =
             , "confidenceSizing" .= tpConfidenceSizing (trParams tr)
             , "protectionMinConfidence" .= tpProtectionMinConfidence (trParams tr)
             , "minPositionSize" .= tpMinPositionSize (trParams tr)
+            , "kellyLiteSizing" .= tpKellyLiteSizing (trParams tr)
+            , "kellyLiteFraction" .= tpKellyLiteFraction (trParams tr)
+            , "kellyLiteFloor" .= tpKellyLiteFloor (trParams tr)
+            , "kellyLiteCap" .= tpKellyLiteCap (trParams tr)
             , "predictors" .= tpPredictors (trParams tr)
             , "routerLookback" .= tpRouterLookback (trParams tr)
             , "routerMinScore" .= tpRouterMinScore (trParams tr)
@@ -2327,7 +2364,11 @@ sampleParams
     fundingOiVolLookbackRange
     fundingOiVolCapRange
     pDisableFundingOiVolCap
-    fundingOiSizeMultRange =
+    fundingOiSizeMultRange
+    pKellyLiteSizing
+    kellyLiteFractionRange
+    kellyLiteFloorRange
+    kellyLiteCapRange =
         let (platform, rng1) =
                 case platforms of
                     [] -> (Nothing, rng0)
@@ -2916,6 +2957,18 @@ sampleParams
             (fundingOiSizeMult, rng134) =
                 let (lo, hi) = ordered fundingOiSizeMultRange
                  in nextUniform lo hi rng133
+            (kellyLiteSizingEnabled, rng135) =
+                let (r, rng') = nextDouble rng134
+                 in (r < pKellyLiteSizing, rng')
+            (kellyLiteFraction, rng136) =
+                let (lo, hi) = ordered kellyLiteFractionRange
+                 in nextUniform lo hi rng135
+            (kellyLiteFloor, rng137) =
+                let (lo, hi) = ordered kellyLiteFloorRange
+                 in nextUniform lo hi rng136
+            (kellyLiteCap, rng138) =
+                let (lo, hi) = ordered kellyLiteCapRange
+                 in nextUniform lo hi rng137
             fundingOiFundingCap =
                 if fundingOiFundingCapEnabled
                     then Just (max 0 fundingOiFundingCapRaw)
@@ -3029,6 +3082,10 @@ sampleParams
                 , tpConfidenceSizing = confidenceSizing
                 , tpProtectionMinConfidence = protectionMinConfidence
                 , tpMinPositionSize = minPositionSize
+                , tpKellyLiteSizing = kellyLiteSizingEnabled
+                , tpKellyLiteFraction = max 0 kellyLiteFraction
+                , tpKellyLiteFloor = max 0 kellyLiteFloor
+                , tpKellyLiteCap = max (max 0 kellyLiteFloor) kellyLiteCap
                 , tpPredictors = predictors
                 , tpRouterLookback = routerLookback
                 , tpRouterMinScore = routerMinScore
@@ -3086,7 +3143,7 @@ sampleParams
                 , tpFundingOiVolCap = fundingOiVolCap
                 , tpFundingOiSizeMult = clamp fundingOiSizeMult 0 1
                 }
-            , rng134
+            , rng138
             )
       where
         ordered (a, b) = if a <= b then (a, b) else (b, a)
@@ -3516,6 +3573,10 @@ runOptimizer args0 = do
                                                         fundingOiVolCapRange = (max 0 (oaFundingOiVolCapMin args), max 0 (oaFundingOiVolCapMax args))
                                                         pDisableFundingOiVolCap = clamp (oaPDisableFundingOiVolCap args) 0 1
                                                         fundingOiSizeMultRange = (clamp (oaFundingOiSizeMultMin args) 0 1, clamp (oaFundingOiSizeMultMax args) 0 1)
+                                                        pKellyLiteSizing = clamp (oaPKellyLiteSizing args) 0 1
+                                                        kellyLiteFractionRange = (max 0 (oaKellyLiteFractionMin args), max 0 (oaKellyLiteFractionMax args))
+                                                        kellyLiteFloorRange = (max 0 (oaKellyLiteFloorMin args), max 0 (oaKellyLiteFloorMax args))
+                                                        kellyLiteCapRange = (max 0 (oaKellyLiteCapMin args), max 0 (oaKellyLiteCapMax args))
                                                     if null normalizationChoices
                                                         then do
                                                             hPutStrLn stderr "No normalizations provided."
@@ -3793,6 +3854,10 @@ runOptimizer args0 = do
                                                                                 fundingOiVolCapRange
                                                                                 pDisableFundingOiVolCap
                                                                                 fundingOiSizeMultRange
+                                                                                pKellyLiteSizing
+                                                                                kellyLiteFractionRange
+                                                                                kellyLiteFloorRange
+                                                                                kellyLiteCapRange
                                                                         runTrialWith idx rng mBase mParents best recordsRev = do
                                                                             let (params, _) =
                                                                                     case mBase of
@@ -4443,6 +4508,10 @@ printBest tr = do
     putStrLn ("  fundingOiVolLookback:" ++ show (tpFundingOiVolLookback p))
     putStrLn ("  fundingOiVolCap:    " ++ showMaybe (tpFundingOiVolCap p))
     putStrLn ("  fundingOiSizeMult:  " ++ show (tpFundingOiSizeMult p))
+    putStrLn ("  kellyLiteSizing:    " ++ show (tpKellyLiteSizing p))
+    putStrLn ("  kellyLiteFraction:  " ++ show (tpKellyLiteFraction p))
+    putStrLn ("  kellyLiteFloor:     " ++ show (tpKellyLiteFloor p))
+    putStrLn ("  kellyLiteCap:       " ++ show (tpKellyLiteCap p))
 
 showMaybe :: (Show a) => Maybe a -> String
 showMaybe = maybe "None" show
@@ -4677,7 +4746,11 @@ crossoverTrialParams a b rng0 =
         (tpProtectionMinConfidence', rng97a) =
             pickValue (tpProtectionMinConfidence a) (tpProtectionMinConfidence b) rng97
         (tpMinPositionSize', rng98) = pickValue (tpMinPositionSize a) (tpMinPositionSize b) rng97a
-        (tpPredictors', rng99) = pickValue (tpPredictors a) (tpPredictors b) rng98
+        (tpKellyLiteSizing', rng98a) = pickValue (tpKellyLiteSizing a) (tpKellyLiteSizing b) rng98
+        (tpKellyLiteFraction', rng98b) = pickValue (tpKellyLiteFraction a) (tpKellyLiteFraction b) rng98a
+        (tpKellyLiteFloor', rng98c) = pickValue (tpKellyLiteFloor a) (tpKellyLiteFloor b) rng98b
+        (tpKellyLiteCap', rng98d) = pickValue (tpKellyLiteCap a) (tpKellyLiteCap b) rng98c
+        (tpPredictors', rng99) = pickValue (tpPredictors a) (tpPredictors b) rng98d
         (tpRouterLookback', rng100) = pickValue (tpRouterLookback a) (tpRouterLookback b) rng99
         (tpRouterMinScore', rng101) = pickValue (tpRouterMinScore a) (tpRouterMinScore b) rng100
         (tpFeeFixed', rng102) = pickValue (tpFeeFixed a) (tpFeeFixed b) rng101
@@ -4840,6 +4913,10 @@ crossoverTrialParams a b rng0 =
                 , tpConfidenceSizing = tpConfidenceSizing'
                 , tpProtectionMinConfidence = tpProtectionMinConfidence'
                 , tpMinPositionSize = tpMinPositionSize'
+                , tpKellyLiteSizing = tpKellyLiteSizing'
+                , tpKellyLiteFraction = tpKellyLiteFraction'
+                , tpKellyLiteFloor = tpKellyLiteFloor'
+                , tpKellyLiteCap = tpKellyLiteCap'
                 , tpPredictors = tpPredictors'
                 , tpRouterLookback = tpRouterLookback'
                 , tpRouterMinScore = tpRouterMinScore'
@@ -5011,6 +5088,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (fundingOiVolLookback', rng89) = perturbInt (tpFundingOiVolLookback p) scaleInt rng88
         (fundingOiVolCap', rng90) = perturbMaybeDouble (tpFundingOiVolCap p) scaleDouble rng89
         (fundingOiSizeMult', rng91) = perturbDouble (tpFundingOiSizeMult p) scaleDouble rng90
+        (kellyLiteFraction', rng91a) = perturbDouble (tpKellyLiteFraction p) scaleDouble rng91
+        (kellyLiteFloor', rng91b) = perturbDouble (tpKellyLiteFloor p) scaleDouble rng91a
+        (kellyLiteCap', rng91c) = perturbDouble (tpKellyLiteCap p) scaleDouble rng91b
      in ( normalizeTrialParams
             ( p
                 { tpBars = bars'
@@ -5069,6 +5149,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpSlippageVolMult = slippageVolMult'
                 , tpSpreadVolMult = spreadVolMult'
                 , tpTakeProfitPartial = takeProfitPartial'
+                , tpKellyLiteFraction = max 0 kellyLiteFraction'
+                , tpKellyLiteFloor = max 0 kellyLiteFloor'
+                , tpKellyLiteCap = max (max 0 kellyLiteFloor') kellyLiteCap'
                 , tpMaxTradesPerDay = maxTradesPerDay'
                 , tpExpectancyLookback = expectancyLookback'
                 , tpMinExpectancy = minExpectancy'
@@ -5110,7 +5193,7 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpFundingOiSizeMult = clamp fundingOiSizeMult' 0 1
                 }
             )
-        , rng91
+        , rng91c
         )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
@@ -5291,6 +5374,10 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "confidenceSizing" .= tpConfidenceSizing params
                 , "protectionMinConfidence" .= tpProtectionMinConfidence params
                 , "minPositionSize" .= tpMinPositionSize params
+                , "kellyLiteSizing" .= tpKellyLiteSizing params
+                , "kellyLiteFraction" .= tpKellyLiteFraction params
+                , "kellyLiteFloor" .= tpKellyLiteFloor params
+                , "kellyLiteCap" .= tpKellyLiteCap params
                 , "predictors" .= tpPredictors params
                 , "routerLookback" .= tpRouterLookback params
                 , "routerMinScore" .= tpRouterMinScore params
