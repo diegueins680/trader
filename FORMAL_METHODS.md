@@ -62,3 +62,32 @@ It proves that the repo's stated ROI contract, as encoded in the optimizer, matc
 cd haskell
 cabal test
 ```
+
+## Formal close-timing model (combo-aware)
+
+For each position with open time `ta` and realized close time `tc`, we define an optimization window:
+
+- `tm ∈ [ta, ta + 2*(tc-ta)]`
+
+`tm` is selected as the timestamp that maximizes path PnL inside that window.
+
+We then normalize by realized duration:
+
+- `r = (tm-ta)/(tc-ta)`, so `r ∈ [0,2]`
+
+Per combo, we estimate robust distribution statistics over `r`:
+
+- median (`Q50`) as center
+- MAD (`median |r-Q50|`) as robust dispersion
+- interquartile band (`Q25`, `Q75`) as a policy interval
+
+A risk-budgeted close policy is encoded as a convex blend target:
+
+- `target = (1-β)*Q50 + β*Q75`, with `β ∈ [0,1]`
+
+A live position is marked close-ready when its age ratio exceeds `target`.
+
+### Implementation pointers
+
+- Model + policy: `haskell/app/Trader/Formal/CloseTiming.hs`
+- Unit tests: `haskell/test/TestMain.hs`

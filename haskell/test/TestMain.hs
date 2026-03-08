@@ -49,6 +49,14 @@ import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles,
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), extractTxHash, resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
+import Trader.Formal.CloseTiming (
+    CloseTimingDecision (..),
+    CloseTimingObservation (..),
+    CloseTimingStats (..),
+    buildCloseTimingStats,
+    closeTimingDecision,
+    optimalCloseObservation,
+ )
 import Trader.Formal.Optimization (
     FormalVerificationReport (..),
     roiRequirementClauses,
@@ -163,6 +171,8 @@ main = do
               , run "formal ROI monotonicity holds" testFormalRoiMonotonicity
               , run "formal ROI penalties stay ordered" testFormalRoiPenaltyOrdering
               , run "formal tune tie-break matches spec" testFormalTieBreakMatchesSpec
+              , run "formal close timing window identifies tm" testFormalCloseTimingWindow
+              , run "formal close timing policy closes past target quantile" testFormalCloseTimingDecision
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
               , run "binance trade parser accepts numeric and whitespace fields" testBinanceTradeParserAcceptsNumericAndWhitespace
@@ -3098,6 +3108,47 @@ testOptimizerIntRangeFullSpan = do
     assert "full-span sample stays in bounds (first)" (v1 >= minBound && v1 <= maxBound)
     assert "full-span sample stays in bounds (second)" (v2 >= minBound && v2 <= maxBound)
     assert "full-span range advances RNG state" (probe /= expectedProbe)
+
+
+
+testFormalCloseTimingWindow :: IO ()
+testFormalCloseTimingWindow = do
+    let sample =
+            optimalCloseObservation
+                "combo-a"
+                1000
+                2000
+                [ (900, -1)
+                , (1200, 0.1)
+                , (1500, 0.4)
+                , (2600, 0.7)
+                , (2900, 0.6)
+                ]
+    case sample of
+        Nothing -> error "expected optimal close sample"
+        Just obs -> do
+            assert "tm stays within [ta, 2tc-ta]" (ctoOptimalCloseAtMs obs == 2600)
+            let stats = buildCloseTimingStats [obs]
+            assert "one combo stat emitted" (length stats == 1)
+            case stats of
+                [st] -> assert "single-sample median ratio is 1.6" (abs (ctsMedianRatio st - 1.6) < 1e-9)
+                _ -> pure ()
+
+testFormalCloseTimingDecision :: IO ()
+testFormalCloseTimingDecision = do
+    let observations =
+            [ CloseTimingObservation "combo-a" 0 100 120
+            , CloseTimingObservation "combo-a" 0 100 140
+            , CloseTimingObservation "combo-a" 0 100 160
+            ]
+        stats = buildCloseTimingStats observations
+    case stats of
+        [st] -> do
+            let holdDecision = closeTimingDecision 0.0 st 0 100 120
+                closeDecision = closeTimingDecision 1.0 st 0 100 180
+            assert "policy holds before target quantile" (not (ctdShouldClose holdDecision))
+            assert "policy closes after risk-budget target" (ctdShouldClose closeDecision)
+        _ -> error "expected one combo stat"
 
 formalVerificationReport :: FormalVerificationReport
 formalVerificationReport = verifyFormalOptimization
