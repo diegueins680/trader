@@ -3109,8 +3109,6 @@ testOptimizerIntRangeFullSpan = do
     assert "full-span sample stays in bounds (second)" (v2 >= minBound && v2 <= maxBound)
     assert "full-span range advances RNG state" (probe /= expectedProbe)
 
-
-
 testFormalCloseTimingWindow :: IO ()
 testFormalCloseTimingWindow = do
     let sample =

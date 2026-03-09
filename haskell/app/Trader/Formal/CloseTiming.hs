@@ -19,8 +19,9 @@ data CloseTimingObservation = CloseTimingObservation
     }
     deriving (Eq, Show)
 
--- | Robust summary over tm in normalized units:
---   r = (tm - ta) / (tc - ta), with support [0, 2].
+{- | Robust summary over tm in normalized units:
+  r = (tm - ta) / (tc - ta), with support [0, 2].
+-}
 data CloseTimingStats = CloseTimingStats
     { ctsCombo :: !String
     , ctsSamples :: !Int

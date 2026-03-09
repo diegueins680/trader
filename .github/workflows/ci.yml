@@ -50,9 +50,6 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: haskell/web
     steps:
       - uses: actions/checkout@v6
 
@@ -60,12 +57,12 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: haskell/web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      - run: npm run test:web
+      - run: npm run build:web
 
   deploy:
     name: Deploy (Fly.io)
