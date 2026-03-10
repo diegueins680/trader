@@ -2921,9 +2921,16 @@ testMethodSelection = do
     assert "edge_blend falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgeBlend w kal lstm == (blend, blend))
     assert "edge_pick falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgePick w kal lstm == (blend, blend))
     assert "geo_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodGeoBlend w kal lstm == (blend, blend))
-    let (regimeLeft, regimeRight) = selectPredictions MethodRegimeSwitch w kal lstm
-    assertApproxList "regime_switch falls back to weighted average when context is unavailable (left stream)" 1e-9 blend regimeLeft
-    assertApproxList "regime_switch falls back to weighted average when context is unavailable (right stream)" 1e-9 blend regimeRight
+    let (regimeFallbackLeft, regimeFallbackRight) = selectPredictions MethodRegimeSwitch w [1.0] [10.0]
+    assertApproxList "regime_switch falls back to weighted average without prior momentum context (left stream)" 1e-9 (take 1 blend) regimeFallbackLeft
+    assertApproxList "regime_switch falls back to weighted average without prior momentum context (right stream)" 1e-9 (take 1 blend) regimeFallbackRight
+    let regimeKal = [100.0, 106.0, 107.0, 101.0]
+        regimeLstm = [100.0, 104.0, 98.0, 99.0]
+        regimeBlendWeight = 0.25
+        regimeExpected = [100.0, 105.2, 102.5, 99.5]
+        (regimeLeft, regimeRight) = selectPredictions MethodRegimeSwitch regimeBlendWeight regimeKal regimeLstm
+    assertApproxList "regime_switch applies momentum/divergence routing (left stream)" 1e-9 regimeExpected regimeLeft
+    assertApproxList "regime_switch applies momentum/divergence routing (right stream)" 1e-9 regimeExpected regimeRight
     let (safeBlendLeft, safeBlendRight) = selectPredictions MethodBlend badWeight badKal badLstm
     assert "blend with non-finite weight/preds keeps output finite (left stream)" (all finite safeBlendLeft)
     assert "blend with non-finite weight/preds keeps output finite (right stream)" (all finite safeBlendRight)

@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Trading: make `--method regime_switch` materially adaptive in the context-free selector by switching between momentum-following (agreement), midpoint mean-reversion (strong disagreement), and weighted blend fallback.
 - Formal methods: add combo-aware close-timing optimization primitives (`tm` argmax over `[ta, ta + 2*(tc-ta)]`), robust per-combo `tm` distribution stats (median/MAD/IQR), and a risk-budgeted close-decision policy scaffold for integrating timing guidance into position exits.
 - Optimizer/top-combos merge: preserve arbitrary combo/payload `source` labels when normalizing imported top-json inputs, so same-parameter combos from different source files stay distinct instead of collapsing during `merge-top-combos`.
 - CLI/API: harden wrapped Binance key-check error parsing for normal HTTP status-line prefixes (`HTTP/1.1 401`, `HTTP/2 429`) and long JSON error bodies, so auth/trade-test classification keeps the real HTTP/code/message instead of falling back to truncated wrapper text.

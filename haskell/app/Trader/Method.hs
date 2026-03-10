@@ -297,12 +297,14 @@ selectPredictions m blendWeight kalPred lstmPred =
         MethodKalmanOnly -> (kalPred, kalPred)
         MethodKalmanPhysicsError -> (kalPred, kalPred)
         MethodLstmOnly -> (lstmPred, lstmPred)
+        MethodRegimeSwitch -> (regimeSwitched, regimeSwitched)
         MethodRouter -> (kalPred, lstmPred)
         MethodBanditRouter -> (kalPred, lstmPred)
         _ -> (blended, blended)
   where
     w = clamp01 blendWeight
     blended = zipWith (blendPair w) kalPred lstmPred
+    regimeSwitched = regimeSwitchPredictions w kalPred lstmPred
 
     blendPair :: Double -> Double -> Double -> Double
     blendPair weight kal lstm =
@@ -318,6 +320,56 @@ selectPredictions m blendWeight kalPred lstmPred =
     clamp01 x
         | not (isFinite x) = 0.5
         | otherwise = max 0 (min 1 x)
+
+    regimeSwitchPredictions :: Double -> [Double] -> [Double] -> [Double]
+    regimeSwitchPredictions weight = go Nothing
+      where
+        go :: Maybe (Double, Double) -> [Double] -> [Double] -> [Double]
+        go _ [] _ = []
+        go _ _ [] = []
+        go Nothing (kal : kalRest) (lstm : lstmRest) =
+            blendPair weight kal lstm : go (Just (kal, lstm)) kalRest lstmRest
+        go (Just (kalPrev, lstmPrev)) (kal : kalRest) (lstm : lstmRest) =
+            let blendedCurrent = blendPair weight kal lstm
+             in applyRegime blendedCurrent kalPrev lstmPrev kal lstm
+                    : go (Just (kal, lstm)) kalRest lstmRest
+
+        applyRegime :: Double -> Double -> Double -> Double -> Double -> Double
+        applyRegime blendedCurrent kalPrev lstmPrev kal lstm
+            | not (all isFinite [kalPrev, lstmPrev, kal, lstm]) = blendedCurrent
+            | sameMomentumDirection kalMomentum lstmMomentum = weightedByMagnitude (abs kalMomentum) (abs lstmMomentum) kal lstm
+            | isStrongDivergence kal lstm = midpoint kal lstm
+            | otherwise = blendedCurrent
+          where
+            kalMomentum = kal - kalPrev
+            lstmMomentum = lstm - lstmPrev
+
+        weightedByMagnitude :: Double -> Double -> Double -> Double -> Double
+        weightedByMagnitude kalMagnitude lstmMagnitude kal lstm
+            | kalMagnitude + lstmMagnitude <= 1.0e-12 = midpoint kal lstm
+            | otherwise =
+                let kalWeight = kalMagnitude / (kalMagnitude + lstmMagnitude)
+                 in kalWeight * kal + (1 - kalWeight) * lstm
+
+        sameMomentumDirection :: Double -> Double -> Bool
+        sameMomentumDirection lhs rhs =
+            let lhsSign = signWithTolerance lhs
+                rhsSign = signWithTolerance rhs
+             in lhsSign == rhsSign && lhsSign /= 0
+
+        signWithTolerance :: Double -> Int
+        signWithTolerance x
+            | x > 1.0e-9 = 1
+            | x < -1.0e-9 = -1
+            | otherwise = 0
+
+        isStrongDivergence :: Double -> Double -> Bool
+        isStrongDivergence kal lstm =
+            let denom = max 1 (max (abs kal) (abs lstm))
+             in abs (kal - lstm) / denom >= 0.02
+
+        midpoint :: Double -> Double -> Double
+        midpoint kal lstm = 0.5 * (kal + lstm)
 
     isFinite :: Double -> Bool
     isFinite x = not (isNaN x || isInfinite x)
