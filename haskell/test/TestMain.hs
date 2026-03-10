@@ -43,7 +43,7 @@ import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLos
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (fitLinearRange)
 import Trader.Method (Method (..), parseMethod, selectPredictions)
-import Trader.Metrics (bmAvgTradeReturn, bmExposure, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
+import Trader.Metrics (bmAnnualizedReturn, bmAvgTradeReturn, bmCalmar, bmExposure, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (TuneObjective (..), bestFinalEquity, optimizeOperations, parseTuneObjective, sweepThreshold)
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (normalizeObjectiveCode, normalizeOptionalPositiveFraction, objectiveScore, qualityPresetIntervalFields, sampleTakeProfitPartial)
@@ -105,6 +105,7 @@ main = do
               , run "long-short down move" testLongShortDownMove
               , run "liquidation clamps equity" testLiquidationClamp
               , run "metrics max drawdown" testMetricsMaxDrawdown
+              , run "metrics calmar falls back to annualized return at zero drawdown" testMetricsCalmarFallback
               , run "metrics profit factor pnl" testMetricsProfitFactorPnL
               , run "metrics sanitize non-finite trade payloads" testMetricsSanitizeNonFiniteInputs
               , run "formal ROI requirements stay concise" testFormalRoiRequirementsSummary
@@ -1047,6 +1048,21 @@ testMetricsMaxDrawdown = do
         m = computeMetrics 365 br
     assertApprox "total return" 1e-12 (bmTotalReturn m) 0.0
     assertApprox "max drawdown" 1e-6 (bmMaxDrawdown m) (0.1 / 1.1)
+
+testMetricsCalmarFallback :: IO ()
+testMetricsCalmarFallback = do
+    let br =
+            BacktestResult
+                { brEquityCurve = [1.0, 1.1, 1.2]
+                , brPositions = [1.0, 1.0]
+                , brAgreementOk = [True, True]
+                , brAgreementValid = [True, True]
+                , brPositionChanges = 1
+                , brTrades = []
+                }
+        m = computeMetrics 365 br
+    assertApprox "zero drawdown should stay zero" 1e-12 (bmMaxDrawdown m) 0.0
+    assertApprox "calmar should fall back to annualized return when max drawdown is zero" 1e-12 (bmCalmar m) (bmAnnualizedReturn m)
 
 testMetricsProfitFactorPnL :: IO ()
 testMetricsProfitFactorPnL = do

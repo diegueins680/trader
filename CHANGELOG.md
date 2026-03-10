@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Optimizer/CLI/API: canonicalize objective aliases consistently through `optimize-equity` and `/optimizer/run` (`annualized_return` -> `annualized-equity`, `risk_adjusted_roi` -> `roi`), keep `--quality` from widening an explicit `--interval`, and make standalone Calmar scoring fall back to annualized return when drawdown is zero so optimizer ranking matches the documented scoring contract.
+- Metrics/CLI/API: make reported Calmar metrics fall back to annualized return when max drawdown is zero, so backtest JSON/CLI output matches the documented optimizer scoring contract instead of reporting `0`.
 - Trading: make `--method regime_switch` materially adaptive in the context-free selector by switching between momentum-following (agreement), midpoint mean-reversion (strong disagreement), and weighted blend fallback.
 - Formal methods: add combo-aware close-timing optimization primitives (`tm` argmax over `[ta, ta + 2*(tc-ta)]`), robust per-combo `tm` distribution stats (median/MAD/IQR), and a risk-budgeted close-decision policy scaffold for integrating timing guidance into position exits.
 - Optimizer/top-combos merge: preserve arbitrary combo/payload `source` labels when normalizing imported top-json inputs, so same-parameter combos from different source files stay distinct instead of collapsing during `merge-top-combos`.
