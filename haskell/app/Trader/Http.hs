@@ -6,6 +6,10 @@ module Trader.Http (
     newHttpManager,
     getSharedManager,
     httpLbsWithRetry,
+    parseRetryAfterMsAt,
+    parseRetryAfterFromHeadersAt,
+    boundedBackoffMs,
+    jitteredDelayMs,
     defaultTimeoutMicros,
 ) where
 
@@ -14,15 +18,17 @@ import Control.Exception (SomeException, displayException, throwIO, try)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (toLower)
+import Data.Char (isSpace, toLower)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import Data.List (isInfixOf)
+import Data.List (dropWhileEnd, isInfixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
-import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Time (UTCTime, defaultTimeLocale, parseTimeM)
+import Data.Time.Clock.POSIX (getPOSIXTime, utcTimeToPOSIXSeconds)
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Types.Header (ResponseHeaders)
 import Network.HTTP.Types.Status (statusCode)
 import System.Environment (lookupEnv)
 import System.IO (hPutStrLn, stderr)
@@ -134,7 +140,8 @@ httpLbsWithRetry cfg mLabel mgr req0 = go 0
                 ( if retryable
                         then
                             ( do
-                                delayMs <- computeDelay cfg attempt (retryAfterMs resp)
+                                retryAfter <- retryAfterMs resp
+                                delayMs <- computeDelay cfg attempt retryAfter
                                 logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt True
                                 sleepMs delayMs
                                 go (attempt + 1)
@@ -174,37 +181,100 @@ isRetryableStatus code =
 
 computeDelay :: RetryConfig -> Int -> Maybe Int -> IO Int
 computeDelay cfg attempt mRetryAfter = do
-    let base = rcBaseDelayMs cfg * (2 ^ attempt)
-        capped = min (rcMaxDelayMs cfg) base
-    jittered <- applyJitter capped (rcJitterFrac cfg)
+    let capped = boundedBackoffMs (rcBaseDelayMs cfg) (rcMaxDelayMs cfg) attempt
+    jittered <- applyJitter (rcMaxDelayMs cfg) capped (rcJitterFrac cfg)
     pure $
         case mRetryAfter of
             Nothing -> jittered
             Just ra -> max jittered ra
 
-applyJitter :: Int -> Double -> IO Int
-applyJitter delayMs jitterFrac =
+boundedBackoffMs :: Int -> Int -> Int -> Int
+boundedBackoffMs baseDelay maxDelay attempt =
+    let base = toInteger (max 0 baseDelay)
+        cap = toInteger (max 0 maxDelay)
+        intCap = toInteger (maxBound :: Int)
+        steps = max 0 attempt
+        go n current
+            | current <= 0 = 0
+            | current >= cap = cap
+            | n <= 0 = min cap current
+            | otherwise = go (n - 1) (min cap (current * 2))
+        bounded = go steps base
+     in fromInteger (min intCap (max 0 bounded))
+
+applyJitter :: Int -> Int -> Double -> IO Int
+applyJitter maxDelay delayMs jitterFrac =
     if delayMs <= 0 || jitterFrac <= 0
-        then pure delayMs
+        then pure (jitteredDelayMs maxDelay delayMs 0)
         else do
             skew <- randomRIO (-jitterFrac, jitterFrac)
-            let scaled = fromIntegral delayMs * (1 + skew)
-            pure (max 0 (round scaled))
+            pure (jitteredDelayMs maxDelay delayMs skew)
 
-retryAfterMs :: Response BL.ByteString -> Maybe Int
+jitteredDelayMs :: Int -> Int -> Double -> Int
+jitteredDelayMs maxDelay delayMs skew =
+    let cap = max 0 maxDelay
+        base = max 0 delayMs
+        scaled = fromIntegral base * (1 + skew)
+        rounded = round scaled
+     in max 0 (min cap rounded)
+
+retryAfterMs :: Response BL.ByteString -> IO (Maybe Int)
 retryAfterMs resp =
-    case lookup "Retry-After" (responseHeaders resp) of
-        Nothing -> Nothing
-        Just v ->
-            case readMaybe (BS.unpack v) :: Maybe Int of
-                Just sec | sec > 0 -> Just (sec * 1000)
-                _ -> Nothing
+    do
+        nowMs <- getTimeMs
+        pure (parseRetryAfterFromHeadersAt nowMs (responseHeaders resp))
+
+parseRetryAfterFromHeadersAt :: Integer -> ResponseHeaders -> Maybe Int
+parseRetryAfterFromHeadersAt nowMs headers =
+    case mapMaybe parseRetryAfterValue headers of
+        [] -> Nothing
+        (delayMs : _) -> Just delayMs
+  where
+    parseRetryAfterValue (name, value)
+        | name == "Retry-After" = parseRetryAfterMsAt nowMs value
+        | otherwise = Nothing
+
+parseRetryAfterMsAt :: Integer -> ByteString -> Maybe Int
+parseRetryAfterMsAt nowMs raw =
+    let txt = trimSpaces (BS.unpack raw)
+        clampMs ms =
+            let bounded = max 0 (min ms (toInteger maxSleepMs))
+             in fromInteger bounded
+     in if null txt
+            then Nothing
+            else case readMaybe txt :: Maybe Integer of
+                Just sec | sec >= 0 -> Just (clampMs (sec * 1000))
+                _ ->
+                    let parseDate fmt =
+                            (parseTimeM True defaultTimeLocale fmt txt :: Maybe UTCTime)
+                        formats =
+                            [ "%a, %d %b %Y %H:%M:%S GMT"
+                            , "%A, %d-%b-%y %H:%M:%S GMT"
+                            , "%a %b %e %H:%M:%S %Y"
+                            ]
+                        toDelayMs t =
+                            let targetMs = floor (utcTimeToPOSIXSeconds t * 1000) :: Integer
+                                delta = targetMs - nowMs
+                             in if delta <= 0
+                                    then Nothing
+                                    else Just (clampMs delta)
+                     in case mapMaybe parseDate formats of
+                            [] -> Nothing
+                            (t : _) -> toDelayMs t
+
+trimSpaces :: String -> String
+trimSpaces = dropWhileEnd isSpace . dropWhile isSpace
 
 sleepMs :: Int -> IO ()
 sleepMs ms =
     if ms <= 0
         then pure ()
-        else threadDelay (ms * 1000)
+        else do
+            let clampedMs = min maxSleepMs ms
+            threadDelay (clampedMs * 1000)
+
+maxSleepMs :: Int
+maxSleepMs = (maxBound :: Int) `div` 1000
 
 getTimeMs :: IO Integer
 getTimeMs = do
@@ -307,13 +377,7 @@ isHttpLogEnabled = do
             pure v
 
 isTruthy :: String -> Bool
-isTruthy raw =
-    case map toLower raw of
-        "1" -> True
-        "true" -> True
-        "yes" -> True
-        "on" -> True
-        _ -> False
+isTruthy raw = fromMaybe False (parseEnvBool raw)
 
 sanitize :: String -> String
 sanitize =
@@ -343,19 +407,46 @@ readEnvInt :: String -> Int -> IO Int
 readEnvInt key fallback = do
     raw <- lookupEnv key
     pure $
-        fromMaybe fallback (raw >>= readMaybe)
+        fromMaybe fallback (raw >>= parseEnvInt)
 
 readEnvDouble :: String -> Double -> IO Double
 readEnvDouble key fallback = do
     raw <- lookupEnv key
     pure $
-        fromMaybe fallback (raw >>= readMaybe)
+        fromMaybe fallback (raw >>= parseEnvFiniteDouble)
 
 readEnvBool :: String -> Bool -> IO Bool
 readEnvBool key fallback = do
     raw <- lookupEnv key
     pure $
-        maybe fallback isTruthy raw
+        fromMaybe fallback (raw >>= parseEnvBool)
 
 clampDouble :: Double -> Double -> Double -> Double
-clampDouble lo hi v = max lo (min hi v)
+clampDouble lo hi v
+    | not (isFiniteDouble v) = lo
+    | otherwise = max lo (min hi v)
+
+parseEnvInt :: String -> Maybe Int
+parseEnvInt = readMaybe . trimSpaces
+
+parseEnvFiniteDouble :: String -> Maybe Double
+parseEnvFiniteDouble txt =
+    case readMaybe (trimSpaces txt) of
+        Just v | isFiniteDouble v -> Just v
+        _ -> Nothing
+
+parseEnvBool :: String -> Maybe Bool
+parseEnvBool raw =
+    case map toLower (trimSpaces raw) of
+        "1" -> Just True
+        "true" -> Just True
+        "yes" -> Just True
+        "on" -> Just True
+        "0" -> Just False
+        "false" -> Just False
+        "no" -> Just False
+        "off" -> Just False
+        _ -> Nothing
+
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)

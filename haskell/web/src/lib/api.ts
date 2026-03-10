@@ -185,11 +185,27 @@ function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
   return null;
 }
 
-export function withTenantHeader(headers: Headers, path: string, body: BodyInit | null | undefined): Headers {
+export function withTenantHeader(
+  headers: Headers,
+  path: string,
+  body: BodyInit | null | undefined,
+  allowTenantHeader = true,
+): Headers {
+  if (!allowTenantHeader) return headers;
   if (headers.has(TENANT_HEADER)) return headers;
   const tenantKey = tenantKeyFromPath(path) ?? tenantKeyFromBody(body);
   if (tenantKey) headers.set(TENANT_HEADER, tenantKey);
   return headers;
+}
+
+function shouldAttachTenantHeader(requestUrl: string): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const resolved = new URL(requestUrl, window.location.origin);
+    return resolved.origin === window.location.origin;
+  } catch {
+    return true;
+  }
 }
 
 // v4 drops legacy persisted fallback preferences so older auth-driven entries
@@ -312,31 +328,47 @@ function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, strin
   return merged;
 }
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+function clampDelayMs(raw: number): number | null {
+  if (!Number.isFinite(raw)) return null;
+  return Math.max(0, Math.min(MAX_TIMER_DELAY_MS, Math.floor(raw)));
+}
+
+function runtimeSetTimeout(callback: () => void, delayMs: number): ReturnType<typeof globalThis.setTimeout> {
+  return globalThis.setTimeout(callback, delayMs);
+}
+
+function runtimeClearTimeout(timer: ReturnType<typeof globalThis.setTimeout>) {
+  globalThis.clearTimeout(timer);
+}
+
 function parseRetryAfterMs(raw: string | null): number | null {
   if (!raw) return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  if (/^\d+$/.test(trimmed)) return Math.max(0, Number(trimmed) * 1000);
+  if (/^\d+$/.test(trimmed)) return clampDelayMs(Number(trimmed) * 1000);
   const parsed = Date.parse(trimmed);
-  if (!Number.isNaN(parsed)) return Math.max(0, parsed - Date.now());
+  if (!Number.isNaN(parsed)) return clampDelayMs(parsed - Date.now());
   return null;
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
+  const clampedMs = clampDelayMs(ms) ?? 0;
+  if (clampedMs <= 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const onAbort = () => {
       cleanup();
       reject((signal as AbortSignal & { reason?: unknown }).reason ?? new DOMException("Aborted", "AbortError"));
     };
 
-    const timer = window.setTimeout(() => {
+    const timer = runtimeSetTimeout(() => {
       cleanup();
       resolve();
-    }, ms);
+    }, clampedMs);
 
     const cleanup = () => {
-      window.clearTimeout(timer);
+      runtimeClearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
     };
 
@@ -359,11 +391,12 @@ function withTimeout(externalSignal: AbortSignal | undefined, timeoutMs: number)
     }
   }
 
-  const timer = window.setTimeout(() => controller.abort(new DOMException("Timeout", "TimeoutError")), timeoutMs);
+  const timerDelayMs = clampDelayMs(timeoutMs) ?? 1;
+  const timer = runtimeSetTimeout(() => controller.abort(new DOMException("Timeout", "TimeoutError")), timerDelayMs);
   return {
     signal: controller.signal,
     cleanup: () => {
-      window.clearTimeout(timer);
+      runtimeClearTimeout(timer);
       if (externalSignal && onAbort) externalSignal.removeEventListener("abort", onAbort);
     },
   };
@@ -402,7 +435,12 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
     const url = resolveUrl(baseUrl, path);
-    const headers = withTenantHeader(new Headers(mergeHeaders(init.headers, opts?.headers)), path, init.body);
+    const headers = withTenantHeader(
+      new Headers(mergeHeaders(init.headers, opts?.headers)),
+      path,
+      init.body,
+      shouldAttachTenantHeader(url),
+    );
     const res = await fetch(url, {
       ...init,
       cache: init.cache ?? "no-store",
@@ -444,13 +482,23 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
 async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
   const primaryBase = normalizeBaseUrl(baseUrl);
   const fallbackBase = resolveFallbackBase(primaryBase);
+  const method = String(init.method ?? "GET").toUpperCase();
+  const proxyToDirectCrossOrigin = Boolean(primaryBase.startsWith("/") && fallbackBase && isCrossOriginBase(fallbackBase));
+  // Keep inferred /api -> direct-host failover for reads, but avoid cross-origin
+  // POST/PUT/PATCH/DELETE preflight loops when the fallback host is not CORS-enabled.
+  const allowCrossOriginProxyFallbackForMethod = !proxyToDirectCrossOrigin || method === "GET" || method === "HEAD";
   const allowAuthStatusFallback = Boolean(
     TRADER_UI_CONFIG.apiBaseUrlInferred &&
       fallbackBase &&
       fallbackBase.startsWith("/") &&
       isCrossOriginBase(primaryBase),
   );
-  const allowFallback = opts?.allowFallback !== false;
+  const allowTimeoutFallback = Boolean(
+    fallbackBase &&
+      (allowAuthStatusFallback ||
+        (TRADER_UI_CONFIG.apiBaseUrlInferred && primaryBase.startsWith("/") && isCrossOriginBase(fallbackBase))),
+  );
+  const allowFallback = opts?.allowFallback !== false && allowCrossOriginProxyFallbackForMethod;
   const preferredBase = allowFallback ? resolvePreferredFallback(primaryBase, fallbackBase) : null;
 
   if (preferredBase) {
@@ -466,7 +514,7 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
   try {
     return await fetchJsonOnce<T>(primaryBase, path, init, opts);
   } catch (err) {
-    if (fallbackBase && allowFallback && shouldFallbackToApiBase(err, allowAuthStatusFallback)) {
+    if (fallbackBase && allowFallback && shouldFallbackToApiBase(err, allowAuthStatusFallback, allowTimeoutFallback)) {
       try {
         const out = await fetchJsonOnce<T>(fallbackBase, path, init, opts);
         rememberPreferredFallback(primaryBase, fallbackBase);
@@ -499,9 +547,10 @@ function isNetworkError(err: unknown): boolean {
   return err instanceof TypeError;
 }
 
-function shouldFallbackToApiBase(err: unknown, allowAuthStatusFallback: boolean): boolean {
+function shouldFallbackToApiBase(err: unknown, allowAuthStatusFallback: boolean, allowTimeoutFallback: boolean): boolean {
   if (err instanceof UnexpectedResponseError) return true;
-  if (isAbortError(err) || isTimeoutError(err)) return false;
+  if (isAbortError(err)) return false;
+  if (isTimeoutError(err)) return allowTimeoutFallback;
   if (err instanceof HttpError) {
     if (err.status === 401 || err.status === 403) return allowAuthStatusFallback;
     return err.status === 404 || err.status === 502 || err.status === 503 || err.status === 504;

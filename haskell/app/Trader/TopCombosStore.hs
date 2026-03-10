@@ -16,6 +16,7 @@ module Trader.TopCombosStore (
     mergeTopCombosPayloads,
     newTopCombosStore,
     recalculateComboPerformanceFromOperation,
+    resolveComboSymbol,
     normalizeComboPlatform,
     readTopCombosValueLocal,
     sanitizeComboSymbolForPlatform,
@@ -29,19 +30,19 @@ import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (SomeException, bracket, throwIO, try)
-import Data.Aeson (Value (..), object, toJSON, (.=))
+import Data.Aeson (object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
+import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isAsciiUpper, isDigit, toUpper)
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
-import Data.List (foldl', isPrefixOf, isSuffixOf, sortBy)
+import Data.List (foldl', isPrefixOf, sortBy)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, listToMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Maybe
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
@@ -54,7 +55,7 @@ import Text.Read (readMaybe)
 
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
-import Trader.Symbol (commonQuotes, sanitizeSymbolForPlatform)
+import qualified Trader.Symbol as Symbol
 import Trader.Text (normalizeKey, trim)
 
 data TopCombosStore = TopCombosStore
@@ -240,7 +241,6 @@ coerceDoubleValue value =
                      in case readMaybe trimmed of
                             Just v | not (isNaN v || isInfinite v) -> Just v
                             _ -> Nothing
-                Aeson.Bool v -> Just (if v then 1 else 0)
                 _ -> Nothing
 
 comboMetricDouble :: String -> Aeson.Value -> Maybe Double
@@ -255,6 +255,10 @@ comboMetricsDouble key val = do
 comboFinalEquityValue :: Aeson.Value -> Maybe Double
 comboFinalEquityValue val =
     comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val
+
+comboScoreValue :: Aeson.Value -> Maybe Double
+comboScoreValue val =
+    comboMetricDouble "score" val <|> comboMetricsDouble "score" val
 
 recalculateComboPerformanceFromOperation ::
     Maybe String ->
@@ -296,17 +300,17 @@ recalculateComboPerformanceFromOperation mInterval mStoredFinalEq mStoredAnnuali
 
     finiteMaybe mX = do
         x <- mX
-        if isFiniteDouble x then Just x else Nothing
+        bool Nothing (Just x) (isFiniteDouble x)
 
     positiveFiniteMaybe mX = do
         x <- finiteMaybe mX
-        if x > 0 then Just x else Nothing
+        bool Nothing (Just x) (x > 0)
 
     positiveFinite = positiveFiniteMaybe . Just
 
     nonNegativeFiniteMaybe mX = do
         x <- finiteMaybe mX
-        if x >= 0 then Just x else Nothing
+        bool Nothing (Just x) (x >= 0)
 
     nonNegativeFinite = nonNegativeFiniteMaybe . Just
 
@@ -384,97 +388,25 @@ isPoloniexPlatformKey :: String -> Bool
 isPoloniexPlatformKey key = key == "poloniex" || "poloniex" `isPrefixOf` key
 
 sanitizeComboSymbolForPlatform :: Maybe String -> String -> Maybe String
-sanitizeComboSymbolForPlatform platform raw =
+sanitizeComboSymbolForPlatform platform =
+    Symbol.sanitizeComboSymbolForPlatform (canonicalComboPlatform platform)
+
+resolveComboSymbol :: Maybe String -> Maybe String -> Maybe String -> Maybe String
+resolveComboSymbol platform source symbol =
+    let platformHint = preferredComboPlatform platform source
+     in symbol >>= sanitizeComboSymbolForPlatform platformHint
+
+canonicalComboPlatform :: Maybe String -> Maybe String
+canonicalComboPlatform platform =
     case normalizeComboPlatform platform of
-        Just key | isCoinbasePlatformKey key -> sanitizeSymbolForPlatform (Just "coinbase") raw
-        Just key | isPoloniexPlatformKey key -> sanitizeSymbolForPlatform (Just "poloniex") raw
-        Just key
-            | isBinancePlatformKey key ->
-                sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform (Just "binance") raw
-        _ -> sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform platform raw
+        Just key | isCoinbasePlatformKey key -> Just "coinbase"
+        Just key | isPoloniexPlatformKey key -> Just "poloniex"
+        Just key | isBinancePlatformKey key -> Just "binance"
+        other -> other
 
-sanitizeBinanceComboSymbol :: String -> Maybe String
-sanitizeBinanceComboSymbol raw =
-    let s = normalizeSymbol raw
-        tokens = splitAlphaNumTokens s
-        isValid sym =
-            let n = length sym
-             in n >= 3 && n <= 30 && sym `notElem` commonQuotes && all isAsciiAlphaNum sym
-        pickTokenCandidate =
-            case tokens of
-                [] -> Nothing
-                [a] -> if isValid a then Just a else Nothing
-                a : b : _rest ->
-                    let joined = a ++ b
-                     in if isValid a && endsWithQuote a
-                            then Just a
-                            else
-                                if b `elem` commonQuotes && isValid joined
-                                    then Just joined
-                                    else
-                                        if isValid a && isSuffixToken b
-                                            then Just a
-                                            else Nothing
-        pickQuoteSuffix = trimBinanceComboSuffix s
-        isSuffixToken = any isDigit
-     in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
-
-splitAlphaNumTokens :: String -> [String]
-splitAlphaNumTokens =
-    filter (not . null) . foldr step [""]
-  where
-    step c acc@(w : ws)
-        | isAsciiAlphaNum c = (c : w) : ws
-        | otherwise = "" : acc
-    step _ [] = []
-
-endsWithQuote :: String -> Bool
-endsWithQuote token = any (`isSuffixOf` token) commonQuotes
-
-trimBinanceComboSuffix :: String -> Maybe String
-trimBinanceComboSuffix raw =
-    let compact = filter isAsciiAlphaNum (normalizeSymbol raw)
-        best = foldl' pickLongest Nothing (concatMap (trimQuoteCandidates compact) commonQuotes)
-     in best
-  where
-    pickLongest acc candidate =
-        case acc of
-            Nothing -> Just candidate
-            Just prev -> if length candidate > length prev then Just candidate else acc
-
-trimQuoteCandidates :: String -> String -> [String]
-trimQuoteCandidates compact quote =
-    let positions = findSubstrPositions quote compact
-        total = length compact
-        quoteLen = length quote
-     in [ candidate
-        | idx <- positions
-        , let end = idx + quoteLen
-        , end < total
-        , let suffix = drop end compact
-        , any isDigit suffix
-        , let candidate = take end compact
-        , isValidBinanceSymbol candidate
-        , candidate `notElem` commonQuotes
-        ]
-
-findSubstrPositions :: String -> String -> [Int]
-findSubstrPositions needle hay =
-    let go _ [] = []
-        go i xs@(_ : rest) =
-            if needle `isPrefixOf` xs
-                then i : go (i + 1) rest
-                else go (i + 1) rest
-     in if null needle then [] else go 0 hay
-
-isValidBinanceSymbol :: String -> Bool
-isValidBinanceSymbol s =
-    let n = length s
-     in n >= 3 && n <= 30 && all isAsciiAlphaNum s
-
-isAsciiAlphaNum :: Char -> Bool
-isAsciiAlphaNum c =
-    isAsciiUpper c || isDigit c
+preferredComboPlatform :: Maybe String -> Maybe String -> Maybe String
+preferredComboPlatform platform source =
+    canonicalComboPlatform platform <|> canonicalComboPlatform source
 
 sanitizeComboSymbolValue :: Aeson.Value -> (Aeson.Value, Bool)
 sanitizeComboSymbolValue val =
@@ -482,9 +414,10 @@ sanitizeComboSymbolValue val =
         Aeson.Object comboObj ->
             case KM.lookup (AK.fromString "params") comboObj of
                 Just (Aeson.Object params) ->
-                    let platform =
+                    let platformRaw =
                             (KM.lookup (AK.fromString "platform") params >>= valueStringMaybe)
-                                <|> (KM.lookup (AK.fromString "source") comboObj >>= valueStringMaybe)
+                        sourceRaw = KM.lookup (AK.fromString "source") comboObj >>= valueStringMaybe
+                        platform = preferredComboPlatform platformRaw sourceRaw
                         symbolRaw =
                             (KM.lookup (AK.fromString "binanceSymbol") params >>= valueStringMaybe)
                                 <|> (KM.lookup (AK.fromString "symbol") params >>= valueStringMaybe)
@@ -556,7 +489,7 @@ comboPerformanceKey val =
                 (negate (1 / 0))
                 (comboMetricsDouble "annualizedReturn" val <|> comboMetricDouble "annualizedReturn" val)
         eq = fromMaybe 0 (comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val)
-        score = fromMaybe (negate (1 / 0)) (comboMetricDouble "score" val)
+        score = fromMaybe (negate (1 / 0)) (comboScoreValue val)
         rank =
             case val of
                 Aeson.Object o -> fromMaybe maxBound (KM.lookup (AK.fromString "rank") o >>= AT.parseMaybe Aeson.parseJSON)
@@ -564,26 +497,38 @@ comboPerformanceKey val =
         ann' = if isNaN ann || isInfinite ann then negate (1 / 0) else ann
         eq' = if isNaN eq || isInfinite eq then 0 else eq
         score' = if isNaN score || isInfinite score then negate (1 / 0) else score
-     in (negate ann', negate eq', negate score', rank)
+     in (negate ann', negate score', negate eq', rank)
 
 extractPayloadSource :: Aeson.Value -> Maybe String
 extractPayloadSource val =
     case val of
         Aeson.Object o -> KM.lookup (AK.fromString "source") o >>= AT.parseMaybe Aeson.parseJSON >>= cleanPayloadSource
         _ -> Nothing
-  where
-    cleanPayloadSource = nonEmptyString . trim
+
+cleanPayloadSource :: String -> Maybe String
+cleanPayloadSource = nonEmptyString . trim
 
 extractCombos :: Aeson.Value -> [Aeson.Value]
 extractCombos val =
     case val of
         Aeson.Object o ->
             let generatedAtMs = KM.lookup (AK.fromString "generatedAtMs") o >>= AT.parseMaybe Aeson.parseJSON
-                applyCreatedAt = applyComboCreatedAt generatedAtMs
+                payloadSource = KM.lookup (AK.fromString "source") o >>= AT.parseMaybe Aeson.parseJSON >>= cleanPayloadSource
+                applyPayloadMetadata = applyComboCreatedAt generatedAtMs . applyComboSource payloadSource
              in case KM.lookup (AK.fromString "combos") o of
-                    Just (Aeson.Array arr) -> map applyCreatedAt (V.toList arr)
+                    Just (Aeson.Array arr) -> map applyPayloadMetadata (V.toList arr)
                     _ -> []
         _ -> []
+
+applyComboSource :: Maybe String -> Aeson.Value -> Aeson.Value
+applyComboSource source val =
+    case (source, val) of
+        (Just src, Aeson.Object o) ->
+            case KM.lookup (AK.fromString "source") o of
+                Just Aeson.Null -> Aeson.Object (KM.insert (AK.fromString "source") (toJSON src) o)
+                Just _ -> val
+                Nothing -> Aeson.Object (KM.insert (AK.fromString "source") (toJSON src) o)
+        _ -> val
 
 applyComboCreatedAt :: Maybe Int64 -> Aeson.Value -> Aeson.Value
 applyComboCreatedAt createdAtMs val =
@@ -628,8 +573,8 @@ mergeTopCombosPayloads maxItems now payloads =
     compareCombos a b =
         let annA = comboAnnualizedReturn a
             annB = comboAnnualizedReturn b
-            scoreA = sanitizeScore (fromMaybe (negate (1 / 0)) (comboMetricDouble "score" a))
-            scoreB = sanitizeScore (fromMaybe (negate (1 / 0)) (comboMetricDouble "score" b))
+            scoreA = sanitizeScore (fromMaybe (negate (1 / 0)) (comboScoreValue a))
+            scoreB = sanitizeScore (fromMaybe (negate (1 / 0)) (comboScoreValue b))
             eqA = sanitizeEq (fromMaybe 0 (comboFinalEquityValue a))
             eqB = sanitizeEq (fromMaybe 0 (comboFinalEquityValue b))
          in case compareDesc annA annB of
@@ -642,8 +587,8 @@ mergeTopCombosPayloads maxItems now payloads =
     pickBestCombo newer prev =
         let objNew = comboMetricString "objective" newer
             objPrev = comboMetricString "objective" prev
-            scoreNew = comboMetricDouble "score" newer
-            scorePrev = comboMetricDouble "score" prev
+            scoreNew = comboScoreValue newer
+            scorePrev = comboScoreValue prev
             scoreVal = fromMaybe (negate (1 / 0))
             finalEqNew = fromMaybe 0 (comboFinalEquityValue newer)
             finalEqPrev = fromMaybe 0 (comboFinalEquityValue prev)
@@ -670,9 +615,6 @@ mergeTopCombosPayloads maxItems now payloads =
         | a > b = LT
         | a < b = GT
         | otherwise = EQ
-
-normalizeSymbol :: String -> String
-normalizeSymbol = map toUpper . trim
 
 data ComboBacktestUpdate = ComboBacktestUpdate
     { cbuMetrics :: !Aeson.Value

@@ -1,0 +1,22 @@
+{
+  "name": "trader",
+  "private": true,
+  "workspaces": [
+    "haskell/web"
+  ],
+  "scripts": {
+    "build": "npm run build:haskell && npm run build:web",
+    "build:haskell": "cd haskell && cabal build",
+    "build:web": "npm run build --workspace haskell/web",
+    "lint": "npm run lint:haskell && npm run lint:web",
+    "lint:haskell": "cd haskell && hlint app test",
+    "lint:web": "npm run typecheck --workspace haskell/web",
+    "test": "npm run test:haskell && npm run test:web",
+    "test:haskell": "cd haskell && cabal test",
+    "test:web": "npm run test --workspace haskell/web",
+    "typecheck": "npm run typecheck --workspace haskell/web"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}

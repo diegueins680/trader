@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { execSync } from "node:child_process";
 
 function parseTimeoutMs(raw: unknown, fallback: number): number {
   const n =
@@ -12,16 +13,39 @@ function parseTimeoutMs(raw: unknown, fallback: number): number {
   return Math.min(Math.round(n), 24 * 60 * 60 * 1000);
 }
 
+function normalizeCommitHash(raw: string): string {
+  const token = raw.trim().split(/\s+/, 1)[0] ?? "";
+  if (/^[0-9a-fA-F]{7,64}$/.test(token)) return token.toLowerCase();
+  return "";
+}
+
+function resolveUiCommit(env: Record<string, string | undefined>): string {
+  const fromEnv =
+    normalizeCommitHash(env.VITE_GIT_COMMIT ?? "") ||
+    normalizeCommitHash(env.TRADER_GIT_COMMIT ?? "") ||
+    normalizeCommitHash(env.GIT_COMMIT ?? "") ||
+    normalizeCommitHash(env.GITHUB_SHA ?? "");
+  if (fromEnv) return fromEnv;
+
+  try {
+    return normalizeCommitHash(execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString());
+  } catch {
+    return "";
+  }
+}
+
 export default defineConfig(({ mode }) => {
-  const env = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
+  const env: Record<string, string | undefined> = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
   const apiTarget = env.TRADER_API_TARGET || "http://127.0.0.1:8080";
   const apiToken = (env.TRADER_API_TOKEN || "").trim();
   const proxyTimeoutMs = parseTimeoutMs(env.TRADER_UI_PROXY_TIMEOUT_MS, 30 * 60 * 1000);
+  const uiCommit = resolveUiCommit(env);
 
   return {
     plugins: [react()],
     define: {
       __TRADER_API_TARGET__: JSON.stringify(apiTarget),
+      __TRADER_UI_COMMIT__: JSON.stringify(uiCommit),
     },
     build: {
       rollupOptions: {

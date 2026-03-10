@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cabal \
   cabal build -j1 --disable-optimization exe:trader-hs
 RUN --mount=type=cache,target=/root/.cabal \
   --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
-  cp "$(cabal list-bin trader-hs)" /opt/trader/trader-hs
+  cp "$(cabal list-bin --disable-optimization exe:trader-hs)" /opt/trader/trader-hs
 
 FROM debian:bookworm-slim
 

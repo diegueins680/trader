@@ -25,24 +25,28 @@ orderAppliedQuantity ev fallbackQty =
             else
                 if not (oeeLive ev)
                     then fallback
-                    else case status of
-                        Just s | statusHasNoFill s -> Nothing
-                        _ ->
-                            case executed of
-                                Just q -> Just q
-                                Nothing ->
-                                    case status of
-                                        Just s | statusImpliesFilled s -> fallback
-                                        _ -> Nothing
+                    else case executed of
+                        -- Trust explicit fill evidence first, even on canceled/expired statuses,
+                        -- because exchanges can report partial fills alongside terminal statuses.
+                        Just q -> Just q
+                        Nothing ->
+                            case status of
+                                Just s | statusHasNoFill s -> Nothing
+                                Just s | statusImpliesFilled s -> fallback
+                                _ -> Nothing
 
 applyExecutedQuantity :: Int -> Double -> Bool -> Double -> (Int, Double, Double, Double)
 applyExecutedQuantity prevPos prevSize isBuy qtyRaw =
-    let qty = fromMaybe 0 (positiveFinite qtyRaw)
+    let eps = 1e-9
+        qty0 = fromMaybe 0 (positiveFinite qtyRaw)
+        qty =
+            if qty0 <= eps
+                then 0
+                else qty0
         prevSign = signum prevPos
         currentSigned = fromIntegral prevSign * max 0 prevSize
         deltaSigned = if isBuy then qty else negate qty
         newSigned = currentSigned + deltaSigned
-        eps = 1e-9
         posNew
             | newSigned > eps = 1
             | newSigned < negate eps = -1
@@ -51,11 +55,19 @@ applyExecutedQuantity prevPos prevSize isBuy qtyRaw =
             if posNew == 0
                 then 0
                 else abs newSigned
-        closeQty =
+        closeQtyRaw =
             if qty <= 0 || abs currentSigned <= eps || currentSigned * deltaSigned >= 0
                 then 0
                 else min (abs currentSigned) qty
-        openQty = max 0 (qty - closeQty)
+        closeQty =
+            if closeQtyRaw <= eps
+                then 0
+                else closeQtyRaw
+        openQtyRaw = max 0 (qty - closeQty)
+        openQty =
+            if openQtyRaw <= eps || posNew == 0
+                then 0
+                else openQtyRaw
      in (posNew, sizeNew, closeQty, openQty)
 
 normalizedStatus :: Maybe String -> Maybe String

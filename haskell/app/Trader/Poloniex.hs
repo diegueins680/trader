@@ -4,6 +4,8 @@ module Trader.Poloniex (
     PoloniexCandle (..),
     poloniexBaseUrl,
     fetchPoloniexCandles,
+    decodePoloniexCandles,
+    normalizePoloniexCandles,
 ) where
 
 import Control.Applicative ((<|>))
@@ -11,9 +13,12 @@ import Control.Exception (throwIO)
 import Data.Aeson (Value (..), eitherDecode, withObject, (.:), (.:?))
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as BL
 import Data.Char (toUpper)
 import Data.Int (Int64)
 import Data.List (sortOn)
+import qualified Data.Scientific as Scientific
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime)
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -21,6 +26,7 @@ import qualified Data.Vector as V
 import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
 import System.IO.Unsafe (unsafePerformIO)
+import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
 import Trader.Text (dedupeStable, trim)
@@ -51,27 +57,30 @@ poloniexCandlesStaleTtl = 300
 
 fetchPoloniexCandles :: String -> String -> Int -> Int -> IO [PoloniexCandle]
 fetchPoloniexCandles pair intervalLabel periodSec bars = do
-    let key = map toUpper (trim pair) ++ ":" ++ intervalLabel ++ ":" ++ show periodSec ++ ":" ++ show bars
+    let lookbackBars = max 1 bars
+        period = max 1 periodSec
+        key = map toUpper (trim pair) ++ ":" ++ intervalLabel ++ ":" ++ show period ++ ":" ++ show lookbackBars
     fetchWithCache poloniexCandlesCache poloniexCandlesFreshTtl poloniexCandlesStaleTtl key $ do
         mgr <- getSharedManager
-        now <- round <$> getPOSIXTime
-        let lookbackBars = max 1 bars
-            endMs = max 0 (fromIntegral now * 1000)
-            startMs = max 0 (endMs - fromIntegral lookbackBars * fromIntegral periodSec * 1000)
+        nowSec <- (floor <$> getPOSIXTime) :: IO Int64
+        let endMs :: Int64
+            endMs = max 0 (nowSec * 1000)
+            lookbackMs :: Int64
+            lookbackMs = fromIntegral lookbackBars * fromIntegral period * 1000
+            startMs = max 0 (endMs - lookbackMs)
             candidates = poloniexSymbolCandidates pair
-        go mgr startMs endMs candidates Nothing
+        go mgr startMs endMs candidates
   where
-    go _ _ _ [] Nothing = throwIO (userError "Poloniex chart request failed (no symbol candidates).")
-    go _ _ _ [] (Just err) = throwIO err
-    go manager startMs endMs (sym : rest) lastErr = do
+    go _ _ _ [] = throwIO (userError "Poloniex chart request failed (no symbol candidates).")
+    go manager startMs endMs (sym : rest) = do
         res <- fetchSymbol manager startMs endMs sym
         case res of
-            Right xs -> pure (sortOn pcOpenTime xs)
+            Right xs -> pure (normalizePoloniexCandles bars xs)
             Left code ->
                 let err = userError ("Poloniex chart request failed for " ++ sym ++ " (HTTP " ++ show code ++ ")")
                     retryable = code `elem` [400, 404, 422]
                  in if retryable && not (null rest)
-                        then go manager startMs endMs rest (Just err)
+                        then go manager startMs endMs rest
                         else throwIO err
 
     fetchSymbol manager startMs endMs sym = do
@@ -95,12 +104,19 @@ fetchPoloniexCandles pair intervalLabel periodSec bars = do
         let code = statusCode (responseStatus resp)
         if code < 200 || code >= 300
             then pure (Left code)
-            else case eitherDecode (responseBody resp) of
-                Left err -> throwIO (userError ("Failed to decode Poloniex chart data: " ++ err))
-                Right v ->
-                    case AT.parseEither parsePoloniexResponse v of
-                        Left err -> throwIO (userError ("Failed to parse Poloniex chart data: " ++ err))
-                        Right xs -> pure (Right xs)
+            else case decodePoloniexCandles (responseBody resp) of
+                Left err -> throwIO (userError err)
+                Right xs -> pure (Right xs)
+
+decodePoloniexCandles :: BL.ByteString -> Either String [PoloniexCandle]
+decodePoloniexCandles raw = do
+    v <-
+        case eitherDecode raw of
+            Left err -> Left ("Failed to decode Poloniex chart data: " ++ err)
+            Right ok -> Right ok
+    case AT.parseEither parsePoloniexResponse v of
+        Left err -> Left ("Failed to parse Poloniex chart data: " ++ err)
+        Right xs -> Right xs
 
 parsePoloniexResponse :: Value -> AT.Parser [PoloniexCandle]
 parsePoloniexResponse v =
@@ -152,7 +168,10 @@ parseArrayIndex i arr =
 parseInt64Value :: Value -> AT.Parser Int64
 parseInt64Value v =
     case v of
-        Number n -> pure (round n)
+        Number n ->
+            case Scientific.toBoundedInteger n of
+                Just x -> pure x
+                Nothing -> fail "Invalid integer"
         String t ->
             case readMaybeInt64 (T.unpack t) of
                 Just x -> pure x
@@ -162,30 +181,32 @@ parseInt64Value v =
 parseDoubleValue :: Value -> AT.Parser Double
 parseDoubleValue v =
     case v of
-        Number n -> pure (realToFrac n)
+        Number n -> parseFiniteDouble (realToFrac n)
         String t ->
             case readMaybeDouble (T.unpack t) of
-                Just x -> pure x
+                Just x -> parseFiniteDouble x
                 Nothing -> fail "Invalid double"
         _ -> fail "Expected number"
 
 readMaybeInt64 :: String -> Maybe Int64
 readMaybeInt64 s =
-    case reads s of
-        [(x, "")] -> Just x
-        _ -> Nothing
+    readMaybe (trim s)
 
 readMaybeDouble :: String -> Maybe Double
 readMaybeDouble s =
-    case reads s of
-        [(x, "")] -> Just x
-        _ -> Nothing
+    readMaybe (trim s)
 
 normalizeTimestamp :: Int64 -> Int64
 normalizeTimestamp t =
-    if t > 1000000000000
+    if abs (toInteger t) >= 1000000000000
         then t `div` 1000
         else t
+
+parseFiniteDouble :: Double -> AT.Parser Double
+parseFiniteDouble x =
+    if isNaN x || isInfinite x
+        then fail "Invalid finite double"
+        else pure x
 
 poloniexSymbolCandidates :: String -> [String]
 poloniexSymbolCandidates raw =
@@ -203,3 +224,24 @@ splitOnUnderscore s =
     case break (== '_') s of
         (a, "") -> [a]
         (a, _ : rest) -> a : splitOnUnderscore rest
+
+normalizePoloniexCandles :: Int -> [PoloniexCandle] -> [PoloniexCandle]
+normalizePoloniexCandles bars candles =
+    takeLast bars' (dedupByTime (sortOn pcOpenTime candles))
+  where
+    bars' = max 1 bars
+
+dedupByTime :: [PoloniexCandle] -> [PoloniexCandle]
+dedupByTime = go Set.empty
+  where
+    go _ [] = []
+    go seen (x : xs)
+        | Set.member (pcOpenTime x) seen = go seen xs
+        | otherwise = x : go (Set.insert (pcOpenTime x) seen) xs
+
+takeLast :: Int -> [a] -> [a]
+takeLast n xs
+    | n <= 0 = []
+    | otherwise =
+        let k = length xs - n
+         in if k <= 0 then xs else drop k xs

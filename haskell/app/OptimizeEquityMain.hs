@@ -264,11 +264,14 @@ optimizerArgsParser =
         <*> option auto (long "p-disable-risk-per-trade" <> value 0.3 <> metavar "FLOAT")
         <*> option auto (long "p-disable-max-dd" <> value 0.9 <> metavar "FLOAT")
         <*> option auto (long "p-disable-max-dl" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-max-wl" <> value 0.9 <> metavar "FLOAT")
         <*> option auto (long "p-disable-max-oe" <> value 0.95 <> metavar "FLOAT")
         <*> option auto (long "max-dd-min" <> value 0.05 <> metavar "FLOAT")
         <*> option auto (long "max-dd-max" <> value 0.50 <> metavar "FLOAT")
         <*> option auto (long "max-dl-min" <> value 0.02 <> metavar "FLOAT")
         <*> option auto (long "max-dl-max" <> value 0.30 <> metavar "FLOAT")
+        <*> option auto (long "max-wl-min" <> value 0.03 <> metavar "FLOAT")
+        <*> option auto (long "max-wl-max" <> value 0.40 <> metavar "FLOAT")
         <*> option auto (long "max-oe-min" <> value 1 <> metavar "INT")
         <*> option auto (long "max-oe-max" <> value 10 <> metavar "INT")
         <*> option auto (long "method-weight-11" <> value 0.25 <> metavar "FLOAT")
@@ -371,6 +374,75 @@ optimizerArgsParser =
         <*> option auto (long "adaptive-trend-lookback-max-max" <> value 120 <> metavar "INT")
         <*> option auto (long "adaptive-kalman-z-min-max-min" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "adaptive-kalman-z-min-max-max" <> value 3.0 <> metavar "FLOAT")
+        <*> option auto (long "p-adaptive-filters" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "perf-lookback-min" <> value 5 <> metavar "INT")
+        <*> option auto (long "perf-lookback-max" <> value 60 <> metavar "INT")
+        <*> option auto (long "perf-min-win-rate-min" <> value 0.45 <> metavar "FLOAT")
+        <*> option auto (long "perf-min-win-rate-max" <> value 0.65 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-perf-min-win-rate" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "perf-min-profit-factor-min" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "perf-min-profit-factor-max" <> value 2.5 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-perf-min-profit-factor" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "p-meta-label-filter" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "meta-label-min-edge-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "meta-label-min-edge-max" <> value 0.001 <> metavar "FLOAT")
+        <*> option auto (long "meta-label-min-confidence-min" <> value 0.4 <> metavar "FLOAT")
+        <*> option auto (long "meta-label-min-confidence-max" <> value 0.8 <> metavar "FLOAT")
+        <*> option auto (long "p-meta-label-require-band" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "p-regime-parameter-bank" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "regime-bank-hysteresis-min" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "regime-bank-hysteresis-max" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "regime-trend-open-mult-min" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "regime-trend-open-mult-max" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "regime-mr-open-mult-min" <> value 1.1 <> metavar "FLOAT")
+        <*> option auto (long "regime-mr-open-mult-max" <> value 1.1 <> metavar "FLOAT")
+        <*> option auto (long "regime-high-vol-open-mult-min" <> value 1.3 <> metavar "FLOAT")
+        <*> option auto (long "regime-high-vol-open-mult-max" <> value 1.3 <> metavar "FLOAT")
+        <*> option auto (long "regime-trend-size-mult-min" <> value 1.1 <> metavar "FLOAT")
+        <*> option auto (long "regime-trend-size-mult-max" <> value 1.1 <> metavar "FLOAT")
+        <*> option auto (long "regime-mr-size-mult-min" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "regime-mr-size-mult-max" <> value 0.9 <> metavar "FLOAT")
+        <*> option auto (long "regime-high-vol-size-mult-min" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "regime-high-vol-size-mult-max" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "p-multi-timeframe-consensus" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "mtf-fast-bars-min" <> value 5 <> metavar "INT")
+        <*> option auto (long "mtf-fast-bars-max" <> value 5 <> metavar "INT")
+        <*> option auto (long "mtf-mid-bars-min" <> value 20 <> metavar "INT")
+        <*> option auto (long "mtf-mid-bars-max" <> value 20 <> metavar "INT")
+        <*> option auto (long "mtf-slow-bars-min" <> value 60 <> metavar "INT")
+        <*> option auto (long "mtf-slow-bars-max" <> value 60 <> metavar "INT")
+        <*> option auto (long "mtf-min-agree-min" <> value 2 <> metavar "INT")
+        <*> option auto (long "mtf-min-agree-max" <> value 2 <> metavar "INT")
+        <*> option auto (long "p-cross-asset-confirmation" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "cross-asset-min-beta-min" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "cross-asset-min-beta-max" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "cross-asset-min-edge-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "cross-asset-min-edge-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "p-pairs-stat-arb" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "pairs-stat-arb-lookback-min" <> value 120 <> metavar "INT")
+        <*> option auto (long "pairs-stat-arb-lookback-max" <> value 120 <> metavar "INT")
+        <*> option auto (long "pairs-stat-arb-z-entry-min" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "pairs-stat-arb-z-entry-max" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "pairs-stat-arb-size-mult-min" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "pairs-stat-arb-size-mult-max" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "p-funding-oi-aware" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-funding-cap-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-funding-cap-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-funding-oi-funding-cap" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-vol-lookback-min" <> value 48 <> metavar "INT")
+        <*> option auto (long "funding-oi-vol-lookback-max" <> value 48 <> metavar "INT")
+        <*> option auto (long "funding-oi-vol-cap-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-vol-cap-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "p-disable-funding-oi-vol-cap" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-size-mult-min" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "funding-oi-size-mult-max" <> value 0.7 <> metavar "FLOAT")
+        <*> option auto (long "p-kelly-lite-sizing" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-fraction-min" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-fraction-max" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-floor-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-floor-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-cap-min" <> value 1.0 <> metavar "FLOAT")
+        <*> option auto (long "kelly-lite-cap-max" <> value 1.0 <> metavar "FLOAT")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
@@ -439,8 +511,13 @@ validateArgs args = do
         Left "--threshold-factor-floor-min/max must be >= 0."
     when (oaRouterLookbackMin args < 2 || oaRouterLookbackMax args < 2) $
         Left "--router-lookback-min/max must be >= 2."
-    when (oaTakeProfitPartialMin args < 0 || oaTakeProfitPartialMax args >= 1) $
-        Left "--take-profit-partial-min/max must be >= 0 and < 1."
+    when
+        ( oaTakeProfitPartialMin args < 0
+            || oaTakeProfitPartialMin args >= 1
+            || oaTakeProfitPartialMax args < 0
+            || oaTakeProfitPartialMax args >= 1
+        )
+        $ Left "--take-profit-partial-min/max must be >= 0 and < 1."
     when (oaMaxTradesPerDayMin args < 0 || oaMaxTradesPerDayMax args < 0) $
         Left "--max-trades-per-day-min/max must be >= 0."
     when (oaExpectancyLookbackMin args < 1 || oaExpectancyLookbackMax args < 1) $
@@ -453,8 +530,133 @@ validateArgs args = do
         Left "--max-open-positions-min/max must be >= 0."
     when (oaMaxOpenPerBaseMin args < 0 || oaMaxOpenPerBaseMax args < 0) $
         Left "--max-open-per-base-min/max must be >= 0."
+    when (oaPDisableMaxWl args < 0 || oaPDisableMaxWl args > 1) $
+        Left "--p-disable-max-wl must be between 0 and 1."
+    when (oaMaxWlMin args < 0 || oaMaxWlMax args < 0) $
+        Left "--max-wl-min/max must be >= 0."
     when (oaAdaptiveTrendLookbackMaxMin args < 1 || oaAdaptiveTrendLookbackMaxMax args < 1) $
         Left "--adaptive-trend-lookback-max-min/max must be >= 1."
+    when (oaPAdaptiveFilters args < 0 || oaPAdaptiveFilters args > 1) $
+        Left "--p-adaptive-filters must be between 0 and 1."
+    when (oaPerfLookbackMin args < 1 || oaPerfLookbackMax args < 1) $
+        Left "--perf-lookback-min/max must be >= 1."
+    when
+        ( oaPerfMinWinRateMin args < 0
+            || oaPerfMinWinRateMin args > 1
+            || oaPerfMinWinRateMax args < 0
+            || oaPerfMinWinRateMax args > 1
+        )
+        $ Left "--perf-min-win-rate-min/max must be between 0 and 1."
+    when (oaPDisablePerfMinWinRate args < 0 || oaPDisablePerfMinWinRate args > 1) $
+        Left "--p-disable-perf-min-win-rate must be between 0 and 1."
+    when (oaPerfMinProfitFactorMin args < 0 || oaPerfMinProfitFactorMax args < 0) $
+        Left "--perf-min-profit-factor-min/max must be >= 0."
+    when (oaPDisablePerfMinProfitFactor args < 0 || oaPDisablePerfMinProfitFactor args > 1) $
+        Left "--p-disable-perf-min-profit-factor must be between 0 and 1."
+    when (oaPMetaLabelFilter args < 0 || oaPMetaLabelFilter args > 1) $
+        Left "--p-meta-label-filter must be between 0 and 1."
+    when (oaMetaLabelMinEdgeMin args < 0 || oaMetaLabelMinEdgeMax args < 0) $
+        Left "--meta-label-min-edge-min/max must be >= 0."
+    when
+        ( oaMetaLabelMinConfidenceMin args < 0
+            || oaMetaLabelMinConfidenceMin args > 1
+            || oaMetaLabelMinConfidenceMax args < 0
+            || oaMetaLabelMinConfidenceMax args > 1
+        )
+        $ Left "--meta-label-min-confidence-min/max must be between 0 and 1."
+    when (oaPMetaLabelRequireBand args < 0 || oaPMetaLabelRequireBand args > 1) $
+        Left "--p-meta-label-require-band must be between 0 and 1."
+    when (oaPRegimeParameterBank args < 0 || oaPRegimeParameterBank args > 1) $
+        Left "--p-regime-parameter-bank must be between 0 and 1."
+    when
+        ( oaRegimeBankHysteresisMin args < 0
+            || oaRegimeBankHysteresisMin args > 1
+            || oaRegimeBankHysteresisMax args < 0
+            || oaRegimeBankHysteresisMax args > 1
+        )
+        $ Left "--regime-bank-hysteresis-min/max must be between 0 and 1."
+    when
+        ( oaRegimeTrendOpenMultMin args < 0
+            || oaRegimeTrendOpenMultMax args < 0
+            || oaRegimeMrOpenMultMin args < 0
+            || oaRegimeMrOpenMultMax args < 0
+            || oaRegimeHighVolOpenMultMin args < 0
+            || oaRegimeHighVolOpenMultMax args < 0
+            || oaRegimeTrendSizeMultMin args < 0
+            || oaRegimeTrendSizeMultMax args < 0
+            || oaRegimeMrSizeMultMin args < 0
+            || oaRegimeMrSizeMultMax args < 0
+            || oaRegimeHighVolSizeMultMin args < 0
+            || oaRegimeHighVolSizeMultMax args < 0
+        )
+        $ Left "--regime-*-mult-min/max must be >= 0."
+    when (oaPMultiTimeframeConsensus args < 0 || oaPMultiTimeframeConsensus args > 1) $
+        Left "--p-multi-timeframe-consensus must be between 0 and 1."
+    when
+        ( oaMtfFastBarsMin args < 1
+            || oaMtfFastBarsMax args < 1
+            || oaMtfMidBarsMin args < 1
+            || oaMtfMidBarsMax args < 1
+            || oaMtfSlowBarsMin args < 1
+            || oaMtfSlowBarsMax args < 1
+        )
+        $ Left "--mtf-*-bars-min/max must be >= 1."
+    when
+        ( oaMtfMinAgreeMin args < 1
+            || oaMtfMinAgreeMin args > 3
+            || oaMtfMinAgreeMax args < 1
+            || oaMtfMinAgreeMax args > 3
+        )
+        $ Left "--mtf-min-agree-min/max must be between 1 and 3."
+    when (oaPCrossAssetConfirmation args < 0 || oaPCrossAssetConfirmation args > 1) $
+        Left "--p-cross-asset-confirmation must be between 0 and 1."
+    when
+        ( oaCrossAssetMinBetaMin args < 0
+            || oaCrossAssetMinBetaMax args < 0
+            || oaCrossAssetMinEdgeMin args < 0
+            || oaCrossAssetMinEdgeMax args < 0
+        )
+        $ Left "--cross-asset-min-beta/edge-min/max must be >= 0."
+    when (oaPPairsStatArb args < 0 || oaPPairsStatArb args > 1) $
+        Left "--p-pairs-stat-arb must be between 0 and 1."
+    when (oaPairsStatArbLookbackMin args < 2 || oaPairsStatArbLookbackMax args < 2) $
+        Left "--pairs-stat-arb-lookback-min/max must be >= 2."
+    when (oaPairsStatArbZEntryMin args <= 0 || oaPairsStatArbZEntryMax args <= 0) $
+        Left "--pairs-stat-arb-z-entry-min/max must be > 0."
+    when
+        ( oaPairsStatArbSizeMultMin args < 0
+            || oaPairsStatArbSizeMultMin args > 1
+            || oaPairsStatArbSizeMultMax args < 0
+            || oaPairsStatArbSizeMultMax args > 1
+        )
+        $ Left "--pairs-stat-arb-size-mult-min/max must be between 0 and 1."
+    when (oaPFundingOiAware args < 0 || oaPFundingOiAware args > 1) $
+        Left "--p-funding-oi-aware must be between 0 and 1."
+    when (oaFundingOiFundingCapMin args < 0 || oaFundingOiFundingCapMax args < 0) $
+        Left "--funding-oi-funding-cap-min/max must be >= 0."
+    when (oaPDisableFundingOiFundingCap args < 0 || oaPDisableFundingOiFundingCap args > 1) $
+        Left "--p-disable-funding-oi-funding-cap must be between 0 and 1."
+    when (oaFundingOiVolLookbackMin args < 2 || oaFundingOiVolLookbackMax args < 2) $
+        Left "--funding-oi-vol-lookback-min/max must be >= 2."
+    when (oaFundingOiVolCapMin args < 0 || oaFundingOiVolCapMax args < 0) $
+        Left "--funding-oi-vol-cap-min/max must be >= 0."
+    when (oaPDisableFundingOiVolCap args < 0 || oaPDisableFundingOiVolCap args > 1) $
+        Left "--p-disable-funding-oi-vol-cap must be between 0 and 1."
+    when
+        ( oaFundingOiSizeMultMin args < 0
+            || oaFundingOiSizeMultMin args > 1
+            || oaFundingOiSizeMultMax args < 0
+            || oaFundingOiSizeMultMax args > 1
+        )
+        $ Left "--funding-oi-size-mult-min/max must be between 0 and 1."
+    when (oaPKellyLiteSizing args < 0 || oaPKellyLiteSizing args > 1) $
+        Left "--p-kelly-lite-sizing must be between 0 and 1."
+    when (oaKellyLiteFractionMin args < 0 || oaKellyLiteFractionMax args < 0) $
+        Left "--kelly-lite-fraction-min/max must be >= 0."
+    when (oaKellyLiteFloorMin args < 0 || oaKellyLiteFloorMax args < 0) $
+        Left "--kelly-lite-floor-min/max must be >= 0."
+    when (oaKellyLiteCapMin args < 0 || oaKellyLiteCapMax args < 0) $
+        Left "--kelly-lite-cap-min/max must be >= 0."
     pure args'
 
 objectiveChoices :: [String]

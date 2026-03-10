@@ -4,6 +4,7 @@ module Trader.BinanceIntervals (
     isBinanceInterval,
 ) where
 
+import Data.Char (isDigit, isSpace, toLower)
 import Data.List (intercalate)
 
 binanceIntervals :: [String]
@@ -29,4 +30,21 @@ binanceIntervalsCsv :: String
 binanceIntervalsCsv = intercalate "," binanceIntervals
 
 isBinanceInterval :: String -> Bool
-isBinanceInterval s = s `elem` binanceIntervals
+isBinanceInterval v =
+    let normalized = normalizeIntervalCode v
+     in any ((== normalized) . normalizeIntervalCode) binanceIntervals
+
+normalizeIntervalCode :: String -> String
+normalizeIntervalCode raw =
+    let s = trim raw
+     in case span isDigit s of
+            (digits, [u])
+                | not (null digits) ->
+                    digits ++ [if u == 'M' then 'M' else toLower u]
+            _ -> s
+
+trim :: String -> String
+trim = dropWhileEnd isSpace . dropWhile isSpace
+
+dropWhileEnd :: (a -> Bool) -> [a] -> [a]
+dropWhileEnd p = reverse . dropWhile p . reverse

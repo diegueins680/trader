@@ -75,12 +75,13 @@ computeMetrics periodsPerYear br =
         (wins, sumReturns, grossProfits, grossLossSum, totalHold, roundTrips) =
             foldl'
                 ( \(w, rSum, gp, gl, hold, rt) t ->
-                    let r = trReturn t
-                        pnl = trExitEquity t - trEntryEquity t
+                    let r = sanitizeFinite 0 (trReturn t)
+                        pnl = sanitizeFinite 0 (trExitEquity t - trEntryEquity t)
+                        holdPeriods = max 0 (trHoldingPeriods t)
                         w' = if r > 0 then w + 1 else w
                         gp' = if pnl > 0 then gp + pnl else gp
                         gl' = if pnl < 0 then gl + pnl else gl
-                        hold' = hold + trHoldingPeriods t
+                        hold' = hold + holdPeriods
                         rt' = if isRoundTrip t then rt + 1 else rt
                      in (w', rSum + r, gp', gl', hold', rt')
                 )
@@ -99,7 +100,9 @@ computeMetrics periodsPerYear br =
             let pos = brPositions br
                 (sumAbs, count) =
                     foldl'
-                        ( \(acc, n) v -> (acc + abs v, n + 1 :: Int)
+                        ( \(acc, n) v ->
+                            let pos = sanitizeFinite 0 v
+                             in (acc + abs pos, n + 1 :: Int)
                         )
                         (0, 0)
                         pos
@@ -226,4 +229,10 @@ sanitizeEquity :: Double -> Double
 sanitizeEquity x =
     if isNaN x || isInfinite x || x < 0
         then 0
+        else x
+
+sanitizeFinite :: Double -> Double -> Double
+sanitizeFinite fallback x =
+    if isNaN x || isInfinite x
+        then fallback
         else x

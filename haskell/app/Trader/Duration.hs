@@ -52,8 +52,8 @@ timeWindowContains (TimeWindow start end) minuteRaw =
 
 minuteOfDayFromMs :: Int64 -> Int
 minuteOfDayFromMs ts =
-    let minutes = fromIntegral (ts `div` 60000) :: Int
-     in minutes `mod` 1440
+    let minutes = toInteger ts `div` 60000
+     in fromInteger (minutes `mod` 1440)
 
 {- | Parse a human duration like \"24h\", \"15m\", \"1d\" into seconds.
 Supports units: s, m, h, d, w, M (month ~= 30d).
@@ -63,13 +63,11 @@ parseDurationSeconds raw =
     let s = trim raw
      in case span isDigit s of
             ("", _) -> Nothing
-            (nStr, unitStr) ->
-                case unitStr of
-                    [u] -> do
-                        n <- readInt nStr
-                        mult <- unitSeconds u
-                        pure (n * mult)
-                    _ -> Nothing
+            (nStr, [u]) -> do
+                n <- readIntegerStrict nStr
+                mult <- unitSeconds u
+                checkedIntProduct n mult
+            _ -> Nothing
 
 {- | Parse a Binance-style interval like \"5m\", \"1h\", \"1d\" into seconds.
 This is identical to 'parseDurationSeconds' but kept separate for clarity.
@@ -81,16 +79,24 @@ parseTimeOfDay :: String -> Either String Int
 parseTimeOfDay raw =
     let s = trim raw
      in case break (== ':') s of
-            (hStr, ':' : mStr) -> do
-                h <- readIntEither hStr
-                m <- readIntEither mStr
-                if h < 0 || h > 23
-                    then Left "Hour must be between 0 and 23."
-                    else
-                        if m < 0 || m > 59
-                            then Left "Minute must be between 0 and 59."
-                            else Right (h * 60 + m)
+            (hStr, ':' : mStr)
+                | isTwoDigitClockPart hStr && isTwoDigitClockPart mStr -> do
+                    h <- readIntEither hStr
+                    m <- readIntEither mStr
+                    if h < 0 || h > 23
+                        then Left "Hour must be between 0 and 23."
+                        else
+                            if m < 0 || m > 59
+                                then Left "Minute must be between 0 and 59."
+                                else Right (h * 60 + m)
+                | otherwise -> Left "Expected HH:MM."
             _ -> Left "Expected HH:MM."
+
+isTwoDigitClockPart :: String -> Bool
+isTwoDigitClockPart part =
+    case part of
+        [a, b] -> isDigit a && isDigit b
+        _ -> False
 
 pad2 :: Int -> String
 pad2 n =
@@ -124,34 +130,21 @@ lookbackBarsFrom intervalStr lookbackWindowStr = do
                 then Left "Lookback window must be > 0"
                 else
                     -- Use ceiling so the effective history covers at least the requested duration.
-                    let bars = (lookbackSec + intervalSec - 1) `div` intervalSec
-                     in Right (max 1 bars)
+                    let intervalI = toInteger intervalSec
+                        lookbackI = toInteger lookbackSec
+                        barsI = (lookbackI + intervalI - 1) `div` intervalI
+                     in case integerToIntBounded barsI of
+                            Just bars -> Right (max 1 bars)
+                            Nothing -> Left "Lookback window too large for this interval."
 
 inferPeriodsPerYear :: String -> Double
 inferPeriodsPerYear interval =
-    case interval of
-        "1m" -> 60 * 24 * 365
-        "3m" -> 20 * 24 * 365
-        "5m" -> 12 * 24 * 365
-        "15m" -> 4 * 24 * 365
-        "30m" -> 2 * 24 * 365
-        "1h" -> 24 * 365
-        "2h" -> 12 * 365
-        "4h" -> 6 * 365
-        "6h" -> 4 * 365
-        "8h" -> 3 * 365
-        "12h" -> 2 * 365
-        "1d" -> 365
-        "3d" -> 365 / 3
-        "1w" -> 52
-        "1M" -> 12
-        _ ->
-            case parseIntervalSeconds interval of
-                Just sec
-                    | sec > 0 ->
-                        let yearSec = 365 * 24 * 60 * 60 :: Int
-                         in fromIntegral yearSec / fromIntegral sec
-                _ -> 365
+    case parseIntervalSeconds interval of
+        Just sec
+            | sec > 0 ->
+                let yearSec = 365 * 24 * 60 * 60 :: Int
+                 in fromIntegral yearSec / fromIntegral sec
+        _ -> 365
 
 unitSeconds :: Char -> Maybe Int
 unitSeconds u =
@@ -172,8 +165,25 @@ unitSeconds u =
                 'w' -> Just (7 * 24 * 60 * 60)
                 _ -> Nothing
 
-readInt :: String -> Maybe Int
-readInt s =
-    case reads s of
+checkedIntProduct :: Integer -> Int -> Maybe Int
+checkedIntProduct a b =
+    integerToIntBounded (a * toInteger b)
+
+readIntegerStrict :: String -> Maybe Integer
+readIntegerStrict s =
+    case reads s :: [(Integer, String)] of
         [(n, "")] -> Just n
         _ -> Nothing
+
+integerToIntBounded :: Integer -> Maybe Int
+integerToIntBounded n =
+    if n < lo || n > hi
+        then Nothing
+        else Just (fromInteger n)
+  where
+    lo = toInteger (minBound :: Int)
+    hi = toInteger (maxBound :: Int)
+
+readInt :: String -> Maybe Int
+readInt s =
+    readIntegerStrict s >>= integerToIntBounded

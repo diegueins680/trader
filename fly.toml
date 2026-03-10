@@ -1,16 +1,24 @@
 app = "trader-hs"
-primary_region = "ord"
+primary_region = "fra"
 
 [build]
   dockerfile = "Dockerfile"
 
 [env]
-  TRADER_BOT_SYMBOLS = "AAVEUSDT,ARBUSDT,ATOMUSDT,AVAXUSDT,BCHUSDT,BTCUSDT,DOGEUSDT,DOTUSDT,ETHUSDT,FILUSDT"
+  TRADER_BOT_SYMBOLS = "BTCUSDT"
+  TRADER_BOT_TOP_COMBO_BOTS = "3"
+  TRADER_BOT_TOP_COMBO_BOTS_STARTUP = "0"
+  TRADER_OPTIMIZER_ENABLED = "false"
+  TRADER_TOP_COMBOS_BACKTEST_ENABLED = "false"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-4x"
+  memory = "8192mb"
