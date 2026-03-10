@@ -25,44 +25,16 @@ import System.FilePath ((</>))
 import System.Timeout (timeout)
 
 import Trader.App.Args (Args (..), argBinanceMarket, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
-import Trader.Binance (
-    BinanceMarket (..),
-    BinanceOrderMode (..),
-    BinanceTrade (..),
-    Kline (..),
-    OrderSide (..),
-    binanceBaseUrl,
-    newBinanceEnv,
-    placeMarketOrder,
-    signQuery,
- )
-import Trader.BinanceIntervals (isBinanceInterval)
-import Trader.BotStartSemantics (
-    botTradeEnabledFromApi,
-    shouldClearPositionOriginOnStart,
-    shouldPersistPositionOriginOnSwitch,
-    shouldPreserveProvidedComboOnActiveAdopt,
-    shouldResolveOriginComboOnAutoStart,
- )
+import Trader.Binance (BinanceMarket (..), BinanceOrderMode (..), BinanceTrade (..), Kline (..), OrderSide (..), binanceBaseUrl, newBinanceEnv, placeMarketOrder, signQuery)
+import Trader.BinanceIntervals (binanceIntervalsCsv, isBinanceInterval)
+import Trader.BotStartSemantics (botTradeEnabledFromApi, shouldClearPositionOriginOnStart, shouldPersistPositionOriginOnSwitch, shouldPreserveProvidedComboOnActiveAdopt, shouldResolveOriginComboOnAutoStart)
 import Trader.Cache (fetchWithCache, insertCache, newTtlCache)
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles, normalizeCoinbaseCandles)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), extractTxHash, resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
-import Trader.Formal.CloseTiming (
-    CloseTimingDecision (..),
-    CloseTimingObservation (..),
-    CloseTimingStats (..),
-    buildCloseTimingStats,
-    closeTimingDecision,
-    optimalCloseObservation,
- )
-import Trader.Formal.Optimization (
-    FormalVerificationReport (..),
-    roiRequirementClauses,
-    roiRequirementSummary,
-    verifyFormalOptimization,
- )
+import Trader.Formal.CloseTiming (CloseTimingDecision (..), CloseTimingObservation (..), CloseTimingStats (..), buildCloseTimingStats, closeTimingDecision, optimalCloseObservation)
+import Trader.Formal.Optimization (FormalVerificationReport (..), roiRequirementClauses, roiRequirementSummary, verifyFormalOptimization)
 import Trader.Http (boundedBackoffMs, jitteredDelayMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
@@ -74,53 +46,22 @@ import Trader.Method (Method (..), parseMethod, selectPredictions)
 import Trader.Metrics (bmAvgTradeReturn, bmExposure, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (TuneObjective (..), bestFinalEquity, optimizeOperations, parseTuneObjective, sweepThreshold)
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
-import Trader.Optimizer.Optimize (normalizeOptionalPositiveFraction, sampleTakeProfitPartial)
+import Trader.Optimizer.Optimize (normalizeObjectiveCode, normalizeOptionalPositiveFraction, objectiveScore, qualityPresetIntervalFields, sampleTakeProfitPartial)
 import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
-import Trader.Platform (
-    Platform (..),
-    coinbaseIntervalSeconds,
-    isPlatformInterval,
-    krakenIntervalMinutes,
-    parsePlatform,
-    poloniexIntervalLabel,
-    poloniexIntervalSeconds,
- )
+import Trader.Platform (Platform (..), coinbaseIntervalSeconds, isPlatformInterval, krakenIntervalMinutes, parsePlatform, poloniexIntervalLabel, poloniexIntervalSeconds)
 import Trader.Poloniex (PoloniexCandle (..), decodePoloniexCandles, normalizePoloniexCandles)
-import Trader.Predictors (
-    Interval (..),
-    Quantiles (..),
-    RegimeProbs (..),
-    SensorId (..),
-    SensorOutput (..),
-    initHMMFilter,
-    predictSensors,
-    trainPredictors,
- )
+import Trader.Predictors (Interval (..), Quantiles (..), RegimeProbs (..), SensorId (..), SensorOutput (..), initHMMFilter, predictSensors, trainPredictors)
 import Trader.Predictors.Features (buildDatasetWithIndex, featuresAt, forwardReturnAt, mkFeatureSpec)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
-import Trader.SignalGates (
-    signalCrossAssetCheck,
-    signalFundingOiCheck,
-    signalMetaLabelOk,
-    signalMtfConsensusCheck,
-    signalRegimeEdgeOk,
-    signalRunPostDirectionGates,
- )
+import Trader.SignalGates (signalCrossAssetCheck, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
 import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
-import Trader.TopCombosStore (
-    comboPerformanceKey,
-    mergeTopCombosPayloads,
-    recalculateComboPerformanceFromOperation,
-    resolveComboSymbol,
-    sanitizeComboSymbolForPlatform,
-    sanitizeTopCombosValue,
- )
+import Trader.TopCombosStore (comboPerformanceKey, mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
 main :: IO ()
@@ -190,6 +131,7 @@ main = do
               , run "exchange candle parsers accept whitespace-padded numeric strings" testExchangeNumericStringWhitespaceAcceptance
               , run "method parsing" testMethodParsing
               , run "tune objective parsing" testTuneObjectiveParsing
+              , run "optimizer objective aliases canonicalize" testOptimizerObjectiveNormalization
               , run "platform parsing" testPlatformParsing
               , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
               , run "binance market helper prioritizes futures on conflicting flags" testBinanceMarketConflictingFlagsPreferFutures
@@ -316,6 +258,8 @@ main = do
               , run "threshold sweep regime-switch stays neutral with non-finite inputs" testSweepThresholdRegimeSwitchNonFiniteStaysNeutral
               , run "operations optimization" testOptimizeOperations
               , run "optimizer partial take-profit zero-range sampler" testOptimizerPartialTakeProfitZeroRange
+              , run "optimizer quality preset preserves explicit interval constraints" testOptimizerQualityPresetIntervals
+              , run "optimizer calmar falls back to annualized return at zero drawdown" testOptimizerCalmarFallback
               , run "optimizer normalizes optional positive fractions" testOptimizerNormalizeOptionalPositiveFraction
               , run "optimizer int range keeps rng for fixed range" testOptimizerIntRangeFixedRange
               , run "optimizer int range handles full Int span" testOptimizerIntRangeFullSpan
@@ -1437,6 +1381,18 @@ testTuneObjectiveParsing = do
     case parseTuneObjective "invalid-objective" of
         Left _ -> pure ()
         Right _ -> error "expected parseTuneObjective to reject unknown objective"
+
+testOptimizerObjectiveNormalization :: IO ()
+testOptimizerObjectiveNormalization = do
+    assert
+        "optimizer objective underscore alias canonicalizes to annualized-equity"
+        (normalizeObjectiveCode "annualized_return" == Right "annualized-equity")
+    assert
+        "optimizer objective risk-adjusted ROI alias canonicalizes to roi"
+        (normalizeObjectiveCode "\trisk_adjusted_roi\n" == Right "roi")
+    case normalizeObjectiveCode "invalid-objective" of
+        Left _ -> pure ()
+        Right v -> error ("expected normalizeObjectiveCode to reject unknown objective, got " ++ show v)
 
 testPlatformParsing :: IO ()
 testPlatformParsing = do
@@ -3082,6 +3038,40 @@ testOptimizerPartialTakeProfitZeroRange = do
         Just (mPartial, probe) -> do
             assert "zero-range partial take-profit is disabled" (isNothing mPartial)
             assertApprox "zero-range partial take-profit keeps RNG unchanged" 1e-15 probe expectedProbe
+
+testOptimizerQualityPresetIntervals :: IO ()
+testOptimizerQualityPresetIntervals = do
+    let explicitInterval = qualityPresetIntervalFields (Just " 1H ") Nothing
+        explicitIntervals = qualityPresetIntervalFields Nothing (Just "15m, 1h")
+        defaultIntervals = qualityPresetIntervalFields Nothing Nothing
+    assert
+        "quality preset keeps explicit singleton interval instead of widening to defaults"
+        (explicitInterval == (Just "1H", Nothing))
+    assert
+        "quality preset keeps explicit interval list instead of replacing it"
+        (explicitIntervals == (Nothing, Just "15m, 1h"))
+    assert
+        "quality preset supplies default search intervals only when the user provided none"
+        (defaultIntervals == (Nothing, Just binanceIntervalsCsv))
+
+testOptimizerCalmarFallback :: IO ()
+testOptimizerCalmarFallback = do
+    let metrics =
+            KM.fromList
+                [ (AK.fromString "finalEquity", Aeson.toJSON (1.25 :: Double))
+                , (AK.fromString "annualizedReturn", Aeson.toJSON (0.42 :: Double))
+                , (AK.fromString "maxDrawdown", Aeson.toJSON (0.0 :: Double))
+                , (AK.fromString "turnover", Aeson.toJSON (0.0 :: Double))
+                , (AK.fromString "roundTrips", Aeson.toJSON (3 :: Int))
+                , (AK.fromString "tradeCount", Aeson.toJSON (3 :: Int))
+                , (AK.fromString "exposure", Aeson.toJSON (0.2 :: Double))
+                ]
+        score = objectiveScore metrics "calmar" 1.5 0.2
+    assertApprox
+        "calmar should fall back to annualized return when max drawdown is zero"
+        1e-12
+        score
+        0.42
 
 testOptimizerNormalizeOptionalPositiveFraction :: IO ()
 testOptimizerNormalizeOptionalPositiveFraction = do

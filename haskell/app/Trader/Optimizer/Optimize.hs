@@ -3,7 +3,10 @@
 module Trader.Optimizer.Optimize (
     OptimizerArgs (..),
     applyQualityPreset,
+    normalizeObjectiveCode,
     normalizeOptionalPositiveFraction,
+    objectiveScore,
+    qualityPresetIntervalFields,
     runOptimizer,
     sampleTakeProfitPartial,
 ) where
@@ -85,6 +88,7 @@ import Trader.Optimizer.Random (
     nextUniform,
     seedRng,
  )
+import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 import Trader.Platform (Platform (..), platformIntervals)
 import Trader.Symbol (sanitizeComboSymbolForPlatform)
 
@@ -458,6 +462,8 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         maxDdN = max 0 maxDd
         cvar95N = max 0 cvar95
         turnoverN = max 0 turnover
+        pDd = max 0 penaltyMaxDd
+        pTurn = max 0 penaltyTurnover
         avgTradeReturn = metricFloat (Just metrics) "avgTradeReturn" 0
         avgHoldingPeriods = metricFloat (Just metrics) "avgHoldingPeriods" 0
         exposure = metricFloat (Just metrics) "exposure" 0
@@ -475,18 +481,24 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         paybackBonus
             | avgHoldingPeriods <= 0 = 0
             | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
-        obj = map toLower (trim objective)
         baseScore
-            | obj `elem` ["final-equity", "final_equity", "finalequity"] = finalEq
-            | obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"] = annRet
-            | obj `elem` ["roi", "risk-adjusted-roi", "risk_adjusted_roi", "riskadjustedroi"] =
-                annRet - penaltyMaxDd * (maxDdN + cvar95N) - penaltyTurnover * turnoverN + 0.5 * avgTradeReturn + paybackBonus
-            | obj == "sharpe" = sharpe
-            | obj == "calmar" = annRet / max 1e-12 maxDd
-            | obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"] = finalEq - penaltyMaxDd * maxDd
-            | obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"] = finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
-            | otherwise = finalEq
+            = case parseTuneObjective objective of
+                Right TuneFinalEquity -> finalEq
+                Right TuneAnnualizedEquity -> annRet
+                Right TuneRoi ->
+                    annRet - pDd * (maxDdN + cvar95N) - pTurn * turnoverN + 0.5 * avgTradeReturn + paybackBonus
+                Right TuneSharpe -> sharpe
+                Right TuneCalmar ->
+                    if maxDdN <= 0
+                        then annRet
+                        else annRet / max 1e-12 maxDdN
+                Right TuneEquityDd -> finalEq - pDd * maxDdN
+                Right TuneEquityDdTurnover -> finalEq - pDd * maxDdN - pTurn * turnoverN
+                Left _ -> finalEq
      in baseScore - activityPenalty - exposurePenalty
+
+normalizeObjectiveCode :: String -> Either String String
+normalizeObjectiveCode raw = tuneObjectiveCode <$> parseTuneObjective raw
 
 extractOperations :: Maybe Value -> Maybe [Value]
 extractOperations raw = do
@@ -993,11 +1005,7 @@ applyQualityPreset args =
             if objective `elem` ["final-equity", "final_equity", "finalequity"]
                 then "roi"
                 else oaObjective args
-        intervalReset =
-            case oaInterval args of
-                Just v | not (null (trim v)) -> True
-                _ -> False
-        intervals' = if intervalReset then Just binanceIntervalsCsv else oaIntervals args
+        (interval', intervals') = qualityPresetIntervalFields (oaInterval args) (oaIntervals args)
         maxIf :: (Ord a) => a -> a -> a
         maxIf = max
         minIf :: (Ord a) => a -> a -> a
@@ -1115,9 +1123,23 @@ applyQualityPreset args =
             , oaKellyLiteFloorMax = maxIf (oaKellyLiteFloorMax args) 0.35
             , oaKellyLiteCapMin = minIf (oaKellyLiteCapMin args) 0.6
             , oaKellyLiteCapMax = maxIf (oaKellyLiteCapMax args) 1.25
-            , oaInterval = if intervalReset then Nothing else oaInterval args
+            , oaInterval = interval'
             , oaIntervals = intervals'
             }
+
+qualityPresetIntervalFields :: Maybe String -> Maybe String -> (Maybe String, Maybe String)
+qualityPresetIntervalFields rawInterval rawIntervals =
+    let normalizeMaybe value =
+            case value of
+                Nothing -> Nothing
+                Just v ->
+                    let trimmed = trim v
+                     in if null trimmed then Nothing else Just trimmed
+        interval = normalizeMaybe rawInterval
+        intervals = normalizeMaybe rawIntervals
+     in if isJust interval || isJust intervals
+            then (interval, intervals)
+            else (Nothing, Just binanceIntervalsCsv)
 
 data TrialParams = TrialParams
     { tpPlatform :: !(Maybe String)

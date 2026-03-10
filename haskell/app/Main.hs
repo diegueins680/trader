@@ -11334,42 +11334,39 @@ prepareOptimizerArgs outputPath req = do
                                 then Left "highColumn/lowColumn are only supported for csv source"
                                 else Right []
                 objectiveAllowed =
-                    [ "annualized-equity"
-                    , "roi"
-                    , "final-equity"
-                    , "sharpe"
-                    , "calmar"
-                    , "equity-dd"
-                    , "equity-dd-turnover"
-                    ]
+                    map tuneObjectiveCode [TuneAnnualizedEquity, TuneRoi, TuneFinalEquity, TuneSharpe, TuneCalmar, TuneEquityDd, TuneEquityDdTurnover]
                 objectiveRaw = fmap (map toLower . trim) (arrObjective req)
                 objectiveArgsResult =
                     case objectiveRaw of
                         Nothing -> Right []
                         Just v | null v -> Right []
-                        Just v | v `elem` objectiveAllowed -> Right ["--objective", v]
                         Just v ->
-                            Left
-                                ( "Invalid objective: "
-                                    ++ show v
-                                    ++ " (expected one of: "
-                                    ++ intercalate ", " objectiveAllowed
-                                    ++ ")"
-                                )
+                            case parseTuneObjective v of
+                                Right objectiveCode -> Right ["--objective", tuneObjectiveCode objectiveCode]
+                                Left _ ->
+                                    Left
+                                        ( "Invalid objective: "
+                                            ++ show v
+                                            ++ " (expected one of: "
+                                            ++ intercalate ", " objectiveAllowed
+                                            ++ ")"
+                                        )
                 tuneObjectiveRaw = fmap (map toLower . trim) (arrTuneObjective req)
                 tuneObjectiveArgsResult =
                     case tuneObjectiveRaw of
                         Nothing -> Right []
                         Just v | null v -> Right []
-                        Just v | v `elem` objectiveAllowed -> Right ["--tune-objective", v]
                         Just v ->
-                            Left
-                                ( "Invalid tuneObjective: "
-                                    ++ show v
-                                    ++ " (expected one of: "
-                                    ++ intercalate ", " objectiveAllowed
-                                    ++ ")"
-                                )
+                            case parseTuneObjective v of
+                                Right objectiveCode -> Right ["--tune-objective", tuneObjectiveCode objectiveCode]
+                                Left _ ->
+                                    Left
+                                        ( "Invalid tuneObjective: "
+                                            ++ show v
+                                            ++ " (expected one of: "
+                                            ++ intercalate ", " objectiveAllowed
+                                            ++ ")"
+                                        )
                 barsDistributionAllowed = ["uniform", "log"]
                 barsDistributionRaw = fmap (map toLower . trim) (arrBarsDistribution req)
                 barsDistributionArgsResult =

@@ -665,6 +665,7 @@ Backtest limits:
 
 Optimizer script tips:
 - `optimize-equity` defaults to `--objective roi --tune-objective roi` (risk-adjusted ROI).
+- `optimize-equity` canonicalizes objective aliases for both `--objective` and `--tune-objective` (`annualized_return` -> `annualized-equity`, `risk_adjusted_roi` -> `roi`), and `/optimizer/run` accepts the same aliases before forwarding canonical objective codes to the optimizer.
 - `optimize-equity` now tunes stop-loss and take-profit by default for ROI-focused runs; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
 - `optimize-equity` accepts `--futures` to pull Binance USDT-M futures data (Binance only).
 - `optimize-equity` clamps perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
@@ -672,6 +673,7 @@ Optimizer script tips:
 - Optimizer timeouts now return even if a child backtest process doesn't exit after SIGTERM, and stdout/stderr capture won't block progress if pipes never close.
 - `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons), now defaults to quality mode with robustness filters, prefers higher-quality seed combos, continues when a symbol run fails, and writes a `run.log` with exit/signal status in the output directory.
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
+- `optimize-equity --quality` preserves an explicit `--interval` or `--intervals` constraint; it only falls back to the default interval pool when you omitted interval selection entirely.
 - `optimize-equity` now defaults to stronger robustness gates: `--min-round-trips 20`, `--min-exposure 0.10`, `--min-sharpe 1.0`, `--min-calmar 0.8`, `--min-wf-sharpe-mean 0.8`, and `--max-wf-sharpe-std 1.0` (set any of these to `0` to disable that gate).
 - `optimize-equity` now defaults to stress-aware tune scoring (`--tune-stress-vol-mult 1.25`, `--tune-stress-weight 0.2`) and walk-forward embargo sampling (`--walk-forward-embargo-bars-min/max 1/3`) for leakage-resistant selection.
 - Objective scoring now applies sparse-activity/no-exposure penalties, so zero-trade and ultra-low-exposure trials rank below active candidates even when hard filters are relaxed.
