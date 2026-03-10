@@ -8,6 +8,21 @@ module Trader.Method (
 
 import Data.Char (isSpace, toLower)
 
+-- | Floor for the sum of Kalman and LSTM momentum magnitudes below which both
+--   are treated as zero (dimensionless; avoids division by near-zero values).
+momentumMagnitudeFloor :: Double
+momentumMagnitudeFloor = 1.0e-12
+
+-- | Minimum absolute momentum (price-units/step) for a reading to register as
+--   a non-zero direction in the sign test.
+momentumSignTolerance :: Double
+momentumSignTolerance = 1.0e-9
+
+-- | Relative divergence fraction above which the two predictors are considered
+--   to be in "strong divergence" (0.02 == 2 %).
+regimeDivergenceThreshold :: Double
+regimeDivergenceThreshold = 0.02
+
 data Method
     = MethodBoth
     | MethodKalmanOnly
@@ -42,21 +57,6 @@ data Method
     | MethodRouter
     | MethodBanditRouter
     deriving (Eq, Show)
-
--- | Minimum combined momentum magnitude below which weighted blending falls back
--- to a simple midpoint, preventing division by near-zero (unitless ratio).
-regimeMagnitudeEpsilon :: Double
-regimeMagnitudeEpsilon = 1.0e-12
-
--- | Tolerance for treating a momentum value as zero when determining its sign
--- (unitless, in the same units as the prediction values).
-regimeMomentumTolerance :: Double
-regimeMomentumTolerance = 1.0e-9
-
--- | Relative divergence ratio above which two predictions are considered
--- strongly divergent and are averaged together (e.g. 0.02 = 2%).
-regimeDivergenceThreshold :: Double
-regimeDivergenceThreshold = 0.02
 
 methodCode :: Method -> String
 methodCode m =
@@ -361,7 +361,7 @@ selectPredictions m blendWeight kalPred lstmPred =
 
         weightedByMagnitude :: Double -> Double -> Double -> Double -> Double
         weightedByMagnitude kalMagnitude lstmMagnitude kal lstm
-            | kalMagnitude + lstmMagnitude <= regimeMagnitudeEpsilon = midpoint kal lstm
+            | kalMagnitude + lstmMagnitude <= momentumMagnitudeFloor = midpoint kal lstm
             | otherwise =
                 let kalWeight = kalMagnitude / (kalMagnitude + lstmMagnitude)
                  in kalWeight * kal + (1 - kalWeight) * lstm
@@ -374,8 +374,8 @@ selectPredictions m blendWeight kalPred lstmPred =
 
         signWithTolerance :: Double -> Int
         signWithTolerance x
-            | x > regimeMomentumTolerance = 1
-            | x < -regimeMomentumTolerance = -1
+            | x > momentumSignTolerance = 1
+            | x < -momentumSignTolerance = -1
             | otherwise = 0
 
         isStrongDivergence :: Double -> Double -> Bool

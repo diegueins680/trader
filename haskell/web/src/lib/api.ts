@@ -162,7 +162,7 @@ function tenantKeyFromPath(path: string): string | null {
   }
 }
 
-function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
+export function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
   if (!body) return null;
   if (typeof body === "string") {
     const trimmed = body.trim();
@@ -185,11 +185,11 @@ function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
   return null;
 }
 
-function withTenantHeader(
+export function withTenantHeader(
   headers: Headers,
   path: string,
   body: BodyInit | null | undefined,
-  allowTenantHeader: boolean,
+  allowTenantHeader = true,
 ): Headers {
   if (!allowTenantHeader) return headers;
   if (headers.has(TENANT_HEADER)) return headers;
