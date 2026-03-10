@@ -77,6 +77,7 @@ import Text.Read (readMaybe)
 
 import Trader.BinanceIntervals (binanceIntervalsCsv)
 import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom)
+import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Random (
     Rng,
@@ -88,7 +89,6 @@ import Trader.Optimizer.Random (
     nextUniform,
     seedRng,
  )
-import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 import Trader.Platform (Platform (..), platformIntervals)
 import Trader.Symbol (sanitizeComboSymbolForPlatform)
 
@@ -481,8 +481,8 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         paybackBonus
             | avgHoldingPeriods <= 0 = 0
             | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
-        baseScore
-            = case parseTuneObjective objective of
+        baseScore =
+            case parseTuneObjective objective of
                 Right TuneFinalEquity -> finalEq
                 Right TuneAnnualizedEquity -> annRet
                 Right TuneRoi ->
@@ -1602,8 +1602,7 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , "--tri-layer-price-action-body"
                    , printf "%.8f" (max 0 (tpTriLayerPriceActionBody params))
                    ]
-                ++ ( ["--no-tri-layer-price-action" | tpTriLayer params && not (tpTriLayerPriceAction params)]
-                   )
+                ++ (["--no-tri-layer-price-action" | tpTriLayer params && not (tpTriLayerPriceAction params)])
                 ++ (["--tri-layer-exit-on-slow" | tpTriLayerExitOnSlow params])
                 ++ [ "--kalman-band-lookback"
                    , show (max 0 (tpKalmanBandLookback params))
@@ -5293,8 +5292,7 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
                 avg xs =
                     let (sumX, countX) =
                             foldl'
-                                ( \(acc, n) x -> (acc + x, n + 1 :: Int)
-                                )
+                                (\(acc, n) x -> (acc + x, n + 1 :: Int))
                                 (0, 0)
                                 xs
                      in if countX == 0 then Nothing else Just (sumX / fromIntegral countX)

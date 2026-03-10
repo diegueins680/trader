@@ -8,18 +8,21 @@ module Trader.Method (
 
 import Data.Char (isSpace, toLower)
 
--- | Floor for the sum of Kalman and LSTM momentum magnitudes below which both
---   are treated as zero (dimensionless; avoids division by near-zero values).
+{- | Floor for the sum of Kalman and LSTM momentum magnitudes below which both
+  are treated as zero (dimensionless; avoids division by near-zero values).
+-}
 momentumMagnitudeFloor :: Double
 momentumMagnitudeFloor = 1.0e-12
 
--- | Minimum absolute momentum (price-units/step) for a reading to register as
---   a non-zero direction in the sign test.
+{- | Minimum absolute momentum (price-units/step) for a reading to register as
+  a non-zero direction in the sign test.
+-}
 momentumSignTolerance :: Double
 momentumSignTolerance = 1.0e-9
 
--- | Relative divergence fraction above which the two predictors are considered
---   to be in "strong divergence" (0.02 == 2 %).
+{- | Relative divergence fraction above which the two predictors are considered
+  to be in "strong divergence" (0.02 == 2 %).
+-}
 regimeDivergenceThreshold :: Double
 regimeDivergenceThreshold = 0.02
 
