@@ -235,6 +235,7 @@ import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
+import Trader.Optimizer.Optimize (normalizeObjectiveCode, objectiveScore)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
@@ -7698,7 +7699,10 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         objectiveRaw = fmap (map toLower . trim) objectiveEnv
                                         objective =
                                             case objectiveRaw of
-                                                Just v | v `elem` objectiveAllowed -> v
+                                                Just v ->
+                                                    case normalizeObjectiveCode v of
+                                                        Right objectiveCode -> objectiveCode
+                                                        Left _ -> "roi"
                                                 _ -> "roi"
                                         symbols =
                                             case symbolsEnv of
@@ -12658,66 +12662,18 @@ extractBacktestOperations val =
 
 objectiveScoreFromMetrics :: Args -> String -> Aeson.Value -> Maybe Double
 objectiveScoreFromMetrics args objective metricsVal =
-    let metric k =
-            case metricsVal of
-                Aeson.Object o -> KM.lookup (AK.fromString k) o >>= AT.parseMaybe parseJSON
-                _ -> Nothing
-        metricDouble :: String -> Maybe Double
-        metricDouble = metric
-        metricInt :: String -> Maybe Int
-        metricInt = metric
-        finalEq = fromMaybe 0 (metricDouble "finalEquity")
-        maxDd = fromMaybe 0 (metricDouble "maxDrawdown")
-        cvar95 = fromMaybe 0 (metricDouble "cvar95")
-        sharpe = fromMaybe 0 (metricDouble "sharpe")
-        annRet = fromMaybe 0 (metricDouble "annualizedReturn")
-        turnover = fromMaybe 0 (metricDouble "turnover")
-        maxDdN = max 0 maxDd
-        cvar95N = max 0 cvar95
-        turnoverN = max 0 turnover
-        avgTradeReturn = fromMaybe 0 (metricDouble "avgTradeReturn")
-        avgHoldingPeriods = fromMaybe 0 (metricDouble "avgHoldingPeriods")
-        roundTrips = max 0 (fromMaybe 0 (metricInt "roundTrips"))
-        tradeCount = max 0 (fromMaybe 0 (metricInt "tradeCount"))
-        exposure = max 0 (fromMaybe 0 (metricDouble "exposure"))
-        activityCount = max roundTrips tradeCount
-        activityPenalty
-            | activityCount <= 0 = 0.25
-            | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
-            | otherwise = 0
-        exposurePenalty
-            | exposure <= 0 = 0.05
-            | exposure < 0.01 = 0.02
-            | otherwise = 0
-        paybackBonus
-            | avgHoldingPeriods <= 0 = 0
-            | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
-        obj = map toLower (trim objective)
-        penaltyMaxDd = max 0 (argTunePenaltyMaxDrawdown args)
-        penaltyTurnover = max 0 (argTunePenaltyTurnover args)
-        rawScore
-            | obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"] = annRet
-            | obj `elem` ["roi", "risk-adjusted-roi", "risk_adjusted_roi", "riskadjustedroi"] =
-                annRet
-                    - penaltyMaxDd * (maxDdN + cvar95N)
-                    - penaltyTurnover * turnoverN
-                    + 0.5 * avgTradeReturn
-                    + paybackBonus
-                    - activityPenalty
-                    - exposurePenalty
-            | obj `elem` ["final-equity", "final_equity", "finalequity"] = finalEq
-            | obj == "sharpe" = sharpe
-            | obj == "calmar" = annRet / max 1e-12 maxDd
-            | obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"] =
-                finalEq - penaltyMaxDd * maxDd
-            | obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"] =
-                finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
-            | otherwise = finalEq
-        score =
-            if isNaN rawScore || isInfinite rawScore
-                then Nothing
-                else Just rawScore
-     in score
+    case metricsVal of
+        Aeson.Object metrics ->
+            let rawScore =
+                    objectiveScore
+                        metrics
+                        objective
+                        (argTunePenaltyMaxDrawdown args)
+                        (argTunePenaltyTurnover args)
+             in if isNaN rawScore || isInfinite rawScore
+                    then Nothing
+                    else Just rawScore
+        _ -> Nothing
 
 topComboParamString :: String -> TopCombo -> Maybe String
 topComboParamString key combo =

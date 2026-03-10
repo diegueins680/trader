@@ -3950,7 +3950,11 @@ runOptimizer args0 = do
                                                                                                                                                     else
                                                                                                                                                         let annRet = metricFloat (trMetrics tr0) "annualizedReturn" 0
                                                                                                                                                             maxDd = metricFloat (trMetrics tr0) "maxDrawdown" 0
-                                                                                                                                                            calmar = annRet / max 1e-12 maxDd
+                                                                                                                                                            maxDdN = max 0 maxDd
+                                                                                                                                                            calmar =
+                                                                                                                                                                if maxDdN <= 0
+                                                                                                                                                                    then annRet
+                                                                                                                                                                    else annRet / max 1e-12 maxDdN
                                                                                                                                                          in if minAnnualizedReturn > 0 && annRet < minAnnualizedReturn
                                                                                                                                                                 then (False, Just (printf "annualizedReturn<%.3f" minAnnualizedReturn), Nothing)
                                                                                                                                                                 else
