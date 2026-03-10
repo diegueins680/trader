@@ -352,6 +352,43 @@ test("api client forwards tenant key as X-Tenant-Key from JSON body params", asy
   assert.equal(tenantHeader, "tenant-body");
 });
 
+test("api client forwards X-Tenant-Key from FormData body with string tenantKey", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => jsonResponse(200, {}),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", "tenant-form");
+      fd.append("someFile", new Blob(["data"]), "file.txt");
+      const headers = api.withTenantHeader(new Headers(), "/bot/start", fd);
+      assert.equal(headers.get("X-Tenant-Key"), "tenant-form");
+    },
+  );
+});
+
+test("api client does not forward X-Tenant-Key for non-string (Blob/File) tenantKey in FormData", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => jsonResponse(200, {}),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", new Blob(["secret"]), "key.bin");
+      const headers = api.withTenantHeader(new Headers(), "/bot/start", fd);
+      assert.equal(headers.get("X-Tenant-Key"), null);
+    },
+  );
+});
+
 test("api client forwards tenant key as X-Tenant-Key from query params", async () => {
   let tenantHeader = null;
   await withApiModule(

@@ -185,7 +185,7 @@ function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
   return null;
 }
 
-function withTenantHeader(headers: Headers, path: string, body: BodyInit | null | undefined): Headers {
+export function withTenantHeader(headers: Headers, path: string, body: BodyInit | null | undefined): Headers {
   if (headers.has(TENANT_HEADER)) return headers;
   const tenantKey = tenantKeyFromPath(path) ?? tenantKeyFromBody(body);
   if (tenantKey) headers.set(TENANT_HEADER, tenantKey);
