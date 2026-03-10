@@ -185,11 +185,11 @@ export function tenantKeyFromBody(body: BodyInit | null | undefined): string | n
   return null;
 }
 
-function withTenantHeader(
+export function withTenantHeader(
   headers: Headers,
   path: string,
   body: BodyInit | null | undefined,
-  allowTenantHeader: boolean,
+  allowTenantHeader = true,
 ): Headers {
   if (!allowTenantHeader) return headers;
   if (headers.has(TENANT_HEADER)) return headers;
