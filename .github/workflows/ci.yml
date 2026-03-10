@@ -62,10 +62,10 @@ jobs:
           cache: npm
           cache-dependency-path: haskell/web/package-lock.json
 
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run test
-      - run: npm run build
+      - run: npm --workspaces=false ci
+      - run: npm --workspaces=false run typecheck
+      - run: npm --workspaces=false run test
+      - run: npm --workspaces=false run build
 
   deploy:
     name: Deploy (Fly.io)
