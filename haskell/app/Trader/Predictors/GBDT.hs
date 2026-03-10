@@ -129,8 +129,7 @@ fitStump feats residuals =
         let xs = V.map (V.! j) feats
             thrs = candidateThresholds (V.toList xs)
             options =
-                [ let (lRes, rRes) = splitOnThreshold thr xs residuals
-                      lMean = if null lRes then 0 else mean lRes
+                [ let lMean = if null lRes then 0 else mean lRes
                       rMean = if null rRes then 0 else mean rRes
                       sse = sumSqErr lMean lRes + sumSqErr rMean rRes
                       stump = Stump{stFeature = j, stThreshold = thr, stLeftValue = lMean, stRightValue = rMean}

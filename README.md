@@ -23,19 +23,30 @@ Features
 - Feature engineering includes psychological round-number proximity (big figures/halves/quarters/tenths) plus short/mid momentum and volatility spread features.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
+- Context-aware blend/pick methods guard against non-finite model outputs (`NaN`/`Infinity`) by falling back to a neutral finite prediction (current price when available).
 - Router and bandit-router adaptive model selection now evaluate six strategy candidates (`kalman`, `lstm`, `blend`, `cost_pick`, `regime_switch`, `edge_blend`) to improve risk-adjusted selection under changing regimes.
 - Ensemble simulation helpers return `Either` with validation errors instead of throwing exceptions.
 - API background workers (bot auto-start, optimizer loops) run under supervision and auto-restart on non-async failures; top-combo candle-trigger backtests are deduped via a bounded queue to prevent unbounded trigger backlog.
 - Ops DB schema setup is versioned via `ops_schema_migrations`, allowing idempotent, incremental schema rollout instead of a monolithic startup DDL block.
+- Top-combo persistence normalizes method aliases through shared parser logic, so all supported methods (including `kalman_physics_error`, `conformal_clip`, `divergence_gate`, `smooth_softmax_blend`, `hedge_blend`) resolve to the right strategy records.
+- Top-combo symbol cleanup recovers Binance pairs from prefixed/tokenized strings (for example `binance:btc/usdt` and `binance-btc-usdt`) so valid symbols are preserved for combo selection.
+- `merge-top-combos` canonicalizes prefixed platform keys (for example `coinbase-advanced` -> `coinbase`, `uniswap-v3` -> `uniswap`) so merged combo platform/symbol fields keep exchange-specific delimiter semantics.
+- Top-combo symbol resolution now preserves Coinbase/Poloniex/DEX symbols and can fall back to payload `source` metadata when `params.platform` is absent, so persisted/imported combos keep their symbol identity outside Binance too.
+- Base/quote symbol splitting now handles delimited exchange formats (`BASE-QUOTE`, `BASE_QUOTE`, `BASE/QUOTE`) without leaking delimiter characters into the extracted asset legs.
+- `kalman_physics_error` backtests/signals now preserve their method identity in outputs (instead of being reported as `10`/`kalman`), and bot post-trade threshold tuning no longer downgrades that method label, keeping API responses and ops strategy mapping consistent.
+- Backtest-to-signal handoff now aligns prediction-history indices to the full price series before latest-signal computation, and `kalman_physics_error` latest-signal paths prefer the physics-model prediction history when present.
 - Optional tri-layer entry gating: Kalman cloud trend + price-action reversal triggers (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, Sortino, Calmar, VaR/CVaR, max drawdown) (`haskell/app/Trader/Metrics.hs`).
 - Data sources: CSV or exchange klines (Binance/Coinbase/Kraken/Poloniex).
+- Exchange candle parsers now require integral numeric timestamps (fractional timestamps are rejected), normalize exact/negative millisecond epoch boundaries consistently, and reject non-finite numeric strings (`NaN`/`Infinity`) for OHLC values.
+- Coinbase candle pagination now keeps chunk windows contiguous across the 300-candle API page boundary, so large lookbacks do not skip boundary candles.
 - Sample dataset in `data/sample_prices.csv`.
 
 ROI playbook
 ------------
 For a concrete Codex workflow focused on speed + quality (task lanes, guardrails, command packs, and weekly scorecard), see `ROI_PLAYBOOK.md`.
 Generate a weekly scorecard automatically with `./haskell/scripts/generate_roi_scorecard.sh` (use `--week YYYY-WW` for a specific ISO week).
+For the optimizer's machine-checked ROI contract and bounded formal verification, see `FORMAL_METHODS.md`.
 
 Quick start
 -----------
@@ -128,7 +139,7 @@ Futures protection orders (live):
 - The continuous `/bot` loop skips exchange-native protection orders by default; set `botProtectionOrders=true` on `/bot/start` to place reduce-only `STOP_MARKET` / `TAKE_PROFIT_MARKET` protection orders on Binance futures (trailing stops remain internal).
 - If Binance requires the Algo Order API for futures trigger orders, the backend will automatically retry via `/fapi/v1/algoOrder` for those protections (live-only).
 - When a futures position is closed with a reduce-only order, the backend attempts to cancel any remaining bot-owned algo protection orders for the same symbol.
-- Live bot position/equity transitions reconcile from exchange fill evidence (`status`/`executedQty`) and executed size. Partial fills update in-memory position size proportionally instead of assuming full requested quantity.
+- Live bot position/equity transitions reconcile from exchange fill evidence (`status`/`executedQty`) and executed size. Explicit `executedQty` is honored even when the terminal status is `CANCELED`/`EXPIRED`, so partial fills still update in-memory position size proportionally instead of assuming full requested quantity.
 
 Environment variables:
 - `BINANCE_API_KEY`
@@ -137,7 +148,7 @@ Environment variables:
 - `COINBASE_API_SECRET`
 - `COINBASE_API_PASSPHRASE`
 - `TRADER_HTTP_LOG` (optional; set to `1`/`true` to log outgoing HTTP requests and retries)
-- `TRADER_HTTP_RETRY_MAX` / `TRADER_HTTP_RETRY_BASE_MS` / `TRADER_HTTP_RETRY_MAX_MS` / `TRADER_HTTP_RETRY_JITTER` / `TRADER_HTTP_RETRY_WRITES` (optional; override HTTP retry/backoff defaults)
+- `TRADER_HTTP_RETRY_MAX` / `TRADER_HTTP_RETRY_BASE_MS` / `TRADER_HTTP_RETRY_MAX_MS` / `TRADER_HTTP_RETRY_JITTER` / `TRADER_HTTP_RETRY_WRITES` (optional; override HTTP retry/backoff defaults; jittered delays stay capped by `TRADER_HTTP_RETRY_MAX_MS`)
 - `TRADER_BINANCE_REST_URL` / `TRADER_BINANCE_TESTNET_REST_URL` (optional; override Binance spot REST base URLs)
 - `TRADER_BINANCE_FUTURES_REST_URL` / `TRADER_BINANCE_FUTURES_TESTNET_REST_URL` (optional; override Binance futures REST base URLs)
 - `TRADER_BINANCE_PROXY_URL` (optional; route Binance HTTP requests through a fixed-IP proxy, `http://user:pass@host:port`)
@@ -208,7 +219,7 @@ cabal run trader-hs -- \
 
 CLI parameters
 --------------
-You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binance-symbol` (exchange; default platform is Binance). DEX trades require `--data` and accept `--dex-base-token/--dex-quote-token` (optionally `--symbol` for display).
+You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binance-symbol` (exchange; default platform is Binance). DEX trades require `--data` and accept `--dex-base-token/--dex-quote-token` (optionally `--symbol` for display; CSV remains the authoritative data source when both are present).
 
 - Data source
   - `--data PATH` (default: none) CSV file containing prices
@@ -216,17 +227,29 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--high-column high` CSV column name for high (requires `--low-column`; enables intrabar stop-loss/take-profit/trailing-stop realism)
   - `--low-column low` CSV column name for low (requires `--high-column`)
   - If a time column is detected, CSV rows are sorted by parsed timestamps; unparseable timestamps keep file order.
+  - CSV numeric cells for price/high/low/open/volume must be finite numbers; `NaN`/`Infinity` values are rejected.
   - `--symbol SYMBOL` (alias `--binance-symbol`) exchange symbol to fetch klines
   - `--platform binance` exchange platform for `--symbol` (`binance|coinbase|kraken|poloniex|uniswap|curve|sushiswap|balancer|pancakeswap|1inch`)
+    - Platform parsing is case-insensitive and trims surrounding whitespace (for example `--platform "  Coinbase  "`).
     - Coinbase products use `BASE-QUOTE` (for example `BTC-USD`).
     - Poloniex symbols use `BASE_QUOTE` (for example `BTC_USDT`); legacy `USDT_BTC` is auto-swapped.
+    - Binance/Coinbase/Poloniex symbol delimiters are normalized during validation, so slash or whitespace-padded inputs like `BTC/USDT` and `BTC / USD` are accepted and rewritten to `BTCUSDT` / `BTC-USD` / `BTC_USDT`.
+    - Symbol normalization also canonicalizes prefixed exchange keys (for example `coinbase-advanced`, `poloniex-v2`, `binanceusdm`) before applying exchange-specific delimiter rules.
+    - DEX-prefixed platform keys (for example `uniswap-v3`, `1inch-v6`) keep DEX symbol delimiters during combo-symbol sanitization instead of forcing Binance-style compaction.
+    - Coinbase/Poloniex compact symbols without the required delimiter (for example `BTCUSD` or `BTCUSDT`) are rejected during CLI validation; Binance also rejects malformed non-alphanumeric symbols early.
+    - Binance quote-only tokens (for example `USDT`, `USDC`, `BTC`) are rejected; symbols must represent a trade pair.
+    - Top-combo symbol cleanup preserves both legs for unknown-platform delimited pairs (`BTC-USD` -> `BTCUSD`) and rejects numeric-only delimited artifacts (`2024-01-01`).
 
 - Bars & lookback (defaults: `--interval 1h`, `--lookback-window 7d` → 168 bars, `--bars auto`)
 - `--interval 1h` (alias `--binance-interval`) bar interval / exchange kline interval
+  - Interval inputs are trimmed and normalized for unit casing (`1H` -> `1h`, `2D` -> `2d`); Binance monthly `1M` remains distinct from minute `1m`.
 - `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or platform default for exchanges: Binance/Kraken/Poloniex=500, Coinbase=300; CSV also supports `0` = all; Binance 2..1000)
+  - Numeric `--bars` values accept optional leading `+` (for example `+500`) in addition to plain decimal integers.
   - `--lookback-window 7d` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
+  - Oversized integer literals and overflow during `--lookback-window` unit conversion/bar conversion are rejected (no integer wraparound).
   - Lookback must be less than the total number of bars; CLI/API requests error when fewer than `lookback + 1` prices are available (including CSV `--bars auto/0`).
+  - On DEX platforms, providing `--data` plus optional `--symbol` still uses CSV bar semantics for lookback validation (`--bars auto/0` = all CSV rows); `--symbol` is display/trade metadata only in this mode.
 
 - Trading (Binance + Coinbase + DEX)
   - Trading flags apply only when `--platform binance`, `--platform coinbase`, or a supported DEX platform.
@@ -239,12 +262,13 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--dry-run` (default: off) requires `--binance-trade`; computes signals and returns a simulated trade response, but never sends exchange/DEX requests
   - `--binance-live` (default: off) send LIVE orders
   - `--no-binance-live` send TEST orders (Binance only; Coinbase has no test endpoint)
-  - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`)
-  - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`)
+  - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`, must be `> 0`)
+  - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`, must be `> 0`)
   - `--order-quote-fraction F` (default: none) size BUY orders as a fraction of the free quote balance (`0 < F <= 1`)
-  - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
-  - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
+  - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction` (must be `> 0`)
+  - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders (trimmed before use; must be `1..36` ASCII chars, `[A-Za-z0-9_-]`)
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
+  - Numeric CLI parameters reject non-finite values (`NaN`, `Infinity`) during validation.
   - Order sizes are applied as specified (no extra multiplier).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
   - Non-dry-run trading validates required credentials and DEX runtime settings before execution (fail-fast with a user error/HTTP 400).
@@ -252,12 +276,18 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 
 - DEX execution (Uniswap/Curve/Sushi/Balancer/Pancake/1inch via 1inch)
   - DEX trades require CSV price data (`--data`) and the following config:
-    - `--dex-chain-id ID` (or env `TRADER_DEX_CHAIN_ID`)
+    - `--dex-chain-id ID` (or env `TRADER_DEX_CHAIN_ID`; must be `> 0`)
     - `--dex-base-token TOKEN` / `--dex-quote-token TOKEN` (address or symbol; base is the asset you buy when LONG)
-    - `--dex-base-decimals N` / `--dex-quote-decimals N` (optional overrides when token metadata lookup fails)
+      - `--dex-base-token` and `--dex-quote-token` must be provided together; partial overrides are rejected.
+    - `--dex-base-decimals N` / `--dex-quote-decimals N` (optional overrides when token metadata lookup fails; valid range `0..255`)
     - `--dex-protocols LIST` (optional 1inch protocols restriction, comma-separated)
     - `--dex-auto-approve` / `--no-dex-auto-approve` (default on)
+  - Runtime DEX env validation is strict: `TRADER_DEX_RPC_URL` must be non-empty, `TRADER_DEX_PRIVATE_KEY` must be `0x` + 64 hex chars, and `TRADER_DEX_ADDRESS` must be `0x` + 40 hex chars.
+  - Token values with a `0x` prefix must be valid addresses (`0x` + exactly 40 hex characters); malformed addresses are rejected during validation.
+  - Native tokens (`native`/`eth`/`bnb`/etc.) accept decimal overrides (`--dex-base-decimals` / `--dex-quote-decimals`) and these overrides are applied consistently.
+  - When both tokens are explicit native/address inputs (with required decimals for addresses), resolution no longer depends on fetching 1inch token metadata.
   - Requires Foundry's `cast` on the PATH to sign/send transactions.
+  - `cast send` success output must include a valid `0x` + 64 hex transaction hash (plain or embedded in structured output); if no hash is detected, the trade fails with a validation error instead of using raw stdout as a hash.
   - DEX sizing: use `--order-quote` for BUY and `--order-quantity` for SELL (fractional sizing is not supported).
 
 - Coinbase API keys (optional; used for `/coinbase/keys` checks and Coinbase trades)
@@ -359,7 +389,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.
   - `--tune-objective roi` objective used by `--optimize-operations` / `--sweep-threshold`:
     - `annualized-equity` | `roi` | `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
+    - Objective parsing is whitespace-tolerant (including tabs/newlines) and treats `_` / `-` separators equivalently.
     - `roi` scores annualized return net of drawdown/CVaR and turnover penalties, then rewards faster payback and positive expectancy.
+    - The `roi` scoring contract and threshold tie-break are formalized in `FORMAL_METHODS.md` and exhaustively checked by `cd haskell && cabal test`.
     - Calmar falls back to annualized return when max drawdown is zero (avoids infinite scores).
     - To maximize annualized equity, set `--tune-objective annualized-equity` (alias: `annualized-return`).
   - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips (excludes end-of-series EOD exits), and non-inverted hysteresis (close <= open) without reducing equity.
@@ -396,7 +428,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-hold-bars N` minimum holding periods before allowing a signal-based exit (`0` disables; default: `4`; bracket exits still apply)
   - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
   - `--max-trades-per-day N` block new entries after `N` entries per UTC day (`0` disables; requires bar timestamps)
-  - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows; requires bar timestamps)
+  - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows; requires bar timestamps; strict zero-padded clock, e.g. `09:30-16:00`)
     - Entry gates block new entries/reversals; existing positions are held until the gate clears.
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables; LSTM methods only)
@@ -434,6 +466,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--funding-by-side` optional: apply funding sign by side (long pays positive, short receives)
     - Without `--funding-by-side`, the funding rate is applied uniformly (negative values credit both sides).
   - `--funding-on-open` optional: charge funding for bars opened with a position (even if exited intrabar)
+  - `--funding-oi-funding-cap F` optional: block entries when side-adjusted funding exceeds `F` (`0` disables; default: disabled)
+  - `--funding-oi-vol-cap F` optional: block entries when the OI-volatility proxy exceeds `F` (`0` disables; default: disabled)
   - Entries and latest-signal actions that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
   - `--kalman-z-min 0.5` minimum Kalman |mean|/std required to treat Kalman as directional (`0` disables)
   - `--kalman-z-max 3` Z-score mapped to full position size when confidence sizing is enabled
@@ -476,11 +510,15 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 - Metrics
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
     - The split must leave at least `lookback+1` training bars and 2 backtest bars, otherwise it errors.
-  - `--from TIME` / `--to TIME` optional backtest window bounds (epoch seconds/ms or ISO-8601, for example `2025-01-01` or `2025-01-01T00:00:00Z`)
+  - `--from TIME` / `--to TIME` optional backtest window bounds (epoch seconds/ms or ISO-8601, for example `2025-01-01`, `2025-01-01T00:00Z`, `2025-01-01T00:00:00Z`, or `2025-01-01T00:00:00+00:00`)
+    - Numeric epoch values must be base-10 integers within `Int64` range (scientific notation, non-decimal literals like `0x10`, fractional values, and overflowing numeric inputs are rejected). An optional leading `+` is accepted (`+1704067200`). Seconds-vs-milliseconds detection now treats up to 10-digit magnitudes as seconds and larger magnitudes as milliseconds, preserving negative and 11-digit millisecond epochs correctly.
     - Backtest window filtering requires bar timestamps (exchange candles or CSV with a parseable time column).
+    - ISO-8601 timezone offsets (`+HH:MM` / `-HH:MM`, and compact `+HHMM`) are supported; lowercase `t` datetime separators and lowercase `z` timezone suffixes are normalized and accepted.
+    - Expanded/signed ISO years (for example `10000-01-01`, `-0001-01-01`) are accepted when the resulting Unix-millisecond value fits `Int64`; out-of-range ISO timestamps are rejected.
   - `--initial-balance B` initial backtest balance (`> 0`, default `1.0`); scales equity outputs while keeping return/risk ratios unchanged.
   - `--periods-per-year N` (default: inferred from `--interval`)
     - Used for annualized metrics and tune scoring (optimize/sweep).
+    - Inference uses a 365-day year divided by parsed interval seconds (for example `1w ~= 52.14`, `1M ~= 12.17` with `M = 30d`).
 
 - Output
   - `--version` (or `-V`) print `trader-hs` version
@@ -491,6 +529,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
     - Trade responses include `txHash` when a DEX swap is submitted.
     - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match with non-neutral directions; agreement rate only counts bars where both models emit a non-neutral open direction.
+    - Candle-pattern gates (tri-layer price action) use real bar opens when available from the data source; otherwise they fall back to close-to-close synthetic opens.
     - Latest signal output includes `closeDirection` to indicate the close-threshold direction (when available).
     - When confidence gating is enabled, `closeDirection` respects the gated signal direction (matching backtests).
 
@@ -507,6 +546,8 @@ Run the bot as a REST API:
 - Most endpoints are **stateless** (each request loads data and computes/trains as needed).
 - The optional **live bot** endpoints (`/bot/*`) start a **stateful, non-stop** loop that ingests new bars, fine-tunes the model each bar, and (optionally) places orders until stopped.
 - `GET /metrics` exposes a small Prometheus-style endpoint.
+- `binanceTestnet` defaults to `false` for REST requests when omitted; set `binanceTestnet=true` per request when you intentionally want Binance testnet.
+- Ops persistence is required in `--serve` mode: set `TRADER_DB_URL` (or `DATABASE_URL`) and ensure DB connectivity, otherwise API startup fails.
 ```
 cd haskell
 cabal run trader-hs -- --serve --port 8080
@@ -537,13 +578,13 @@ Build info:
 - Commit metadata is included when env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA` is set.
 
 Endpoints:
-- `GET /` → basic endpoint list
+- `GET /` → build metadata plus the advertised endpoint list
 - `GET /health`
 - `GET /version` → build metadata (`name`, `version`, and `commit`; `commit` is `null` when unset)
 - `GET /metrics`
-- `GET /ops` → persisted operations feed (enabled via `TRADER_DB_URL`; requires `tenantKey` when `TRADER_MULTI_USER=true`)
+- `GET /ops` → persisted operations feed (requires DB-backed ops persistence via `TRADER_DB_URL`/`DATABASE_URL`; requires `tenantKey` when `TRADER_MULTI_USER=true`)
 - `GET /ops/performance` → ops rollups/deltas (requires `haskell/scripts/rollup_performance.sh`; `tenantKey` required when `TRADER_MULTI_USER=true`)
-- `GET /outbox` → outbox queue stats (counts by status + oldest pending age; enabled via `TRADER_DB_URL`; when `TRADER_MULTI_USER=true`, `tenantKey` is required and results are tenant-scoped)
+- `GET /outbox` → outbox queue stats (counts by status + oldest pending age; requires DB-backed ops persistence via `TRADER_DB_URL`/`DATABASE_URL`; when `TRADER_MULTI_USER=true`, `tenantKey` is required and results are tenant-scoped)
 - `GET /cache` → in-memory cache stats (entries + hit/miss)
 - `POST /cache/clear` → clears the in-memory cache
 - `POST /signal` → returns the latest signal (no orders)
@@ -563,11 +604,15 @@ Endpoints:
 - `POST /optimizer/run` → runs the optimizer executable, merges the run into `top-combos.json`, and returns the last JSONL record
   - The Web UI applies guardrails for trials/timeout/bars to avoid runaway optimizer runs (see UI constants).
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
-  - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), using score and final equity as tie-breakers.
-  - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist.
-  - Top-combo merges backfill missing `metrics.annualizedReturn`, and new optimizer runs stamp `params.binanceSymbol` so combos stay labeled.
+  - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), then score (`score` or `metrics.score`), then final equity.
+  - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist; when a combo omits `source`, merge inherits the payload-level `source` before de-duplication.
+  - Imported top-json payloads preserve arbitrary combo/payload `source` labels during merge normalization, so identical params from different source files do not collapse into one combo just because the source name is non-platform text.
+  - Top-combo merges read `finalEquity`/`score` from either the top level or nested `metrics`, backfill missing `metrics.annualizedReturn` only when bars/periods are available (including nested `metrics.periods`), and new optimizer runs stamp `params.binanceSymbol` so combos stay labeled.
+  - JSONL merge inputs now require a real boolean-like success flag for `ok` (`true`, `1`, `yes`, etc.); strings like `"false"` no longer count as successful optimizer records.
   - Abandoned optimizer lock directories are reclaimed quickly (10s heartbeat, 45s stale cutoff) so stale locks do not block `/optimizer/combos` for long after crashes/restarts.
-  - Combo symbols are normalized for Binance (e.g., `BTC/USDT` → `BTCUSDT`) and trim dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` → `BNBUSDT`) when read/merged.
+  - Combo symbols are normalized for Binance (e.g., `BTC/USDT` → `BTCUSDT`) and trim dataset/contract suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` → `BNBUSDT`, `BTCUSDTPERP` → `BTCUSDT`) when read/merged.
+  - When a combo ships a blank `params.platform`, symbol cleanup now falls back to combo/payload `source` metadata instead of silently defaulting to Binance-style compaction.
+  - DEX combo platform metadata and token-pair symbols are preserved during merge normalization (for example, `platform=uniswap` + `symbol=0xabc/0xdef` stay DEX-formatted instead of being compacted as Binance symbols).
   - Combos can include sizing params (`orderQuote`, `orderQuantity`, `orderQuoteFraction`, `maxOrderQuote`); applying combos will honor them so orders have a usable size.
   - `top-combos.json` also includes `bestOptimizationTechniques`, a curated list of optimization best practices with short explanations for downstream consumers, plus `optimizationTechniquesApplied`/`ensemble` sections that summarize the Sobol seeding, successive halving, Bayesian-inspired exploitation, walk-forward validation, and ensemble construction applied during a run.
 - `GET /state/sync` → exports bot snapshots and optimizer `top-combos.json` for syncing between deployments
@@ -577,7 +622,7 @@ Endpoints:
 - `POST /binance/keys` (futures): `binanceSymbol` is optional for the signed probe; the trade test is skipped when `binanceSymbol` is missing, and dataset-style suffixes are trimmed before the trade test runs.
 - `GET /binance/proxy/health` → checks Binance proxy connectivity (reports `status=ok|error|not_configured`)
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
-- `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting
+- `GET /binance/positions` and `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting
 - `POST /binance/positions/close` → sends a reduce-only futures market order to close a position (optionally include `positionSide`)
 - `POST /coinbase/keys` → checks Coinbase key/secret/passphrase via a signed `/accounts` probe
 - `POST /binance/listenKey` → creates a Binance user-data listenKey and starts the backend user-data stream (returns WebSocket URL for reference)
@@ -590,7 +635,7 @@ Endpoints:
 - The Web UI now blocks `POST /bot/start` locally unless it has a Binance `tenantKey` or inline Binance API key+secret, mirroring backend tenant requirements and avoiding avoidable `400` calls.
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
 - `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000, and open trade entries are clamped to the tail).
-- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`), keeps bots running for the current top 50 unique combo symbols in `top-combos.json` (Binance only), prioritized by annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker, and scans for orphan open futures positions to auto-adopt them with a top compatible combo. When ops persistence is enabled (`TRADER_DB_URL`), the bot also stores the combo UUID used to open/switch each position (only for live, sent orders) and adoption (manual and auto-start) prefers reusing that exact combo when possible. Trading is enabled by default (requires Binance API keys), missing bots restart on the next poll interval, and orphaned symbols already running with a non-adopting bot state are recycled/restarted automatically so adoption can proceed. Set `TRADER_BOT_AUTOSTART=false` to disable auto-start on boot.
+- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`), keeps bots running for the current top combo symbols in `top-combos.json` (Binance only), prioritized by annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker, and scans for orphan open futures positions to auto-adopt them with a top compatible combo. Use `TRADER_BOT_TOP_COMBO_BOTS` to control steady-state top-combo symbol targets (default `50`, set `0` to disable top-combo expansion and keep only base/orphan symbols), and `TRADER_BOT_TOP_COMBO_BOTS_STARTUP` to set startup-phase targets before steady state kicks in (default: same as steady). Orphan detection now runs against Binance futures positions even when the base bot market config is not futures, and orphan restarts enforce market-compatible combo selection (falling back to the latest compatible combo/base args when needed). With ops persistence (required in `--serve` mode), the bot also stores the combo UUID used to open/switch each position (only for live, sent orders) and adoption (manual and auto-start) prefers reusing that exact combo when possible. Trading is enabled by default (requires Binance API keys), missing bots restart on the next poll interval, and orphaned symbols already running with a non-adopting bot state are recycled/restarted automatically so adoption can proceed. Set `TRADER_BOT_AUTOSTART=false` to disable auto-start on boot.
 
 Always-on live bot (cron watchdog):
 - Use `deploy/ensure-bot-running.sh` to check `/bot/status` and call `/bot/start` if the bot is not running.
@@ -623,6 +668,7 @@ Optimizer script tips:
 - `optimize-equity` now tunes stop-loss and take-profit by default for ROI-focused runs; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
 - `optimize-equity` accepts `--futures` to pull Binance USDT-M futures data (Binance only).
 - `optimize-equity` clamps perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
+- Optimizer bar resolution now fails fast when an interval/lookback pair cannot be converted to lookback bars (instead of silently treating invalid conversions as zero).
 - Optimizer timeouts now return even if a child backtest process doesn't exit after SIGTERM, and stdout/stderr capture won't block progress if pipes never close.
 - `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons), now defaults to quality mode with robustness filters, prefers higher-quality seed combos, continues when a symbol run fails, and writes a `run.log` with exit/signal status in the output directory.
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
@@ -632,6 +678,7 @@ Optimizer script tips:
 - Default method sampling now heavily favors Kalman (`--method-weight-10 4.0`) while keeping smaller exploration weights on LSTM/agreement (`--method-weight-01 0.1`, `--method-weight-11 0.25`), raising `--method-weight-regime-switch` to `1.0`, and leaving `--method-weight-bandit-router` off by default for compatibility with threshold optimization.
 - Router defaults now explore a wider adaptive range: `--router-score-pnl-weight-min/max 0.25/0.85`, `--router-lookback-min/max 20/180`, and `--router-min-score-min/max 0.05/0.7`.
 - Risk and volatility exits now sample by default (`--stop-vol-mult-min/max 0.8/3.0`, `--tp-vol-mult-min/max 1.2/4.0`, `--trail-vol-mult-min/max 0.8/3.0`) with more frequent risk sizing (`--p-disable-risk-per-trade 0.3`) and confidence sizing (`--p-confidence-sizing 0.85`).
+- Quality-mode optimizer runs now also explore rolling performance gates and adaptive filter activation (`--p-adaptive-filters`, `--perf-lookback-min/max`, `--perf-min-win-rate-min/max`, `--perf-min-profit-factor-min/max`) so adaptive edge/SNR/Kalman tightening is no longer searched with the feature effectively off.
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - CSV runs derive `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename) and normalize it to a valid exchange symbol, trimming dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` -> `BNBUSDT`) before combos are persisted.
 - `--platform`/`--platforms` sample exchange platforms when using `--binance-symbol`/`--symbol` (default: binance; supports coinbase/kraken/poloniex).
@@ -655,17 +702,24 @@ Optimizer script tips:
 - `--predictors` (comma-separated list) now participates in optimizer sampling so top-combo search can vary active predictor sets (for example `all`, `gbdt,tcn,transformer`, or `none`).
 - `--router-lookback-min/max` and `--router-min-score-min/max` now tune router memory and acceptance gating alongside `--router-score-pnl-weight-min/max`.
 - `--fee-fixed-min/max`, `--slippage-impact-min/max`, `--slippage-impact-power-min/max`, `--slippage-vol-mult-min/max`, and `--spread-vol-mult-min/max` now tune microstructure and execution-cost realism.
-- `--take-profit-partial-min/max` with `--p-disable-take-profit-partial` now samples partial take-profit behavior.
+- `--take-profit-partial-min/max` with `--p-disable-take-profit-partial` now samples partial take-profit behavior (`0 <= min,max < 1`).
 - `--max-trades-per-day-min/max` (`--p-disable-max-trades-per-day`), `--expectancy-lookback-min/max`, `--min-expectancy-min/max` (`--p-disable-min-expectancy`), `--loss-streak-max-min/max` / `--loss-streak-cooldown-bars-min/max` (`--p-disable-loss-streak-*`) now tune trade pacing/performance guardrails.
+- Live kill switches are now optimizable via `--p-disable-max-dd`, `--max-dd-min/max`, `--p-disable-max-dl`, `--max-dl-min/max`, `--p-disable-max-wl`, `--max-wl-min/max`, and `--p-disable-max-oe` / `--max-oe-min/max`, and `/optimizer/run` now forwards the same camelCase JSON fields, so optimizer runs can search drawdown, daily-loss, weekly-loss, and order-error halts instead of leaving them fixed.
 - Exposure and concurrency caps are now optimizable via `--max-open-positions-min/max`, `--max-gross-exposure-min/max`, `--max-net-exposure-min/max`, `--max-exposure-per-base-min/max`, and `--max-open-per-base-min/max` (each with matching `--p-disable-*`).
-- Adaptive safety caps are now optimizable via `--adaptive-edge-buffer-max-min/max`, `--adaptive-min-signal-to-noise-max-min/max`, `--adaptive-trend-lookback-max-min/max`, and `--adaptive-kalman-z-min-max-min/max`.
+- Adaptive performance gating is now optimizable via `--p-adaptive-filters`, `--perf-lookback-min/max`, `--perf-min-win-rate-min/max`, `--p-disable-perf-min-win-rate`, `--perf-min-profit-factor-min/max`, and `--p-disable-perf-min-profit-factor`.
+- Meta-label gating is now optimizable via `--p-meta-label-filter`, `--meta-label-min-edge-min/max`, `--meta-label-min-confidence-min/max`, and `--p-meta-label-require-band`, allowing `optimize-equity` to search confidence/edge confirmation instead of leaving the meta-label filter fixed off.
+- Regime-conditioned parameter banking is now optimizable via `--p-regime-parameter-bank`, `--regime-bank-hysteresis-min/max`, `--regime-trend-open-mult-min/max`, `--regime-mr-open-mult-min/max`, `--regime-high-vol-open-mult-min/max`, `--regime-trend-size-mult-min/max`, `--regime-mr-size-mult-min/max`, and `--regime-high-vol-size-mult-min/max`.
+- Signal-gate overlays are now optimizable via `--p-multi-timeframe-consensus` with `--mtf-*-bars-min/max` and `--mtf-min-agree-min/max`, `--p-cross-asset-confirmation` with `--cross-asset-min-beta/edge-min/max`, and `--p-pairs-stat-arb` with `--pairs-stat-arb-lookback-min/max`, `--pairs-stat-arb-z-entry-min/max`, and `--pairs-stat-arb-size-mult-min/max`.
+- Funding/OI-aware gating is now optimizable via `--p-funding-oi-aware`, `--funding-oi-funding-cap-min/max` with `--p-disable-funding-oi-funding-cap`, `--funding-oi-vol-lookback-min/max`, `--funding-oi-vol-cap-min/max` with `--p-disable-funding-oi-vol-cap`, and `--funding-oi-size-mult-min/max`.
+- Kelly-lite sizing is now optimizable via `--p-kelly-lite-sizing`, `--kelly-lite-fraction-min/max`, `--kelly-lite-floor-min/max`, and `--kelly-lite-cap-min/max`, so quality-mode runs can search edge/variance-based size scaling instead of leaving that overlay fixed off.
+- Adaptive safety caps are now optimizable via `--adaptive-edge-buffer-max-min/max`, `--adaptive-min-signal-to-noise-max-min/max`, `--adaptive-trend-lookback-max-min/max`, and `--adaptive-kalman-z-min-max-min/max`; these ranges now pair with real `--adaptive-filters` sampling instead of only varying inactive cap values.
 - `--kalman-market-top-n-min/max` tunes the Kalman market-context sample size (Binance only).
 - `--kalman-z-min-min/max`, `--kalman-z-max-min/max`, `--max-high-vol-prob-min/max`, `--max-conformal-width-min/max`, `--max-quantile-width-min/max`, `--p-confirm-conformal`, `--p-confirm-quantiles`, `--p-confidence-sizing`, `--lstm-confidence-soft-min/max`, `--lstm-confidence-hard-min/max`, `--protection-min-confidence-min/max`, and `--min-position-size-min/max` tune confidence gating/sizing (use `--p-disable-max-*` to mix disabled samples).
 - `--lr-min/max`, `--patience-max`, `--grad-clip-min/max`, and `--p-disable-grad-clip` tune LSTM training hyperparameters.
 - `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective (`--tune-stress-*-min/max` lets it sample ranges).
 - `--walk-forward-folds-min/max` and `--walk-forward-embargo-bars-min/max` vary walk-forward fold counts/embargo in the tune stats.
 - Auto optimizer biases `--p-long-short` to match existing open positions/orders (short requires long-short; spot/margin suppresses long-short).
-- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `seedTrials`, `seedRatio`, `survivorFraction`, `perturbScaleDouble`, `perturbScaleInt`, `earlyStopNoImprove`, `minHoldBarsMin`, `blendWeightMin`, `methodWeightConfBlend`, `methodWeightConfPick`, `methodWeightCostPick`, `methodWeightHarmonicBlend`, `methodWeightDisagreementGuard`, `methodWeightMedianBlend`, `methodWeightNeutralGuard`, `methodWeightRiskParityBlend`, `methodWeightConsensusBoost`, `methodWeightAnchorBlend`, `methodWeightTensionGate`, `methodWeightEntropyBlend`, `methodWeightCoherenceGate`, `methodWeightDivergenceGate`, `methodWeightFractalBlend`, `methodWeightPhaseCancel`, `methodWeightSoftmaxBlend`, `methodWeightSmoothSoftmaxBlend`, `methodWeightNetSoftmaxBlend`, `methodWeightEdgeBlend`, `methodWeightEdgePick`, `methodWeightGeoBlend`, `methodWeightRegimeSwitch`, `methodWeightBanditRouter`, `routerScorePnlWeightMin`, `routerScorePnlWeightMax`, `minWinRate`, `minAnnualizedReturn`, `minCalmar`, `maxTurnover`, `minSignalToNoiseMin`, `snrSizeWeightMin`, `snrSizeWeightMax`, `pThresholdFactor`, `thresholdFactorAlphaMin`, `thresholdFactorMinMin`, `thresholdFactorWeightMax`, `minSharpe`, `minWalkForwardSharpeMean`, `walkForwardFoldsMin`, `walkForwardFoldsMax`, `walkForwardEmbargoBarsMin`, `walkForwardEmbargoBarsMax`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `triLayerExitOnSlow`, `fundingRateMin`, `fundingRateMax`, `rebalanceBarsMin`, `rebalanceBarsMax`, `rebalanceThresholdMin`, `rebalanceThresholdMax`, `rebalanceCostMultMin`, `rebalanceCostMultMax`, `pFundingBySide`, `pFundingOnOpen`, `pRebalanceGlobal`, `pRebalanceResetOnSignal`, `kalmanBandLookbackMin`, `kalmanBandStdMultMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmExitFlipStrong`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `protectionMinConfidenceMin`, `protectionMinConfidenceMax`, `riskPerTradeMin`, `riskPerTradeMax`, `pDisableRiskPerTrade`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
+- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `seedTrials`, `seedRatio`, `survivorFraction`, `perturbScaleDouble`, `perturbScaleInt`, `earlyStopNoImprove`, `minHoldBarsMin`, `blendWeightMin`, `methodWeightConfBlend`, `methodWeightConfPick`, `methodWeightCostPick`, `methodWeightHarmonicBlend`, `methodWeightDisagreementGuard`, `methodWeightMedianBlend`, `methodWeightNeutralGuard`, `methodWeightRiskParityBlend`, `methodWeightConsensusBoost`, `methodWeightAnchorBlend`, `methodWeightTensionGate`, `methodWeightEntropyBlend`, `methodWeightCoherenceGate`, `methodWeightDivergenceGate`, `methodWeightFractalBlend`, `methodWeightPhaseCancel`, `methodWeightSoftmaxBlend`, `methodWeightSmoothSoftmaxBlend`, `methodWeightNetSoftmaxBlend`, `methodWeightEdgeBlend`, `methodWeightEdgePick`, `methodWeightGeoBlend`, `methodWeightRegimeSwitch`, `methodWeightBanditRouter`, `routerScorePnlWeightMin`, `routerScorePnlWeightMax`, `minWinRate`, `minAnnualizedReturn`, `minCalmar`, `maxTurnover`, `minSignalToNoiseMin`, `snrSizeWeightMin`, `snrSizeWeightMax`, `pThresholdFactor`, `thresholdFactorAlphaMin`, `thresholdFactorMinMin`, `thresholdFactorWeightMax`, `minSharpe`, `minWalkForwardSharpeMean`, `walkForwardFoldsMin`, `walkForwardFoldsMax`, `walkForwardEmbargoBarsMin`, `walkForwardEmbargoBarsMax`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `triLayerExitOnSlow`, `fundingRateMin`, `fundingRateMax`, `rebalanceBarsMin`, `rebalanceBarsMax`, `rebalanceThresholdMin`, `rebalanceThresholdMax`, `rebalanceCostMultMin`, `rebalanceCostMultMax`, `pFundingBySide`, `pFundingOnOpen`, `pRebalanceGlobal`, `pRebalanceResetOnSignal`, `kalmanBandLookbackMin`, `kalmanBandStdMultMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmExitFlipStrong`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `protectionMinConfidenceMin`, `protectionMinConfidenceMax`, `riskPerTradeMin`, `riskPerTradeMax`, `pDisableRiskPerTrade`, `adaptiveEdgeBufferMaxMin`, `adaptiveEdgeBufferMaxMax`, `adaptiveMinSignalToNoiseMaxMin`, `adaptiveMinSignalToNoiseMaxMax`, `adaptiveTrendLookbackMaxMin`, `adaptiveTrendLookbackMaxMax`, `adaptiveKalmanZMinMaxMin`, `adaptiveKalmanZMinMaxMax`, `pAdaptiveFilters`, `perfLookbackMin`, `perfLookbackMax`, `perfMinWinRateMin`, `perfMinWinRateMax`, `pDisablePerfMinWinRate`, `perfMinProfitFactorMin`, `perfMinProfitFactorMax`, `pDisablePerfMinProfitFactor`, `pMetaLabelFilter`, `metaLabelMinEdgeMin`, `metaLabelMinEdgeMax`, `metaLabelMinConfidenceMin`, `metaLabelMinConfidenceMax`, `pMetaLabelRequireBand`, `pRegimeParameterBank`, `regimeBankHysteresisMin`, `regimeBankHysteresisMax`, `regimeTrendOpenMultMin`, `regimeTrendOpenMultMax`, `regimeMrOpenMultMin`, `regimeMrOpenMultMax`, `regimeHighVolOpenMultMin`, `regimeHighVolOpenMultMax`, `regimeTrendSizeMultMin`, `regimeTrendSizeMultMax`, `regimeMrSizeMultMin`, `regimeMrSizeMultMax`, `regimeHighVolSizeMultMin`, `regimeHighVolSizeMultMax`, `pMultiTimeframeConsensus`, `mtfFastBarsMin`, `mtfFastBarsMax`, `mtfMidBarsMin`, `mtfMidBarsMax`, `mtfSlowBarsMin`, `mtfSlowBarsMax`, `mtfMinAgreeMin`, `mtfMinAgreeMax`, `pCrossAssetConfirmation`, `crossAssetMinBetaMin`, `crossAssetMinBetaMax`, `crossAssetMinEdgeMin`, `crossAssetMinEdgeMax`, `pPairsStatArb`, `pairsStatArbLookbackMin`, `pairsStatArbLookbackMax`, `pairsStatArbZEntryMin`, `pairsStatArbZEntryMax`, `pairsStatArbSizeMultMin`, `pairsStatArbSizeMultMax`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Genetic crossover blends parent combos with `operationCount`/`tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 
 Database (required for ops + combo persistence):
@@ -735,6 +789,8 @@ Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 - When unset, defaults to `TRADER_STATE_DIR/bot` (if set) or `.tmp/bot` (local only).
 - When S3 persistence is enabled, the API serves local snapshots first and only falls back to S3 when local data is missing.
 - `TRADER_BOT_AUTOSTART` (default: `true`) enables auto-starting the live bot on API boot (set to `false` to disable).
+- `TRADER_BOT_TOP_COMBO_BOTS` (default: `50`, min: `0`) caps how many top-combo symbols auto-start targets; set `0` to disable top-combo expansion.
+- `TRADER_BOT_TOP_COMBO_BOTS_STARTUP` (default: steady-state value, min: `0`) sets startup-phase top-combo target count before switching to steady-state auto-start targets.
 
 Optional optimizer combo persistence (keeps `/optimizer/combos` data across restarts/deploys):
 - Set `TRADER_OPTIMIZER_COMBOS_DIR` to a writable directory (writes `top-combos.json`)
@@ -751,6 +807,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - When `TRADER_DB_URL` is set, the API can rebuild `top-combos.json` from Postgres if local/S3 state is missing, so combos persist across deploys.
 - The API container image seeds `web/public/top-combos.json` from the repo-level `top-combos.s3.json` so fresh deploys have a multi-symbol fallback payload.
 - `top-combos.json` drops combos with `finalEquity <= 1` on read/write (including numeric strings), sanitizes combo symbols, and persists the filtered file to S3 when configured.
+- `merge-top-combos` now tolerates malformed UTF-8 bytes in JSONL input files by skipping unparseable lines instead of failing the entire merge.
 - The UI auto-sanitizes combo symbols when applying them to the form so exchange symbol validation stays clean.
 
 Optional daily top-combo backtests (refreshes metrics for the best performers):
@@ -908,6 +965,7 @@ CI/CD (GitHub Actions):
 - Optional secret: `FLY_APP` (if unset, Fly uses the app configured in `fly.toml`).
 - If `FLY_APP` is unset, the workflow falls back to repo-root `fly.toml`; if neither is present, the deploy step is skipped with a warning.
 - If `FLY_API_TOKEN` is present but invalid for CI (for example “missing third-party discharge token”), the deploy step is skipped with a warning so CI does not fail on token-shape issues.
+- Repo defaults keep Fly machines warm for split apps (`auto_stop_machines="off"`, `min_machines_running=1` in `fly.toml` and `haskell/web/fly.frontend.toml`) to reduce cold-start `/api` `502` windows.
 
 Note: `/bot/*` is stateful. Async endpoints persist job state to Postgres when ops DB is enabled (`TRADER_DB_URL`/`DATABASE_URL`), and also to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default. If DB persistence is disabled, deployments behind non-sticky load balancers (including CloudFront `/api/*`) should keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to shared writable storage.
 
@@ -919,7 +977,10 @@ Outbox publisher worker (Phase 1 scaffold):
   - `noop` (default) leaves events pending (no publish attempts).
   - `stdout` prints each event and marks it published (placeholder publisher).
   - `kafka-rest` publishes events to Kafka via REST Proxy (`TRADER_OUTBOX_KAFKA_REST_URL` base URL; topic path auto-appended).
+- Invalid `TRADER_OUTBOX_PUBLISHER_MODE` values now fail startup (expected: `noop|stdout|kafka-rest`) instead of silently downgrading to `noop`.
+- `TRADER_OUTBOX_KAFKA_REST_URL` is required and URL-validated at startup when `TRADER_OUTBOX_PUBLISHER_MODE=kafka-rest`.
 - Optional tuning: `TRADER_OUTBOX_POLL_MS` (default `1000`), `TRADER_OUTBOX_BATCH_SIZE` (default `100`), `TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS` (default `60000`, reclaims stale `publishing` rows after worker crashes/restarts), `TRADER_OUTBOX_PUBLISHED_RETENTION_MS` (default `604800000` = 7 days; `0` disables cleanup).
+- Invalid numeric outbox tuning values now fail startup (instead of silently falling back to defaults) for `TRADER_OUTBOX_POLL_MS`, `TRADER_OUTBOX_BATCH_SIZE`, `TRADER_OUTBOX_PUBLISHING_TIMEOUT_MS`, and `TRADER_OUTBOX_PUBLISHED_RETENTION_MS`.
 - `GET /outbox` optional query params: `status=pending|publishing|published|failed`.
 
 Web UI
@@ -928,6 +989,7 @@ A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST 
 The UI layout uses a refreshed header, section grouping, and spacing for faster scanning on desktop and mobile.
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
+The header title now also shows the running system build (`version` + short `commit`) from `/health` for quick deployment verification, with fallback to the UI build commit when `/health` omits `commit`.
 The header also exposes layout controls (expand/collapse all, reset layout) plus per-page issue badges and a quick issues dropdown with jump links; expand/collapse all also controls the floating Bot activity panel, and the layout controls display a dismissible hint that it is included.
 Collapsible panels now include explicit Maximize/Restore and Expand/Collapse controls in their headers, including the optimizer combos dock.
 Configuration uses a menu bar to switch between single-section pages (API, Market, Lookback, Thresholds, Risk, Optimizer run, Optimization, Live bot, Trade) and expands into a full-page scroll rather than fixed-height panels; sections and result panels remain collapsible, the UI remembers open/closed state locally, and starts low-signal panels (Data Log, Request preview) collapsed by default.
@@ -944,7 +1006,9 @@ The overview card summarizes connection, execution mode, and the latest signal/b
 Overview summary metadata (like API URLs or error strings) wraps so full content stays visible.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
 On startup the UI auto-checks API keys for Binance/Coinbase (when selected) and auto-starts the Binance listenKey user-data stream once keys are available.
+In inferred Fly split-host mode, listenKey start/keep-alive/close actions now use the same `/api`-preferring base as stream reads to avoid cross-origin preflight CORS failures on direct API hosts.
 The Trade result panel shows the backend server egress IP (when available) with a Copy button so Binance IP allowlisting is faster.
+Binance “Check keys” only upgrades trade-test failures to “Auth OK, but order rejected” for clear order-validation errors; auth/IP/permission failures stay marked as `FAIL`.
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 Missing/invalid saved symbols fall back to platform defaults, and trade-test skips surface as a warning callout with the skip reason.
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
@@ -953,6 +1017,7 @@ The Live bot panel keeps the last bot status and bot list visible while bots are
 A floating “Bot activity” panel summarizes the selected bot’s status, phase, latest action, poll timing, and last event/order, and can be minimized into a header-only strip that collapses the panel height or dragged to a new position.
 The Bot activity panel includes a bot selector so you can switch between running bots.
 Live bot and per-bot panels expand to show full chart contents without internal clipping, while the optimizer combos panel keeps controls fixed with the combos list in a scrollable pane when docked; when maximized, the whole panel scrolls so long lists stay reachable. Restoring a maximized panel resets its scroll position so header controls reappear immediately.
+Per-running-bot chart panels now start collapsed by default and lazily populate chart/timeline content only when expanded or maximized.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API LSTM compute limits reported by `/health`.
@@ -978,7 +1043,7 @@ Binance account trade tables now show separate `Opened` and `Closed` timestamps 
 The Binance trade P&L breakdown also reports total filled quantity and quote volume for the analyzed fills.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes). It also shows the Binance account UID when available so you can confirm which account is queried, plus inferred position open times based on recent Binance trades (cache duration is configurable in the UI). Open positions and orphaned operations include a “Close position” button that sends a reduce-only futures market order; in hedge mode the request includes `positionSide` (enable Live orders to use it).
 The Binance listenKey stream auto-reconnects with backoff after transient disconnects and automatically restarts when the listenKey expires.
-The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
+The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off). Running trade-enabled bots with unknown internal side now count as adopted/reconciling for single-side futures exposure (adopt-first behavior).
 The UI includes a “State sync” panel to export bot snapshots and optimizer combos, import combos from state-sync/top-combos JSON files, and push payloads to another API via `/state/sync`, with controls to limit per-request payload size.
 The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available; open-position charts also show inferred position open times when available ("opened before" means the position predates the fetched trade window).
@@ -1007,7 +1072,7 @@ Info popovers align to stay within the configuration panel.
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
 The backtest summary chart includes a Download log button to export the backtest operations.
 Backtest charts allow deeper zoom (mouse wheel down to ~6 bars) for close inspection.
-When the UI is served via CloudFront, `deploy-aws-quick.sh` defaults `apiBaseUrl` to `/api` (same-origin) when a distribution ID/domain is configured. Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to call the API URL directly (CORS required; set `TRADER_CORS_ORIGIN`, or let the script auto-fill it from the CloudFront domain when available). When `/api` is used, the script leaves `apiFallbackUrl` empty by default to avoid cross-origin fallback loops. If you want cross-origin failover, switch to direct mode and optionally set `apiFallbackUrl` to `/api` for same-origin backup. The UI tries `apiBaseUrl` first and falls back to `apiFallbackUrl` after network/404/502/503/504 errors, remembering a successful fallback until it fails or the cache expires (about 12h); for auto-inferred Fly fallback routing, auth errors (401/403) also trigger fallback. If you need the Binance listenKey stream to bypass the CDN, set `apiBaseUrl`/`apiFallbackUrl` explicitly for direct mode (CORS required); inferred Fly fallback keeps listenKey SSE on `/api` by default. The API logs listenKey stream status/errors and SSE send failures (with tenant-key hints) to help diagnose disconnects. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided. On small API instances, disable background CPU/memory work with `TRADER_OPTIMIZER_ENABLED=false`, `TRADER_TOP_COMBOS_BACKTEST_ENABLED=false`, and `TRADER_BOT_AUTOSTART=false`, and cap LSTM training with `TRADER_API_MAX_EPOCHS` if you see OOM restarts.
+When the UI is served via CloudFront, `deploy-aws-quick.sh` defaults `apiBaseUrl` to `/api` (same-origin) when a distribution ID/domain is configured. Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to call the API URL directly (CORS required; set `TRADER_CORS_ORIGIN`, or let the script auto-fill it from the CloudFront domain when available). When `/api` is used, the script leaves `apiFallbackUrl` empty by default to avoid cross-origin fallback loops. If you want cross-origin failover, switch to direct mode and optionally set `apiFallbackUrl` to `/api` for same-origin backup. The UI tries `apiBaseUrl` first and falls back to `apiFallbackUrl` after network/timeout/404/502/503/504 errors, remembering a successful fallback until it fails or the cache expires (about 12h); for auto-inferred Fly fallback routing, auth errors (401/403) also trigger fallback. During cross-origin direct-host fallback, tenant routing relies on `tenantKey` query/body fields (the UI does not force `X-Tenant-Key`) to reduce CORS preflight failures on stricter gateways. If you need the Binance listenKey stream to bypass the CDN, set `apiBaseUrl`/`apiFallbackUrl` explicitly for direct mode (CORS required); inferred Fly fallback keeps listenKey SSE on `/api` by default. The API logs listenKey stream status/errors and SSE send failures (with tenant-key hints) to help diagnose disconnects. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided. On small API instances, disable background CPU/memory work with `TRADER_OPTIMIZER_ENABLED=false`, `TRADER_TOP_COMBOS_BACKTEST_ENABLED=false`, and `TRADER_BOT_AUTOSTART=false`, and cap LSTM training with `TRADER_API_MAX_EPOCHS` if you see OOM restarts.
 To keep a stable CloudFront URL across deploys, set `TRADER_UI_CLOUDFRONT_DOMAIN` (or `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`) so the quick deploy reuses the distribution and its S3 bucket.
 The UI can auto-apply top combos (on by default) and auto-disables after you edit combo-driven fields; it shows when a combo auto-applied and can auto-start missing bots for the top 50 unique combo symbols (Binance only) once interval/lookback validation passes. Manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
@@ -1063,7 +1128,8 @@ Timeouts:
 
 Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors. Async signal/backtest starts retry transient 5xx/timeouts and can fail over to `apiFallbackUrl`; ensure the fallback points at the same backend to avoid mismatched job IDs. Live bot starts (`POST /bot/start`) also retry transient 502/503/504/network/timeouts (up to two retries), and the UI shows a retry toast while those retries are in progress. Live bot status/ops polling auto-reduces history sizes on proxy 502/503/504 or client timeouts to keep the dashboard responsive, and `/bot/status` is capped at 1000 points by default to avoid upstream 5xx responses.
 On Fly split-app hosts (`*-web-hs.fly.dev` style), default `trader-config.js` now uses `/api` as primary and an inferred direct API host (`https://*-hs.fly.dev`) as fallback (`apiBaseUrlInferred=true`), so proxy mode is preferred first while direct fallback is still available if `/api` fails.
-Direct `apiBaseUrl` requests fail over to `apiFallbackUrl` on 404/502/503/504 responses (plus network errors). For auto-inferred Fly direct hosts, 401/403 responses also fail over to `/api`, so keep auth/cors settings consistent between primary and fallback hosts.
+Direct `apiBaseUrl` requests fail over to `apiFallbackUrl` on 404/502/503/504 responses (plus network errors). In auto-inferred Fly split-host mode, timeout failover also works in both directions (`direct-host -> /api` and `/api -> direct-host`), and 401/403 responses from inferred direct hosts fail over to `/api`; keep auth/cors settings consistent between primary and fallback hosts.
+When `apiBaseUrl` is `/api` and the fallback is cross-origin (for example inferred Fly split-host fallback), non-GET requests stay on `/api` (GET/HEAD still fail over) to avoid cross-origin write preflight/CORS loops.
 Fallback preference cache entries are versioned; older cache entries are ignored after fallback-rule changes so stale decisions do not silently override updated behavior.
 Async polling retries transient network `TypeError`s regardless of browser-specific error wording, and API health status now marks those network errors as `down` without relying on message text.
 Fallback cache entries with future timestamps are ignored as invalid, so stale preferences from clock-skewed clients do not persist unexpectedly.
@@ -1078,6 +1144,7 @@ Optimizer objectives are validated by the CLI; if validation is bypassed, unknow
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` and `/version` require auth.
 In the UI status badge, health-check `401/403` responses are treated as auth errors (not generic down) to surface token issues clearly.
 Health-check `429` and other non-availability client errors no longer force the UI status to `down`; the last known status is preserved while the error is logged (including manual Recheck API probes, which now use the same classification and rate-limit handling).
+On page load, the UI retries startup `/health` probes up to 3 times (4s delay, `down`-classified failures only) before settling on `API unreachable`, reducing false negatives during cold starts/proxy warm-up.
 The UI now preserves `/health` `version`/`commit` metadata, so the API build label reflects the server response consistently.
 Non-JSON proxy/base misroutes (for example HTML error pages returned to API requests) now mark API status as `down` in regular request flows, not just health probes.
 Health summary details in the Config dock now render even when `computeLimits` is absent, so build/auth/cache metadata from older or minimal `/health` responses remains visible.
@@ -1093,6 +1160,8 @@ The UI also includes a “Live bot” panel to start/stop the continuous loop, s
 Use the Layout menu to show the Bot activity panel (hidden by default); the preference is saved locally.
 When trading is armed, the UI blocks live bot start until Binance keys are provided or verified via “Check keys” (otherwise switch to paper mode).
 Binance account panels (positions/trades) require keys; the UI blocks refresh until keys are provided or verified via “Check keys”.
+If Binance rejects the trade test with auth/IP/permission errors (for example `-2015`), “Check keys” keeps the trade-permission status as `FAIL` instead of mislabeling it as `OK`.
+Wrapped Binance failures now also preserve normal HTTP status-line prefixes (`HTTP/1.1 401`, `HTTP/2 429`) and long JSON `msg` bodies during parsing, so key-check diagnostics keep the real status/code/message instead of degraded wrapper text.
 When starting multi-symbol live bots, the UI uses the first bot symbol as the request symbol so `/bot/start` validation succeeds even if the main Symbol field is empty.
 Optimizer combos are clamped to the API LSTM compute limits reported by `/health` when available.
 

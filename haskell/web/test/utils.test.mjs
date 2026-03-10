@@ -85,12 +85,11 @@ test("buildOrphanedPositions flags missing bots and matches hedge sides", () => 
   assert.equal(orphans[1]?.reason, "side mismatch (bot SHORT)");
 });
 
-test("buildOrphanedPositions treats flat bots as orphaned", () => {
+test("buildOrphanedPositions treats flat running bots as adopted/reconciling", () => {
   const positions = [{ symbol: "SOLUSDT", positionAmt: -2, positionSide: "BOTH" }];
   const bots = [{ symbol: "SOLUSDT", status: { running: true, market: "futures", positions: [0] } }];
   const orphans = buildOrphanedPositions(positions, bots, { market: "futures" });
-  assert.equal(orphans.length, 1);
-  assert.equal(orphans[0]?.reason, "bot side unknown");
+  assert.equal(orphans.length, 0);
 });
 
 test("buildOrphanedPositions treats starting bots as adopted", () => {

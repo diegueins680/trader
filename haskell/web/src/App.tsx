@@ -342,6 +342,8 @@ type BotPanelDragState = {
 const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
+const AUTO_HEALTH_MAX_ATTEMPTS = 3;
+const AUTO_HEALTH_RETRY_DELAY_MS = 4_000;
 const LISTEN_KEY_ACTION_TIMEOUT_MS = 90_000;
 const BINANCE_POSITIONS_OPEN_TIME_LIMIT = 200;
 const CHART_HEIGHT = "var(--chart-height)";
@@ -3476,26 +3478,39 @@ export function App() {
 
   useEffect(() => {
     let mounted = true;
-    health(apiBase, { timeoutMs: 10_000, headers: authHeaders })
-      .then((out) => {
-        if (!mounted) return;
-        setHealthInfo(out);
-        if (out.authRequired && out.authOk !== true) setApiOk("auth");
-        else setApiOk("ok");
-        appendDataLog("Health Response (auto)", out, { background: true });
-      })
-      .catch((e) => {
-        if (!mounted) return;
-        const msg = e instanceof Error ? e.message : "API unreachable";
-        const status = classifyHealthErrorStatus(e, msg);
-        if (status) {
-          setHealthInfo(null);
-          setApiOk(status);
-        }
-        appendDataLog("Health Error (auto)", buildDataLogError(e, msg), { background: true, error: true });
-      });
+    let retryTimer: number | null = null;
+
+    const runAutoHealth = (attempt: number) => {
+      health(apiBase, { timeoutMs: 10_000, headers: authHeaders })
+        .then((out) => {
+          if (!mounted) return;
+          setHealthInfo(out);
+          if (out.authRequired && out.authOk !== true) setApiOk("auth");
+          else setApiOk("ok");
+          appendDataLog("Health Response (auto)", out, { background: true });
+        })
+        .catch((e) => {
+          if (!mounted) return;
+          const msg = e instanceof Error ? e.message : "API unreachable";
+          const status = classifyHealthErrorStatus(e, msg);
+          if (status) {
+            setHealthInfo(null);
+            setApiOk(status);
+          }
+          appendDataLog("Health Error (auto)", buildDataLogError(e, msg), { background: true, error: true });
+          if (status === "down" && attempt < AUTO_HEALTH_MAX_ATTEMPTS) {
+            retryTimer = window.setTimeout(() => {
+              retryTimer = null;
+              runAutoHealth(attempt + 1);
+            }, AUTO_HEALTH_RETRY_DELAY_MS);
+          }
+        });
+    };
+
+    runAutoHealth(1);
     return () => {
       mounted = false;
+      if (retryTimer != null) window.clearTimeout(retryTimer);
     };
   }, [apiBase, appendDataLog, authHeaders, buildDataLogError]);
 
@@ -4997,7 +5012,7 @@ export function App() {
         try {
           const base: ApiParams = { market: info.market, binanceTestnet: info.testnet };
           await binanceListenKeyClose(
-            apiBase,
+            listenKeyStreamBase,
             { ...withBinanceKeys(base), listenKey: info.listenKey },
             { headers: authHeaders, timeoutMs: LISTEN_KEY_ACTION_TIMEOUT_MS },
           );
@@ -5027,7 +5042,7 @@ export function App() {
       }));
       listenKeyInfoRef.current = null;
     },
-    [apiBase, authHeaders, listenKeyUi.info, showToast, withBinanceKeys],
+    [authHeaders, listenKeyStreamBase, listenKeyUi.info, showToast, withBinanceKeys],
   );
 
   const keepAliveListenKeyStream = useCallback(
@@ -5036,7 +5051,7 @@ export function App() {
       try {
         const base: ApiParams = { market: info.market, binanceTestnet: info.testnet };
         const out = await binanceListenKeyKeepAlive(
-          apiBase,
+          listenKeyStreamBase,
           { ...withBinanceKeys(base), listenKey: info.listenKey },
           { headers: authHeaders, timeoutMs: LISTEN_KEY_ACTION_TIMEOUT_MS },
         );
@@ -5052,7 +5067,7 @@ export function App() {
         if (!opts?.silent) showToast("Listen key keep-alive failed");
       }
     },
-    [apiBase, authHeaders, showToast, withBinanceKeys],
+    [authHeaders, listenKeyStreamBase, showToast, withBinanceKeys],
   );
 
   const openListenKeyStream = useCallback(
@@ -5222,7 +5237,7 @@ export function App() {
       setListenKeyUi((s) => ({ ...s, loading: true, error: null, wsError: null, keepAliveError: null, wsStatus: "connecting" }));
       try {
         const base: ApiParams = { market: form.market, binanceTestnet: form.binanceTestnet };
-        const out = await binanceListenKey(apiBase, withBinanceKeys(base), {
+        const out = await binanceListenKey(listenKeyStreamBase, withBinanceKeys(base), {
           headers: authHeaders,
           timeoutMs: LISTEN_KEY_ACTION_TIMEOUT_MS,
         });
@@ -5242,12 +5257,12 @@ export function App() {
       }
     },
     [
-      apiBase,
       apiOk,
       authHeaders,
       form.binanceTestnet,
       form.market,
       isBinancePlatform,
+      listenKeyStreamBase,
       openListenKeyStream,
       showToast,
       stopListenKeyStream,
@@ -8400,6 +8415,13 @@ export function App() {
     return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
   };
 
+  const systemVersionRaw = healthInfo?.version?.trim() ?? "";
+  const systemCommitRaw = healthInfo?.commit?.trim() || __TRADER_UI_COMMIT__.trim();
+  const systemVersionTag = systemVersionRaw ? (systemVersionRaw.toLowerCase().startsWith("v") ? systemVersionRaw : `v${systemVersionRaw}`) : null;
+  const systemCommitShort = systemCommitRaw ? shortCommitHash(systemCommitRaw, 12) : null;
+  const systemBuildLabel = systemVersionTag && systemCommitShort ? `${systemVersionTag} (${systemCommitShort})` : systemVersionTag ?? (systemCommitShort ? `commit ${systemCommitShort}` : "build unknown");
+  const systemBuildTitle = systemVersionRaw && systemCommitRaw ? `System build ${systemVersionRaw} (${systemCommitRaw})` : systemVersionRaw ? `System build ${systemVersionRaw}` : systemCommitRaw ? `System commit ${systemCommitRaw}` : "System build unknown";
+
   const shortComboUuid = (uuid?: string | null, size = 6): string => {
     if (!uuid) return "—";
     const trimmed = uuid.trim();
@@ -8426,7 +8448,12 @@ export function App() {
               <div className="brand">
                 <div className="logo" aria-hidden="true" />
                 <div className="title">
-                  <h1>Trader UI</h1>
+                  <h1>
+                    <span>Trader UI</span>
+                    <span className="titleBuild" title={systemBuildTitle}>
+                      {systemBuildLabel}
+                    </span>
+                  </h1>
                   <p>Configure, backtest, optimize, and trade via the local REST API.</p>
                 </div>
               </div>
@@ -9677,65 +9704,70 @@ export function App() {
 
           {botRunningCharts.map((entry) => {
             const st = entry.status;
-            const botStatePoints = botStatusPointsBySymbol.get(normalizeSymbolKey(st.symbol)) ?? [];
-            const botStateRangeOk = botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error;
             const panelId = `panel-bot-${botStatusKey(st).replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`;
+            const panelOpen = isPanelOpen(panelId, false);
+            const panelMaximized = isPanelMaximized(panelId);
+            const panelExpanded = panelOpen || panelMaximized;
             const subtitle = `${marketLabel(st.market)} / ${st.interval} / ${methodLabel(st.method)}`;
             return (
               <CollapsibleCard
                 key={panelId}
                 panelId={panelId}
-                open={isPanelOpen(panelId, true)}
+                open={panelOpen}
                 onToggle={handlePanelToggle(panelId)}
-                maximized={isPanelMaximized(panelId)}
+                maximized={panelMaximized}
                 onToggleMaximize={() => togglePanelMaximize(panelId)}
                 title={`Bot ${st.symbol}`}
                 subtitle={subtitle}
                 className="chartCard"
               >
-                <div className="pillRow" style={{ marginBottom: 10 }}>
-                  <span className="badge">{st.symbol}</span>
-                  <span className="badge">{st.interval}</span>
-                  <span className="badge">{marketLabel(st.market)}</span>
-                  <span className="badge">{methodLabel(st.method)}</span>
-                  <span className="badge">open {fmtPct(st.openThreshold ?? st.threshold, 3)}</span>
-                  <span className="badge">close {fmtPct(st.closeThreshold ?? st.openThreshold ?? st.threshold, 3)}</span>
-                  <span className="badge">{st.halted ? "HALTED" : "ACTIVE"}</span>
-                  <span className="badge">{st.error ? "Error" : "OK"}</span>
-                </div>
-                <ChartSuspense height={CHART_HEIGHT}>
-                  <BacktestChart
-                    prices={st.prices}
-                    equityCurve={st.equityCurve}
-                    openTimes={st.openTimes}
-                    kalmanPredNext={st.kalmanPredNext}
-                    positions={botChartOverlays.get(botStatusKey(st))?.positions ?? st.positions}
-                    trades={st.trades}
-                    operations={botChartOverlays.get(botStatusKey(st))?.operations ?? st.operations}
-                    backtestStartIndex={st.startIndex}
-                    height={CHART_HEIGHT}
-                  />
-                </ChartSuspense>
-                <div style={{ marginTop: 8 }}>
-                  <div className="hint" style={{ marginBottom: 6 }}>
-                    Bot state timeline
-                  </div>
-                  {botStateRangeOk ? (
-                    <ChartSuspense height={160} label="Loading timeline...">
-                      <BotStateChart
-                        points={botStatePoints}
-                        startMs={botStatusRange.startMs}
-                        endMs={botStatusRange.endMs}
-                        height={160}
-                        label={`Bot state timeline (${st.symbol})`}
+                {panelExpanded ? (
+                  <>
+                    <div className="pillRow" style={{ marginBottom: 10 }}>
+                      <span className="badge">{st.symbol}</span>
+                      <span className="badge">{st.interval}</span>
+                      <span className="badge">{marketLabel(st.market)}</span>
+                      <span className="badge">{methodLabel(st.method)}</span>
+                      <span className="badge">open {fmtPct(st.openThreshold ?? st.threshold, 3)}</span>
+                      <span className="badge">close {fmtPct(st.closeThreshold ?? st.openThreshold ?? st.threshold, 3)}</span>
+                      <span className="badge">{st.halted ? "HALTED" : "ACTIVE"}</span>
+                      <span className="badge">{st.error ? "Error" : "OK"}</span>
+                    </div>
+                    <ChartSuspense height={CHART_HEIGHT}>
+                      <BacktestChart
+                        prices={st.prices}
+                        equityCurve={st.equityCurve}
+                        openTimes={st.openTimes}
+                        kalmanPredNext={st.kalmanPredNext}
+                        positions={botChartOverlays.get(botStatusKey(st))?.positions ?? st.positions}
+                        trades={st.trades}
+                        operations={botChartOverlays.get(botStatusKey(st))?.operations ?? st.operations}
+                        backtestStartIndex={st.startIndex}
+                        height={CHART_HEIGHT}
                       />
                     </ChartSuspense>
-                  ) : (
-                    <div className="chart" style={{ height: 160 }}>
-                      <div className="chartEmpty">Select a valid time range</div>
+                    <div style={{ marginTop: 8 }}>
+                      <div className="hint" style={{ marginBottom: 6 }}>
+                        Bot state timeline
+                      </div>
+                      {botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error ? (
+                        <ChartSuspense height={160} label="Loading timeline...">
+                          <BotStateChart
+                            points={botStatusPointsBySymbol.get(normalizeSymbolKey(st.symbol)) ?? []}
+                            startMs={botStatusRange.startMs}
+                            endMs={botStatusRange.endMs}
+                            height={160}
+                            label={`Bot state timeline (${st.symbol})`}
+                          />
+                        </ChartSuspense>
+                      ) : (
+                        <div className="chart" style={{ height: 160 }}>
+                          <div className="chartEmpty">Select a valid time range</div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </>
+                ) : null}
               </CollapsibleCard>
             );
           })}

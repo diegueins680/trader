@@ -9,6 +9,9 @@ module Trader.Coinbase (
     fetchCoinbaseAccounts,
     fetchCoinbaseAvailableBalance,
     fetchCoinbaseCandles,
+    decodeCoinbaseCandles,
+    buildRanges,
+    normalizeCoinbaseCandles,
     placeCoinbaseMarketOrder,
 ) where
 
@@ -26,6 +29,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Int (Int64)
 import Data.List (find, sortOn)
+import qualified Data.Scientific as Scientific
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime)
@@ -36,6 +40,7 @@ import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
 import Numeric (showFFloat)
 import System.IO.Unsafe (unsafePerformIO)
+import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
 import Trader.Text (trim)
@@ -155,24 +160,23 @@ placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId =
 
 fetchCoinbaseCandles :: String -> Int -> Int -> IO [CoinbaseCandle]
 fetchCoinbaseCandles product granularitySec bars = do
-    let key = map toUpperAscii (trim product) ++ ":" ++ show granularitySec ++ ":" ++ show bars
+    let totalBars = max 1 bars
+        key = map toUpperAscii (trim product) ++ ":" ++ show granularity ++ ":" ++ show totalBars
     fetchWithCache coinbaseCandlesCache coinbaseCandlesFreshTtl coinbaseCandlesStaleTtl key $ do
         mgr <- getSharedManager
-        now <- round <$> getPOSIXTime
-        let totalBars = max 1 bars
-            ranges = buildRanges (fromIntegral now) (fromIntegral granularitySec) totalBars
+        nowSec <- (floor <$> getPOSIXTime) :: IO Int64
+        let ranges = buildRanges nowSec (fromIntegral granularity) totalBars
         chunks <- mapM (fetchRange mgr) ranges
-        let candles = concat chunks
-            sorted = sortOn ccOpenTime candles
-        pure (dedupByTime sorted)
+        pure (normalizeCoinbaseCandles totalBars (concat chunks))
   where
     cleaned = map toUpperAscii (trim product)
+    granularity = max 1 granularitySec
 
     fetchRange manager (startSec, endSec) = do
         req0 <- parseRequest (coinbaseBaseUrl ++ "/products/" ++ cleaned ++ "/candles")
         let req =
                 setQueryString
-                    [ ("granularity", Just (BS8.pack (show granularitySec)))
+                    [ ("granularity", Just (BS8.pack (show granularity)))
                     , ("start", Just (formatIso startSec))
                     , ("end", Just (formatIso endSec))
                     ]
@@ -187,27 +191,39 @@ fetchCoinbaseCandles product granularitySec bars = do
                     }
         resp <- httpLbsWithRetry defaultRetryConfig (Just "coinbase.candles") manager req'
         ensure2xx "Coinbase candles" resp
-        case eitherDecode (responseBody resp) of
-            Left err -> throwIO (userError ("Failed to decode Coinbase candles: " ++ err))
-            Right v ->
-                case AT.parseEither parseCoinbaseResponse v of
-                    Left err -> throwIO (userError ("Failed to parse Coinbase candles: " ++ err))
-                    Right xs -> pure xs
+        case decodeCoinbaseCandles (responseBody resp) of
+            Left err -> throwIO (userError err)
+            Right xs -> pure xs
+
+decodeCoinbaseCandles :: BL.ByteString -> Either String [CoinbaseCandle]
+decodeCoinbaseCandles raw = do
+    v <-
+        case eitherDecode raw of
+            Left err -> Left ("Failed to decode Coinbase candles: " ++ err)
+            Right ok -> Right ok
+    case AT.parseEither parseCoinbaseResponse v of
+        Left err -> Left ("Failed to parse Coinbase candles: " ++ err)
+        Right xs -> Right xs
 
 buildRanges :: Int64 -> Int64 -> Int -> [(Int64, Int64)]
 buildRanges endSec granularitySec bars =
     let bars' = max 1 bars
         g = max 1 granularitySec
+        endSec' = max 0 endSec
         go acc remaining endTime =
-            if remaining <= 0
+            if remaining <= 0 || endTime <= 0
                 then reverse acc
                 else
                     let chunkBars = min coinbaseMaxBarsPerRequest remaining
                         spanSec = fromIntegral chunkBars * g
                         startTime = max 0 (endTime - spanSec)
-                        nextEnd = max 0 (startTime - g)
-                     in go ((startTime, endTime) : acc) (remaining - chunkBars) nextEnd
-     in go [] bars' endSec
+                        acc' = (startTime, endTime) : acc
+                     in if remaining - chunkBars <= 0 || startTime <= 0
+                            then reverse acc'
+                            -- Keep adjacent windows contiguous. If the API is end-inclusive,
+                            -- downstream dedup still removes the single overlap safely.
+                            else go acc' (remaining - chunkBars) startTime
+     in go [] bars' endSec'
 
 formatIso :: Int64 -> BS.ByteString
 formatIso sec =
@@ -245,7 +261,10 @@ parseIndexDouble i arr =
 parseInt64Value :: Value -> AT.Parser Int64
 parseInt64Value v =
     case v of
-        Number n -> pure (round n)
+        Number n ->
+            case Scientific.toBoundedInteger n of
+                Just x -> pure x
+                Nothing -> fail "Invalid integer"
         String t ->
             case readMaybeInt64 (T.unpack t) of
                 Just x -> pure x
@@ -255,24 +274,28 @@ parseInt64Value v =
 parseDoubleValue :: Value -> AT.Parser Double
 parseDoubleValue v =
     case v of
-        Number n -> pure (realToFrac n)
+        Number n -> parseFiniteDouble (realToFrac n)
         String t ->
-            case reads (T.unpack t) of
-                [(x, "")] -> pure x
+            case readMaybe (trim (T.unpack t)) of
+                Just x -> parseFiniteDouble x
                 _ -> fail "Invalid double"
         _ -> fail "Expected number"
 
 readMaybeInt64 :: String -> Maybe Int64
 readMaybeInt64 s =
-    case reads s of
-        [(x, "")] -> Just x
-        _ -> Nothing
+    readMaybe (trim s)
 
 normalizeTimestamp :: Int64 -> Int64
 normalizeTimestamp t =
-    if t > 1000000000000
+    if abs (toInteger t) >= 1000000000000
         then t `div` 1000
         else t
+
+parseFiniteDouble :: Double -> AT.Parser Double
+parseFiniteDouble x =
+    if isNaN x || isInfinite x
+        then fail "Invalid finite double"
+        else pure x
 
 dedupByTime :: [CoinbaseCandle] -> [CoinbaseCandle]
 dedupByTime = go Set.empty
@@ -281,6 +304,19 @@ dedupByTime = go Set.empty
     go seen (y : ys)
         | Set.member (ccOpenTime y) seen = go seen ys
         | otherwise = y : go (Set.insert (ccOpenTime y) seen) ys
+
+normalizeCoinbaseCandles :: Int -> [CoinbaseCandle] -> [CoinbaseCandle]
+normalizeCoinbaseCandles bars candles =
+    takeLast bars' (dedupByTime (sortOn ccOpenTime candles))
+  where
+    bars' = max 1 bars
+
+takeLast :: Int -> [a] -> [a]
+takeLast n xs
+    | n <= 0 = []
+    | otherwise =
+        let k = length xs - n
+         in if k <= 0 then xs else drop k xs
 
 signCoinbaseRequest :: CoinbaseEnv -> String -> String -> BS.ByteString -> Request -> IO Request
 signCoinbaseRequest env method path body req0 = do

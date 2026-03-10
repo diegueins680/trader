@@ -17,7 +17,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, query)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
-import Network.HTTP.Client (Manager, RequestBody (..), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
+import Network.HTTP.Client (Manager, Request (..), RequestBody (..), httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (hContentType, statusCode)
 import System.Environment (lookupEnv)
@@ -62,34 +62,35 @@ trim = f . f
     f = reverse . dropWhile (`elem` [' ', '\t', '\n', '\r'])
 
 parseIntEnv :: String -> Int -> IO Int
-parseIntEnv key def = do
-    mRaw <- lookupEnv key
-    case mRaw of
-        Nothing -> pure def
-        Just raw ->
-            case readMaybe (trim raw) of
-                Just v | v > 0 -> pure v
-                _ -> pure def
+parseIntEnv key def =
+    parseNumericEnv key def (> 0) "integer > 0"
 
 parseInt64Env :: String -> Int64 -> IO Int64
-parseInt64Env key def = do
-    mRaw <- lookupEnv key
-    case mRaw of
-        Nothing -> pure def
-        Just raw ->
-            case readMaybe (trim raw) of
-                Just v | v > 0 -> pure v
-                _ -> pure def
+parseInt64Env key def =
+    parseNumericEnv key def (> 0) "integer > 0"
 
 parseInt64EnvAllowZero :: String -> Int64 -> IO Int64
-parseInt64EnvAllowZero key def = do
+parseInt64EnvAllowZero key def =
+    parseNumericEnv key def (>= 0) "integer >= 0"
+
+parseNumericEnv :: (Read a, Show a) => String -> a -> (a -> Bool) -> String -> IO a
+parseNumericEnv key def predicate expected = do
     mRaw <- lookupEnv key
     case mRaw of
         Nothing -> pure def
         Just raw ->
             case readMaybe (trim raw) of
-                Just v | v >= 0 -> pure v
-                _ -> pure def
+                Just v | predicate v -> pure v
+                _ ->
+                    die
+                        ( "Invalid "
+                            ++ key
+                            ++ "="
+                            ++ show raw
+                            ++ " (expected "
+                            ++ expected
+                            ++ ")."
+                        )
 
 parseTextEnv :: String -> IO (Maybe String)
 parseTextEnv key = do
@@ -115,14 +116,45 @@ resolveMode :: IO PublishMode
 resolveMode = do
     mRaw <- lookupEnv "TRADER_OUTBOX_PUBLISHER_MODE"
     let mode = map toLower (maybe "noop" trim mRaw)
-    pure $
-        case mode of
-            "stdout" -> PublishStdout
-            "kafka-rest" -> PublishKafkaRest
-            _ -> PublishNoop
+    case mode of
+        "noop" -> pure PublishNoop
+        "stdout" -> pure PublishStdout
+        "kafka-rest" -> pure PublishKafkaRest
+        _ ->
+            die
+                ( "Invalid TRADER_OUTBOX_PUBLISHER_MODE="
+                    ++ show mode
+                    ++ " (expected noop|stdout|kafka-rest)."
+                )
+
+validatePublisherConfig :: PublishMode -> Maybe String -> IO ()
+validatePublisherConfig mode kafkaRestBaseUrl =
+    case mode of
+        PublishKafkaRest ->
+            case kafkaRestBaseUrl of
+                Nothing -> die "TRADER_OUTBOX_KAFKA_REST_URL is required when TRADER_OUTBOX_PUBLISHER_MODE=kafka-rest."
+                Just baseUrl -> do
+                    let probeUrl = trim baseUrl ++ "/topics/trader-healthcheck"
+                    parsed <- try (parseRequest probeUrl) :: IO (Either SomeException Request)
+                    case parsed of
+                        Left _ ->
+                            die
+                                ( "Invalid TRADER_OUTBOX_KAFKA_REST_URL="
+                                    ++ show baseUrl
+                                    ++ "; expected an absolute http(s) URL."
+                                )
+                        Right _ -> pure ()
+        _ -> pure ()
 
 getTimestampMs :: IO Int64
 getTimestampMs = round . (* 1000) <$> getPOSIXTime
+
+safeDelayMicrosFromMs :: Int -> Int
+safeDelayMicrosFromMs ms =
+    let boundedMs = max 0 ms
+        micros = toInteger boundedMs * 1000
+        cap = toInteger (maxBound :: Int)
+     in fromInteger (min cap micros)
 
 claimOutboxBatch :: Connection -> Int64 -> Int -> IO [OutboxEvent]
 claimOutboxBatch conn now limitN =
@@ -185,9 +217,10 @@ cleanupPublishedOlderThan conn now retentionMs = do
 
 backoffMs :: Int -> Int64
 backoffMs attempts =
-    let a = max 1 attempts
-        raw = (2 ^ min 10 a) * 1000
-     in min 300000 (fromIntegral raw)
+    let expSteps = min 10 (max 1 attempts)
+        rawMs :: Int64
+        rawMs = (2 ^ expSteps) * 1000
+     in min 300000 rawMs
 
 publishEvent :: PublisherCtx -> OutboxEvent -> IO (Either Text ())
 publishEvent ctx event =
@@ -271,6 +304,7 @@ main = do
     publishedRetentionMs <- parseInt64EnvAllowZero "TRADER_OUTBOX_PUBLISHED_RETENTION_MS" 604800000
     mode <- resolveMode
     kafkaRestBaseUrl <- parseTextEnv "TRADER_OUTBOX_KAFKA_REST_URL"
+    validatePublisherConfig mode kafkaRestBaseUrl
     manager <- newManager tlsManagerSettings
     let ctx = PublisherCtx{pcMode = mode, pcKafkaRestBaseUrl = kafkaRestBaseUrl, pcManager = manager}
     conn <- connectPostgreSQL (TE.encodeUtf8 (T.pack dbUrl))
@@ -291,4 +325,4 @@ main = do
         )
     forever $ do
         runBatch conn ctx batchSize staleTimeoutMs publishedRetentionMs
-        threadDelay (pollMs * 1000)
+        threadDelay (safeDelayMicrosFromMs pollMs)

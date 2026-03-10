@@ -13,12 +13,14 @@ module Trader.App.Args (
     opts,
     argBinanceMarket,
     argLookback,
+    normalizeEpochMs,
+    parseTimestampMs,
     validateArgs,
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Monad (when)
-import Data.Char (isAlphaNum, isDigit, toLower, toUpper)
+import Control.Monad (forM_, when)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower, toUpper)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Time (defaultTimeLocale, parseTimeM)
@@ -47,6 +49,7 @@ import Trader.Predictors.Types (
     predictorSetFromString,
     predictorSetToCsv,
  )
+import Trader.Symbol (sanitizeSymbolForPlatform)
 import Trader.Text (normalizeKey, trim)
 import Trader.Trading (IntrabarFill (..), Positioning (..))
 
@@ -303,55 +306,141 @@ parseBarsArg raw =
     let s = map toLower (trim raw)
      in if s == "auto"
             then Right Nothing
-            else case (readMaybe s :: Maybe Int) of
-                Just n -> Right (Just n)
+            else case readStrictDecimalInteger s of
+                Just n ->
+                    case integerToInt n of
+                        Just bounded -> Right (Just bounded)
+                        Nothing -> Left "Expected an integer (e.g. 500) or 'auto'."
                 Nothing -> Left "Expected an integer (e.g. 500) or 'auto'."
 
 parseTimeInt64 :: String -> Maybe Int64
 parseTimeInt64 s =
-    case (readMaybe s :: Maybe Int64) of
-        Just n -> Just n
-        Nothing ->
-            case (readMaybe s :: Maybe Double) of
-                Just d -> Just (floor d)
-                Nothing -> Nothing
+    integerToInt64 =<< readStrictDecimalInteger s
+
+readStrictDecimalInteger :: String -> Maybe Integer
+readStrictDecimalInteger s =
+    if isStrictSignedDecimal s
+        then case s of
+            '+' : rest -> readMaybe rest
+            _ -> readMaybe s
+        else Nothing
+
+isStrictSignedDecimal :: String -> Bool
+isStrictSignedDecimal txt =
+    case txt of
+        ('+' : rest) -> hasDigits rest
+        ('-' : rest) -> hasDigits rest
+        _ -> hasDigits txt
+  where
+    hasDigits xs = not (null xs) && all isDigit xs
+
+integerToInt :: Integer -> Maybe Int
+integerToInt n =
+    if n < lo || n > hi
+        then Nothing
+        else Just (fromInteger n)
+  where
+    lo = toInteger (minBound :: Int)
+    hi = toInteger (maxBound :: Int)
+
+integerToInt64 :: Integer -> Maybe Int64
+integerToInt64 n =
+    if n < lo || n > hi
+        then Nothing
+        else Just (fromInteger n)
+  where
+    lo = toInteger (minBound :: Int64)
+    hi = toInteger (maxBound :: Int64)
 
 normalizeEpochMs :: Int64 -> Int64
 normalizeEpochMs n =
-    if n < 100000000000
-        then n * 1000
-        else n
+    let nInteger = toInteger n
+        threshold = 10000000000 :: Integer
+     in if abs nInteger < threshold
+            then
+                let scaled = nInteger * 1000
+                    lo = toInteger (minBound :: Int64)
+                    hi = toInteger (maxBound :: Int64)
+                 in if scaled < lo || scaled > hi
+                        then n
+                        else fromInteger scaled
+            else n
 
 parseIsoTimeMs :: String -> Maybe Int64
 parseIsoTimeMs s =
-    let formats =
+    let s' = normalizeIsoOffsetSuffix s
+        formats =
             [ "%Y-%m-%d"
+            , "%Y-%m-%d %H:%M"
+            , "%Y-%m-%dT%H:%M"
+            , "%Y-%m-%d %H:%M%z"
+            , "%Y-%m-%dT%H:%M%z"
+            , "%Y-%m-%d %H:%MZ"
+            , "%Y-%m-%dT%H:%MZ"
             , "%Y-%m-%d %H:%M:%S"
             , "%Y-%m-%dT%H:%M:%S"
+            , "%Y-%m-%d %H:%M:%S%z"
+            , "%Y-%m-%dT%H:%M:%S%z"
             , "%Y-%m-%d %H:%M:%S%Q"
             , "%Y-%m-%dT%H:%M:%S%Q"
+            , "%Y-%m-%d %H:%M:%S%Q%z"
+            , "%Y-%m-%dT%H:%M:%S%Q%z"
             , "%Y-%m-%dT%H:%M:%S%QZ"
             , "%Y-%m-%d %H:%M:%S%QZ"
             ]
-        parseWith fmt = parseTimeM True defaultTimeLocale fmt s
+        parseWith fmt = parseTimeM True defaultTimeLocale fmt s'
+        toMsBounded t =
+            let ms = floor (utcTimeToPOSIXSeconds t * 1000) :: Integer
+             in integerToInt64 ms
      in case mapMaybe parseWith formats of
             [] -> Nothing
-            (t : _) -> Just (floor (utcTimeToPOSIXSeconds t * 1000))
+            (t : _) -> toMsBounded t
+
+normalizeIsoOffsetSuffix :: String -> String
+normalizeIsoOffsetSuffix raw =
+    let rawT = map (\c -> if c == 't' then 'T' else c) raw
+        raw' =
+            case reverse rawT of
+                'z' : rest -> reverse rest ++ "Z"
+                _ -> rawT
+     in case reverse raw' of
+            m2 : m1 : ':' : h2 : h1 : sign : rest
+                | (sign == '+' || sign == '-') && all isDigit [h1, h2, m1, m2] ->
+                    reverse rest ++ [sign, h1, h2, m1, m2]
+            _ -> raw'
 
 looksLikeIso8601Prefix :: String -> Bool
 looksLikeIso8601Prefix s =
-    case s of
-        (a : b : c : d : '-' : e : f : '-' : g : h : _) -> all isDigit [a, b, c, d, e, f, g, h]
-        _ -> False
+    let s' =
+            case s of
+                ('+' : rest) -> rest
+                ('-' : rest) -> rest
+                _ -> s
+        (yearDigits, rest) = span isDigit s'
+     in length yearDigits >= 4
+            && case rest of
+                ('-' : m1 : m2 : '-' : d1 : d2 : _)
+                    | all isDigit [m1, m2, d1, d2] -> True
+                _ -> False
 
-parseBacktestTimeMs :: String -> Maybe Int64
-parseBacktestTimeMs s =
-    case parseTimeInt64 s of
-        Just n -> Just (normalizeEpochMs n)
-        Nothing ->
-            if looksLikeIso8601Prefix s
-                then parseIsoTimeMs s
-                else Nothing
+parseTimestampMs :: String -> Maybe Int64
+parseTimestampMs raw =
+    let s = trim raw
+     in case parseTimeInt64 s of
+            Just n -> Just (normalizeEpochMs n)
+            Nothing ->
+                if looksLikeIso8601Prefix s
+                    then parseIsoTimeMs s
+                    else Nothing
+
+normalizeIntervalCode :: String -> String
+normalizeIntervalCode raw =
+    let s = trim raw
+     in case span isDigit s of
+            (digits, [u])
+                | not (null digits) ->
+                    digits ++ [if u == 'M' then 'M' else toLower u]
+            _ -> s
 
 positioningCode :: Positioning -> String
 positioningCode p =
@@ -417,7 +506,10 @@ opts = do
             )
     argBinanceFutures <- switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders (Binance only)")
     argBinanceMargin <- switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance (Binance only)")
-    argInterval <- strOption (long "interval" <> long "binance-interval" <> value "1h" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)")
+    argInterval <-
+        fmap
+            normalizeIntervalCode
+            (strOption (long "interval" <> long "binance-interval" <> value "1h" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)"))
     argBars <-
         option
             (eitherReader parseBarsArg)
@@ -885,7 +977,10 @@ opts = do
 argBinanceMarket :: Args -> BinanceMarket
 argBinanceMarket args =
     case (argBinanceFutures args, argBinanceMargin args) of
-        (True, True) -> MarketSpot
+        -- Validation rejects this combination, but if it still slips through,
+        -- keep behavior aligned with the explicit futures flag rather than
+        -- silently downgrading to spot.
+        (True, True) -> MarketFutures
         (True, False) -> MarketFutures
         (False, True) -> MarketMargin
         (False, False) -> MarketSpot
@@ -912,20 +1007,42 @@ validateArgs args0 = do
                 PlatformPancakeswap -> True
                 PlatformOneInch -> True
                 _ -> False
+        normalizeDelimitedSymbol delim raw =
+            let normalized = map toUpper (trim raw)
+             in map (normalizeDelimiter delim) normalized
+        normalizeDelimiter delim c
+            | c == delim = delim
+            | c == '/' = delim
+            | delim == '-' && c == '_' = delim
+            | delim == '_' && c == '-' = delim
+            | otherwise = c
         symbolNormalizer =
-            if isDexPlatform (argPlatform args0)
-                then trim
-                else map toUpper . trim
+            case argPlatform args0 of
+                p | isDexPlatform p -> trim
+                PlatformCoinbase -> normalizeCoinbaseSymbol
+                PlatformPoloniex -> normalizePoloniexSymbol
+                PlatformBinance -> normalizeBinanceSymbol
+                _ -> map toUpper . trim
+        normalizeBinanceSymbol raw =
+            fromMaybe (map toUpper (trim raw)) (sanitizeSymbolForPlatform (Just "binance") raw)
+        normalizeCoinbaseSymbol raw =
+            fromMaybe (normalizeDelimitedSymbol '-' raw) (sanitizeSymbolForPlatform (Just "coinbase") raw)
+        normalizePoloniexSymbol raw =
+            fromMaybe (normalizeDelimitedSymbol '_' raw) (sanitizeSymbolForPlatform (Just "poloniex") raw)
     let args =
             args0
                 { argData = fmap trim (argData args0)
                 , argBinanceSymbol = fmap symbolNormalizer (argBinanceSymbol args0)
-                , argInterval = trim (argInterval args0)
+                , argInterval = normalizeIntervalCode (argInterval args0)
                 , argPriceCol = trim (argPriceCol args0)
                 , argHighCol = fmap trim (argHighCol args0)
                 , argLowCol = fmap trim (argLowCol args0)
+                , argDexBaseToken = fmap trim (argDexBaseToken args0)
+                , argDexQuoteToken = fmap trim (argDexQuoteToken args0)
+                , argDexProtocols = fmap trim (argDexProtocols args0)
                 , argBacktestFrom = fmap trim (argBacktestFrom args0)
                 , argBacktestTo = fmap trim (argBacktestTo args0)
+                , argIdempotencyKey = fmap trim (argIdempotencyKey args0)
                 }
         present = maybe False (not . null)
     case argData args of
@@ -933,6 +1050,32 @@ validateArgs args0 = do
         _ -> pure ()
     case argBinanceSymbol args of
         Just "" -> Left "--binance-symbol cannot be empty"
+        _ -> pure ()
+    case argBinanceSymbol args of
+        Nothing -> pure ()
+        Just sym ->
+            case argPlatform args of
+                PlatformBinance ->
+                    ensure
+                        "--symbol must be a valid Binance symbol (e.g., BTCUSDT or BTC/USDT)"
+                        (isJust (sanitizeSymbolForPlatform (Just "binance") sym))
+                PlatformCoinbase ->
+                    ensure
+                        "--symbol must use Coinbase BASE-QUOTE format (e.g., BTC-USD or BTC/USD)"
+                        (isJust (sanitizeSymbolForPlatform (Just "coinbase") sym))
+                PlatformPoloniex ->
+                    ensure
+                        "--symbol must use Poloniex BASE_QUOTE format (e.g., BTC_USDT or BTC/USDT)"
+                        (isJust (sanitizeSymbolForPlatform (Just "poloniex") sym))
+                _ -> pure ()
+    case argDexBaseToken args of
+        Just "" -> Left "--dex-base-token cannot be empty"
+        _ -> pure ()
+    case argDexQuoteToken args of
+        Just "" -> Left "--dex-quote-token cannot be empty"
+        _ -> pure ()
+    case argDexProtocols args of
+        Just "" -> Left "--dex-protocols cannot be empty"
         _ -> pure ()
     let isDex = isDexPlatform (argPlatform args)
     ensure
@@ -949,7 +1092,10 @@ validateArgs args0 = do
         isCoinbase = argPlatform args == PlatformCoinbase
         supportsTrading = platformSupportsTrading (argPlatform args)
         supportsLiveMode = isBinance || isCoinbase
-        hasDexTokens = isJust (argDexBaseToken args) && isJust (argDexQuoteToken args)
+        hasDexBaseToken = present (argDexBaseToken args)
+        hasDexQuoteToken = present (argDexQuoteToken args)
+        hasDexTokens = hasDexBaseToken && hasDexQuoteToken
+    ensure "--dex-base-token and --dex-quote-token must be provided together" (hasDexBaseToken == hasDexQuoteToken)
     ensure "--futures/--margin are only supported on Binance" (isBinance || not (argBinanceFutures args || argBinanceMargin args))
     ensure "--binance-testnet is only supported on Binance" (isBinance || not (argBinanceTestnet args))
     ensure "--binance-live is only supported on Binance/Coinbase" (supportsLiveMode || not (argBinanceLive args))
@@ -1042,10 +1188,13 @@ validateArgs args0 = do
                         pure n
 
     let hasDataSource = present (argData args) || present (argBinanceSymbol args)
+        prefersCsvBars = isDex && present (argData args)
         barsForLookback =
-            case argBinanceSymbol args of
-                Just _ -> barsPlatform
-                Nothing -> barsCsv
+            if prefersCsvBars
+                then barsCsv
+                else case argBinanceSymbol args of
+                    Just _ -> barsPlatform
+                    Nothing -> barsCsv
     when (hasDataSource && barsForLookback > 0) $
         ensure
             ( "--bars must be >= lookback+1 (need at least "
@@ -1056,13 +1205,135 @@ validateArgs args0 = do
             )
             (barsForLookback > lookback)
 
+    let finiteRequired =
+            [ ("--lr", argLr args)
+            , ("--val-ratio", argValRatio args)
+            , ("--backtest-ratio", argBacktestRatio args)
+            , ("--initial-balance", argInitialBalance args)
+            , ("--tune-ratio", argTuneRatio args)
+            , ("--tune-penalty-max-drawdown", argTunePenaltyMaxDrawdown args)
+            , ("--tune-penalty-turnover", argTunePenaltyTurnover args)
+            , ("--kalman-dt", argKalmanDt args)
+            , ("--kalman-process-var", argKalmanProcessVar args)
+            , ("--kalman-measurement-var", argKalmanMeasurementVar args)
+            , ("--open-threshold/--threshold", argOpenThreshold args)
+            , ("--close-threshold", argCloseThreshold args)
+            , ("--fee", argFee args)
+            , ("--slippage", argSlippage args)
+            , ("--spread", argSpread args)
+            , ("--fee-fixed", argFeeFixed args)
+            , ("--fee-min", argFeeMin args)
+            , ("--slippage-vol-mult", argSlippageVolMult args)
+            , ("--slippage-impact", argSlippageImpact args)
+            , ("--slippage-impact-power", argSlippageImpactPower args)
+            , ("--spread-vol-mult", argSpreadVolMult args)
+            , ("--stop-loss-vol-mult", argStopLossVolMult args)
+            , ("--take-profit-vol-mult", argTakeProfitVolMult args)
+            , ("--trailing-stop-vol-mult", argTrailingStopVolMult args)
+            , ("--take-profit-partial", argTakeProfitPartial args)
+            , ("--min-edge", argMinEdge args)
+            , ("--min-signal-to-noise", argMinSignalToNoise args)
+            , ("--snr-size-weight", argSnrSizeWeight args)
+            , ("--adaptive-edge-buffer-max", argAdaptiveEdgeBufferMax args)
+            , ("--adaptive-min-signal-to-noise-max", argAdaptiveMinSignalToNoiseMax args)
+            , ("--adaptive-kalman-z-min-max", argAdaptiveKalmanZMinMax args)
+            , ("--meta-label-min-edge", argMetaLabelMinEdge args)
+            , ("--meta-label-min-confidence", argMetaLabelMinConfidence args)
+            , ("--regime-bank-hysteresis", argRegimeBankHysteresis args)
+            , ("--regime-trend-open-mult", argRegimeTrendOpenMult args)
+            , ("--regime-mr-open-mult", argRegimeMrOpenMult args)
+            , ("--regime-high-vol-open-mult", argRegimeHighVolOpenMult args)
+            , ("--regime-trend-size-mult", argRegimeTrendSizeMult args)
+            , ("--regime-mr-size-mult", argRegimeMrSizeMult args)
+            , ("--regime-high-vol-size-mult", argRegimeHighVolSizeMult args)
+            , ("--cross-asset-min-beta", argCrossAssetMinBeta args)
+            , ("--cross-asset-min-edge", argCrossAssetMinEdge args)
+            , ("--pairs-stat-arb-z-entry", argPairsStatArbZEntry args)
+            , ("--pairs-stat-arb-size-mult", argPairsStatArbSizeMult args)
+            , ("--threshold-factor-alpha", argThresholdFactorAlpha args)
+            , ("--threshold-factor-min", argThresholdFactorMin args)
+            , ("--threshold-factor-max", argThresholdFactorMax args)
+            , ("--threshold-factor-floor", argThresholdFactorFloor args)
+            , ("--threshold-factor-edge-kal-weight", argThresholdFactorEdgeKalWeight args)
+            , ("--threshold-factor-edge-lstm-weight", argThresholdFactorEdgeLstmWeight args)
+            , ("--threshold-factor-kalman-z-weight", argThresholdFactorKalmanZWeight args)
+            , ("--threshold-factor-high-vol-weight", argThresholdFactorHighVolWeight args)
+            , ("--threshold-factor-conformal-weight", argThresholdFactorConformalWeight args)
+            , ("--threshold-factor-quantile-weight", argThresholdFactorQuantileWeight args)
+            , ("--threshold-factor-lstm-conf-weight", argThresholdFactorLstmConfWeight args)
+            , ("--threshold-factor-lstm-health-weight", argThresholdFactorLstmHealthWeight args)
+            , ("--edge-buffer", argEdgeBuffer args)
+            , ("--max-position-size", argMaxPositionSize args)
+            , ("--vol-floor", argVolFloor args)
+            , ("--vol-scale-max", argVolScaleMax args)
+            , ("--rebalance-threshold", argRebalanceThreshold args)
+            , ("--rebalance-cost-mult", argRebalanceCostMult args)
+            , ("--funding-rate", argFundingRate args)
+            , ("--funding-oi-size-mult", argFundingOiSizeMult args)
+            , ("--blend-weight", argBlendWeight args)
+            , ("--router-min-score", argRouterMinScore args)
+            , ("--router-score-pnl-weight", argRouterScorePnlWeight args)
+            , ("--tri-layer-fast-mult", argTriLayerFastMult args)
+            , ("--tri-layer-slow-mult", argTriLayerSlowMult args)
+            , ("--tri-layer-cloud-padding", argTriLayerCloudPadding args)
+            , ("--tri-layer-cloud-slope", argTriLayerCloudSlope args)
+            , ("--tri-layer-cloud-width", argTriLayerCloudWidth args)
+            , ("--tri-layer-price-action-body", argTriLayerPriceActionBody args)
+            , ("--kalman-band-std-mult", argKalmanBandStdMult args)
+            , ("--execution-maker-offset-bps", argExecutionMakerOffsetBps args)
+            , ("--execution-maker-timeout-sec", argExecutionMakerTimeoutSec args)
+            , ("--protection-min-confidence", argProtectionMinConfidence args)
+            , ("--lstm-confidence-soft", argLstmConfidenceSoft args)
+            , ("--lstm-confidence-hard", argLstmConfidenceHard args)
+            , ("--min-position-size", argMinPositionSize args)
+            , ("--kelly-lite-fraction", argKellyLiteFraction args)
+            , ("--kelly-lite-floor", argKellyLiteFloor args)
+            , ("--kelly-lite-cap", argKellyLiteCap args)
+            , ("--kalman-z-min", argKalmanZMin args)
+            , ("--kalman-z-max", argKalmanZMax args)
+            , ("--tune-stress-vol-mult", argTuneStressVolMult args)
+            , ("--tune-stress-shock", argTuneStressShock args)
+            , ("--tune-stress-weight", argTuneStressWeight args)
+            ]
+        finiteOptional =
+            [ ("--order-quote", argOrderQuote args)
+            , ("--order-quantity", argOrderQuantity args)
+            , ("--order-quote-fraction", argOrderQuoteFraction args)
+            , ("--max-order-quote", argMaxOrderQuote args)
+            , ("--grad-clip", argGradClip args)
+            , ("--stop-loss", argStopLoss args)
+            , ("--take-profit", argTakeProfit args)
+            , ("--trailing-stop", argTrailingStop args)
+            , ("--max-drawdown", argMaxDrawdown args)
+            , ("--max-daily-loss", argMaxDailyLoss args)
+            , ("--max-weekly-loss", argMaxWeeklyLoss args)
+            , ("--risk-per-trade", argRiskPerTrade args)
+            , ("--min-expectancy", argMinExpectancy args)
+            , ("--perf-min-win-rate", argPerfMinWinRate args)
+            , ("--perf-min-profit-factor", argPerfMinProfitFactor args)
+            , ("--max-gross-exposure", argMaxGrossExposure args)
+            , ("--max-net-exposure", argMaxNetExposure args)
+            , ("--max-exposure-per-base", argMaxExposurePerBase args)
+            , ("--vol-target", argVolTarget args)
+            , ("--vol-ewma-alpha", argVolEwmaAlpha args)
+            , ("--max-volatility", argMaxVolatility args)
+            , ("--funding-oi-funding-cap", argFundingOiFundingCap args)
+            , ("--funding-oi-vol-cap", argFundingOiVolCap args)
+            , ("--periods-per-year", argPeriodsPerYear args)
+            , ("--max-high-vol-prob", argMaxHighVolProb args)
+            , ("--max-conformal-width", argMaxConformalWidth args)
+            , ("--max-quantile-width", argMaxQuantileWidth args)
+            ]
+    forM_ finiteRequired (uncurry ensureFinite)
+    forM_ finiteOptional (uncurry ensureMaybeFinite)
+
     ensure "--hidden-size must be >= 1" (argHiddenSize args >= 1)
     ensure "--epochs must be >= 0" (argEpochs args >= 0)
     ensure "--lr must be > 0" (argLr args > 0)
     ensure "--val-ratio must be >= 0 and < 1" (argValRatio args >= 0 && argValRatio args < 1)
     ensure "--backtest-ratio must be between 0 and 1" (argBacktestRatio args > 0 && argBacktestRatio args < 1)
     let parseWindowBound flag raw =
-            case parseBacktestTimeMs raw of
+            case parseTimestampMs raw of
                 Just t -> Right t
                 Nothing ->
                     Left
@@ -1277,10 +1548,10 @@ validateArgs args0 = do
         Just v -> ensure "--periods-per-year must be > 0" (v > 0)
     case argOrderQuote args of
         Nothing -> pure ()
-        Just q -> ensure "--order-quote must be >= 0" (q >= 0)
+        Just q -> ensure "--order-quote must be > 0" (q > 0)
     case argOrderQuantity args of
         Nothing -> pure ()
-        Just q -> ensure "--order-quantity must be >= 0" (q >= 0)
+        Just q -> ensure "--order-quantity must be > 0" (q > 0)
 
     let qtyOn = maybe False (> 0) (argOrderQuantity args)
         quoteOn = maybe False (> 0) (argOrderQuote args)
@@ -1293,10 +1564,10 @@ validateArgs args0 = do
         Just f -> ensure "--order-quote-fraction must be > 0 and <= 1" (f > 0 && f <= 1)
     case argMaxOrderQuote args of
         Nothing -> pure ()
-        Just q -> ensure "--max-order-quote must be >= 0" (q >= 0)
+        Just q -> ensure "--max-order-quote must be > 0" (q > 0)
 
     case argMaxOrderQuote args of
-        Just q | q > 0 -> ensure "--max-order-quote requires --order-quote-fraction" fracOn
+        Just _ -> ensure "--max-order-quote requires --order-quote-fraction" fracOn
         _ -> pure ()
 
     let market = argBinanceMarket args
@@ -1309,12 +1580,9 @@ validateArgs args0 = do
         Nothing -> pure ()
         Just raw ->
             let k = trim raw
-                okLen =
-                    case splitAt 37 k of
-                        ("", _) -> False
-                        (_, []) -> True
-                        _ -> False
-                okChars = all (\c -> isAlphaNum c || c == '-' || c == '_') k
+                len = length k
+                okLen = len >= 1 && len <= 36
+                okChars = all (\c -> isAsciiAlphaNum c || c == '-' || c == '_') k
              in ensure "--idempotency-key must be 1..36 chars of [A-Za-z0-9_-]" (okLen && okChars)
     case argDexChainId args of
         Nothing -> pure ()
@@ -1349,3 +1617,18 @@ validateArgs args0 = do
   where
     ensure :: String -> Bool -> Either String ()
     ensure msg cond = if cond then Right () else Left msg
+
+    ensureFinite :: String -> Double -> Either String ()
+    ensureFinite flag value = ensure (flag ++ " must be finite") (isFiniteNumber value)
+
+    ensureMaybeFinite :: String -> Maybe Double -> Either String ()
+    ensureMaybeFinite flag mValue =
+        case mValue of
+            Nothing -> Right ()
+            Just value -> ensureFinite flag value
+
+    isFiniteNumber :: Double -> Bool
+    isFiniteNumber x = not (isNaN x || isInfinite x)
+
+    isAsciiAlphaNum :: Char -> Bool
+    isAsciiAlphaNum c = isDigit c || isAsciiUpper c || isAsciiLower c

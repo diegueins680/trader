@@ -7,6 +7,7 @@ module Trader.Dex (
     DexSwapTx (..),
     DexSwapResult (..),
     dexNativeAddress,
+    extractTxHash,
     resolveDexEnv,
     resolveDexTokens,
     swapDexExactIn,
@@ -25,7 +26,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isSpace, toLower)
+import Data.Char (isDigit, isSpace, toLower)
 import qualified Data.HashMap.Strict as HM
 import Data.List (dropWhileEnd, find)
 import Data.Maybe (fromMaybe)
@@ -50,6 +51,9 @@ nativeAliases = ["native", "eth", "bnb", "matic", "avax", "op", "arb"]
 
 oneInchDefaultBaseUrl :: String
 oneInchDefaultBaseUrl = "https://api.1inch.com/swap/v6.1"
+
+maxTokenDecimals :: Int
+maxTokenDecimals = 255
 
 data DexEnv = DexEnv
     { deChainId :: !Int
@@ -96,59 +100,108 @@ resolveDexEnv chainOverride autoApproveOverride = do
     baseUrl <- resolveUrlEnv "TRADER_DEX_1INCH_BASE_URL" oneInchDefaultBaseUrl
     apiKey <- lookupEnv "TRADER_DEX_1INCH_API_KEY"
     apiKeyAlt <- lookupEnv "ONEINCH_API_KEY"
-    rpcUrl <- lookupEnv "TRADER_DEX_RPC_URL"
-    privKey <- lookupEnv "TRADER_DEX_PRIVATE_KEY"
-    address <- lookupEnv "TRADER_DEX_ADDRESS"
+    rpcUrlRaw <- lookupEnv "TRADER_DEX_RPC_URL"
+    privKeyRaw <- lookupEnv "TRADER_DEX_PRIVATE_KEY"
+    addressRaw <- lookupEnv "TRADER_DEX_ADDRESS"
     chainEnv <- lookupEnv "TRADER_DEX_CHAIN_ID"
     protocolsEnv <- lookupEnv "TRADER_DEX_PROTOCOLS"
     autoApproveEnv <- lookupEnv "TRADER_DEX_AUTO_APPROVE"
     waitEnv <- lookupEnv "TRADER_DEX_APPROVE_WAIT_SEC"
     let chainId = chainOverride <|> (chainEnv >>= readMaybe)
+        rpcUrl = rpcUrlRaw >>= nonEmptyTrim
+        privKey = privKeyRaw >>= nonEmptyTrim
+        address = addressRaw >>= nonEmptyTrim
         autoApprove = fromMaybe True (autoApproveOverride <|> (autoApproveEnv >>= readBool))
         approveWait = fromMaybe 30 (waitEnv >>= readMaybe)
         apiKeyFinal = apiKey <|> apiKeyAlt
     case (chainId, rpcUrl, privKey, address) of
         (Nothing, _, _, _) -> pure (Left "Missing DEX chain id (set TRADER_DEX_CHAIN_ID or dexChainId).")
+        (Just cid, _, _, _) | cid <= 0 -> pure (Left "DEX chain id must be > 0.")
         (_, Nothing, _, _) -> pure (Left "Missing TRADER_DEX_RPC_URL for DEX trading.")
         (_, _, Nothing, _) -> pure (Left "Missing TRADER_DEX_PRIVATE_KEY for DEX trading.")
         (_, _, _, Nothing) -> pure (Left "Missing TRADER_DEX_ADDRESS for DEX trading.")
         (Just cid, Just rpc, Just pk, Just addr) ->
-            pure
-                ( Right
-                    DexEnv
-                        { deChainId = cid
-                        , deRpcUrl = rpc
-                        , dePrivateKey = normalizeHex pk
-                        , deAddress = normalizeHex addr
-                        , deBaseUrl = sanitizeBaseUrl baseUrl
-                        , deApiKey = apiKeyFinal
-                        , deProtocols = protocolsEnv >>= nonEmptyTrim
-                        , deAutoApprove = autoApprove
-                        , deApproveWaitSec = max 0 approveWait
-                        }
-                )
+            let normalizedPk = normalizeHex pk
+                normalizedAddr = normalizeHex addr
+             in if not (isHexPrivateKey normalizedPk)
+                    then pure (Left "TRADER_DEX_PRIVATE_KEY must be 0x + 64 hex chars.")
+                    else
+                        if not (isHexAddress normalizedAddr)
+                            then pure (Left "TRADER_DEX_ADDRESS must be 0x + 40 hex chars.")
+                            else
+                                pure
+                                    ( Right
+                                        DexEnv
+                                            { deChainId = cid
+                                            , deRpcUrl = rpc
+                                            , dePrivateKey = normalizedPk
+                                            , deAddress = normalizedAddr
+                                            , deBaseUrl = sanitizeBaseUrl baseUrl
+                                            , deApiKey = apiKeyFinal
+                                            , deProtocols = protocolsEnv >>= nonEmptyTrim
+                                            , deAutoApprove = autoApprove
+                                            , deApproveWaitSec = max 0 approveWait
+                                            }
+                                    )
 
 resolveDexTokens :: DexEnv -> String -> String -> Maybe Int -> Maybe Int -> IO (Either String (DexToken, DexToken))
 resolveDexTokens env baseRaw quoteRaw baseDecimalsOverride quoteDecimalsOverride = do
-    tokensOrErr <- fetchDexTokens env
-    case tokensOrErr of
-        Left err ->
-            let baseToken = fallbackToken baseRaw baseDecimalsOverride
-                quoteToken = fallbackToken quoteRaw quoteDecimalsOverride
-             in case (baseToken, quoteToken) of
-                    (Right b, Right q) -> pure (Right (b, q))
-                    _ ->
-                        pure
-                            ( Left
-                                ( "Failed to fetch 1inch tokens list: "
-                                    ++ err
-                                    ++ ". Provide dexBaseDecimals/dexQuoteDecimals and token addresses to bypass metadata lookup."
-                                )
-                            )
-        Right tokenMap -> do
-            baseTokenOrErr <- resolveDexToken tokenMap baseRaw baseDecimalsOverride
-            quoteTokenOrErr <- resolveDexToken tokenMap quoteRaw quoteDecimalsOverride
-            pure $ (,) <$> baseTokenOrErr <*> quoteTokenOrErr
+    case localOnlyDexTokenPair baseRaw quoteRaw baseDecimalsOverride quoteDecimalsOverride of
+        Left err -> pure (Left err)
+        Right (Just pair) -> pure (Right pair)
+        Right Nothing -> do
+            tokensOrErr <- fetchDexTokens env
+            case tokensOrErr of
+                Left err ->
+                    let baseToken = fallbackToken baseRaw baseDecimalsOverride
+                        quoteToken = fallbackToken quoteRaw quoteDecimalsOverride
+                     in case (baseToken, quoteToken) of
+                            (Right b, Right q) -> pure (Right (b, q))
+                            _ ->
+                                pure
+                                    ( Left
+                                        ( "Failed to fetch 1inch tokens list: "
+                                            ++ err
+                                            ++ ". Provide dexBaseDecimals/dexQuoteDecimals and token addresses to bypass metadata lookup."
+                                        )
+                                    )
+                Right tokenMap -> do
+                    baseTokenOrErr <- resolveDexToken tokenMap baseRaw baseDecimalsOverride
+                    quoteTokenOrErr <- resolveDexToken tokenMap quoteRaw quoteDecimalsOverride
+                    pure $ (,) <$> baseTokenOrErr <*> quoteTokenOrErr
+
+localOnlyDexTokenPair :: String -> String -> Maybe Int -> Maybe Int -> Either String (Maybe (DexToken, DexToken))
+localOnlyDexTokenPair baseRaw quoteRaw baseDecimalsOverride quoteDecimalsOverride = do
+    base <- localTokenIfExplicit baseRaw baseDecimalsOverride
+    quote <- localTokenIfExplicit quoteRaw quoteDecimalsOverride
+    pure ((,) <$> base <*> quote)
+
+localTokenIfExplicit :: String -> Maybe Int -> Either String (Maybe DexToken)
+localTokenIfExplicit raw decimalsOverride =
+    case tokenInputKind raw of
+        Left err -> Left err
+        Right TokenInputNative -> do
+            decimals <- sanitizeDecimalsOverride decimalsOverride 18
+            pure (Just (DexToken dexNativeAddress "NATIVE" decimals))
+        Right (TokenInputAddress addr) ->
+            case decimalsOverride of
+                Nothing -> pure Nothing
+                Just _ -> do
+                    decimals <- sanitizeDecimalsOverride decimalsOverride 18
+                    pure (Just (DexToken addr addr decimals))
+        Right (TokenInputSymbol _) -> pure Nothing
+
+sanitizeDecimalsOverride :: Maybe Int -> Int -> Either String Int
+sanitizeDecimalsOverride mOverride fallback =
+    case mOverride of
+        Nothing -> validateTokenDecimals fallback
+        Just d -> validateTokenDecimals d
+
+validateTokenDecimals :: Int -> Either String Int
+validateTokenDecimals d
+    | d < 0 = Left "Token decimals must be >= 0."
+    | d > maxTokenDecimals = Left ("Token decimals must be <= " ++ show maxTokenDecimals ++ ".")
+    | otherwise = Right d
 
 swapDexExactIn :: DexEnv -> DexToken -> DexToken -> Integer -> Double -> Maybe String -> IO (Either String DexSwapResult)
 swapDexExactIn env tokenIn tokenOut amountIn slippageFrac mProtocols = do
@@ -371,9 +424,10 @@ sendDexTx env tx = do
                     case extractTxHash stdoutText of
                         Just h -> pure (Right h)
                         Nothing ->
-                            if null (trimString stdoutText)
-                                then pure (Left "cast send succeeded but no tx hash was returned.")
-                                else pure (Right (trimString stdoutText))
+                            let output = trimString stdoutText
+                             in if null output
+                                    then pure (Left "cast send succeeded but no tx hash was returned.")
+                                    else pure (Left ("cast send succeeded but no tx hash was found in output: " ++ output))
                 ExitFailure _ ->
                     pure (Left ("cast send failed: " ++ trimString (stdoutText ++ " " ++ stderrText)))
 
@@ -479,14 +533,15 @@ fallbackToken :: String -> Maybe Int -> Either String DexToken
 fallbackToken raw decOverride =
     case tokenInputKind raw of
         Left err -> Left err
-        Right TokenInputNative ->
-            case decOverride of
-                Nothing -> Right (DexToken dexNativeAddress "NATIVE" 18)
-                Just d -> Right (DexToken dexNativeAddress "NATIVE" d)
+        Right TokenInputNative -> do
+            d <- sanitizeDecimalsOverride decOverride 18
+            Right (DexToken dexNativeAddress "NATIVE" d)
         Right (TokenInputAddress addr) ->
             case decOverride of
                 Nothing -> Left "Token decimals are required when metadata lookup fails."
-                Just d -> Right (DexToken addr addr d)
+                Just _ -> do
+                    d <- sanitizeDecimalsOverride decOverride 18
+                    Right (DexToken addr addr d)
         Right (TokenInputSymbol _) -> Left "Token metadata lookup failed; provide a token address and decimals."
 
 resolveDexToken :: HM.HashMap Text DexToken -> String -> Maybe Int -> IO (Either String DexToken)
@@ -494,27 +549,48 @@ resolveDexToken tokenMap raw decOverride =
     case tokenInputKind raw of
         Left err -> pure (Left err)
         Right TokenInputNative ->
-            pure (Right (DexToken dexNativeAddress "NATIVE" 18))
+            pure $
+                case sanitizeDecimalsOverride decOverride 18 of
+                    Left err -> Left err
+                    Right d -> Right (DexToken dexNativeAddress "NATIVE" d)
         Right (TokenInputAddress addr) ->
             case lookupTokenByAddress tokenMap addr of
                 Just tok ->
                     case decOverride of
-                        Nothing -> pure (Right tok)
-                        Just d -> pure (Right tok{dtDecimals = d})
+                        Nothing -> pure (sanitizeTokenDecimalsFromMetadata raw tok)
+                        Just _ ->
+                            pure $
+                                case sanitizeDecimalsOverride decOverride (dtDecimals tok) of
+                                    Left err -> Left err
+                                    Right d -> Right tok{dtDecimals = d}
                 Nothing ->
                     case decOverride of
                         Nothing -> pure (Left ("Token not found in 1inch list: " ++ raw))
-                        Just d -> pure (Right (DexToken addr raw d))
+                        Just _ ->
+                            pure $
+                                case sanitizeDecimalsOverride decOverride 18 of
+                                    Left err -> Left err
+                                    Right d -> Right (DexToken addr raw d)
         Right (TokenInputSymbol _) ->
             case lookupTokenBySymbol tokenMap raw of
                 Just tok ->
                     case decOverride of
-                        Nothing -> pure (Right tok)
-                        Just d -> pure (Right tok{dtDecimals = d})
+                        Nothing -> pure (sanitizeTokenDecimalsFromMetadata raw tok)
+                        Just _ ->
+                            pure $
+                                case sanitizeDecimalsOverride decOverride (dtDecimals tok) of
+                                    Left err -> Left err
+                                    Right d -> Right tok{dtDecimals = d}
                 Nothing ->
                     case decOverride of
                         Nothing -> pure (Left ("Token not found in 1inch list: " ++ raw))
                         Just d -> pure (Left ("Token symbol lookup failed; provide an address for: " ++ raw ++ " (decimals=" ++ show d ++ ")."))
+
+sanitizeTokenDecimalsFromMetadata :: String -> DexToken -> Either String DexToken
+sanitizeTokenDecimalsFromMetadata raw tok =
+    case validateTokenDecimals (dtDecimals tok) of
+        Left err -> Left ("Token metadata for " ++ raw ++ " has invalid decimals: " ++ err)
+        Right d -> Right tok{dtDecimals = d}
 
 lookupTokenByAddress :: HM.HashMap Text DexToken -> String -> Maybe DexToken
 lookupTokenByAddress tokenMap addr =
@@ -542,21 +618,35 @@ tokenInputKind raw =
                 if tLower `elem` nativeAliases
                     then Right TokenInputNative
                     else
-                        if isHexAddress tLower
-                            then Right (TokenInputAddress tLower)
+                        if hasHexPrefix tLower
+                            then
+                                if isHexAddress tLower
+                                    then Right (TokenInputAddress tLower)
+                                    else Left "Invalid token address (expected 0x + 40 hex chars)."
                             else Right (TokenInputSymbol t)
+
+hasHexPrefix :: String -> Bool
+hasHexPrefix t =
+    case t of
+        '0' : 'x' : _ -> True
+        _ -> False
 
 isHexAddress :: String -> Bool
 isHexAddress t =
     case t of
-        '0' : 'x' : rest -> hasMinLength 40 rest
+        '0' : 'x' : rest -> hasExactLength 40 rest && all isHexDigitAscii rest
         _ -> False
 
-hasMinLength :: Int -> [a] -> Bool
-hasMinLength n _
-    | n <= 0 = True
-hasMinLength _ [] = False
-hasMinLength n (_ : xs) = hasMinLength (n - 1) xs
+isHexPrivateKey :: String -> Bool
+isHexPrivateKey t =
+    case t of
+        '0' : 'x' : rest -> hasExactLength 64 rest && all isHexDigitAscii rest
+        _ -> False
+
+isHexDigitAscii :: Char -> Bool
+isHexDigitAscii c =
+    isDigit c
+        || ('a' <= c && c <= 'f')
 
 hasExactLength :: Int -> [a] -> Bool
 hasExactLength n _
@@ -574,16 +664,22 @@ tokenAmountToInteger amt decimals
     | isNaN amt || isInfinite amt = Left "Amount is not a valid number."
     | amt <= 0 = Left "Amount must be > 0."
     | decimals < 0 = Left "Token decimals must be >= 0."
+    | decimals > maxTokenDecimals = Left ("Token decimals must be <= " ++ show maxTokenDecimals ++ ".")
     | otherwise =
         let scale = (10 :: Integer) ^ decimals
-            scaled = floor (amt * fromIntegral scale + 1e-9)
-         in if scaled <= 0 then Left "Amount rounds to 0." else Right scaled
+            scaledRaw = amt * fromIntegral scale
+         in if isNaN scaledRaw || isInfinite scaledRaw
+                then Left "Amount is too large for token precision."
+                else
+                    let scaled = floor (scaledRaw + 1e-9)
+                     in if scaled <= 0 then Left "Amount rounds to 0." else Right scaled
 
 integerToTokenAmount :: Integer -> Int -> Double
 integerToTokenAmount amt decimals =
-    if decimals <= 0
-        then fromIntegral amt
-        else fromIntegral amt / (10 ^ decimals)
+    let safeDecimals = max 0 (min maxTokenDecimals decimals)
+     in if safeDecimals <= 0
+            then fromIntegral amt
+            else fromIntegral amt / (10 ^ safeDecimals)
 
 parseTextField :: AT.Object -> Text -> Either String String
 parseTextField o k =
@@ -636,12 +732,31 @@ scientificToString n =
         Left _ -> formatScientific Fixed Nothing n
 
 extractTxHash :: String -> Maybe String
-extractTxHash raw =
-    let tokens = words raw
-        isHash t =
-            let t' = map toLower t
-             in "0x" `isPrefixOf` t' && hasExactLength 66 t'
-     in find isHash tokens
+extractTxHash =
+    findTxHash
+  where
+    findTxHash :: String -> Maybe String
+    findTxHash [] = Nothing
+    findTxHash s@(_ : xs) =
+        case s of
+            ('0' : prefixX : rest)
+                | toLower prefixX == 'x' ->
+                    case parseHashBody rest of
+                        Just hashBody -> Just ("0x" ++ hashBody)
+                        Nothing -> findTxHash xs
+            _ -> findTxHash xs
+
+    parseHashBody :: String -> Maybe String
+    parseHashBody txt =
+        let (candidateRaw, trailing) = splitAt 64 txt
+            candidate = map toLower candidateRaw
+            trailingOk =
+                case trailing of
+                    [] -> True
+                    (c : _) -> not (isHexDigitAscii (toLower c))
+         in if hasExactLength 64 candidate && all isHexDigitAscii candidate && trailingOk
+                then Just candidate
+                else Nothing
 
 isInfixOf :: String -> String -> Bool
 isInfixOf needle hay =

@@ -79,6 +79,7 @@ data EnsembleConfig = EnsembleConfig
     , ecNoTradeWindows :: ![TimeWindow] -- UTC windows to block entries
     , ecIntervalSeconds :: !(Maybe Int) -- inferred from CLI interval; UTC day/week windows require bar timestamps
     , ecOpenTimes :: !(Maybe (V.Vector Int64)) -- optional bar open times (ms since epoch) for daily-loss day keys
+    , ecOpenPrices :: !(Maybe (V.Vector Double)) -- optional bar opens aligned to closes (used for candle patterns)
     , ecMetaMask :: !(Maybe (V.Vector Bool)) -- optional per-bar mask to apply Kalman meta gating
     , ecPositioning :: !Positioning
     , ecIntrabarFill :: !IntrabarFill
@@ -444,6 +445,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
             case ecOpenTimes cfg of
                 Just ts | V.length ts == n -> Just ts
                 _ -> Nothing
+        openPricesV =
+            case ecOpenPrices cfg of
+                Just os | V.length os == n -> Just os
+                _ -> Nothing
         openTimesMismatch =
             case ecOpenTimes cfg of
                 Just ts
@@ -451,6 +456,18 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         Just
                             ( "open time vector length ("
                                 ++ show (V.length ts)
+                                ++ ") must match closes length ("
+                                ++ show n
+                                ++ ")"
+                            )
+                _ -> Nothing
+        openPricesMismatch =
+            case ecOpenPrices cfg of
+                Just os
+                    | V.length os /= n ->
+                        Just
+                            ( "open price vector length ("
+                                ++ show (V.length os)
                                 ++ ") must match closes length ("
                                 ++ show n
                                 ++ ")"
@@ -564,19 +581,21 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
             | otherwise = case openTimesMismatch of
                 Just err
                     | isJust dailyLossReq || isJust weeklyLossReq || isJust maxTradesPerDayReq || noTradeReq -> Just err
-                _ ->
-                    case metaMaskMismatch of
-                        Just err -> Just err
-                        Nothing ->
-                            case metaMismatch of
-                                Just err -> Just err
-                                Nothing ->
-                                    case kalPredAtE of
-                                        Left err -> Just err
-                                        Right _ ->
-                                            case lstmPredAtE of
-                                                Left err -> Just err
-                                                Right _ -> Nothing
+                _ -> case openPricesMismatch of
+                    Just err -> Just err
+                    Nothing ->
+                        case metaMaskMismatch of
+                            Just err -> Just err
+                            Nothing ->
+                                case metaMismatch of
+                                    Just err -> Just err
+                                    Nothing ->
+                                        case kalPredAtE of
+                                            Left err -> Just err
+                                            Right _ ->
+                                                case lstmPredAtE of
+                                                    Left err -> Just err
+                                                    Right _ -> Nothing
      in case validationError of
             Just err -> Left err
             Nothing ->
@@ -842,9 +861,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                              in if isNaN l || isInfinite l then c else l
 
                         barOpen t1 =
-                            if t1 <= 0
-                                then pricesV V.! t1
-                                else pricesV V.! (t1 - 1)
+                            let fallback =
+                                    if t1 <= 0
+                                        then pricesV V.! t1
+                                        else pricesV V.! (t1 - 1)
+                                candidate =
+                                    case openPricesV of
+                                        Just ovs -> ovs V.! t1
+                                        Nothing -> fallback
+                             in if isBad candidate then fallback else candidate
 
                         candleAt t1 =
                             let o = barOpen t1

@@ -123,7 +123,7 @@ initParams n seed =
 
 splitTrainVal :: Double -> [a] -> ([a], [a])
 splitTrainVal valRatio xs
-    | valRatio <= 0 || valRatio >= 1 = (xs, [])
+    | not (isFiniteDouble valRatio) || valRatio <= 0 || valRatio >= 1 = (xs, [])
     | otherwise =
         let n = length xs
             splitAtN = max 1 (floor (fromIntegral n * (1 - valRatio)))
@@ -180,6 +180,9 @@ clipByL2 maxNorm g =
      in if norm > maxNorm && norm > 0
             then map (\x -> x * (maxNorm / norm)) g
             else g
+
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)
 
 data LSTMParams a = LSTMParams
     { pWi :: [[a]]

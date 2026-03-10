@@ -3,7 +3,9 @@
 module Trader.Optimizer.Optimize (
     OptimizerArgs (..),
     applyQualityPreset,
+    normalizeOptionalPositiveFraction,
     runOptimizer,
+    sampleTakeProfitPartial,
 ) where
 
 import Control.Concurrent (forkIO, threadDelay)
@@ -22,14 +24,13 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
-import Data.Either (fromRight)
 import Data.Foldable (for_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (foldl', intercalate, sort, sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Ord
-import Data.Scientific (Scientific, toRealFloat)
+import Data.Scientific (Scientific, toBoundedInteger, toRealFloat)
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -98,6 +99,93 @@ clamp x lo hi = max lo (min hi x)
 
 clampInt :: Int -> Int -> Int -> Int
 clampInt x lo hi = max lo (min hi x)
+
+orderedPair :: (Ord a) => (a, a) -> (a, a)
+orderedPair (a, b) = if a <= b then (a, b) else (b, a)
+
+sampleTakeProfitPartial :: (Double, Double) -> Double -> Rng -> (Maybe Double, Rng)
+sampleTakeProfitPartial takeProfitPartialRange pDisableTakeProfitPartial rng0 =
+    let (lo, hi) = orderedPair takeProfitPartialRange
+        lo' = clamp lo 0 0.999999
+        hi' = clamp hi 0 0.999999
+     in if hi' <= 0
+            then (Nothing, rng0)
+            else
+                nextMaybe
+                    pDisableTakeProfitPartial
+                    (nextUniform lo' (max lo' hi'))
+                    rng0
+
+normalizeOptionalPositiveFraction :: Maybe Double -> Maybe Double
+normalizeOptionalPositiveFraction raw =
+    case raw of
+        Nothing -> Nothing
+        Just x
+            | isNaN x || isInfinite x -> Nothing
+            | x <= 0 -> Nothing
+            | otherwise -> Just (min x 0.999999)
+
+normalizeOptionalUnitInterval :: Maybe Double -> Maybe Double
+normalizeOptionalUnitInterval raw =
+    case raw of
+        Nothing -> Nothing
+        Just x
+            | isNaN x || isInfinite x -> Nothing
+            | otherwise -> Just (clamp x 0 1)
+
+normalizeTrialParams :: TrialParams -> TrialParams
+normalizeTrialParams p =
+    let maxPositionSize' = max 0 (tpMaxPositionSize p)
+        minPositionSize' = clamp (tpMinPositionSize p) 0 maxPositionSize'
+        kellyLiteFloor' = max 0 (tpKellyLiteFloor p)
+        kellyLiteCap' = max kellyLiteFloor' (tpKellyLiteCap p)
+        thresholdFactorMin' = max 0 (tpThresholdFactorMin p)
+        thresholdFactorMax' = max thresholdFactorMin' (tpThresholdFactorMax p)
+        kalmanZMin' = max 0 (tpKalmanZMin p)
+        kalmanZMax' = max kalmanZMin' (tpKalmanZMax p)
+        lstmConfidenceHard' = clamp (tpLstmConfidenceHard p) 0 1
+        lstmConfidenceSoftMax =
+            if lstmConfidenceHard' == 0
+                then 1
+                else lstmConfidenceHard'
+        lstmConfidenceSoft' = clamp (tpLstmConfidenceSoft p) 0 lstmConfidenceSoftMax
+     in p
+            { tpBlendWeight = clamp (tpBlendWeight p) 0 1
+            , tpRouterScorePnlWeight = clamp (tpRouterScorePnlWeight p) 0 1
+            , tpSnrSizeWeight = clamp (tpSnrSizeWeight p) 0 1
+            , tpThresholdFactorAlpha = clamp (tpThresholdFactorAlpha p) 0 1
+            , tpThresholdFactorMin = thresholdFactorMin'
+            , tpThresholdFactorMax = thresholdFactorMax'
+            , tpMaxPositionSize = maxPositionSize'
+            , tpVolEwmaAlpha = normalizeOptionalPositiveFraction (tpVolEwmaAlpha p)
+            , tpLstmConfidenceSoft = lstmConfidenceSoft'
+            , tpLstmConfidenceHard = lstmConfidenceHard'
+            , tpStopLoss = normalizeOptionalPositiveFraction (tpStopLoss p)
+            , tpTakeProfit = normalizeOptionalPositiveFraction (tpTakeProfit p)
+            , tpTrailingStop = normalizeOptionalPositiveFraction (tpTrailingStop p)
+            , tpRiskPerTrade = normalizeOptionalPositiveFraction (tpRiskPerTrade p)
+            , tpMaxDrawdown = normalizeOptionalPositiveFraction (tpMaxDrawdown p)
+            , tpMaxDailyLoss = normalizeOptionalPositiveFraction (tpMaxDailyLoss p)
+            , tpMaxWeeklyLoss = normalizeOptionalPositiveFraction (tpMaxWeeklyLoss p)
+            , tpKalmanZMin = kalmanZMin'
+            , tpKalmanZMax = kalmanZMax'
+            , tpMaxHighVolProb = normalizeOptionalUnitInterval (tpMaxHighVolProb p)
+            , tpProtectionMinConfidence = clamp (tpProtectionMinConfidence p) 0 1
+            , tpMinPositionSize = minPositionSize'
+            , tpKellyLiteFraction = max 0 (tpKellyLiteFraction p)
+            , tpKellyLiteFloor = kellyLiteFloor'
+            , tpKellyLiteCap = kellyLiteCap'
+            , tpRouterMinScore = clamp (tpRouterMinScore p) 0 1
+            , tpTakeProfitPartial = normalizeOptionalPositiveFraction (tpTakeProfitPartial p)
+            , tpPerfMinWinRate = normalizeOptionalUnitInterval (tpPerfMinWinRate p)
+            , tpMetaLabelMinConfidence = clamp (tpMetaLabelMinConfidence p) 0 1
+            , tpRegimeBankHysteresis = clamp (tpRegimeBankHysteresis p) 0 1
+            , tpPairsStatArbSizeMult = clamp (tpPairsStatArbSizeMult p) 0 1
+            , tpFundingOiFundingCap = normalizeOptionalPositiveFraction (tpFundingOiFundingCap p)
+            , tpFundingOiVolLookback = max 2 (tpFundingOiVolLookback p)
+            , tpFundingOiVolCap = normalizeOptionalPositiveFraction (tpFundingOiVolCap p)
+            , tpFundingOiSizeMult = clamp (tpFundingOiSizeMult p) 0 1
+            }
 
 normalizeSymbol :: Maybe String -> Maybe String
 normalizeSymbol raw =
@@ -225,7 +313,7 @@ metricInt m key def =
             case KM.lookup (Key.fromString key) metrics of
                 Just (Bool v) -> if v then 1 else 0
                 Just (Number n) ->
-                    maybe def truncate (scientificToDouble n)
+                    fromMaybe def (scientificToBoundedInt n)
                 _ -> def
 
 metricProfitFactor :: Maybe (KM.KeyMap Value) -> Maybe Double
@@ -316,18 +404,18 @@ coerceIntValue value =
     case value of
         Null -> Nothing
         Bool v -> Just (if v then 1 else 0)
-        Number n ->
-            case scientificToDouble n of
-                Just d -> Just (truncate d)
-                Nothing -> Nothing
+        Number n -> scientificToBoundedInt n
         String s ->
             let trimmed = trim (T.unpack s)
              in if null trimmed
                     then Nothing
-                    else case reads trimmed of
-                        [(v, "")] -> Just (truncate (v :: Double))
+                    else case readMaybe trimmed :: Maybe Scientific of
+                        Just n -> scientificToBoundedInt n
                         _ -> Nothing
         _ -> Nothing
+
+scientificToBoundedInt :: Scientific -> Maybe Int
+scientificToBoundedInt = toBoundedInteger
 
 sanitizeFinalEquity :: Double -> Double
 sanitizeFinalEquity eq
@@ -716,11 +804,14 @@ data OptimizerArgs = OptimizerArgs
     , oaPDisableRiskPerTrade :: !Double
     , oaPDisableMaxDd :: !Double
     , oaPDisableMaxDl :: !Double
+    , oaPDisableMaxWl :: !Double
     , oaPDisableMaxOe :: !Double
     , oaMaxDdMin :: !Double
     , oaMaxDdMax :: !Double
     , oaMaxDlMin :: !Double
     , oaMaxDlMax :: !Double
+    , oaMaxWlMin :: !Double
+    , oaMaxWlMax :: !Double
     , oaMaxOeMin :: !Int
     , oaMaxOeMax :: !Int
     , oaMethodWeight11 :: !Double
@@ -823,6 +914,75 @@ data OptimizerArgs = OptimizerArgs
     , oaAdaptiveTrendLookbackMaxMax :: !Int
     , oaAdaptiveKalmanZMinMaxMin :: !Double
     , oaAdaptiveKalmanZMinMaxMax :: !Double
+    , oaPAdaptiveFilters :: !Double
+    , oaPerfLookbackMin :: !Int
+    , oaPerfLookbackMax :: !Int
+    , oaPerfMinWinRateMin :: !Double
+    , oaPerfMinWinRateMax :: !Double
+    , oaPDisablePerfMinWinRate :: !Double
+    , oaPerfMinProfitFactorMin :: !Double
+    , oaPerfMinProfitFactorMax :: !Double
+    , oaPDisablePerfMinProfitFactor :: !Double
+    , oaPMetaLabelFilter :: !Double
+    , oaMetaLabelMinEdgeMin :: !Double
+    , oaMetaLabelMinEdgeMax :: !Double
+    , oaMetaLabelMinConfidenceMin :: !Double
+    , oaMetaLabelMinConfidenceMax :: !Double
+    , oaPMetaLabelRequireBand :: !Double
+    , oaPRegimeParameterBank :: !Double
+    , oaRegimeBankHysteresisMin :: !Double
+    , oaRegimeBankHysteresisMax :: !Double
+    , oaRegimeTrendOpenMultMin :: !Double
+    , oaRegimeTrendOpenMultMax :: !Double
+    , oaRegimeMrOpenMultMin :: !Double
+    , oaRegimeMrOpenMultMax :: !Double
+    , oaRegimeHighVolOpenMultMin :: !Double
+    , oaRegimeHighVolOpenMultMax :: !Double
+    , oaRegimeTrendSizeMultMin :: !Double
+    , oaRegimeTrendSizeMultMax :: !Double
+    , oaRegimeMrSizeMultMin :: !Double
+    , oaRegimeMrSizeMultMax :: !Double
+    , oaRegimeHighVolSizeMultMin :: !Double
+    , oaRegimeHighVolSizeMultMax :: !Double
+    , oaPMultiTimeframeConsensus :: !Double
+    , oaMtfFastBarsMin :: !Int
+    , oaMtfFastBarsMax :: !Int
+    , oaMtfMidBarsMin :: !Int
+    , oaMtfMidBarsMax :: !Int
+    , oaMtfSlowBarsMin :: !Int
+    , oaMtfSlowBarsMax :: !Int
+    , oaMtfMinAgreeMin :: !Int
+    , oaMtfMinAgreeMax :: !Int
+    , oaPCrossAssetConfirmation :: !Double
+    , oaCrossAssetMinBetaMin :: !Double
+    , oaCrossAssetMinBetaMax :: !Double
+    , oaCrossAssetMinEdgeMin :: !Double
+    , oaCrossAssetMinEdgeMax :: !Double
+    , oaPPairsStatArb :: !Double
+    , oaPairsStatArbLookbackMin :: !Int
+    , oaPairsStatArbLookbackMax :: !Int
+    , oaPairsStatArbZEntryMin :: !Double
+    , oaPairsStatArbZEntryMax :: !Double
+    , oaPairsStatArbSizeMultMin :: !Double
+    , oaPairsStatArbSizeMultMax :: !Double
+    , oaPFundingOiAware :: !Double
+    , oaFundingOiFundingCapMin :: !Double
+    , oaFundingOiFundingCapMax :: !Double
+    , oaPDisableFundingOiFundingCap :: !Double
+    , oaFundingOiVolLookbackMin :: !Int
+    , oaFundingOiVolLookbackMax :: !Int
+    , oaFundingOiVolCapMin :: !Double
+    , oaFundingOiVolCapMax :: !Double
+    , oaPDisableFundingOiVolCap :: !Double
+    , oaFundingOiSizeMultMin :: !Double
+    , oaFundingOiSizeMultMax :: !Double
+    , oaPKellyLiteSizing :: !Double
+    , oaKellyLiteFractionMin :: !Double
+    , oaKellyLiteFractionMax :: !Double
+    , oaKellyLiteFloorMin :: !Double
+    , oaKellyLiteFloorMax :: !Double
+    , oaKellyLiteCapMin :: !Double
+    , oaKellyLiteCapMax :: !Double
     }
     deriving (Eq, Show)
 
@@ -887,6 +1047,74 @@ applyQualityPreset args =
             , oaPDisableStopVolMult = minIf (oaPDisableStopVolMult args) 0.35
             , oaPDisableTpVolMult = minIf (oaPDisableTpVolMult args) 0.35
             , oaPDisableTrailVolMult = minIf (oaPDisableTrailVolMult args) 0.5
+            , oaPAdaptiveFilters = maxIf (oaPAdaptiveFilters args) 0.35
+            , oaPerfLookbackMin = maxIf (oaPerfLookbackMin args) 10
+            , oaPerfLookbackMax = maxIf (oaPerfLookbackMax args) 40
+            , oaPerfMinWinRateMin = maxIf (oaPerfMinWinRateMin args) 0.48
+            , oaPerfMinWinRateMax = maxIf (oaPerfMinWinRateMax args) 0.62
+            , oaPDisablePerfMinWinRate = minIf (oaPDisablePerfMinWinRate args) 0.35
+            , oaPerfMinProfitFactorMin = maxIf (oaPerfMinProfitFactorMin args) 1.05
+            , oaPerfMinProfitFactorMax = maxIf (oaPerfMinProfitFactorMax args) 1.8
+            , oaPDisablePerfMinProfitFactor = minIf (oaPDisablePerfMinProfitFactor args) 0.35
+            , oaPMetaLabelFilter = maxIf (oaPMetaLabelFilter args) 0.3
+            , oaMetaLabelMinEdgeMax = maxIf (oaMetaLabelMinEdgeMax args) 0.001
+            , oaMetaLabelMinConfidenceMin = maxIf (oaMetaLabelMinConfidenceMin args) 0.45
+            , oaMetaLabelMinConfidenceMax = maxIf (oaMetaLabelMinConfidenceMax args) 0.8
+            , oaPMetaLabelRequireBand = maxIf (oaPMetaLabelRequireBand args) 0.75
+            , oaPRegimeParameterBank = maxIf (oaPRegimeParameterBank args) 0.35
+            , oaRegimeBankHysteresisMin = minIf (oaRegimeBankHysteresisMin args) 0.0
+            , oaRegimeBankHysteresisMax = maxIf (oaRegimeBankHysteresisMax args) 0.12
+            , oaRegimeTrendOpenMultMin = minIf (oaRegimeTrendOpenMultMin args) 0.75
+            , oaRegimeTrendOpenMultMax = maxIf (oaRegimeTrendOpenMultMax args) 1.05
+            , oaRegimeMrOpenMultMin = minIf (oaRegimeMrOpenMultMin args) 1.0
+            , oaRegimeMrOpenMultMax = maxIf (oaRegimeMrOpenMultMax args) 1.35
+            , oaRegimeHighVolOpenMultMin = minIf (oaRegimeHighVolOpenMultMin args) 1.05
+            , oaRegimeHighVolOpenMultMax = maxIf (oaRegimeHighVolOpenMultMax args) 1.6
+            , oaRegimeTrendSizeMultMin = minIf (oaRegimeTrendSizeMultMin args) 0.9
+            , oaRegimeTrendSizeMultMax = maxIf (oaRegimeTrendSizeMultMax args) 1.35
+            , oaRegimeMrSizeMultMin = minIf (oaRegimeMrSizeMultMin args) 0.6
+            , oaRegimeMrSizeMultMax = maxIf (oaRegimeMrSizeMultMax args) 1.0
+            , oaRegimeHighVolSizeMultMin = minIf (oaRegimeHighVolSizeMultMin args) 0.4
+            , oaRegimeHighVolSizeMultMax = maxIf (oaRegimeHighVolSizeMultMax args) 0.9
+            , oaPMultiTimeframeConsensus = maxIf (oaPMultiTimeframeConsensus args) 0.3
+            , oaMtfFastBarsMin = minIf (oaMtfFastBarsMin args) 3
+            , oaMtfFastBarsMax = maxIf (oaMtfFastBarsMax args) 12
+            , oaMtfMidBarsMin = minIf (oaMtfMidBarsMin args) 12
+            , oaMtfMidBarsMax = maxIf (oaMtfMidBarsMax args) 36
+            , oaMtfSlowBarsMin = minIf (oaMtfSlowBarsMin args) 36
+            , oaMtfSlowBarsMax = maxIf (oaMtfSlowBarsMax args) 120
+            , oaMtfMinAgreeMin = maxIf (oaMtfMinAgreeMin args) 2
+            , oaMtfMinAgreeMax = maxIf (oaMtfMinAgreeMax args) 3
+            , oaPCrossAssetConfirmation = maxIf (oaPCrossAssetConfirmation args) 0.25
+            , oaCrossAssetMinBetaMin = minIf (oaCrossAssetMinBetaMin args) 0.0
+            , oaCrossAssetMinBetaMax = maxIf (oaCrossAssetMinBetaMax args) 0.2
+            , oaCrossAssetMinEdgeMin = minIf (oaCrossAssetMinEdgeMin args) 0.0
+            , oaCrossAssetMinEdgeMax = maxIf (oaCrossAssetMinEdgeMax args) 0.001
+            , oaPPairsStatArb = maxIf (oaPPairsStatArb args) 0.15
+            , oaPairsStatArbLookbackMin = minIf (oaPairsStatArbLookbackMin args) 60
+            , oaPairsStatArbLookbackMax = maxIf (oaPairsStatArbLookbackMax args) 180
+            , oaPairsStatArbZEntryMin = minIf (oaPairsStatArbZEntryMin args) 1.5
+            , oaPairsStatArbZEntryMax = maxIf (oaPairsStatArbZEntryMax args) 3.0
+            , oaPairsStatArbSizeMultMin = minIf (oaPairsStatArbSizeMultMin args) 0.4
+            , oaPairsStatArbSizeMultMax = maxIf (oaPairsStatArbSizeMultMax args) 0.9
+            , oaPFundingOiAware = maxIf (oaPFundingOiAware args) 0.2
+            , oaFundingOiFundingCapMin = minIf (oaFundingOiFundingCapMin args) 0.02
+            , oaFundingOiFundingCapMax = maxIf (oaFundingOiFundingCapMax args) 0.2
+            , oaPDisableFundingOiFundingCap = minIf (oaPDisableFundingOiFundingCap args) 0.6
+            , oaFundingOiVolLookbackMin = minIf (oaFundingOiVolLookbackMin args) 24
+            , oaFundingOiVolLookbackMax = maxIf (oaFundingOiVolLookbackMax args) 96
+            , oaFundingOiVolCapMin = minIf (oaFundingOiVolCapMin args) 0.3
+            , oaFundingOiVolCapMax = maxIf (oaFundingOiVolCapMax args) 2.0
+            , oaPDisableFundingOiVolCap = minIf (oaPDisableFundingOiVolCap args) 0.6
+            , oaFundingOiSizeMultMin = minIf (oaFundingOiSizeMultMin args) 0.4
+            , oaFundingOiSizeMultMax = maxIf (oaFundingOiSizeMultMax args) 0.9
+            , oaPKellyLiteSizing = maxIf (oaPKellyLiteSizing args) 0.25
+            , oaKellyLiteFractionMin = minIf (oaKellyLiteFractionMin args) 0.1
+            , oaKellyLiteFractionMax = maxIf (oaKellyLiteFractionMax args) 0.8
+            , oaKellyLiteFloorMin = minIf (oaKellyLiteFloorMin args) 0.0
+            , oaKellyLiteFloorMax = maxIf (oaKellyLiteFloorMax args) 0.35
+            , oaKellyLiteCapMin = minIf (oaKellyLiteCapMin args) 0.6
+            , oaKellyLiteCapMax = maxIf (oaKellyLiteCapMax args) 1.25
             , oaInterval = if intervalReset then Nothing else oaInterval args
             , oaIntervals = intervals'
             }
@@ -982,6 +1210,7 @@ data TrialParams = TrialParams
     , tpRiskPerTrade :: !(Maybe Double)
     , tpMaxDrawdown :: !(Maybe Double)
     , tpMaxDailyLoss :: !(Maybe Double)
+    , tpMaxWeeklyLoss :: !(Maybe Double)
     , tpMaxOrderErrors :: !(Maybe Int)
     , tpKalmanDt :: !Double
     , tpKalmanProcessVar :: !Double
@@ -996,6 +1225,10 @@ data TrialParams = TrialParams
     , tpConfidenceSizing :: !Bool
     , tpProtectionMinConfidence :: !Double
     , tpMinPositionSize :: !Double
+    , tpKellyLiteSizing :: !Bool
+    , tpKellyLiteFraction :: !Double
+    , tpKellyLiteFloor :: !Double
+    , tpKellyLiteCap :: !Double
     , tpPredictors :: !String
     , tpRouterLookback :: !Int
     , tpRouterMinScore :: !Double
@@ -1019,6 +1252,39 @@ data TrialParams = TrialParams
     , tpAdaptiveMinSignalToNoiseMax :: !Double
     , tpAdaptiveTrendLookbackMax :: !Int
     , tpAdaptiveKalmanZMinMax :: !Double
+    , tpAdaptiveFilters :: !Bool
+    , tpPerfLookback :: !Int
+    , tpPerfMinWinRate :: !(Maybe Double)
+    , tpPerfMinProfitFactor :: !(Maybe Double)
+    , tpMetaLabelFilter :: !Bool
+    , tpMetaLabelMinEdge :: !Double
+    , tpMetaLabelMinConfidence :: !Double
+    , tpMetaLabelRequireBand :: !Bool
+    , tpRegimeParameterBank :: !Bool
+    , tpRegimeBankHysteresis :: !Double
+    , tpRegimeTrendOpenMult :: !Double
+    , tpRegimeMrOpenMult :: !Double
+    , tpRegimeHighVolOpenMult :: !Double
+    , tpRegimeTrendSizeMult :: !Double
+    , tpRegimeMrSizeMult :: !Double
+    , tpRegimeHighVolSizeMult :: !Double
+    , tpMultiTimeframeConsensus :: !Bool
+    , tpMtfFastBars :: !Int
+    , tpMtfMidBars :: !Int
+    , tpMtfSlowBars :: !Int
+    , tpMtfMinAgree :: !Int
+    , tpCrossAssetConfirmation :: !Bool
+    , tpCrossAssetMinBeta :: !Double
+    , tpCrossAssetMinEdge :: !Double
+    , tpPairsStatArb :: !Bool
+    , tpPairsStatArbLookback :: !Int
+    , tpPairsStatArbZEntry :: !Double
+    , tpPairsStatArbSizeMult :: !Double
+    , tpFundingOiAware :: !Bool
+    , tpFundingOiFundingCap :: !(Maybe Double)
+    , tpFundingOiVolLookback :: !Int
+    , tpFundingOiVolCap :: !(Maybe Double)
+    , tpFundingOiSizeMult :: !Double
     }
     deriving (Eq, Show)
 
@@ -1049,8 +1315,13 @@ fmtOptInt :: Maybe Int -> String
 fmtOptInt = maybe "null" show
 
 buildCommand :: FilePath -> [String] -> TrialParams -> Double -> Bool -> [String]
-buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
-    let cmd0 = traderBin : baseArgs
+buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
+    let params = normalizeTrialParams params0
+        cmd0 = traderBin : baseArgs
+        perfLookbackArg =
+            if tpAdaptiveFilters params || isJust (tpPerfMinWinRate params) || isJust (tpPerfMinProfitFactor params)
+                then max 1 (tpPerfLookback params)
+                else 0
         cmd1 =
             case tpPlatform params of
                 Just platform -> cmd0 ++ ["--platform", platform]
@@ -1237,7 +1508,62 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , show (max 1 (tpAdaptiveTrendLookbackMax params))
                    , "--adaptive-kalman-z-min-max"
                    , printf "%.12g" (max 0 (tpAdaptiveKalmanZMinMax params))
+                   , "--perf-lookback"
+                   , show perfLookbackArg
                    ]
+                ++ (if tpAdaptiveFilters params then ["--adaptive-filters"] else ["--no-adaptive-filters"])
+                ++ maybe [] (\v -> ["--perf-min-win-rate", printf "%.12g" (clamp v 0 1)]) (tpPerfMinWinRate params)
+                ++ maybe [] (\v -> ["--perf-min-profit-factor", printf "%.12g" (max 0 v)]) (tpPerfMinProfitFactor params)
+                ++ (if tpMetaLabelFilter params then ["--meta-label-filter"] else ["--no-meta-label-filter"])
+                ++ [ "--meta-label-min-edge"
+                   , printf "%.12g" (max 0 (tpMetaLabelMinEdge params))
+                   , "--meta-label-min-confidence"
+                   , printf "%.12g" (clamp (tpMetaLabelMinConfidence params) 0 1)
+                   , "--regime-bank-hysteresis"
+                   , printf "%.12g" (clamp (tpRegimeBankHysteresis params) 0 1)
+                   , "--regime-trend-open-mult"
+                   , printf "%.12g" (max 0 (tpRegimeTrendOpenMult params))
+                   , "--regime-mr-open-mult"
+                   , printf "%.12g" (max 0 (tpRegimeMrOpenMult params))
+                   , "--regime-high-vol-open-mult"
+                   , printf "%.12g" (max 0 (tpRegimeHighVolOpenMult params))
+                   , "--regime-trend-size-mult"
+                   , printf "%.12g" (max 0 (tpRegimeTrendSizeMult params))
+                   , "--regime-mr-size-mult"
+                   , printf "%.12g" (max 0 (tpRegimeMrSizeMult params))
+                   , "--regime-high-vol-size-mult"
+                   , printf "%.12g" (max 0 (tpRegimeHighVolSizeMult params))
+                   , "--mtf-fast-bars"
+                   , show (max 1 (tpMtfFastBars params))
+                   , "--mtf-mid-bars"
+                   , show (max 1 (tpMtfMidBars params))
+                   , "--mtf-slow-bars"
+                   , show (max 1 (tpMtfSlowBars params))
+                   , "--mtf-min-agree"
+                   , show (clampInt (tpMtfMinAgree params) 1 3)
+                   , "--cross-asset-min-beta"
+                   , printf "%.12g" (max 0 (tpCrossAssetMinBeta params))
+                   , "--cross-asset-min-edge"
+                   , printf "%.12g" (max 0 (tpCrossAssetMinEdge params))
+                   , "--pairs-stat-arb-lookback"
+                   , show (max 2 (tpPairsStatArbLookback params))
+                   , "--pairs-stat-arb-z-entry"
+                   , printf "%.12g" (max 1e-12 (tpPairsStatArbZEntry params))
+                   , "--pairs-stat-arb-size-mult"
+                   , printf "%.12g" (clamp (tpPairsStatArbSizeMult params) 0 1)
+                   , "--funding-oi-vol-lookback"
+                   , show (max 2 (tpFundingOiVolLookback params))
+                   , "--funding-oi-size-mult"
+                   , printf "%.12g" (clamp (tpFundingOiSizeMult params) 0 1)
+                   ]
+                ++ (if tpMetaLabelRequireBand params then ["--meta-label-require-band"] else ["--no-meta-label-require-band"])
+                ++ (if tpRegimeParameterBank params then ["--regime-parameter-bank"] else ["--no-regime-parameter-bank"])
+                ++ (if tpMultiTimeframeConsensus params then ["--multi-timeframe-consensus"] else ["--no-multi-timeframe-consensus"])
+                ++ (if tpCrossAssetConfirmation params then ["--cross-asset-confirmation"] else ["--no-cross-asset-confirmation"])
+                ++ (if tpPairsStatArb params then ["--pairs-stat-arb"] else ["--no-pairs-stat-arb"])
+                ++ (if tpFundingOiAware params then ["--funding-oi-aware"] else ["--no-funding-oi-aware"])
+                ++ maybe [] (\v -> ["--funding-oi-funding-cap", printf "%.12g" (max 0 v)]) (tpFundingOiFundingCap params)
+                ++ maybe [] (\v -> ["--funding-oi-vol-cap", printf "%.12g" (max 0 v)]) (tpFundingOiVolCap params)
                 ++ (["--tri-layer" | tpTriLayer params])
                 ++ [ "--tri-layer-fast-mult"
                    , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
@@ -1309,11 +1635,15 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                 Just v -> cmd24 ++ ["--max-daily-loss", printf "%.8f" v]
                 Nothing -> cmd24
         cmd26 =
-            case tpMaxOrderErrors params of
-                Just v -> cmd25 ++ ["--max-order-errors", show v]
+            case tpMaxWeeklyLoss params of
+                Just v -> cmd25 ++ ["--max-weekly-loss", printf "%.8f" v]
                 Nothing -> cmd25
         cmd27 =
-            cmd26
+            case tpMaxOrderErrors params of
+                Just v -> cmd26 ++ ["--max-order-errors", show v]
+                Nothing -> cmd26
+        cmd28 =
+            cmd27
                 ++ [ "--kalman-market-top-n"
                    , show (max 0 (tpKalmanMarketTopN params))
                    , "--kalman-dt"
@@ -1327,81 +1657,91 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , "--kalman-z-max"
                    , printf "%.12g" (max (max 0 (tpKalmanZMin params)) (tpKalmanZMax params))
                    ]
-        cmd28 =
-            case tpMaxHighVolProb params of
-                Just v -> cmd27 ++ ["--max-high-vol-prob", printf "%.12g" (clamp v 0 1)]
-                Nothing -> cmd27
         cmd29 =
-            case tpMaxConformalWidth params of
-                Just v -> cmd28 ++ ["--max-conformal-width", printf "%.12g" (max 0 v)]
+            case tpMaxHighVolProb params of
+                Just v -> cmd28 ++ ["--max-high-vol-prob", printf "%.12g" (clamp v 0 1)]
                 Nothing -> cmd28
         cmd30 =
-            case tpMaxQuantileWidth params of
-                Just v -> cmd29 ++ ["--max-quantile-width", printf "%.12g" (max 0 v)]
+            case tpMaxConformalWidth params of
+                Just v -> cmd29 ++ ["--max-conformal-width", printf "%.12g" (max 0 v)]
                 Nothing -> cmd29
         cmd31 =
-            if tpConfirmConformal params
-                then cmd30 ++ ["--confirm-conformal"]
-                else cmd30 ++ ["--no-confirm-conformal"]
+            case tpMaxQuantileWidth params of
+                Just v -> cmd30 ++ ["--max-quantile-width", printf "%.12g" (max 0 v)]
+                Nothing -> cmd30
         cmd32 =
-            if tpConfirmQuantiles params
-                then cmd31 ++ ["--confirm-quantiles"]
-                else cmd31 ++ ["--no-confirm-quantiles"]
+            if tpConfirmConformal params
+                then cmd31 ++ ["--confirm-conformal"]
+                else cmd31 ++ ["--no-confirm-conformal"]
         cmd33 =
-            if tpConfidenceSizing params
-                then cmd32 ++ ["--confidence-sizing"]
-                else cmd32 ++ ["--no-confidence-sizing"]
+            if tpConfirmQuantiles params
+                then cmd32 ++ ["--confirm-quantiles"]
+                else cmd32 ++ ["--no-confirm-quantiles"]
         cmd34 =
-            cmd33
+            if tpConfidenceSizing params
+                then cmd33 ++ ["--confidence-sizing"]
+                else cmd33 ++ ["--no-confidence-sizing"]
+        cmd35 =
+            cmd34
                 ++ [ "--protection-min-confidence"
                    , printf "%.4f" (clamp (tpProtectionMinConfidence params) 0 1)
                    ]
-        cmd35 = cmd34 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
-        cmd35a =
-            case tpTakeProfitPartial params of
-                Just v -> cmd35 ++ ["--take-profit-partial", printf "%.12g" (clamp v 0 0.999999)]
-                Nothing -> cmd35
-        cmd35b =
-            case tpMaxTradesPerDay params of
-                Just v -> cmd35a ++ ["--max-trades-per-day", show (max 0 v)]
-                Nothing -> cmd35a
-        cmd35c =
-            case tpMinExpectancy params of
-                Just v -> cmd35b ++ ["--min-expectancy", printf "%.12g" v, "--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
-                Nothing -> cmd35b ++ ["--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
-        cmd35d =
-            case tpLossStreakMax params of
-                Just v -> cmd35c ++ ["--loss-streak-max", show (max 0 v)]
-                Nothing -> cmd35c
-        cmd35e =
-            case tpLossStreakCooldownBars params of
-                Just v -> cmd35d ++ ["--loss-streak-cooldown-bars", show (max 0 v)]
-                Nothing -> cmd35d
-        cmd35f =
-            case tpMaxOpenPositions params of
-                Just v -> cmd35e ++ ["--max-open-positions", show (max 0 v)]
-                Nothing -> cmd35e
-        cmd35g =
-            case tpMaxGrossExposure params of
-                Just v -> cmd35f ++ ["--max-gross-exposure", printf "%.12g" (max 0 v)]
-                Nothing -> cmd35f
-        cmd35h =
-            case tpMaxNetExposure params of
-                Just v -> cmd35g ++ ["--max-net-exposure", printf "%.12g" (max 0 v)]
-                Nothing -> cmd35g
-        cmd35i =
-            case tpMaxExposurePerBase params of
-                Just v -> cmd35h ++ ["--max-exposure-per-base", printf "%.12g" (max 0 v)]
-                Nothing -> cmd35h
-        cmd35j =
-            case tpMaxOpenPerBase params of
-                Just v -> cmd35i ++ ["--max-open-per-base", show (max 0 v)]
-                Nothing -> cmd35i
         cmd36 =
+            cmd35 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
+        cmd36a0 =
+            cmd36
+                ++ [ if tpKellyLiteSizing params then "--kelly-lite-sizing" else "--no-kelly-lite-sizing"
+                   , "--kelly-lite-fraction"
+                   , printf "%.12g" (max 0 (tpKellyLiteFraction params))
+                   , "--kelly-lite-floor"
+                   , printf "%.12g" (max 0 (tpKellyLiteFloor params))
+                   , "--kelly-lite-cap"
+                   , printf "%.12g" (max (max 0 (tpKellyLiteFloor params)) (tpKellyLiteCap params))
+                   ]
+        cmd36a =
+            case tpTakeProfitPartial params of
+                Just v -> cmd36a0 ++ ["--take-profit-partial", printf "%.12g" (clamp v 0 0.999999)]
+                Nothing -> cmd36a0
+        cmd36b =
+            case tpMaxTradesPerDay params of
+                Just v -> cmd36a ++ ["--max-trades-per-day", show (max 0 v)]
+                Nothing -> cmd36a
+        cmd36c =
+            case tpMinExpectancy params of
+                Just v -> cmd36b ++ ["--min-expectancy", printf "%.12g" v, "--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
+                Nothing -> cmd36b ++ ["--expectancy-lookback", show (max 1 (tpExpectancyLookback params))]
+        cmd36d =
+            case tpLossStreakMax params of
+                Just v -> cmd36c ++ ["--loss-streak-max", show (max 0 v)]
+                Nothing -> cmd36c
+        cmd36e =
+            case tpLossStreakCooldownBars params of
+                Just v -> cmd36d ++ ["--loss-streak-cooldown-bars", show (max 0 v)]
+                Nothing -> cmd36d
+        cmd36f =
+            case tpMaxOpenPositions params of
+                Just v -> cmd36e ++ ["--max-open-positions", show (max 0 v)]
+                Nothing -> cmd36e
+        cmd36g =
+            case tpMaxGrossExposure params of
+                Just v -> cmd36f ++ ["--max-gross-exposure", printf "%.12g" (max 0 v)]
+                Nothing -> cmd36f
+        cmd36h =
+            case tpMaxNetExposure params of
+                Just v -> cmd36g ++ ["--max-net-exposure", printf "%.12g" (max 0 v)]
+                Nothing -> cmd36g
+        cmd36i =
+            case tpMaxExposurePerBase params of
+                Just v -> cmd36h ++ ["--max-exposure-per-base", printf "%.12g" (max 0 v)]
+                Nothing -> cmd36h
+        cmd36j =
+            case tpMaxOpenPerBase params of
+                Just v -> cmd36i ++ ["--max-open-per-base", show (max 0 v)]
+                Nothing -> cmd36i
+        cmd37 =
             if useSweepThreshold
-                then cmd35j ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
-                else cmd35j
-        cmd37 = cmd36
+                then cmd36j ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
+                else cmd36j
      in cmd37 ++ ["--json"]
 
 runTrial :: FilePath -> [String] -> TrialParams -> Double -> Bool -> Double -> Bool -> IO TrialResult
@@ -1728,6 +2068,7 @@ trialToRecord tr symbolLabel =
             , "riskPerTrade" .= tpRiskPerTrade (trParams tr)
             , "maxDrawdown" .= tpMaxDrawdown (trParams tr)
             , "maxDailyLoss" .= tpMaxDailyLoss (trParams tr)
+            , "maxWeeklyLoss" .= tpMaxWeeklyLoss (trParams tr)
             , "maxOrderErrors" .= tpMaxOrderErrors (trParams tr)
             , "kalmanDt" .= tpKalmanDt (trParams tr)
             , "kalmanProcessVar" .= tpKalmanProcessVar (trParams tr)
@@ -1742,6 +2083,10 @@ trialToRecord tr symbolLabel =
             , "confidenceSizing" .= tpConfidenceSizing (trParams tr)
             , "protectionMinConfidence" .= tpProtectionMinConfidence (trParams tr)
             , "minPositionSize" .= tpMinPositionSize (trParams tr)
+            , "kellyLiteSizing" .= tpKellyLiteSizing (trParams tr)
+            , "kellyLiteFraction" .= tpKellyLiteFraction (trParams tr)
+            , "kellyLiteFloor" .= tpKellyLiteFloor (trParams tr)
+            , "kellyLiteCap" .= tpKellyLiteCap (trParams tr)
             , "predictors" .= tpPredictors (trParams tr)
             , "routerLookback" .= tpRouterLookback (trParams tr)
             , "routerMinScore" .= tpRouterMinScore (trParams tr)
@@ -1765,6 +2110,39 @@ trialToRecord tr symbolLabel =
             , "adaptiveMinSignalToNoiseMax" .= tpAdaptiveMinSignalToNoiseMax (trParams tr)
             , "adaptiveTrendLookbackMax" .= tpAdaptiveTrendLookbackMax (trParams tr)
             , "adaptiveKalmanZMinMax" .= tpAdaptiveKalmanZMinMax (trParams tr)
+            , "adaptiveFilters" .= tpAdaptiveFilters (trParams tr)
+            , "perfLookback" .= tpPerfLookback (trParams tr)
+            , "perfMinWinRate" .= tpPerfMinWinRate (trParams tr)
+            , "perfMinProfitFactor" .= tpPerfMinProfitFactor (trParams tr)
+            , "metaLabelFilter" .= tpMetaLabelFilter (trParams tr)
+            , "metaLabelMinEdge" .= tpMetaLabelMinEdge (trParams tr)
+            , "metaLabelMinConfidence" .= tpMetaLabelMinConfidence (trParams tr)
+            , "metaLabelRequireBand" .= tpMetaLabelRequireBand (trParams tr)
+            , "regimeParameterBank" .= tpRegimeParameterBank (trParams tr)
+            , "regimeBankHysteresis" .= tpRegimeBankHysteresis (trParams tr)
+            , "regimeTrendOpenMult" .= tpRegimeTrendOpenMult (trParams tr)
+            , "regimeMrOpenMult" .= tpRegimeMrOpenMult (trParams tr)
+            , "regimeHighVolOpenMult" .= tpRegimeHighVolOpenMult (trParams tr)
+            , "regimeTrendSizeMult" .= tpRegimeTrendSizeMult (trParams tr)
+            , "regimeMrSizeMult" .= tpRegimeMrSizeMult (trParams tr)
+            , "regimeHighVolSizeMult" .= tpRegimeHighVolSizeMult (trParams tr)
+            , "multiTimeframeConsensus" .= tpMultiTimeframeConsensus (trParams tr)
+            , "mtfFastBars" .= tpMtfFastBars (trParams tr)
+            , "mtfMidBars" .= tpMtfMidBars (trParams tr)
+            , "mtfSlowBars" .= tpMtfSlowBars (trParams tr)
+            , "mtfMinAgree" .= tpMtfMinAgree (trParams tr)
+            , "crossAssetConfirmation" .= tpCrossAssetConfirmation (trParams tr)
+            , "crossAssetMinBeta" .= tpCrossAssetMinBeta (trParams tr)
+            , "crossAssetMinEdge" .= tpCrossAssetMinEdge (trParams tr)
+            , "pairsStatArb" .= tpPairsStatArb (trParams tr)
+            , "pairsStatArbLookback" .= tpPairsStatArbLookback (trParams tr)
+            , "pairsStatArbZEntry" .= tpPairsStatArbZEntry (trParams tr)
+            , "pairsStatArbSizeMult" .= tpPairsStatArbSizeMult (trParams tr)
+            , "fundingOiAware" .= tpFundingOiAware (trParams tr)
+            , "fundingOiFundingCap" .= tpFundingOiFundingCap (trParams tr)
+            , "fundingOiVolLookback" .= tpFundingOiVolLookback (trParams tr)
+            , "fundingOiVolCap" .= tpFundingOiVolCap (trParams tr)
+            , "fundingOiSizeMult" .= tpFundingOiSizeMult (trParams tr)
             ]
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
         paramsPairs' =
@@ -1920,12 +2298,14 @@ sampleParams
     pDisableRiskPerTrade
     pDisableMaxDd
     pDisableMaxDl
+    pDisableMaxWl
     pDisableMaxOe
     pDisableGradClip
     pDisableVolTarget
     pDisableMaxVolatility
     maxDdRange
     maxDlRange
+    maxWlRange
     maxOeRange
     predictorChoices
     routerLookbackRange
@@ -1959,7 +2339,48 @@ sampleParams
     adaptiveEdgeBufferMaxRange
     adaptiveMinSignalToNoiseMaxRange
     adaptiveTrendLookbackMaxRange
-    adaptiveKalmanZMinMaxRange =
+    adaptiveKalmanZMinMaxRange
+    pAdaptiveFilters
+    perfLookbackRange
+    perfMinWinRateRange
+    pDisablePerfMinWinRate
+    perfMinProfitFactorRange
+    pDisablePerfMinProfitFactor
+    pMetaLabelFilter
+    metaLabelMinEdgeRange
+    metaLabelMinConfidenceRange
+    pMetaLabelRequireBand
+    pRegimeParameterBank
+    regimeBankHysteresisRange
+    regimeTrendOpenMultRange
+    regimeMrOpenMultRange
+    regimeHighVolOpenMultRange
+    regimeTrendSizeMultRange
+    regimeMrSizeMultRange
+    regimeHighVolSizeMultRange
+    pMultiTimeframeConsensus
+    mtfFastBarsRange
+    mtfMidBarsRange
+    mtfSlowBarsRange
+    mtfMinAgreeRange
+    pCrossAssetConfirmation
+    crossAssetMinBetaRange
+    crossAssetMinEdgeRange
+    pPairsStatArb
+    pairsStatArbLookbackRange
+    pairsStatArbZEntryRange
+    pairsStatArbSizeMultRange
+    pFundingOiAware
+    fundingOiFundingCapRange
+    pDisableFundingOiFundingCap
+    fundingOiVolLookbackRange
+    fundingOiVolCapRange
+    pDisableFundingOiVolCap
+    fundingOiSizeMultRange
+    pKellyLiteSizing
+    kellyLiteFractionRange
+    kellyLiteFloorRange
+    kellyLiteCapRange =
         let (platform, rng1) =
                 case platforms of
                     [] -> (Nothing, rng0)
@@ -2332,6 +2753,7 @@ sampleParams
                              in (fmap (\v -> clamp v 1e-6 0.999999) val, rng')
             (maxDrawdown, rng59) = nextMaybe pDisableMaxDd (uncurry nextUniform maxDdRange) rng58b
             (maxDailyLoss, rng60) = nextMaybe pDisableMaxDl (uncurry nextUniform maxDlRange) rng59
+            (maxWeeklyLoss, rng60a) = nextMaybe pDisableMaxWl (uncurry nextUniform maxWlRange) rng60
             (maxOrderErrors, rng61) =
                 nextMaybe
                     pDisableMaxOe
@@ -2339,7 +2761,7 @@ sampleParams
                         let (val, r') = uncurry nextIntRange maxOeRange r
                          in (val, r')
                     )
-                    rng60
+                    rng60a
             (thresholdFactorEnabled, rng62) =
                 let (r, rng') = nextDouble rng61
                  in (r < clamp pThresholdFactor 0 1, rng')
@@ -2406,10 +2828,10 @@ sampleParams
                 let (lo, hi) = ordered spreadVolMultRange
                  in nextUniform (max 0 lo) (max 0 hi) rng81
             (takeProfitPartial, rng83) =
-                let (lo, hi) = ordered takeProfitPartialRange
-                    lo' = clamp lo 0 0.999999
-                    hi' = clamp hi 0 0.999999
-                 in if hi' <= 0 then (Nothing, rng83) else nextMaybe pDisableTakeProfitPartial (nextUniform lo' (max lo' hi')) rng82
+                sampleTakeProfitPartial
+                    takeProfitPartialRange
+                    pDisableTakeProfitPartial
+                    rng82
             (maxTradesPerDay, rng84) =
                 nextMaybe pDisableMaxTradesPerDay (uncurry nextIntRange maxTradesPerDayRange) rng83
             (expectancyLookback, rng85) =
@@ -2435,6 +2857,139 @@ sampleParams
             (adaptiveMinSignalToNoiseMax, rng95) = uncurry nextUniform adaptiveMinSignalToNoiseMaxRange rng94
             (adaptiveTrendLookbackMax, rng96) = uncurry nextIntRange adaptiveTrendLookbackMaxRange rng95
             (adaptiveKalmanZMinMax, rng97) = uncurry nextUniform adaptiveKalmanZMinMaxRange rng96
+            (adaptiveFiltersEnabled, rng98) =
+                let (r, rng') = nextDouble rng97
+                 in (r < pAdaptiveFilters, rng')
+            (perfLookbackRaw, rng99) = uncurry nextIntRange perfLookbackRange rng98
+            (perfMinWinRateRaw, rng100) =
+                let (lo, hi) = ordered perfMinWinRateRange
+                 in nextUniform lo hi rng99
+            (perfMinWinRateEnabled, rng101) =
+                let (r, rng') = nextDouble rng100
+                 in (r >= pDisablePerfMinWinRate, rng')
+            (perfMinProfitFactorRaw, rng102) =
+                let (lo, hi) = ordered perfMinProfitFactorRange
+                 in nextUniform lo hi rng101
+            (perfMinProfitFactorEnabled, rng103) =
+                let (r, rng') = nextDouble rng102
+                 in (r >= pDisablePerfMinProfitFactor, rng')
+            perfMinWinRate0 =
+                if perfMinWinRateEnabled
+                    then Just (clamp perfMinWinRateRaw 0 1)
+                    else Nothing
+            perfMinProfitFactor0 =
+                if perfMinProfitFactorEnabled
+                    then Just (max 0 perfMinProfitFactorRaw)
+                    else Nothing
+            (perfMinWinRate, perfMinProfitFactor) =
+                if adaptiveFiltersEnabled && isNothing perfMinWinRate0 && isNothing perfMinProfitFactor0
+                    then (Just (clamp perfMinWinRateRaw 0 1), Nothing)
+                    else (perfMinWinRate0, perfMinProfitFactor0)
+            perfLookback =
+                if adaptiveFiltersEnabled || isJust perfMinWinRate || isJust perfMinProfitFactor
+                    then max 1 perfLookbackRaw
+                    else 0
+            (metaLabelFilterEnabled, rng104) =
+                let (r, rng') = nextDouble rng103
+                 in (r < pMetaLabelFilter, rng')
+            (metaLabelMinEdge, rng105) =
+                let (lo, hi) = ordered metaLabelMinEdgeRange
+                 in nextUniform lo hi rng104
+            (metaLabelMinConfidence, rng106) =
+                let (lo, hi) = ordered metaLabelMinConfidenceRange
+                 in nextUniform lo hi rng105
+            (metaLabelRequireBand, rng107) =
+                let (r, rng') = nextDouble rng106
+                 in (r < pMetaLabelRequireBand, rng')
+            (regimeParameterBankEnabled, rng108) =
+                let (r, rng') = nextDouble rng107
+                 in (r < pRegimeParameterBank, rng')
+            (regimeBankHysteresis, rng109) =
+                let (lo, hi) = ordered regimeBankHysteresisRange
+                 in nextUniform lo hi rng108
+            (regimeTrendOpenMult, rng110) =
+                let (lo, hi) = ordered regimeTrendOpenMultRange
+                 in nextUniform lo hi rng109
+            (regimeMrOpenMult, rng111) =
+                let (lo, hi) = ordered regimeMrOpenMultRange
+                 in nextUniform lo hi rng110
+            (regimeHighVolOpenMult, rng112) =
+                let (lo, hi) = ordered regimeHighVolOpenMultRange
+                 in nextUniform lo hi rng111
+            (regimeTrendSizeMult, rng113) =
+                let (lo, hi) = ordered regimeTrendSizeMultRange
+                 in nextUniform lo hi rng112
+            (regimeMrSizeMult, rng114) =
+                let (lo, hi) = ordered regimeMrSizeMultRange
+                 in nextUniform lo hi rng113
+            (regimeHighVolSizeMult, rng115) =
+                let (lo, hi) = ordered regimeHighVolSizeMultRange
+                 in nextUniform lo hi rng114
+            (multiTimeframeConsensusEnabled, rng116) =
+                let (r, rng') = nextDouble rng115
+                 in (r < pMultiTimeframeConsensus, rng')
+            (mtfFastBars, rng117) = uncurry nextIntRange mtfFastBarsRange rng116
+            (mtfMidBars, rng118) = uncurry nextIntRange mtfMidBarsRange rng117
+            (mtfSlowBars, rng119) = uncurry nextIntRange mtfSlowBarsRange rng118
+            (mtfMinAgree, rng120) = uncurry nextIntRange mtfMinAgreeRange rng119
+            (crossAssetConfirmationEnabled, rng121) =
+                let (r, rng') = nextDouble rng120
+                 in (r < pCrossAssetConfirmation, rng')
+            (crossAssetMinBeta, rng122) =
+                let (lo, hi) = ordered crossAssetMinBetaRange
+                 in nextUniform lo hi rng121
+            (crossAssetMinEdge, rng123) =
+                let (lo, hi) = ordered crossAssetMinEdgeRange
+                 in nextUniform lo hi rng122
+            (pairsStatArbEnabled, rng124) =
+                let (r, rng') = nextDouble rng123
+                 in (r < pPairsStatArb, rng')
+            (pairsStatArbLookback, rng125) = uncurry nextIntRange pairsStatArbLookbackRange rng124
+            (pairsStatArbZEntry, rng126) =
+                let (lo, hi) = ordered pairsStatArbZEntryRange
+                 in nextUniform lo hi rng125
+            (pairsStatArbSizeMult, rng127) =
+                let (lo, hi) = ordered pairsStatArbSizeMultRange
+                 in nextUniform lo hi rng126
+            (fundingOiAwareEnabled, rng128) =
+                let (r, rng') = nextDouble rng127
+                 in (r < pFundingOiAware, rng')
+            (fundingOiFundingCapRaw, rng129) =
+                let (lo, hi) = ordered fundingOiFundingCapRange
+                 in nextUniform lo hi rng128
+            (fundingOiFundingCapEnabled, rng130) =
+                let (r, rng') = nextDouble rng129
+                 in (r >= pDisableFundingOiFundingCap, rng')
+            (fundingOiVolLookback, rng131) = uncurry nextIntRange fundingOiVolLookbackRange rng130
+            (fundingOiVolCapRaw, rng132) =
+                let (lo, hi) = ordered fundingOiVolCapRange
+                 in nextUniform lo hi rng131
+            (fundingOiVolCapEnabled, rng133) =
+                let (r, rng') = nextDouble rng132
+                 in (r >= pDisableFundingOiVolCap, rng')
+            (fundingOiSizeMult, rng134) =
+                let (lo, hi) = ordered fundingOiSizeMultRange
+                 in nextUniform lo hi rng133
+            (kellyLiteSizingEnabled, rng135) =
+                let (r, rng') = nextDouble rng134
+                 in (r < pKellyLiteSizing, rng')
+            (kellyLiteFraction, rng136) =
+                let (lo, hi) = ordered kellyLiteFractionRange
+                 in nextUniform lo hi rng135
+            (kellyLiteFloor, rng137) =
+                let (lo, hi) = ordered kellyLiteFloorRange
+                 in nextUniform lo hi rng136
+            (kellyLiteCap, rng138) =
+                let (lo, hi) = ordered kellyLiteCapRange
+                 in nextUniform lo hi rng137
+            fundingOiFundingCap =
+                if fundingOiFundingCapEnabled
+                    then Just (max 0 fundingOiFundingCapRaw)
+                    else Nothing
+            fundingOiVolCap =
+                if fundingOiVolCapEnabled
+                    then Just (max 0 fundingOiVolCapRaw)
+                    else Nothing
          in ( TrialParams
                 { tpPlatform = platform
                 , tpInterval = interval
@@ -2526,6 +3081,7 @@ sampleParams
                 , tpRiskPerTrade = riskPerTrade
                 , tpMaxDrawdown = maxDrawdown
                 , tpMaxDailyLoss = maxDailyLoss
+                , tpMaxWeeklyLoss = maxWeeklyLoss
                 , tpMaxOrderErrors = maxOrderErrors
                 , tpKalmanDt = kalmanDt
                 , tpKalmanProcessVar = kalmanProcessVar
@@ -2540,6 +3096,10 @@ sampleParams
                 , tpConfidenceSizing = confidenceSizing
                 , tpProtectionMinConfidence = protectionMinConfidence
                 , tpMinPositionSize = minPositionSize
+                , tpKellyLiteSizing = kellyLiteSizingEnabled
+                , tpKellyLiteFraction = max 0 kellyLiteFraction
+                , tpKellyLiteFloor = max 0 kellyLiteFloor
+                , tpKellyLiteCap = max (max 0 kellyLiteFloor) kellyLiteCap
                 , tpPredictors = predictors
                 , tpRouterLookback = routerLookback
                 , tpRouterMinScore = routerMinScore
@@ -2563,8 +3123,41 @@ sampleParams
                 , tpAdaptiveMinSignalToNoiseMax = adaptiveMinSignalToNoiseMax
                 , tpAdaptiveTrendLookbackMax = adaptiveTrendLookbackMax
                 , tpAdaptiveKalmanZMinMax = adaptiveKalmanZMinMax
+                , tpAdaptiveFilters = adaptiveFiltersEnabled
+                , tpPerfLookback = perfLookback
+                , tpPerfMinWinRate = perfMinWinRate
+                , tpPerfMinProfitFactor = perfMinProfitFactor
+                , tpMetaLabelFilter = metaLabelFilterEnabled
+                , tpMetaLabelMinEdge = max 0 metaLabelMinEdge
+                , tpMetaLabelMinConfidence = clamp metaLabelMinConfidence 0 1
+                , tpMetaLabelRequireBand = metaLabelRequireBand
+                , tpRegimeParameterBank = regimeParameterBankEnabled
+                , tpRegimeBankHysteresis = clamp regimeBankHysteresis 0 1
+                , tpRegimeTrendOpenMult = max 0 regimeTrendOpenMult
+                , tpRegimeMrOpenMult = max 0 regimeMrOpenMult
+                , tpRegimeHighVolOpenMult = max 0 regimeHighVolOpenMult
+                , tpRegimeTrendSizeMult = max 0 regimeTrendSizeMult
+                , tpRegimeMrSizeMult = max 0 regimeMrSizeMult
+                , tpRegimeHighVolSizeMult = max 0 regimeHighVolSizeMult
+                , tpMultiTimeframeConsensus = multiTimeframeConsensusEnabled
+                , tpMtfFastBars = max 1 mtfFastBars
+                , tpMtfMidBars = max 1 mtfMidBars
+                , tpMtfSlowBars = max 1 mtfSlowBars
+                , tpMtfMinAgree = clampInt mtfMinAgree 1 3
+                , tpCrossAssetConfirmation = crossAssetConfirmationEnabled
+                , tpCrossAssetMinBeta = max 0 crossAssetMinBeta
+                , tpCrossAssetMinEdge = max 0 crossAssetMinEdge
+                , tpPairsStatArb = pairsStatArbEnabled
+                , tpPairsStatArbLookback = max 2 pairsStatArbLookback
+                , tpPairsStatArbZEntry = max 1e-12 pairsStatArbZEntry
+                , tpPairsStatArbSizeMult = clamp pairsStatArbSizeMult 0 1
+                , tpFundingOiAware = fundingOiAwareEnabled
+                , tpFundingOiFundingCap = fundingOiFundingCap
+                , tpFundingOiVolLookback = max 2 fundingOiVolLookback
+                , tpFundingOiVolCap = fundingOiVolCap
+                , tpFundingOiSizeMult = clamp fundingOiSizeMult 0 1
                 }
-            , rng97
+            , rng138
             )
       where
         ordered (a, b) = if a <= b then (a, b) else (b, a)
@@ -2957,6 +3550,47 @@ runOptimizer args0 = do
                                                         adaptiveMinSignalToNoiseMaxRange = (max 0 (oaAdaptiveMinSignalToNoiseMaxMin args), max 0 (oaAdaptiveMinSignalToNoiseMaxMax args))
                                                         adaptiveTrendLookbackMaxRange = (max 1 (oaAdaptiveTrendLookbackMaxMin args), max 1 (oaAdaptiveTrendLookbackMaxMax args))
                                                         adaptiveKalmanZMinMaxRange = (max 0 (oaAdaptiveKalmanZMinMaxMin args), max 0 (oaAdaptiveKalmanZMinMaxMax args))
+                                                        pAdaptiveFilters = clamp (oaPAdaptiveFilters args) 0 1
+                                                        perfLookbackRange = (max 1 (oaPerfLookbackMin args), max 1 (oaPerfLookbackMax args))
+                                                        perfMinWinRateRange = (clamp (oaPerfMinWinRateMin args) 0 1, clamp (oaPerfMinWinRateMax args) 0 1)
+                                                        pDisablePerfMinWinRate = clamp (oaPDisablePerfMinWinRate args) 0 1
+                                                        perfMinProfitFactorRange = (max 0 (oaPerfMinProfitFactorMin args), max 0 (oaPerfMinProfitFactorMax args))
+                                                        pDisablePerfMinProfitFactor = clamp (oaPDisablePerfMinProfitFactor args) 0 1
+                                                        pMetaLabelFilter = clamp (oaPMetaLabelFilter args) 0 1
+                                                        metaLabelMinEdgeRange = (max 0 (oaMetaLabelMinEdgeMin args), max 0 (oaMetaLabelMinEdgeMax args))
+                                                        metaLabelMinConfidenceRange = (clamp (oaMetaLabelMinConfidenceMin args) 0 1, clamp (oaMetaLabelMinConfidenceMax args) 0 1)
+                                                        pMetaLabelRequireBand = clamp (oaPMetaLabelRequireBand args) 0 1
+                                                        pRegimeParameterBank = clamp (oaPRegimeParameterBank args) 0 1
+                                                        regimeBankHysteresisRange = (clamp (oaRegimeBankHysteresisMin args) 0 1, clamp (oaRegimeBankHysteresisMax args) 0 1)
+                                                        regimeTrendOpenMultRange = (max 0 (oaRegimeTrendOpenMultMin args), max 0 (oaRegimeTrendOpenMultMax args))
+                                                        regimeMrOpenMultRange = (max 0 (oaRegimeMrOpenMultMin args), max 0 (oaRegimeMrOpenMultMax args))
+                                                        regimeHighVolOpenMultRange = (max 0 (oaRegimeHighVolOpenMultMin args), max 0 (oaRegimeHighVolOpenMultMax args))
+                                                        regimeTrendSizeMultRange = (max 0 (oaRegimeTrendSizeMultMin args), max 0 (oaRegimeTrendSizeMultMax args))
+                                                        regimeMrSizeMultRange = (max 0 (oaRegimeMrSizeMultMin args), max 0 (oaRegimeMrSizeMultMax args))
+                                                        regimeHighVolSizeMultRange = (max 0 (oaRegimeHighVolSizeMultMin args), max 0 (oaRegimeHighVolSizeMultMax args))
+                                                        pMultiTimeframeConsensus = clamp (oaPMultiTimeframeConsensus args) 0 1
+                                                        mtfFastBarsRange = (max 1 (oaMtfFastBarsMin args), max 1 (oaMtfFastBarsMax args))
+                                                        mtfMidBarsRange = (max 1 (oaMtfMidBarsMin args), max 1 (oaMtfMidBarsMax args))
+                                                        mtfSlowBarsRange = (max 1 (oaMtfSlowBarsMin args), max 1 (oaMtfSlowBarsMax args))
+                                                        mtfMinAgreeRange = (clampInt (oaMtfMinAgreeMin args) 1 3, clampInt (oaMtfMinAgreeMax args) 1 3)
+                                                        pCrossAssetConfirmation = clamp (oaPCrossAssetConfirmation args) 0 1
+                                                        crossAssetMinBetaRange = (max 0 (oaCrossAssetMinBetaMin args), max 0 (oaCrossAssetMinBetaMax args))
+                                                        crossAssetMinEdgeRange = (max 0 (oaCrossAssetMinEdgeMin args), max 0 (oaCrossAssetMinEdgeMax args))
+                                                        pPairsStatArb = clamp (oaPPairsStatArb args) 0 1
+                                                        pairsStatArbLookbackRange = (max 2 (oaPairsStatArbLookbackMin args), max 2 (oaPairsStatArbLookbackMax args))
+                                                        pairsStatArbZEntryRange = (max 1e-12 (oaPairsStatArbZEntryMin args), max 1e-12 (oaPairsStatArbZEntryMax args))
+                                                        pairsStatArbSizeMultRange = (clamp (oaPairsStatArbSizeMultMin args) 0 1, clamp (oaPairsStatArbSizeMultMax args) 0 1)
+                                                        pFundingOiAware = clamp (oaPFundingOiAware args) 0 1
+                                                        fundingOiFundingCapRange = (max 0 (oaFundingOiFundingCapMin args), max 0 (oaFundingOiFundingCapMax args))
+                                                        pDisableFundingOiFundingCap = clamp (oaPDisableFundingOiFundingCap args) 0 1
+                                                        fundingOiVolLookbackRange = (max 2 (oaFundingOiVolLookbackMin args), max 2 (oaFundingOiVolLookbackMax args))
+                                                        fundingOiVolCapRange = (max 0 (oaFundingOiVolCapMin args), max 0 (oaFundingOiVolCapMax args))
+                                                        pDisableFundingOiVolCap = clamp (oaPDisableFundingOiVolCap args) 0 1
+                                                        fundingOiSizeMultRange = (clamp (oaFundingOiSizeMultMin args) 0 1, clamp (oaFundingOiSizeMultMax args) 0 1)
+                                                        pKellyLiteSizing = clamp (oaPKellyLiteSizing args) 0 1
+                                                        kellyLiteFractionRange = (max 0 (oaKellyLiteFractionMin args), max 0 (oaKellyLiteFractionMax args))
+                                                        kellyLiteFloorRange = (max 0 (oaKellyLiteFloorMin args), max 0 (oaKellyLiteFloorMax args))
+                                                        kellyLiteCapRange = (max 0 (oaKellyLiteCapMin args), max 0 (oaKellyLiteCapMax args))
                                                     if null normalizationChoices
                                                         then do
                                                             hPutStrLn stderr "No normalizations provided."
@@ -3091,8 +3725,8 @@ runOptimizer args0 = do
                                                                                 triLayerTouchLookbackRange
                                                                                 triLayerPriceActionBodyRange
                                                                                 (oaTriLayerExitOnSlow args)
-                                                                                (oaKalmanBandLookbackMin args, oaKalmanBandLookbackMax args)
-                                                                                (oaKalmanBandStdMultMin args, oaKalmanBandStdMultMax args)
+                                                                                kalmanBandLookbackRange
+                                                                                kalmanBandStdMultRange
                                                                                 lstmExitFlipBarsRange
                                                                                 lstmExitFlipGraceBarsRange
                                                                                 (oaLstmExitFlipStrong args)
@@ -3157,12 +3791,14 @@ runOptimizer args0 = do
                                                                                 (clamp (oaPDisableRiskPerTrade args) 0 1)
                                                                                 (clamp (oaPDisableMaxDd args) 0 1)
                                                                                 (clamp (oaPDisableMaxDl args) 0 1)
+                                                                                (clamp (oaPDisableMaxWl args) 0 1)
                                                                                 (clamp (oaPDisableMaxOe args) 0 1)
                                                                                 (clamp (oaPDisableGradClip args) 0 1)
                                                                                 pDisableVolTarget
                                                                                 pDisableMaxVolatility
                                                                                 (oaMaxDdMin args, oaMaxDdMax args)
                                                                                 (oaMaxDlMin args, oaMaxDlMax args)
+                                                                                (oaMaxWlMin args, oaMaxWlMax args)
                                                                                 (oaMaxOeMin args, oaMaxOeMax args)
                                                                                 predictorChoices
                                                                                 routerLookbackRange
@@ -3197,6 +3833,47 @@ runOptimizer args0 = do
                                                                                 adaptiveMinSignalToNoiseMaxRange
                                                                                 adaptiveTrendLookbackMaxRange
                                                                                 adaptiveKalmanZMinMaxRange
+                                                                                pAdaptiveFilters
+                                                                                perfLookbackRange
+                                                                                perfMinWinRateRange
+                                                                                pDisablePerfMinWinRate
+                                                                                perfMinProfitFactorRange
+                                                                                pDisablePerfMinProfitFactor
+                                                                                pMetaLabelFilter
+                                                                                metaLabelMinEdgeRange
+                                                                                metaLabelMinConfidenceRange
+                                                                                pMetaLabelRequireBand
+                                                                                pRegimeParameterBank
+                                                                                regimeBankHysteresisRange
+                                                                                regimeTrendOpenMultRange
+                                                                                regimeMrOpenMultRange
+                                                                                regimeHighVolOpenMultRange
+                                                                                regimeTrendSizeMultRange
+                                                                                regimeMrSizeMultRange
+                                                                                regimeHighVolSizeMultRange
+                                                                                pMultiTimeframeConsensus
+                                                                                mtfFastBarsRange
+                                                                                mtfMidBarsRange
+                                                                                mtfSlowBarsRange
+                                                                                mtfMinAgreeRange
+                                                                                pCrossAssetConfirmation
+                                                                                crossAssetMinBetaRange
+                                                                                crossAssetMinEdgeRange
+                                                                                pPairsStatArb
+                                                                                pairsStatArbLookbackRange
+                                                                                pairsStatArbZEntryRange
+                                                                                pairsStatArbSizeMultRange
+                                                                                pFundingOiAware
+                                                                                fundingOiFundingCapRange
+                                                                                pDisableFundingOiFundingCap
+                                                                                fundingOiVolLookbackRange
+                                                                                fundingOiVolCapRange
+                                                                                pDisableFundingOiVolCap
+                                                                                fundingOiSizeMultRange
+                                                                                pKellyLiteSizing
+                                                                                kellyLiteFractionRange
+                                                                                kellyLiteFloorRange
+                                                                                kellyLiteCapRange
                                                                         runTrialWith idx rng mBase mParents best recordsRev = do
                                                                             let (params, _) =
                                                                                     case mBase of
@@ -3534,50 +4211,57 @@ resolveBars args intervals maxBarsCap useSweepThreshold = do
         then do
             let barsMin = max 2 (min barsMin0 barsMax)
             pure (Right (barsMin, barsMax))
-        else do
-            let worstLb = maximum (map (fromRight 0 . lookbackBarsFrom' (oaLookbackWindow args)) intervals)
-                minRequired0 = worstLb + 3
-            if useSweepThreshold
-                then do
-                    let br = oaBacktestRatio args
-                        tr = oaTuneRatio args
-                    if br <= 0 || br >= 1
-                        then pure (Left "--backtest-ratio must be between 0 and 1.")
-                        else
-                            if tr <= 0 || tr >= 1
-                                then pure (Left "--tune-ratio must be between 0 and 1 when sweep-threshold is enabled.")
-                                else do
-                                    let denom = max 1e-12 ((1 - br) * (1 - tr))
-                                        minRequired1 = max minRequired0 (ceiling ((fromIntegral worstLb + 1) / denom) + 2)
-                                        minTrain = ceiling (2 / tr)
-                                        minRequired2 =
-                                            max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - br)) + 2)
-                                        autoBars = if isNothing (oaBinanceSymbol args) then maxBarsCap else 500
-                                    if minRequired2 > max barsMax autoBars
-                                        then
-                                            pure
-                                                ( Left
-                                                    ( "Not enough bars for lookback="
-                                                        ++ show worstLb
-                                                        ++ " with backtest-ratio="
-                                                        ++ show br
-                                                        ++ " and tune-ratio="
-                                                        ++ show tr
-                                                        ++ ". Need bars >= "
-                                                        ++ show minRequired2
-                                                        ++ ". Increase --bars-max, reduce --tune-ratio/--backtest-ratio, reduce --lookback-window, or pass --no-sweep-threshold."
+        else case deriveWorstLookback (oaLookbackWindow args) intervals of
+            Left err -> pure (Left err)
+            Right worstLb -> do
+                let minRequired0 = worstLb + 3
+                if useSweepThreshold
+                    then do
+                        let br = oaBacktestRatio args
+                            tr = oaTuneRatio args
+                        if br <= 0 || br >= 1
+                            then pure (Left "--backtest-ratio must be between 0 and 1.")
+                            else
+                                if tr <= 0 || tr >= 1
+                                    then pure (Left "--tune-ratio must be between 0 and 1 when sweep-threshold is enabled.")
+                                    else do
+                                        let denom = max 1e-12 ((1 - br) * (1 - tr))
+                                            minRequired1 = max minRequired0 (ceiling ((fromIntegral worstLb + 1) / denom) + 2)
+                                            minTrain = ceiling (2 / tr)
+                                            minRequired2 =
+                                                max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - br)) + 2)
+                                            autoBars = if isNothing (oaBinanceSymbol args) then maxBarsCap else 500
+                                        if minRequired2 > max barsMax autoBars
+                                            then
+                                                pure
+                                                    ( Left
+                                                        ( "Not enough bars for lookback="
+                                                            ++ show worstLb
+                                                            ++ " with backtest-ratio="
+                                                            ++ show br
+                                                            ++ " and tune-ratio="
+                                                            ++ show tr
+                                                            ++ ". Need bars >= "
+                                                            ++ show minRequired2
+                                                            ++ ". Increase --bars-max, reduce --tune-ratio/--backtest-ratio, reduce --lookback-window, or pass --no-sweep-threshold."
+                                                        )
                                                     )
-                                                )
-                                        else do
-                                            let barsMin = min barsMax (max 10 minRequired2)
-                                            pure (Right (max 2 (min barsMin barsMax), barsMax))
-                else do
-                    let barsMin = min barsMax (max 10 minRequired0)
-                    pure (Right (max 2 (min barsMin barsMax), barsMax))
+                                            else do
+                                                let barsMin = min barsMax (max 10 minRequired2)
+                                                pure (Right (max 2 (min barsMin barsMax), barsMax))
+                    else do
+                        let barsMin = min barsMax (max 10 minRequired0)
+                        pure (Right (max 2 (min barsMin barsMax), barsMax))
   where
-    lookbackBarsFrom' lookbackWindow itv =
+    deriveWorstLookback lookbackWindow itvs =
+        case traverse (lookbackForInterval lookbackWindow) itvs of
+            Left err -> Left err
+            Right [] -> Left "No intervals provided."
+            Right lbs -> Right (maximum lbs)
+
+    lookbackForInterval lookbackWindow itv =
         case lookbackBarsFrom itv lookbackWindow of
-            Left _ -> Left "invalid"
+            Left err -> Left ("Invalid interval/lookback combination for " ++ show itv ++ ": " ++ err)
             Right lb -> Right lb
 
 buildBaseArgs :: OptimizerArgs -> Maybe (FilePath, (Maybe String, Maybe String)) -> IO (Either String [String])
@@ -3636,7 +4320,7 @@ printTrialStatus i trials tr = do
         params = trParams tr
         msg =
             printf
-                "[%4d/%d] %s score=%s eq=%s t=%.2fs interval=%s bars=%d method=%s norm=%s epochs=%d slip=%.6f spr=%.6f sl=%s tp=%s trail=%s maxDD=%s maxDL=%s maxOE=%s"
+                "[%4d/%d] %s score=%s eq=%s t=%.2fs interval=%s bars=%d method=%s norm=%s epochs=%d slip=%.6f spr=%.6f sl=%s tp=%s trail=%s maxDD=%s maxDL=%s maxWL=%s maxOE=%s"
                 i
                 trials
                 status
@@ -3655,6 +4339,7 @@ printTrialStatus i trials tr = do
                 (fmtOptFloat (tpTrailingStop params))
                 (fmtOptFloat (tpMaxDrawdown params))
                 (fmtOptFloat (tpMaxDailyLoss params))
+                (fmtOptFloat (tpMaxWeeklyLoss params))
                 (fmtOptInt (tpMaxOrderErrors params))
         suffix =
             case (trFilterReason tr, trReason tr) of
@@ -3793,6 +4478,7 @@ printBest tr = do
     putStrLn ("  riskPerTrade:       " ++ showMaybe (tpRiskPerTrade p))
     putStrLn ("  maxDrawdown:   " ++ showMaybe (tpMaxDrawdown p))
     putStrLn ("  maxDailyLoss:  " ++ showMaybe (tpMaxDailyLoss p))
+    putStrLn ("  maxWeeklyLoss:" ++ showMaybe (tpMaxWeeklyLoss p))
     putStrLn ("  maxOrderErrors:" ++ showMaybe (tpMaxOrderErrors p))
     putStrLn ("  kalmanDt:            " ++ show (tpKalmanDt p))
     putStrLn ("  kalmanProcessVar:    " ++ show (tpKalmanProcessVar p))
@@ -3807,6 +4493,43 @@ printBest tr = do
     putStrLn ("  confidenceSizing:    " ++ show (tpConfidenceSizing p))
     putStrLn ("  protectionMinConf:   " ++ show (tpProtectionMinConfidence p))
     putStrLn ("  minPositionSize:     " ++ show (tpMinPositionSize p))
+    putStrLn ("  adaptiveFilters:     " ++ show (tpAdaptiveFilters p))
+    putStrLn ("  perfLookback:        " ++ show (tpPerfLookback p))
+    putStrLn ("  perfMinWinRate:      " ++ showMaybe (tpPerfMinWinRate p))
+    putStrLn ("  perfMinProfitFactor: " ++ showMaybe (tpPerfMinProfitFactor p))
+    putStrLn ("  metaLabelFilter:     " ++ show (tpMetaLabelFilter p))
+    putStrLn ("  metaLabelMinEdge:    " ++ show (tpMetaLabelMinEdge p))
+    putStrLn ("  metaLabelMinConfidence:" ++ show (tpMetaLabelMinConfidence p))
+    putStrLn ("  metaLabelRequireBand:" ++ show (tpMetaLabelRequireBand p))
+    putStrLn ("  regimeParameterBank:" ++ show (tpRegimeParameterBank p))
+    putStrLn ("  regimeBankHysteresis:" ++ show (tpRegimeBankHysteresis p))
+    putStrLn ("  regimeTrendOpenMult:" ++ show (tpRegimeTrendOpenMult p))
+    putStrLn ("  regimeMrOpenMult:   " ++ show (tpRegimeMrOpenMult p))
+    putStrLn ("  regimeHighVolOpenMult:" ++ show (tpRegimeHighVolOpenMult p))
+    putStrLn ("  regimeTrendSizeMult:" ++ show (tpRegimeTrendSizeMult p))
+    putStrLn ("  regimeMrSizeMult:   " ++ show (tpRegimeMrSizeMult p))
+    putStrLn ("  regimeHighVolSizeMult:" ++ show (tpRegimeHighVolSizeMult p))
+    putStrLn ("  multiTimeframeConsensus:" ++ show (tpMultiTimeframeConsensus p))
+    putStrLn ("  mtfFastBars:        " ++ show (tpMtfFastBars p))
+    putStrLn ("  mtfMidBars:         " ++ show (tpMtfMidBars p))
+    putStrLn ("  mtfSlowBars:        " ++ show (tpMtfSlowBars p))
+    putStrLn ("  mtfMinAgree:        " ++ show (tpMtfMinAgree p))
+    putStrLn ("  crossAssetConfirmation:" ++ show (tpCrossAssetConfirmation p))
+    putStrLn ("  crossAssetMinBeta:  " ++ show (tpCrossAssetMinBeta p))
+    putStrLn ("  crossAssetMinEdge:  " ++ show (tpCrossAssetMinEdge p))
+    putStrLn ("  pairsStatArb:       " ++ show (tpPairsStatArb p))
+    putStrLn ("  pairsStatArbLookback:" ++ show (tpPairsStatArbLookback p))
+    putStrLn ("  pairsStatArbZEntry: " ++ show (tpPairsStatArbZEntry p))
+    putStrLn ("  pairsStatArbSizeMult:" ++ show (tpPairsStatArbSizeMult p))
+    putStrLn ("  fundingOiAware:     " ++ show (tpFundingOiAware p))
+    putStrLn ("  fundingOiFundingCap:" ++ showMaybe (tpFundingOiFundingCap p))
+    putStrLn ("  fundingOiVolLookback:" ++ show (tpFundingOiVolLookback p))
+    putStrLn ("  fundingOiVolCap:    " ++ showMaybe (tpFundingOiVolCap p))
+    putStrLn ("  fundingOiSizeMult:  " ++ show (tpFundingOiSizeMult p))
+    putStrLn ("  kellyLiteSizing:    " ++ show (tpKellyLiteSizing p))
+    putStrLn ("  kellyLiteFraction:  " ++ show (tpKellyLiteFraction p))
+    putStrLn ("  kellyLiteFloor:     " ++ show (tpKellyLiteFloor p))
+    putStrLn ("  kellyLiteCap:       " ++ show (tpKellyLiteCap p))
 
 showMaybe :: (Show a) => Maybe a -> String
 showMaybe = maybe "None" show
@@ -4026,7 +4749,8 @@ crossoverTrialParams a b rng0 =
         (tpRiskPerTrade', rng83a) = pickValue (tpRiskPerTrade a) (tpRiskPerTrade b) rng83
         (tpMaxDrawdown', rng84) = pickValue (tpMaxDrawdown a) (tpMaxDrawdown b) rng83a
         (tpMaxDailyLoss', rng85) = pickValue (tpMaxDailyLoss a) (tpMaxDailyLoss b) rng84
-        (tpMaxOrderErrors', rng86) = pickValue (tpMaxOrderErrors a) (tpMaxOrderErrors b) rng85
+        (tpMaxWeeklyLoss', rng85a) = pickValue (tpMaxWeeklyLoss a) (tpMaxWeeklyLoss b) rng85
+        (tpMaxOrderErrors', rng86) = pickValue (tpMaxOrderErrors a) (tpMaxOrderErrors b) rng85a
         (tpKalmanDt', rng87) = pickValue (tpKalmanDt a) (tpKalmanDt b) rng86
         (tpKalmanProcessVar', rng88) = pickValue (tpKalmanProcessVar a) (tpKalmanProcessVar b) rng87
         (tpKalmanMeasurementVar', rng89) = pickValue (tpKalmanMeasurementVar a) (tpKalmanMeasurementVar b) rng88
@@ -4041,7 +4765,11 @@ crossoverTrialParams a b rng0 =
         (tpProtectionMinConfidence', rng97a) =
             pickValue (tpProtectionMinConfidence a) (tpProtectionMinConfidence b) rng97
         (tpMinPositionSize', rng98) = pickValue (tpMinPositionSize a) (tpMinPositionSize b) rng97a
-        (tpPredictors', rng99) = pickValue (tpPredictors a) (tpPredictors b) rng98
+        (tpKellyLiteSizing', rng98a) = pickValue (tpKellyLiteSizing a) (tpKellyLiteSizing b) rng98
+        (tpKellyLiteFraction', rng98b) = pickValue (tpKellyLiteFraction a) (tpKellyLiteFraction b) rng98a
+        (tpKellyLiteFloor', rng98c) = pickValue (tpKellyLiteFloor a) (tpKellyLiteFloor b) rng98b
+        (tpKellyLiteCap', rng98d) = pickValue (tpKellyLiteCap a) (tpKellyLiteCap b) rng98c
+        (tpPredictors', rng99) = pickValue (tpPredictors a) (tpPredictors b) rng98d
         (tpRouterLookback', rng100) = pickValue (tpRouterLookback a) (tpRouterLookback b) rng99
         (tpRouterMinScore', rng101) = pickValue (tpRouterMinScore a) (tpRouterMinScore b) rng100
         (tpFeeFixed', rng102) = pickValue (tpFeeFixed a) (tpFeeFixed b) rng101
@@ -4065,136 +4793,209 @@ crossoverTrialParams a b rng0 =
             pickValue (tpAdaptiveMinSignalToNoiseMax a) (tpAdaptiveMinSignalToNoiseMax b) rng118
         (tpAdaptiveTrendLookbackMax', rng120) = pickValue (tpAdaptiveTrendLookbackMax a) (tpAdaptiveTrendLookbackMax b) rng119
         (tpAdaptiveKalmanZMinMax', rng121) = pickValue (tpAdaptiveKalmanZMinMax a) (tpAdaptiveKalmanZMinMax b) rng120
-     in ( a
-            { tpPlatform = tpPlatform'
-            , tpInterval = tpInterval'
-            , tpBars = tpBars'
-            , tpMethod = tpMethod'
-            , tpBlendWeight = tpBlendWeight'
-            , tpRouterScorePnlWeight = tpRouterScorePnlWeight'
-            , tpPositioning = tpPositioning'
-            , tpNormalization = tpNormalization'
-            , tpBaseOpenThreshold = tpBaseOpenThreshold'
-            , tpBaseCloseThreshold = tpBaseCloseThreshold'
-            , tpMinHoldBars = tpMinHoldBars'
-            , tpCooldownBars = tpCooldownBars'
-            , tpMaxHoldBars = tpMaxHoldBars'
-            , tpMinEdge = tpMinEdge'
-            , tpMinSignalToNoise = tpMinSignalToNoise'
-            , tpSnrSizeWeight = tpSnrSizeWeight'
-            , tpThresholdFactorEnabled = tpThresholdFactorEnabled'
-            , tpThresholdFactorAlpha = tpThresholdFactorAlpha'
-            , tpThresholdFactorMin = tpThresholdFactorMin'
-            , tpThresholdFactorMax = tpThresholdFactorMax'
-            , tpThresholdFactorFloor = tpThresholdFactorFloor'
-            , tpThresholdFactorEdgeKalWeight = tpThresholdFactorEdgeKalWeight'
-            , tpThresholdFactorEdgeLstmWeight = tpThresholdFactorEdgeLstmWeight'
-            , tpThresholdFactorKalmanZWeight = tpThresholdFactorKalmanZWeight'
-            , tpThresholdFactorHighVolWeight = tpThresholdFactorHighVolWeight'
-            , tpThresholdFactorConformalWeight = tpThresholdFactorConformalWeight'
-            , tpThresholdFactorQuantileWeight = tpThresholdFactorQuantileWeight'
-            , tpThresholdFactorLstmConfWeight = tpThresholdFactorLstmConfWeight'
-            , tpThresholdFactorLstmHealthWeight = tpThresholdFactorLstmHealthWeight'
-            , tpEdgeBuffer = tpEdgeBuffer'
-            , tpCostAwareEdge = tpCostAwareEdge'
-            , tpTrendLookback = tpTrendLookback'
-            , tpMaxPositionSize = tpMaxPositionSize'
-            , tpVolTarget = tpVolTarget'
-            , tpVolLookback = tpVolLookback'
-            , tpVolEwmaAlpha = tpVolEwmaAlpha'
-            , tpVolFloor = tpVolFloor'
-            , tpVolScaleMax = tpVolScaleMax'
-            , tpMaxVolatility = tpMaxVolatility'
-            , tpPeriodsPerYear = tpPeriodsPerYear'
-            , tpKalmanMarketTopN = tpKalmanMarketTopN'
-            , tpFee = tpFee'
-            , tpFundingRate = tpFundingRate'
-            , tpFundingBySide = tpFundingBySide'
-            , tpFundingOnOpen = tpFundingOnOpen'
-            , tpRebalanceBars = tpRebalanceBars'
-            , tpRebalanceThreshold = tpRebalanceThreshold'
-            , tpRebalanceCostMult = tpRebalanceCostMult'
-            , tpRebalanceGlobal = tpRebalanceGlobal'
-            , tpRebalanceResetOnSignal = tpRebalanceResetOnSignal'
-            , tpEpochs = tpEpochs'
-            , tpHiddenSize = tpHiddenSize'
-            , tpLearningRate = tpLearningRate'
-            , tpValRatio = tpValRatio'
-            , tpPatience = tpPatience'
-            , tpWalkForwardFolds = tpWalkForwardFolds'
-            , tpWalkForwardEmbargoBars = tpWalkForwardEmbargoBars'
-            , tpTuneStressVolMult = tpTuneStressVolMult'
-            , tpTuneStressShock = tpTuneStressShock'
-            , tpTuneStressWeight = tpTuneStressWeight'
-            , tpGradClip = tpGradClip'
-            , tpSlippage = tpSlippage'
-            , tpSpread = tpSpread'
-            , tpIntrabarFill = tpIntrabarFill'
-            , tpTriLayer = tpTriLayer'
-            , tpTriLayerFastMult = tpTriLayerFastMult'
-            , tpTriLayerSlowMult = tpTriLayerSlowMult'
-            , tpTriLayerCloudPadding = tpTriLayerCloudPadding'
-            , tpTriLayerCloudSlope = tpTriLayerCloudSlope'
-            , tpTriLayerCloudWidth = tpTriLayerCloudWidth'
-            , tpTriLayerTouchLookback = tpTriLayerTouchLookback'
-            , tpTriLayerPriceAction = tpTriLayerPriceAction'
-            , tpTriLayerPriceActionBody = tpTriLayerPriceActionBody'
-            , tpTriLayerExitOnSlow = tpTriLayerExitOnSlow'
-            , tpKalmanBandLookback = tpKalmanBandLookback'
-            , tpKalmanBandStdMult = tpKalmanBandStdMult'
-            , tpLstmExitFlipBars = tpLstmExitFlipBars'
-            , tpLstmExitFlipGraceBars = tpLstmExitFlipGraceBars'
-            , tpLstmExitFlipStrong = tpLstmExitFlipStrong'
-            , tpLstmConfidenceSoft = tpLstmConfidenceSoft'
-            , tpLstmConfidenceHard = tpLstmConfidenceHard'
-            , tpStopLoss = tpStopLoss'
-            , tpTakeProfit = tpTakeProfit'
-            , tpTrailingStop = tpTrailingStop'
-            , tpStopLossVolMult = tpStopLossVolMult'
-            , tpTakeProfitVolMult = tpTakeProfitVolMult'
-            , tpTrailingStopVolMult = tpTrailingStopVolMult'
-            , tpRiskPerTrade = tpRiskPerTrade'
-            , tpMaxDrawdown = tpMaxDrawdown'
-            , tpMaxDailyLoss = tpMaxDailyLoss'
-            , tpMaxOrderErrors = tpMaxOrderErrors'
-            , tpKalmanDt = tpKalmanDt'
-            , tpKalmanProcessVar = tpKalmanProcessVar'
-            , tpKalmanMeasurementVar = tpKalmanMeasurementVar'
-            , tpKalmanZMin = tpKalmanZMin'
-            , tpKalmanZMax = tpKalmanZMax'
-            , tpMaxHighVolProb = tpMaxHighVolProb'
-            , tpMaxConformalWidth = tpMaxConformalWidth'
-            , tpMaxQuantileWidth = tpMaxQuantileWidth'
-            , tpConfirmConformal = tpConfirmConformal'
-            , tpConfirmQuantiles = tpConfirmQuantiles'
-            , tpConfidenceSizing = tpConfidenceSizing'
-            , tpProtectionMinConfidence = tpProtectionMinConfidence'
-            , tpMinPositionSize = tpMinPositionSize'
-            , tpPredictors = tpPredictors'
-            , tpRouterLookback = tpRouterLookback'
-            , tpRouterMinScore = tpRouterMinScore'
-            , tpFeeFixed = tpFeeFixed'
-            , tpSlippageImpact = tpSlippageImpact'
-            , tpSlippageImpactPower = tpSlippageImpactPower'
-            , tpSlippageVolMult = tpSlippageVolMult'
-            , tpSpreadVolMult = tpSpreadVolMult'
-            , tpTakeProfitPartial = tpTakeProfitPartial'
-            , tpMaxTradesPerDay = tpMaxTradesPerDay'
-            , tpExpectancyLookback = tpExpectancyLookback'
-            , tpMinExpectancy = tpMinExpectancy'
-            , tpLossStreakMax = tpLossStreakMax'
-            , tpLossStreakCooldownBars = tpLossStreakCooldownBars'
-            , tpMaxOpenPositions = tpMaxOpenPositions'
-            , tpMaxGrossExposure = tpMaxGrossExposure'
-            , tpMaxNetExposure = tpMaxNetExposure'
-            , tpMaxExposurePerBase = tpMaxExposurePerBase'
-            , tpMaxOpenPerBase = tpMaxOpenPerBase'
-            , tpAdaptiveEdgeBufferMax = tpAdaptiveEdgeBufferMax'
-            , tpAdaptiveMinSignalToNoiseMax = tpAdaptiveMinSignalToNoiseMax'
-            , tpAdaptiveTrendLookbackMax = tpAdaptiveTrendLookbackMax'
-            , tpAdaptiveKalmanZMinMax = tpAdaptiveKalmanZMinMax'
-            }
-        , rng121
+        (tpAdaptiveFilters', rng122) = pickValue (tpAdaptiveFilters a) (tpAdaptiveFilters b) rng121
+        (tpPerfLookback', rng123) = pickValue (tpPerfLookback a) (tpPerfLookback b) rng122
+        (tpPerfMinWinRate', rng124) = pickValue (tpPerfMinWinRate a) (tpPerfMinWinRate b) rng123
+        (tpPerfMinProfitFactor', rng125) = pickValue (tpPerfMinProfitFactor a) (tpPerfMinProfitFactor b) rng124
+        (tpMetaLabelFilter', rng126) = pickValue (tpMetaLabelFilter a) (tpMetaLabelFilter b) rng125
+        (tpMetaLabelMinEdge', rng127) = pickValue (tpMetaLabelMinEdge a) (tpMetaLabelMinEdge b) rng126
+        (tpMetaLabelMinConfidence', rng128) = pickValue (tpMetaLabelMinConfidence a) (tpMetaLabelMinConfidence b) rng127
+        (tpMetaLabelRequireBand', rng129) = pickValue (tpMetaLabelRequireBand a) (tpMetaLabelRequireBand b) rng128
+        (tpRegimeParameterBank', rng130) = pickValue (tpRegimeParameterBank a) (tpRegimeParameterBank b) rng129
+        (tpRegimeBankHysteresis', rng131) = pickValue (tpRegimeBankHysteresis a) (tpRegimeBankHysteresis b) rng130
+        (tpRegimeTrendOpenMult', rng132) = pickValue (tpRegimeTrendOpenMult a) (tpRegimeTrendOpenMult b) rng131
+        (tpRegimeMrOpenMult', rng133) = pickValue (tpRegimeMrOpenMult a) (tpRegimeMrOpenMult b) rng132
+        (tpRegimeHighVolOpenMult', rng134) = pickValue (tpRegimeHighVolOpenMult a) (tpRegimeHighVolOpenMult b) rng133
+        (tpRegimeTrendSizeMult', rng135) = pickValue (tpRegimeTrendSizeMult a) (tpRegimeTrendSizeMult b) rng134
+        (tpRegimeMrSizeMult', rng136) = pickValue (tpRegimeMrSizeMult a) (tpRegimeMrSizeMult b) rng135
+        (tpRegimeHighVolSizeMult', rng137) = pickValue (tpRegimeHighVolSizeMult a) (tpRegimeHighVolSizeMult b) rng136
+        (tpMultiTimeframeConsensus', rng138) = pickValue (tpMultiTimeframeConsensus a) (tpMultiTimeframeConsensus b) rng137
+        (tpMtfFastBars', rng139) = pickValue (tpMtfFastBars a) (tpMtfFastBars b) rng138
+        (tpMtfMidBars', rng140) = pickValue (tpMtfMidBars a) (tpMtfMidBars b) rng139
+        (tpMtfSlowBars', rng141) = pickValue (tpMtfSlowBars a) (tpMtfSlowBars b) rng140
+        (tpMtfMinAgree', rng142) = pickValue (tpMtfMinAgree a) (tpMtfMinAgree b) rng141
+        (tpCrossAssetConfirmation', rng143) = pickValue (tpCrossAssetConfirmation a) (tpCrossAssetConfirmation b) rng142
+        (tpCrossAssetMinBeta', rng144) = pickValue (tpCrossAssetMinBeta a) (tpCrossAssetMinBeta b) rng143
+        (tpCrossAssetMinEdge', rng145) = pickValue (tpCrossAssetMinEdge a) (tpCrossAssetMinEdge b) rng144
+        (tpPairsStatArb', rng146) = pickValue (tpPairsStatArb a) (tpPairsStatArb b) rng145
+        (tpPairsStatArbLookback', rng147) = pickValue (tpPairsStatArbLookback a) (tpPairsStatArbLookback b) rng146
+        (tpPairsStatArbZEntry', rng148) = pickValue (tpPairsStatArbZEntry a) (tpPairsStatArbZEntry b) rng147
+        (tpPairsStatArbSizeMult', rng149) = pickValue (tpPairsStatArbSizeMult a) (tpPairsStatArbSizeMult b) rng148
+        (tpFundingOiAware', rng150) = pickValue (tpFundingOiAware a) (tpFundingOiAware b) rng149
+        (tpFundingOiFundingCap', rng151) = pickValue (tpFundingOiFundingCap a) (tpFundingOiFundingCap b) rng150
+        (tpFundingOiVolLookback', rng152) = pickValue (tpFundingOiVolLookback a) (tpFundingOiVolLookback b) rng151
+        (tpFundingOiVolCap', rng153) = pickValue (tpFundingOiVolCap a) (tpFundingOiVolCap b) rng152
+        (tpFundingOiSizeMult', rng154) = pickValue (tpFundingOiSizeMult a) (tpFundingOiSizeMult b) rng153
+     in ( normalizeTrialParams
+            ( a
+                { tpPlatform = tpPlatform'
+                , tpInterval = tpInterval'
+                , tpBars = tpBars'
+                , tpMethod = tpMethod'
+                , tpBlendWeight = tpBlendWeight'
+                , tpRouterScorePnlWeight = tpRouterScorePnlWeight'
+                , tpPositioning = tpPositioning'
+                , tpNormalization = tpNormalization'
+                , tpBaseOpenThreshold = tpBaseOpenThreshold'
+                , tpBaseCloseThreshold = tpBaseCloseThreshold'
+                , tpMinHoldBars = tpMinHoldBars'
+                , tpCooldownBars = tpCooldownBars'
+                , tpMaxHoldBars = tpMaxHoldBars'
+                , tpMinEdge = tpMinEdge'
+                , tpMinSignalToNoise = tpMinSignalToNoise'
+                , tpSnrSizeWeight = tpSnrSizeWeight'
+                , tpThresholdFactorEnabled = tpThresholdFactorEnabled'
+                , tpThresholdFactorAlpha = tpThresholdFactorAlpha'
+                , tpThresholdFactorMin = tpThresholdFactorMin'
+                , tpThresholdFactorMax = tpThresholdFactorMax'
+                , tpThresholdFactorFloor = tpThresholdFactorFloor'
+                , tpThresholdFactorEdgeKalWeight = tpThresholdFactorEdgeKalWeight'
+                , tpThresholdFactorEdgeLstmWeight = tpThresholdFactorEdgeLstmWeight'
+                , tpThresholdFactorKalmanZWeight = tpThresholdFactorKalmanZWeight'
+                , tpThresholdFactorHighVolWeight = tpThresholdFactorHighVolWeight'
+                , tpThresholdFactorConformalWeight = tpThresholdFactorConformalWeight'
+                , tpThresholdFactorQuantileWeight = tpThresholdFactorQuantileWeight'
+                , tpThresholdFactorLstmConfWeight = tpThresholdFactorLstmConfWeight'
+                , tpThresholdFactorLstmHealthWeight = tpThresholdFactorLstmHealthWeight'
+                , tpEdgeBuffer = tpEdgeBuffer'
+                , tpCostAwareEdge = tpCostAwareEdge'
+                , tpTrendLookback = tpTrendLookback'
+                , tpMaxPositionSize = tpMaxPositionSize'
+                , tpVolTarget = tpVolTarget'
+                , tpVolLookback = tpVolLookback'
+                , tpVolEwmaAlpha = tpVolEwmaAlpha'
+                , tpVolFloor = tpVolFloor'
+                , tpVolScaleMax = tpVolScaleMax'
+                , tpMaxVolatility = tpMaxVolatility'
+                , tpPeriodsPerYear = tpPeriodsPerYear'
+                , tpKalmanMarketTopN = tpKalmanMarketTopN'
+                , tpFee = tpFee'
+                , tpFundingRate = tpFundingRate'
+                , tpFundingBySide = tpFundingBySide'
+                , tpFundingOnOpen = tpFundingOnOpen'
+                , tpRebalanceBars = tpRebalanceBars'
+                , tpRebalanceThreshold = tpRebalanceThreshold'
+                , tpRebalanceCostMult = tpRebalanceCostMult'
+                , tpRebalanceGlobal = tpRebalanceGlobal'
+                , tpRebalanceResetOnSignal = tpRebalanceResetOnSignal'
+                , tpEpochs = tpEpochs'
+                , tpHiddenSize = tpHiddenSize'
+                , tpLearningRate = tpLearningRate'
+                , tpValRatio = tpValRatio'
+                , tpPatience = tpPatience'
+                , tpWalkForwardFolds = tpWalkForwardFolds'
+                , tpWalkForwardEmbargoBars = tpWalkForwardEmbargoBars'
+                , tpTuneStressVolMult = tpTuneStressVolMult'
+                , tpTuneStressShock = tpTuneStressShock'
+                , tpTuneStressWeight = tpTuneStressWeight'
+                , tpGradClip = tpGradClip'
+                , tpSlippage = tpSlippage'
+                , tpSpread = tpSpread'
+                , tpIntrabarFill = tpIntrabarFill'
+                , tpTriLayer = tpTriLayer'
+                , tpTriLayerFastMult = tpTriLayerFastMult'
+                , tpTriLayerSlowMult = tpTriLayerSlowMult'
+                , tpTriLayerCloudPadding = tpTriLayerCloudPadding'
+                , tpTriLayerCloudSlope = tpTriLayerCloudSlope'
+                , tpTriLayerCloudWidth = tpTriLayerCloudWidth'
+                , tpTriLayerTouchLookback = tpTriLayerTouchLookback'
+                , tpTriLayerPriceAction = tpTriLayerPriceAction'
+                , tpTriLayerPriceActionBody = tpTriLayerPriceActionBody'
+                , tpTriLayerExitOnSlow = tpTriLayerExitOnSlow'
+                , tpKalmanBandLookback = tpKalmanBandLookback'
+                , tpKalmanBandStdMult = tpKalmanBandStdMult'
+                , tpLstmExitFlipBars = tpLstmExitFlipBars'
+                , tpLstmExitFlipGraceBars = tpLstmExitFlipGraceBars'
+                , tpLstmExitFlipStrong = tpLstmExitFlipStrong'
+                , tpLstmConfidenceSoft = tpLstmConfidenceSoft'
+                , tpLstmConfidenceHard = tpLstmConfidenceHard'
+                , tpStopLoss = tpStopLoss'
+                , tpTakeProfit = tpTakeProfit'
+                , tpTrailingStop = tpTrailingStop'
+                , tpStopLossVolMult = tpStopLossVolMult'
+                , tpTakeProfitVolMult = tpTakeProfitVolMult'
+                , tpTrailingStopVolMult = tpTrailingStopVolMult'
+                , tpRiskPerTrade = tpRiskPerTrade'
+                , tpMaxDrawdown = tpMaxDrawdown'
+                , tpMaxDailyLoss = tpMaxDailyLoss'
+                , tpMaxWeeklyLoss = tpMaxWeeklyLoss'
+                , tpMaxOrderErrors = tpMaxOrderErrors'
+                , tpKalmanDt = tpKalmanDt'
+                , tpKalmanProcessVar = tpKalmanProcessVar'
+                , tpKalmanMeasurementVar = tpKalmanMeasurementVar'
+                , tpKalmanZMin = tpKalmanZMin'
+                , tpKalmanZMax = tpKalmanZMax'
+                , tpMaxHighVolProb = tpMaxHighVolProb'
+                , tpMaxConformalWidth = tpMaxConformalWidth'
+                , tpMaxQuantileWidth = tpMaxQuantileWidth'
+                , tpConfirmConformal = tpConfirmConformal'
+                , tpConfirmQuantiles = tpConfirmQuantiles'
+                , tpConfidenceSizing = tpConfidenceSizing'
+                , tpProtectionMinConfidence = tpProtectionMinConfidence'
+                , tpMinPositionSize = tpMinPositionSize'
+                , tpKellyLiteSizing = tpKellyLiteSizing'
+                , tpKellyLiteFraction = tpKellyLiteFraction'
+                , tpKellyLiteFloor = tpKellyLiteFloor'
+                , tpKellyLiteCap = tpKellyLiteCap'
+                , tpPredictors = tpPredictors'
+                , tpRouterLookback = tpRouterLookback'
+                , tpRouterMinScore = tpRouterMinScore'
+                , tpFeeFixed = tpFeeFixed'
+                , tpSlippageImpact = tpSlippageImpact'
+                , tpSlippageImpactPower = tpSlippageImpactPower'
+                , tpSlippageVolMult = tpSlippageVolMult'
+                , tpSpreadVolMult = tpSpreadVolMult'
+                , tpTakeProfitPartial = tpTakeProfitPartial'
+                , tpMaxTradesPerDay = tpMaxTradesPerDay'
+                , tpExpectancyLookback = tpExpectancyLookback'
+                , tpMinExpectancy = tpMinExpectancy'
+                , tpLossStreakMax = tpLossStreakMax'
+                , tpLossStreakCooldownBars = tpLossStreakCooldownBars'
+                , tpMaxOpenPositions = tpMaxOpenPositions'
+                , tpMaxGrossExposure = tpMaxGrossExposure'
+                , tpMaxNetExposure = tpMaxNetExposure'
+                , tpMaxExposurePerBase = tpMaxExposurePerBase'
+                , tpMaxOpenPerBase = tpMaxOpenPerBase'
+                , tpAdaptiveEdgeBufferMax = tpAdaptiveEdgeBufferMax'
+                , tpAdaptiveMinSignalToNoiseMax = tpAdaptiveMinSignalToNoiseMax'
+                , tpAdaptiveTrendLookbackMax = tpAdaptiveTrendLookbackMax'
+                , tpAdaptiveKalmanZMinMax = tpAdaptiveKalmanZMinMax'
+                , tpAdaptiveFilters = tpAdaptiveFilters'
+                , tpPerfLookback = tpPerfLookback'
+                , tpPerfMinWinRate = tpPerfMinWinRate'
+                , tpPerfMinProfitFactor = tpPerfMinProfitFactor'
+                , tpMetaLabelFilter = tpMetaLabelFilter'
+                , tpMetaLabelMinEdge = tpMetaLabelMinEdge'
+                , tpMetaLabelMinConfidence = tpMetaLabelMinConfidence'
+                , tpMetaLabelRequireBand = tpMetaLabelRequireBand'
+                , tpRegimeParameterBank = tpRegimeParameterBank'
+                , tpRegimeBankHysteresis = tpRegimeBankHysteresis'
+                , tpRegimeTrendOpenMult = tpRegimeTrendOpenMult'
+                , tpRegimeMrOpenMult = tpRegimeMrOpenMult'
+                , tpRegimeHighVolOpenMult = tpRegimeHighVolOpenMult'
+                , tpRegimeTrendSizeMult = tpRegimeTrendSizeMult'
+                , tpRegimeMrSizeMult = tpRegimeMrSizeMult'
+                , tpRegimeHighVolSizeMult = tpRegimeHighVolSizeMult'
+                , tpMultiTimeframeConsensus = tpMultiTimeframeConsensus'
+                , tpMtfFastBars = tpMtfFastBars'
+                , tpMtfMidBars = tpMtfMidBars'
+                , tpMtfSlowBars = tpMtfSlowBars'
+                , tpMtfMinAgree = tpMtfMinAgree'
+                , tpCrossAssetConfirmation = tpCrossAssetConfirmation'
+                , tpCrossAssetMinBeta = tpCrossAssetMinBeta'
+                , tpCrossAssetMinEdge = tpCrossAssetMinEdge'
+                , tpPairsStatArb = tpPairsStatArb'
+                , tpPairsStatArbLookback = tpPairsStatArbLookback'
+                , tpPairsStatArbZEntry = tpPairsStatArbZEntry'
+                , tpPairsStatArbSizeMult = tpPairsStatArbSizeMult'
+                , tpFundingOiAware = tpFundingOiAware'
+                , tpFundingOiFundingCap = tpFundingOiFundingCap'
+                , tpFundingOiVolLookback = tpFundingOiVolLookback'
+                , tpFundingOiVolCap = tpFundingOiVolCap'
+                , tpFundingOiSizeMult = tpFundingOiSizeMult'
+                }
+            )
+        , rng154
         )
 
 clampBarsForPlatform :: Maybe String -> Int -> Int -> Int -> Int
@@ -4238,7 +5039,10 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (takeProfitVolMult', rng22) = perturbMaybeDouble (tpTakeProfitVolMult p) scaleDouble rng21
         (trailingStopVolMult', rng23) = perturbMaybeDouble (tpTrailingStopVolMult p) scaleDouble rng22
         (riskPerTrade', rng23a) = perturbMaybeDouble (tpRiskPerTrade p) scaleDouble rng23
-        (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23a
+        (maxDrawdown', rng23b) = perturbMaybeDouble (tpMaxDrawdown p) scaleDouble rng23a
+        (maxDailyLoss', rng23c) = perturbMaybeDouble (tpMaxDailyLoss p) scaleDouble rng23b
+        (maxWeeklyLoss', rng23d) = perturbMaybeDouble (tpMaxWeeklyLoss p) scaleDouble rng23c
+        (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23d
         (kalmanProcessVar', rng25) = perturbDouble (tpKalmanProcessVar p) scaleDouble rng24
         (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) scaleDouble rng25
         (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26
@@ -4282,79 +5086,140 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (adaptiveMinSignalToNoiseMax', rng64) = perturbDouble (tpAdaptiveMinSignalToNoiseMax p) scaleDouble rng63
         (adaptiveTrendLookbackMax', rng65) = perturbInt (tpAdaptiveTrendLookbackMax p) scaleInt rng64
         (adaptiveKalmanZMinMax', rng66) = perturbDouble (tpAdaptiveKalmanZMinMax p) scaleDouble rng65
-     in ( p
-            { tpBars = bars'
-            , tpBlendWeight = clamp blendWeight' 0 1
-            , tpRouterScorePnlWeight = clamp routerScorePnlWeight' 0 1
-            , tpBaseOpenThreshold = openThreshold'
-            , tpBaseCloseThreshold = closeThreshold'
-            , tpMinEdge = minEdge'
-            , tpMinSignalToNoise = minSn'
-            , tpSnrSizeWeight = clamp snrSizeWeight' 0 1
-            , tpThresholdFactorAlpha = thresholdFactorAlpha'
-            , tpThresholdFactorMin = thresholdFactorMin'
-            , tpThresholdFactorMax = thresholdFactorMax'
-            , tpThresholdFactorFloor = thresholdFactorFloor'
-            , tpThresholdFactorEdgeKalWeight = thresholdFactorEdgeKalWeight'
-            , tpThresholdFactorEdgeLstmWeight = thresholdFactorEdgeLstmWeight'
-            , tpThresholdFactorKalmanZWeight = thresholdFactorKalmanZWeight'
-            , tpThresholdFactorHighVolWeight = thresholdFactorHighVolWeight'
-            , tpThresholdFactorConformalWeight = thresholdFactorConformalWeight'
-            , tpThresholdFactorQuantileWeight = thresholdFactorQuantileWeight'
-            , tpThresholdFactorLstmConfWeight = thresholdFactorLstmConfWeight'
-            , tpThresholdFactorLstmHealthWeight = thresholdFactorLstmHealthWeight'
-            , tpEdgeBuffer = edgeBuffer'
-            , tpTrendLookback = trendLookback'
-            , tpMaxPositionSize = maxPositionSize'
-            , tpVolTarget = volTarget'
-            , tpVolLookback = volLookback'
-            , tpVolEwmaAlpha = volEwma'
-            , tpVolFloor = volFloor'
-            , tpVolScaleMax = volScaleMax'
-            , tpMaxVolatility = maxVolatility'
-            , tpKalmanBandLookback = kalmanBandLookback'
-            , tpKalmanBandStdMult = kalmanBandStd'
-            , tpStopLoss = stopLoss'
-            , tpTakeProfit = takeProfit'
-            , tpTrailingStop = trailingStop'
-            , tpStopLossVolMult = stopLossVolMult'
-            , tpTakeProfitVolMult = takeProfitVolMult'
-            , tpTrailingStopVolMult = trailingStopVolMult'
-            , tpRiskPerTrade = riskPerTrade'
-            , tpKalmanDt = kalmanDt'
-            , tpKalmanProcessVar = kalmanProcessVar'
-            , tpKalmanMeasurementVar = kalmanMeasurementVar'
-            , tpKalmanZMin = kalmanZMin'
-            , tpKalmanZMax = kalmanZMax'
-            , tpFundingRate = fundingRate'
-            , tpRebalanceBars = rebalanceBars'
-            , tpRebalanceThreshold = rebalanceThreshold'
-            , tpRebalanceCostMult = rebalanceCostMult'
-            , tpLearningRate = learningRate'
-            , tpRouterLookback = routerLookback'
-            , tpRouterMinScore = routerMinScore'
-            , tpFeeFixed = feeFixed'
-            , tpSlippageImpact = slippageImpact'
-            , tpSlippageImpactPower = slippageImpactPower'
-            , tpSlippageVolMult = slippageVolMult'
-            , tpSpreadVolMult = spreadVolMult'
-            , tpTakeProfitPartial = takeProfitPartial'
-            , tpMaxTradesPerDay = maxTradesPerDay'
-            , tpExpectancyLookback = expectancyLookback'
-            , tpMinExpectancy = minExpectancy'
-            , tpLossStreakMax = lossStreakMax'
-            , tpLossStreakCooldownBars = lossStreakCooldownBars'
-            , tpMaxOpenPositions = maxOpenPositions'
-            , tpMaxGrossExposure = maxGrossExposure'
-            , tpMaxNetExposure = maxNetExposure'
-            , tpMaxExposurePerBase = maxExposurePerBase'
-            , tpMaxOpenPerBase = maxOpenPerBase'
-            , tpAdaptiveEdgeBufferMax = adaptiveEdgeBufferMax'
-            , tpAdaptiveMinSignalToNoiseMax = adaptiveMinSignalToNoiseMax'
-            , tpAdaptiveTrendLookbackMax = adaptiveTrendLookbackMax'
-            , tpAdaptiveKalmanZMinMax = adaptiveKalmanZMinMax'
-            }
-        , rng66
+        (perfLookback', rng67) = perturbInt (tpPerfLookback p) scaleInt rng66
+        (perfMinWinRate', rng68) = perturbMaybeDouble (tpPerfMinWinRate p) scaleDouble rng67
+        (perfMinProfitFactor', rng69) = perturbMaybeDouble (tpPerfMinProfitFactor p) scaleDouble rng68
+        (metaLabelMinEdge', rng70) = perturbDouble (tpMetaLabelMinEdge p) scaleDouble rng69
+        (metaLabelMinConfidence', rng71) = perturbDouble (tpMetaLabelMinConfidence p) scaleDouble rng70
+        (regimeBankHysteresis', rng72) = perturbDouble (tpRegimeBankHysteresis p) scaleDouble rng71
+        (regimeTrendOpenMult', rng73) = perturbDouble (tpRegimeTrendOpenMult p) scaleDouble rng72
+        (regimeMrOpenMult', rng74) = perturbDouble (tpRegimeMrOpenMult p) scaleDouble rng73
+        (regimeHighVolOpenMult', rng75) = perturbDouble (tpRegimeHighVolOpenMult p) scaleDouble rng74
+        (regimeTrendSizeMult', rng76) = perturbDouble (tpRegimeTrendSizeMult p) scaleDouble rng75
+        (regimeMrSizeMult', rng77) = perturbDouble (tpRegimeMrSizeMult p) scaleDouble rng76
+        (regimeHighVolSizeMult', rng78) = perturbDouble (tpRegimeHighVolSizeMult p) scaleDouble rng77
+        (mtfFastBars', rng79) = perturbInt (tpMtfFastBars p) scaleInt rng78
+        (mtfMidBars', rng80) = perturbInt (tpMtfMidBars p) scaleInt rng79
+        (mtfSlowBars', rng81) = perturbInt (tpMtfSlowBars p) scaleInt rng80
+        (mtfMinAgree', rng82) = perturbInt (tpMtfMinAgree p) scaleInt rng81
+        (crossAssetMinBeta', rng83) = perturbDouble (tpCrossAssetMinBeta p) scaleDouble rng82
+        (crossAssetMinEdge', rng84) = perturbDouble (tpCrossAssetMinEdge p) scaleDouble rng83
+        (pairsStatArbLookback', rng85) = perturbInt (tpPairsStatArbLookback p) scaleInt rng84
+        (pairsStatArbZEntry', rng86) = perturbDouble (tpPairsStatArbZEntry p) scaleDouble rng85
+        (pairsStatArbSizeMult', rng87) = perturbDouble (tpPairsStatArbSizeMult p) scaleDouble rng86
+        (fundingOiFundingCap', rng88) = perturbMaybeDouble (tpFundingOiFundingCap p) scaleDouble rng87
+        (fundingOiVolLookback', rng89) = perturbInt (tpFundingOiVolLookback p) scaleInt rng88
+        (fundingOiVolCap', rng90) = perturbMaybeDouble (tpFundingOiVolCap p) scaleDouble rng89
+        (fundingOiSizeMult', rng91) = perturbDouble (tpFundingOiSizeMult p) scaleDouble rng90
+        (kellyLiteFraction', rng91a) = perturbDouble (tpKellyLiteFraction p) scaleDouble rng91
+        (kellyLiteFloor', rng91b) = perturbDouble (tpKellyLiteFloor p) scaleDouble rng91a
+        (kellyLiteCap', rng91c) = perturbDouble (tpKellyLiteCap p) scaleDouble rng91b
+     in ( normalizeTrialParams
+            ( p
+                { tpBars = bars'
+                , tpBlendWeight = clamp blendWeight' 0 1
+                , tpRouterScorePnlWeight = clamp routerScorePnlWeight' 0 1
+                , tpBaseOpenThreshold = openThreshold'
+                , tpBaseCloseThreshold = closeThreshold'
+                , tpMinEdge = minEdge'
+                , tpMinSignalToNoise = minSn'
+                , tpSnrSizeWeight = clamp snrSizeWeight' 0 1
+                , tpThresholdFactorAlpha = thresholdFactorAlpha'
+                , tpThresholdFactorMin = thresholdFactorMin'
+                , tpThresholdFactorMax = thresholdFactorMax'
+                , tpThresholdFactorFloor = thresholdFactorFloor'
+                , tpThresholdFactorEdgeKalWeight = thresholdFactorEdgeKalWeight'
+                , tpThresholdFactorEdgeLstmWeight = thresholdFactorEdgeLstmWeight'
+                , tpThresholdFactorKalmanZWeight = thresholdFactorKalmanZWeight'
+                , tpThresholdFactorHighVolWeight = thresholdFactorHighVolWeight'
+                , tpThresholdFactorConformalWeight = thresholdFactorConformalWeight'
+                , tpThresholdFactorQuantileWeight = thresholdFactorQuantileWeight'
+                , tpThresholdFactorLstmConfWeight = thresholdFactorLstmConfWeight'
+                , tpThresholdFactorLstmHealthWeight = thresholdFactorLstmHealthWeight'
+                , tpEdgeBuffer = edgeBuffer'
+                , tpTrendLookback = trendLookback'
+                , tpMaxPositionSize = maxPositionSize'
+                , tpVolTarget = volTarget'
+                , tpVolLookback = volLookback'
+                , tpVolEwmaAlpha = volEwma'
+                , tpVolFloor = volFloor'
+                , tpVolScaleMax = volScaleMax'
+                , tpMaxVolatility = maxVolatility'
+                , tpKalmanBandLookback = kalmanBandLookback'
+                , tpKalmanBandStdMult = kalmanBandStd'
+                , tpStopLoss = stopLoss'
+                , tpTakeProfit = takeProfit'
+                , tpTrailingStop = trailingStop'
+                , tpStopLossVolMult = stopLossVolMult'
+                , tpTakeProfitVolMult = takeProfitVolMult'
+                , tpTrailingStopVolMult = trailingStopVolMult'
+                , tpRiskPerTrade = riskPerTrade'
+                , tpMaxDrawdown = maxDrawdown'
+                , tpMaxDailyLoss = maxDailyLoss'
+                , tpMaxWeeklyLoss = maxWeeklyLoss'
+                , tpKalmanDt = kalmanDt'
+                , tpKalmanProcessVar = kalmanProcessVar'
+                , tpKalmanMeasurementVar = kalmanMeasurementVar'
+                , tpKalmanZMin = kalmanZMin'
+                , tpKalmanZMax = kalmanZMax'
+                , tpFundingRate = fundingRate'
+                , tpRebalanceBars = rebalanceBars'
+                , tpRebalanceThreshold = rebalanceThreshold'
+                , tpRebalanceCostMult = rebalanceCostMult'
+                , tpLearningRate = learningRate'
+                , tpRouterLookback = routerLookback'
+                , tpRouterMinScore = routerMinScore'
+                , tpFeeFixed = feeFixed'
+                , tpSlippageImpact = slippageImpact'
+                , tpSlippageImpactPower = slippageImpactPower'
+                , tpSlippageVolMult = slippageVolMult'
+                , tpSpreadVolMult = spreadVolMult'
+                , tpTakeProfitPartial = takeProfitPartial'
+                , tpKellyLiteFraction = max 0 kellyLiteFraction'
+                , tpKellyLiteFloor = max 0 kellyLiteFloor'
+                , tpKellyLiteCap = max (max 0 kellyLiteFloor') kellyLiteCap'
+                , tpMaxTradesPerDay = maxTradesPerDay'
+                , tpExpectancyLookback = expectancyLookback'
+                , tpMinExpectancy = minExpectancy'
+                , tpLossStreakMax = lossStreakMax'
+                , tpLossStreakCooldownBars = lossStreakCooldownBars'
+                , tpMaxOpenPositions = maxOpenPositions'
+                , tpMaxGrossExposure = maxGrossExposure'
+                , tpMaxNetExposure = maxNetExposure'
+                , tpMaxExposurePerBase = maxExposurePerBase'
+                , tpMaxOpenPerBase = maxOpenPerBase'
+                , tpAdaptiveEdgeBufferMax = adaptiveEdgeBufferMax'
+                , tpAdaptiveMinSignalToNoiseMax = adaptiveMinSignalToNoiseMax'
+                , tpAdaptiveTrendLookbackMax = adaptiveTrendLookbackMax'
+                , tpAdaptiveKalmanZMinMax = adaptiveKalmanZMinMax'
+                , tpPerfLookback = max 0 perfLookback'
+                , tpPerfMinWinRate = fmap (\v -> clamp v 0 1) perfMinWinRate'
+                , tpPerfMinProfitFactor = fmap (max 0) perfMinProfitFactor'
+                , tpMetaLabelMinEdge = max 0 metaLabelMinEdge'
+                , tpMetaLabelMinConfidence = clamp metaLabelMinConfidence' 0 1
+                , tpRegimeBankHysteresis = clamp regimeBankHysteresis' 0 1
+                , tpRegimeTrendOpenMult = max 0 regimeTrendOpenMult'
+                , tpRegimeMrOpenMult = max 0 regimeMrOpenMult'
+                , tpRegimeHighVolOpenMult = max 0 regimeHighVolOpenMult'
+                , tpRegimeTrendSizeMult = max 0 regimeTrendSizeMult'
+                , tpRegimeMrSizeMult = max 0 regimeMrSizeMult'
+                , tpRegimeHighVolSizeMult = max 0 regimeHighVolSizeMult'
+                , tpMtfFastBars = max 1 mtfFastBars'
+                , tpMtfMidBars = max 1 mtfMidBars'
+                , tpMtfSlowBars = max 1 mtfSlowBars'
+                , tpMtfMinAgree = clampInt mtfMinAgree' 1 3
+                , tpCrossAssetMinBeta = max 0 crossAssetMinBeta'
+                , tpCrossAssetMinEdge = max 0 crossAssetMinEdge'
+                , tpPairsStatArbLookback = max 2 pairsStatArbLookback'
+                , tpPairsStatArbZEntry = max 1e-12 pairsStatArbZEntry'
+                , tpPairsStatArbSizeMult = clamp pairsStatArbSizeMult' 0 1
+                , tpFundingOiFundingCap = fmap (max 0) fundingOiFundingCap'
+                , tpFundingOiVolLookback = max 2 fundingOiVolLookback'
+                , tpFundingOiVolCap = fmap (max 0) fundingOiVolCap'
+                , tpFundingOiSizeMult = clamp fundingOiSizeMult' 0 1
+                }
+            )
+        , rng91c
         )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
@@ -4521,6 +5386,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "riskPerTrade" .= tpRiskPerTrade params
                 , "maxDrawdown" .= tpMaxDrawdown params
                 , "maxDailyLoss" .= tpMaxDailyLoss params
+                , "maxWeeklyLoss" .= tpMaxWeeklyLoss params
                 , "maxOrderErrors" .= tpMaxOrderErrors params
                 , "kalmanDt" .= tpKalmanDt params
                 , "kalmanProcessVar" .= tpKalmanProcessVar params
@@ -4535,6 +5401,10 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "confidenceSizing" .= tpConfidenceSizing params
                 , "protectionMinConfidence" .= tpProtectionMinConfidence params
                 , "minPositionSize" .= tpMinPositionSize params
+                , "kellyLiteSizing" .= tpKellyLiteSizing params
+                , "kellyLiteFraction" .= tpKellyLiteFraction params
+                , "kellyLiteFloor" .= tpKellyLiteFloor params
+                , "kellyLiteCap" .= tpKellyLiteCap params
                 , "predictors" .= tpPredictors params
                 , "routerLookback" .= tpRouterLookback params
                 , "routerMinScore" .= tpRouterMinScore params
@@ -4558,6 +5428,39 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "adaptiveMinSignalToNoiseMax" .= tpAdaptiveMinSignalToNoiseMax params
                 , "adaptiveTrendLookbackMax" .= tpAdaptiveTrendLookbackMax params
                 , "adaptiveKalmanZMinMax" .= tpAdaptiveKalmanZMinMax params
+                , "adaptiveFilters" .= tpAdaptiveFilters params
+                , "perfLookback" .= tpPerfLookback params
+                , "perfMinWinRate" .= tpPerfMinWinRate params
+                , "perfMinProfitFactor" .= tpPerfMinProfitFactor params
+                , "metaLabelFilter" .= tpMetaLabelFilter params
+                , "metaLabelMinEdge" .= tpMetaLabelMinEdge params
+                , "metaLabelMinConfidence" .= tpMetaLabelMinConfidence params
+                , "metaLabelRequireBand" .= tpMetaLabelRequireBand params
+                , "regimeParameterBank" .= tpRegimeParameterBank params
+                , "regimeBankHysteresis" .= tpRegimeBankHysteresis params
+                , "regimeTrendOpenMult" .= tpRegimeTrendOpenMult params
+                , "regimeMrOpenMult" .= tpRegimeMrOpenMult params
+                , "regimeHighVolOpenMult" .= tpRegimeHighVolOpenMult params
+                , "regimeTrendSizeMult" .= tpRegimeTrendSizeMult params
+                , "regimeMrSizeMult" .= tpRegimeMrSizeMult params
+                , "regimeHighVolSizeMult" .= tpRegimeHighVolSizeMult params
+                , "multiTimeframeConsensus" .= tpMultiTimeframeConsensus params
+                , "mtfFastBars" .= tpMtfFastBars params
+                , "mtfMidBars" .= tpMtfMidBars params
+                , "mtfSlowBars" .= tpMtfSlowBars params
+                , "mtfMinAgree" .= tpMtfMinAgree params
+                , "crossAssetConfirmation" .= tpCrossAssetConfirmation params
+                , "crossAssetMinBeta" .= tpCrossAssetMinBeta params
+                , "crossAssetMinEdge" .= tpCrossAssetMinEdge params
+                , "pairsStatArb" .= tpPairsStatArb params
+                , "pairsStatArbLookback" .= tpPairsStatArbLookback params
+                , "pairsStatArbZEntry" .= tpPairsStatArbZEntry params
+                , "pairsStatArbSizeMult" .= tpPairsStatArbSizeMult params
+                , "fundingOiAware" .= tpFundingOiAware params
+                , "fundingOiFundingCap" .= tpFundingOiFundingCap params
+                , "fundingOiVolLookback" .= tpFundingOiVolLookback params
+                , "fundingOiVolCap" .= tpFundingOiVolCap params
+                , "fundingOiSizeMult" .= tpFundingOiSizeMult params
                 , "binanceSymbol" .= symbol
                 ]
         identity =

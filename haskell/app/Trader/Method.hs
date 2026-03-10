@@ -295,89 +295,84 @@ selectPredictions m blendWeight kalPred lstmPred =
     case runtimeMethod m of
         MethodBoth -> (kalPred, lstmPred)
         MethodKalmanOnly -> (kalPred, kalPred)
+        MethodKalmanPhysicsError -> (kalPred, kalPred)
         MethodLstmOnly -> (lstmPred, lstmPred)
-        MethodBlend -> blendedPredictions
-        MethodConfBlend -> blendedPredictions
-        MethodConfPick -> blendedPredictions
-        MethodConformalClip -> blendedPredictions
-        MethodCostPick -> blendedPredictions
-        MethodHarmonicBlend -> blendedPredictions
-        MethodDisagreementGuard -> blendedPredictions
-        MethodMedianBlend -> blendedPredictions
-        MethodNeutralGuard -> blendedPredictions
-        MethodRiskParityBlend -> blendedPredictions
-        MethodConsensusBoost -> blendedPredictions
-        MethodAnchorBlend -> blendedPredictions
-        MethodTensionGate -> blendedPredictions
-        MethodEntropyBlend -> blendedPredictions
-        MethodCoherenceGate -> blendedPredictions
-        MethodDivergenceGate -> blendedPredictions
-        MethodFractalBlend -> blendedPredictions
-        MethodPhaseCancel -> blendedPredictions
-        MethodSoftmaxBlend -> blendedPredictions
-        MethodSmoothSoftmaxBlend -> blendedPredictions
-        MethodHedgeBlend -> blendedPredictions
-        MethodNetSoftmaxBlend -> blendedPredictions
-        MethodEdgeBlend -> blendedPredictions
-        MethodEdgePick -> blendedPredictions
-        MethodGeoBlend -> blendedPredictions
-        MethodRegimeSwitch -> regimeSwitchedPredictions
+        MethodRegimeSwitch -> (regimeSwitched, regimeSwitched)
         MethodRouter -> (kalPred, lstmPred)
         MethodBanditRouter -> (kalPred, lstmPred)
+        _ -> (blended, blended)
   where
     w = clamp01 blendWeight
-    blendedPredictions = (blendPredictions w kalPred lstmPred, blendPredictions w kalPred lstmPred)
-    regimeSwitchedPredictions = (regimeSwitchPredictions w kalPred lstmPred, regimeSwitchPredictions w kalPred lstmPred)
+    blended = zipWith (blendPair w) kalPred lstmPred
+    regimeSwitched = regimeSwitchPredictions w kalPred lstmPred
 
-clamp01 :: Double -> Double
-clamp01 x = max 0 (min 1 x)
+    blendPair :: Double -> Double -> Double -> Double
+    blendPair weight kal lstm =
+        case (isFinite kal, isFinite lstm) of
+            (True, True) ->
+                let v = weight * kal + (1 - weight) * lstm
+                 in if isFinite v then v else if weight >= 0.5 then kal else lstm
+            (True, False) -> kal
+            (False, True) -> lstm
+            (False, False) -> 0
 
-blendPredictions :: Double -> [Double] -> [Double] -> [Double]
-blendPredictions w = zipWith (\k l -> w * k + (1 - w) * l)
+    clamp01 :: Double -> Double
+    clamp01 x
+        | not (isFinite x) = 0.5
+        | otherwise = max 0 (min 1 x)
 
-regimeSwitchPredictions :: Double -> [Double] -> [Double] -> [Double]
-regimeSwitchPredictions w kalPred lstmPred =
-    case zip kalPred lstmPred of
-        [] -> []
-        _ : pairs ->
-            let baseBlend = blendPredictions w kalPred lstmPred
-                stepped = zip3 pairs (zip kalPred (drop 1 kalPred)) (zip lstmPred (drop 1 lstmPred))
-             in case baseBlend of
-                    [] -> []
-                    b0 : rest ->
-                        b0
-                            : zipWith applyRegime rest stepped
-  where
-    applyRegime :: Double -> ((Double, Double), (Double, Double), (Double, Double)) -> Double
-    applyRegime blended ((k, l), (kPrev, _), (lPrev, _))
-        | sameMomentumDirection kMomentum lMomentum = trendBlend
-        | isStrongDivergence k l = (k + l) / 2
-        | otherwise = blended
+    regimeSwitchPredictions :: Double -> [Double] -> [Double] -> [Double]
+    regimeSwitchPredictions weight = go Nothing
       where
-        kMomentum = k - kPrev
-        lMomentum = l - lPrev
-        trendBlend = weightedByMagnitude (abs kMomentum) (abs lMomentum) k l
+        go :: Maybe (Double, Double) -> [Double] -> [Double] -> [Double]
+        go _ [] _ = []
+        go _ _ [] = []
+        go Nothing (kal : kalRest) (lstm : lstmRest) =
+            blendPair weight kal lstm : go (Just (kal, lstm)) kalRest lstmRest
+        go (Just (kalPrev, lstmPrev)) (kal : kalRest) (lstm : lstmRest) =
+            let blendedCurrent = blendPair weight kal lstm
+             in applyRegime blendedCurrent kalPrev lstmPrev kal lstm
+                    : go (Just (kal, lstm)) kalRest lstmRest
 
-    weightedByMagnitude :: Double -> Double -> Double -> Double -> Double
-    weightedByMagnitude kMag lMag k l
-        | kMag + lMag <= 1.0e-12 = (k + l) / 2
-        | otherwise =
-            let kalWeight = kMag / (kMag + lMag)
-             in kalWeight * k + (1 - kalWeight) * l
+        applyRegime :: Double -> Double -> Double -> Double -> Double -> Double
+        applyRegime blendedCurrent kalPrev lstmPrev kal lstm
+            | not (all isFinite [kalPrev, lstmPrev, kal, lstm]) = blendedCurrent
+            | sameMomentumDirection kalMomentum lstmMomentum = weightedByMagnitude (abs kalMomentum) (abs lstmMomentum) kal lstm
+            | isStrongDivergence kal lstm = midpoint kal lstm
+            | otherwise = blendedCurrent
+          where
+            kalMomentum = kal - kalPrev
+            lstmMomentum = lstm - lstmPrev
 
-    sameMomentumDirection :: Double -> Double -> Bool
-    sameMomentumDirection a b = signWithTolerance a == signWithTolerance b && signWithTolerance a /= 0
+        weightedByMagnitude :: Double -> Double -> Double -> Double -> Double
+        weightedByMagnitude kalMagnitude lstmMagnitude kal lstm
+            | kalMagnitude + lstmMagnitude <= 1.0e-12 = midpoint kal lstm
+            | otherwise =
+                let kalWeight = kalMagnitude / (kalMagnitude + lstmMagnitude)
+                 in kalWeight * kal + (1 - kalWeight) * lstm
 
-    signWithTolerance :: Double -> Int
-    signWithTolerance x
-        | x > 1.0e-9 = 1
-        | x < -1.0e-9 = -1
-        | otherwise = 0
+        sameMomentumDirection :: Double -> Double -> Bool
+        sameMomentumDirection lhs rhs =
+            let lhsSign = signWithTolerance lhs
+                rhsSign = signWithTolerance rhs
+             in lhsSign == rhsSign && lhsSign /= 0
 
-    isStrongDivergence :: Double -> Double -> Bool
-    isStrongDivergence k l =
-        let denom = max 1 (max (abs k) (abs l))
-         in abs (k - l) / denom >= 0.02
+        signWithTolerance :: Double -> Int
+        signWithTolerance x
+            | x > 1.0e-9 = 1
+            | x < -1.0e-9 = -1
+            | otherwise = 0
+
+        isStrongDivergence :: Double -> Double -> Bool
+        isStrongDivergence kal lstm =
+            let denom = max 1 (max (abs kal) (abs lstm))
+             in abs (kal - lstm) / denom >= 0.02
+
+        midpoint :: Double -> Double -> Double
+        midpoint kal lstm = 0.5 * (kal + lstm)
+
+    isFinite :: Double -> Bool
+    isFinite x = not (isNaN x || isInfinite x)
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace

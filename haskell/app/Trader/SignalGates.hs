@@ -68,31 +68,49 @@ signalFundingOiCheck enabled fundingCap volCap sizeMult funding oiVolProxy =
     if not enabled
         then (True, 1.0)
         else
-            let fundingOk =
-                    case fundingCap of
+            let finite x = not (isNaN x || isInfinite x)
+                clamp01 x = max 0 (min 1 x)
+                sizeFloor =
+                    if finite sizeMult
+                        then clamp01 sizeMult
+                        else 0
+                cleanCap mCap =
+                    case mCap of
+                        -- Zero/negative caps are treated as disabled, matching CLI/docs semantics.
+                        Just cap | finite cap && cap > 0 -> Just cap
+                        _ -> Nothing
+                fundingCap' = cleanCap fundingCap
+                volCap' = cleanCap volCap
+                fundingFinite = finite funding
+                oiVolProxyFinite =
+                    case oiVolProxy of
+                        Just v | finite v -> Just v
+                        _ -> Nothing
+                fundingOk =
+                    case fundingCap' of
                         Nothing -> True
-                        Just cap -> funding <= cap
+                        Just cap -> fundingFinite && funding <= cap
                 volProxyOk =
-                    case volCap of
+                    case volCap' of
                         Nothing -> True
                         Just cap ->
-                            case oiVolProxy of
+                            case oiVolProxyFinite of
                                 Nothing -> False
                                 Just v -> v <= cap
                 fundingPenalty =
-                    case fundingCap of
+                    case fundingCap' of
                         Just cap
-                            | cap > 0 ->
+                            | cap > 0 && fundingFinite ->
                                 max 0 ((funding - cap) / cap)
                         _ -> 0
                 volPenalty =
-                    case (volCap, oiVolProxy) of
+                    case (volCap', oiVolProxyFinite) of
                         (Just cap, Just v)
                             | cap > 0 ->
                                 max 0 ((v - cap) / cap)
                         _ -> 0
                 dampRaw = 1 / (1 + fundingPenalty + volPenalty)
-                damp = max sizeMult (min 1 dampRaw)
+                damp = max sizeFloor (min 1 dampRaw)
              in (fundingOk && volProxyOk, damp)
 
 signalRunPostDirectionGates ::

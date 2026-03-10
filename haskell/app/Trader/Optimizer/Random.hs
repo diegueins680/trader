@@ -106,10 +106,21 @@ nextMaybe pNone sampler rng
 nextIntRange :: Int -> Int -> Rng -> (Int, Rng)
 nextIntRange lo hi rng
     | hi < lo = nextIntRange hi lo rng
+    | hi == lo = (lo, rng)
     | otherwise =
-        let spanN = fromIntegral (hi - lo + 1) :: Word64
-            (r, rng') = randBelow spanN rng
-         in (lo + fromIntegral r, rng')
+        let loI = toInteger lo
+            hiI = toInteger hi
+            spanI = hiI - loI + 1
+         in case integerToWord64 spanI of
+                Just spanN ->
+                    let (r, rng') = randBelow spanN rng
+                        sampled = loI + toInteger r
+                     in (fromInteger sampled, rng')
+                Nothing ->
+                    -- Full-range Int sampling on 64-bit builds (span = 2^64).
+                    let (w, rng') = nextWord64 rng
+                        sampled = loI + toInteger w
+                     in (fromInteger sampled, rng')
 
 nextChoice :: [a] -> Rng -> (Maybe a, Rng)
 nextChoice xs rng =
@@ -121,9 +132,9 @@ nextChoice xs rng =
 
 randBelow :: Word64 -> Rng -> (Word64, Rng)
 randBelow n rng
-    | n <= 0 = (0, rng)
+    | n <= 1 = (0, rng)
     | otherwise =
-        let k = bitLength n
+        let k = bitLength (n - 1)
          in go k rng
   where
     go k rng0 =
@@ -148,6 +159,19 @@ getRandBits k rng
             (rest, rng2) = getRandBits (k - 32) rng1
             r = fromIntegral w .|. (rest `shiftL` 32)
          in (r, rng2)
+
+nextWord64 :: Rng -> (Word64, Rng)
+nextWord64 rng0 =
+    let (hi, rng1) = nextWord32 rng0
+        (lo, rng2) = nextWord32 rng1
+        w = (fromIntegral hi `shiftL` 32) .|. fromIntegral lo
+     in (w, rng2)
+
+integerToWord64 :: Integer -> Maybe Word64
+integerToWord64 n =
+    if n < 0 || n > toInteger (maxBound :: Word64)
+        then Nothing
+        else Just (fromInteger n)
 
 temper :: Word32 -> Word32
 temper y0 =

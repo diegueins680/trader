@@ -30,9 +30,11 @@ fetchWithCache cache freshTtl staleTtl key action = do
                 Right val -> do
                     insertEntry cache key val
                     pure val
-                Left (err :: SomeException) ->
-                    case mEntry of
-                        Just (ts, val) | diffUTCTime now ts <= staleTtl -> pure val
+                Left (err :: SomeException) -> do
+                    nowAfter <- getCurrentTime
+                    mFallback <- readEntry cache key
+                    case mFallback of
+                        Just (ts, val) | diffUTCTime nowAfter ts <= staleTtl -> pure val
                         _ -> throwIO err
 
 insertCache :: (Ord k) => TtlCache k v -> k -> v -> IO ()
