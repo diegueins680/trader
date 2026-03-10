@@ -8,6 +8,21 @@ module Trader.Method (
 
 import Data.Char (isSpace, toLower)
 
+-- | Floor for the sum of Kalman and LSTM momentum magnitudes below which both
+--   are treated as zero (dimensionless; avoids division by near-zero values).
+momentumMagnitudeFloor :: Double
+momentumMagnitudeFloor = 1.0e-12
+
+-- | Minimum absolute momentum (price-units/step) for a reading to register as
+--   a non-zero direction in the sign test.
+momentumSignTolerance :: Double
+momentumSignTolerance = 1.0e-9
+
+-- | Relative divergence fraction above which the two predictors are considered
+--   to be in "strong divergence" (0.02 == 2 %).
+regimeDivergenceThreshold :: Double
+regimeDivergenceThreshold = 0.02
+
 data Method
     = MethodBoth
     | MethodKalmanOnly
@@ -346,7 +361,7 @@ selectPredictions m blendWeight kalPred lstmPred =
 
         weightedByMagnitude :: Double -> Double -> Double -> Double -> Double
         weightedByMagnitude kalMagnitude lstmMagnitude kal lstm
-            | kalMagnitude + lstmMagnitude <= 1.0e-12 = midpoint kal lstm
+            | kalMagnitude + lstmMagnitude <= momentumMagnitudeFloor = midpoint kal lstm
             | otherwise =
                 let kalWeight = kalMagnitude / (kalMagnitude + lstmMagnitude)
                  in kalWeight * kal + (1 - kalWeight) * lstm
@@ -359,14 +374,14 @@ selectPredictions m blendWeight kalPred lstmPred =
 
         signWithTolerance :: Double -> Int
         signWithTolerance x
-            | x > 1.0e-9 = 1
-            | x < -1.0e-9 = -1
+            | x > momentumSignTolerance = 1
+            | x < -momentumSignTolerance = -1
             | otherwise = 0
 
         isStrongDivergence :: Double -> Double -> Bool
         isStrongDivergence kal lstm =
             let denom = max 1 (max (abs kal) (abs lstm))
-             in abs (kal - lstm) / denom >= 0.02
+             in abs (kal - lstm) / denom >= regimeDivergenceThreshold
 
         midpoint :: Double -> Double -> Double
         midpoint kal lstm = 0.5 * (kal + lstm)
