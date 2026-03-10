@@ -43,6 +43,21 @@ data Method
     | MethodBanditRouter
     deriving (Eq, Show)
 
+-- | Minimum combined momentum magnitude below which weighted blending falls back
+-- to a simple midpoint, preventing division by near-zero (unitless ratio).
+regimeMagnitudeEpsilon :: Double
+regimeMagnitudeEpsilon = 1.0e-12
+
+-- | Tolerance for treating a momentum value as zero when determining its sign
+-- (unitless, in the same units as the prediction values).
+regimeMomentumTolerance :: Double
+regimeMomentumTolerance = 1.0e-9
+
+-- | Relative divergence ratio above which two predictions are considered
+-- strongly divergent and are averaged together (e.g. 0.02 = 2%).
+regimeDivergenceThreshold :: Double
+regimeDivergenceThreshold = 0.02
+
 methodCode :: Method -> String
 methodCode m =
     case m of
@@ -346,7 +361,7 @@ selectPredictions m blendWeight kalPred lstmPred =
 
         weightedByMagnitude :: Double -> Double -> Double -> Double -> Double
         weightedByMagnitude kalMagnitude lstmMagnitude kal lstm
-            | kalMagnitude + lstmMagnitude <= 1.0e-12 = midpoint kal lstm
+            | kalMagnitude + lstmMagnitude <= regimeMagnitudeEpsilon = midpoint kal lstm
             | otherwise =
                 let kalWeight = kalMagnitude / (kalMagnitude + lstmMagnitude)
                  in kalWeight * kal + (1 - kalWeight) * lstm
@@ -359,14 +374,14 @@ selectPredictions m blendWeight kalPred lstmPred =
 
         signWithTolerance :: Double -> Int
         signWithTolerance x
-            | x > 1.0e-9 = 1
-            | x < -1.0e-9 = -1
+            | x > regimeMomentumTolerance = 1
+            | x < -regimeMomentumTolerance = -1
             | otherwise = 0
 
         isStrongDivergence :: Double -> Double -> Bool
         isStrongDivergence kal lstm =
             let denom = max 1 (max (abs kal) (abs lstm))
-             in abs (kal - lstm) / denom >= 0.02
+             in abs (kal - lstm) / denom >= regimeDivergenceThreshold
 
         midpoint :: Double -> Double -> Double
         midpoint kal lstm = 0.5 * (kal + lstm)
