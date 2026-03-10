@@ -162,7 +162,7 @@ function tenantKeyFromPath(path: string): string | null {
   }
 }
 
-function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
+export function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
   if (!body) return null;
   if (typeof body === "string") {
     const trimmed = body.trim();

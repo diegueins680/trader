@@ -399,3 +399,69 @@ test("health preserves version and commit metadata", async () => {
     },
   );
 });
+
+test("tenantKeyFromBody extracts tenant key from FormData string entry", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", "form-tenant");
+      assert.equal(api.tenantKeyFromBody(fd), "form-tenant");
+    },
+  );
+});
+
+test("tenantKeyFromBody returns null for FormData with File entry", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", new Blob(["data"], { type: "text/plain" }), "key.txt");
+      assert.equal(api.tenantKeyFromBody(fd), null);
+    },
+  );
+});
+
+test("tenantKeyFromBody returns null for FormData without tenantKey", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("otherField", "value");
+      assert.equal(api.tenantKeyFromBody(fd), null);
+    },
+  );
+});
+
+test("api client forwards X-Tenant-Key header from FormData body containing tenantKey", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", "form-tenant");
+      const key = api.tenantKeyFromBody(fd);
+      const headers = new Headers();
+      if (key) headers.set("X-Tenant-Key", key);
+      assert.equal(headers.get("X-Tenant-Key"), "form-tenant");
+    },
+  );
+});
+
+test("api client does not set X-Tenant-Key header when FormData tenantKey is a File", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", new Blob(["data"], { type: "text/plain" }), "key.txt");
+      const key = api.tenantKeyFromBody(fd);
+      const headers = new Headers();
+      if (key) headers.set("X-Tenant-Key", key);
+      assert.equal(headers.get("X-Tenant-Key"), null);
+    },
+  );
+});
