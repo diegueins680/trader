@@ -77,9 +77,56 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: superfly/flyctl-actions/setup-flyctl@v1
+      - name: Install flyctl
+        id: setup_flyctl
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${FLY_API_TOKEN:-}" ]]; then
+            echo "::notice::FLY_API_TOKEN is not set; skipping flyctl install because deploy will be skipped."
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          install_log="$(mktemp)"
+          install_script="$(mktemp)"
+          trap 'rm -f "$install_log" "$install_script"' EXIT
+
+          installed=false
+          for attempt in 1 2 3; do
+            : > "$install_log"
+            if curl --fail --silent --show-error --location \
+              https://fly.io/install.sh >"$install_script" 2>"$install_log"; then
+              if FLYCTL_INSTALL="$HOME/.fly" bash "$install_script" >>"$install_log" 2>&1; then
+                installed=true
+                break
+              fi
+            fi
+
+            if grep -qiE "503 Service Unavailable|502 Bad Gateway|504 Gateway Timeout|timed out|temporary failure|connection reset|TLS" "$install_log"; then
+              echo "::warning::Transient flyctl install failure on attempt ${attempt}; retrying."
+              sleep "$((attempt * 10))"
+              continue
+            fi
+
+            echo "::error::Failed to install flyctl."
+            cat "$install_log"
+            exit 1
+          done
+
+          if [[ "$installed" != true || ! -x "$HOME/.fly/bin/flyctl" ]]; then
+            echo "::warning::Unable to install flyctl after 3 attempts; skipping Fly deploy for this run."
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+          echo "installed=true" >> "$GITHUB_OUTPUT"
 
       - name: Deploy (Fly.io)
+        if: steps.setup_flyctl.outputs.installed == 'true'
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           FLY_APP: ${{ secrets.FLY_APP }}

@@ -970,6 +970,7 @@ CI/CD (GitHub Actions):
 - Optional secret: `FLY_APP` (if unset, Fly uses the app configured in `fly.toml`).
 - If `FLY_APP` is unset, the workflow falls back to repo-root `fly.toml`; if neither is present, the deploy step is skipped with a warning.
 - If `FLY_API_TOKEN` is present but invalid for CI (for example “missing third-party discharge token”), the deploy step is skipped with a warning so CI does not fail on token-shape issues.
+- The Fly deploy job now installs `flyctl` with explicit retries and downgrades repeated upstream install outages (for example transient `503` responses from `fly.io/install.sh`) to a warning + deploy skip, so green application/test builds are not marked failed just because Fly's installer endpoint is temporarily unavailable.
 - Repo defaults keep Fly machines warm for split apps (`auto_stop_machines="off"`, `min_machines_running=1` in `fly.toml` and `haskell/web/fly.frontend.toml`) to reduce cold-start `/api` `502` windows.
 - `.github/workflows/autoloop.yml` runs a bounded autonomous improvement cycle on a schedule (`0 */6 * * *`) or via `workflow_dispatch`. Each run creates or refreshes `autoloop/<default-branch>`, opens or updates a PR into the repository default branch, waits for the normal `CI` workflow, and auto-merges only after that PR is green.
 - Required secret for GitHub Actions autoloop: `OPENAI_API_KEY`.
