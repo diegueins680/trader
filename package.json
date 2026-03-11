@@ -5,6 +5,7 @@
     "haskell/web"
   ],
   "scripts": {
+    "autoloop": "node scripts/autoloop.mjs",
     "build": "npm run build:haskell && npm run build:web",
     "build:haskell": "cd haskell && cabal build",
     "build:web": "npm --workspaces=false --prefix haskell/web run build",
@@ -12,6 +13,7 @@
     "lint:haskell": "cd haskell && hlint app test",
     "lint:web": "npm --workspaces=false --prefix haskell/web run typecheck",
     "test": "npm run test:haskell && npm run test:web",
+    "test:autoloop": "node --test test/autoloop.test.mjs",
     "test:haskell": "cd haskell && cabal test",
     "test:web": "npm --workspaces=false --prefix haskell/web run test",
     "typecheck": "npm --workspaces=false --prefix haskell/web run typecheck"

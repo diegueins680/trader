@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: add a scheduled/manual `Autoloop` GitHub Actions workflow that runs one bounded autonomous improvement cycle at a time, opens or refreshes an `autoloop/<default-branch>` PR, waits for the normal `CI` workflow, auto-merges on green, and constrains model output with explicit path/command guardrails plus planned-path-only staging.
 - Web UI/Trade: add an explicit manual-trade sizing readiness summary, show the effective sizing mode in the overview, and block `/trade` when no valid sizing input is configured instead of allowing a no-op order attempt.
 - Predictors/Signals: feed existing market-context data into the learned predictor feature set via residual/correlation features, so cross-asset information can shape GBDT/transformer/quantile/conformal training directly instead of only acting as a post-prediction gate.
 - Optimizer/CLI/API: canonicalize objective aliases consistently through `optimize-equity` and `/optimizer/run` (`annualized_return` -> `annualized-equity`, `risk_adjusted_roi` -> `roi`), keep `--quality` from widening an explicit `--interval`, and make standalone Calmar scoring fall back to annualized return when drawdown is zero so optimizer ranking matches the documented scoring contract.
