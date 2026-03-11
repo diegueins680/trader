@@ -2,13 +2,17 @@ module Trader.Predictors.Features (
     FeatureSpec (..),
     mkFeatureSpec,
     featuresAt,
+    featuresAtWithMarket,
     forwardReturnAt,
     buildDatasetWithIndex,
+    buildDatasetWithIndexWithMarket,
     buildDataset,
+    buildDatasetWithMarket,
 ) where
 
-import qualified Data.Maybe
 import qualified Data.Vector as V
+
+import Trader.MarketContext (MarketModel (..))
 
 data FeatureSpec = FeatureSpec
     { fsLookbackBars :: !Int
@@ -38,7 +42,13 @@ forwardReturnAt prices t =
 Requires at least fsLookbackBars history (prices window ending at t).
 -}
 featuresAt :: FeatureSpec -> V.Vector Double -> Int -> Maybe [Double]
-featuresAt fs prices t = do
+featuresAt fs = featuresAtWithMarket fs Nothing
+
+{- | Market-aware feature vector at bar t using only data available by bar t.
+Cross-symbol features fall back to zero when market context is missing/invalid.
+-}
+featuresAtWithMarket :: FeatureSpec -> Maybe MarketModel -> V.Vector Double -> Int -> Maybe [Double]
+featuresAtWithMarket fs mMarket prices t = do
     let lb = fsLookbackBars fs
         maxLag = max 1 (lb - 1)
         shortB = min (fsShortBars fs) maxLag
@@ -58,6 +68,7 @@ featuresAt fs prices t = do
                 (muM, sigM) = meanStd rsMid
                 priceT = prices V.! t
                 psych = psychologicalFeatures priceT
+                marketFeats = marketFeaturesFromModel mMarket t ret1 rsShort
                 eps = 1e-12
                 retSpread = retShort - retMid
                 retMeanReversion = ret1 - muS
@@ -78,6 +89,7 @@ featuresAt fs prices t = do
                     , volRatio
                     , trendSlope
                     ]
+                        ++ marketFeats
                         ++ psych
             if all isFiniteDouble feats
                 then pure feats
@@ -87,7 +99,13 @@ featuresAt fs prices t = do
 Uses t in [lookbackBars-1 .. n-2].
 -}
 buildDatasetWithIndex :: FeatureSpec -> V.Vector Double -> [(Int, [Double], Double)]
-buildDatasetWithIndex fs prices =
+buildDatasetWithIndex fs = buildDatasetWithIndexWithMarket fs Nothing
+
+{- | Market-aware dataset builder; cross-symbol features fall back to zero when
+market context is missing/invalid.
+-}
+buildDatasetWithIndexWithMarket :: FeatureSpec -> Maybe MarketModel -> V.Vector Double -> [(Int, [Double], Double)]
+buildDatasetWithIndexWithMarket fs mMarket prices =
     let n = V.length prices
         startT = fsLookbackBars fs - 1
         endT = n - 2
@@ -141,6 +159,17 @@ buildDatasetWithIndex fs prices =
                                         then Just (mu, sqrt (var + 1e-12))
                                         else Nothing
 
+        windowReturns t k =
+            if k <= 0 || t - k < 0 || t - 1 >= retLen
+                then Nothing
+                else
+                    let i0 = t - k
+                        i1 = t - 1
+                        invalid = prefixInvalid V.! (i1 + 1) - prefixInvalid V.! i0
+                     in if invalid > 0
+                            then Nothing
+                            else Just [retVals V.! i | i <- [i0 .. i1]]
+
         retOverFast t bars =
             if bars <= 0 || t - bars < 0
                 then Nothing
@@ -160,8 +189,10 @@ buildDatasetWithIndex fs prices =
                     retLb <- retOverFast t (fsLookbackBars fs - 1)
                     (muS, sigS) <- windowStats t shortB
                     (muM, sigM) <- windowStats t midB
+                    rsShort <- windowReturns t shortB
                     let priceT = prices V.! t
                         psych = psychologicalFeatures priceT
+                        marketFeats = marketFeaturesFromModel mMarket t ret1 rsShort
                         eps = 1e-12
                         retSpread = retShort - retMid
                         retMeanReversion = ret1 - muS
@@ -182,6 +213,7 @@ buildDatasetWithIndex fs prices =
                             , volRatio
                             , trendSlope
                             ]
+                                ++ marketFeats
                                 ++ psych
                     if all isFiniteDouble feats
                         then pure feats
@@ -206,8 +238,11 @@ buildDatasetWithIndex fs prices =
 Uses t in [lookbackBars-1 .. n-2].
 -}
 buildDataset :: FeatureSpec -> V.Vector Double -> [([Double], Double)]
-buildDataset fs prices =
-    [(f, y) | (_, f, y) <- buildDatasetWithIndex fs prices]
+buildDataset fs = buildDatasetWithMarket fs Nothing
+
+buildDatasetWithMarket :: FeatureSpec -> Maybe MarketModel -> V.Vector Double -> [([Double], Double)]
+buildDatasetWithMarket fs mMarket prices =
+    [(f, y) | (_, f, y) <- buildDatasetWithIndexWithMarket fs mMarket prices]
 
 retOver :: V.Vector Double -> Int -> Int -> Maybe Double
 retOver prices t bars =
@@ -245,6 +280,108 @@ meanStd xs =
                             let denom = fromIntegral (n - 1)
                              in sum (map (\v -> (v - mu) * (v - mu)) xs) / denom
              in (mu, sqrt (var + 1e-12))
+
+marketFeatureCount :: Int
+marketFeatureCount = 8
+
+zeroMarketFeatures :: [Double]
+zeroMarketFeatures = replicate marketFeatureCount 0
+
+marketFeaturesFromModel :: Maybe MarketModel -> Int -> Double -> [Double] -> [Double]
+marketFeaturesFromModel Nothing _ _ _ = zeroMarketFeatures
+marketFeaturesFromModel (Just mm) t ret1 symShort =
+    case vectorWindowEndingAt (mmLag mm) t (length symShort) of
+        Nothing -> zeroMarketFeatures
+        Just marketShort -> marketFeaturesFromWindow (mmIntercept mm) (mmBeta mm) ret1 symShort marketShort
+
+vectorWindowEndingAt :: V.Vector Double -> Int -> Int -> Maybe [Double]
+vectorWindowEndingAt vec endIx k
+    | k <= 0 = Nothing
+    | endIx < 0 = Nothing
+    | otherwise =
+        let startIx = endIx - k + 1
+         in if startIx < 0 || endIx >= V.length vec
+                then Nothing
+                else
+                    let xs = [vec V.! i | i <- [startIx .. endIx]]
+                     in if all isFiniteDouble xs
+                            then Just xs
+                            else Nothing
+
+marketFeaturesFromWindow :: Double -> Double -> Double -> [Double] -> [Double] -> [Double]
+marketFeaturesFromWindow intercept beta ret1 symShort marketShort
+    | length symShort /= length marketShort = zeroMarketFeatures
+    | null symShort = zeroMarketFeatures
+    | otherwise =
+        let marketRet1 = last marketShort
+            marketMu = intercept + beta * marketRet1
+            residuals = zipWith (\sym marketRet -> sym - (intercept + beta * marketRet)) symShort marketShort
+            (muS, sigS) = meanStd symShort
+            (muM, sigM) = meanStd marketShort
+            (muRes, sigRes) = meanStd residuals
+            resid1 = ret1 - marketMu
+            residZ =
+                case residuals of
+                    [] -> 0
+                    _ ->
+                        let eNow = last residuals
+                         in if sigRes <= 1e-12
+                                then 0
+                                else (eNow - muRes) / sigRes
+            (corrShort, betaShort) = correlationAndBeta symShort marketShort
+            relMomentum = muS - muM
+            relVolRatio =
+                if sigM <= 1e-12
+                    then 0
+                    else sigS / sigM
+            feats =
+                [ marketRet1
+                , marketMu
+                , resid1
+                , residZ
+                , corrShort
+                , betaShort
+                , relMomentum
+                , relVolRatio
+                ]
+         in if all isFiniteDouble feats
+                then feats
+                else zeroMarketFeatures
+
+correlationAndBeta :: [Double] -> [Double] -> (Double, Double)
+correlationAndBeta xs ys
+    | null xs = (0, 0)
+    | length xs /= length ys = (0, 0)
+    | otherwise =
+        let pairs = [(x, y) | (x, y) <- zip xs ys, isFiniteDouble x && isFiniteDouble y]
+            n = length pairs
+         in if n < 2
+                then (0, 0)
+                else
+                    let meanX = sum (map fst pairs) / fromIntegral n
+                        meanY = sum (map snd pairs) / fromIntegral n
+                        (sxx, syy, sxy) =
+                            foldl
+                                ( \(ax, ay, axy) (x, y) ->
+                                    let dx = x - meanX
+                                        dy = y - meanY
+                                     in (ax + dx * dx, ay + dy * dy, axy + dx * dy)
+                                )
+                                (0, 0, 0)
+                                pairs
+                        eps = 1e-12
+                        corrRaw =
+                            if sxx <= eps || syy <= eps
+                                then 0
+                                else sxy / sqrt (sxx * syy)
+                        corr = clamp (-1) 1 corrRaw
+                        betaShort =
+                            if syy <= eps
+                                then 0
+                                else sxy / syy
+                     in if all isFiniteDouble [corr, betaShort]
+                            then (corr, betaShort)
+                            else (0, 0)
 
 psychologicalFeatures :: Double -> [Double]
 psychologicalFeatures price

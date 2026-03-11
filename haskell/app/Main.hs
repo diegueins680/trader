@@ -264,6 +264,7 @@ import Trader.Predictors (
     initHMMFilter,
     predictSensors,
     trainPredictors,
+    trainPredictorsWithMarket,
     updateHMM,
  )
 import Trader.Predictors.Types (
@@ -20036,7 +20037,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
         case method of
             MethodLstmOnly -> pure (Nothing, Nothing, Nothing)
             _ | needsHistory -> do
-                let predictors = trainPredictors (argPredictors args) lookback pricesV
+                let predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel pricesV
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -20053,7 +20054,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                     metaV = V.fromList (reverse metaRev)
                 pure (Just (predictors, kalPrev, hmmPrev, svPrev), Just kalPredV, Just metaV)
             _ -> do
-                let predictors = trainPredictors (argPredictors args) lookback pricesV
+                let predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel pricesV
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -20411,7 +20412,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 obsTrain = take predStart obsAll
             (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
             let fitPricesV = V.fromList fitPrices
-                predictors = trainPredictors (argPredictors args) lookback fitPricesV
+                predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel fitPricesV
                 hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                 hmm0 = initHMMFilter predictors hmmInitReturns
                 kal0 =
@@ -20443,7 +20444,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         case methodForComputation of
             MethodKalmanPhysicsError -> do
                 let fitPricesV = V.fromList fitPrices
-                    predictors = trainPredictors (argPredictors args) lookback fitPricesV
+                    predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel fitPricesV
                     hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                     hmm0 = initHMMFilter predictors hmmInitReturns
                     kal0 =
@@ -20495,7 +20496,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 pure (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal), Just meta, mLatestPred)
             MethodKalmanOnly -> do
                 let fitPricesV = V.fromList fitPrices
-                    predictors = trainPredictors (argPredictors args) lookback fitPricesV
+                    predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel fitPricesV
                     hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                     hmm0 = initHMMFilter predictors hmmInitReturns
                     kal0 =

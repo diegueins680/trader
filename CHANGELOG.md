@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Predictors/Signals: feed existing market-context data into the learned predictor feature set via residual/correlation features, so cross-asset information can shape GBDT/transformer/quantile/conformal training directly instead of only acting as a post-prediction gate.
 - Optimizer/CLI/API: canonicalize objective aliases consistently through `optimize-equity` and `/optimizer/run` (`annualized_return` -> `annualized-equity`, `risk_adjusted_roi` -> `roi`), keep `--quality` from widening an explicit `--interval`, and make standalone Calmar scoring fall back to annualized return when drawdown is zero so optimizer ranking matches the documented scoring contract.
 - Metrics/CLI/API: make reported Calmar metrics fall back to annualized return when max drawdown is zero, so backtest JSON/CLI output matches the documented optimizer scoring contract instead of reporting `0`.
 - Trading: make `--method regime_switch` materially adaptive in the context-free selector by switching between momentum-following (agreement), midpoint mean-reversion (strong disagreement), and weighted blend fallback.

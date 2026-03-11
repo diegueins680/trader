@@ -40,6 +40,8 @@ executable trader-hs
                      , Trader.OrderExecution
                      , Trader.Ops.Migrations
                      , Trader.Optimizer.Json
+                     , Trader.Optimizer.Optimize
+                     , Trader.Optimizer.Random
                      , Trader.OnlineStats
                      , Trader.Poloniex
                      , Trader.Predictors
@@ -101,11 +103,17 @@ executable optimize-equity
   main-is:             OptimizeEquityMain.hs
   other-modules:       Trader.BinanceIntervals
                      , Trader.Duration
+                     , Trader.Formal.Optimization
+                     , Trader.Kalman3
+                     , Trader.Method
+                     , Trader.Metrics
+                     , Trader.Optimization
                      , Trader.Platform
                      , Trader.Optimizer.Json
                      , Trader.Optimizer.Optimize
                      , Trader.Optimizer.Random
                      , Trader.Symbol
+                     , Trader.Trading
   default-language:    Haskell2010
   build-depends:       base >=4.14 && <4.20
                      , aeson >=1.5

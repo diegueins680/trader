@@ -41,7 +41,7 @@ import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Kraken (KrakenCandle (..), decodeKrakenCandles)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, trainLSTM)
 import Trader.LstmPersistence (lstmModelKey)
-import Trader.MarketContext (fitLinearRange)
+import Trader.MarketContext (MarketModel (..), fitLinearRange)
 import Trader.Method (Method (..), parseMethod, selectPredictions)
 import Trader.Metrics (bmAnnualizedReturn, bmAvgTradeReturn, bmCalmar, bmExposure, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (TuneObjective (..), bestFinalEquity, optimizeOperations, parseTuneObjective, sweepThreshold)
@@ -52,7 +52,7 @@ import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity
 import Trader.Platform (Platform (..), coinbaseIntervalSeconds, isPlatformInterval, krakenIntervalMinutes, parsePlatform, poloniexIntervalLabel, poloniexIntervalSeconds)
 import Trader.Poloniex (PoloniexCandle (..), decodePoloniexCandles, normalizePoloniexCandles)
 import Trader.Predictors (Interval (..), Quantiles (..), RegimeProbs (..), SensorId (..), SensorOutput (..), initHMMFilter, predictSensors, trainPredictors)
-import Trader.Predictors.Features (buildDatasetWithIndex, featuresAt, forwardReturnAt, mkFeatureSpec)
+import Trader.Predictors.Features (buildDatasetWithIndex, featuresAt, featuresAtWithMarket, forwardReturnAt, mkFeatureSpec)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
@@ -80,6 +80,7 @@ main = do
               , run "market linear fit" testMarketLinearFit
               , run "predictors output shape" testPredictorsOutputs
               , run "predictor features reject non-finite price inputs" testPredictorFeaturesRejectNonFinitePrices
+              , run "predictor market features stay finite" testPredictorMarketFeaturesStayFinite
               , run "predictor dataset skips non-finite rows" testBuildDatasetSkipsNonFiniteRows
               , run "predictor dataset skips overflowed finite feature rows" testBuildDatasetSkipsOverflowedFiniteRows
               , run "transformer training skips invalid rows" testTransformerTrainingSanitizesDataset
@@ -674,6 +675,26 @@ testPredictorFeaturesRejectNonFinitePrices = do
         prices = V.fromList [100.0, 101.0, nan, 103.0, 104.0]
     assert "forwardReturnAt rejects non-finite prices" (isNothing (forwardReturnAt prices 1))
     assert "featuresAt rejects windows containing non-finite prices" (isNothing (featuresAt fs prices 2))
+
+testPredictorMarketFeaturesStayFinite :: IO ()
+testPredictorMarketFeaturesStayFinite = do
+    let fs = mkFeatureSpec 4
+        prices = V.fromList [100.0, 101.0, 102.0, 101.5, 103.0, 104.0]
+        mm =
+            MarketModel
+                { mmSymbols = ["BTCUSDT", "ETHUSDT"]
+                , mmIntercept = 2e-4
+                , mmBeta = 0.6
+                , mmVar = 1e-4
+                , mmLag = V.fromList [0.0, 0.008, 0.006, -0.003, 0.009, 0.007]
+                }
+    case featuresAtWithMarket fs (Just mm) prices 4 of
+        Nothing -> error "missing market-aware features"
+        Just feats -> do
+            assert "market-aware vector length expands with context features" (length feats == 33)
+            assert "market-aware feature rows remain finite" (all isFiniteDouble feats)
+            let marketSlice = take 8 (drop 13 feats)
+            assert "market-aware slice carries non-zero signal" (any (\x -> abs x > 1e-12) marketSlice)
 
 testBuildDatasetSkipsNonFiniteRows :: IO ()
 testBuildDatasetSkipsNonFiniteRows = do

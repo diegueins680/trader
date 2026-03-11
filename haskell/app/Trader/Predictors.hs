@@ -9,6 +9,7 @@ module Trader.Predictors (
     HMMFilter (..),
     HMM3 (..),
     trainPredictors,
+    trainPredictorsWithMarket,
     initHMMFilter,
     predictSensors,
     updateHMM,
@@ -16,8 +17,15 @@ module Trader.Predictors (
 
 import qualified Data.Vector as V
 
+import Trader.MarketContext (MarketModel)
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
-import Trader.Predictors.Features (FeatureSpec, buildDatasetWithIndex, featuresAt, forwardReturnAt, mkFeatureSpec)
+import Trader.Predictors.Features (
+    FeatureSpec,
+    buildDatasetWithIndexWithMarket,
+    featuresAtWithMarket,
+    forwardReturnAt,
+    mkFeatureSpec,
+ )
 import Trader.Predictors.GBDT (GBDTModel (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
@@ -36,6 +44,7 @@ import Trader.Predictors.Types (
 data PredictorBundle = PredictorBundle
     { pbEnabled :: !PredictorSet
     , pbFeatureSpec :: !FeatureSpec
+    , pbMarketModel :: !(Maybe MarketModel)
     , pbGBDT :: !GBDTModel
     , pbTCN :: !TCNModel
     , pbTransformer :: !TransformerModel
@@ -46,7 +55,11 @@ data PredictorBundle = PredictorBundle
     deriving (Eq, Show)
 
 trainPredictors :: PredictorSet -> Int -> V.Vector Double -> PredictorBundle
-trainPredictors enabled lookbackBars trainPrices =
+trainPredictors enabled lookbackBars =
+    trainPredictorsWithMarket enabled lookbackBars Nothing
+
+trainPredictorsWithMarket :: PredictorSet -> Int -> Maybe MarketModel -> V.Vector Double -> PredictorBundle
+trainPredictorsWithMarket enabled lookbackBars mMarketModel trainPrices =
     let fs = mkFeatureSpec lookbackBars
         useGbdt = predictorEnabled enabled SensorGBT
         useTcn = predictorEnabled enabled SensorTCN
@@ -55,7 +68,10 @@ trainPredictors enabled lookbackBars trainPrices =
         useQuantile = predictorEnabled enabled SensorQuantile
         useConformal = predictorEnabled enabled SensorConformal
         needFeatures = useGbdt || useTransformer || useQuantile || useConformal
-        datasetWithIndex = if needFeatures then buildDatasetWithIndex fs trainPrices else []
+        datasetWithIndex =
+            if needFeatures
+                then buildDatasetWithIndexWithMarket fs mMarketModel trainPrices
+                else []
         (trainSetIdx, calibIdx) =
             if needFeatures
                 then splitCalib datasetWithIndex
@@ -153,6 +169,7 @@ trainPredictors enabled lookbackBars trainPrices =
      in PredictorBundle
             { pbEnabled = enabled
             , pbFeatureSpec = fs
+            , pbMarketModel = mMarketModel
             , pbGBDT = gbdt
             , pbTCN = tcn
             , pbTransformer = transformer
@@ -194,7 +211,10 @@ predictSensors pb prices hmmFilt t =
         useQuantile = predictorEnabled enabled SensorQuantile
         useConformal = predictorEnabled enabled SensorConformal
         needFeatures = useGbdt || useTransformer || useQuantile || useConformal
-        feat = if needFeatures then featuresAt fs prices t else Nothing
+        feat =
+            if needFeatures
+                then featuresAtWithMarket fs (pbMarketModel pb) prices t
+                else Nothing
         gbdtReady = gmFeatureDim (pbGBDT pb) > 0
         quantReady = not (null (lmW (qm50 (pbQuantile pb))))
         transformerReady = trFeatureDim (pbTransformer pb) > 0

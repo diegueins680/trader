@@ -20,7 +20,7 @@ Features
 - Predictor outputs omit transformer/GBDT/quantile/conformal when the feature dataset is empty or features do not match the trained dimensions.
 - Quantile outputs clamp the reported median inside the q10/q90 bounds and omit sigma when the interval is invalid; the sensor mean uses the clamped median.
 - Predictor training uses a train/calibration split so held-out calibration data is excluded from model training.
-- Feature engineering includes psychological round-number proximity (big figures/halves/quarters/tenths) plus short/mid momentum and volatility spread features.
+- Feature engineering includes psychological round-number proximity (big figures/halves/quarters/tenths), short/mid momentum and volatility spread features, and market-context residual/correlation features when Binance market context is available.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
 - Context-aware blend/pick methods guard against non-finite model outputs (`NaN`/`Infinity`) by falling back to a neutral finite prediction (current price when available).
