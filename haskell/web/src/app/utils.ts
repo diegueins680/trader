@@ -1,5 +1,5 @@
 import type { BotStatusSingle, Market, Method } from "../lib/types";
-import { fmtNum } from "../lib/format";
+import { fmtMoney, fmtNum, fmtPct } from "../lib/format";
 import { DATA_LOG_BAR_SERIES_KEYS } from "./constants";
 import { methodLabelFromMeta } from "./methodMeta";
 
@@ -323,6 +323,102 @@ export function buildRequestIssueDetails(input: RequestIssueDetailsInput): Reque
   if (input.lookbackError) issues.push({ message: input.lookbackError, targetId: input.lookbackTargetId });
   if (input.apiLimitsReason) issues.push({ message: input.apiLimitsReason, targetId: input.apiLimitsTargetId });
   return issues;
+}
+
+export type OrderSizingMode = "orderQuantity" | "orderQuote" | "orderQuoteFraction";
+
+export type OrderSizingState = {
+  active: OrderSizingMode[];
+  conflicts: boolean;
+  effective: OrderSizingMode | "none";
+  effectiveLabel: string;
+  fractionError: string | null;
+  blockingError: string | null;
+  blockingTargetId: "orderQuote" | "orderQuoteFraction";
+  statusLabel: string;
+  hint: string;
+  tone: "ok" | "warn" | "bad";
+};
+
+type OrderSizingInput = {
+  orderQuantity: number;
+  orderQuote: number;
+  orderQuoteFraction: number;
+  maxOrderQuote: number;
+};
+
+export function summarizeOrderSizing(input: OrderSizingInput): OrderSizingState {
+  const quantityOn = Number.isFinite(input.orderQuantity) && input.orderQuantity > 0;
+  const quoteOn = Number.isFinite(input.orderQuote) && input.orderQuote > 0;
+  const fractionRaw = input.orderQuoteFraction;
+  const fractionError =
+    !Number.isFinite(fractionRaw)
+      ? "Order quote fraction must be a number."
+      : fractionRaw < 0
+        ? "Order quote fraction must be >= 0 (use 0 to disable)."
+        : fractionRaw > 1
+          ? "Order quote fraction must be <= 1 (use 0 to disable)."
+          : null;
+  const fractionOn = fractionError == null && fractionRaw > 0;
+
+  const active: OrderSizingMode[] = [];
+  if (quantityOn) active.push("orderQuantity");
+  if (quoteOn) active.push("orderQuote");
+  if (fractionOn) active.push("orderQuoteFraction");
+
+  let effective: OrderSizingState["effective"] = "none";
+  if (quantityOn) effective = "orderQuantity";
+  else if (quoteOn) effective = "orderQuote";
+  else if (fractionOn) effective = "orderQuoteFraction";
+
+  const conflicts = active.length > 1;
+  const effectiveLabel =
+    effective === "orderQuantity"
+      ? `Quantity ${fmtNum(input.orderQuantity, 8)}`
+      : effective === "orderQuote"
+        ? `Quote ${fmtMoney(input.orderQuote, 2)}`
+        : effective === "orderQuoteFraction"
+          ? `Fraction ${fmtPct(input.orderQuoteFraction, 2)}${input.maxOrderQuote > 0 ? ` cap ${fmtMoney(input.maxOrderQuote, 2)}` : ""}`
+          : "No sizing selected";
+
+  const blockingError =
+    fractionError && !quantityOn && !quoteOn
+      ? fractionError
+      : effective === "none"
+        ? "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction."
+        : null;
+  const blockingTargetId = fractionError && !quantityOn && !quoteOn ? "orderQuoteFraction" : "orderQuote";
+
+  const statusLabel =
+    blockingError
+      ? "Sizing required"
+      : effective === "orderQuantity"
+        ? "Using order quantity"
+        : effective === "orderQuote"
+          ? "Using order quote"
+          : effective === "orderQuoteFraction"
+            ? "Using quote fraction"
+            : "Sizing required";
+  const hint =
+    blockingError
+      ? blockingError
+      : conflicts
+        ? `${effective} takes precedence. Clear the other sizing inputs to avoid surprises.`
+        : `Effective sizing: ${effectiveLabel}.`;
+  const tone: OrderSizingState["tone"] = blockingError ? "bad" : conflicts ? "warn" : "ok";
+
+  return {
+    active,
+    conflicts,
+    effective,
+    effectiveLabel,
+    fractionError,
+    blockingError,
+    blockingTargetId,
+    statusLabel,
+    hint,
+    tone,
+  };
 }
 
 export function isLocalHostname(hostname: string): boolean {

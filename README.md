@@ -482,6 +482,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Must be <= `--max-position-size`.
   - When confidence sizing is enabled, live orders also scale entry size by the LSTM confidence score (clamp01(|next/current - 1| / (2 * openThreshold))) using the method-selected prediction stream (Kalman/LSTM/blend/router) to match backtests.
   - The UI defaults to `orderQuote=100`; adjust sizing to your account and exchange minimums.
+  - The UI now shows an explicit manual-trade sizing status and blocks `/trade` when no effective sizing input is set; choose one of `orderQuote`, `orderQuantity`, or `orderQuoteFraction` (conflicts still show the live precedence).
   - Trade-test quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
   - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio, backtest ratio, bars, or lookback to restore a valid split.

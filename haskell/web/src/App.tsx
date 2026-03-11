@@ -168,6 +168,7 @@ import {
   normalizeApiBaseUrlInput,
   normalizeSymbolKey,
   numFromInput,
+  summarizeOrderSizing,
 } from "./app/utils";
 import {
   BINANCE_SYMBOL_PATTERN,
@@ -7486,17 +7487,17 @@ export function App() {
     }
     void startLiveBot({ symbolsOverride: pendingComboStart.symbols });
   }, [comboStartBlockedReason, form, pendingComboStart, showToast, startLiveBot]);
-  const orderQuoteFractionError = useMemo(() => {
-    const f = form.orderQuoteFraction;
-    if (!Number.isFinite(f)) return "Order quote fraction must be a number.";
-    if (f <= 0) return null;
-    if (f > 1) return "Order quote fraction must be <= 1 (use 0 to disable).";
-    return null;
-  }, [form.orderQuoteFraction]);
-  const tradeOrderSizingError = useMemo(() => {
-    if (form.orderQuantity > 0 || form.orderQuote > 0) return null;
-    return orderQuoteFractionError;
-  }, [form.orderQuantity, form.orderQuote, orderQuoteFractionError]);
+  const orderSizing = useMemo(
+    () =>
+      summarizeOrderSizing({
+        orderQuantity: form.orderQuantity,
+        orderQuote: form.orderQuote,
+        orderQuoteFraction: form.orderQuoteFraction,
+        maxOrderQuote: form.maxOrderQuote,
+      }),
+    [form.maxOrderQuote, form.orderQuantity, form.orderQuote, form.orderQuoteFraction],
+  );
+  const orderQuoteFractionError = orderSizing.fractionError;
   const tradeDisabledDetail = useMemo(() => {
     if (requestDisabledReason) {
       return { message: requestDisabledReason, targetId: requestIssueDetails[0]?.targetId };
@@ -7507,8 +7508,8 @@ export function App() {
     if (isCoinbasePlatform && form.positioning === "long-short") {
       return { message: "Coinbase supports spot only (positioning=long-flat).", targetId: "positioning" };
     }
-    if (tradeOrderSizingError) {
-      return { message: tradeOrderSizingError, targetId: "orderQuoteFraction" };
+    if (orderSizing.blockingError) {
+      return { message: orderSizing.blockingError, targetId: orderSizing.blockingTargetId };
     }
     if (isBinancePlatform && form.positioning === "long-short" && form.market !== "futures") {
       return { message: "Long/Short trading requires Futures market.", targetId: "market" };
@@ -7519,44 +7520,12 @@ export function App() {
     form.positioning,
     isBinancePlatform,
     isCoinbasePlatform,
+    orderSizing.blockingError,
+    orderSizing.blockingTargetId,
     requestDisabledReason,
     requestIssueDetails,
-    tradeOrderSizingError,
   ]);
   const tradeDisabledReason = tradeDisabledDetail?.message ?? null;
-
-  const orderSizing = useMemo(() => {
-    const enabled = {
-      orderQuantity: form.orderQuantity > 0,
-      orderQuote: form.orderQuote > 0,
-      orderQuoteFraction: form.orderQuoteFraction > 0,
-    };
-    const active = Object.entries(enabled)
-      .filter(([, on]) => on)
-      .map(([k]) => k) as Array<keyof typeof enabled>;
-    const conflicts = active.length > 1;
-
-    let effective: keyof typeof enabled | "none" = "none";
-    if (enabled.orderQuantity) effective = "orderQuantity";
-    else if (enabled.orderQuote) effective = "orderQuote";
-    else if (enabled.orderQuoteFraction) effective = "orderQuoteFraction";
-
-    const label =
-      effective === "orderQuantity"
-        ? `orderQuantity = ${fmtNum(form.orderQuantity, 8)} (base units)`
-        : effective === "orderQuote"
-          ? `orderQuote = ${fmtMoney(form.orderQuote, 2)} (quote units)`
-          : effective === "orderQuoteFraction"
-            ? `orderQuoteFraction = ${fmtPct(form.orderQuoteFraction, 2)}${form.maxOrderQuote > 0 ? ` (cap ${fmtMoney(form.maxOrderQuote, 2)})` : ""}`
-            : "none";
-
-    const hint =
-      effective === "none"
-        ? "Set one sizing input. Precedence: orderQuantity → orderQuote → orderQuoteFraction."
-        : `Effective sizing: ${label}. Precedence: orderQuantity → orderQuote → orderQuoteFraction (fraction applies to BUYs).`;
-
-    return { active, conflicts, effective, hint };
-  }, [form.maxOrderQuote, form.orderQuantity, form.orderQuote, form.orderQuoteFraction]);
 
   const idempotencyKeyError = useMemo(() => {
     const k = form.idempotencyKey.trim();
@@ -8814,10 +8783,29 @@ export function App() {
                       </>
                     ) : (
                       <>
-                        <span className="summaryEmpty">No trade yet</span>
+                        <span className={tradeDisabledReason ? "badge badgeBad" : "badge badgeOk"}>
+                          {tradeDisabledReason ? "Trade blocked" : form.binanceLive ? "Live ready" : "Test ready"}
+                        </span>
+                        <span
+                          className={
+                            orderSizing.tone === "bad"
+                              ? "badge badgeBad"
+                              : orderSizing.tone === "warn"
+                                ? "badge badgeWarn"
+                                : "badge badgeOk"
+                          }
+                        >
+                          {orderSizing.statusLabel}
+                        </span>
+                        {orderSizing.effective !== "none" ? <span className="badge">{orderSizing.effectiveLabel}</span> : null}
                         <button className="btnSmall" type="button" onClick={() => scrollToSection("section-trade")}>
                           Open trade settings
                         </button>
+                        {tradeDisabledReason ? (
+                          <span className="summaryMeta" title={tradeDisabledReason}>
+                            {tradeDisabledReason}
+                          </span>
+                        ) : null}
                       </>
                     )}
                   </div>

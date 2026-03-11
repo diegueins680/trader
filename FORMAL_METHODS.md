@@ -45,6 +45,30 @@ The verifier checks:
 3. Activity and exposure penalties are ordered as intended.
 4. The threshold tie-break implementation matches the lexicographic spec on every modeled pair.
 
+## Formal UI trade-sizing model
+
+The web UI now treats manual `/trade` sizing as a finite-state contract instead of a loose collection of field-level hints.
+
+Clauses:
+
+1. A manual trade is only ready when there is an effective sizing mode.
+2. Effective sizing follows a fixed precedence: `orderQuantity` > `orderQuote` > `orderQuoteFraction`.
+3. Invalid quote-fraction ranges (`< 0` or `> 1`) block trading only when no higher-precedence valid size is present.
+4. Multiple valid sizing inputs are allowed but must be reported as a conflict so the effective mode is explicit.
+
+The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space:
+
+- `orderQuantity ∈ {0, 1}`
+- `orderQuote ∈ {0, 1}`
+- `orderQuoteFraction ∈ {-0.25, 0, 0.5, 1.25}`
+
+For every state, it checks:
+
+1. The active sizing modes match the executable spec.
+2. The effective sizing mode matches the documented precedence.
+3. Trade readiness is blocked exactly when the model says no effective size exists.
+4. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
+
 ## What is not proved
 
 This does not prove that:

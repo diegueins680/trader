@@ -9,6 +9,7 @@ import {
   methodLabel,
   normalizeApiBaseUrlInput,
   numFromInput,
+  summarizeOrderSizing,
 } from "../.tmp/web-tests/utils.js";
 import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
 
@@ -147,6 +148,78 @@ test("numFromInput parses thousands grouping and decimal comma consistently", ()
   assert.equal(numFromInput("1,234,567", 0), 1234567);
   assert.equal(numFromInput("1,23", 0), 1.23);
   assert.equal(numFromInput("0,123", 0), 0.123);
+});
+
+test("summarizeOrderSizing blocks trade when no effective size is configured", () => {
+  const state = summarizeOrderSizing({
+    orderQuantity: 0,
+    orderQuote: 0,
+    orderQuoteFraction: 0,
+    maxOrderQuote: 0,
+  });
+  assert.equal(state.effective, "none");
+  assert.equal(state.blockingError, "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction.");
+  assert.equal(state.blockingTargetId, "orderQuote");
+  assert.equal(state.tone, "bad");
+});
+
+test("summarizeOrderSizing uses documented precedence when multiple sizing inputs are set", () => {
+  const state = summarizeOrderSizing({
+    orderQuantity: 0.25,
+    orderQuote: 100,
+    orderQuoteFraction: 0.1,
+    maxOrderQuote: 50,
+  });
+  assert.deepEqual(state.active, ["orderQuantity", "orderQuote", "orderQuoteFraction"]);
+  assert.equal(state.effective, "orderQuantity");
+  assert.equal(state.conflicts, true);
+  assert.equal(state.blockingError, null);
+  assert.equal(state.tone, "warn");
+});
+
+test("summarizeOrderSizing exhaustively preserves the modeled sizing contract", () => {
+  const quantities = [0, 1];
+  const quotes = [0, 1];
+  const fractions = [-0.25, 0, 0.5, 1.25];
+
+  for (const orderQuantity of quantities) {
+    for (const orderQuote of quotes) {
+      for (const orderQuoteFraction of fractions) {
+        const state = summarizeOrderSizing({
+          orderQuantity,
+          orderQuote,
+          orderQuoteFraction,
+          maxOrderQuote: 25,
+        });
+
+        const fractionError =
+          orderQuoteFraction < 0
+            ? "Order quote fraction must be >= 0 (use 0 to disable)."
+            : orderQuoteFraction > 1
+              ? "Order quote fraction must be <= 1 (use 0 to disable)."
+              : null;
+        const fractionOn = fractionError == null && orderQuoteFraction > 0;
+        const expectedActive = [];
+        if (orderQuantity > 0) expectedActive.push("orderQuantity");
+        if (orderQuote > 0) expectedActive.push("orderQuote");
+        if (fractionOn) expectedActive.push("orderQuoteFraction");
+        const expectedEffective =
+          orderQuantity > 0 ? "orderQuantity" : orderQuote > 0 ? "orderQuote" : fractionOn ? "orderQuoteFraction" : "none";
+        const expectedBlocking =
+          fractionError && orderQuantity <= 0 && orderQuote <= 0
+            ? fractionError
+            : expectedEffective === "none"
+              ? "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction."
+              : null;
+
+        assert.deepEqual(state.active, expectedActive);
+        assert.equal(state.effective, expectedEffective);
+        assert.equal(state.conflicts, expectedActive.length > 1);
+        assert.equal(state.blockingError, expectedBlocking);
+        assert.equal(state.tone, expectedBlocking ? "bad" : expectedActive.length > 1 ? "warn" : "ok");
+      }
+    }
+  }
 });
 
 test("normalizeFormState restores default minPositionSize for invalid input", () => {

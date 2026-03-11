@@ -14,7 +14,7 @@ import type {
   RunOptions,
   UiState,
 } from "../app/appHelpers";
-import type { RequestIssueDetail } from "../app/utils";
+import type { OrderSizingState, RequestIssueDetail } from "../app/utils";
 import type { health } from "../lib/api";
 import { copyText } from "../lib/clipboard";
 import { fmtPct } from "../lib/format";
@@ -80,13 +80,6 @@ type SplitPreview = {
 type EstimatedCosts = {
   breakEven: number;
   roundTrip: number;
-};
-
-type OrderSizingSummary = {
-  conflicts: boolean;
-  active: string[];
-  effective: string;
-  hint: string;
 };
 
 type OptimizerRunExtras = {
@@ -234,7 +227,7 @@ export type ConfigDockProps = {
   confirmLive: boolean;
   confirmArm: boolean;
   setConfirmArm: React.Dispatch<React.SetStateAction<boolean>>;
-  orderSizing: OrderSizingSummary;
+  orderSizing: OrderSizingState;
   orderQuoteFractionError: string | null;
   idempotencyKeyError: string | null;
   tradeDisabledReason: string | null;
@@ -3370,9 +3363,31 @@ export const ConfigDock = (props: ConfigDockProps) => {
             </div>
             <div className="field">
               <div className="label">Order sizing</div>
-              <div className="hint" style={orderSizing.conflicts ? { color: "rgba(239, 68, 68, 0.9)" } : undefined}>
-                {orderSizing.conflicts ? `Multiple sizing inputs are set (${orderSizing.active.join(", ")}). ` : ""}
-                {orderSizing.hint}
+              <div
+                className={`orderSizingSummary ${
+                  orderSizing.tone === "bad"
+                    ? "orderSizingSummaryBad"
+                    : orderSizing.tone === "warn"
+                      ? "orderSizingSummaryWarn"
+                      : "orderSizingSummaryOk"
+                }`}
+              >
+                <div className="orderSizingSummaryRow">
+                  <span
+                    className={
+                      orderSizing.tone === "bad"
+                        ? "badge badgeBad"
+                        : orderSizing.tone === "warn"
+                          ? "badge badgeWarn"
+                          : "badge badgeOk"
+                    }
+                  >
+                    {orderSizing.statusLabel}
+                  </span>
+                  {orderSizing.effective !== "none" ? <span className="badge">{orderSizing.effectiveLabel}</span> : null}
+                  {orderSizing.conflicts ? <span className="badge badgeWarn">Multiple sizing inputs</span> : null}
+                </div>
+                <div className="orderSizingSummaryText">{orderSizing.hint}</div>
               </div>
 
               {orderSizing.conflicts ? (
@@ -3401,7 +3416,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                   </label>
                   <input
                     id="orderQuote"
-                    className="input"
+                    className={orderSizing.blockingError && orderSizing.blockingTargetId === "orderQuote" ? "input inputError" : "input"}
                     type="number"
                     min={0}
                     value={form.orderQuote}
