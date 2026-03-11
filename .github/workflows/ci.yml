@@ -133,7 +133,8 @@ jobs:
         run: |
           set -euo pipefail
           auth_err_file="$(mktemp)"
-          trap 'rm -f "$auth_err_file"' EXIT
+          deploy_log="$(mktemp)"
+          trap 'rm -f "$auth_err_file" "$deploy_log"' EXIT
 
           if [[ -z "${FLY_API_TOKEN:-}" ]]; then
             echo "::warning::FLY_API_TOKEN is not set; skipping Fly deploy."
@@ -151,9 +152,31 @@ jobs:
           fi
 
           if [[ -n "${FLY_APP:-}" ]]; then
-            flyctl deploy --remote-only --app "${FLY_APP}"
+            deploy_args=(deploy --remote-only --app "${FLY_APP}")
           elif [[ -f fly.toml ]]; then
-            flyctl deploy --remote-only
+            deploy_args=(deploy --remote-only)
           else
             echo "::warning::No FLY_APP secret and no fly.toml found; skipping Fly deploy."
+            exit 0
           fi
+
+          for attempt in 1 2 3; do
+            : > "$deploy_log"
+            if flyctl "${deploy_args[@]}" 2>&1 | tee "$deploy_log"; then
+              exit 0
+            fi
+
+            if grep -qiE "503 Service Unavailable|502 Bad Gateway|504 Gateway Timeout|failed to set release status|temporary failure|temporarily unavailable|timeout" "$deploy_log"; then
+              if [[ "$attempt" -lt 3 ]]; then
+                echo "::warning::Transient Fly deploy failure on attempt ${attempt}; retrying."
+                sleep "$((attempt * 20))"
+                continue
+              fi
+              echo "::warning::Fly deploy hit repeated transient upstream failures after ${attempt} attempts; skipping deploy failure for this run."
+              exit 0
+            fi
+
+            echo "::error::Fly deploy failed."
+            cat "$deploy_log"
+            exit 1
+          done
