@@ -113,3 +113,19 @@ export function normalizePatchPlan(raw) {
 export function uniqueStrings(values) {
   return Array.from(new Set(values.map((value) => String(value))));
 }
+
+export function buildOpenAiApiError(status, payload) {
+  const errorObj = payload?.error && typeof payload.error === "object" ? payload.error : {};
+  const code = typeof errorObj.code === "string" ? errorObj.code : "";
+  const type = typeof errorObj.type === "string" ? errorObj.type : "";
+  const err = new Error(`OpenAI API request failed (${status}): ${JSON.stringify(payload)}`);
+  err.openAiStatus = Number(status) || 0;
+  err.openAiCode = code;
+  err.openAiType = type;
+  err.skipAutoloop =
+    code === "insufficient_quota" ||
+    code === "invalid_api_key" ||
+    type === "insufficient_quota" ||
+    err.openAiStatus === 401;
+  return err;
+}

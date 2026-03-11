@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
 import {
+  buildOpenAiApiError,
   clampText,
   extractResponseText,
   normalizeIdeaSelection,
@@ -208,7 +209,7 @@ async function checkoutLoopBranch() {
 
 function hardResetToCurrentHead() {
   runGit(["reset", "--hard", "HEAD"], { capture: false });
-  runGit(["clean", "-fd"], { capture: false });
+  runGit(["clean", "-fd", "-e", "node_modules/", "-e", "haskell/web/node_modules/"], { capture: false });
 }
 
 function allowedEditPath(filePath) {
@@ -309,7 +310,7 @@ async function callModelJson({ prompt, maxOutputTokens = 4000 }) {
 
   const json = await response.json();
   if (!response.ok) {
-    throw new Error(`OpenAI API request failed (${response.status}): ${JSON.stringify(json)}`);
+    throw buildOpenAiApiError(response.status, json);
   }
   return parseJsonResponse(extractResponseText(json));
 }
@@ -577,6 +578,11 @@ function mergePullRequest(prNumber) {
 }
 
 main().catch((err) => {
+  if (err?.skipAutoloop) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`Autoloop skipped: ${message}`);
+    return;
+  }
   const message = err instanceof Error ? err.stack || err.message : String(err);
   console.error(message);
   process.exitCode = 1;

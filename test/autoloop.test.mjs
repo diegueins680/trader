@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildOpenAiApiError,
   clampText,
   extractResponseText,
   normalizeIdeaSelection,
@@ -108,4 +109,19 @@ test("clampText preserves short text and truncates long text", () => {
 
 test("uniqueStrings preserves first occurrence order", () => {
   assert.deepEqual(uniqueStrings(["a", "b", "a", "c"]), ["a", "b", "c"]);
+});
+
+test("buildOpenAiApiError marks quota and auth failures as skippable", () => {
+  const quotaErr = buildOpenAiApiError(429, {
+    error: { code: "insufficient_quota", type: "insufficient_quota" },
+  });
+  const authErr = buildOpenAiApiError(401, {
+    error: { code: "invalid_api_key", type: "invalid_request_error" },
+  });
+  const serverErr = buildOpenAiApiError(500, {
+    error: { code: "server_error", type: "server_error" },
+  });
+  assert.equal(quotaErr.skipAutoloop, true);
+  assert.equal(authErr.skipAutoloop, true);
+  assert.equal(serverErr.skipAutoloop, false);
 });
