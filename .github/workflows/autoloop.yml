@@ -67,12 +67,7 @@ jobs:
         working-directory: haskell/web
         run: npm --workspaces=false ci
 
-      - name: Skip when OPENAI_API_KEY is missing
-        if: ${{ secrets.OPENAI_API_KEY == '' }}
-        run: echo "::warning::OPENAI_API_KEY is not set; skipping autoloop."
-
       - name: Run autoloop
-        if: ${{ secrets.OPENAI_API_KEY != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -80,6 +75,10 @@ jobs:
           AUTOLOOP_MODEL: ${{ github.event.inputs.model || vars.AUTOLOOP_MODEL }}
           AUTOLOOP_MAX_ITERATIONS: ${{ github.event.inputs.max_iterations || vars.AUTOLOOP_MAX_ITERATIONS || '2' }}
         run: |
+          if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+            echo "::warning::OPENAI_API_KEY is not set; skipping autoloop."
+            exit 0
+          fi
           if [[ "${{ github.event.inputs.dry_run || 'false' }}" == "true" ]]; then
             npm run autoloop -- --dry-run
           else
