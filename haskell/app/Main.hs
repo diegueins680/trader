@@ -9218,7 +9218,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                         , "weeklyLoss" .= weeklyLoss
                         , "consecutiveOrderErrors" .= orderErrors1
                         ]
-                )
+                    )
                 )
                 (Just eqFinal)
                 (activeComboUuid (botOpenTradeComboUuidMaybe openTrade') (botComboUuid st))
@@ -9449,7 +9449,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 , "trendLookback" .= argTrendLookback argsAdjusted
                                 ]
                         ]
-                )
+                    )
                 )
                 (Just eqFinal)
                 (activeBotComboUuid stOut)
