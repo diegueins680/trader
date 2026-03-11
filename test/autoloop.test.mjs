@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   buildOpenAiApiError,
@@ -7,9 +10,11 @@ import {
   normalizeIdeaSelection,
   normalizePatchPlan,
   parseJsonResponse,
+  resolveAutoloopBackend,
   sanitizeRelativePath,
   stripMarkdownFences,
   uniqueStrings,
+  writeJsonFileAtomic,
 } from "../scripts/autoloop-lib.mjs";
 
 test("stripMarkdownFences unwraps fenced JSON", () => {
@@ -49,19 +54,48 @@ test("normalizeIdeaSelection validates required fields", () => {
     noChange: false,
     title: "Improve docs",
     rationale: "Tighten user guidance",
-    filesNeeded: ["README.md", "CHANGELOG.md"],
+    uiReviewPath: "haskell/web/src/App.tsx",
+    uiReviewFocus: "Check button copy and loading feedback.",
+    correctnessPath: "test/autoloop.test.mjs",
+    correctnessFocus: "Keep the autoloop contract covered by tests.",
+    filesNeeded: ["README.md", "CHANGELOG.md", "haskell/web/src/App.tsx", "test/autoloop.test.mjs"],
     verificationCommands: ["cd haskell && cabal build"],
   });
-  assert.deepEqual(idea.filesNeeded, ["README.md", "CHANGELOG.md"]);
+  assert.equal(idea.uiReviewPath, "haskell/web/src/App.tsx");
+  assert.equal(idea.correctnessPath, "test/autoloop.test.mjs");
+  assert.deepEqual(idea.filesNeeded, [
+    "README.md",
+    "CHANGELOG.md",
+    "haskell/web/src/App.tsx",
+    "test/autoloop.test.mjs",
+  ]);
   assert.throws(
     () =>
       normalizeIdeaSelection({
         noChange: false,
         title: "",
         rationale: "missing title",
-        filesNeeded: ["README.md"],
+        uiReviewPath: "haskell/web/src/App.tsx",
+        uiReviewFocus: "Review the main UI.",
+        correctnessPath: "test/autoloop.test.mjs",
+        correctnessFocus: "Keep tests aligned.",
+        filesNeeded: ["README.md", "haskell/web/src/App.tsx", "test/autoloop.test.mjs"],
       }),
     /title must not be empty/,
+  );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad review coverage",
+        rationale: "UI review path is missing from filesNeeded",
+        uiReviewPath: "haskell/web/src/App.tsx",
+        uiReviewFocus: "Review the main UI.",
+        correctnessPath: "test/autoloop.test.mjs",
+        correctnessFocus: "Keep tests aligned.",
+        filesNeeded: ["test/autoloop.test.mjs"],
+      }),
+    /filesNeeded must include uiReviewPath/,
   );
 });
 
@@ -71,10 +105,13 @@ test("normalizePatchPlan validates change entries", () => {
     title: "Patch docs",
     summary: "Explain setup",
     commitMessage: "Explain setup",
+    uiReviewSummary: "Reviewed the UI file and found no safe change in scope.",
+    correctnessSummary: "The tests keep the autoloop path contract intact.",
     changes: [{ path: "README.md", content: "# hi" }],
     verificationCommands: [],
   });
   assert.equal(plan.changes[0]?.path, "README.md");
+  assert.equal(plan.uiReviewSummary, "Reviewed the UI file and found no safe change in scope.");
   assert.throws(
     () =>
       normalizePatchPlan({
@@ -82,6 +119,8 @@ test("normalizePatchPlan validates change entries", () => {
         title: "Bad patch",
         summary: "Bad patch",
         commitMessage: "Bad patch",
+        uiReviewSummary: "Reviewed the UI file.",
+        correctnessSummary: "The contract is unchanged.",
         changes: [{ path: "../oops", content: "x" }],
       }),
     /Path traversal/,
@@ -93,6 +132,8 @@ test("normalizePatchPlan validates change entries", () => {
         title: "Duplicate patch",
         summary: "Duplicate patch",
         commitMessage: "Duplicate patch",
+        uiReviewSummary: "Reviewed the UI file.",
+        correctnessSummary: "The contract is unchanged.",
         changes: [
           { path: "README.md", content: "# one" },
           { path: "README.md", content: "# two" },
@@ -124,4 +165,28 @@ test("buildOpenAiApiError marks quota and auth failures as skippable", () => {
   assert.equal(quotaErr.skipAutoloop, true);
   assert.equal(authErr.skipAutoloop, true);
   assert.equal(serverErr.skipAutoloop, false);
+});
+
+test("resolveAutoloopBackend prefers OpenAI then Codex in auto mode", () => {
+  assert.equal(resolveAutoloopBackend("auto", { hasOpenAiKey: true, hasCodex: true }), "openai");
+  assert.equal(resolveAutoloopBackend("", { hasOpenAiKey: false, hasCodex: true }), "codex");
+  assert.equal(resolveAutoloopBackend("", { hasOpenAiKey: false, hasCodex: false }), "");
+});
+
+test("resolveAutoloopBackend respects explicit backend requests", () => {
+  assert.equal(resolveAutoloopBackend("openai", { hasOpenAiKey: true, hasCodex: true }), "openai");
+  assert.equal(resolveAutoloopBackend("codex", { hasOpenAiKey: true, hasCodex: true }), "codex");
+  assert.equal(resolveAutoloopBackend("codex", { hasOpenAiKey: true, hasCodex: false }), "");
+  assert.throws(
+    () => resolveAutoloopBackend("mystery", { hasOpenAiKey: true, hasCodex: true }),
+    /Unknown autoloop backend/,
+  );
+});
+
+test("writeJsonFileAtomic creates parent directories and writes formatted JSON", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-test-"));
+  const filePath = path.join(dir, "nested", "status.json");
+  await writeJsonFileAtomic(filePath, { phase: "verify", ok: true });
+  const out = await fs.readFile(filePath, "utf8");
+  assert.deepEqual(JSON.parse(out), { phase: "verify", ok: true });
 });

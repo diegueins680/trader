@@ -13,7 +13,9 @@ import {
   normalizePatchPlan,
   sanitizeRelativePath,
   parseJsonResponse,
+  resolveAutoloopBackend,
   uniqueStrings,
+  writeJsonFileAtomic,
 } from "./autoloop-lib.mjs";
 
 const ROOT = process.cwd();
@@ -26,11 +28,21 @@ const MAX_ITERATIONS = clampInt(process.env.AUTOLOOP_MAX_ITERATIONS, 2, 1, 5);
 const MAX_EDITABLE_FILE_BYTES = clampInt(process.env.AUTOLOOP_MAX_FILE_BYTES, 40000, 4000, 100000);
 const MAX_EDITABLE_FILES = clampInt(process.env.AUTOLOOP_MAX_FILES, 120, 20, 300);
 const DRY_RUN = process.argv.includes("--dry-run");
+const STATUS_FILE = resolveOptionalPath(process.env.AUTOLOOP_STATUS_FILE);
+const RUN_ID = process.env.AUTOLOOP_RUN_ID || "";
+const RUN_MODE = process.env.AUTOLOOP_RUN_MODE || "bounded";
+const REQUESTED_BACKEND = process.env.AUTOLOOP_BACKEND || "auto";
+const HAS_CODEX = commandExists("codex");
+const PLANNER_BACKEND = resolveAutoloopBackend(REQUESTED_BACKEND, {
+  hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
+  hasCodex: HAS_CODEX,
+});
 
 const ALLOWED_EDIT_PREFIXES = [
   "README.md",
   "CHANGELOG.md",
   "FORMAL_METHODS.md",
+  "test/",
   "haskell/app/",
   "haskell/test/",
   "haskell/web/src/",
@@ -64,9 +76,28 @@ const SAFE_VERIFICATION_COMMANDS = new Set([
   "node --test test/autoloop.test.mjs",
 ]);
 
+let statusState = {
+  mode: RUN_MODE,
+  runId: RUN_ID,
+  dryRun: DRY_RUN,
+  backend: PLANNER_BACKEND || "",
+  requestedBackend: REQUESTED_BACKEND,
+  baseBranch: BASE_BRANCH,
+  loopBranch: LOOP_BRANCH,
+  maxIterations: MAX_ITERATIONS,
+  phase: "starting",
+  startedAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
 async function main() {
-  if (!process.env.OPENAI_API_KEY) {
-    const message = "OPENAI_API_KEY is not set; autoloop is skipping.";
+  await updateStatus({ phase: "preflight" });
+  if (!PLANNER_BACKEND) {
+    const message =
+      REQUESTED_BACKEND && REQUESTED_BACKEND !== "auto"
+        ? `Autoloop backend \"${REQUESTED_BACKEND}\" is unavailable in this workspace; autoloop is skipping.`
+        : "Neither OPENAI_API_KEY nor Codex CLI is available; autoloop is skipping.";
+    await updateStatus({ phase: "skipped", outcome: "skipped_missing_backend", message });
     if (DRY_RUN) throw new Error(message);
     console.log(message);
     return;
@@ -75,32 +106,58 @@ async function main() {
   assertCleanWorktree();
   runGit(["fetch", "origin", BASE_BRANCH, "--prune"]);
   await checkoutLoopBranch();
+  await updateStatus({ phase: "ready" });
 
   let failureContext = null;
   for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
+    await updateStatus({ phase: "reset-branch", iteration, failureContext: summarizeFailureContext(failureContext) });
     hardResetToCurrentHead();
     const repoContext = await buildRepoContext();
+    await updateStatus({ phase: "choose-change", iteration });
     const idea = failureContext
       ? await requestFixIdea(repoContext, failureContext)
       : await requestIdeaSelection(repoContext);
+    await updateStatus({ phase: "ui-ux-review", iteration, idea: summarizeIdea(idea) });
+    await updateStatus({ phase: "correctness-review", iteration, idea: summarizeIdea(idea) });
 
     if (idea.noChange) {
+      await updateStatus({
+        phase: "complete",
+        iteration,
+        outcome: "no_change",
+        message: idea.rationale || "No safe change proposed.",
+      });
       console.log(`No safe change proposed${idea.rationale ? `: ${idea.rationale}` : "."}`);
       return;
     }
 
     const editableFiles = await readEditableFiles(idea.filesNeeded);
+    await updateStatus({ phase: "plan-patch", iteration, idea: summarizeIdea(idea) });
     const plan = await requestPatchPlan(repoContext, idea, editableFiles, failureContext);
     if (plan.noChange) {
+      await updateStatus({
+        phase: "complete",
+        iteration,
+        outcome: "no_patch_plan",
+        message: plan.summary || "No patch plan returned.",
+      });
       console.log(`No patch plan returned${plan.summary ? `: ${plan.summary}` : "."}`);
       return;
     }
 
     assertPlanMatchesEditableFiles(plan.changes, editableFiles);
     const plannedPaths = uniqueStrings(plan.changes.map((change) => sanitizeRelativePath(change.path)));
+    await updateStatus({ phase: "apply-patch", iteration, plan: summarizePlan(plan), plannedPaths });
     applyFileChanges(plan.changes);
     let changedPaths = collectChangedPlanPaths(plannedPaths);
     if (changedPaths.length === 0) {
+      await updateStatus({
+        phase: "complete",
+        iteration,
+        outcome: "no_changes",
+        message: "Model produced no file changes after normalization.",
+        plan: summarizePlan(plan),
+      });
       console.log("Model produced no file changes after normalization; stopping.");
       return;
     }
@@ -109,9 +166,23 @@ async function main() {
       ...idea.verificationCommands,
       ...plan.verificationCommands,
     ]);
+    await updateStatus({
+      phase: "verify",
+      iteration,
+      changedPaths,
+      verificationCommands,
+      plan: summarizePlan(plan),
+    });
     await runVerificationCommands(verificationCommands);
     changedPaths = collectChangedPlanPaths(plannedPaths);
     if (changedPaths.length === 0) {
+      await updateStatus({
+        phase: "complete",
+        iteration,
+        outcome: "verification_reverted_changes",
+        message: "Verification returned the worktree to baseline.",
+        verificationCommands,
+      });
       console.log("Verification returned the worktree to baseline; stopping.");
       return;
     }
@@ -122,17 +193,30 @@ async function main() {
 
     const commitMessage = plan.commitMessage;
     if (DRY_RUN) {
+      await updateStatus({
+        phase: "complete",
+        iteration,
+        outcome: "dry_run",
+        commitMessage,
+        changedPaths,
+        verificationCommands,
+        unexpectedChanges,
+        plan: summarizePlan(plan),
+      });
       console.log(JSON.stringify({ commitMessage, changedPaths, verificationCommands }, null, 2));
       return;
     }
 
+    await updateStatus({ phase: "commit-push", iteration, commitMessage, changedPaths, unexpectedChanges });
     commitBranch(commitMessage, changedPaths);
     pushBranch();
 
     const pr = ensurePullRequest(plan.title, plan.summary);
+    await updateStatus({ phase: "ci-wait", iteration, pr, changedPaths, plan: summarizePlan(plan) });
     const ci = waitForPullRequestCi(pr.number);
     if (ci.ok) {
       mergePullRequest(pr.number);
+      await updateStatus({ phase: "complete", iteration, outcome: "merged", pr, ci });
       console.log(`Merged PR #${pr.number}.`);
       return;
     }
@@ -145,6 +229,14 @@ async function main() {
       failedLog: ci.failedLog,
       changedPaths,
     };
+    await updateStatus({
+      phase: "repair-needed",
+      iteration,
+      outcome: "ci_failed",
+      pr,
+      ci,
+      failureContext: summarizeFailureContext(failureContext),
+    });
   }
 
   throw new Error(`Autoloop exhausted ${MAX_ITERATIONS} iteration(s) without a green merge.`);
@@ -191,6 +283,88 @@ function runGh(args, opts = {}) {
 
 function runBash(command, opts = {}) {
   return runCommand("/bin/bash", ["-lc", command], opts);
+}
+
+function commandExists(command) {
+  try {
+    execFileSync("/bin/bash", ["-lc", `command -v ${JSON.stringify(command)} >/dev/null`], {
+      cwd: ROOT,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveOptionalPath(rawPath) {
+  const value = String(rawPath ?? "").trim();
+  if (!value) return "";
+  return path.isAbsolute(value) ? value : path.join(ROOT, value);
+}
+
+async function updateStatus(patch) {
+  statusState = {
+    ...statusState,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  if (!STATUS_FILE) return;
+  await writeJsonFileAtomic(STATUS_FILE, statusState);
+}
+
+function summarizeIdea(idea) {
+  if (!idea || idea.noChange) {
+    return {
+      noChange: true,
+      title: idea?.title || "",
+      rationale: idea?.rationale || "",
+    };
+  }
+  return {
+    title: idea.title,
+    rationale: idea.rationale,
+    uiReviewPath: idea.uiReviewPath,
+    uiReviewFocus: idea.uiReviewFocus,
+    correctnessPath: idea.correctnessPath,
+    correctnessFocus: idea.correctnessFocus,
+    filesNeeded: idea.filesNeeded,
+    verificationCommands: idea.verificationCommands,
+  };
+}
+
+function summarizePlan(plan) {
+  if (!plan || plan.noChange) {
+    return {
+      noChange: true,
+      title: plan?.title || "",
+      summary: plan?.summary || "",
+    };
+  }
+  return {
+    title: plan.title,
+    summary: plan.summary,
+    commitMessage: plan.commitMessage,
+    uiReviewSummary: plan.uiReviewSummary,
+    correctnessSummary: plan.correctnessSummary,
+    verificationCommands: plan.verificationCommands,
+    changes: plan.changes.map((change) => ({
+      path: change.path,
+      delete: change.delete === true,
+      reason: change.reason || "",
+    })),
+  };
+}
+
+function summarizeFailureContext(failureContext) {
+  if (!failureContext) return null;
+  return {
+    iteration: failureContext.iteration,
+    prNumber: failureContext.prNumber,
+    runId: failureContext.runId,
+    runUrl: failureContext.runUrl,
+    changedPaths: failureContext.changedPaths,
+  };
 }
 
 function assertCleanWorktree() {
@@ -290,6 +464,10 @@ function repoContextText(repoContext) {
 }
 
 async function callModelJson({ prompt, maxOutputTokens = 4000 }) {
+  if (PLANNER_BACKEND === "codex") {
+    return callModelJsonViaCodex({ prompt, maxOutputTokens });
+  }
+
   const response = await fetch(`${OPENAI_BASE_URL}/responses`, {
     method: "POST",
     headers: {
@@ -315,16 +493,56 @@ async function callModelJson({ prompt, maxOutputTokens = 4000 }) {
   return parseJsonResponse(extractResponseText(json));
 }
 
+async function callModelJsonViaCodex({ prompt, maxOutputTokens }) {
+  const stateDir = path.join(ROOT, ".tmp", "autoloop");
+  await fs.mkdir(stateDir, { recursive: true });
+  const outputFile = path.join(
+    stateDir,
+    `codex-last-message-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+  );
+
+  try {
+    runCommand(
+      "codex",
+      [
+        "exec",
+        "--sandbox",
+        "read-only",
+        "--color",
+        "never",
+        "--model",
+        OPENAI_MODEL,
+        "--output-last-message",
+        outputFile,
+        [
+          "Return JSON only. The final response must be a single valid JSON object with no markdown fences.",
+          `Treat this max_output_tokens hint as advisory: ${maxOutputTokens}.`,
+          prompt,
+        ].join("\n\n"),
+      ],
+      { capture: false },
+    );
+    const raw = await fs.readFile(outputFile, "utf8");
+    return parseJsonResponse(raw);
+  } finally {
+    await fs.unlink(outputFile).catch(() => {});
+  }
+}
+
 async function requestIdeaSelection(repoContext) {
   const prompt = [
     "You are selecting exactly one safe autonomous improvement for this repository.",
-    "Respond in JSON with keys: noChange, title, rationale, filesNeeded, verificationCommands.",
+    "Respond in JSON with keys: noChange, title, rationale, uiReviewPath, uiReviewFocus, correctnessPath, correctnessFocus, filesNeeded, verificationCommands.",
     "Constraints:",
     "- Choose one small, high-confidence change with measurable value.",
+    "- Every cycle must explicitly cover these phases: choose one valuable change, review one local web UI source file for safe UI/UX fixes, review one correctness/formal artifact with an explicit invariant/property/test or proof-sketch update, then commit/push and wait for GitHub CI.",
     "- Touch only files from the editable file list.",
     "- Do not propose dependency updates, workflow changes, deploy changes, or secrets.",
     "- Prefer changes that can be verified by local tests/build commands.",
+    "- uiReviewPath must be a file under haskell/web/src/ and filesNeeded must include it.",
+    "- correctnessPath must be FORMAL_METHODS.md or a file under test/, haskell/test/, or haskell/web/test/, and filesNeeded must include it.",
     "- If the change is user-visible, include README.md and CHANGELOG.md in filesNeeded.",
+    "- Prefer ideas where the correctness review can update a test or FORMAL_METHODS.md when behavior changes.",
     `- Verification commands must be chosen from this allowlist: ${Array.from(SAFE_VERIFICATION_COMMANDS).join(" | ")}`,
     "- If no safe change is apparent, return {\"noChange\":true,...}.",
     "",
@@ -337,10 +555,13 @@ async function requestIdeaSelection(repoContext) {
 async function requestFixIdea(repoContext, failureContext) {
   const prompt = [
     "You are selecting a repair for a failed autonomous PR CI run.",
-    "Respond in JSON with keys: noChange, title, rationale, filesNeeded, verificationCommands.",
+    "Respond in JSON with keys: noChange, title, rationale, uiReviewPath, uiReviewFocus, correctnessPath, correctnessFocus, filesNeeded, verificationCommands.",
     "Constraints:",
     "- Focus on fixing the reported failure with the smallest safe change.",
+    "- Still explicitly cover the cycle phases: choose the repair, review one local web UI source file for a low-risk UX fix if present, review one correctness/formal artifact with an explicit invariant/property/test or proof-sketch update, then commit/push and wait for GitHub CI.",
     "- Touch only files from the editable file list.",
+    "- uiReviewPath must be a file under haskell/web/src/ and filesNeeded must include it.",
+    "- correctnessPath must be FORMAL_METHODS.md or a file under test/, haskell/test/, or haskell/web/test/, and filesNeeded must include it.",
     `- Verification commands must be chosen from this allowlist: ${Array.from(SAFE_VERIFICATION_COMMANDS).join(" | ")}`,
     "",
     `Failed run: ${failureContext.runUrl}`,
@@ -373,7 +594,7 @@ async function requestPatchPlan(repoContext, idea, editableFiles, failureContext
 
   const prompt = [
     "You are implementing a single repository change.",
-    "Respond in JSON with keys: noChange, title, summary, commitMessage, verificationCommands, changes.",
+    "Respond in JSON with keys: noChange, title, summary, commitMessage, uiReviewSummary, correctnessSummary, verificationCommands, changes.",
     "Each entry in changes must be an object with path, content, and optional reason.",
     "The content field must contain the complete replacement file content for that path.",
     "Do not include markdown fences or prose outside JSON.",
@@ -381,10 +602,18 @@ async function requestPatchPlan(repoContext, idea, editableFiles, failureContext
     "- Only modify the provided files.",
     "- Preserve unrelated content.",
     "- Keep the change minimal and focused.",
+    "- Explicitly complete the required phases inside this plan: the chosen change, a safe UI/UX review of the selected local web UI file, and a correctness/formal review with an invariant/property/test or proof-sketch update.",
+    "- uiReviewSummary must say what was reviewed and whether a safe UI fix was applied.",
+    "- correctnessSummary must name the invariant/property/test or FORMAL_METHODS proof sketch that now covers the change.",
+    "- If behavior changes, prefer updating a test or FORMAL_METHODS.md within the selected files.",
     "- Use ASCII unless the file already requires Unicode.",
     `- Verification commands must be chosen from this allowlist: ${Array.from(SAFE_VERIFICATION_COMMANDS).join(" | ")}`,
     idea.title ? `Selected idea: ${idea.title}` : "",
     idea.rationale ? `Rationale: ${idea.rationale}` : "",
+    idea.uiReviewPath ? `UI review file: ${idea.uiReviewPath}` : "",
+    idea.uiReviewFocus ? `UI review focus: ${idea.uiReviewFocus}` : "",
+    idea.correctnessPath ? `Correctness review file: ${idea.correctnessPath}` : "",
+    idea.correctnessFocus ? `Correctness review focus: ${idea.correctnessFocus}` : "",
     failureContext ? `Failed CI log excerpt:\n${clampText(failureContext.failedLog, 18000)}` : "",
     "",
     "Repository context:",
@@ -577,13 +806,15 @@ function mergePullRequest(prNumber) {
   runGh(["pr", "merge", String(prNumber), "--squash", "--delete-branch"], { capture: false });
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   if (err?.skipAutoloop) {
     const message = err instanceof Error ? err.message : String(err);
+    await updateStatus({ phase: "skipped", outcome: "skipped_openai_api_error", message });
     console.warn(`Autoloop skipped: ${message}`);
     return;
   }
   const message = err instanceof Error ? err.stack || err.message : String(err);
+  await updateStatus({ phase: "error", outcome: "error", message });
   console.error(message);
   process.exitCode = 1;
 });

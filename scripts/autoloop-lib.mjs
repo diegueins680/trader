@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+
 export function stripMarkdownFences(raw) {
   const text = String(raw ?? "").trim();
   const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -60,14 +63,46 @@ function readStringArray(raw, field, maxItems = 12) {
   return raw.map((item, idx) => readString(item, `${field}[${idx}]`));
 }
 
+function readScopedPath(raw, field, allowedPrefixes) {
+  const value = sanitizeRelativePath(readString(raw, field));
+  if (!allowedPrefixes.some((prefix) => value === prefix || value.startsWith(prefix))) {
+    throw new Error(`${field} must be within: ${allowedPrefixes.join(", ")}`);
+  }
+  return value;
+}
+
 export function normalizeIdeaSelection(raw) {
   const obj = raw && typeof raw === "object" ? raw : {};
   const noChange = obj.noChange === true;
+  const filesNeeded = noChange
+    ? []
+    : readStringArray(obj.filesNeeded, "filesNeeded", 10).map(sanitizeRelativePath);
+  const uiReviewPath = noChange
+    ? String(obj.uiReviewPath ?? "").trim()
+    : readScopedPath(obj.uiReviewPath, "uiReviewPath", ["haskell/web/src/"]);
+  const correctnessPath = noChange
+    ? String(obj.correctnessPath ?? "").trim()
+    : readScopedPath(obj.correctnessPath, "correctnessPath", [
+        "FORMAL_METHODS.md",
+        "test/",
+        "haskell/test/",
+        "haskell/web/test/",
+      ]);
+  if (!noChange) {
+    if (!filesNeeded.includes(uiReviewPath)) throw new Error("filesNeeded must include uiReviewPath.");
+    if (!filesNeeded.includes(correctnessPath)) throw new Error("filesNeeded must include correctnessPath.");
+  }
   return {
     noChange,
     title: noChange ? String(obj.title ?? "").trim() : readString(obj.title, "title"),
     rationale: noChange ? String(obj.rationale ?? "").trim() : readString(obj.rationale, "rationale"),
-    filesNeeded: noChange ? [] : readStringArray(obj.filesNeeded, "filesNeeded", 8).map(sanitizeRelativePath),
+    uiReviewPath,
+    uiReviewFocus: noChange ? String(obj.uiReviewFocus ?? "").trim() : readString(obj.uiReviewFocus, "uiReviewFocus"),
+    correctnessPath,
+    correctnessFocus: noChange
+      ? String(obj.correctnessFocus ?? "").trim()
+      : readString(obj.correctnessFocus, "correctnessFocus"),
+    filesNeeded,
     verificationCommands: Array.isArray(obj.verificationCommands)
       ? obj.verificationCommands.map((item, idx) => readString(item, `verificationCommands[${idx}]`))
       : [],
@@ -92,7 +127,7 @@ export function normalizePatchPlan(raw) {
   const noChange = obj.noChange === true;
   const changes = Array.isArray(obj.changes) ? obj.changes.map(normalizeFileChange) : [];
   if (!noChange && changes.length === 0) throw new Error("changes must not be empty.");
-  if (changes.length > 8) throw new Error("changes exceeds max items (8).");
+  if (changes.length > 10) throw new Error("changes exceeds max items (10).");
   const seen = new Set();
   for (const change of changes) {
     if (seen.has(change.path)) throw new Error(`changes contains duplicate path: ${change.path}`);
@@ -103,6 +138,12 @@ export function normalizePatchPlan(raw) {
     title: noChange ? String(obj.title ?? "").trim() : readString(obj.title, "title"),
     summary: noChange ? String(obj.summary ?? "").trim() : readString(obj.summary, "summary"),
     commitMessage: noChange ? String(obj.commitMessage ?? "").trim() : readString(obj.commitMessage, "commitMessage"),
+    uiReviewSummary: noChange
+      ? String(obj.uiReviewSummary ?? "").trim()
+      : readString(obj.uiReviewSummary, "uiReviewSummary"),
+    correctnessSummary: noChange
+      ? String(obj.correctnessSummary ?? "").trim()
+      : readString(obj.correctnessSummary, "correctnessSummary"),
     changes,
     verificationCommands: Array.isArray(obj.verificationCommands)
       ? obj.verificationCommands.map((item, idx) => readString(item, `verificationCommands[${idx}]`))
@@ -112,6 +153,22 @@ export function normalizePatchPlan(raw) {
 
 export function uniqueStrings(values) {
   return Array.from(new Set(values.map((value) => String(value))));
+}
+
+export function resolveAutoloopBackend(rawBackend, { hasOpenAiKey, hasCodex }) {
+  const requested = String(rawBackend ?? "").trim().toLowerCase();
+  if (!requested || requested === "auto") {
+    if (hasOpenAiKey) return "openai";
+    if (hasCodex) return "codex";
+    return "";
+  }
+  if (requested === "openai" || requested === "responses") {
+    return hasOpenAiKey ? "openai" : "";
+  }
+  if (requested === "codex") {
+    return hasCodex ? "codex" : "";
+  }
+  throw new Error(`Unknown autoloop backend: ${rawBackend}`);
 }
 
 export function buildOpenAiApiError(status, payload) {
@@ -128,4 +185,17 @@ export function buildOpenAiApiError(status, payload) {
     type === "insufficient_quota" ||
     err.openAiStatus === 401;
   return err;
+}
+
+export async function writeJsonFileAtomic(filePath, value) {
+  const target = String(filePath ?? "").trim();
+  if (!target) throw new Error("filePath must not be empty.");
+  const dir = path.dirname(target);
+  await fs.mkdir(dir, { recursive: true });
+  const temp = path.join(
+    dir,
+    `.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+  );
+  await fs.writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await fs.rename(temp, target);
 }

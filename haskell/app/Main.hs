@@ -194,6 +194,7 @@ import Trader.Coinbase (
     newCoinbaseEnv,
     placeCoinbaseMarketOrder,
  )
+import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (
     DexEnv (..),
@@ -3602,7 +3603,7 @@ botStatusLogMaybe mOps running st = do
         (Just (argsPublicJson args))
         (Just result)
         eq
-        (botComboUuid st)
+        (activeBotComboUuid st)
         (Just (T.pack (botSymbol st)))
         Nothing
     persistBotSnapshotMaybe mOps running st result
@@ -3753,6 +3754,14 @@ botOpenTradeJson trade =
         , "partialTaken" .= botOpenPartialTaken trade
         , "side" .= positionSideLabel (botOpenSide trade)
         ]
+
+botOpenTradeComboUuidMaybe :: Maybe BotOpenTrade -> Maybe Text
+botOpenTradeComboUuidMaybe mTrade =
+    mTrade >>= botOpenComboUuid
+
+activeBotComboUuid :: BotState -> Maybe Text
+activeBotComboUuid st =
+    activeComboUuid (botOpenTradeComboUuidMaybe (botOpenTrade st)) (botComboUuid st)
 
 positionSideLabel :: PositionSide -> Text
 positionSideLabel side =
@@ -4127,6 +4136,7 @@ data BotOpenTrade = BotOpenTrade
     { botOpenEntryIndex :: !Int
     , botOpenEntryEquity :: !Double
     , botOpenEntryIp :: !(Maybe Text)
+    , botOpenComboUuid :: !(Maybe Text)
     , botOpenEntryHighVolProb :: !(Maybe Double)
     , botOpenHoldingPeriods :: !Int
     , botOpenEntryPrice :: !Double
@@ -6594,6 +6604,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                                 { botOpenEntryIndex = n - 1
                                 , botOpenEntryEquity = eq1 V.! (n - 1)
                                 , botOpenEntryIp = originIp
+                                , botOpenComboUuid = mComboUuid
                                 , botOpenEntryHighVolProb = entryHv
                                 , botOpenHoldingPeriods = 0
                                 , botOpenEntryPrice = px
@@ -6611,6 +6622,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                                 { botOpenEntryIndex = n - 1
                                 , botOpenEntryEquity = eq1 V.! (n - 1)
                                 , botOpenEntryIp = originIp
+                                , botOpenComboUuid = mComboUuid
                                 , botOpenEntryHighVolProb = entryHv
                                 , botOpenHoldingPeriods = 0
                                 , botOpenEntryPrice = px
@@ -8907,6 +8919,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 { botOpenEntryIndex = nPrev
                 , botOpenEntryEquity = eqEntry
                 , botOpenEntryIp = botTradeOriginIp st
+                , botOpenComboUuid = botComboUuid st
                 , botOpenEntryHighVolProb = rpHighVol <$> lsRegimes latestFinal
                 , botOpenHoldingPeriods = 0
                 , botOpenEntryPrice = priceNew
@@ -9027,7 +9040,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                         )
                     )
                     (Just eqAfterFee)
-                    (botComboUuid st)
+                    (orderComboUuid (prevPos /= 0) (botOpenTradeComboUuidMaybe openTrade1) (botComboUuid st))
                     (Just (T.pack (botSymbol st)))
                     (orderIdFromOrderResult oPartial)
                 webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew oPartial)
@@ -9153,7 +9166,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 )
                             )
                             (Just eqAfterFee)
-                            (botComboUuid st)
+                            (orderComboUuid (prevPos /= 0) (botOpenTradeComboUuidMaybe openTrade1) (botComboUuid st))
                             (Just (T.pack (botSymbol st)))
                             (orderIdFromOrderResult o)
                         when (shouldPersistPositionOriginOnSwitch tradeEnabled (argBinanceLive args) switchedApplied1 (aorSent o)) $
@@ -9205,10 +9218,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                         , "weeklyLoss" .= weeklyLoss
                         , "consecutiveOrderErrors" .= orderErrors1
                         ]
-                    )
+                )
                 )
                 (Just eqFinal)
-                (botComboUuid st)
+                (activeComboUuid (botOpenTradeComboUuidMaybe openTrade') (botComboUuid st))
                 (Just (T.pack (botSymbol st)))
                 Nothing
             webhookNotifyMaybe mWebhook (webhookEventBotHalt args (botSymbol st) r drawdown dailyLoss orderErrors1)
@@ -9436,10 +9449,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 , "trendLookback" .= argTrendLookback argsAdjusted
                                 ]
                         ]
-                    )
+                )
                 )
                 (Just eqFinal)
-                (botComboUuid stOut)
+                (activeBotComboUuid stOut)
                 (Just (T.pack (botSymbol stOut)))
                 Nothing
     opsAppendMaybe
@@ -9460,7 +9473,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
             )
         )
         (Just eqFinal)
-        (botComboUuid stOut)
+        (activeBotComboUuid stOut)
         (Just (T.pack (botSymbol stOut)))
         Nothing
     triggerTopCombosBacktestOnCandle topCombosCtx

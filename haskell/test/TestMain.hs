@@ -30,6 +30,7 @@ import Trader.BinanceIntervals (binanceIntervalsCsv, isBinanceInterval)
 import Trader.BotStartSemantics (botTradeEnabledFromApi, shouldClearPositionOriginOnStart, shouldPersistPositionOriginOnSwitch, shouldPreserveProvidedComboOnActiveAdopt, shouldResolveOriginComboOnAutoStart)
 import Trader.Cache (fetchWithCache, insertCache, newTtlCache)
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles, normalizeCoinbaseCandles)
+import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), extractTxHash, resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
@@ -191,6 +192,8 @@ main = do
               , run "bot/start preserves provided combo for active adoption" testBotStartPreservesProvidedComboForActiveAdopt
               , run "bot/start clears origin only when adoptable and flat" testBotStartClearOriginGate
               , run "position origin persists only for live sent switches" testPersistPositionOriginGate
+              , run "active combo prefers open trade combo" testActiveComboUuid
+              , run "order combo keeps origin combo while position is open" testOrderComboUuid
               , run "order execution uses fill evidence for live orders" testOrderAppliedQuantity
               , run "order execution updates position by executed qty" testApplyExecutedQuantity
               , run "signal gate emits MTF_WARMUP reason" testSignalGateMtfWarmup
@@ -2055,6 +2058,21 @@ testPersistPositionOriginGate = do
     assert "no persist when trade disabled" (not (shouldPersist False True True True))
     assert "no persist when switch not applied" (not (shouldPersist True True False True))
     assert "no persist when order not sent" (not (shouldPersist True True True False))
+
+testActiveComboUuid :: IO ()
+testActiveComboUuid = do
+    let selectedCombo = Just ("combo-selected" :: String)
+        openCombo = Just ("combo-open" :: String)
+    assert "open trade combo wins over selected combo" (activeComboUuid openCombo selectedCombo == openCombo)
+    assert "selected combo is used when flat" (activeComboUuid Nothing selectedCombo == selectedCombo)
+
+testOrderComboUuid :: IO ()
+testOrderComboUuid = do
+    let selectedCombo = Just ("combo-selected" :: String)
+        openCombo = Just ("combo-open" :: String)
+    assert "entry from flat uses selected combo" (orderComboUuid False openCombo selectedCombo == selectedCombo)
+    assert "close while open keeps originating combo" (orderComboUuid True openCombo selectedCombo == openCombo)
+    assert "open-position fallback uses selected combo when origin missing" (orderComboUuid True Nothing selectedCombo == selectedCombo)
 
 testOrderAppliedQuantity :: IO ()
 testOrderAppliedQuantity = do

@@ -17,6 +17,7 @@ executable trader-hs
                      , Trader.App.Runtime
                      , Trader.Cache
                      , Trader.Coinbase
+                     , Trader.ComboTracking
                      , Trader.Config
                      , Trader.Dex
                      , Trader.App.Args
@@ -181,6 +182,7 @@ test-suite trader-tests
                      , Trader.App.BinanceProbe
                      , Trader.Cache
                      , Trader.Coinbase
+                     , Trader.ComboTracking
                      , Trader.Config
                      , Trader.Dex
                      , Trader.App.Args

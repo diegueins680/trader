@@ -55,6 +55,12 @@ Long.csv
 Short.csv
 .tmp/
 tmp/
+.openclaw/
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
 AWS_DEPLOYMENT_SUMMARY.txt
 config.yaml
 directory_tree.txt
