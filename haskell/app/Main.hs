@@ -9077,9 +9077,6 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                         (Just ot{botOpenSize = remainingSize, botOpenPartialTaken = True}, botTrades st)
                                 (_, 0, Just ot) ->
                                     (Nothing, botTrades st ++ [closeTradeAt eqAfterFee ot])
-                                (p, newPos, Just ot)
-                                    | newPos == negate p ->
-                                        (Just (openTradeFor (sideFromPos newPos) eqAfterFee remainingSize), botTrades st ++ [closeTradeAt eqAfterFee ot])
                                 (_, newPos, _)
                                     | newPos /= 0 ->
                                         (Just (openTradeFor (sideFromPos newPos) eqAfterFee remainingSize), botTrades st)
