@@ -2313,7 +2313,7 @@ testApplyExecutedQuantityInvariantGrid = do
             | qtyRaw <= eps = 0
             | otherwise = qtyRaw
         previousSigned prevPos prevSize = fromIntegral (signum prevPos) * max 0 prevSize
-        assertCase label msg cond = assert (label ++ " " ++ msg) cond
+        assertCase label msg = assert (label ++ " " ++ msg)
     Control.Monad.forM_ stateCases $ \(prevPos, prevSize) ->
         Control.Monad.forM_ [False, True] $ \isBuy ->
             Control.Monad.forM_ qtyCases $ \qtyRaw -> do
@@ -2357,7 +2357,7 @@ testApplyReduceOnlyExecutedQuantityInvariantGrid = do
                 * if prevPos == 0
                     then 0
                     else max 0 prevSize
-        assertCase label msg cond = assert (label ++ " " ++ msg) cond
+        assertCase label msg = assert (label ++ " " ++ msg)
     Control.Monad.forM_ stateCases $ \(prevPos, prevSize) ->
         Control.Monad.forM_ qtyCases $ \qtyRaw -> do
             let qty = sanitizeQty qtyRaw
