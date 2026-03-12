@@ -14,9 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: haskell-actions/setup@v2
+      - uses: haskell/ghcup-setup@v1
         with:
-          ghc-version: "9.4.8"
+          ghc: "9.4.8"
+          cabal: latest
 
       - name: Cache Cabal artifacts
         uses: actions/cache@v5
