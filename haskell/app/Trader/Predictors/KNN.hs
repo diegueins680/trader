@@ -170,12 +170,9 @@ featureScales featureDim means dataset =
     ]
 
 normalizeVector :: [Double] -> [Double] -> [Double] -> [Double]
-normalizeVector means scales xs =
+normalizeVector =
     zipWith3
         (\mu s x -> if s <= 1e-12 then x - mu else (x - mu) / s)
-        means
-        scales
-        xs
 
 squaredDistance :: [Double] -> [Double] -> Double
 squaredDistance xs ys =

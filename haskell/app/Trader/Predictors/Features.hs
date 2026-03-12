@@ -19,6 +19,7 @@ module Trader.Predictors.Features (
     buildDatasetWithInputsWithMarket,
 ) where
 
+import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 
 import Trader.MarketContext (MarketModel (..))
@@ -237,10 +238,7 @@ barAt inputs t
                             if t <= 0
                                 then closePx
                                 else closeOr closePx (t - 1)
-                        openPx =
-                            case validVectorValue (fiOpen inputs) t of
-                                Just v -> v
-                                Nothing -> prevClose
+                        openPx = fromMaybe prevClose (validVectorValue (fiOpen inputs) t)
                         highBase = max openPx closePx
                         lowBase = min openPx closePx
                         highPx =
@@ -345,10 +343,7 @@ klineFeatures inputs barNow t ret1 retShort retMid rsShort rsMid shortB midB =
             if t <= 0
                 then barClose barNow
                 else fiClose inputs V.! (t - 1)
-        gapRet =
-            case finiteReturn prevClose (barOpen barNow) of
-                Just v -> v
-                Nothing -> 0
+        gapRet = fromMaybe 0 (finiteReturn prevClose (barOpen barNow))
         barsShort = fromMaybeList [barNow] (barsEndingAt inputs t shortB)
         barsMid = fromMaybeList barsShort (barsEndingAt inputs t midB)
         barsShortPrev = fromMaybeList [] (barsEndingAt inputs (t - 1) shortB)
@@ -443,10 +438,7 @@ efficiencyRatio netRet rs =
             else abs netRet / denom
 
 fromMaybeList :: [a] -> Maybe [a] -> [a]
-fromMaybeList fallback mXs =
-    case mXs of
-        Just xs -> xs
-        Nothing -> fallback
+fromMaybeList = fromMaybe
 
 meanList :: [Double] -> Double
 meanList xs =
