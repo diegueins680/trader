@@ -240,7 +240,7 @@ import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Optimize (normalizeObjectiveCode, objectiveScore)
-import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
@@ -9060,7 +9060,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             then requestedQty
                             else fromMaybe 0 (executedQtyFromOrder requestedQty oPartial)
                     (posAfterPartial, remainingSizeRaw, closedQty, _) =
-                        applyExecutedQuantity prevPos prevSize (opSide == "BUY") executedQtyRaw
+                        applyReduceOnlyExecutedQuantity prevPos prevSize executedQtyRaw
                     partialSize = max 0 (min prevSize closedQty)
                     remainingSize = max 0 remainingSizeRaw
                     appliedPartial = isPositiveQty partialSize
@@ -9170,8 +9170,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             , haltedAt1
                             )
                     else do
+                        let closeOnlySwitch = desiredPosWanted == 0 && prevPos /= 0
                         o <-
-                            if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
+                            if argPositioning args == LongShort && closeOnlySwitch
                                 then placeBotCloseIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
                                 else placeIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
                         let opSide =
@@ -9190,7 +9191,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 | alreadyMsg = requestedQty
                                 | otherwise = fromMaybe 0 (executedQtyFromOrder requestedQty o)
                             (posNew, sizeNew, closeQty, openQty) =
-                                applyExecutedQuantity prevPos prevSize (opSide == "BUY") executedQtyRaw
+                                if closeOnlySwitch
+                                    then applyReduceOnlyExecutedQuantity prevPos prevSize executedQtyRaw
+                                    else applyExecutedQuantity prevPos prevSize (opSide == "BUY") executedQtyRaw
                             appliedExecution =
                                 isPositiveQty closeQty || isPositiveQty openQty
                             eqAfterFee =

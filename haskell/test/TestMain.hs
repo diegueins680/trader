@@ -51,7 +51,7 @@ import Trader.Optimization (TuneObjective (..), bestFinalEquity, optimizeOperati
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (normalizeObjectiveCode, normalizeOptionalPositiveFraction, objectiveScore, qualityPresetIntervalFields, sampleTakeProfitPartial)
 import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
-import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (Platform (..), coinbaseIntervalSeconds, isPlatformInterval, krakenIntervalMinutes, parsePlatform, poloniexIntervalLabel, poloniexIntervalSeconds)
 import Trader.Poloniex (PoloniexCandle (..), decodePoloniexCandles, normalizePoloniexCandles)
 import Trader.Predictors (Interval (..), Quantiles (..), RegimeProbs (..), SensorId (..), SensorOutput (..), initHMMFilter, predictSensors, trainPredictors)
@@ -208,6 +208,9 @@ main = do
               , run "order combo keeps origin combo while position is open" testOrderComboUuid
               , run "order execution uses fill evidence for live orders" testOrderAppliedQuantity
               , run "order execution updates position by executed qty" testApplyExecutedQuantity
+              , run "reduce-only order execution clamps oversize fills at flat" testApplyReduceOnlyExecutedQuantity
+              , run "order execution transition invariants hold across grid" testApplyExecutedQuantityInvariantGrid
+              , run "reduce-only order execution invariants hold across grid" testApplyReduceOnlyExecutedQuantityInvariantGrid
               , run "signal gate emits MTF_WARMUP reason" testSignalGateMtfWarmup
               , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
               , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
@@ -2231,6 +2234,8 @@ testOrderAppliedQuantity = do
     assert "live canceled status still applies executed qty when present" (orderAppliedQuantity (mk True True (Just "CANCELED") (Just 0.4)) 2.5 == Just 0.4)
     assert "live expired status still applies executed qty when present" (orderAppliedQuantity (mk True True (Just "EXPIRED") (Just 0.2)) 2.5 == Just 0.2)
     assert "live filled status falls back when executed qty missing" (orderAppliedQuantity (mk True True (Just "FILLED") Nothing) 2.5 == Just 2.5)
+    assert "live explicit fill is not capped by requested qty" (orderAppliedQuantity (mk True True (Just "PARTIALLY_FILLED") (Just 0.8)) 0.5 == Just 0.8)
+    assert "live explicit fill still applies when requested qty is unavailable" (orderAppliedQuantity (mk True True (Just "PARTIALLY_FILLED") (Just 0.8)) 0 == Just 0.8)
 
 testApplyExecutedQuantity :: IO ()
 testApplyExecutedQuantity = do
@@ -2263,6 +2268,126 @@ testApplyExecutedQuantity = do
     assertApprox "dust over-close keeps zero size" 1e-12 size5 0
     assertApprox "dust over-close still closes prior size" 1e-9 close5 1
     assertApprox "dust over-close does not open opposite side" 1e-12 open5 0
+
+testApplyReduceOnlyExecutedQuantity :: IO ()
+testApplyReduceOnlyExecutedQuantity = do
+    let (pos1, size1, close1, open1) = applyReduceOnlyExecutedQuantity 1 2 0.5
+    assert "reduce-only partial close keeps long side" (pos1 == 1)
+    assertApprox "reduce-only partial close size" 1e-12 size1 1.5
+    assertApprox "reduce-only partial close qty tracked" 1e-12 close1 0.5
+    assertApprox "reduce-only partial close never opens opposite side" 1e-12 open1 0
+
+    let (pos2, size2, close2, open2) = applyReduceOnlyExecutedQuantity 1 2 3
+    assert "oversize reduce-only sell stays flat" (pos2 == 0)
+    assertApprox "oversize reduce-only sell keeps zero size" 1e-12 size2 0
+    assertApprox "oversize reduce-only sell closes full prior size" 1e-12 close2 2
+    assertApprox "oversize reduce-only sell opens no opposite size" 1e-12 open2 0
+
+    let (pos3, size3, close3, open3) = applyReduceOnlyExecutedQuantity (-1) 1.25 5
+    assert "oversize reduce-only buy-to-close stays flat" (pos3 == 0)
+    assertApprox "oversize reduce-only buy-to-close keeps zero size" 1e-12 size3 0
+    assertApprox "oversize reduce-only buy-to-close closes full prior size" 1e-12 close3 1.25
+    assertApprox "oversize reduce-only buy-to-close opens no opposite size" 1e-12 open3 0
+
+    let (pos4, size4, close4, open4) = applyReduceOnlyExecutedQuantity 1 1 1.0000000005
+    assert "dust oversize reduce-only fill stays flat" (pos4 == 0)
+    assertApprox "dust oversize reduce-only fill keeps zero size" 1e-12 size4 0
+    assertApprox "dust oversize reduce-only fill still closes prior size" 1e-9 close4 1
+    assertApprox "dust oversize reduce-only fill opens no opposite size" 1e-12 open4 0
+
+testApplyExecutedQuantityInvariantGrid :: IO ()
+testApplyExecutedQuantityInvariantGrid = do
+    let eps = 1e-9
+        nan = 0 / 0
+        inf = 1 / 0
+        qtyCases = [-1, 0, 5e-10, 0.25, 1, 3, nan, inf]
+        stateCases =
+            [ (-1, 0)
+            , (-1, 0.75)
+            , (0, 0)
+            , (0, 1.5)
+            , (1, 0)
+            , (1, 0.75)
+            , (1, 2)
+            ]
+        sanitizeQty qtyRaw
+            | not (isFiniteDouble qtyRaw) = 0
+            | qtyRaw <= eps = 0
+            | otherwise = qtyRaw
+        previousSigned prevPos prevSize = fromIntegral (signum prevPos) * max 0 prevSize
+        assertCase label msg = assert (label ++ " " ++ msg)
+    Control.Monad.forM_ stateCases $ \(prevPos, prevSize) ->
+        Control.Monad.forM_ [False, True] $ \isBuy ->
+            Control.Monad.forM_ qtyCases $ \qtyRaw -> do
+                let qty = sanitizeQty qtyRaw
+                    deltaSigned = if isBuy then qty else negate qty
+                    expectedSigned = previousSigned prevPos prevSize + deltaSigned
+                    (posNew, sizeNew, closeQty, openQty) =
+                        applyExecutedQuantity prevPos prevSize isBuy qtyRaw
+                    actualSigned = fromIntegral posNew * sizeNew
+                    label =
+                        "applyExecutedQuantity case "
+                            ++ show (prevPos, prevSize, isBuy, qtyRaw)
+                assertCase label "keeps position sign normalized" (posNew `elem` [-1, 0, 1])
+                assertCase label "keeps outputs finite" (all isFiniteDouble [sizeNew, closeQty, openQty])
+                assertCase label "keeps outputs non-negative" (all (>= 0) [sizeNew, closeQty, openQty])
+                assertCase label "keeps flat size at zero" (posNew /= 0 || sizeNew == 0)
+                assertCase label "bounds close qty by prior size" (closeQty <= max 0 prevSize + eps)
+                assertCase label "bounds applied qty by sanitized fill" (closeQty + openQty <= qty + eps)
+                assertApprox (label ++ " preserves signed exposure delta") eps actualSigned expectedSigned
+
+testApplyReduceOnlyExecutedQuantityInvariantGrid :: IO ()
+testApplyReduceOnlyExecutedQuantityInvariantGrid = do
+    let eps = 1e-9
+        qtyCases = [-1, 0, 5e-10, 0.25, 1, 3, 0 / 0, 1 / 0]
+        stateCases =
+            [ (-1, 0)
+            , (-1, 0.75)
+            , (-1, 2)
+            , (0, 0)
+            , (0, 1.5)
+            , (1, 0)
+            , (1, 0.75)
+            , (1, 2)
+            ]
+        sanitizeQty qtyRaw
+            | not (isFiniteDouble qtyRaw) = 0
+            | qtyRaw <= eps = 0
+            | otherwise = qtyRaw
+        priorSigned prevPos prevSize =
+            fromIntegral (signum prevPos)
+                * if prevPos == 0
+                    then 0
+                    else max 0 prevSize
+        assertCase label msg = assert (label ++ " " ++ msg)
+    Control.Monad.forM_ stateCases $ \(prevPos, prevSize) ->
+        Control.Monad.forM_ qtyCases $ \qtyRaw -> do
+            let qty = sanitizeQty qtyRaw
+                currentSigned = priorSigned prevPos prevSize
+                currentSize = abs currentSigned
+                expectedClose = min currentSize qty
+                expectedSize = max 0 (currentSize - expectedClose)
+                expectedPos
+                    | expectedSize <= eps = 0
+                    | otherwise = signum prevPos
+                expectedSigned = fromIntegral expectedPos * expectedSize
+                (posNew, sizeNew, closeQty, openQty) =
+                    applyReduceOnlyExecutedQuantity prevPos prevSize qtyRaw
+                actualSigned = fromIntegral posNew * sizeNew
+                label =
+                    "applyReduceOnlyExecutedQuantity case "
+                        ++ show (prevPos, prevSize, qtyRaw)
+            assertCase label "keeps position sign normalized" (posNew `elem` [-1, 0, 1])
+            assertCase label "keeps outputs finite" (all isFiniteDouble [sizeNew, closeQty, openQty])
+            assertCase label "keeps outputs non-negative" (all (>= 0) [sizeNew, closeQty, openQty])
+            assertCase label "never opens a new leg" (openQty == 0)
+            assertCase label "never flips the side" (posNew == 0 || posNew == signum prevPos)
+            assertCase label "keeps flat size at zero" (posNew /= 0 || sizeNew == 0)
+            assertCase label "bounds close qty by prior size" (closeQty <= currentSize + eps)
+            assertCase label "bounds close qty by sanitized fill" (closeQty <= qty + eps)
+            assertApprox (label ++ " preserves reduce-only size") eps sizeNew expectedSize
+            assertApprox (label ++ " preserves reduce-only close qty") eps closeQty expectedClose
+            assertApprox (label ++ " preserves reduce-only signed exposure") eps actualSigned expectedSigned
 
 runSignalPostGate ::
     Bool ->
