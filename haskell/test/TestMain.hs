@@ -14,7 +14,7 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, sort, sortOn)
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Maybe
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -66,7 +66,7 @@ import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
-import Trader.TopCombosStore (comboPerformanceKey, mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue)
+import Trader.TopCombosStore (comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
 main :: IO ()
@@ -222,6 +222,7 @@ main = do
               , run "top combos merge ignores non-numeric boolean scores" testMergeTopCombosIgnoresBooleanScore
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "top combos merge keeps same params across distinct sources" testMergeTopCombosKeepsDistinctSources
+              , run "top combos identity keys keep distinct sources separate" testComboIdentityKeyKeepsDistinctSources
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
@@ -384,6 +385,15 @@ requireComboSource label val =
             case KM.lookup "source" o >>= AT.parseMaybe Aeson.parseJSON of
                 Just source -> source
                 Nothing -> error (label ++ ": missing source")
+        _ -> error (label ++ ": combo is not an object")
+
+requireComboUuid :: String -> Aeson.Value -> String
+requireComboUuid label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "uuid" o >>= AT.parseMaybe Aeson.parseJSON of
+                Just uuid -> uuid
+                Nothing -> error (label ++ ": missing uuid")
         _ -> error (label ++ ": combo is not an object")
 
 requireComboBars :: String -> Aeson.Value -> Int
@@ -2497,6 +2507,21 @@ testMergeTopCombosKeepsDistinctSources = do
     assert "same params should be kept when payload sources differ" (length combos == 2)
     assert "merged combos preserve distinct payload sources" (sources == ["unit-source-a", "unit-source-b"])
 
+testComboIdentityKeyKeepsDistinctSources :: IO ()
+testComboIdentityKeyKeepsDistinctSources = do
+    let mkCombo source =
+            object
+                [ "source" .= source
+                , "params" .= object ["symbol" .= ("BTCUSDT" :: String)]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                ]
+        keyA = comboIdentityKey (mkCombo ("unit-source-a" :: String))
+        keyB = comboIdentityKey (mkCombo ("unit-source-b" :: String))
+    assert "combo identity key should exist for valid combos" (isJust keyA && isJust keyB)
+    assert "combo identity keys should differ when source differs" (keyA /= keyB)
+
 testComboPerformanceKeyRanksScoreBeforeEquity :: IO ()
 testComboPerformanceKeyRanksScoreBeforeEquity = do
     let mkCombo sym score eq =
@@ -2650,8 +2675,10 @@ testRunMergePreservesDistinctPayloadSources =
                 [mkPayload ("unit-source-b" :: String) (2 :: Int) (1.3 :: Double)]
         let combos = requireCombosArray "merge distinct payload source combos" outValue
             sources = sort (map (requireComboSource "merge distinct payload source combo") combos)
+            uuids = sort (map (requireComboUuid "merge distinct payload source combo") combos)
         assert "runMerge should keep combos distinct when only payload source differs" (length combos == 2)
         assert "runMerge should propagate payload-level source metadata into merged combos" (sources == ["unit-source-a", "unit-source-b"])
+        assert "runMerge should assign distinct uuids per source" (length uuids == 2 && head uuids /= last uuids)
 
 testRunMergePreservesDexPlatformSymbolSemantics :: IO ()
 testRunMergePreservesDexPlatformSymbolSemantics =

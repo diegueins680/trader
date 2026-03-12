@@ -5487,13 +5487,17 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "fundingOiSizeMult" .= tpFundingOiSizeMult params
                 , "binanceSymbol" .= symbol
                 ]
-        identity =
+        identityBase =
             object
                 [ "params" .= paramsValue
                 , "openThreshold" .= trOpenThreshold tr
                 , "closeThreshold" .= trCloseThreshold tr
                 , "objective" .= trObjective tr
                 ]
+        identity =
+            if null source
+                then identityBase
+                else addField "source" (Aeson.toJSON source) identityBase
         comboUuid = comboUuidFromValue identity
         combo =
             object

@@ -456,14 +456,34 @@ comboIdentityKey val = do
     let openThr = comboMetricValue "openThreshold" val
         closeThr = comboMetricValue "closeThreshold" val
         objective = comboMetricValue "objective" val
-        identity =
+        baseIdentity =
             object
                 [ "params" .= params
                 , "openThreshold" .= openThr
                 , "closeThreshold" .= closeThr
                 , "objective" .= objective
                 ]
+        identity =
+            case comboMetricValue "source" val >>= comboIdentitySourceValue of
+                Just source -> addField "source" source baseIdentity
+                Nothing -> baseIdentity
     pure (BL.toStrict (encodePretty identity))
+
+comboIdentitySourceValue :: Aeson.Value -> Maybe Aeson.Value
+comboIdentitySourceValue raw =
+    case raw of
+        Aeson.String txt ->
+            let source = trim (T.unpack txt)
+             in if null source
+                    then Nothing
+                    else Just (Aeson.String (T.pack source))
+        _ -> Nothing
+
+addField :: String -> Aeson.Value -> Aeson.Value -> Aeson.Value
+addField key value val =
+    case val of
+        Aeson.Object obj -> Aeson.Object (KM.insert (AK.fromString key) value obj)
+        _ -> val
 
 comboMergeKey :: Aeson.Value -> Maybe BS.ByteString
 comboMergeKey val = do
