@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Deploy/Fly: forward the Git commit SHA into both Fly Docker builds (`TRADER_GIT_COMMIT`) so `/health`, `/version`, and the web header build badge show the deployed commit instead of only the package version.
 - Optimizer/DB persistence: make combo UUIDs source-aware when a real combo `source` is present, persist that `source` in Postgres, and ignore legacy source-less DB rows once source-aware replacements exist, so Fly/ephemeral deployments keep all distinct combos across rebuilds instead of collapsing same-parameter combos from different sources.
 - Predictors/Backtests/CLI: add OHLCV-aware feature engineering (candle body/range/wick, ATR/breakout, volume shock, efficiency, plus market-context residual features) and new `knn` / `decision_tree` predictors wired through the existing `--predictors` Kalman/backtest/trade-only flow, so optimizer and backtest runs can learn from richer Kline context around entry/hold/exit decisions.
 - CLI/API/Web UI: allow `--positioning long-short` for exchange-data backtests/signals outside Binance futures (futures still required for order placement/live bots), reject the unsupported `--positioning short` alias, scope `bot/start` tenant derivation to the selected platform when mixed Binance/Coinbase credentials are present, and keep stopped bot snapshots with unknown `market` from being misclassified as market mismatches in the orphaned-position UI.

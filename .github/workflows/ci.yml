@@ -153,9 +153,9 @@ jobs:
           fi
 
           if [[ -n "${FLY_APP:-}" ]]; then
-            deploy_args=(deploy --remote-only --app "${FLY_APP}")
+            deploy_args=(deploy --remote-only --build-arg "TRADER_GIT_COMMIT=${GITHUB_SHA}" --app "${FLY_APP}")
           elif [[ -f fly.toml ]]; then
-            deploy_args=(deploy --remote-only)
+            deploy_args=(deploy --remote-only --build-arg "TRADER_GIT_COMMIT=${GITHUB_SHA}")
           else
             echo "::warning::No FLY_APP secret and no fly.toml found; skipping Fly deploy."
             exit 0

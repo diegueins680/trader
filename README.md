@@ -581,6 +581,7 @@ Tenant isolation (multi-user UI):
 Build info:
 - `GET /`, `GET /health`, and `GET /version` include build version details.
 - Commit metadata is included when env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA` is set.
+- For Fly Docker deploys, pass `--build-arg TRADER_GIT_COMMIT=$(git rev-parse HEAD)` so `/health`, `/version`, and the UI build badge retain the deployed commit.
 
 Endpoints:
 - `GET /` → build metadata plus the advertised endpoint list
@@ -969,6 +970,7 @@ If an S3 bucket already exists and is owned by you, the quick deploy script trea
 
 CI/CD (GitHub Actions):
 - On push to `main`/`master`, `.github/workflows/ci.yml` deploys to Fly.io via `flyctl deploy --remote-only` after CI passes.
+- The Fly deploy step forwards `TRADER_GIT_COMMIT=$GITHUB_SHA` as a Docker build arg, so the deployed API `/health` response and the header build badge show the pushed commit.
 - Haskell CI gates enforce formatting (`fourmolu --mode check`), lint (`hlint`), `cabal build`, and `cabal test`.
 - Required secret: `FLY_API_TOKEN` (use a Fly deploy token, for example from `fly tokens create deploy`).
 - Optional secret: `FLY_APP` (if unset, Fly uses the app configured in `fly.toml`).
@@ -1011,6 +1013,7 @@ The UI layout uses a refreshed header, section grouping, and spacing for faster 
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
 The header title now also shows the running system build (`version` + short `commit`) from `/health` for quick deployment verification, with fallback to the UI build commit when `/health` omits `commit`.
+When building the standalone Fly frontend image, pass `--build-arg TRADER_GIT_COMMIT=$(git rev-parse HEAD)` so the UI fallback commit is embedded even when the backend omits commit metadata.
 The header also exposes layout controls (expand/collapse all, reset layout) plus per-page issue badges and a quick issues dropdown with jump links; expand/collapse all also controls the floating Bot activity panel, and the layout controls display a dismissible hint that it is included.
 Collapsible panels now include explicit Maximize/Restore and Expand/Collapse controls in their headers, including the optimizer combos dock.
 Configuration uses a menu bar to switch between single-section pages (API, Market, Lookback, Thresholds, Risk, Optimizer run, Optimization, Live bot, Trade) and expands into a full-page scroll rather than fixed-height panels; sections and result panels remain collapsible, the UI remembers open/closed state locally, and starts low-signal panels (Data Log, Request preview) collapsed by default.

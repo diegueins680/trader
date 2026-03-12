@@ -37,9 +37,11 @@ WORKDIR /opt/trader/haskell
 COPY haskell/web/public /opt/trader/haskell/web/public
 COPY top-combos.s3.json /opt/trader/haskell/web/public/top-combos.json
 
+ARG TRADER_GIT_COMMIT=""
 ENV TRADER_STATE_DIR=/var/lib/trader/state
 ENV TRADER_API_ASYNC_DIR=/var/lib/trader/async
 ENV TRADER_LSTM_WEIGHTS_DIR=/var/lib/trader/lstm
+ENV TRADER_GIT_COMMIT=${TRADER_GIT_COMMIT}
 
 RUN mkdir -p /var/lib/trader/async /var/lib/trader/lstm /var/lib/trader/state /opt/trader/haskell/.tmp/optimizer \
   && chown -R 65532:65532 /var/lib/trader /opt/trader/haskell/.tmp
