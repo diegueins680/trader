@@ -30,7 +30,7 @@ import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatf
 import Trader.Binance (BinanceMarket (..), BinanceOrderMode (..), BinanceTrade (..), Kline (..), OrderSide (..), binanceBaseUrl, newBinanceEnv, placeMarketOrder, signQuery)
 import Trader.BinanceIntervals (binanceIntervalsCsv, isBinanceInterval)
 import Trader.BotStartSemantics (botTradeEnabledFromApi, shouldClearPositionOriginOnStart, shouldPersistPositionOriginOnSwitch, shouldPreserveProvidedComboOnActiveAdopt, shouldResolveOriginComboOnAutoStart)
-import Trader.Cache (fetchWithCache, insertCache, newTtlCache)
+import Trader.Cache (cacheSize, fetchWithCache, insertCache, newTtlCache)
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles, normalizeCoinbaseCandles)
 import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
@@ -197,6 +197,7 @@ main = do
               , run "retry jitter respects configured max delay" testRetryJitterMaxDelayClamp
               , run "cache returns stale value on quick upstream failure" testCacheQuickFailureUsesStale
               , run "cache rejects stale value after slow upstream failure" testCacheSlowFailureRejectsExpiredStale
+              , run "cache prunes expired entries on access" testCachePrunesExpiredEntriesOnAccess
               , run "initial balance must be positive" testInitialBalanceValidation
               , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
               , run "bot/auto-start resolves origin combo for active adoption" testAutoStartResolvesOriginComboForActiveAdopt
@@ -2145,6 +2146,20 @@ testCacheSlowFailureRejectsExpiredStale = do
     case result of
         Left _ -> pure ()
         Right _ -> error "expected expired stale cache entry to be rejected after slow failure"
+
+testCachePrunesExpiredEntriesOnAccess :: IO ()
+testCachePrunesExpiredEntriesOnAccess = do
+    cache <- newTtlCache
+    insertCache cache ("btc-usdt" :: String) (42 :: Int)
+    threadDelay 120000
+    fetched <- fetchWithCache cache 0 0.05 "eth-usdt" (pure (7 :: Int))
+    assert "cache keeps fresh fetch result after pruning expired entries" (fetched == 7)
+    size <- cacheSize cache
+    assert "cache prunes expired entries while serving a new key" (size == 1)
+    result <- try (fetchWithCache cache 0 0.05 "btc-usdt" (fail "upstream failed")) :: IO (Either SomeException Int)
+    case result of
+        Left _ -> pure ()
+        Right _ -> error "expected pruned expired cache entry to be unavailable"
 
 testInitialBalanceValidation :: IO ()
 testInitialBalanceValidation =

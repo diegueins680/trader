@@ -5,6 +5,7 @@ module Trader.Cache (
     newTtlCache,
     fetchWithCache,
     insertCache,
+    cacheSize,
 ) where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
@@ -21,7 +22,7 @@ newTtlCache = TtlCache <$> newMVar Map.empty
 fetchWithCache :: (Ord k) => TtlCache k v -> NominalDiffTime -> NominalDiffTime -> k -> IO v -> IO v
 fetchWithCache cache freshTtl staleTtl key action = do
     now <- getCurrentTime
-    mEntry <- readEntry cache key
+    mEntry <- readFreshEntry cache staleTtl now key
     case mEntry of
         Just (ts, val) | diffUTCTime now ts <= freshTtl -> pure val
         _ -> do
@@ -32,16 +33,28 @@ fetchWithCache cache freshTtl staleTtl key action = do
                     pure val
                 Left (err :: SomeException) -> do
                     nowAfter <- getCurrentTime
-                    mFallback <- readEntry cache key
+                    mFallback <- readFreshEntry cache staleTtl nowAfter key
                     case mFallback of
-                        Just (ts, val) | diffUTCTime nowAfter ts <= staleTtl -> pure val
+                        Just (_, val) -> pure val
                         _ -> throwIO err
 
 insertCache :: (Ord k) => TtlCache k v -> k -> v -> IO ()
 insertCache = insertEntry
 
+cacheSize :: TtlCache k v -> IO Int
+cacheSize (TtlCache ref) = Map.size <$> readMVar ref
+
 readEntry :: (Ord k) => TtlCache k v -> k -> IO (Maybe (UTCTime, v))
 readEntry (TtlCache ref) key = Map.lookup key <$> readMVar ref
+
+readFreshEntry :: (Ord k) => TtlCache k v -> NominalDiffTime -> UTCTime -> k -> IO (Maybe (UTCTime, v))
+readFreshEntry (TtlCache ref) staleTtl now key =
+    modifyMVar ref $ \m ->
+        let pruned = pruneExpiredEntries staleTtl now m
+         in pure (pruned, Map.lookup key pruned)
+
+pruneExpiredEntries :: NominalDiffTime -> UTCTime -> Map k (UTCTime, v) -> Map k (UTCTime, v)
+pruneExpiredEntries staleTtl now = Map.filter (\(ts, _) -> diffUTCTime now ts <= staleTtl)
 
 insertEntry :: (Ord k) => TtlCache k v -> k -> v -> IO ()
 insertEntry (TtlCache ref) key val = do
