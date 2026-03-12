@@ -545,6 +545,8 @@ cd haskell
 cabal test
 ```
 
+From the repo root, `npm run build` and `npm run test` now pin Cabal state to the tracked `./.cabal` directory, so shared scripts do not depend on or write to a user-specific `~/.cabal`.
+
 REST API
 --------
 Run the bot as a REST API:
@@ -1035,6 +1037,7 @@ The Trade result panel shows the backend server egress IP (when available) with 
 Binance “Check keys” only upgrades trade-test failures to “Auth OK, but order rejected” for clear order-validation errors; auth/IP/permission failures stay marked as `FAIL`.
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 Missing/invalid saved symbols fall back to platform defaults, and trade-test skips surface as a warning callout with the skip reason.
+Optimizer-run fields that represent counts or bar windows now require whole numbers; fractional values are rejected instead of being truncated client-side.
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.

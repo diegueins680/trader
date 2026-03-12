@@ -33,6 +33,10 @@ haskell/.stack-root/
 haskell/stack.yaml.lock
 haskell/.cabal-config
 haskell/.cabal/
+.cabal/bin/
+.cabal/logs/
+.cabal/packages/
+.cabal/store/
 .cabal-sandbox/
 cabal.sandbox.config
 .ghc.environment.*

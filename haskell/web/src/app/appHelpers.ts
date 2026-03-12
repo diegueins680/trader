@@ -1102,8 +1102,31 @@ export function parseOptionalNumber(raw: string): number | undefined {
 
 export function parseOptionalInt(raw: string): number | undefined {
   const parsed = parseOptionalNumber(raw);
-  if (parsed == null) return undefined;
-  return Math.trunc(parsed);
+  if (parsed == null || !Number.isInteger(parsed)) return undefined;
+  return parsed;
+}
+
+export type OptionalWholeNumberField = {
+  label: string;
+  raw: string;
+  override?: unknown;
+};
+
+export function findOptionalWholeNumberFieldError(fields: OptionalWholeNumberField[]): string | null {
+  for (const field of fields) {
+    if (typeof field.override === "number") {
+      if (!Number.isFinite(field.override) || !Number.isInteger(field.override)) {
+        return `${field.label} must be a whole number.`;
+      }
+      continue;
+    }
+    const trimmed = field.raw.trim();
+    if (!trimmed) continue;
+    if (parseOptionalInt(trimmed) == null) {
+      return `${field.label} must be a whole number.`;
+    }
+  }
+  return null;
 }
 
 export function parseOptionalString(raw: string): string | undefined {

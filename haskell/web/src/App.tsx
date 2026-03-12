@@ -220,6 +220,7 @@ import {
   downloadTextFile,
   emptyBotRtState,
   emptyBotRtTracker,
+  findOptionalWholeNumberFieldError,
   formApplySignature,
   formatDatetimeLocal,
   formatDirectionLabel,
@@ -1734,6 +1735,42 @@ export function App() {
       typeof extras.intervals === "string" ? extras.intervals.trim() : optimizerRunForm.intervals.trim();
     const lookbackWindow =
       typeof extras.lookbackWindow === "string" ? extras.lookbackWindow.trim() : optimizerRunForm.lookbackWindow.trim();
+    const wholeNumberError = findOptionalWholeNumberFieldError([
+      { label: "Bars min", raw: optimizerRunForm.barsMin, override: extras.barsMin },
+      { label: "Bars max", raw: optimizerRunForm.barsMax, override: extras.barsMax },
+      { label: "Trials", raw: optimizerRunForm.trials, override: extras.trials },
+      { label: "Seed", raw: optimizerRunForm.seed, override: extras.seed },
+      { label: "Seed trials", raw: optimizerRunForm.seedTrials, override: extras.seedTrials },
+      { label: "Perturb scale int", raw: optimizerRunForm.perturbScaleInt, override: extras.perturbScaleInt },
+      { label: "Early stop no improve", raw: optimizerRunForm.earlyStopNoImprove, override: extras.earlyStopNoImprove },
+      { label: "Epochs min", raw: optimizerRunForm.epochsMin, override: extras.epochsMin },
+      { label: "Epochs max", raw: optimizerRunForm.epochsMax, override: extras.epochsMax },
+      { label: "Hidden size min", raw: optimizerRunForm.hiddenSizeMin, override: extras.hiddenSizeMin },
+      { label: "Hidden size max", raw: optimizerRunForm.hiddenSizeMax, override: extras.hiddenSizeMax },
+      { label: "Patience max", raw: optimizerRunForm.patienceMax, override: extras.patienceMax },
+      { label: "Min round trips", raw: optimizerRunForm.minRoundTrips, override: extras.minRoundTrips },
+      { label: "Walk-forward folds min", raw: optimizerRunForm.walkForwardFoldsMin, override: extras.walkForwardFoldsMin },
+      { label: "Walk-forward folds max", raw: optimizerRunForm.walkForwardFoldsMax, override: extras.walkForwardFoldsMax },
+      {
+        label: "Walk-forward embargo bars min",
+        raw: optimizerRunForm.walkForwardEmbargoBarsMin,
+        override: extras.walkForwardEmbargoBarsMin,
+      },
+      {
+        label: "Walk-forward embargo bars max",
+        raw: optimizerRunForm.walkForwardEmbargoBarsMax,
+        override: extras.walkForwardEmbargoBarsMax,
+      },
+      { label: "Min hold bars min", raw: optimizerRunForm.minHoldBarsMin, override: extras.minHoldBarsMin },
+      { label: "Min hold bars max", raw: optimizerRunForm.minHoldBarsMax, override: extras.minHoldBarsMax },
+      { label: "Cooldown bars min", raw: optimizerRunForm.cooldownBarsMin, override: extras.cooldownBarsMin },
+      { label: "Cooldown bars max", raw: optimizerRunForm.cooldownBarsMax, override: extras.cooldownBarsMax },
+      { label: "Max hold bars min", raw: optimizerRunForm.maxHoldBarsMin, override: extras.maxHoldBarsMin },
+      { label: "Max hold bars max", raw: optimizerRunForm.maxHoldBarsMax, override: extras.maxHoldBarsMax },
+      { label: "Trend lookback min", raw: optimizerRunForm.trendLookbackMin, override: extras.trendLookbackMin },
+      { label: "Trend lookback max", raw: optimizerRunForm.trendLookbackMax, override: extras.trendLookbackMax },
+    ]);
+    if (wholeNumberError) return wholeNumberError;
     const trials = typeof extras.trials === "number" ? extras.trials : parseOptionalInt(optimizerRunForm.trials);
     const timeoutSec =
       typeof extras.timeoutSec === "number" ? extras.timeoutSec : parseOptionalNumber(optimizerRunForm.timeoutSec);

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { binanceTradeKey, buildBinanceTradeIpMap } from "../.tmp/web-tests/appHelpers.js";
+import {
+  binanceTradeKey,
+  buildBinanceTradeIpMap,
+  findOptionalWholeNumberFieldError,
+  parseOptionalInt,
+} from "../.tmp/web-tests/appHelpers.js";
 
 function mkTrade({
   symbol = "FILUSDT",
@@ -81,3 +86,24 @@ test("buildBinanceTradeIpMap aggregates entry IPs when multiple opening lots are
   assert.deepEqual(meta.get(closeKey), { entryIp: "1.1.1.1 • 4.4.4.4", exitIp: "9.9.9.9", entryTime: t0, exitTime: t2 });
 });
 
+test("parseOptionalInt accepts whole numbers and rejects fractional values", () => {
+  assert.equal(parseOptionalInt("123"), 123);
+  assert.equal(parseOptionalInt("1,234"), 1234);
+  assert.equal(parseOptionalInt("12.5"), undefined);
+  assert.equal(parseOptionalInt("0,5"), undefined);
+});
+
+test("findOptionalWholeNumberFieldError reports invalid form and override values", () => {
+  assert.equal(
+    findOptionalWholeNumberFieldError([{ label: "Trials", raw: "12.5" }]),
+    "Trials must be a whole number.",
+  );
+  assert.equal(
+    findOptionalWholeNumberFieldError([{ label: "Bars min", raw: "", override: 10.25 }]),
+    "Bars min must be a whole number.",
+  );
+  assert.equal(
+    findOptionalWholeNumberFieldError([{ label: "Seed", raw: "100" }, { label: "Bars max", raw: "", override: 500 }]),
+    null,
+  );
+});

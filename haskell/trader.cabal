@@ -38,6 +38,8 @@ executable trader-hs
                      , Trader.MarketContext
                      , Trader.Normalization
                      , Trader.Optimization
+                     , Trader.Optimizer.Optimize
+                     , Trader.Optimizer.Random
                      , Trader.OrderExecution
                      , Trader.Ops.Migrations
                      , Trader.Optimizer.Json
@@ -110,11 +112,11 @@ executable optimize-equity
                      , Trader.Kalman3
                      , Trader.Method
                      , Trader.Metrics
-                     , Trader.Optimization
                      , Trader.Platform
                      , Trader.Optimizer.Json
                      , Trader.Optimizer.Optimize
                      , Trader.Optimizer.Random
+                     , Trader.Optimization
                      , Trader.Symbol
                      , Trader.Trading
   default-language:    Haskell2010
