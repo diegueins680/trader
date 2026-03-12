@@ -2,6 +2,7 @@ module Trader.OrderExecution (
     OrderExecutionEvidence (..),
     orderAppliedQuantity,
     applyExecutedQuantity,
+    applyReduceOnlyExecutedQuantity,
 ) where
 
 import Data.Maybe (fromMaybe)
@@ -69,6 +70,37 @@ applyExecutedQuantity prevPos prevSize isBuy qtyRaw =
                 then 0
                 else openQtyRaw
      in (posNew, sizeNew, closeQty, openQty)
+
+applyReduceOnlyExecutedQuantity :: Int -> Double -> Double -> (Int, Double, Double, Double)
+applyReduceOnlyExecutedQuantity prevPos prevSize qtyRaw =
+    let eps = 1e-9
+        qty0 = fromMaybe 0 (positiveFinite qtyRaw)
+        qty =
+            if qty0 <= eps
+                then 0
+                else qty0
+        prevSign = signum prevPos
+        currentSize =
+            if prevSign == 0
+                then 0
+                else max 0 prevSize
+        closeQtyRaw =
+            if qty <= 0 || currentSize <= eps
+                then 0
+                else min currentSize qty
+        closeQty =
+            if closeQtyRaw <= eps
+                then 0
+                else closeQtyRaw
+        sizeNewRaw = max 0 (currentSize - closeQty)
+        sizeNew =
+            if sizeNewRaw <= eps
+                then 0
+                else sizeNewRaw
+        posNew
+            | sizeNew <= 0 = 0
+            | otherwise = prevSign
+     in (posNew, sizeNew, closeQty, 0)
 
 normalizedStatus :: Maybe String -> Maybe String
 normalizedStatus mRaw =
