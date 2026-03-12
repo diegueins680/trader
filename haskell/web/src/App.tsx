@@ -258,6 +258,7 @@ import {
   roundRatioDown,
   roundRatioUp,
   safeJsonParse,
+  sanitizeSymbolForPlatform,
   sanitizeFilenameSegment,
   sigBool,
   sigNumber,
@@ -1449,7 +1450,7 @@ export function App() {
   const normalizedSymbol = form.binanceSymbol.trim().toUpperCase();
   const symbolFormatError = useMemo(() => {
     if (!normalizedSymbol) return null;
-    return symbolFormatPattern(platform).test(normalizedSymbol)
+    return sanitizeSymbolForPlatform(platform, normalizedSymbol)
       ? null
       : `Symbol must match ${platformLabel} format (e.g., ${symbolFormatExample(platform)}).`;
   }, [normalizedSymbol, platform, platformLabel]);
@@ -3822,7 +3823,7 @@ export function App() {
 
   const tradeParams: ApiParams = useMemo(() => {
     const base: ApiParams = { ...commonParams };
-    if (form.platform === "binance" && form.binanceLive) base.binanceLive = true;
+    if ((form.platform === "binance" || form.platform === "coinbase") && form.binanceLive) base.binanceLive = true;
     const k = form.idempotencyKey.trim();
     const idOk = !k || (k.length <= 36 && /^[A-Za-z0-9_-]+$/.test(k));
     if (k && idOk) base.idempotencyKey = k;
@@ -7505,6 +7506,9 @@ export function App() {
     if (!isBinancePlatform && !isCoinbasePlatform) {
       return { message: "Trading is supported on Binance and Coinbase only.", targetId: "platform" };
     }
+    if (isCoinbasePlatform && !form.binanceLive) {
+      return { message: "Coinbase does not support test orders. Enable Live orders.", targetId: "section-trade" };
+    }
     if (isCoinbasePlatform && form.positioning === "long-short") {
       return { message: "Coinbase supports spot only (positioning=long-flat).", targetId: "positioning" };
     }
@@ -7516,6 +7520,7 @@ export function App() {
     }
     return null;
   }, [
+    form.binanceLive,
     form.market,
     form.positioning,
     isBinancePlatform,

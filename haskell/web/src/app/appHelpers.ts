@@ -27,6 +27,16 @@ import type { FormState } from "./formState";
 import type { cacheStats, health } from "../lib/api";
 import { PLATFORM_DEFAULT_SYMBOL } from "./constants";
 import { METHOD_TIPS } from "./methodMeta";
+import {
+  BINANCE_SYMBOL_PATTERN,
+  COMMON_QUOTES,
+  invalidSymbolsForPlatform,
+  normalizeComboSymbol,
+  sanitizeSymbolForPlatform,
+  symbolFormatExample,
+  symbolFormatPattern,
+  trimBinanceComboSuffix,
+} from "./symbols";
 import { clamp, normalizePositionSide, normalizeSymbolKey, numFromInput, positionSideFromAmount } from "./utils";
 
 export type RequestKind = "signal" | "backtest" | "trade";
@@ -198,22 +208,16 @@ export function parseSymbolsInput(raw: string): string[] {
   }
   return out;
 }
-
-export function symbolFormatPattern(platform: Platform): RegExp {
-  switch (platform) {
-    case "coinbase":
-      return /^[A-Z0-9]+-[A-Z0-9]+$/;
-    case "poloniex":
-      return /^[A-Z0-9]+_[A-Z0-9]+$/;
-    case "binance":
-    case "kraken":
-    default:
-      return /^[A-Z0-9]{3,30}$/;
-  }
-}
-
-export const COMMON_QUOTES = ["USDT", "USDC", "FDUSD", "TUSD", "BUSD", "BTC", "ETH", "BNB"];
-export const BINANCE_SYMBOL_PATTERN = /^[A-Z0-9]{3,30}$/;
+export {
+  BINANCE_SYMBOL_PATTERN,
+  COMMON_QUOTES,
+  invalidSymbolsForPlatform,
+  normalizeComboSymbol,
+  sanitizeSymbolForPlatform,
+  symbolFormatExample,
+  symbolFormatPattern,
+  trimBinanceComboSuffix,
+};
 export const EQUITY_TIPS = {
   preset: [
     'Use "Preset: Equity focus", then bump Trials/Timeout to widen the search.',
@@ -250,92 +254,6 @@ export const COMPLEX_TIPS = {
     "Embargo bars drop samples near fold edges to reduce leakage.",
   ],
 };
-
-export function trimBinanceComboSuffix(value: string): string | null {
-  const compact = value.replace(/[^A-Z0-9]/g, "");
-  if (!compact) return null;
-  let best: string | null = null;
-  for (const quote of COMMON_QUOTES) {
-    let idx = compact.indexOf(quote);
-    while (idx >= 0) {
-      const end = idx + quote.length;
-      if (end < compact.length) {
-        const suffix = compact.slice(end);
-        if (/\d/.test(suffix)) {
-          const candidate = compact.slice(0, end);
-          if (BINANCE_SYMBOL_PATTERN.test(candidate) && !COMMON_QUOTES.includes(candidate)) {
-            if (!best || candidate.length > best.length) best = candidate;
-          }
-        }
-      }
-      idx = compact.indexOf(quote, idx + 1);
-    }
-  }
-  return best;
-}
-
-export function normalizeComboSymbol(raw: string, platform: Platform | null): string {
-  const value = raw.trim().toUpperCase();
-  if (!value) return value;
-  const resolvedPlatform: Platform = platform ?? "binance";
-  const pattern = symbolFormatPattern(resolvedPlatform);
-  const isBinanceLike = resolvedPlatform === "binance" || resolvedPlatform === "kraken";
-
-  if (isBinanceLike) {
-    const trimmed = trimBinanceComboSuffix(value);
-    if (trimmed) return trimmed;
-  }
-
-  if (pattern.test(value)) return value;
-
-  if (resolvedPlatform === "coinbase") {
-    const parts = value.split("-");
-    if (parts.length >= 2) {
-      const candidate = `${parts[0]}-${parts[1]}`;
-      if (pattern.test(candidate)) return candidate;
-    }
-    return value;
-  }
-
-  if (resolvedPlatform === "poloniex") {
-    const parts = value.split("_");
-    if (parts.length >= 2) {
-      const candidate = `${parts[0]}_${parts[1]}`;
-      if (pattern.test(candidate)) return candidate;
-    }
-    return value;
-  }
-
-  if (isBinanceLike) {
-    const tokens = value.split(/[^A-Z0-9]+/).filter(Boolean);
-    if (tokens.length >= 2) {
-      const joined = `${tokens[0]}${tokens[1]}`;
-      if (tokens.length === 2 && pattern.test(joined)) return joined;
-      if (tokens.length >= 3 && /^[0-9]+[A-Z]$/.test(tokens[2] ?? "") && pattern.test(joined)) return joined;
-    }
-    if (tokens.length >= 1 && pattern.test(tokens[0] ?? "")) return tokens[0] ?? value;
-  }
-  return value;
-}
-
-export function symbolFormatExample(platform: Platform): string {
-  switch (platform) {
-    case "coinbase":
-      return "BTC-USD";
-    case "poloniex":
-      return "BTC_USDT";
-    case "kraken":
-      return "XBTUSD";
-    case "binance":
-    default:
-      return "BTCUSDT";
-  }
-}
-
-export function invalidSymbolsForPlatform(platform: Platform, symbols: string[]): string[] {
-  const pattern = symbolFormatPattern(platform);
-  return symbols.filter((sym) => !pattern.test(sym));
-}
 
 export function parseMaybeInt(raw: string): number | null {
   const trimmed = raw.trim();
@@ -1515,7 +1433,7 @@ export function optimizerSourceForPlatform(platform: Platform): OptimizerSource 
 export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform): OptimizerRunForm {
   return {
     source: optimizerSourceForPlatform(platform),
-    symbol: symbol.trim().toUpperCase(),
+    symbol: sanitizeSymbolForPlatform(platform, symbol) ?? symbol.trim().toUpperCase(),
     dataPath: "",
     priceColumn: "close",
     highColumn: "",
@@ -1583,8 +1501,8 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     edgeBufferMax: "",
     trendLookbackMin: "",
     trendLookbackMax: "",
-    rebalanceCostMultMin: "1",
-    rebalanceCostMultMax: "1",
+    rebalanceCostMultMin: "",
+    rebalanceCostMultMax: "",
     pCostAwareEdge: "",
     stopMin: "",
     stopMax: "",
@@ -2201,13 +2119,12 @@ export function applyComboToForm(
 ): FormState {
   const nextPlatform = combo.params.platform ?? prev.platform;
   const comboSymbolRaw = combo.params.binanceSymbol?.trim() ?? "";
-  const normalizedComboSymbol = comboSymbolRaw ? normalizeComboSymbol(comboSymbolRaw, nextPlatform) : "";
-  const comboSymbol =
-    normalizedComboSymbol && symbolFormatPattern(nextPlatform).test(normalizedComboSymbol) ? normalizedComboSymbol : "";
-  const prevSymbol = prev.binanceSymbol.trim().toUpperCase();
-  const prevSymbolValid = symbolFormatPattern(nextPlatform).test(prevSymbol);
-  const fallbackSymbol = PLATFORM_DEFAULT_SYMBOL[nextPlatform] ?? prev.binanceSymbol;
-  const symbol = comboSymbol || (prevSymbolValid ? prevSymbol : fallbackSymbol);
+  const comboSymbol = comboSymbolRaw ? sanitizeSymbolForPlatform(nextPlatform, comboSymbolRaw) : null;
+  const prevSymbol = sanitizeSymbolForPlatform(nextPlatform, prev.binanceSymbol);
+  const fallbackSymbol =
+    sanitizeSymbolForPlatform(nextPlatform, PLATFORM_DEFAULT_SYMBOL[nextPlatform] ?? prev.binanceSymbol)
+    ?? (PLATFORM_DEFAULT_SYMBOL[nextPlatform] ?? prev.binanceSymbol);
+  const symbol = comboSymbol ?? prevSymbol ?? fallbackSymbol;
   const interval = combo.params.interval;
   const method = manualOverrides?.has("method") ? prev.method : combo.params.method;
   const comboPositioning = combo.params.positioning ?? prev.positioning;

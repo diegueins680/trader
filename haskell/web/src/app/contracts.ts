@@ -33,6 +33,7 @@ export const METHOD_IDS = [
   "regime_switch",
   "router",
   "bandit_router",
+  "kalman_physics_error",
 ] as const;
 
 export type Method = (typeof METHOD_IDS)[number];

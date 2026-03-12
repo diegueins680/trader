@@ -11,16 +11,18 @@ Features
 - Multi-sensor Kalman fusion filter for latent expected return (`haskell/app/Trader/KalmanFusion.hs`).
 - Multiple predictive methods feeding into Kalman as an observation vector (`haskell/app/Trader/Predictors.hs`):
   - Gradient-boosted trees (LightGBM/CatBoost style, simplified)
+  - Distance-weighted k-nearest neighbors regression
+  - Decision-tree regression
   - TCN / dilated 1D CNN (simplified)
   - Transformer-style attention predictor (kNN attention)
   - HMM / regime model (3 regimes)
   - Quantile regression (q10/q50/q90)
 - Conformal interval wrapper (calibrated on a holdout split, sigma derived from alpha; omitted when calibration is empty)
 - Predictor training validates fixed feature dimensions to avoid silent mismatches.
-- Predictor outputs omit transformer/GBDT/quantile/conformal when the feature dataset is empty or features do not match the trained dimensions.
+- Feature-based predictor outputs omit GBDT/kNN/decision-tree/transformer/quantile/conformal when the feature dataset is empty or features do not match the trained dimensions.
 - Quantile outputs clamp the reported median inside the q10/q90 bounds and omit sigma when the interval is invalid; the sensor mean uses the clamped median.
 - Predictor training uses a train/calibration split so held-out calibration data is excluded from model training.
-- Feature engineering includes psychological round-number proximity (big figures/halves/quarters/tenths), short/mid momentum and volatility spread features, and market-context residual/correlation features when Binance market context is available.
+- Feature engineering includes per-bar OHLCV context (body/range/wick, gap, ATR/breakout, volume shock, efficiency), psychological round-number proximity, short/mid momentum and volatility spread features, and market-context residual/correlation features when Binance market context is available.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
 - Context-aware blend/pick methods guard against non-finite model outputs (`NaN`/`Infinity`) by falling back to a neutral finite prediction (current price when available).
@@ -316,8 +318,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--kalman-process-var 1e-5` process noise variance
   - `--kalman-measurement-var 1e-3` fallback measurement variance (and initial variance)
   - `--kalman-market-top-n 50` optional market context measurement; skipped if fewer than `min(N, 5)` symbols are available
-  - `--predictors gbdt,tcn,transformer,hmm,quantile,conformal` comma-separated predictors to train/use (`all`/`none` accepted; default is all; `all` and `none` cannot be combined)
+  - `--predictors gbdt,knn,decision_tree,tcn,transformer,hmm,quantile,conformal` comma-separated predictors to train/use (`all`/`none` accepted; default is all; `all` and `none` cannot be combined)
     - Conformal intervals use the GBDT model internally, even if `gbdt` isn't selected as a sensor.
+    - kNN / decision-tree predictors use the same OHLCV + market-context feature set as the other feature-based models and are evaluated on every decision bar, including bars during open positions.
     - HMM/quantile/conformal confirmations only apply when their predictors are enabled.
     - If a predictor output is missing for a bar, its confirmation/width gates are skipped (treated as pass).
 

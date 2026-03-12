@@ -10,8 +10,11 @@ module Trader.Predictors (
     HMM3 (..),
     trainPredictors,
     trainPredictorsWithMarket,
+    trainPredictorsWithInputs,
+    trainPredictorsWithInputsWithMarket,
     initHMMFilter,
     predictSensors,
+    predictSensorsWithInputs,
     updateHMM,
 ) where
 
@@ -19,15 +22,19 @@ import qualified Data.Vector as V
 
 import Trader.MarketContext (MarketModel)
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
+import Trader.Predictors.DecisionTree (DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
 import Trader.Predictors.Features (
+    FeatureInputs (..),
     FeatureSpec,
-    buildDatasetWithIndexWithMarket,
-    featuresAtWithMarket,
+    buildDatasetWithIndexWithInputsWithMarket,
+    featureInputsFromClose,
+    featuresAtWithInputsWithMarket,
     forwardReturnAt,
     mkFeatureSpec,
  )
 import Trader.Predictors.GBDT (GBDTModel (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
+import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
 import Trader.Predictors.TCN (TCNModel (..), predictTCN, trainTCN)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
@@ -46,6 +53,8 @@ data PredictorBundle = PredictorBundle
     , pbFeatureSpec :: !FeatureSpec
     , pbMarketModel :: !(Maybe MarketModel)
     , pbGBDT :: !GBDTModel
+    , pbKNN :: !KNNModel
+    , pbDecisionTree :: !DecisionTreeModel
     , pbTCN :: !TCNModel
     , pbTransformer :: !TransformerModel
     , pbQuantile :: !QuantileModel
@@ -60,17 +69,28 @@ trainPredictors enabled lookbackBars =
 
 trainPredictorsWithMarket :: PredictorSet -> Int -> Maybe MarketModel -> V.Vector Double -> PredictorBundle
 trainPredictorsWithMarket enabled lookbackBars mMarketModel trainPrices =
+    trainPredictorsWithInputsWithMarket enabled lookbackBars mMarketModel (featureInputsFromClose trainPrices)
+
+trainPredictorsWithInputs :: PredictorSet -> Int -> FeatureInputs -> PredictorBundle
+trainPredictorsWithInputs enabled lookbackBars =
+    trainPredictorsWithInputsWithMarket enabled lookbackBars Nothing
+
+trainPredictorsWithInputsWithMarket :: PredictorSet -> Int -> Maybe MarketModel -> FeatureInputs -> PredictorBundle
+trainPredictorsWithInputsWithMarket enabled lookbackBars mMarketModel trainInputs =
     let fs = mkFeatureSpec lookbackBars
+        trainPrices = fiClose trainInputs
         useGbdt = predictorEnabled enabled SensorGBT
+        useKnn = predictorEnabled enabled SensorKNN
+        useDecisionTree = predictorEnabled enabled SensorDecisionTree
         useTcn = predictorEnabled enabled SensorTCN
         useTransformer = predictorEnabled enabled SensorTransformer
         useHmm = predictorEnabled enabled SensorHMM
         useQuantile = predictorEnabled enabled SensorQuantile
         useConformal = predictorEnabled enabled SensorConformal
-        needFeatures = useGbdt || useTransformer || useQuantile || useConformal
+        needFeatures = useGbdt || useKnn || useDecisionTree || useTransformer || useQuantile || useConformal
         datasetWithIndex =
             if needFeatures
-                then buildDatasetWithIndexWithMarket fs mMarketModel trainPrices
+                then buildDatasetWithIndexWithInputsWithMarket fs mMarketModel trainInputs
                 else []
         (trainSetIdx, calibIdx) =
             if needFeatures
@@ -102,6 +122,23 @@ trainPredictorsWithMarket enabled lookbackBars mMarketModel trainPrices =
                 , gmStumps = []
                 , gmSigma = Nothing
                 }
+        emptyKnn =
+            KNNModel
+                { kmK = 0
+                , kmFeatureDim = 0
+                , kmMeans = []
+                , kmScales = []
+                , kmExamples = []
+                , kmSigmaBase = Nothing
+                }
+        emptyDecisionTree =
+            DecisionTreeModel
+                { dmFeatureDim = 0
+                , dmMaxDepth = 0
+                , dmMinLeafSize = 0
+                , dmRoot = Nothing
+                , dmSigmaBase = Nothing
+                }
         emptyLin = LinModel{lmW = [], lmB = 0}
         emptyQuant = QuantileModel emptyLin emptyLin emptyLin
         emptyTransformer = TransformerModel{trKeys = [], trTargets = [], trTemperature = 0, trFeatureDim = 0}
@@ -118,6 +155,20 @@ trainPredictorsWithMarket enabled lookbackBars mMarketModel trainPrices =
             | not gbdtTrained = emptyGbdt
             | null trainSet = emptyGbdt
             | otherwise = trainGBDT 60 0.1 trainSet
+        knn =
+            if useKnn
+                then
+                    if null trainSet
+                        then emptyKnn
+                        else trainKNN 1024 15 trainSet
+                else emptyKnn
+        decisionTree =
+            if useDecisionTree
+                then
+                    if null trainSet
+                        then emptyDecisionTree
+                        else trainDecisionTree 6 12 trainSet
+                else emptyDecisionTree
         quant =
             if useQuantile
                 then
@@ -141,7 +192,6 @@ trainPredictorsWithMarket enabled lookbackBars mMarketModel trainPrices =
             if useHmm
                 then fitHMM3 10 hmmObs
                 else fitHMM3 0 []
-        -- Conformal: calibrate on a holdout split (last 20%).
         absRes =
             if useConformal
                 then
@@ -171,6 +221,8 @@ trainPredictorsWithMarket enabled lookbackBars mMarketModel trainPrices =
             , pbFeatureSpec = fs
             , pbMarketModel = mMarketModel
             , pbGBDT = gbdt
+            , pbKNN = knn
+            , pbDecisionTree = decisionTree
             , pbTCN = tcn
             , pbTransformer = transformer
             , pbQuantile = quant
@@ -202,20 +254,34 @@ predictSensors ::
     Int ->
     ([(SensorId, SensorOutput)], [Double])
 predictSensors pb prices hmmFilt t =
+    predictSensorsWithInputs pb (featureInputsFromClose prices) hmmFilt t
+
+predictSensorsWithInputs ::
+    PredictorBundle ->
+    FeatureInputs ->
+    HMMFilter ->
+    Int ->
+    ([(SensorId, SensorOutput)], [Double])
+predictSensorsWithInputs pb inputs hmmFilt t =
     let fs = pbFeatureSpec pb
         enabled = pbEnabled pb
+        prices = fiClose inputs
         useGbdt = predictorEnabled enabled SensorGBT
+        useKnn = predictorEnabled enabled SensorKNN
+        useDecisionTree = predictorEnabled enabled SensorDecisionTree
         useTcn = predictorEnabled enabled SensorTCN
         useTransformer = predictorEnabled enabled SensorTransformer
         useHmm = predictorEnabled enabled SensorHMM
         useQuantile = predictorEnabled enabled SensorQuantile
         useConformal = predictorEnabled enabled SensorConformal
-        needFeatures = useGbdt || useTransformer || useQuantile || useConformal
+        needFeatures = useGbdt || useKnn || useDecisionTree || useTransformer || useQuantile || useConformal
         feat =
             if needFeatures
-                then featuresAtWithMarket fs (pbMarketModel pb) prices t
+                then featuresAtWithInputsWithMarket fs (pbMarketModel pb) inputs t
                 else Nothing
         gbdtReady = gmFeatureDim (pbGBDT pb) > 0
+        knnReady = kmFeatureDim (pbKNN pb) > 0
+        decisionTreeReady = dmFeatureDim (pbDecisionTree pb) > 0
         quantReady = not (null (lmW (qm50 (pbQuantile pb))))
         transformerReady = trFeatureDim (pbTransformer pb) > 0
         gbdtPred =
@@ -232,6 +298,26 @@ predictSensors pb prices hmmFilt t =
                     | useGbdt ->
                         [(SensorGBT, SensorOutput{soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing})]
                 _ -> []
+
+        knnOut =
+            case feat of
+                Nothing -> []
+                Just x ->
+                    if not useKnn || not knnReady || length x /= kmFeatureDim (pbKNN pb)
+                        then []
+                        else
+                            let (mu, sig) = predictKNN (pbKNN pb) x
+                             in [(SensorKNN, SensorOutput{soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing})]
+
+        decisionTreeOut =
+            case feat of
+                Nothing -> []
+                Just x ->
+                    if not useDecisionTree || not decisionTreeReady || length x /= dmFeatureDim (pbDecisionTree pb)
+                        then []
+                        else
+                            let (mu, sig) = predictDecisionTree (pbDecisionTree pb) x
+                             in [(SensorDecisionTree, SensorOutput{soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing})]
 
         tcnOut =
             if not useTcn
@@ -309,7 +395,7 @@ predictSensors pb prices hmmFilt t =
                             ]
                         , predState'
                         )
-     in (gbdtOut ++ tcnOut ++ transformerOut ++ hmmOut ++ quantOut ++ conformalOut, predState)
+     in (gbdtOut ++ knnOut ++ decisionTreeOut ++ tcnOut ++ transformerOut ++ hmmOut ++ quantOut ++ conformalOut, predState)
 
 updateHMM :: PredictorBundle -> [Double] -> Double -> HMMFilter
 updateHMM pb predState realizedReturn =

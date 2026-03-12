@@ -190,6 +190,7 @@ import Trader.Coinbase (
     coinbaseBaseUrl,
     fetchCoinbaseAccounts,
     fetchCoinbaseAvailableBalance,
+    fetchCoinbaseBaseMinSize,
     fetchCoinbaseCandles,
     newCoinbaseEnv,
     placeCoinbaseMarketOrder,
@@ -263,11 +264,11 @@ import Trader.Predictors (
     SensorId (..),
     SensorOutput (..),
     initHMMFilter,
-    predictSensors,
-    trainPredictors,
-    trainPredictorsWithMarket,
+    predictSensorsWithInputs,
+    trainPredictorsWithInputsWithMarket,
     updateHMM,
  )
+import Trader.Predictors.Features (FeatureInputs (..), mkFeatureInputs)
 import Trader.Predictors.Types (
     predictorCode,
     predictorEnabled,
@@ -4176,8 +4177,10 @@ data BotState = BotState
     , botEnv :: !BinanceEnv
     , botLookback :: !Int
     , botPrices :: !(V.Vector Double)
+    , botOpens :: !(V.Vector Double)
     , botHighs :: !(V.Vector Double)
     , botLows :: !(V.Vector Double)
+    , botVolumes :: !(V.Vector Double)
     , botOpenTimes :: !(V.Vector Int64)
     , botKalmanPredNext :: !(V.Vector Double) -- predicted next price at each bar (len == prices)
     , botLstmPredNext :: !(V.Vector Double) -- predicted next price at each bar (len == prices)
@@ -4217,6 +4220,15 @@ data BotState = BotState
     , botLastBatchMs :: !Int
     , botError :: !(Maybe String)
     }
+
+botFeatureInputs :: BotState -> FeatureInputs
+botFeatureInputs st =
+    mkFeatureInputs
+        (botPrices st)
+        (Just (botOpens st))
+        (Just (botHighs st))
+        (Just (botLows st))
+        (Just (botVolumes st))
 
 newBotController :: IO BotController
 newBotController = BotController <$> newMVar HM.empty
@@ -4662,8 +4674,10 @@ botStateTail tailN st =
                             Just ot -> Just (shiftOpenTradeIndex dropCount ot)
                  in st
                         { botPrices = V.drop dropCount (botPrices st)
+                        , botOpens = V.drop dropCount (botOpens st)
                         , botHighs = V.drop dropCount (botHighs st)
                         , botLows = V.drop dropCount (botLows st)
+                        , botVolumes = V.drop dropCount (botVolumes st)
                         , botOpenTimes = V.drop dropCount (botOpenTimes st)
                         , botKalmanPredNext = V.drop dropCount (botKalmanPredNext st)
                         , botLstmPredNext = V.drop dropCount (botLstmPredNext st)
@@ -6342,12 +6356,17 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
     ks <- fetchKlines env sym (argInterval args) initBars
     when (length ks < 2) $ throwIO (userError "Not enough klines to start bot")
     let closes = map kClose ks
+        opens = map kOpen ks
         highs = map kHigh ks
         lows = map kLow ks
+        volumes = map kVolume ks
         openTimes = map kOpenTime ks
         pricesV = V.fromList closes
+        opensV = V.fromList opens
         highsV = V.fromList highs
         lowsV = V.fromList lows
+        volumesV = V.fromList volumes
+        featureInputs = mkFeatureInputs pricesV (Just opensV) (Just highsV) (Just lowsV) (Just volumesV)
         openV = V.fromList openTimes
         n = V.length pricesV
 
@@ -6410,7 +6429,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         case methodForCtx of
             MethodLstmOnly -> pure (Nothing, V.replicate n nan)
             _ -> do
-                let predictors = trainPredictors (argPredictors args) lookback pricesV
+                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback Nothing featureInputs
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -6423,7 +6442,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                         let priceT = pricesV V.! t
                             nextP = pricesV V.! (t + 1)
                             realizedR = if priceT == 0 then 0 else nextP / priceT - 1
-                            (sensorOuts, predState) = predictSensors predictors pricesV hmm t
+                            (sensorOuts, predState) = predictSensorsWithInputs predictors featureInputs hmm t
                             meas = mapMaybe (toMeasurement args sv) sensorOuts
                             kal' = stepMulti meas kal
                             fusedR = kMean kal'
@@ -6439,7 +6458,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                     (kalPrev, hmmPrev, svPrev, predsRev) = foldl' step (kal0, hmm0, sv0, []) [0 .. n - 2]
                     preds = reverse predsRev
                     lastPrice = vectorLastOr 0 pricesV
-                    (sensorOutsLast, _) = predictSensors predictors pricesV hmmPrev (n - 1)
+                    (sensorOutsLast, _) = predictSensorsWithInputs predictors featureInputs hmmPrev (n - 1)
                     measLast = mapMaybe (toMeasurement args svPrev) sensorOutsLast
                     kalLast = stepMulti measLast kalPrev
                     kalLastNext = lastPrice * (1 + kMean kalLast)
@@ -6464,9 +6483,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         case computeLatestSignal
             args
             lookback
-            pricesV
-            (Just highsV)
-            (Just lowsV)
+            featureInputs
             mLstmCtx
             mKalmanCtx
             Nothing
@@ -6643,9 +6660,9 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         maxPoints = max (lookback + 3) (bsMaxPoints settings)
         dropCount = max 0 (V.length pricesV - maxPoints)
 
-        (pricesV2, highsV2, lowsV2, openV2, kalPred2, lstmPred2, eq2, pos2, ops2, orders2, openTrade2, startIndex2, mLstmCtx2) =
+        (pricesV2, opensV2, highsV2, lowsV2, volumesV2, openV2, kalPred2, lstmPred2, eq2, pos2, ops2, orders2, openTrade2, startIndex2, mLstmCtx2) =
             if dropCount <= 0
-                then (pricesV, highsV, lowsV, openV, kalPred0, lstmPred0, eq1, pos1, ops, orders, openTrade, 0, mLstmCtx)
+                then (pricesV, opensV, highsV, lowsV, volumesV, openV, kalPred0, lstmPred0, eq1, pos1, ops, orders, openTrade, 0, mLstmCtx)
                 else
                     let openTradeShifted =
                             case openTrade of
@@ -6667,8 +6684,10 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                                 Just (normState, obsAll, lstmModel) ->
                                     Just (normState, drop dropCount obsAll, lstmModel)
                      in ( V.drop dropCount pricesV
+                        , V.drop dropCount opensV
                         , V.drop dropCount highsV
                         , V.drop dropCount lowsV
+                        , V.drop dropCount volumesV
                         , V.drop dropCount openV
                         , V.drop dropCount kalPred0
                         , V.drop dropCount lstmPred0
@@ -6709,8 +6728,10 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 , botEnv = env
                 , botLookback = lookback
                 , botPrices = pricesV2
+                , botOpens = opensV2
                 , botHighs = highsV2
                 , botLows = lowsV2
+                , botVolumes = volumesV2
                 , botOpenTimes = openV2
                 , botKalmanPredNext = kalPred2
                 , botLstmPredNext = lstmPred2
@@ -6953,9 +6974,7 @@ botOptimizeAfterOperation st = do
                     case computeLatestSignal
                         argsSignal
                         lookback
-                        pricesV
-                        (Just (botHighs st))
-                        (Just (botLows st))
+                        (botFeatureInputs st)
                         (botLstmCtx st)
                         (botKalmanCtx st)
                         Nothing
@@ -7061,9 +7080,7 @@ botApplyOptimizerUpdate st upd = do
                     case computeLatestSignal
                         argsSignal
                         lookback'
-                        pricesV
-                        (Just (botHighs st))
-                        (Just (botLows st))
+                        (botFeatureInputs st)
                         mLstmCtx'
                         mKalmanCtx'
                         Nothing
@@ -7106,13 +7123,14 @@ rebuildLstmCtx args lookback pricesV =
                 (lstmModel, _) <- trainLstmWithPersistence args lookback lstmCfg obsAll
                 pure (Right (normState, obsAll, lstmModel))
 
-rebuildKalmanCtx :: Args -> Int -> V.Vector Double -> Either String KalmanCtx
-rebuildKalmanCtx args lookback pricesV =
-    let n = V.length pricesV
+rebuildKalmanCtx :: Args -> Int -> FeatureInputs -> Either String KalmanCtx
+rebuildKalmanCtx args lookback featureInputs =
+    let pricesV = fiClose featureInputs
+        n = V.length pricesV
      in if n < 2
             then Left "Not enough bars to rebuild Kalman context."
             else
-                let predictors = trainPredictors (argPredictors args) lookback pricesV
+                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback Nothing featureInputs
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -7125,7 +7143,7 @@ rebuildKalmanCtx args lookback pricesV =
                         let priceT = pricesV V.! t
                             nextP = pricesV V.! (t + 1)
                             realizedR = if priceT == 0 then 0 else nextP / priceT - 1
-                            (sensorOuts, predState) = predictSensors predictors pricesV hmm t
+                            (sensorOuts, predState) = predictSensorsWithInputs predictors featureInputs hmm t
                             meas = mapMaybe (toMeasurement args sv) sensorOuts
                             kal' = stepMulti meas kal
                             sv' =
@@ -7458,7 +7476,7 @@ buildOptimizerUpdate st combo = do
                                 )
                         else do
                             mLstmE <- if needsLstm' then Just <$> rebuildLstmCtx args0 lookback pricesV else pure Nothing
-                            let mKalE = if needsKalman' then Just (rebuildKalmanCtx args0 lookback pricesV) else Nothing
+                            let mKalE = if needsKalman' then Just (rebuildKalmanCtx args0 lookback (botFeatureInputs st)) else Nothing
                                 collect =
                                     case (mLstmE, mKalE) of
                                         (Just (Left e), _) -> Left e
@@ -8409,9 +8427,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         halted = isJust haltReason1
 
         pricesV = V.snoc pricesPrev priceNew
+        opensV = V.snoc (botOpens st) (kOpen k)
         highsV = V.snoc (botHighs st) (kHigh k)
         lowsV = V.snoc (botLows st) (kLow k)
+        volumesV = V.snoc (botVolumes st) (kVolume k)
         openTimesV = V.snoc (botOpenTimes st) openTimeNew
+        featureInputs = mkFeatureInputs pricesV (Just opensV) (Just highsV) (Just lowsV) (Just volumesV)
 
     -- Update Kalman/HMM/sensor variance with the realized return on the last step.
     mKalmanCtx1 <-
@@ -8420,7 +8441,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
             Just (predictors, kalPrev, hmmPrev, svPrev) -> do
                 let t = nPrev - 1
                     realizedR = if prevPrice == 0 then 0 else priceNew / prevPrice - 1
-                    (sensorOuts, predState) = predictSensors predictors pricesV hmmPrev t
+                    (sensorOuts, predState) = predictSensorsWithInputs predictors featureInputs hmmPrev t
                     meas = mapMaybe (toMeasurement args svPrev) sensorOuts
                     kal' = stepMulti meas kalPrev
                     sv' =
@@ -8465,9 +8486,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         case computeLatestSignal
             argsSignal
             lookback
-            pricesV
-            (Just highsV)
-            (Just lowsV)
+            featureInputs
             mLstmCtx1
             mKalmanCtx1
             Nothing
@@ -9278,9 +9297,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         maxPoints = max (lookback + 3) (bsMaxPoints settings)
         dropCount = max 0 (V.length pricesV - maxPoints)
 
-        (pricesV2, highsV2, lowsV2, openTimesV2, kalPred2, lstmPred2, eqV2, posV2, ops2, orders2, trades2, openTrade2, startIndex2) =
+        (pricesV2, opensV2, highsV2, lowsV2, volumesV2, openTimesV2, kalPred2, lstmPred2, eqV2, posV2, ops2, orders2, trades2, openTrade2, startIndex2) =
             if dropCount <= 0
-                then (pricesV, highsV, lowsV, openTimesV, kalPred1, lstmPred1, eqV1, posV1, ops', orders', trades', openTrade', botStartIndex st)
+                then (pricesV, opensV, highsV, lowsV, volumesV, openTimesV, kalPred1, lstmPred1, eqV1, posV1, ops', orders', trades', openTrade', botStartIndex st)
                 else
                     let shiftTrade tr =
                             tr{trEntryIndex = trEntryIndex tr - dropCount, trExitIndex = trExitIndex tr - dropCount}
@@ -9305,8 +9324,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             , boeIndex e >= dropCount
                             ]
                      in ( V.drop dropCount pricesV
+                        , V.drop dropCount opensV
                         , V.drop dropCount highsV
                         , V.drop dropCount lowsV
+                        , V.drop dropCount volumesV
                         , V.drop dropCount openTimesV
                         , V.drop dropCount kalPred1
                         , V.drop dropCount lstmPred1
@@ -9330,8 +9351,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
     let st1 =
             st
                 { botPrices = pricesV2
+                , botOpens = opensV2
                 , botHighs = highsV2
                 , botLows = lowsV2
+                , botVolumes = volumesV2
                 , botOpenTimes = openTimesV2
                 , botKalmanPredNext = kalPred2
                 , botLstmPredNext = lstmPred2
@@ -19265,12 +19288,15 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                             else do
                                 baseBal <- fetchCoinbaseAvailableBalance env baseAsset
                                 quoteBal <- fetchCoinbaseAvailableBalance env quoteAsset
+                                mBaseMinQty <- do
+                                    r <- try (fetchCoinbaseBaseMinSize env sym) :: IO (Either SomeException (Maybe Double))
+                                    pure (either (const Nothing) id r)
                                 case chosenDir of
                                     Nothing -> noOrder neutralMsg
                                     Just dir ->
                                         case dir of
-                                            1 -> placeBuy baseBal quoteBal baseAsset quoteAsset
-                                            (-1) -> placeSell baseBal baseAsset
+                                            1 -> placeBuy baseBal quoteBal mBaseMinQty baseAsset quoteAsset
+                                            (-1) -> placeSell baseBal mBaseMinQty baseAsset
                                             _ -> noOrder neutralMsg
   where
     sym = normalizeSymbol symRaw
@@ -19280,6 +19306,10 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
 
     entryScale :: Double
     entryScale = entryScaleForSignal args MarketSpot sig
+
+    exitScale :: Double
+    exitScale =
+        maybe 1 clamp01 (lsExitSize sig)
 
     clientOrderId :: Maybe String
     clientOrderId = trim <$> argIdempotencyKey args
@@ -19344,6 +19374,12 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
     lstmBlockMsg :: Maybe String
     lstmBlockMsg = snd (lstmConfidenceSizing args sig)
 
+    isLongCoinbaseSpot :: Maybe Double -> Double -> Bool
+    isLongCoinbaseSpot mMinQty baseBal =
+        case mMinQty of
+            Just minQty | minQty > 0 -> baseBal >= minQty
+            _ -> baseBal > 0
+
     splitCoinbaseSymbol s =
         case break (== '-') s of
             (base, '-' : quote)
@@ -19370,8 +19406,8 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                         , aorMessage = "Order sent."
                         }
 
-    placeBuy baseBal quoteBal _baseAsset quoteAsset =
-        if baseBal > 0
+    placeBuy baseBal quoteBal mBaseMinQty _baseAsset quoteAsset =
+        if isLongCoinbaseSpot mBaseMinQty baseBal
             then noOrder "No order: already long."
             else case lstmBlockMsg of
                 Just msg -> noOrder msg
@@ -19419,8 +19455,8 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                                             then noOrder ("No order: insufficient " ++ quoteAsset ++ " balance.")
                                             else sendOrder "BUY" Nothing (Just qq)
 
-    placeSell baseBal _baseAsset =
-        if baseBal <= 0
+    placeSell baseBal mBaseMinQty _baseAsset =
+        if not (isLongCoinbaseSpot mBaseMinQty baseBal)
             then noOrder "No order: already flat."
             else do
                 let qtyArg =
@@ -19428,13 +19464,22 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                             Just q | q > 0 -> Just q
                             _ -> Nothing
                     qtyArgSell = qtyArg
-                    qRaw =
+                    qRaw0 =
                         case qtyArgSell of
                             Just q -> min q baseBal
                             Nothing -> baseBal
-                if qRaw <= 0
-                    then noOrder "No order: quantity is 0."
-                    else sendOrder "SELL" (Just qRaw) Nothing
+                    qRaw = qRaw0 * exitScale
+                case mBaseMinQty of
+                    Just minQty | baseBal < minQty -> noOrder "No order: position below exchange minimums (dust)."
+                    Just minQty | qRaw > 0 && qRaw < minQty ->
+                        noOrder $
+                            if isJust qtyArgSell
+                                then "No order: orderQuantity below exchange minimums."
+                                else "No order: exit size below exchange minimums."
+                    _ ->
+                        if qRaw <= 0
+                            then noOrder "No order: quantity is 0."
+                            else sendOrder "SELL" (Just qRaw) Nothing
 
 computeBacktestFromArgs :: Maybe OpsStore -> Args -> IO Aeson.Value
 computeBacktestFromArgs mOps args = do
@@ -19979,10 +20024,9 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
         (throwIO (userError "Cannot use --optimize-operations with --trade-only (optimization requires a backtest split)."))
 
     let prices = psClose series
-        highsV = V.fromList <$> psHigh series
-        lowsV = V.fromList <$> psLow series
+        featureInputs = featureInputsFromSeries series
         method = runtimeMethod (argMethod args)
-        pricesV = V.fromList prices
+        pricesV = fiClose featureInputs
         n = V.length pricesV
         stepCount = max 0 (n - 1)
         needsHistory = argThresholdFactorEnabled args || method == MethodRouter || method == MethodBanditRouter
@@ -20050,7 +20094,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
         case method of
             MethodLstmOnly -> pure (Nothing, Nothing, Nothing)
             _ | needsHistory -> do
-                let predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel pricesV
+                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel featureInputs
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -20060,14 +20104,14 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                     sv0 = emptySensorVar
                     (kalPrev, hmmPrev, svPrev, kalPredRev, metaRev) =
                         foldl'
-                            (backtestStepKalmanOnly args pricesV predictors 0 mMarketModel)
+                            (backtestStepKalmanOnly args featureInputs predictors 0 mMarketModel)
                             (kal0, hmm0, sv0, [], [])
                             [0 .. stepCount - 1]
                     kalPredV = V.fromList (reverse kalPredRev)
                     metaV = V.fromList (reverse metaRev)
                 pure (Just (predictors, kalPrev, hmmPrev, svPrev), Just kalPredV, Just metaV)
             _ -> do
-                let predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel pricesV
+                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel featureInputs
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -20080,7 +20124,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                         let priceT = pricesV V.! t
                             nextP = pricesV V.! (t + 1)
                             realizedR = if priceT == 0 then 0 else nextP / priceT - 1
-                            (sensorOuts, predState) = predictSensors predictors pricesV hmm t
+                            (sensorOuts, predState) = predictSensorsWithInputs predictors featureInputs hmm t
                             meas = mapMaybe (toMeasurement args sv) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
                             kal' = stepMulti meas kal
                             sv' =
@@ -20124,7 +20168,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                                 }
                     _ -> Nothing
 
-    case computeLatestSignal args lookback pricesV highsV lowsV mLstmCtx mKalmanCtx mMarketModel mPredHistory of
+    case computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel mPredHistory of
         Left err -> throwIO (userError err)
         Right sig -> pure sig
 
@@ -20334,7 +20378,13 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 )
             )
 
-    let opensAll = fromMaybe prices (matchLengthAndTrim (psOpen seriesWindow))
+    let opensAll = matchLengthAndTrim (psOpen seriesWindow)
+        opensAllForBars =
+            fromMaybe
+                (case prices of
+                    [] -> []
+                    p0 : _ -> p0 : init prices)
+                opensAll
         (highsAll, lowsAll) =
             case (matchLengthAndTrim (psHigh seriesWindow), matchLengthAndTrim (psLow seriesWindow)) of
                 (Just hs, Just ls)
@@ -20348,12 +20398,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         fitPrices = take predStart prices
 
         tunePrices = drop fitSize trainPrices
-        tuneOpens = take tuneSize (drop fitSize opensAll)
+        tuneOpens = fmap (take tuneSize . drop fitSize) opensAll
         tuneHighs = take tuneSize (drop fitSize highsAll)
         tuneLows = take tuneSize (drop fitSize lowsAll)
         tuneOpenTimes = fmap (take tuneSize . drop fitSize) openTimesAll
 
-        backtestOpens = drop trainEnd opensAll
+        backtestOpens = fmap (drop trainEnd) opensAll
         backtestHighs = drop trainEnd highsAll
         backtestLows = drop trainEnd lowsAll
         backtestOpenTimes = fmap (drop trainEnd) openTimesAll
@@ -20392,6 +20442,20 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     MethodBanditRouter -> MethodBoth
                     _ -> methodRequested
         pricesV = V.fromList prices
+        allFeatureInputs =
+            featureInputsFromLists
+                prices
+                opensAll
+                (Just highsAll)
+                (Just lowsAll)
+                (Just volumesAll)
+        fitFeatureInputs =
+            featureInputsFromLists
+                fitPrices
+                (take predStart <$> opensAll)
+                (Just (take predStart highsAll))
+                (Just (take predStart lowsAll))
+                (Just (take predStart volumesAll))
         highsV = V.fromList highsAll
         lowsV = V.fromList lowsAll
 
@@ -20424,8 +20488,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 obsAll = forwardSeries normState prices
                 obsTrain = take predStart obsAll
             (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
-            let fitPricesV = V.fromList fitPrices
-                predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel fitPricesV
+            let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel fitFeatureInputs
                 hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                 hmm0 = initHMMFilter predictors hmmInitReturns
                 kal0 =
@@ -20436,7 +20499,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 sv0 = emptySensorVar
                 (kalFinal, hmmFinal, svFinal, kalPredRev, lstmPredRev, metaRev) =
                     foldl'
-                        (backtestStep args lookback normState obsAll pricesV lstmModel predictors predStart mMarketModel)
+                        (backtestStep args lookback normState obsAll allFeatureInputs lstmModel predictors predStart mMarketModel)
                         (kal0, hmm0, sv0, [], [], [])
                         [0 .. stepCount - 1]
                 kalPred = reverse kalPredRev
@@ -20456,8 +20519,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     (mLstmCtx, mHistory, kalPredAll, lstmPredAll, mKalmanCtx, mMetaAll, mPhysicsLatestPred) <-
         case methodForComputation of
             MethodKalmanPhysicsError -> do
-                let fitPricesV = V.fromList fitPrices
-                    predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel fitPricesV
+                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel fitFeatureInputs
                     hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                     hmm0 = initHMMFilter predictors hmmInitReturns
                     kal0 =
@@ -20468,10 +20530,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     sv0 = emptySensorVar
                     (kalFinal, hmmFinal, svFinal, _kalPredRev, metaRev) =
                         foldl'
-                            (backtestStepKalmanOnly args pricesV predictors predStart mMarketModel)
+                            (backtestStepKalmanOnly args allFeatureInputs predictors predStart mMarketModel)
                             (kal0, hmm0, sv0, [], [])
                             [0 .. stepCount - 1]
-                    opensV = V.fromList opensAll
+                    opensV = V.fromList opensAllForBars
                     highsV' = V.fromList highsAll
                     lowsV' = V.fromList lowsAll
                     closesV = V.fromList prices
@@ -20508,8 +20570,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 let meta = reverse metaRev
                 pure (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal), Just meta, mLatestPred)
             MethodKalmanOnly -> do
-                let fitPricesV = V.fromList fitPrices
-                    predictors = trainPredictorsWithMarket (argPredictors args) lookback mMarketModel fitPricesV
+                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel fitFeatureInputs
                     hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                     hmm0 = initHMMFilter predictors hmmInitReturns
                     kal0 =
@@ -20520,7 +20581,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     sv0 = emptySensorVar
                     (kalFinal, hmmFinal, svFinal, kalPredRev, metaRev) =
                         foldl'
-                            (backtestStepKalmanOnly args pricesV predictors predStart mMarketModel)
+                            (backtestStepKalmanOnly args allFeatureInputs predictors predStart mMarketModel)
                             (kal0, hmm0, sv0, [], [])
                             [0 .. stepCount - 1]
                     kalPred = reverse kalPredRev
@@ -20711,8 +20772,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecMinPositionSize = argMinPositionSize args
                 }
 
-        baseCfgTune = baseCfg{ecOpenTimes = V.fromList <$> tuneOpenTimes, ecOpenPrices = Just (V.fromList tuneOpens)}
-        baseCfgBacktest = baseCfg{ecOpenTimes = V.fromList <$> backtestOpenTimes, ecOpenPrices = Just (V.fromList backtestOpens)}
+        baseCfgTune = baseCfg{ecOpenTimes = V.fromList <$> tuneOpenTimes, ecOpenPrices = V.fromList <$> tuneOpens}
+        baseCfgBacktest = baseCfg{ecOpenTimes = V.fromList <$> backtestOpenTimes, ecOpenPrices = V.fromList <$> backtestOpens}
 
         offsetBacktestPred = max 0 (trainEnd - predStart)
         kalPredBacktest = drop offsetBacktestPred kalPredAll
@@ -21277,7 +21338,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 else Nothing
 
     latestSignal <-
-        case computeLatestSignal argsForSignal lookback pricesV (Just highsV) (Just lowsV) mLstmCtx mKalmanCtx mMarketModel mPredHistorySignal of
+        case computeLatestSignal argsForSignal lookback allFeatureInputs mLstmCtx mKalmanCtx mMarketModel mPredHistorySignal of
             Left err -> throwIO (userError err)
             Right sig -> pure sig
 
@@ -21904,15 +21965,13 @@ routerPredictionsV openThr roundTripCost pnlWeight lookback minScore pricesV kal
 computeLatestSignal ::
     Args ->
     Int ->
-    V.Vector Double ->
-    Maybe (V.Vector Double) ->
-    Maybe (V.Vector Double) ->
+    FeatureInputs ->
     Maybe LstmCtx ->
     Maybe KalmanCtx ->
     Maybe MarketModel ->
     Maybe PredHistory ->
     Either String LatestSignal
-computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMarketModel mPredHistory
+computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel mPredHistory
     | nAll < 1 = Left ("Need at least 1 price to compute latest signal (got " ++ show nAll ++ ")")
     | methodNeedsLstm && not lstmWindowOk = Left "Not enough data to compute LSTM window for latest signal."
     | otherwise =
@@ -22056,6 +22115,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
         case methodForReport of
             MethodKalmanPhysicsError -> "Method kalman_physics_error requires Kalman context."
             _ -> "Method 10 requires Kalman context."
+    pricesV = fiClose featureInputs
     nAll = V.length pricesV
     methodNeedsLstm =
         case method of
@@ -22232,8 +22292,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                         | V.length v > n -> Just (V.drop (V.length v - n) v)
                     _ -> Nothing
 
-            highsV = alignVector mHighsV
-            lowsV = alignVector mLowsV
+            opensV = alignVector (fiOpen featureInputs)
+            highsV = alignVector (fiHigh featureInputs)
+            lowsV = alignVector (fiLow featureInputs)
 
             returnsFromPrices =
                 case n of
@@ -22429,7 +22490,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
 
             candleAt i =
                 let c = pricesV V.! i
-                    o = if i <= 0 then c else pricesV V.! (i - 1)
+                    prevClose = if i <= 0 then c else pricesV V.! (i - 1)
+                    oRaw =
+                        case opensV of
+                            Just ov | i >= 0 && i < V.length ov -> ov V.! i
+                            _ -> prevClose
                     hRaw =
                         case highsV of
                             Just hv | i >= 0 && i < V.length hv -> hv V.! i
@@ -22438,8 +22503,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                         case lowsV of
                             Just lv | i >= 0 && i < V.length lv -> lv V.! i
                             _ -> c
-                    h = if bad hRaw then c else hRaw
-                    l = if bad lRaw then c else lRaw
+                    o = if bad oRaw then prevClose else oRaw
+                    h = max (max o c) (if bad hRaw then c else hRaw)
+                    l = min (min o c) (if bad lRaw then c else lRaw)
                  in (o, h, l, c)
 
             candleOpen (o, _, _, _) = o
@@ -22583,7 +22649,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case mKalmanCtx of
                     Nothing -> (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Just 0, Nothing)
                     Just (predictors, kalPrev, hmmPrev, svPrev) ->
-                        let (sensorOuts, _) = predictSensors predictors pricesV hmmPrev t
+                        let (sensorOuts, _) = predictSensorsWithInputs predictors featureInputs hmmPrev t
                             mReg = listToMaybe [r | (_sid, out) <- sensorOuts, Just r <- [soRegimes out]]
                             mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
                             mI = listToMaybe [i | (_sid, out) <- sensorOuts, Just i <- [soInterval out]]
@@ -23023,7 +23089,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                                 sv0 = emptySensorVar
                                                 (_, _, _, kalPredRev, metaRev) =
                                                     foldl'
-                                                        (backtestStepKalmanOnly args pricesV predictors 0 mMarketModel)
+                                                        (backtestStepKalmanOnly args featureInputs predictors 0 mMarketModel)
                                                         (kal0, hmm0, sv0, [], [])
                                                         [0 .. stepCount - 1]
                                                 kalPredV = V.fromList (reverse kalPredRev)
@@ -24634,6 +24700,30 @@ data PriceSeries = PriceSeries
     }
     deriving (Eq, Show)
 
+featureInputsFromSeries :: PriceSeries -> FeatureInputs
+featureInputsFromSeries series =
+    mkFeatureInputs
+        (V.fromList (psClose series))
+        (V.fromList <$> psOpen series)
+        (V.fromList <$> psHigh series)
+        (V.fromList <$> psLow series)
+        (V.fromList <$> psVolume series)
+
+featureInputsFromLists ::
+    [Double] ->
+    Maybe [Double] ->
+    Maybe [Double] ->
+    Maybe [Double] ->
+    Maybe [Double] ->
+    FeatureInputs
+featureInputsFromLists closes opens highs lows volumes =
+    mkFeatureInputs
+        (V.fromList closes)
+        (V.fromList <$> opens)
+        (V.fromList <$> highs)
+        (V.fromList <$> lows)
+        (V.fromList <$> volumes)
+
 priceSourceLabel :: Args -> String
 priceSourceLabel args =
     if prefersCsvBars args
@@ -24938,20 +25028,21 @@ toMeasurement args sv (sid, out) =
 
 backtestStepKalmanOnly ::
     Args ->
-    V.Vector Double ->
+    FeatureInputs ->
     PredictorBundle ->
     Int ->
     Maybe MarketModel ->
     (Kalman1, HMMFilter, SensorVar, [Double], [StepMeta]) ->
     Int ->
     (Kalman1, HMMFilter, SensorVar, [Double], [StepMeta])
-backtestStepKalmanOnly args pricesV predictors trainEnd mMarketModel (kal, hmm, sv, kalAcc, metaAcc) i =
-    let t = trainEnd + i
+backtestStepKalmanOnly args inputs predictors trainEnd mMarketModel (kal, hmm, sv, kalAcc, metaAcc) i =
+    let pricesV = fiClose inputs
+        t = trainEnd + i
         priceT = pricesV V.! t
         nextP = pricesV V.! (t + 1)
         realizedR = if priceT == 0 then 0 else nextP / priceT - 1
 
-        (sensorOuts, predState) = predictSensors predictors pricesV hmm t
+        (sensorOuts, predState) = predictSensorsWithInputs predictors inputs hmm t
         mReg = listToMaybe [r | (_sid, out) <- sensorOuts, Just r <- [soRegimes out]]
         mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
         mI = listToMaybe [i' | (_sid, out) <- sensorOuts, Just i' <- [soInterval out]]
@@ -24983,7 +25074,7 @@ backtestStep ::
     Int ->
     NormState ->
     [Double] ->
-    V.Vector Double ->
+    FeatureInputs ->
     LSTMModel ->
     PredictorBundle ->
     Int ->
@@ -24991,13 +25082,14 @@ backtestStep ::
     (Kalman1, HMMFilter, SensorVar, [Double], [Double], [StepMeta]) ->
     Int ->
     (Kalman1, HMMFilter, SensorVar, [Double], [Double], [StepMeta])
-backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEnd mMarketModel (kal, hmm, sv, kalAcc, lstmAcc, metaAcc) i =
-    let t = trainEnd + i
+backtestStep args lookback normState obsAll inputs lstmModel predictors trainEnd mMarketModel (kal, hmm, sv, kalAcc, lstmAcc, metaAcc) i =
+    let pricesV = fiClose inputs
+        t = trainEnd + i
         priceT = pricesV V.! t
         nextP = pricesV V.! (t + 1)
         realizedR = if priceT == 0 then 0 else nextP / priceT - 1
 
-        (sensorOuts, predState) = predictSensors predictors pricesV hmm t
+        (sensorOuts, predState) = predictSensorsWithInputs predictors inputs hmm t
         mReg = listToMaybe [r | (_sid, out) <- sensorOuts, Just r <- [soRegimes out]]
         mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
         mI = listToMaybe [i' | (_sid, out) <- sensorOuts, Just i' <- [soInterval out]]

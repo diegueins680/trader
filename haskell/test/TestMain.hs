@@ -53,9 +53,11 @@ import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity
 import Trader.Platform (Platform (..), coinbaseIntervalSeconds, isPlatformInterval, krakenIntervalMinutes, parsePlatform, poloniexIntervalLabel, poloniexIntervalSeconds)
 import Trader.Poloniex (PoloniexCandle (..), decodePoloniexCandles, normalizePoloniexCandles)
 import Trader.Predictors (Interval (..), Quantiles (..), RegimeProbs (..), SensorId (..), SensorOutput (..), initHMMFilter, predictSensors, trainPredictors)
-import Trader.Predictors.Features (buildDatasetWithIndex, featuresAt, featuresAtWithMarket, forwardReturnAt, mkFeatureSpec)
+import Trader.Predictors.DecisionTree (predictDecisionTree, trainDecisionTree)
+import Trader.Predictors.Features (buildDatasetWithIndex, featuresAt, featuresAtWithInputs, featuresAtWithMarket, forwardReturnAt, mkFeatureInputs, mkFeatureSpec)
+import Trader.Predictors.KNN (predictKNN, trainKNN)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
-import Trader.Predictors.Types (allPredictors)
+import Trader.Predictors.Types (allPredictors, predictorSetFromString)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
 import Trader.SignalGates (signalCrossAssetCheck, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
 import Trader.Split (Split (..), splitTrainBacktest)
@@ -80,10 +82,14 @@ main = do
               , run "kalman fusion multi-sensor" testKalmanFusionMulti
               , run "market linear fit" testMarketLinearFit
               , run "predictors output shape" testPredictorsOutputs
+              , run "predictor parser accepts knn and decision tree" testPredictorParserSupportsKnnAndDecisionTree
               , run "predictor features reject non-finite price inputs" testPredictorFeaturesRejectNonFinitePrices
               , run "predictor market features stay finite" testPredictorMarketFeaturesStayFinite
+              , run "predictor kline features use OHLCV context" testPredictorFeaturesUseOhlcvContext
               , run "predictor dataset skips non-finite rows" testBuildDatasetSkipsNonFiniteRows
               , run "predictor dataset skips overflowed finite feature rows" testBuildDatasetSkipsOverflowedFiniteRows
+              , run "knn predictor yields finite output" testKnnPredictorFinite
+              , run "decision tree predictor yields finite output" testDecisionTreePredictorFinite
               , run "transformer training skips invalid rows" testTransformerTrainingSanitizesDataset
               , run "transformer prediction rejects non-finite query" testTransformerPredictionRejectsNonFiniteQuery
               , run "transformer training normalizes invalid temperature" testTransformerInvalidTemperatureFallback
@@ -644,6 +650,8 @@ testPredictorsOutputs = do
         ids = map fst outs
 
     assert "has GBDT" (SensorGBT `elem` ids)
+    assert "has kNN" (SensorKNN `elem` ids)
+    assert "has decision tree" (SensorDecisionTree `elem` ids)
     assert "has TCN" (SensorTCN `elem` ids)
     assert "has Transformer" (SensorTransformer `elem` ids)
     assert "has HMM" (SensorHMM `elem` ids)
@@ -671,6 +679,19 @@ testPredictorsOutputs = do
                 Nothing -> error "missing interval"
                 Just (Interval lo hi) -> assert "interval ordered" (lo <= hi)
 
+testPredictorParserSupportsKnnAndDecisionTree :: IO ()
+testPredictorParserSupportsKnnAndDecisionTree = do
+    let parsed = predictorSetFromString "knn,decision_tree,tcn"
+        parsedAlias = predictorSetFromString "tree,gbdt"
+    case parsed of
+        Left err -> error ("expected predictor parser success: " ++ err)
+        Right preds -> do
+            assert "knn parsed" (SensorKNN `elem` preds)
+            assert "decision tree parsed" (SensorDecisionTree `elem` preds)
+    case parsedAlias of
+        Left err -> error ("expected predictor alias parser success: " ++ err)
+        Right preds -> assert "tree alias parsed" (SensorDecisionTree `elem` preds)
+
 testPredictorFeaturesRejectNonFinitePrices :: IO ()
 testPredictorFeaturesRejectNonFinitePrices = do
     let nan = 0 / 0
@@ -694,10 +715,32 @@ testPredictorMarketFeaturesStayFinite = do
     case featuresAtWithMarket fs (Just mm) prices 4 of
         Nothing -> error "missing market-aware features"
         Just feats -> do
-            assert "market-aware vector length expands with context features" (length feats == 33)
+            assert "market-aware vector length expands with context features" (length feats == 53)
             assert "market-aware feature rows remain finite" (all isFiniteDouble feats)
-            let marketSlice = take 8 (drop 13 feats)
+            let marketSlice = take 8 (drop 33 feats)
             assert "market-aware slice carries non-zero signal" (any (\x -> abs x > 1e-12) marketSlice)
+
+testPredictorFeaturesUseOhlcvContext :: IO ()
+testPredictorFeaturesUseOhlcvContext = do
+    let fs = mkFeatureSpec 4
+        closes = V.fromList [100.0, 101.0, 102.0, 101.5, 103.0, 104.0]
+        opens = V.fromList [99.5, 100.5, 101.0, 102.5, 101.8, 103.2]
+        highs = V.fromList [100.8, 101.9, 102.8, 103.1, 103.8, 104.7]
+        lows = V.fromList [99.1, 100.1, 100.7, 101.1, 101.2, 102.8]
+        volumes = V.fromList [12.0, 11.5, 18.0, 8.0, 22.0, 25.0]
+        richInputs = mkFeatureInputs closes (Just opens) (Just highs) (Just lows) (Just volumes)
+        flatInputs = mkFeatureInputs closes Nothing Nothing Nothing Nothing
+    case (featuresAt fs closes 4, featuresAtWithMarket fs Nothing closes 4) of
+        (Just closeOnly, Just marketWrapped) ->
+            assert "legacy close-only wrappers stay aligned" (closeOnly == marketWrapped)
+        _ -> error "expected legacy features from close-only wrappers"
+    case (featuresAtWithInputs fs richInputs 4, featuresAtWithInputs fs flatInputs 4) of
+        (Nothing, _) -> error "missing OHLCV-aware features"
+        (_, Nothing) -> error "missing fallback features"
+        (Just rich, Just flat) -> do
+            assert "OHLCV-aware features keep stable dimension" (length rich == length flat && length rich == 53)
+            assert "OHLCV-aware features remain finite" (all isFiniteDouble rich)
+            assert "OHLCV context changes the feature vector" (rich /= flat)
 
 testBuildDatasetSkipsNonFiniteRows :: IO ()
 testBuildDatasetSkipsNonFiniteRows = do
@@ -721,6 +764,28 @@ testBuildDatasetSkipsOverflowedFiniteRows = do
     assert "featuresAt rejects overflowed variance window with non-finite stats" (isNothing (featuresAt fs prices 2))
     assert "dataset keeps only stable rows after overflowed-return window" (indices == [3])
     assert "dataset rows remain finite after overflow guard" allFiniteRows
+
+testKnnPredictorFinite :: IO ()
+testKnnPredictorFinite = do
+    let dataset =
+            [ ([x, x * x], 0.5 * x - 0.1)
+            | x <- [-1.0, -0.5, 0.0, 0.5, 1.0, 1.5]
+            ]
+        model = trainKNN 32 3 dataset
+        (mu, mSigma) = predictKNN model [0.25, 0.0625]
+    assert "knn mean stays finite" (isFiniteDouble mu)
+    assert "knn sigma stays finite" (maybe False isFiniteDouble mSigma)
+
+testDecisionTreePredictorFinite :: IO ()
+testDecisionTreePredictorFinite = do
+    let dataset =
+            [ ([x, x * x], if x >= 0 then 0.02 + x else -0.02 + x)
+            | x <- [-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0]
+            ]
+        model = trainDecisionTree 4 2 dataset
+        (mu, mSigma) = predictDecisionTree model [0.75, 0.5625]
+    assert "decision tree mean stays finite" (isFiniteDouble mu)
+    assert "decision tree sigma stays finite" (maybe False isFiniteDouble mSigma)
 
 testTransformerTrainingSanitizesDataset :: IO ()
 testTransformerTrainingSanitizesDataset = do

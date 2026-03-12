@@ -3,15 +3,40 @@ import { test } from "node:test";
 import {
   buildOrphanedPositions,
   buildRequestIssueDetails,
+  downsampleIndices,
   inferFlyApiAppName,
   inferFlyDirectApiBaseFromHostname,
   isLocalHostname,
   methodLabel,
   normalizeApiBaseUrlInput,
   numFromInput,
+  remapIndexToSample,
   summarizeOrderSizing,
 } from "../.tmp/web-tests/utils.js";
 import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
+
+function assertStrictlyIncreasing(values, context) {
+  for (let i = 1; i < values.length; i += 1) {
+    assert.ok(
+      values[i - 1] < values[i],
+      `${context}: expected strictly increasing indices, got ${values[i - 1]} then ${values[i]}`,
+    );
+  }
+}
+
+function expectedNearestSampleIndex(indices, idx) {
+  if (indices.length === 0) return 0;
+  let bestIndex = 0;
+  let bestDistance = Math.abs(indices[0] - idx);
+  for (let i = 1; i < indices.length; i += 1) {
+    const distance = Math.abs(indices[i] - idx);
+    if (distance < bestDistance) {
+      bestIndex = i;
+      bestDistance = distance;
+    }
+  }
+  return bestIndex;
+}
 
 test("buildRequestIssueDetails returns empty when clean", () => {
   assert.deepEqual(buildRequestIssueDetails({}), []);
@@ -150,6 +175,81 @@ test("numFromInput parses thousands grouping and decimal comma consistently", ()
   assert.equal(numFromInput("0,123", 0), 0.123);
 });
 
+test("downsampleIndices preserves bounded chart sampling invariants", () => {
+  for (let total = 0; total <= 257; total += 1) {
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      const budget = Math.max(1, Math.trunc(maxPoints));
+
+      if (total === 0) {
+        assert.deepEqual(indices, []);
+        continue;
+      }
+
+      assert.ok(indices.length >= 1, `expected a visible point for total=${total}, maxPoints=${maxPoints}`);
+      assert.ok(
+        indices.length <= Math.min(total, budget),
+        `expected sample budget for total=${total}, maxPoints=${maxPoints}, got ${indices.length}`,
+      );
+      assert.equal(indices[0], 0, `expected first endpoint for total=${total}, maxPoints=${maxPoints}`);
+      assertStrictlyIncreasing(indices, `total=${total}, maxPoints=${maxPoints}`);
+      for (const idx of indices) {
+        assert.ok(idx >= 0 && idx < total, `expected in-bounds sample ${idx} for total=${total}, maxPoints=${maxPoints}`);
+      }
+      if (indices.length > 1) {
+        assert.equal(
+          indices[indices.length - 1],
+          total - 1,
+          `expected final endpoint for total=${total}, maxPoints=${maxPoints}`,
+        );
+      }
+      if (total <= budget) {
+        assert.deepEqual(indices, Array.from({ length: total }, (_, i) => i));
+      }
+    }
+  }
+});
+
+test("remapIndexToSample preserves exact sampled hits", () => {
+  for (let total = 1; total <= 257; total += 1) {
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      for (let sampleIdx = 0; sampleIdx < indices.length; sampleIdx += 1) {
+        const rawIdx = indices[sampleIdx];
+        assert.equal(
+          remapIndexToSample(indices, rawIdx),
+          sampleIdx,
+          `expected exact sampled hit for total=${total}, maxPoints=${maxPoints}, rawIdx=${rawIdx}`,
+        );
+      }
+    }
+  }
+});
+
+test("remapIndexToSample chooses nearest visible points with deterministic left-biased ties", () => {
+  assert.equal(remapIndexToSample([], 42), 0);
+  assert.equal(remapIndexToSample([0, 4, 8], 2), 0);
+  assert.equal(remapIndexToSample([0, 4, 8], 6), 1);
+
+  for (let total = 1; total <= 257; total += 1) {
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      for (let rawIdx = 0; rawIdx < total; rawIdx += 1) {
+        const mapped = remapIndexToSample(indices, rawIdx);
+        assert.ok(
+          mapped >= 0 && mapped < indices.length,
+          `expected mapped index in range for total=${total}, maxPoints=${maxPoints}, rawIdx=${rawIdx}`,
+        );
+        assert.equal(
+          mapped,
+          expectedNearestSampleIndex(indices, rawIdx),
+          `expected nearest visible point for total=${total}, maxPoints=${maxPoints}, rawIdx=${rawIdx}`,
+        );
+      }
+    }
+  }
+});
+
 test("summarizeOrderSizing blocks trade when no effective size is configured", () => {
   const state = summarizeOrderSizing({
     orderQuantity: 0,
@@ -229,6 +329,92 @@ test("normalizeFormState restores default minPositionSize for invalid input", ()
   assert.equal(fromExplicitZero.minPositionSize, 0);
 });
 
+test("normalizeFormState rehydrates manual sizing fields as finite numbers", () => {
+  const restored = normalizeFormState({
+    orderQuote: "125.5",
+    orderQuantity: "0.25",
+    orderQuoteFraction: "0.4",
+    maxOrderQuote: "50",
+  });
+  assert.deepEqual(
+    {
+      orderQuote: restored.orderQuote,
+      orderQuantity: restored.orderQuantity,
+      orderQuoteFraction: restored.orderQuoteFraction,
+      maxOrderQuote: restored.maxOrderQuote,
+    },
+    {
+      orderQuote: 125.5,
+      orderQuantity: 0.25,
+      orderQuoteFraction: 0.4,
+      maxOrderQuote: 50,
+    },
+  );
+  for (const value of [restored.orderQuote, restored.orderQuantity, restored.orderQuoteFraction, restored.maxOrderQuote]) {
+    assert.equal(typeof value, "number");
+    assert.equal(Number.isFinite(value), true);
+  }
+
+  const fallback = normalizeFormState({
+    orderQuote: "Infinity",
+    orderQuantity: Number.NaN,
+    orderQuoteFraction: "not-a-number",
+    maxOrderQuote: "-Infinity",
+  });
+  assert.deepEqual(
+    {
+      orderQuote: fallback.orderQuote,
+      orderQuantity: fallback.orderQuantity,
+      orderQuoteFraction: fallback.orderQuoteFraction,
+      maxOrderQuote: fallback.maxOrderQuote,
+    },
+    {
+      orderQuote: defaultForm.orderQuote,
+      orderQuantity: defaultForm.orderQuantity,
+      orderQuoteFraction: defaultForm.orderQuoteFraction,
+      maxOrderQuote: defaultForm.maxOrderQuote,
+    },
+  );
+});
+
+test("normalizeFormState preserves restored fraction validation and precedence", () => {
+  const invalidFractionOnly = normalizeFormState({
+    orderQuote: 0,
+    orderQuantity: 0,
+    orderQuoteFraction: "1.25",
+    maxOrderQuote: "40",
+  });
+  const invalidFractionState = summarizeOrderSizing({
+    orderQuantity: invalidFractionOnly.orderQuantity,
+    orderQuote: invalidFractionOnly.orderQuote,
+    orderQuoteFraction: invalidFractionOnly.orderQuoteFraction,
+    maxOrderQuote: invalidFractionOnly.maxOrderQuote,
+  });
+  assert.equal(invalidFractionOnly.orderQuoteFraction, 1.25);
+  assert.equal(invalidFractionOnly.maxOrderQuote, 40);
+  assert.equal(invalidFractionState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
+  assert.equal(invalidFractionState.blockingError, "Order quote fraction must be <= 1 (use 0 to disable).");
+  assert.equal(invalidFractionState.blockingTargetId, "orderQuoteFraction");
+
+  const precedenceRestored = normalizeFormState({
+    orderQuantity: "0.25",
+    orderQuote: "100",
+    orderQuoteFraction: "1.25",
+    maxOrderQuote: "40",
+  });
+  const precedenceState = summarizeOrderSizing({
+    orderQuantity: precedenceRestored.orderQuantity,
+    orderQuote: precedenceRestored.orderQuote,
+    orderQuoteFraction: precedenceRestored.orderQuoteFraction,
+    maxOrderQuote: precedenceRestored.maxOrderQuote,
+  });
+  assert.deepEqual(precedenceState.active, ["orderQuantity", "orderQuote"]);
+  assert.equal(precedenceState.effective, "orderQuantity");
+  assert.equal(precedenceState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
+  assert.equal(precedenceState.blockingError, null);
+  assert.equal(precedenceState.tone, "warn");
+});
+
 test("defaultForm uses safe trade defaults", () => {
   assert.equal(defaultForm.binanceLive, false);
   assert.equal(defaultForm.tradeArmed, false);
@@ -249,7 +435,7 @@ test("normalizeFormState normalizes trade toggles and booleans from strings", ()
   assert.equal(out.autoRefresh, false);
 });
 
-test("normalizeFormState forces non-binance platforms into spot + disables binance-only flags", () => {
+test("normalizeFormState forces non-binance platforms into spot and preserves coinbase live mode", () => {
   const out = normalizeFormState({
     platform: "coinbase",
     market: "futures",
@@ -260,7 +446,7 @@ test("normalizeFormState forces non-binance platforms into spot + disables binan
   assert.equal(out.platform, "coinbase");
   assert.equal(out.market, "spot");
   assert.equal(out.binanceTestnet, false);
-  assert.equal(out.binanceLive, false);
+  assert.equal(out.binanceLive, true);
   assert.equal(out.tradeArmed, true);
 });
 
