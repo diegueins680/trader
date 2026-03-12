@@ -1,5 +1,6 @@
 import type { IntrabarFill, Market, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { BINANCE_INTERVAL_SECONDS, PLATFORM_DEFAULT_SYMBOL, PLATFORM_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
+import { sanitizeSymbolForPlatform } from "./symbols";
 import { clamp } from "./utils";
 
 export type FormState = {
@@ -148,7 +149,7 @@ export const defaultForm: FormState = {
   maxVolatility: 1.5,
   rebalanceBars: 24,
   rebalanceThreshold: 0.05,
-  rebalanceCostMult: 1,
+  rebalanceCostMult: 0,
   rebalanceGlobal: false,
   rebalanceResetOnSignal: false,
   fundingRate: 0.1,
@@ -227,23 +228,9 @@ export function platformIntervalSeconds(platform: Platform, interval: string): n
   return parseDurationSeconds(interval);
 }
 
-function symbolFormatPattern(platform: Platform): RegExp {
-  switch (platform) {
-    case "coinbase":
-      return /^[A-Z0-9]+-[A-Z0-9]+$/;
-    case "poloniex":
-      return /^[A-Z0-9]+_[A-Z0-9]+$/;
-    case "binance":
-    case "kraken":
-    default:
-      return /^[A-Z0-9]{3,30}$/;
-  }
-}
-
 function normalizeSymbol(raw: unknown, platform: Platform, fallback: string): string {
-  const s = typeof raw === "string" ? raw.trim().toUpperCase() : "";
-  if (!s) return fallback;
-  return symbolFormatPattern(platform).test(s) ? s : fallback;
+  const s = typeof raw === "string" ? raw : "";
+  return sanitizeSymbolForPlatform(platform, s) ?? fallback;
 }
 
 export function parseDurationSeconds(raw: string): number | null {
@@ -366,11 +353,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
   const platform = normalizePlatform(rawRec.platform ?? merged.platform, defaultForm.platform);
   let market = platform === "binance" ? normalizeMarket(rawRec.market ?? merged.market, defaultForm.market) : "spot";
+  const liveOrdersSupported = platform === "binance" || platform === "coinbase";
   const binanceLiveCandidate =
-    platform === "binance" ? normalizeBool(rawRec.binanceLive ?? merged.binanceLive, defaultForm.binanceLive) : false;
+    liveOrdersSupported ? normalizeBool(rawRec.binanceLive ?? merged.binanceLive, defaultForm.binanceLive) : false;
   // Margin requires live orders; prefer a safe fallback over implicitly enabling live mode.
-  const binanceLive = market === "margin" && !binanceLiveCandidate ? false : binanceLiveCandidate;
-  if (market === "margin" && !binanceLiveCandidate) market = "spot";
+  const binanceLive = platform === "binance" && market === "margin" && !binanceLiveCandidate ? false : binanceLiveCandidate;
+  if (platform === "binance" && market === "margin" && !binanceLiveCandidate) market = "spot";
   // Trade arming is meaningful for Binance + Coinbase; disable it for non-trading platforms.
   const tradeArmed =
     platform === "binance" || platform === "coinbase"
@@ -380,8 +368,20 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     platform === "binance" && market !== "margin"
       ? normalizeBool(rawRec.binanceTestnet ?? merged.binanceTestnet, defaultForm.binanceTestnet)
       : false;
-  const symbolFallback = PLATFORM_DEFAULT_SYMBOL[platform] ?? defaultForm.binanceSymbol;
+  const symbolFallback =
+    sanitizeSymbolForPlatform(platform, PLATFORM_DEFAULT_SYMBOL[platform] ?? defaultForm.binanceSymbol)
+    ?? defaultForm.binanceSymbol;
   const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform, symbolFallback);
+  // Keep restored manual sizing fields numeric before the sizing UI computes badges, cap state, and trade readiness.
+  const orderQuote = normalizeFiniteNumber(rawRec.orderQuote ?? merged.orderQuote, defaultForm.orderQuote, 0, 1e9);
+  const orderQuantity = normalizeFiniteNumber(rawRec.orderQuantity ?? merged.orderQuantity, defaultForm.orderQuantity, 0, 1e9);
+  const orderQuoteFraction = normalizeFiniteNumber(
+    rawRec.orderQuoteFraction ?? merged.orderQuoteFraction,
+    defaultForm.orderQuoteFraction,
+    -1e9,
+    1e9,
+  );
+  const maxOrderQuote = normalizeFiniteNumber(rawRec.maxOrderQuote ?? merged.maxOrderQuote, defaultForm.maxOrderQuote, 0, 1e9);
   const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
   return {
     ...mergedNoLegacy,
@@ -501,6 +501,10 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
     gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
     minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, defaultForm.minPositionSize, 0, 1),
+    orderQuote,
+    orderQuantity,
+    orderQuoteFraction,
+    maxOrderQuote,
     botProtectionOrders: normalizeBool(rawRec.botProtectionOrders ?? merged.botProtectionOrders, defaultForm.botProtectionOrders),
     botAdoptExistingPosition: true,
   };

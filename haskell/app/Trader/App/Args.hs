@@ -605,7 +605,7 @@ opts = do
             ( long "predictors"
                 <> value allPredictors
                 <> showDefaultWith predictorSetToCsv
-                <> help "Comma-separated predictors to train/use (gbdt,tcn,transformer,hmm,quantile,conformal, all, none)"
+                <> help "Comma-separated predictors to train/use (gbdt,knn,decision_tree,tcn,transformer,hmm,quantile,conformal, all, none)"
             )
     argKalmanMarketTopN <-
         option

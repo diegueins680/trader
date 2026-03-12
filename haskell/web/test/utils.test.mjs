@@ -229,6 +229,92 @@ test("normalizeFormState restores default minPositionSize for invalid input", ()
   assert.equal(fromExplicitZero.minPositionSize, 0);
 });
 
+test("normalizeFormState rehydrates manual sizing fields as finite numbers", () => {
+  const restored = normalizeFormState({
+    orderQuote: "125.5",
+    orderQuantity: "0.25",
+    orderQuoteFraction: "0.4",
+    maxOrderQuote: "50",
+  });
+  assert.deepEqual(
+    {
+      orderQuote: restored.orderQuote,
+      orderQuantity: restored.orderQuantity,
+      orderQuoteFraction: restored.orderQuoteFraction,
+      maxOrderQuote: restored.maxOrderQuote,
+    },
+    {
+      orderQuote: 125.5,
+      orderQuantity: 0.25,
+      orderQuoteFraction: 0.4,
+      maxOrderQuote: 50,
+    },
+  );
+  for (const value of [restored.orderQuote, restored.orderQuantity, restored.orderQuoteFraction, restored.maxOrderQuote]) {
+    assert.equal(typeof value, "number");
+    assert.equal(Number.isFinite(value), true);
+  }
+
+  const fallback = normalizeFormState({
+    orderQuote: "Infinity",
+    orderQuantity: Number.NaN,
+    orderQuoteFraction: "not-a-number",
+    maxOrderQuote: "-Infinity",
+  });
+  assert.deepEqual(
+    {
+      orderQuote: fallback.orderQuote,
+      orderQuantity: fallback.orderQuantity,
+      orderQuoteFraction: fallback.orderQuoteFraction,
+      maxOrderQuote: fallback.maxOrderQuote,
+    },
+    {
+      orderQuote: defaultForm.orderQuote,
+      orderQuantity: defaultForm.orderQuantity,
+      orderQuoteFraction: defaultForm.orderQuoteFraction,
+      maxOrderQuote: defaultForm.maxOrderQuote,
+    },
+  );
+});
+
+test("normalizeFormState preserves restored fraction validation and precedence", () => {
+  const invalidFractionOnly = normalizeFormState({
+    orderQuote: 0,
+    orderQuantity: 0,
+    orderQuoteFraction: "1.25",
+    maxOrderQuote: "40",
+  });
+  const invalidFractionState = summarizeOrderSizing({
+    orderQuantity: invalidFractionOnly.orderQuantity,
+    orderQuote: invalidFractionOnly.orderQuote,
+    orderQuoteFraction: invalidFractionOnly.orderQuoteFraction,
+    maxOrderQuote: invalidFractionOnly.maxOrderQuote,
+  });
+  assert.equal(invalidFractionOnly.orderQuoteFraction, 1.25);
+  assert.equal(invalidFractionOnly.maxOrderQuote, 40);
+  assert.equal(invalidFractionState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
+  assert.equal(invalidFractionState.blockingError, "Order quote fraction must be <= 1 (use 0 to disable).");
+  assert.equal(invalidFractionState.blockingTargetId, "orderQuoteFraction");
+
+  const precedenceRestored = normalizeFormState({
+    orderQuantity: "0.25",
+    orderQuote: "100",
+    orderQuoteFraction: "1.25",
+    maxOrderQuote: "40",
+  });
+  const precedenceState = summarizeOrderSizing({
+    orderQuantity: precedenceRestored.orderQuantity,
+    orderQuote: precedenceRestored.orderQuote,
+    orderQuoteFraction: precedenceRestored.orderQuoteFraction,
+    maxOrderQuote: precedenceRestored.maxOrderQuote,
+  });
+  assert.deepEqual(precedenceState.active, ["orderQuantity", "orderQuote"]);
+  assert.equal(precedenceState.effective, "orderQuantity");
+  assert.equal(precedenceState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
+  assert.equal(precedenceState.blockingError, null);
+  assert.equal(precedenceState.tone, "warn");
+});
+
 test("defaultForm uses safe trade defaults", () => {
   assert.equal(defaultForm.binanceLive, false);
   assert.equal(defaultForm.tradeArmed, false);
@@ -249,7 +335,7 @@ test("normalizeFormState normalizes trade toggles and booleans from strings", ()
   assert.equal(out.autoRefresh, false);
 });
 
-test("normalizeFormState forces non-binance platforms into spot + disables binance-only flags", () => {
+test("normalizeFormState forces non-binance platforms into spot and preserves coinbase live mode", () => {
   const out = normalizeFormState({
     platform: "coinbase",
     market: "futures",
@@ -260,7 +346,7 @@ test("normalizeFormState forces non-binance platforms into spot + disables binan
   assert.equal(out.platform, "coinbase");
   assert.equal(out.market, "spot");
   assert.equal(out.binanceTestnet, false);
-  assert.equal(out.binanceLive, false);
+  assert.equal(out.binanceLive, true);
   assert.equal(out.tradeArmed, true);
 });
 

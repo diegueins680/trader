@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Predictors/Backtests/CLI: add OHLCV-aware feature engineering (candle body/range/wick, ATR/breakout, volume shock, efficiency, plus market-context residual features) and new `knn` / `decision_tree` predictors wired through the existing `--predictors` Kalman/backtest/trade-only flow, so optimizer and backtest runs can learn from richer Kline context around entry/hold/exit decisions.
 - Dev/CI: add a repo-local persistent autoloop supervisor (`scripts/autoloop-forever.sh` + `scripts/autoloop-forever.mjs`) that sources repo `.env` at launch, stores PID/status/logs under `.tmp/autoloop/`, honors stop files/signals, auto-selects OpenAI or Codex planning backends, pauses on dirty worktrees or missing backends, and keeps re-running the bounded autoloop without busy looping.
 - Dev/CI: require each bounded autoloop cycle to record explicit change-selection, UI/UX review, and correctness/formal-review phases, including named web/test/formal review targets plus summary metadata in the cycle status JSON.
 - Dev/CI: add a scheduled/manual `Autoloop` GitHub Actions workflow that runs one bounded autonomous improvement cycle at a time, opens or refreshes an `autoloop/<default-branch>` PR, waits for the normal `CI` workflow, auto-merges on green, and constrains model output with explicit path/command guardrails plus planned-path-only staging.
