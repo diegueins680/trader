@@ -19441,11 +19441,12 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                     qRaw = qRaw0 * exitScale
                 case mBaseMinQty of
                     Just minQty | baseBal < minQty -> noOrder "No order: position below exchange minimums (dust)."
-                    Just minQty | qRaw > 0 && qRaw < minQty ->
-                        noOrder $
-                            if isJust qtyArgSell
-                                then "No order: orderQuantity below exchange minimums."
-                                else "No order: exit size below exchange minimums."
+                    Just minQty
+                        | qRaw > 0 && qRaw < minQty ->
+                            noOrder $
+                                if isJust qtyArgSell
+                                    then "No order: orderQuantity below exchange minimums."
+                                    else "No order: exit size below exchange minimums."
                     _ ->
                         if qRaw <= 0
                             then noOrder "No order: quantity is 0."
@@ -20351,9 +20352,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     let opensAll = matchLengthAndTrim (psOpen seriesWindow)
         opensAllForBars =
             fromMaybe
-                (case prices of
+                ( case prices of
                     [] -> []
-                    p0 : _ -> p0 : init prices)
+                    p0 : _ -> p0 : init prices
+                )
                 opensAll
         (highsAll, lowsAll) =
             case (matchLengthAndTrim (psHigh seriesWindow), matchLengthAndTrim (psLow seriesWindow)) of
