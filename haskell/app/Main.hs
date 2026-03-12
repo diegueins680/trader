@@ -2280,6 +2280,7 @@ data PersistedComboRow = PersistedComboRow
     , pcrFinalEquity :: !(Maybe Double)
     , pcrAnnualizedReturn :: !(Maybe Double)
     , pcrObjective :: !(Maybe Text)
+    , pcrSource :: !(Maybe Text)
     , pcrScore :: !(Maybe Double)
     , pcrOpenThreshold :: !(Maybe Double)
     , pcrCloseThreshold :: !(Maybe Double)
@@ -2294,6 +2295,7 @@ instance FromRow PersistedComboRow where
     fromRow =
         PersistedComboRow
             <$> field
+            <*> field
             <*> field
             <*> field
             <*> field
@@ -2329,8 +2331,7 @@ persistedComboToValue row = do
                 then Aeson.Null
                 else Aeson.Object metricsWithFinalEq
         createdAtMs = pcrCreatedAtMs row <|> pcrUpdatedAtMs row
-    pure
-        ( object
+        comboFields =
             [ "uuid" .= uuidToText (pcrUuid row)
             , "createdAtMs" .= createdAtMs
             , "finalEquity" .= pcrFinalEquity row
@@ -2339,11 +2340,52 @@ persistedComboToValue row = do
             , "score" .= pcrScore row
             , "openThreshold" .= pcrOpenThreshold row
             , "closeThreshold" .= pcrCloseThreshold row
-            , "source" .= ("db" :: String)
             , "metrics" .= metricsVal
             , "params" .= Aeson.Object paramsObj
             ]
+    pure
+        ( object
+            ( maybe [] (\source -> ["source" .= source]) (persistedComboSource row)
+                ++ comboFields
+            )
         )
+
+persistedComboSource :: PersistedComboRow -> Maybe Text
+persistedComboSource row =
+    case trim . T.unpack <$> pcrSource row of
+        Just source | not (null source) -> Just (T.pack source)
+        _ -> Nothing
+
+persistedComboLegacyIdentityKey :: PersistedComboRow -> Maybe BS.ByteString
+persistedComboLegacyIdentityKey row = do
+    paramsVal <- decodeJsonTextMaybe (pcrParams row)
+    paramsObj <-
+        case paramsVal of
+            Aeson.Object obj -> Just obj
+            _ -> Nothing
+    pure $
+        BL.toStrict $
+            encodePretty $
+                object
+                    [ "params" .= paramsObj
+                    , "openThreshold" .= pcrOpenThreshold row
+                    , "closeThreshold" .= pcrCloseThreshold row
+                    , "objective" .= pcrObjective row
+                    ]
+
+filterPersistedComboRows :: [PersistedComboRow] -> [PersistedComboRow]
+filterPersistedComboRows rows =
+    let sourceAwareKeys =
+            [ key
+            | row <- rows
+            , isJust (persistedComboSource row)
+            , Just key <- [persistedComboLegacyIdentityKey row]
+            ]
+     in [ row
+        | row <- rows
+        , isJust (persistedComboSource row)
+            || maybe True (`notElem` sourceAwareKeys) (persistedComboLegacyIdentityKey row)
+        ]
 
 coerceDoubleValue :: Aeson.Value -> Maybe Double
 coerceDoubleValue value =
@@ -3845,6 +3887,7 @@ persistBinancePositions store market positions =
 data ComboParamsRow = ComboParamsRow
     { cprFinalEquity :: !(Maybe Double)
     , cprObjective :: !(Maybe Text)
+    , cprSource :: !(Maybe Text)
     , cprScore :: !(Maybe Double)
     , cprOpenThreshold :: !(Maybe Double)
     , cprCloseThreshold :: !(Maybe Double)
@@ -3857,6 +3900,7 @@ instance FromRow ComboParamsRow where
     fromRow =
         ComboParamsRow
             <$> field
+            <*> field
             <*> field
             <*> field
             <*> field
@@ -3883,7 +3927,7 @@ comboParamsRowToTopCombo uuid row = do
             , tcOpenThreshold = cprOpenThreshold row
             , tcCloseThreshold = cprCloseThreshold row
             , tcUuid = Just (uuidToText uuid)
-            , tcSource = Nothing
+            , tcSource = normalizedTopComboSource (T.unpack <$> cprSource row)
             , tcParams = paramsObj
             , tcMetrics = metricsObj
             }
@@ -3894,7 +3938,7 @@ readTopComboByUuidFromDb store comboUuid =
         rows <-
             query
                 (osConn store)
-                "SELECT final_equity, objective, score, open_threshold, close_threshold, params_json::text, metrics_json::text FROM combos WHERE combo_uuid = ?"
+                "SELECT final_equity, objective, source, score, open_threshold, close_threshold, params_json::text, metrics_json::text FROM combos WHERE combo_uuid = ?"
                 (Only comboUuid) ::
                 IO [ComboParamsRow]
         pure (listToMaybe (mapMaybe (comboParamsRowToTopCombo comboUuid) rows))
@@ -4119,20 +4163,46 @@ formatUuidFromHex hex =
         seg5 = take 12 (drop 20 h)
      in T.pack (intercalate "-" [seg1, seg2, seg3, seg4, seg5])
 
+normalizedTopComboSource :: Maybe String -> Maybe String
+normalizedTopComboSource mSource =
+    case trim <$> mSource of
+        Just source | not (null source) -> Just source
+        _ -> Nothing
+
 comboIdentityValueFromTopCombo :: TopCombo -> Aeson.Value
 comboIdentityValueFromTopCombo combo =
+    comboIdentityValueFromTopComboWithSource (normalizedTopComboSource (tcSource combo)) combo
+
+legacyComboIdentityValueFromTopCombo :: TopCombo -> Aeson.Value
+legacyComboIdentityValueFromTopCombo = comboIdentityValueFromTopComboWithSource Nothing
+
+comboIdentityValueFromTopComboWithSource :: Maybe String -> TopCombo -> Aeson.Value
+comboIdentityValueFromTopComboWithSource mSource combo =
     object
-        [ "params" .= tcParams combo
-        , "openThreshold" .= tcOpenThreshold combo
-        , "closeThreshold" .= tcCloseThreshold combo
-        , "objective" .= tcObjectiveLabel combo
-        ]
+        ( maybe [] (\source -> ["source" .= source]) mSource
+            ++ [ "params" .= tcParams combo
+               , "openThreshold" .= tcOpenThreshold combo
+               , "closeThreshold" .= tcCloseThreshold combo
+               , "objective" .= tcObjectiveLabel combo
+               ]
+        )
 
 topComboUuid :: TopCombo -> Text
 topComboUuid combo =
-    case tcUuid combo of
-        Just u | not (T.null (T.strip u)) -> u
-        _ -> formatUuidFromHex (hashBytesHex (encodePretty (comboIdentityValueFromTopCombo combo)))
+    let sourceAwareUuid = formatUuidFromHex (hashBytesHex (encodePretty (comboIdentityValueFromTopCombo combo)))
+        legacyUuid = formatUuidFromHex (hashBytesHex (encodePretty (legacyComboIdentityValueFromTopCombo combo)))
+     in case tcUuid combo of
+            Just u
+                | not (T.null (T.strip u)) ->
+                    case normalizedTopComboSource (tcSource combo) of
+                        Nothing -> u
+                        Just _ ->
+                            if u == sourceAwareUuid
+                                then sourceAwareUuid
+                                else if u == legacyUuid
+                                    then sourceAwareUuid
+                                    else u
+            _ -> sourceAwareUuid
 
 data BotOpenTrade = BotOpenTrade
     { botOpenEntryIndex :: !Int
@@ -12496,6 +12566,7 @@ persistTopCombosToDb conn export =
                         mSymbol = T.pack <$> topComboSymbol combo
                         mInterval = T.pack <$> topComboParamString "interval" combo
                         mObjective = T.pack <$> tcObjectiveLabel combo
+                        mSource = T.pack <$> normalizedTopComboSource (tcSource combo)
                         mAnnualized = topComboMetricDouble "annualizedReturn" combo
                         paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
                         metricsJson = encodeJsonTextMaybe (Aeson.Object <$> tcMetrics combo)
@@ -12507,13 +12578,14 @@ persistTopCombosToDb conn export =
                     void $
                         execute
                             conn
-                            ( "INSERT INTO combos (combo_uuid, strategy_id, symbol, interval, objective, final_equity, annualized_return, score, open_threshold, close_threshold, params_json, metrics_json, operation_count, created_at_ms, updated_at_ms) "
-                                <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?) "
+                            ( "INSERT INTO combos (combo_uuid, strategy_id, symbol, interval, objective, source, final_equity, annualized_return, score, open_threshold, close_threshold, params_json, metrics_json, operation_count, created_at_ms, updated_at_ms) "
+                                <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?) "
                                 <> "ON CONFLICT (combo_uuid) DO UPDATE "
                                 <> "SET strategy_id = EXCLUDED.strategy_id, "
                                 <> "symbol = EXCLUDED.symbol, "
                                 <> "interval = EXCLUDED.interval, "
                                 <> "objective = EXCLUDED.objective, "
+                                <> "source = EXCLUDED.source, "
                                 <> "final_equity = EXCLUDED.final_equity, "
                                 <> "annualized_return = EXCLUDED.annualized_return, "
                                 <> "score = EXCLUDED.score, "
@@ -12529,6 +12601,7 @@ persistTopCombosToDb conn export =
                             , mSymbol
                             , mInterval
                             , mObjective
+                            , mSource
                             , tcFinalEquity combo
                             , mAnnualized
                             , tcScore combo
@@ -12577,7 +12650,7 @@ readTopCombosValueFromDb store = do
             withMVar (osLock store) $ \_ ->
                 query
                     (osConn store)
-                    ( "SELECT combo_uuid, final_equity, annualized_return, objective, score, open_threshold, close_threshold, "
+                    ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
                         <> "params_json::text, metrics_json::text, created_at_ms, updated_at_ms "
                         <> "FROM combos "
                         <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, updated_at_ms DESC NULLS LAST "
@@ -12585,7 +12658,7 @@ readTopCombosValueFromDb store = do
                     )
                     (Only limitSafe) ::
                     IO [PersistedComboRow]
-        let combos = mapMaybe persistedComboToValue rows
+        let combos = mapMaybe persistedComboToValue (filterPersistedComboRows rows)
         if null combos
             then pure (Left "No persisted combos found in the database.")
             else do
@@ -12889,10 +12962,23 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                     case recovered of
                         Just val -> Right val
                         Nothing -> Left err
+    topValBackfilled <-
+        case (mOps, topVal) of
+            (Just opsStore, Right val) -> do
+                dbVal <- readTopCombosValueFromDb opsStore
+                let currentCount = topCombosComboCount val
+                    dbCount =
+                        case dbVal of
+                            Right dbVal' -> topCombosComboCount dbVal'
+                            Left _ -> 0
+                when (currentCount > dbCount) $
+                    withTopCombosLock topCombosStore (persistTopCombosDbMaybeUnlocked mOps topCombosStore)
+                pure (Right val)
+            _ -> pure topVal
     minPersist <- topCombosMinPersistFromEnv
     maxCombos <- optimizerMaxCombosFromEnv
     topVal' <-
-        case (mOps, topVal) of
+        case (mOps, topValBackfilled) of
             (Just opsStore, Right val) -> do
                 let currentCount = topCombosComboCount val
                 if currentCount >= minPersist
@@ -12913,7 +12999,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                                             persistTopCombosMaybe mStateSyncTarget topJsonPath
                                             persistTopCombosDbMaybeUnlocked mOps topCombosStore
                                         pure (Right mergedVal)
-            _ -> pure topVal
+            _ -> pure topValBackfilled
     let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
     tmpVal <-
         if tmpPath /= topJsonPath
@@ -12924,7 +13010,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
             then sanitizeVal <$> readTopCombosValueLocal fallbackPath
             else pure (Left "missing")
     let seedVal = listToMaybe (rights [tmpVal, fallbackVal])
-    case (topVal, seedVal) of
+    case (topValBackfilled, seedVal) of
         (Left _, Just seed) ->
             withTopCombosLock topCombosStore $ do
                 existsNow <- doesFileExist topJsonPath

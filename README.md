@@ -812,6 +812,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - When `TRADER_STATE_SYNC_URL` is set, new optimizer runs merge against the sync target's `top-combos` on-the-fly; if state sync is unavailable and S3 persistence is enabled, it falls back to S3. History snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
 - When `TRADER_DB_URL` is set, the API can rebuild `top-combos.json` from Postgres if local/S3 state is missing, so combos persist across deploys.
+- Combo `source` metadata is persisted alongside each DB combo row, and same-parameter combos from different sources now keep distinct UUIDs during DB restore/rebuilds (important for Fly or other ephemeral-instance deploys).
 - The API container image seeds `web/public/top-combos.json` from the repo-level `top-combos.s3.json` so fresh deploys have a multi-symbol fallback payload.
 - `top-combos.json` drops combos with `finalEquity <= 1` on read/write (including numeric strings), sanitizes combo symbols, and persists the filtered file to S3 when configured.
 - `merge-top-combos` now tolerates malformed UTF-8 bytes in JSONL input files by skipping unparseable lines instead of failing the entire merge.
