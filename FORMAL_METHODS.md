@@ -55,12 +55,14 @@ Clauses:
 2. Effective sizing follows a fixed precedence: `orderQuantity` > `orderQuote` > `orderQuoteFraction`.
 3. Invalid quote-fraction ranges (`< 0` or `> 1`) block trading only when no higher-precedence valid size is present.
 4. Multiple valid sizing inputs are allowed but must be reported as a conflict so the effective mode is explicit.
+5. `maxOrderQuote` is cap-only metadata: it never becomes an active sizing mode, never creates trade readiness by itself, and only changes labeling when `orderQuoteFraction` is the effective mode.
 
 The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space:
 
 - `orderQuantity ∈ {0, 1}`
 - `orderQuote ∈ {0, 1}`
 - `orderQuoteFraction ∈ {-0.25, 0, 0.5, 1.25}`
+- `maxOrderQuote ∈ {0, 25}`
 
 For every state, it checks:
 
@@ -68,6 +70,7 @@ For every state, it checks:
 2. The effective sizing mode matches the documented precedence.
 3. Trade readiness is blocked exactly when the model says no effective size exists.
 4. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
+5. The quote-cap metadata stays inert outside effective quote-fraction sizing, including restored cap-only form states.
 
 ## Formal autoloop safety contract
 
