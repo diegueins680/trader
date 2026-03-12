@@ -26,7 +26,7 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.CaseInsensitive as CI
 import Data.Char (isAlphaNum, isDigit, isHexDigit, isSpace, toLower, toUpper)
-import Data.Either (rights)
+import Data.Either (fromRight, rights)
 import Data.Foldable (for_, toList)
 import qualified Data.Foldable
 import qualified Data.HashMap.Strict as HM
@@ -4197,11 +4197,9 @@ topComboUuid combo =
                     case normalizedTopComboSource (tcSource combo) of
                         Nothing -> u
                         Just _ ->
-                            if u == sourceAwareUuid
+                            if u == sourceAwareUuid || u == legacyUuid
                                 then sourceAwareUuid
-                                else if u == legacyUuid
-                                    then sourceAwareUuid
-                                    else u
+                                else u
             _ -> sourceAwareUuid
 
 data BotOpenTrade = BotOpenTrade
@@ -19346,7 +19344,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                                 quoteBal <- fetchCoinbaseAvailableBalance env quoteAsset
                                 mBaseMinQty <- do
                                     r <- try (fetchCoinbaseBaseMinSize env sym) :: IO (Either SomeException (Maybe Double))
-                                    pure (either (const Nothing) id r)
+                                    pure (fromRight Nothing r)
                                 case chosenDir of
                                     Nothing -> noOrder neutralMsg
                                     Just dir ->

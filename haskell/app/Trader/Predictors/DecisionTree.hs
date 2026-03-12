@@ -6,6 +6,7 @@ module Trader.Predictors.DecisionTree (
 ) where
 
 import Data.List (minimumBy, sort)
+import Data.Maybe (catMaybes)
 import Data.Ord (comparing)
 
 import Trader.Text (dedupeStable)
@@ -159,10 +160,7 @@ bestSplit minLeafSize rows =
             [ bestForFeature feature
             | feature <- [0 .. featureDim - 1]
             ]
-        valids =
-            [ split
-            | Just split <- candidates
-            ]
+        valids = catMaybes candidates
      in case valids of
             [] -> Nothing
             _ -> Just (minimumBy (comparing (\(_, _, _, _, sse) -> sse)) valids)
@@ -180,7 +178,7 @@ bestSplit minLeafSize rows =
                         else Just (feature, threshold, leftRows, rightRows, score)
                 | threshold <- thresholds
                 ]
-         in case [v | Just v <- options] of
+         in case catMaybes options of
                 [] -> Nothing
                 vs -> Just (minimumBy (comparing (\(_, _, _, _, sse) -> sse)) vs)
 

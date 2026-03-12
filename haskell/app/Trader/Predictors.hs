@@ -253,8 +253,8 @@ predictSensors ::
     HMMFilter ->
     Int ->
     ([(SensorId, SensorOutput)], [Double])
-predictSensors pb prices hmmFilt t =
-    predictSensorsWithInputs pb (featureInputsFromClose prices) hmmFilt t
+predictSensors pb prices =
+    predictSensorsWithInputs pb (featureInputsFromClose prices)
 
 predictSensorsWithInputs ::
     PredictorBundle ->
