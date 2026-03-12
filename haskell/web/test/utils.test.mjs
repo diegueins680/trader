@@ -3,15 +3,40 @@ import { test } from "node:test";
 import {
   buildOrphanedPositions,
   buildRequestIssueDetails,
+  downsampleIndices,
   inferFlyApiAppName,
   inferFlyDirectApiBaseFromHostname,
   isLocalHostname,
   methodLabel,
   normalizeApiBaseUrlInput,
   numFromInput,
+  remapIndexToSample,
   summarizeOrderSizing,
 } from "../.tmp/web-tests/utils.js";
 import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
+
+function assertStrictlyIncreasing(values, context) {
+  for (let i = 1; i < values.length; i += 1) {
+    assert.ok(
+      values[i - 1] < values[i],
+      `${context}: expected strictly increasing indices, got ${values[i - 1]} then ${values[i]}`,
+    );
+  }
+}
+
+function expectedNearestSampleIndex(indices, idx) {
+  if (indices.length === 0) return 0;
+  let bestIndex = 0;
+  let bestDistance = Math.abs(indices[0] - idx);
+  for (let i = 1; i < indices.length; i += 1) {
+    const distance = Math.abs(indices[i] - idx);
+    if (distance < bestDistance) {
+      bestIndex = i;
+      bestDistance = distance;
+    }
+  }
+  return bestIndex;
+}
 
 test("buildRequestIssueDetails returns empty when clean", () => {
   assert.deepEqual(buildRequestIssueDetails({}), []);
@@ -148,6 +173,81 @@ test("numFromInput parses thousands grouping and decimal comma consistently", ()
   assert.equal(numFromInput("1,234,567", 0), 1234567);
   assert.equal(numFromInput("1,23", 0), 1.23);
   assert.equal(numFromInput("0,123", 0), 0.123);
+});
+
+test("downsampleIndices preserves bounded chart sampling invariants", () => {
+  for (let total = 0; total <= 257; total += 1) {
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      const budget = Math.max(1, Math.trunc(maxPoints));
+
+      if (total === 0) {
+        assert.deepEqual(indices, []);
+        continue;
+      }
+
+      assert.ok(indices.length >= 1, `expected a visible point for total=${total}, maxPoints=${maxPoints}`);
+      assert.ok(
+        indices.length <= Math.min(total, budget),
+        `expected sample budget for total=${total}, maxPoints=${maxPoints}, got ${indices.length}`,
+      );
+      assert.equal(indices[0], 0, `expected first endpoint for total=${total}, maxPoints=${maxPoints}`);
+      assertStrictlyIncreasing(indices, `total=${total}, maxPoints=${maxPoints}`);
+      for (const idx of indices) {
+        assert.ok(idx >= 0 && idx < total, `expected in-bounds sample ${idx} for total=${total}, maxPoints=${maxPoints}`);
+      }
+      if (indices.length > 1) {
+        assert.equal(
+          indices[indices.length - 1],
+          total - 1,
+          `expected final endpoint for total=${total}, maxPoints=${maxPoints}`,
+        );
+      }
+      if (total <= budget) {
+        assert.deepEqual(indices, Array.from({ length: total }, (_, i) => i));
+      }
+    }
+  }
+});
+
+test("remapIndexToSample preserves exact sampled hits", () => {
+  for (let total = 1; total <= 257; total += 1) {
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      for (let sampleIdx = 0; sampleIdx < indices.length; sampleIdx += 1) {
+        const rawIdx = indices[sampleIdx];
+        assert.equal(
+          remapIndexToSample(indices, rawIdx),
+          sampleIdx,
+          `expected exact sampled hit for total=${total}, maxPoints=${maxPoints}, rawIdx=${rawIdx}`,
+        );
+      }
+    }
+  }
+});
+
+test("remapIndexToSample chooses nearest visible points with deterministic left-biased ties", () => {
+  assert.equal(remapIndexToSample([], 42), 0);
+  assert.equal(remapIndexToSample([0, 4, 8], 2), 0);
+  assert.equal(remapIndexToSample([0, 4, 8], 6), 1);
+
+  for (let total = 1; total <= 257; total += 1) {
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      for (let rawIdx = 0; rawIdx < total; rawIdx += 1) {
+        const mapped = remapIndexToSample(indices, rawIdx);
+        assert.ok(
+          mapped >= 0 && mapped < indices.length,
+          `expected mapped index in range for total=${total}, maxPoints=${maxPoints}, rawIdx=${rawIdx}`,
+        );
+        assert.equal(
+          mapped,
+          expectedNearestSampleIndex(indices, rawIdx),
+          `expected nearest visible point for total=${total}, maxPoints=${maxPoints}, rawIdx=${rawIdx}`,
+        );
+      }
+    }
+  }
 });
 
 test("summarizeOrderSizing blocks trade when no effective size is configured", () => {
