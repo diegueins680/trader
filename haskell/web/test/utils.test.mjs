@@ -133,6 +133,14 @@ test("buildOrphanedPositions flags market mismatch", () => {
   assert.equal(orphans[0]?.reason, "market mismatch");
 });
 
+test("buildOrphanedPositions keeps stopped bots with unknown market in scope", () => {
+  const positions = [{ symbol: "BTCUSDT", positionAmt: 1, positionSide: "LONG" }];
+  const bots = [{ symbol: "BTCUSDT", status: { running: false, symbol: "BTCUSDT" } }];
+  const orphans = buildOrphanedPositions(positions, bots, { market: "futures" });
+  assert.equal(orphans.length, 1);
+  assert.equal(orphans[0]?.reason, "bot stopped");
+});
+
 test("normalizeApiBaseUrlInput supports bare loopback IPv6 with port", () => {
   assert.equal(normalizeApiBaseUrlInput("::1:8080"), "http://[::1]:8080");
   assert.equal(normalizeApiBaseUrlInput("[::1]:8080"), "http://[::1]:8080");

@@ -188,6 +188,7 @@ test-suite trader-tests
                      , Trader.Config
                      , Trader.Dex
                      , Trader.App.Args
+                     , Trader.App.Runtime
                      , Trader.BinanceIntervals
                      , Trader.BotStartSemantics
                      , Trader.Duration

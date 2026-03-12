@@ -16,6 +16,7 @@ import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, sort, sortOn)
 import Data.Maybe (isNothing)
 import qualified Data.Maybe
+import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
@@ -24,7 +25,8 @@ import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 
-import Trader.App.Args (Args (..), argBinanceMarket, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
+import Trader.App.Args (Args (..), argBinanceMarket, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parsePositioning, parseTimestampMs, validateArgs)
+import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceMarket (..), BinanceOrderMode (..), BinanceTrade (..), Kline (..), OrderSide (..), binanceBaseUrl, newBinanceEnv, placeMarketOrder, signQuery)
 import Trader.BinanceIntervals (binanceIntervalsCsv, isBinanceInterval)
 import Trader.BotStartSemantics (botTradeEnabledFromApi, shouldClearPositionOriginOnStart, shouldPersistPositionOriginOnSwitch, shouldPreserveProvidedComboOnActiveAdopt, shouldResolveOriginComboOnAutoStart)
@@ -143,6 +145,9 @@ main = do
               , run "optimizer objective aliases canonicalize" testOptimizerObjectiveNormalization
               , run "platform parsing" testPlatformParsing
               , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+              , run "exchange data backtests allow long-short without futures" testExchangeDataLongShortBacktestAllowed
+              , run "positioning rejects short alias" testPositioningShortAliasRejected
+              , run "tenant resolution scopes mixed API keys by platform" testTenantResolutionScopesMixedApiKeys
               , run "binance market helper prioritizes futures on conflicting flags" testBinanceMarketConflictingFlagsPreferFutures
               , run "binance args normalize slash symbols" testBinanceSlashSymbolNormalization
               , run "coinbase args normalize slash symbols" testCoinbaseSlashSymbolNormalization
@@ -1532,6 +1537,52 @@ testNonBinanceArgsLiveDefault = do
     case parseArgsResult (krakenBaseArgs ++ ["--binance-live"]) of
         Left err -> assert "explicit --binance-live rejected on kraken" ("--binance-live is only supported on Binance/Coinbase" `isInfixOf` err)
         Right _ -> error "expected explicit --binance-live to be rejected on kraken"
+
+testExchangeDataLongShortBacktestAllowed :: IO ()
+testExchangeDataLongShortBacktestAllowed = do
+    case parseArgsResult ["--platform", "coinbase", "--symbol", "btc/usd", "--positioning", "long-short"] of
+        Left err -> error ("expected Coinbase exchange backtest to allow long-short: " ++ err)
+        Right args -> assert "coinbase exchange backtest keeps long-short" (argPositioning args == LongShort)
+    case parseArgsResult ["--platform", "binance", "--symbol", "BTCUSDT", "--positioning", "long-short"] of
+        Left err -> error ("expected Binance exchange backtest to allow long-short: " ++ err)
+        Right args -> assert "binance exchange backtest keeps long-short" (argPositioning args == LongShort)
+    case parseArgsResult ["--platform", "binance", "--symbol", "BTCUSDT", "--positioning", "long-short", "--binance-trade"] of
+        Left err -> assert "trading still requires futures for long-short" ("--positioning long-short requires --futures when trading" `isInfixOf` err)
+        Right _ -> error "expected long-short trading on spot market to fail validation"
+
+testPositioningShortAliasRejected :: IO ()
+testPositioningShortAliasRejected = do
+    case parsePositioning "short" of
+        Left _ -> pure ()
+        Right v -> error ("expected parsePositioning short to fail, got " ++ show v)
+    case parseArgsResult ["--data", "sample.csv", "--positioning", "short"] of
+        Left err -> assert "cli positioning short is rejected" ("Invalid positioning" `isInfixOf` err)
+        Right _ -> error "expected --positioning short to be rejected"
+
+testTenantResolutionScopesMixedApiKeys :: IO ()
+testTenantResolutionScopesMixedApiKeys = do
+    let bKey = Just "binance-key"
+        bSecret = Just "binance-secret"
+        cKey = Just "coinbase-key"
+        cSecret = Just "coinbase-secret"
+        cPass = Just "coinbase-pass"
+        mBinanceTenant = tenantKeyFromBinanceKeys bKey bSecret
+        mCoinbaseTenant = tenantKeyFromCoinbaseKeys cKey cSecret cPass
+    case (mBinanceTenant, mCoinbaseTenant) of
+        (Just binanceTenant, Just coinbaseTenant) -> do
+            case resolveTenantKeyFromParams Nothing bKey bSecret cKey cSecret cPass of
+                Left _ -> pure ()
+                Right v -> error ("expected unscoped mixed credentials to fail, got " ++ show v)
+            assert
+                "coinbase scope selects coinbase tenant"
+                (resolveTenantKeyFromPlatformParams PlatformCoinbase Nothing bKey bSecret cKey cSecret cPass == Right (Just coinbaseTenant))
+            assert
+                "binance scope selects binance tenant"
+                (resolveTenantKeyFromPlatformParams PlatformBinance Nothing bKey bSecret cKey cSecret cPass == Right (Just binanceTenant))
+            assert
+                "explicit coinbase tenant matches mixed credentials when unscoped"
+                (resolveTenantKeyFromParams (Just (T.unpack coinbaseTenant)) bKey bSecret cKey cSecret cPass == Right (Just coinbaseTenant))
+        _ -> error "expected tenant key derivation for test credentials to succeed"
 
 testBinanceMarketConflictingFlagsPreferFutures :: IO ()
 testBinanceMarketConflictingFlagsPreferFutures = do

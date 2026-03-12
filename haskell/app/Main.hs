@@ -126,6 +126,7 @@ import Trader.App.Runtime (
     normalizeTenantKey,
     readEnvBool,
     resolveTenantKeyFromParams,
+    resolveTenantKeyFromPlatformParams,
     splitEnvList,
     tenantKeyFromBinanceKeys,
     tenantKeyFromCoinbaseKeys,
@@ -5066,15 +5067,20 @@ ensureBinanceKeysPresent env =
         missingSecret = maybe True BS.null (beApiSecret env)
      in (when (missingKey || missingSecret) $ throwIO (userError "botTrade=true requires BINANCE_API_KEY and BINANCE_API_SECRET (or pass binanceApiKey/binanceApiSecret in request)"))
 
-resolveTenantKeyFromApiParams :: ApiParams -> Either String (Maybe TenantKey)
-resolveTenantKeyFromApiParams p =
-    resolveTenantKeyFromParams
-        (apTenantKey p)
+resolveTenantKeyFromApiParamsWithHint :: Maybe String -> Args -> ApiParams -> Either String (Maybe TenantKey)
+resolveTenantKeyFromApiParamsWithHint tenantHint args p =
+    resolveTenantKeyFromPlatformParams
+        (argPlatform args)
+        tenantHint
         (apBinanceApiKey p)
         (apBinanceApiSecret p)
         (apCoinbaseApiKey p)
         (apCoinbaseApiSecret p)
         (apCoinbaseApiPassphrase p)
+
+resolveTenantKeyFromApiParams :: Args -> ApiParams -> Either String (Maybe TenantKey)
+resolveTenantKeyFromApiParams args p =
+    resolveTenantKeyFromApiParamsWithHint (apTenantKey p) args p
 
 resolveTenantKeyFromListenKeyStart :: ApiListenKeyStartParams -> Either String (Maybe TenantKey)
 resolveTenantKeyFromListenKeyStart p =
@@ -13332,18 +13338,12 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
         Left resp -> respond resp
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
-             in case resolveTenantKeyFromParams
-                    tenantHint
-                    (apBinanceApiKey params)
-                    (apBinanceApiSecret params)
-                    (apCoinbaseApiKey params)
-                    (apCoinbaseApiSecret params)
-                    (apCoinbaseApiPassphrase params) of
+             in case argsFromApi baseArgs params of
                     Left e -> respond (jsonError status400 e)
-                    Right mReqTenant ->
-                        case argsFromApi baseArgs params of
+                    Right args0 ->
+                        case resolveTenantKeyFromApiParamsWithHint tenantHint args0 params of
                             Left e -> respond (jsonError status400 e)
-                            Right args0 -> do
+                            Right mReqTenant -> do
                                 let args =
                                         args0
                                             { argTradeOnly = True
@@ -13400,18 +13400,12 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
         Left resp -> respond resp
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
-             in case resolveTenantKeyFromParams
-                    tenantHint
-                    (apBinanceApiKey params)
-                    (apBinanceApiSecret params)
-                    (apCoinbaseApiKey params)
-                    (apCoinbaseApiSecret params)
-                    (apCoinbaseApiPassphrase params) of
+             in case argsFromApi baseArgs params of
                     Left e -> respond (jsonError status400 e)
-                    Right mReqTenant ->
-                        case argsFromApi baseArgs params of
+                    Right args0 ->
+                        case resolveTenantKeyFromApiParamsWithHint tenantHint args0 params of
                             Left e -> respond (jsonError status400 e)
-                            Right args0 -> do
+                            Right mReqTenant -> do
                                 let args =
                                         args0
                                             { argTradeOnly = True
@@ -13465,18 +13459,12 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
                 originIp = requestOriginIp req
-             in case resolveTenantKeyFromParams
-                    tenantHint
-                    (apBinanceApiKey params)
-                    (apBinanceApiSecret params)
-                    (apCoinbaseApiKey params)
-                    (apCoinbaseApiSecret params)
-                    (apCoinbaseApiPassphrase params) of
+             in case argsFromApi baseArgs params of
                     Left e -> respond (jsonError status400 e)
-                    Right mReqTenant ->
-                        case argsFromApi baseArgs params of
+                    Right args0 ->
+                        case resolveTenantKeyFromApiParamsWithHint tenantHint args0 params of
                             Left e -> respond (jsonError status400 e)
-                            Right args0 -> do
+                            Right mReqTenant -> do
                                 let args1 =
                                         args0
                                             { argTradeOnly = True
@@ -13611,18 +13599,12 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
                 originIp = requestOriginIp req
-             in case resolveTenantKeyFromParams
-                    tenantHint
-                    (apBinanceApiKey params)
-                    (apBinanceApiSecret params)
-                    (apCoinbaseApiKey params)
-                    (apCoinbaseApiSecret params)
-                    (apCoinbaseApiPassphrase params) of
+             in case argsFromApi baseArgs params of
                     Left e -> respond (jsonError status400 e)
-                    Right mReqTenant ->
-                        case argsFromApi baseArgs params of
+                    Right args0 ->
+                        case resolveTenantKeyFromApiParamsWithHint tenantHint args0 params of
                             Left e -> respond (jsonError status400 e)
-                            Right args0 -> do
+                            Right mReqTenant -> do
                                 let args1 =
                                         args0
                                             { argTradeOnly = True
@@ -13790,18 +13772,12 @@ handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respond 
         Left resp -> respond resp
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
-             in case resolveTenantKeyFromParams
-                    tenantHint
-                    (apBinanceApiKey params)
-                    (apBinanceApiSecret params)
-                    (apCoinbaseApiKey params)
-                    (apCoinbaseApiSecret params)
-                    (apCoinbaseApiPassphrase params) of
+             in case argsFromApi baseArgs params of
                     Left e -> respond (jsonError status400 e)
-                    Right mReqTenant ->
-                        case argsFromApi baseArgs params of
+                    Right args0 ->
+                        case resolveTenantKeyFromApiParamsWithHint tenantHint args0 params of
                             Left e -> respond (jsonError status400 e)
-                            Right args0 -> do
+                            Right mReqTenant -> do
                                 let args =
                                         args0
                                             { argTradeOnly = False
@@ -13850,18 +13826,12 @@ handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs r
         Left resp -> respond resp
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
-             in case resolveTenantKeyFromParams
-                    tenantHint
-                    (apBinanceApiKey params)
-                    (apBinanceApiSecret params)
-                    (apCoinbaseApiKey params)
-                    (apCoinbaseApiSecret params)
-                    (apCoinbaseApiPassphrase params) of
+             in case argsFromApi baseArgs params of
                     Left e -> respond (jsonError status400 e)
-                    Right mReqTenant ->
-                        case argsFromApi baseArgs params of
+                    Right args0 ->
+                        case resolveTenantKeyFromApiParamsWithHint tenantHint args0 params of
                             Left e -> respond (jsonError status400 e)
-                            Right args0 -> do
+                            Right mReqTenant -> do
                                 let args =
                                         args0
                                             { argTradeOnly = False
@@ -13999,12 +13969,12 @@ handleBinanceKeys reqLimits mOps baseArgs req respond = do
     case payloadOrErr of
         Left resp -> respond resp
         Right params ->
-            case resolveTenantKeyFromApiParams params of
+            case argsFromApi baseArgs params of
                 Left e -> respond (jsonError status400 e)
-                Right _ ->
-                    case argsFromApi baseArgs params of
+                Right args0 ->
+                    case resolveTenantKeyFromApiParams args0 params of
                         Left e -> respond (jsonError status400 e)
-                        Right args0 -> do
+                        Right _ ->
                             if argPlatform args0 /= PlatformBinance
                                 then respond (jsonError status400 ("Binance keys require platform=binance (got " ++ platformCode (argPlatform args0) ++ ")."))
                                 else do
@@ -14026,12 +13996,12 @@ handleCoinbaseKeys reqLimits baseArgs req respond = do
     case payloadOrErr of
         Left resp -> respond resp
         Right params ->
-            case resolveTenantKeyFromApiParams params of
+            case argsFromApi baseArgs params of
                 Left e -> respond (jsonError status400 e)
-                Right _ ->
-                    case argsFromApi baseArgs params of
+                Right args0 ->
+                    case resolveTenantKeyFromApiParams args0 params of
                         Left e -> respond (jsonError status400 e)
-                        Right args0 -> do
+                        Right _ ->
                             if argPlatform args0 /= PlatformCoinbase
                                 then respond (jsonError status400 ("Coinbase keys require platform=coinbase (got " ++ platformCode (argPlatform args0) ++ ")."))
                                 else do
@@ -15048,15 +15018,15 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
                 originIp = requestOriginIp req
-             in case resolveTenantKeyFromParams tenantHint (apBinanceApiKey params) (apBinanceApiSecret params) (apCoinbaseApiKey params) (apCoinbaseApiSecret params) (apCoinbaseApiPassphrase params) of
+             in case argsFromApi baseArgs params of
                     Left e -> respond (jsonError status400 e)
-                    Right mTenant ->
-                        case requireTenantKey "bot/start" mTenant of
+                    Right args0 ->
+                        case resolveTenantKeyFromApiParamsWithHint tenantHint args0 params of
                             Left e -> respond (jsonError status400 e)
-                            Right tenantKey ->
-                                case argsFromApi baseArgs params of
+                            Right mTenant ->
+                                case requireTenantKey "bot/start" mTenant of
                                     Left e -> respond (jsonError status400 e)
-                                    Right args0 -> do
+                                    Right tenantKey -> do
                                         let argsBase = args0{argTradeOnly = True}
                                             tradeEnabled = botTradeEnabledFromApi (apBotTrade params)
                                         symbolsOrErr <- resolveBotSymbols argsBase params

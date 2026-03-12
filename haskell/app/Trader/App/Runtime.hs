@@ -7,23 +7,26 @@ module Trader.App.Runtime (
     normalizeTenantKey,
     readEnvBool,
     resolveTenantKeyFromParams,
+    resolveTenantKeyFromPlatformParams,
     splitEnvList,
     tenantKeyFromBinanceKeys,
     tenantKeyFromCoinbaseKeys,
 ) where
 
-import Control.Applicative ((<|>))
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
 import Data.ByteArray (convert)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import Data.Char (toLower, toUpper)
+import Data.List (nub)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import Trader.Binance (BinanceMarket (..))
+import Trader.Platform (Platform (..))
 import Trader.Text (trim)
 
 marketCode :: BinanceMarket -> String
@@ -72,6 +75,51 @@ tenantKeyFromCoinbaseKeys mKey mSecret mPass = do
     let payload = key ++ ":" ++ secret ++ ":" ++ passphrase
     pure (T.pack (tenantKeyPrefixCoinbase ++ ":" ++ hashKeyHex payload))
 
+tenantKeysFromParams ::
+    Maybe String ->
+    Maybe String ->
+    Maybe String ->
+    Maybe String ->
+    Maybe String ->
+    [TenantKey]
+tenantKeysFromParams bKey bSecret cKey cSecret cPass =
+    nub
+        ( catMaybes
+            [ tenantKeyFromBinanceKeys bKey bSecret
+            , tenantKeyFromCoinbaseKeys cKey cSecret cPass
+            ]
+        )
+
+resolveTenantKeyMatch :: Maybe TenantKey -> [TenantKey] -> Either String (Maybe TenantKey)
+resolveTenantKeyMatch explicit computedKeys =
+    case explicit of
+        Just tenant
+            | null computedKeys || tenant `elem` computedKeys -> Right (Just tenant)
+            | otherwise -> Left "tenantKey does not match provided API keys."
+        Nothing ->
+            case computedKeys of
+                [] -> Right Nothing
+                [tenant] -> Right (Just tenant)
+                _ -> Left "Multiple API key sets provided; specify platform or tenantKey."
+
+resolveTenantKeyFromPlatformParams ::
+    Platform ->
+    Maybe String ->
+    Maybe String ->
+    Maybe String ->
+    Maybe String ->
+    Maybe String ->
+    Maybe String ->
+    Either String (Maybe TenantKey)
+resolveTenantKeyFromPlatformParams platform mTenantRaw bKey bSecret cKey cSecret cPass =
+    let explicit = normalizeTenantKey mTenantRaw
+        computed =
+            case platform of
+                PlatformBinance -> tenantKeyFromBinanceKeys bKey bSecret
+                PlatformCoinbase -> tenantKeyFromCoinbaseKeys cKey cSecret cPass
+                _ -> Nothing
+     in resolveTenantKeyMatch explicit (maybe [] pure computed)
+
 resolveTenantKeyFromParams ::
     Maybe String ->
     Maybe String ->
@@ -82,15 +130,8 @@ resolveTenantKeyFromParams ::
     Either String (Maybe TenantKey)
 resolveTenantKeyFromParams mTenantRaw bKey bSecret cKey cSecret cPass =
     let explicit = normalizeTenantKey mTenantRaw
-        computed = tenantKeyFromBinanceKeys bKey bSecret <|> tenantKeyFromCoinbaseKeys cKey cSecret cPass
-     in case (explicit, computed) of
-            (Just e, Just c) ->
-                if e == c
-                    then Right (Just c)
-                    else Left "tenantKey does not match provided API keys."
-            (Just e, Nothing) -> Right (Just e)
-            (Nothing, Just c) -> Right (Just c)
-            (Nothing, Nothing) -> Right Nothing
+        computedKeys = tenantKeysFromParams bKey bSecret cKey cSecret cPass
+     in resolveTenantKeyMatch explicit computedKeys
 
 splitEnvList :: String -> [String]
 splitEnvList raw =

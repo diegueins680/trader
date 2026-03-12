@@ -386,7 +386,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--router-lookback 30` lookback bars for router/bandit_router scoring (`>= 2`)
     - `--router-min-score 0.25` minimum router score (blend of accuracy x coverage and return) to accept a model (`0..1`)
     - `--router-score-pnl-weight 0.5` weight for return-aware router scoring (`0` = accuracy x coverage only, `1` = return only)
-  - `--positioning long-flat` (default, alias `long-only`/`long`) or `--positioning long-short` (allows short positions; trading/live bot requires `--futures`)
+  - `--positioning long-flat` (default, alias `long-only`/`long`) or `--positioning long-short` (enables shorts for backtests/signals; placing orders or running the live bot still requires `--futures`)
   - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal; includes `conf_blend`, `conf_pick`, `conformal_clip`, `cost_pick`, `harmonic_blend`, `disagreement_guard`, `median_blend`, `neutral_guard`, `risk_parity_blend`, `consensus_boost`, `anchor_blend`, `tension_gate`, `entropy_blend`, `coherence_gate`, `divergence_gate`, `fractal_blend`, `phase_cancel`, `softmax_blend`, `smooth_softmax_blend`, `hedge_blend`, `net_softmax_blend`, `edge_blend`, `edge_pick`, `geo_blend`, `regime_switch`, `router`, and `bandit_router`)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
@@ -575,7 +575,7 @@ Tenant isolation (multi-user UI):
 - The backend stores only the hash and uses it to isolate stateful resources (live bots, listenKey streams, state sync snapshots).
 - Pass `tenantKey` in JSON payloads; for GET endpoints use `X-Tenant-Key` or `?tenantKey=`. The web UI also forwards `tenantKey` as `X-Tenant-Key` when present.
 - `/binance/keys` and `/coinbase/keys` return `tenantKey` when keys are present.
-- Trades use backend env keys when they are set and the request tenant matches (or when no tenantKey is provided). If backend keys are missing or the request tenant differs, requests must include user API keys, which are used for order placement.
+- Trades use backend env keys when they are set and the request tenant matches (or when no tenantKey is provided). When requests include multiple platform key sets, tenant matching is resolved against the selected platform. If backend keys are missing or the request tenant differs, requests must include user API keys, which are used for order placement.
 - Set `TRADER_MULTI_USER=true` to require `tenantKey` for `/ops` + `/ops/performance` and scope ops/rollups per tenant (rerun `haskell/scripts/rollup_performance.sh` after upgrading).
 
 Build info:
@@ -941,7 +941,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
 - `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"kalman_physics_error"` (Kalman state + physics-error model with latest-1000 train/test 700/300 split), `"01"`/`"lstm"` (LSTM only), `"blend"` (fixed weighted average), `"conf_blend"` (confidence-weighted blend), `"conf_pick"` (confidence winner-take-all), `"cost_pick"` (post-cost winner-take-all), `"harmonic_blend"` (harmonic-return blend), `"disagreement_guard"` (disagreement-aware pick), `"median_blend"` (median-robust blend), `"neutral_guard"` (neutral-on-disagreement guard), `"risk_parity_blend"` (inverse-edge risk-parity blend), `"consensus_boost"` (consensus-strength guard), `"anchor_blend"` (conflict-aware spot anchoring), `"tension_gate"` (agreement-conviction with conflict neutralization), `"entropy_blend"` (uncertainty-aware entropy shrink blend), `"coherence_gate"` (coherence-aware conflict gate), `"divergence_gate"` (shrink blend on model divergence), `"fractal_blend"` (signed-root nonlinear blend), `"phase_cancel"` (anti-phase cancellation gate), `"softmax_blend"` (softmax edge-weighted blend), `"smooth_softmax_blend"` (EMA-smoothed softmax edge-weighted blend), `"net_softmax_blend"` (post-cost softmax edge-weighted blend), `"edge_blend"` (edge-weighted blend), `"edge_pick"` (edge winner-take-all), `"geo_blend"` (geometric blend), `"regime_switch"` (volatility/z-score switch), `"router"` (adaptive selection), or `"bandit_router"` (adaptive selection with UCB-style exploration); Kalman confidence/risk gates apply only on Kalman-selected router bars; see `--router-lookback` / `--router-min-score` / `--router-score-pnl-weight`.
-- `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
+- `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (enables shorts for backtests/signals; placing orders or running the live bot still requires futures).
 - Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption or futures trade requests.
 
 Deploy for free (Render)

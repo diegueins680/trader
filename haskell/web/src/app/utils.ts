@@ -204,7 +204,7 @@ export function buildOrphanedPositions<T extends { symbol: string; positionAmt: 
     const market = botStatusMarket(entry.status);
     const key = normalizeSymbolKey(entry.symbol);
     if (targetMarket && market && market !== targetMarket) otherMarketSymbols.add(key);
-    if (targetMarket && market !== targetMarket) continue;
+    if (targetMarket && market != null && market !== targetMarket) continue;
     const list = statusesBySymbol.get(key);
     if (list) list.push(entry.status);
     else statusesBySymbol.set(key, [entry.status]);

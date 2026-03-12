@@ -458,7 +458,6 @@ parsePositioning raw =
         "long" -> Right LongFlat
         "longshort" -> Right LongShort
         "ls" -> Right LongShort
-        "short" -> Right LongShort
         _ -> Left "Invalid positioning (expected long-flat|long-only|long-short)"
 
 intrabarFillCode :: IntrabarFill -> String
@@ -648,7 +647,7 @@ opts = do
             ( long "positioning"
                 <> value LongFlat
                 <> showDefaultWith positioningCode
-                <> help "Positioning: long-flat (default), long-only/long (alias), or long-short (futures-only when trading)"
+                <> help "Positioning: long-flat (default), long-only/long (alias), or long-short (backtests/signals allowed; futures-only when trading/live)"
             )
     argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01/blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch/router/bandit_router), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
     argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
@@ -1572,9 +1571,6 @@ validateArgs args0 = do
 
     let market = argBinanceMarket args
     ensure "--positioning long-short requires --futures when trading" (not (argBinanceTrade args && argPositioning args == LongShort && market /= MarketFutures))
-    ensure
-        "--positioning long-short requires Binance futures when using exchange data"
-        (not (argPositioning args == LongShort && isJust (argBinanceSymbol args) && (argPlatform args /= PlatformBinance || market /= MarketFutures)))
     ensure "--margin requires --binance-live for trading" (not (argBinanceMargin args && argBinanceTrade args && not (argBinanceLive args)))
     case argIdempotencyKey args of
         Nothing -> pure ()
