@@ -2298,7 +2298,9 @@ testApplyReduceOnlyExecutedQuantity = do
 testApplyExecutedQuantityInvariantGrid :: IO ()
 testApplyExecutedQuantityInvariantGrid = do
     let eps = 1e-9
-        qtyCases = [-1, 0, 5e-10, 0.25, 1, 3, 0 / 0, 1 / 0]
+        nan = 0 / 0
+        inf = 1 / 0
+        qtyCases = [-1, 0, 5e-10, 0.25, 1, 3, nan, inf]
         stateCases =
             [ (-1, 0)
             , (-1, 0.75)
