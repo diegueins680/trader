@@ -227,12 +227,25 @@ test("isLocalHostname accepts 0.0.0.0", () => {
   assert.equal(isLocalHostname("0.0.0.0"), true);
 });
 
-test("numFromInput rejects ambiguous single-comma thousands forms and keeps explicit formats", () => {
-  assert.equal(numFromInput("1,234", 99), 99);
-  assert.equal(numFromInput("12,345", 99), 99);
-  assert.equal(numFromInput("1,234,567", 0), 1234567);
-  assert.equal(numFromInput("1,23", 0), 1.23);
-  assert.equal(numFromInput("0,123", 0), 0.123);
+test("numFromInput preserves the shared comma-parsing contract for signed, trimmed, and ambiguous inputs", () => {
+  const cases = [
+    { raw: "1,23", fallback: 0, expected: 1.23, label: "decimal comma parses" },
+    { raw: "  -1,23  ", fallback: 0, expected: -1.23, label: "trimmed signed decimal comma parses" },
+    { raw: " +0,125 ", fallback: 7, expected: 0.125, label: "signed leading-zero decimal comma parses" },
+    { raw: "1,234", fallback: 99, expected: 99, label: "ambiguous single-comma thousands keeps fallback" },
+    { raw: "12,345", fallback: -7, expected: -7, label: "ambiguous two-digit thousands-like keeps fallback" },
+    { raw: "-1,234", fallback: 5, expected: 5, label: "signed ambiguous thousands-like keeps fallback" },
+    { raw: "1,234,567", fallback: 0, expected: 1234567, label: "explicit multi-group thousands parses" },
+    { raw: "-1,234,567", fallback: 0, expected: -1234567, label: "signed multi-group thousands parses" },
+  ];
+
+  for (const { raw, fallback, expected, label } of cases) {
+    assert.equal(
+      numFromInput(raw, fallback),
+      expected,
+      `${label}: expected ${expected} from ${JSON.stringify(raw)} with fallback ${fallback}`,
+    );
+  }
 });
 
 test("downsampleIndices preserves bounded chart sampling invariants", () => {
