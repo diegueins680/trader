@@ -1038,6 +1038,7 @@ Binance “Check keys” only upgrades trade-test failures to “Auth OK, but or
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 Missing/invalid saved symbols fall back to platform defaults, and trade-test skips surface as a warning callout with the skip reason.
 Optimizer-run fields that represent counts or bar windows now require whole numbers; fractional values are rejected instead of being truncated client-side.
+Ambiguous single-comma numeric inputs such as `1,234` now keep the previous value instead of being silently reinterpreted; explicit multi-group thousands (`1,234,567`) and decimal-comma forms like `1,23` still parse.
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.

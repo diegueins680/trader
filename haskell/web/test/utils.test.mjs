@@ -227,9 +227,9 @@ test("isLocalHostname accepts 0.0.0.0", () => {
   assert.equal(isLocalHostname("0.0.0.0"), true);
 });
 
-test("numFromInput parses thousands grouping and decimal comma consistently", () => {
-  assert.equal(numFromInput("1,234", 99), 1234);
-  assert.equal(numFromInput("12,345", 99), 12345);
+test("numFromInput rejects ambiguous single-comma thousands forms and keeps explicit formats", () => {
+  assert.equal(numFromInput("1,234", 99), 99);
+  assert.equal(numFromInput("12,345", 99), 99);
   assert.equal(numFromInput("1,234,567", 0), 1234567);
   assert.equal(numFromInput("1,23", 0), 1.23);
   assert.equal(numFromInput("0,123", 0), 0.123);

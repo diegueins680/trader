@@ -9,6 +9,7 @@ module Trader.Formal.CloseTiming (
 
 import Data.Function (on)
 import Data.List (groupBy, sortOn)
+import Data.Maybe (mapMaybe)
 
 -- | Historical position sample grouped by combo.
 data CloseTimingObservation = CloseTimingObservation
@@ -62,27 +63,31 @@ optimalCloseObservation combo ta tc pnlPath
 
 buildCloseTimingStats :: [CloseTimingObservation] -> [CloseTimingStats]
 buildCloseTimingStats obs =
-    map statsFor grouped
+    mapMaybe statsFor grouped
   where
     grouped =
         groupBy ((==) `on` ctoCombo) . sortOn ctoCombo $ filter validObservation obs
 
-    statsFor xs =
-        let combo = ctoCombo (head xs)
+    -- groupBy emits non-empty groups, but we still pattern-match so the helper
+    -- stays total without relying on partial list functions.
+    statsFor [] = Nothing
+    statsFor xs@(x : _) =
+        let combo = ctoCombo x
             ratios = sortOn id (map observationRatio xs)
             q25 = boundedPercentile 0.25 ratios
             q50 = boundedPercentile 0.5 ratios
             q75 = boundedPercentile 0.75 ratios
             (q25Bound, q50Bound, q75Bound) = orderQuartiles q25 q50 q75
             mad = boundedPercentile 0.5 (sortOn id (map (abs . subtract q50Bound) ratios))
-         in CloseTimingStats
-                { ctsCombo = combo
-                , ctsSamples = length ratios
-                , ctsMedianRatio = q50Bound
-                , ctsMadRatio = clampRatio mad
-                , ctsQ25Ratio = q25Bound
-                , ctsQ75Ratio = q75Bound
-                }
+         in Just
+                CloseTimingStats
+                    { ctsCombo = combo
+                    , ctsSamples = length ratios
+                    , ctsMedianRatio = q50Bound
+                    , ctsMadRatio = clampRatio mad
+                    , ctsQ25Ratio = q25Bound
+                    , ctsQ75Ratio = q75Bound
+                    }
 
 closeTimingDecision :: Double -> CloseTimingStats -> Int -> Int -> Int -> CloseTimingDecision
 closeTimingDecision riskBudget stats ta expectedDurationMs now =
