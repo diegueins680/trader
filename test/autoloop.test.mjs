@@ -46,6 +46,7 @@ test("sanitizeRelativePath rejects absolute and traversal paths", () => {
   assert.equal(sanitizeRelativePath("./haskell/web/src/App.tsx"), "haskell/web/src/App.tsx");
   assert.throws(() => sanitizeRelativePath("./"), /resolves to empty/);
   assert.throws(() => sanitizeRelativePath("/tmp/nope"), /Absolute path/);
+  assert.throws(() => sanitizeRelativePath("C:/tmp/nope"), /Absolute path/);
   assert.throws(() => sanitizeRelativePath("../nope"), /Path traversal/);
 });
 
@@ -145,7 +146,9 @@ test("normalizePatchPlan validates change entries", () => {
 
 test("clampText preserves short text and truncates long text", () => {
   assert.equal(clampText("short", 20), "short");
-  assert.match(clampText("abcdefghijklmnopqrstuvwxyz", 12), /\[truncated/);
+  const clamped = clampText("abcdefghijklmnopqrstuvwxyz", 12);
+  assert.ok(clamped.length <= 12, `expected clampText to respect maxChars, got ${clamped.length}`);
+  assert.notEqual(clamped, "abcdefghijklmnopqrstuvwxyz");
 });
 
 test("uniqueStrings preserves first occurrence order", () => {
@@ -159,11 +162,15 @@ test("buildOpenAiApiError marks quota and auth failures as skippable", () => {
   const authErr = buildOpenAiApiError(401, {
     error: { code: "invalid_api_key", type: "invalid_request_error" },
   });
+  const forbiddenErr = buildOpenAiApiError(403, {
+    error: { code: "insufficient_permissions", type: "permission_error" },
+  });
   const serverErr = buildOpenAiApiError(500, {
     error: { code: "server_error", type: "server_error" },
   });
   assert.equal(quotaErr.skipAutoloop, true);
   assert.equal(authErr.skipAutoloop, true);
+  assert.equal(forbiddenErr.skipAutoloop, true);
   assert.equal(serverErr.skipAutoloop, false);
 });
 

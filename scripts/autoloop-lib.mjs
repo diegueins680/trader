@@ -34,14 +34,35 @@ export function clampText(raw, maxChars) {
   const text = String(raw ?? "");
   const limit = Math.max(0, Math.trunc(maxChars));
   if (text.length <= limit) return text;
-  const keep = Math.max(0, limit - 32);
-  return `${text.slice(0, keep)}\n...[truncated ${text.length - keep} chars]`;
+  if (limit === 0) return "";
+
+  const renderTruncation = (suffixBuilder) => {
+    let removed = text.length;
+    for (let i = 0; i < 4; i += 1) {
+      const suffix = suffixBuilder(removed);
+      const keep = limit - suffix.length;
+      if (keep < 0) return null;
+      const nextRemoved = text.length - keep;
+      if (nextRemoved === removed) return `${text.slice(0, keep)}${suffix}`;
+      removed = nextRemoved;
+    }
+    const suffix = suffixBuilder(removed);
+    const keep = limit - suffix.length;
+    return keep < 0 ? null : `${text.slice(0, keep)}${suffix}`;
+  };
+
+  return (
+    renderTruncation((removed) => `\n...[truncated ${removed} chars]`) ??
+    renderTruncation((removed) => `...[+${removed}]`) ??
+    `${text.slice(0, Math.max(0, limit - 3))}${".".repeat(Math.min(3, limit))}`
+  );
 }
 
 export function sanitizeRelativePath(raw) {
   const value = String(raw ?? "").trim().replace(/\\/g, "/");
   if (!value) throw new Error("Path is empty.");
   if (value.startsWith("/")) throw new Error(`Absolute path is not allowed: ${value}`);
+  if (/^[A-Za-z]:\//.test(value)) throw new Error(`Absolute path is not allowed: ${value}`);
   if (value.split("/").some((part) => part === "..")) throw new Error(`Path traversal is not allowed: ${value}`);
   if (value.includes("\0")) throw new Error(`Path contains NUL byte: ${value}`);
   const normalized = value.replace(/^\.\/+/, "");
@@ -179,11 +200,17 @@ export function buildOpenAiApiError(status, payload) {
   err.openAiStatus = Number(status) || 0;
   err.openAiCode = code;
   err.openAiType = type;
+  const authOrPermissionDenied =
+    err.openAiStatus === 401 ||
+    err.openAiStatus === 403 ||
+    code === "invalid_api_key" ||
+    code === "insufficient_permissions" ||
+    type === "authentication_error" ||
+    type === "permission_error";
   err.skipAutoloop =
     code === "insufficient_quota" ||
-    code === "invalid_api_key" ||
     type === "insufficient_quota" ||
-    err.openAiStatus === 401;
+    authOrPermissionDenied;
   return err;
 }
 
