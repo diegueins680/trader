@@ -12,6 +12,7 @@ binanceProbeSuite =
     , ("binance probe parser handles nested json bodies", testNestedJsonBody)
     , ("binance probe parser keeps brace characters inside messages", testBraceInMessage)
     , ("binance probe parser recognizes HTTP status-line prefixes", testHttpStatusLine)
+    , ("binance probe parser recognizes wrapped HTTP/2 status lines", testWrappedHttp2StatusLine)
     , ("binance probe parser keeps long json messages intact", testLongJsonBody)
     ]
 
@@ -54,6 +55,17 @@ testHttpStatusLine = do
     expectEq "status-line http code" (Just 429) (beiHttpCode err)
     expectEq "status-line output code" (Just 429) (beiCode err)
     expectFalse "status-line transient errors should not confirm auth" (binanceTradeTestConfirmsAuth (beiCode err) (beiSummary err))
+
+testWrappedHttp2StatusLine :: IO ()
+testWrappedHttp2StatusLine = do
+    let err =
+            parseBinanceError
+                "trade test wrapper: upstream status line: HTTP/2 429 Too Many Requests"
+    expectEq "wrapped HTTP/2 http code" (Just 429) (beiHttpCode err)
+    expectEq "wrapped HTTP/2 output code" (Just 429) (beiCode err)
+    expectFalse
+        "wrapped HTTP/2 transient errors should not confirm auth"
+        (binanceTradeTestConfirmsAuth (beiCode err) (beiSummary err))
 
 testLongJsonBody :: IO ()
 testLongJsonBody = do

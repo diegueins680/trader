@@ -77,6 +77,65 @@ has_non_baseline_changes() {
   return 1
 }
 
+list_non_baseline_paths() {
+  local current tmp
+  current="$(mktemp)"
+  tmp="$(mktemp)"
+  git -C "${ROOT_DIR}" status --porcelain=v1 > "$current"
+  if [[ -s "${BASELINE_FILE}" ]]; then
+    grep -Fvx -f "${BASELINE_FILE}" "$current" > "$tmp" || true
+  else
+    cp "$current" "$tmp"
+  fi
+  awk '{print substr($0,4)}' "$tmp" | sed '/^$/d'
+  rm -f "$current" "$tmp"
+}
+
+stage_non_baseline_changes() {
+  local paths_file="$1"
+  local -a paths=()
+  if [[ ! -s "$paths_file" ]]; then
+    return 1
+  fi
+  mapfile -t paths < "$paths_file"
+  if [[ "${#paths[@]}" -eq 0 ]]; then
+    return 1
+  fi
+  git -C "${ROOT_DIR}" add -- "${paths[@]}"
+}
+
+manual_commit_and_push() {
+  local cycle_label="$1"
+  local reason="${2:-fallback}"
+  local branch paths_file message
+  branch="$(current_branch)"
+  if [[ -z "$branch" ]]; then
+    log "Wrapper fallback could not determine current branch."
+    return 1
+  fi
+
+  paths_file="$(mktemp)"
+  list_non_baseline_paths > "$paths_file"
+  if [[ ! -s "$paths_file" ]]; then
+    log "Wrapper fallback found no non-baseline paths to commit."
+    rm -f "$paths_file"
+    return 1
+  fi
+
+  log "Wrapper fallback staging non-baseline paths after Codex ${reason}: $(paste -sd ', ' "$paths_file")"
+  stage_non_baseline_changes "$paths_file"
+  rm -f "$paths_file"
+
+  if git -C "${ROOT_DIR}" diff --cached --quiet; then
+    log "Wrapper fallback found nothing staged after git add."
+    return 1
+  fi
+
+  message="chore: codex logical correctness loop iteration ${cycle_label}"
+  git -C "${ROOT_DIR}" commit -m "$message"
+  git -C "${ROOT_DIR}" push -u origin "$branch"
+}
+
 current_branch() {
   git -C "${ROOT_DIR}" branch --show-current | tr -d '[:space:]'
 }
@@ -315,14 +374,24 @@ main() {
     rm -f "$commit_prompt"
 
     if grep -Fxq 'COMMIT_PUSH_RESULT: blocked' "$commit_output"; then
-      log "Codex reported blocked during commit/push. Stopping loop."
-      exit 1
-    fi
-    if grep -Fxq 'COMMIT_PUSH_RESULT: no_changes' "$commit_output"; then
-      log "Codex reported no changes to commit. Sleeping ${SLEEP_BETWEEN_CYCLES}s."
-      sleep "$SLEEP_BETWEEN_CYCLES"
-      cycle=$((cycle + 1))
-      continue
+      log "Codex reported blocked during commit/push. Trying wrapper fallback."
+      if ! manual_commit_and_push "$cycle" "commit-push blocked"; then
+        log "Wrapper fallback failed after blocked commit/push. Stopping loop."
+        exit 1
+      fi
+    elif grep -Fxq 'COMMIT_PUSH_RESULT: no_changes' "$commit_output"; then
+      if has_non_baseline_changes; then
+        log "Codex reported no changes to commit despite non-baseline changes. Trying wrapper fallback."
+        if ! manual_commit_and_push "$cycle" "commit-push reported no_changes"; then
+          log "Wrapper fallback failed after no_changes commit/push result. Stopping loop."
+          exit 1
+        fi
+      else
+        log "Codex reported no changes to commit. Sleeping ${SLEEP_BETWEEN_CYCLES}s."
+        sleep "$SLEEP_BETWEEN_CYCLES"
+        cycle=$((cycle + 1))
+        continue
+      fi
     fi
 
     local sha
@@ -373,12 +442,22 @@ main() {
       rm -f "$commit_prompt"
 
       if grep -Fxq 'COMMIT_PUSH_RESULT: blocked' "$commit_output"; then
-        log "Codex blocked during commit/push after CI fix. Stopping loop."
-        exit 1
-      fi
-      if grep -Fxq 'COMMIT_PUSH_RESULT: no_changes' "$commit_output"; then
-        log "No changes to commit after CI fix attempt. Stopping loop."
-        exit 1
+        log "Codex blocked during commit/push after CI fix. Trying wrapper fallback."
+        if ! manual_commit_and_push "$cycle" "post-CI commit-push blocked"; then
+          log "Wrapper fallback failed after blocked post-CI commit/push. Stopping loop."
+          exit 1
+        fi
+      elif grep -Fxq 'COMMIT_PUSH_RESULT: no_changes' "$commit_output"; then
+        if has_non_baseline_changes; then
+          log "Codex reported no changes to commit after CI fix despite non-baseline changes. Trying wrapper fallback."
+          if ! manual_commit_and_push "$cycle" "post-CI commit-push reported no_changes"; then
+            log "Wrapper fallback failed after no_changes post-CI commit/push result. Stopping loop."
+            exit 1
+          fi
+        else
+          log "No changes to commit after CI fix attempt. Stopping loop."
+          exit 1
+        fi
       fi
 
       sha="$(git -C "${ROOT_DIR}" rev-parse HEAD)"

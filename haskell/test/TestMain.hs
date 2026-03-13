@@ -190,6 +190,7 @@ main = do
               , run "bars rejects non-decimal integer" testBarsNonDecimalValidation
               , run "cli numeric args reject non-finite values" testNumericArgsFiniteValidation
               , run "trade sizing args reject zero values" testTradeSizingPositiveValidation
+              , run "risk-per-trade requires stop definition" testRiskPerTradeRequiresStopDefinition
               , run "retry-after date parsing" testRetryAfterDateParsing
               , run "retry-after header lookup is case-insensitive" testRetryAfterHeaderLookupCaseInsensitive
               , run "retry-after uses first parseable duplicate header value" testRetryAfterDuplicateHeaderFallback
@@ -211,6 +212,7 @@ main = do
               , run "reduce-only order execution clamps oversize fills at flat" testApplyReduceOnlyExecutedQuantity
               , run "order execution transition invariants hold across grid" testApplyExecutedQuantityInvariantGrid
               , run "reduce-only order execution invariants hold across grid" testApplyReduceOnlyExecutedQuantityInvariantGrid
+              , run "order execution preserves invariants on corrupted inputs" testApplyExecutedQuantityInvariants
               , run "signal gate emits MTF_WARMUP reason" testSignalGateMtfWarmup
               , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
               , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
@@ -2079,6 +2081,21 @@ testTradeSizingPositiveValidation = do
         Left err -> assert "max-order-quote rejects zero" ("--max-order-quote must be > 0" `isInfixOf` err)
         Right _ -> error "expected --max-order-quote=0 to fail validation"
 
+testRiskPerTradeRequiresStopDefinition :: IO ()
+testRiskPerTradeRequiresStopDefinition = do
+    case parseArgsResult ["--data", "sample.csv", "--risk-per-trade", "0.01"] of
+        Left err ->
+            assert
+                "risk-per-trade without stop definition is rejected"
+                ("--risk-per-trade requires --stop-loss or --stop-loss-vol-mult" `isInfixOf` err)
+        Right _ -> error "expected --risk-per-trade without stop definition to fail validation"
+    case parseArgsResult ["--data", "sample.csv", "--risk-per-trade", "0.01", "--stop-loss", "0.02"] of
+        Left err -> error ("expected --risk-per-trade with --stop-loss to pass: " ++ err)
+        Right args -> assert "risk-per-trade with stop-loss is accepted" (argRiskPerTrade args == Just 0.01)
+    case parseArgsResult ["--data", "sample.csv", "--risk-per-trade", "0.01", "--stop-loss-vol-mult", "1.5"] of
+        Left err -> error ("expected --risk-per-trade with --stop-loss-vol-mult to pass: " ++ err)
+        Right args -> assert "risk-per-trade with stop-loss-vol-mult is accepted" (argRiskPerTrade args == Just 0.01)
+
 testRetryAfterDateParsing :: IO ()
 testRetryAfterDateParsing = do
     let nowMs = 1735689600000 -- 2025-01-01T00:00:00Z
@@ -2388,6 +2405,88 @@ testApplyReduceOnlyExecutedQuantityInvariantGrid = do
             assertApprox (label ++ " preserves reduce-only size") eps sizeNew expectedSize
             assertApprox (label ++ " preserves reduce-only close qty") eps closeQty expectedClose
             assertApprox (label ++ " preserves reduce-only signed exposure") eps actualSigned expectedSigned
+
+testApplyExecutedQuantityInvariants :: IO ()
+testApplyExecutedQuantityInvariants = do
+    let eps = 1e-9
+        maxSanitizedMagnitude = 1.7976931348623157e308 / 4
+        prevPositions = [-2, -1, 0, 1, 2, minBound, maxBound]
+        prevSizes =
+            [ negate (1 / 0)
+            , -1e308
+            , -1
+            , -5e-10
+            , 0 / 0
+            , 0
+            , 5e-10
+            , 1e-9
+            , 1e-8
+            , 0.5
+            , 2
+            , 1e307
+            , 1e308
+            , 1 / 0
+            ]
+        executedQtys =
+            [ negate (1 / 0)
+            , -1e308
+            , -1
+            , -5e-10
+            , 0 / 0
+            , 0
+            , 5e-10
+            , 1e-9
+            , 1e-8
+            , 0.5
+            , 3
+            , 1e307
+            , 1e308
+            , 1 / 0
+            ]
+        sanitizeMagnitude x
+            | not (isFiniteDouble x) || x <= 0 = 0
+            | otherwise = min maxSanitizedMagnitude x
+        sanitizeExecutedQty x =
+            let qty = sanitizeMagnitude x
+             in if qty <= eps
+                    then 0
+                    else qty
+        sanitizePrevSigned prevPos prevSize =
+            let prevSign = signum prevPos
+                prevSize' = sanitizeMagnitude prevSize
+             in if prevSign == 0
+                    then 0
+                    else fromIntegral prevSign * prevSize'
+        deltaSigned isBuy qty = if isBuy then qty else negate qty
+        finiteNonNegative x = isFiniteDouble x && x >= 0
+        signedExposure pos size = fromIntegral pos * size
+        caseLabel prevPos prevSize isBuy qtyRaw =
+            "prevPos="
+                ++ show prevPos
+                ++ " prevSize="
+                ++ show prevSize
+                ++ " isBuy="
+                ++ show isBuy
+                ++ " qtyRaw="
+                ++ show qtyRaw
+    Control.Monad.forM_ prevPositions $ \prevPos ->
+        Control.Monad.forM_ prevSizes $ \prevSize ->
+            Control.Monad.forM_ [False, True] $ \isBuy ->
+                Control.Monad.forM_ executedQtys $ \qtyRaw -> do
+                    let label = caseLabel prevPos prevSize isBuy qtyRaw
+                        (posNew, sizeNew, closeQty, openQty) = applyExecutedQuantity prevPos prevSize isBuy qtyRaw
+                        prevSigned = sanitizePrevSigned prevPos prevSize
+                        prevSize' = abs prevSigned
+                        qty = sanitizeExecutedQty qtyRaw
+                        expectedSigned = prevSigned + deltaSigned isBuy qty
+                        actualSigned = signedExposure posNew sizeNew
+                    assert (label ++ " size stays finite and non-negative") (finiteNonNegative sizeNew)
+                    assert (label ++ " closeQty stays finite and non-negative") (finiteNonNegative closeQty)
+                    assert (label ++ " openQty stays finite and non-negative") (finiteNonNegative openQty)
+                    assert (label ++ " pos stays normalized") (posNew `elem` [-1, 0, 1])
+                    assert (label ++ " closeQty is bounded by sanitized prior size") (closeQty <= prevSize' + eps)
+                    assert (label ++ " openQty is bounded by sanitized executed qty") (openQty <= qty + eps)
+                    assertApprox (label ++ " signed exposure is conserved after sanitization") eps actualSigned expectedSigned
 
 runSignalPostGate ::
     Bool ->
