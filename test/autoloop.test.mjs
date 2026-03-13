@@ -10,6 +10,7 @@ import {
   normalizeIdeaSelection,
   normalizePatchPlan,
   parseJsonResponse,
+  prepareShellCommand,
   resolveAutoloopBackend,
   sanitizeRelativePath,
   stripMarkdownFences,
@@ -149,6 +150,15 @@ test("clampText preserves short text and truncates long text", () => {
   const clamped = clampText("abcdefghijklmnopqrstuvwxyz", 12);
   assert.ok(clamped.length <= 12, `expected clampText to respect maxChars, got ${clamped.length}`);
   assert.notEqual(clamped, "abcdefghijklmnopqrstuvwxyz");
+});
+
+test("prepareShellCommand bootstraps ghcup only for cabal commands", () => {
+  assert.equal(prepareShellCommand("cd haskell && cabal build"), 'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build');
+  assert.equal(
+    prepareShellCommand('source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build'),
+    'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build',
+  );
+  assert.equal(prepareShellCommand("cd haskell/web && npm --workspaces=false run test"), "cd haskell/web && npm --workspaces=false run test");
 });
 
 test("uniqueStrings preserves first occurrence order", () => {

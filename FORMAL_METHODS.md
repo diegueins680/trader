@@ -56,8 +56,10 @@ Clauses:
 3. Invalid quote-fraction ranges (`< 0` or `> 1`) block trading only when no higher-precedence valid size is present.
 4. Multiple valid sizing inputs are allowed but must be reported as a conflict so the effective mode is explicit.
 5. `maxOrderQuote` is cap-only metadata: it never becomes an active sizing mode, never creates trade readiness by itself, and only changes labeling when `orderQuoteFraction` is the effective mode.
+6. The blocking-focus target is `orderQuoteFraction` only for fraction-only invalid states; every other state keeps the safe default target `orderQuote`.
+7. `statusLabel` is derived from the same finite state: blocked states say `Sizing required`, and ready states name the effective sizing mode.
 
-The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space:
+The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space (`32` states), plus paired cap/no-cap comparisons over every `(orderQuantity, orderQuote, orderQuoteFraction)` combination:
 
 - `orderQuantity ∈ {0, 1}`
 - `orderQuote ∈ {0, 1}`
@@ -68,9 +70,10 @@ For every state, it checks:
 
 1. The active sizing modes match the executable spec.
 2. The effective sizing mode matches the documented precedence.
-3. Trade readiness is blocked exactly when the model says no effective size exists.
-4. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
-5. The quote-cap metadata stays inert outside effective quote-fraction sizing, including restored cap-only form states.
+3. Trade readiness, blocking reason, and `blockingTargetId` match the modeled state.
+4. `statusLabel` matches the modeled readiness/effective-mode summary.
+5. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
+6. The quote-cap metadata stays inert outside effective quote-fraction sizing and only changes `effectiveLabel` / `hint` when quote-fraction sizing is actually effective, including restored cap-only form states.
 
 ## Formal autoloop safety contract
 
