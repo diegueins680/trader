@@ -672,6 +672,69 @@ test("normalizeFormState preserves restored fraction validation and precedence",
 test("defaultForm uses safe trade defaults", () => {
   assert.equal(defaultForm.binanceLive, false);
   assert.equal(defaultForm.tradeArmed, false);
+  assert.equal(defaultForm.botAdoptExistingPosition, true);
+});
+
+test("normalizeFormState preserves persisted restore safety invariants for live trading and bot adoption", () => {
+  const cases = [
+    {
+      label: "non-trading platforms keep the safe spot fallback",
+      raw: {
+        platform: "kraken",
+        market: "futures",
+        binanceLive: true,
+        tradeArmed: true,
+        botAdoptExistingPosition: false,
+      },
+      expected: {
+        platform: "kraken",
+        market: "spot",
+        binanceLive: false,
+        tradeArmed: false,
+      },
+    },
+    {
+      label: "coinbase restores supported live mode but remains spot-only",
+      raw: {
+        platform: "coinbase",
+        market: "margin",
+        binanceLive: true,
+        tradeArmed: true,
+        botAdoptExistingPosition: false,
+      },
+      expected: {
+        platform: "coinbase",
+        market: "spot",
+        binanceLive: true,
+        tradeArmed: true,
+      },
+    },
+    {
+      label: "binance margin without live falls back to spot instead of re-enabling live",
+      raw: {
+        platform: "binance",
+        market: "margin",
+        binanceLive: false,
+        tradeArmed: true,
+        botAdoptExistingPosition: false,
+      },
+      expected: {
+        platform: "binance",
+        market: "spot",
+        binanceLive: false,
+        tradeArmed: true,
+      },
+    },
+  ];
+
+  for (const { label, raw, expected } of cases) {
+    const out = normalizeFormState(raw);
+    assert.equal(out.platform, expected.platform, label + ": platform should normalize deterministically");
+    assert.equal(out.market, expected.market, label + ": market should keep the safe restore fallback");
+    assert.equal(out.binanceLive, expected.binanceLive, label + ": live mode should stay inside supported restore states");
+    assert.equal(out.tradeArmed, expected.tradeArmed, label + ": trade arming should stay platform-safe");
+    assert.equal(out.botAdoptExistingPosition, true, label + ": existing-position adoption should always restore enabled");
+  }
 });
 
 test("normalizeFormState normalizes trade toggles and booleans from strings", () => {

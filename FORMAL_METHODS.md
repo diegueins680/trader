@@ -95,6 +95,28 @@ Proof sketch:
 - The explicit multi-group branch keeps standard thousands-group forms such as `1,234,567` parseable.
 - `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, decimal-comma parses, ambiguous single-comma fallback, and multi-group comma parses.
 
+## Formal persisted form restore safety
+
+`normalizeFormState` in `haskell/web/src/app/formState.ts` treats restored live-trading settings as a safety-preserving normalization step rather than a blind local-storage replay.
+
+Clauses:
+
+1. `botAdoptExistingPosition` always restores to `true`, even if older saved state persisted `false`.
+2. Non-Binance platforms always normalize `market` to `spot`.
+3. `binanceLive` can only stay enabled on live-order platforms (`binance` and `coinbase`); every other platform restores it to `false`.
+4. Binance `margin` restore state is only accepted when live trading is already enabled; otherwise normalization falls back to `market = spot` instead of implicitly enabling live mode.
+5. `tradeArmed` is only preserved for live-order platforms; non-trading platforms restore it to `false`.
+
+Proof sketch:
+
+- `normalizePlatform` first bounds the platform domain.
+- `market` is initialized as `spot` for every non-Binance platform, so stale `margin` and `futures` values cannot leak outside Binance.
+- `liveOrdersSupported` gates `binanceLiveCandidate`, forcing `binanceLive = false` on non-trading platforms while still allowing supported Coinbase live restores.
+- The Binance margin branch rewrites `market` back to `spot` when the restored state is `margin` without live mode, preserving the current safe fallback instead of upgrading to live orders.
+- `tradeArmed` is gated separately to Binance and Coinbase, so a non-trading platform cannot restore an armed trade toggle.
+- The returned object overwrites any persisted value with `botAdoptExistingPosition: true`, so reloads keep orphaned-position adoption enabled by construction.
+- `haskell/web/test/utils.test.mjs` now mirrors this invariant with representative restored states for Kraken, Coinbase, and Binance margin-without-live inputs.
+
 ## Formal autoloop safety contract
 
 The GitHub autoloop runner treats model output as untrusted input and checks a small executable contract before any commit is created.
