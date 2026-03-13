@@ -304,6 +304,29 @@ function normalizeFiniteNumber(raw: unknown, fallback: number, lo: number, hi: n
   return fallback;
 }
 
+type NumericFormKey = {
+  [K in keyof FormState]-?: FormState[K] extends number ? K : never;
+}[keyof FormState];
+
+function coerceFiniteNumber(raw: unknown, fallback: number): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
+function normalizeRestoredNumericFields(raw: Record<string, unknown>): Pick<FormState, NumericFormKey> {
+  const out = {} as Pick<FormState, NumericFormKey>;
+  for (const [key, fallback] of Object.entries(defaultForm) as Array<[keyof FormState, FormState[keyof FormState]]>) {
+    if (typeof fallback !== "number") continue;
+    const numericKey = key as NumericFormKey;
+    out[numericKey] = coerceFiniteNumber(raw[numericKey], fallback) as FormState[NumericFormKey];
+  }
+  return out;
+}
+
 function normalizePositioning(raw: unknown, fallback: Positioning): Positioning {
   if (raw === "long-flat" || raw === "long-short") return raw;
   return fallback;
@@ -334,6 +357,9 @@ function normalizeTuneObjective(raw: unknown, fallback: string): string {
 export function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
   const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
+  // Invariant: normalized form state exposes finite numbers for every numeric field,
+  // even when older/local storage serialized them as strings.
+  const numericFields = normalizeRestoredNumericFields(rawRec);
   const botSymbols = typeof rawRec.botSymbols === "string" ? rawRec.botSymbols : merged.botSymbols;
   const legacyThreshold = rawRec.threshold;
   const openThreshold = normalizeFiniteNumber(rawRec.openThreshold ?? legacyThreshold ?? merged.openThreshold, defaultForm.openThreshold, 0, 1e9);
@@ -385,6 +411,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
   return {
     ...mergedNoLegacy,
+    ...numericFields,
     botSymbols,
     platform,
     market,

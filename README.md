@@ -1086,6 +1086,7 @@ The issue bar Fix button clamps bars/epochs/hidden size to the API limits when t
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades date filters use date pickers with YYYY-MM-DD inputs.
 Loading a profile clears manual override locks so combos can apply again.
+Saved profiles/settings now rehydrate all numeric fields from browser storage as finite numbers, so legacy stringified values do not leak back into the typed UI form state.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
 Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.

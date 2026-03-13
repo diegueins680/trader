@@ -428,6 +428,34 @@ test("normalizeFormState restores default minPositionSize for invalid input", ()
   assert.equal(fromExplicitZero.minPositionSize, 0);
 });
 
+test("normalizeFormState rehydrates every numeric field from legacy string storage", () => {
+  const numericKeys = Object.entries(defaultForm)
+    .filter(([, value]) => typeof value === "number")
+    .map(([key]) => key);
+  const restored = normalizeFormState(
+    Object.fromEntries(numericKeys.map((key) => [key, String(defaultForm[key])])),
+  );
+
+  for (const key of numericKeys) {
+    assert.equal(typeof restored[key], "number", `${key} should rehydrate as a number`);
+    assert.equal(Number.isFinite(restored[key]), true, `${key} should rehydrate as a finite number`);
+    assert.equal(restored[key], defaultForm[key], `${key} should preserve its numeric value`);
+  }
+});
+
+test("normalizeFormState falls back to defaults for invalid restored numeric fields", () => {
+  const numericKeys = Object.entries(defaultForm)
+    .filter(([, value]) => typeof value === "number")
+    .map(([key]) => key);
+  const restored = normalizeFormState(
+    Object.fromEntries(numericKeys.map((key) => [key, "not-a-number"])),
+  );
+
+  for (const key of numericKeys) {
+    assert.equal(restored[key], defaultForm[key], `${key} should fall back to the default numeric value`);
+  }
+});
+
 test("normalizeFormState rehydrates manual sizing fields as finite numbers", () => {
   const restored = normalizeFormState({
     orderQuote: "125.5",
