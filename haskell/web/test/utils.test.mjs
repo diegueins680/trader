@@ -530,6 +530,81 @@ test("normalizeFormState rehydrates manual sizing fields as finite numbers", () 
   );
 });
 
+test("normalizeFormState clamps restored manual sizing bounds without changing the sizing contract", () => {
+  const cases = [
+    {
+      label: "negative restores clamp non-fraction fields to zero and keep negative fraction finite",
+      raw: {
+        orderQuote: "-125.5",
+        orderQuantity: "-0.25",
+        orderQuoteFraction: "-0.4",
+        maxOrderQuote: "-50",
+      },
+      expectedFields: {
+        orderQuote: 0,
+        orderQuantity: 0,
+        orderQuoteFraction: -0.4,
+        maxOrderQuote: 0,
+      },
+    },
+    {
+      label: "oversized restores clamp non-fraction fields to the hard ceiling and keep finite fraction precedence",
+      raw: {
+        orderQuote: "1000000005",
+        orderQuantity: "1000000007",
+        orderQuoteFraction: "1.25",
+        maxOrderQuote: "1000000009",
+      },
+      expectedFields: {
+        orderQuote: 1e9,
+        orderQuantity: 1e9,
+        orderQuoteFraction: 1.25,
+        maxOrderQuote: 1e9,
+      },
+    },
+  ];
+
+  for (const { label, raw, expectedFields } of cases) {
+    const restored = normalizeFormState(raw);
+    const restoredFields = {
+      orderQuote: restored.orderQuote,
+      orderQuantity: restored.orderQuantity,
+      orderQuoteFraction: restored.orderQuoteFraction,
+      maxOrderQuote: restored.maxOrderQuote,
+    };
+    assert.deepEqual(
+      restoredFields,
+      expectedFields,
+      label + ": restored sizing fields should clamp into supported bounds",
+    );
+    for (const [key, value] of Object.entries(restoredFields)) {
+      assert.equal(typeof value, "number", label + ": " + key + " should restore as a number");
+      assert.equal(Number.isFinite(value), true, label + ": " + key + " should restore as a finite number");
+    }
+
+    const state = summarizeOrderSizing({
+      orderQuantity: restored.orderQuantity,
+      orderQuote: restored.orderQuote,
+      orderQuoteFraction: restored.orderQuoteFraction,
+      maxOrderQuote: restored.maxOrderQuote,
+    });
+    const expected = expectedOrderSizingModel({
+      orderQuantity: expectedFields.orderQuantity,
+      orderQuote: expectedFields.orderQuote,
+      orderQuoteFraction: expectedFields.orderQuoteFraction,
+    });
+
+    assert.deepEqual(state.active, expected.active, label + ": active sizing modes should match the model");
+    assert.equal(state.effective, expected.effective, label + ": effective sizing should match the model");
+    assert.equal(state.conflicts, expected.conflicts, label + ": conflict flag should match the model");
+    assert.equal(state.fractionError, expected.fractionError, label + ": fraction validation should match the model");
+    assert.equal(state.blockingError, expected.blockingError, label + ": blocking error should match the model");
+    assert.equal(state.blockingTargetId, expected.blockingTargetId, label + ": blocking target should match the model");
+    assert.equal(state.statusLabel, expected.statusLabel, label + ": status label should match the model");
+    assert.equal(state.tone, expected.tone, label + ": severity should match the model");
+  }
+});
+
 test("normalizeFormState keeps restored maxOrderQuote cap-only when quote fraction is inactive", () => {
   const restored = normalizeFormState({
     orderQuote: 0,
