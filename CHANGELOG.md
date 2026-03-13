@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: include `test/autoloop.test.mjs` in the repo-root `npm run test` entrypoint, and assert that aggregate contract in the autoloop test suite so the formal autoloop verifier cannot be skipped silently.
 - Web UI: normalize every numeric saved-setting/profile field back to a finite number when restoring browser state, so legacy stringified values no longer leak into the typed form model.
 - Deploy/Fly: forward the Git commit SHA into both Fly Docker builds (`TRADER_GIT_COMMIT`) so `/health`, `/version`, and the web header build badge show the deployed commit instead of only the package version.
 - Optimizer/DB persistence: make combo UUIDs source-aware when a real combo `source` is present, persist that `source` in Postgres, and ignore legacy source-less DB rows once source-aware replacements exist, so Fly/ephemeral deployments keep all distinct combos across rebuilds instead of collapsing same-parameter combos from different sources.

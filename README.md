@@ -545,7 +545,7 @@ cd haskell
 cabal test
 ```
 
-From the repo root, `npm run build` and `npm run test` now pin Cabal state to the tracked `./.cabal` directory, so shared scripts do not depend on or write to a user-specific `~/.cabal`.
+From the repo root, `npm run build` and `npm run test` now pin Cabal state to the tracked `./.cabal` directory, so shared scripts do not depend on or write to a user-specific `~/.cabal`. The repo-root `npm run test` entrypoint runs the Haskell suite, the web suite, and the autoloop contract verifier in `test/autoloop.test.mjs`.
 
 REST API
 --------

@@ -200,6 +200,14 @@ test("resolveAutoloopBackend respects explicit backend requests", () => {
   );
 });
 
+test("repo root test command includes the autoloop verifier", async () => {
+  const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
+  const pkg = JSON.parse(pkgRaw);
+  const testScript = pkg?.scripts?.test;
+  assert.equal(typeof testScript, "string");
+  assert.match(testScript, /\bnpm run test:autoloop\b/);
+});
+
 test("writeJsonFileAtomic creates parent directories and writes formatted JSON", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-test-"));
   const filePath = path.join(dir, "nested", "status.json");
