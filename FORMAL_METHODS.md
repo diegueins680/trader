@@ -116,32 +116,33 @@ For each position with open time `ta` and realized close time `tc`, we define an
 
 - `tm ∈ [ta, ta + 2*(tc-ta)]`
 
-`tm` is selected as the timestamp that maximizes path PnL inside that window.
+`optimalCloseObservation` first filters the PnL path to finite candidates whose timestamps stay inside that window. If `tc <= ta` or no candidate survives, no observation is emitted. Otherwise `tm` is selected as the timestamp that maximizes path PnL inside the filtered window.
 
 We then normalize by realized duration:
 
 - `r = (tm-ta)/(tc-ta)`, so `r ∈ [0,2]`
 
-Before fitting per-combo stats, invalid observations are dropped:
+Before fitting per-combo stats, `buildCloseTimingStats` drops any invalid stored observation:
 
 - realized duration must be positive (`tc > ta`)
 - optimal-close time must stay inside the modeled window, so normalized `r` remains in `[0,2]`
 
-Per combo, we estimate robust distribution statistics over `r`:
+For stats emitted by `buildCloseTimingStats`, we estimate robust distribution statistics over `r`:
 
 - median (`Q50`) as center
 - MAD (`median |r-Q50|`) as robust dispersion
 - interquartile band (`Q25`, `Q75`) as a policy interval
-- the fitted quartiles are clamped back into the modeled domain and ordered so `0 <= Q25 <= Q50 <= Q75 <= 2`
+- `boundedPercentile` clamps every percentile back into `[0,2]`, and `orderQuartiles` sorts the fitted quartiles so `0 <= Q25 <= Q50 <= Q75 <= 2`
 
 A risk-budgeted close policy is encoded as a convex blend target:
 
-- `target = (1-β)*Q50 + β*Q75`, with `β ∈ [0,1]`
-- implementation first canonicalizes any non-finite supplied risk budget to the safe default `beta = 0`, then clamps finite budgets into `[0,1]` before interpolation, so the target stays finite and inside the modeled ratio interval
+- `beta = clamp(0, 1, riskBudget)` when the supplied budget is finite; otherwise `beta = 0`
+- `closeTimingDecision` re-clamps `Q50`, promotes `Q75` to at least `Q50`, and computes `target = clampRatio ((1-beta)*Q50 + beta*Q75)`
+- therefore `target` stays finite and inside `[Q50, Q75] ⊆ [0,2]`
 
 A live position is marked close-ready when its age ratio exceeds `target`.
 
-The regression checks in `haskell/test/TestMain.hs` cover invalid-observation filtering, ordered quantiles inside `[0,2]`, clamped risk-budget interpolation between `Q50` and `Q75`, and the non-finite-budget fallback `beta = 0` that keeps `target = Q50`.
+The regression checks in `haskell/test/TestMain.hs` cover representative window selection and the boundary risk-budget decisions (`beta = 0` and `beta = 1`). The invalid-observation filtering, quartile ordering, and non-finite-budget canonicalization properties above are enforced directly by `validObservation`, `boundedPercentile`, `orderQuartiles`, `normalizeRiskBudget`, and `clampRatio` in `haskell/app/Trader/Formal/CloseTiming.hs`.
 
 ### Implementation pointers
 
