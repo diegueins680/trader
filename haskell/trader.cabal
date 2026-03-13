@@ -182,6 +182,7 @@ test-suite trader-tests
   other-modules:       Trader.Binance
                      , Trader.Api.Routes
                      , Trader.App.BinanceProbe
+                     , Trader.App.Env
                      , Trader.Cache
                      , Trader.Coinbase
                      , Trader.ComboTracking

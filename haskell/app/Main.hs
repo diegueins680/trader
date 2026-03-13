@@ -147,6 +147,7 @@ import Trader.Binance (
     binanceBaseUrl,
     binanceFuturesBaseUrl,
     binanceFuturesTestnetBaseUrl,
+    binanceMarketDataCacheStats,
     binanceProxyHealth,
     binanceTestnetBaseUrl,
     cancelFuturesAlgoOrderByClientId,
@@ -188,6 +189,7 @@ import Trader.BotStartSemantics (
 import Trader.Coinbase (
     CoinbaseCandle (..),
     CoinbaseEnv (..),
+    coinbaseCandlesCacheStats,
     coinbaseBaseUrl,
     fetchCoinbaseAccounts,
     fetchCoinbaseAvailableBalance,
@@ -220,7 +222,7 @@ import Trader.Duration (
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, stepMulti)
 import Trader.KalmanPhysics (OhlcvBar (..), predictKalmanPhysicsError)
-import Trader.Kraken (KrakenCandle (..), fetchKrakenCandles, krakenBaseUrl)
+import Trader.Kraken (KrakenCandle (..), fetchKrakenCandles, krakenBaseUrl, krakenCandlesCacheStats)
 import Trader.LSTM (
     EpochStats (..),
     LSTMConfig (..),
@@ -255,7 +257,7 @@ import Trader.Platform (
     poloniexIntervalLabel,
     poloniexIntervalSeconds,
  )
-import Trader.Poloniex (PoloniexCandle (..), fetchPoloniexCandles, poloniexBaseUrl)
+import Trader.Poloniex (PoloniexCandle (..), fetchPoloniexCandles, poloniexBaseUrl, poloniexCandlesCacheStats)
 import Trader.Predictors (
     HMMFilter (..),
     Interval (..),
@@ -10393,6 +10395,10 @@ apiCacheStatsJson cache = do
     now <- getTimestampMs
     sigEntries <- cachePruneSize cache (acSignals cache)
     btEntries <- cachePruneSize cache (acBacktests cache)
+    binanceStats <- binanceMarketDataCacheStats
+    krakenStats <- krakenCandlesCacheStats
+    coinbaseStats <- coinbaseCandlesCacheStats
+    poloniexStats <- poloniexCandlesCacheStats
     sigHits <- readIORef (acSignalHits cache)
     sigMiss <- readIORef (acSignalMisses cache)
     btHits <- readIORef (acBacktestHits cache)
@@ -10414,9 +10420,20 @@ apiCacheStatsJson cache = do
                     , "hits" .= btHits
                     , "misses" .= btMiss
                     ]
+            , "marketData"
+                .= object
+                    ( map ttlCacheStatsPairToJson binanceStats
+                        ++ [ ttlCacheStatsPairToJson ("krakenCandles", krakenStats)
+                           , ttlCacheStatsPairToJson ("coinbaseCandles", coinbaseStats)
+                           , ttlCacheStatsPairToJson ("poloniexCandles", poloniexStats)
+                           ]
+                    )
             , "atMs" .= now
             ]
         )
+
+ttlCacheStatsPairToJson :: ToJSON v => (String, v) -> Aeson.Pair
+ttlCacheStatsPairToJson (label, value) = AK.fromString label .= value
 
 apiCacheClear :: ApiCache -> IO ()
 apiCacheClear cache = do

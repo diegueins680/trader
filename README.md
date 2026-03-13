@@ -582,8 +582,8 @@ Tenant isolation (multi-user UI):
 
 Build info:
 - `GET /`, `GET /health`, and `GET /version` include build version details.
-- Commit metadata is included when env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA` is set.
-- For Fly Docker deploys, pass `--build-arg TRADER_GIT_COMMIT=$(git rev-parse HEAD)` so `/health`, `/version`, and the UI build badge retain the deployed commit.
+- Commit metadata is resolved from env (`TRADER_GIT_COMMIT`, `TRADER_COMMIT`, `GIT_COMMIT`, `COMMIT_SHA`, `SOURCE_COMMIT`, `SOURCE_VERSION`, `GITHUB_SHA`), then `haskell/.build-commit`, then local `git rev-parse HEAD` when available.
+- The Fly/GitHub Actions deploy flow writes `haskell/.build-commit` before building the Docker image so `/health` and `/version` can report the deployed commit even when `.git` is not present in the runtime image.
 
 Endpoints:
 - `GET /` → build metadata plus the advertised endpoint list
@@ -593,7 +593,7 @@ Endpoints:
 - `GET /ops` → persisted operations feed (requires DB-backed ops persistence via `TRADER_DB_URL`/`DATABASE_URL`; requires `tenantKey` when `TRADER_MULTI_USER=true`)
 - `GET /ops/performance` → ops rollups/deltas (requires `haskell/scripts/rollup_performance.sh`; `tenantKey` required when `TRADER_MULTI_USER=true`)
 - `GET /outbox` → outbox queue stats (counts by status + oldest pending age; requires DB-backed ops persistence via `TRADER_DB_URL`/`DATABASE_URL`; when `TRADER_MULTI_USER=true`, `tenantKey` is required and results are tenant-scoped)
-- `GET /cache` → in-memory cache stats (entries + hit/miss)
+- `GET /cache` → in-memory cache stats for API caches plus bounded market-data cache entry counts/max entries (`binanceTickers`, `binanceExchangeInfo`, `binanceKlines`, `binanceTimeOffset`, `krakenCandles`, `coinbaseCandles`, `poloniexCandles`)
 - `POST /cache/clear` → clears the in-memory cache
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /signal/async` → starts an async signal job

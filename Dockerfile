@@ -11,6 +11,7 @@ WORKDIR /opt/trader
 
 # Copy only the Haskell project for better caching.
 COPY haskell/trader.cabal haskell/trader.cabal
+COPY haskell/.build-commit haskell/.build-commit
 COPY haskell/app haskell/app
 COPY haskell/test haskell/test
 
