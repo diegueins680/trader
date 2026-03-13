@@ -159,7 +159,7 @@ unique =
     foldr keep []
   where
     keep x acc
-        | elem x acc = acc
+        | x `elem` acc = acc
         | otherwise = x : acc
 
 expectEq :: (Eq a, Show a) => String -> a -> a -> IO ()
