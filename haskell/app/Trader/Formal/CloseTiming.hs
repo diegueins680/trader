@@ -95,8 +95,7 @@ closeTimingDecision riskBudget stats ta expectedDurationMs now =
         age = max 0 (now - ta)
         ageRatio = fromIntegral age / fromIntegral denom
         budget = normalizeRiskBudget riskBudget
-        medianRatio = clampRatio (ctsMedianRatio stats)
-        q75Ratio = max medianRatio (clampRatio (ctsQ75Ratio stats))
+        (medianRatio, q75Ratio) = decisionTargetBand stats
         target = clampRatio (mix budget medianRatio q75Ratio)
      in CloseTimingDecision
             { ctdShouldClose = ageRatio >= target
@@ -106,15 +105,27 @@ closeTimingDecision riskBudget stats ta expectedDurationMs now =
 
 validObservation :: CloseTimingObservation -> Bool
 validObservation x =
-    let denom = toInteger (ctoCloseAtMs x) - toInteger (ctoOpenAtMs x)
-        num = toInteger (ctoOptimalCloseAtMs x) - toInteger (ctoOpenAtMs x)
-     in denom > 0 && num >= 0 && num <= 2 * denom
+    case observationRatioParts x of
+        Just (num, denom) -> num >= 0 && num <= 2 * denom
+        Nothing -> False
 
 observationRatio :: CloseTimingObservation -> Double
 observationRatio x =
-    let denom = fromInteger (toInteger (ctoCloseAtMs x) - toInteger (ctoOpenAtMs x))
-        num = fromInteger (toInteger (ctoOptimalCloseAtMs x) - toInteger (ctoOpenAtMs x))
-     in clampRatio (num / denom)
+    case observationRatioParts x of
+        Just (num, denom) -> clampRatio (fromInteger num / fromInteger denom)
+        Nothing -> 0
+
+observationRatioParts :: CloseTimingObservation -> Maybe (Integer, Integer)
+observationRatioParts x =
+    let denom = toInteger (ctoCloseAtMs x) - toInteger (ctoOpenAtMs x)
+        num = toInteger (ctoOptimalCloseAtMs x) - toInteger (ctoOpenAtMs x)
+     in if denom > 0 then Just (num, denom) else Nothing
+
+decisionTargetBand :: CloseTimingStats -> (Double, Double)
+decisionTargetBand stats =
+    let medianRatio = clampRatio (ctsMedianRatio stats)
+        q75Ratio = max medianRatio (clampRatio (ctsQ75Ratio stats))
+     in (medianRatio, q75Ratio)
 
 boundedPercentile :: Double -> [Double] -> Double
 boundedPercentile p = clampRatio . percentile p
@@ -125,6 +136,7 @@ orderQuartiles q25 q50 q75 =
         [a, b, c] -> (a, b, c)
         _ -> (0, 0, 0)
 
+-- Non-finite budgets collapse to beta=0, preserving the median-target policy.
 normalizeRiskBudget :: Double -> Double
 normalizeRiskBudget x
     | isFinite x = clamp 0 1 x

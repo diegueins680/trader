@@ -142,7 +142,7 @@ A risk-budgeted close policy is encoded as a convex blend target:
 
 A live position is marked close-ready when its age ratio exceeds `target`.
 
-The regression checks in `haskell/test/TestMain.hs` cover representative window selection and the boundary risk-budget decisions (`beta = 0` and `beta = 1`). The invalid-observation filtering, quartile ordering, and non-finite-budget canonicalization properties above are enforced directly by `validObservation`, `boundedPercentile`, `orderQuartiles`, `normalizeRiskBudget`, and `clampRatio` in `haskell/app/Trader/Formal/CloseTiming.hs`.
+The regression checks in `haskell/test/TestMain.hs` cover representative window selection and the boundary risk-budget decisions (`beta = 0` and `beta = 1`). This proof sketch now also makes the invalid-sample dropping (`tc <= ta`, `tm < ta`, and `tm > ta + 2*(tc-ta)`) and non-finite-budget contract (`NaN`, `+Infinity`, and `-Infinity` normalize to the same median-target policy as `beta = 0`) explicit, matching `observationRatioParts`, `validObservation`, `decisionTargetBand`, `normalizeRiskBudget`, and `clampRatio` in `haskell/app/Trader/Formal/CloseTiming.hs`.
 
 ### Implementation pointers
 
