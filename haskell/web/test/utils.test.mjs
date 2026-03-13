@@ -240,11 +240,14 @@ test("isLocalHostname accepts 0.0.0.0", () => {
   assert.equal(isLocalHostname("0.0.0.0"), true);
 });
 
-test("numFromInput preserves the shared comma-parsing contract for signed, trimmed, and ambiguous inputs", () => {
+test("numFromInput preserves the conservative comma-parsing contract for blank, signed, explicit, and ambiguous inputs", () => {
   const cases = [
+    { raw: "", fallback: 42, expected: 42, label: "empty input keeps fallback" },
+    { raw: "   ", fallback: -12, expected: -12, label: "whitespace-only input keeps fallback" },
     { raw: "1,23", fallback: 0, expected: 1.23, label: "decimal comma parses" },
     { raw: "  -1,23  ", fallback: 0, expected: -1.23, label: "trimmed signed decimal comma parses" },
     { raw: " +0,125 ", fallback: 7, expected: 0.125, label: "signed leading-zero decimal comma parses" },
+    { raw: "1234,567", fallback: 0, expected: 1234.567, label: "long-prefix decimal comma parses" },
     { raw: "1,234", fallback: 99, expected: 99, label: "ambiguous single-comma thousands keeps fallback" },
     { raw: "12,345", fallback: -7, expected: -7, label: "ambiguous two-digit thousands-like keeps fallback" },
     { raw: "-1,234", fallback: 5, expected: 5, label: "signed ambiguous thousands-like keeps fallback" },

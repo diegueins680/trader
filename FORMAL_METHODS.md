@@ -75,6 +75,26 @@ For every state, it checks:
 5. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
 6. The quote-cap metadata stays inert outside effective quote-fraction sizing and only changes `effectiveLabel` / `hint` when quote-fraction sizing is actually effective, including restored cap-only form states.
 
+## Formal numeric input fallback contract
+
+`numFromInput` in `haskell/web/src/app/utils.ts` is treated as a conservative parser for restored numeric form fields.
+
+Clauses:
+
+1. Empty or whitespace-only input keeps the supplied fallback unchanged.
+2. Unambiguous decimal-comma forms parse as decimals, including signed values and long-prefix forms such as `1234,567`.
+3. A single comma with a 1-3 digit prefix and an exactly 3-digit suffix (for example `1,234`, `12,345`, `-1,234`) is ambiguous between decimal-comma and thousands grouping, so the fallback is preserved.
+4. Explicit multi-group thousands forms such as `1,234,567` remain parseable.
+5. After normalization, only finite numeric results are accepted; non-finite results keep the fallback.
+
+Proof sketch:
+
+- `numFromInput` trims first and returns `fallback` on the empty string, so blank edits cannot overwrite a stored numeric value.
+- In the single-comma branch, the `^[-+]?\d{1,3}$` plus `^\d{3}$` ambiguity check is the path that treats `1,234`-style inputs as undecidable, and it returns `fallback` instead of rewriting the saved number.
+- Other two-part comma inputs normalize to decimal-comma forms, so explicit decimals like `1,23`, `-1,23`, `+0,125`, and `1234,567` remain parseable.
+- The explicit multi-group branch keeps standard thousands-group forms such as `1,234,567` parseable.
+- `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, decimal-comma parses, ambiguous single-comma fallback, and multi-group comma parses.
+
 ## Formal autoloop safety contract
 
 The GitHub autoloop runner treats model output as untrusted input and checks a small executable contract before any commit is created.
