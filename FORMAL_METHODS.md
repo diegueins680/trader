@@ -114,18 +114,21 @@ Clauses:
 1. `botAdoptExistingPosition` always restores to `true`, even if older saved state persisted `false`.
 2. Non-Binance platforms always normalize `market` to `spot`.
 3. `binanceLive` can only stay enabled on live-order platforms (`binance` and `coinbase`); every other platform restores it to `false`.
-4. Binance `margin` restore state is only accepted when live trading is already enabled; otherwise normalization falls back to `market = spot` instead of implicitly enabling live mode.
-5. `tradeArmed` is only preserved for live-order platforms; non-trading platforms restore it to `false`.
+4. `binanceTestnet` can only stay enabled for Binance `spot` / `futures` restores; it always restores to `false` for non-Binance platforms and for any persisted Binance `margin` state, even when that margin state later falls back to `spot`.
+5. Binance `margin` restore state is only accepted when live trading is already enabled; otherwise normalization falls back to `market = spot` instead of implicitly enabling live mode.
+6. `tradeArmed` is only preserved for live-order platforms; non-trading platforms restore it to `false`.
 
 Proof sketch:
 
 - `normalizePlatform` first bounds the platform domain.
+- `restoredBinanceMarket` captures the bounded persisted Binance market before any safety fallback runs.
 - `market` is initialized as `spot` for every non-Binance platform, so stale `margin` and `futures` values cannot leak outside Binance.
 - `liveOrdersSupported` gates `binanceLiveCandidate`, forcing `binanceLive = false` on non-trading platforms while still allowing supported Coinbase live restores.
 - The Binance margin branch rewrites `market` back to `spot` when the restored state is `margin` without live mode, preserving the current safe fallback instead of upgrading to live orders.
+- `binanceTestnet` is gated by the original bounded Binance market, so a stale margin-only testnet toggle cannot survive either a non-Binance restore or a margin-to-spot safety fallback.
 - `tradeArmed` is gated separately to Binance and Coinbase, so a non-trading platform cannot restore an armed trade toggle.
 - The returned object overwrites any persisted value with `botAdoptExistingPosition: true`, so reloads keep orphaned-position adoption enabled by construction.
-- `haskell/web/test/utils.test.mjs` now mirrors this invariant with representative restored states for Kraken, Coinbase, and Binance margin-without-live inputs.
+- `haskell/web/test/utils.test.mjs` now mirrors this invariant with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix.
 
 ## Formal autoloop safety contract
 

@@ -661,6 +661,7 @@ raw: {
 platform: "kraken",
 market: "futures",
 binanceLive: true,
+binanceTestnet: true,
 tradeArmed: true,
 botAdoptExistingPosition: false,
 },
@@ -668,6 +669,7 @@ expected: {
 platform: "kraken",
 market: "spot",
 binanceLive: false,
+binanceTestnet: false,
 tradeArmed: false,
 },
 },
@@ -677,6 +679,7 @@ raw: {
 platform: "coinbase",
 market: "margin",
 binanceLive: true,
+binanceTestnet: true,
 tradeArmed: true,
 botAdoptExistingPosition: false,
 },
@@ -684,15 +687,17 @@ expected: {
 platform: "coinbase",
 market: "spot",
 binanceLive: true,
+binanceTestnet: false,
 tradeArmed: true,
 },
 },
 {
-label: "binance margin without live falls back to spot instead of re-enabling live",
+label: "binance margin without live falls back to spot without reviving the stale testnet toggle",
 raw: {
 platform: "binance",
 market: "margin",
 binanceLive: false,
+binanceTestnet: true,
 tradeArmed: true,
 botAdoptExistingPosition: false,
 },
@@ -700,6 +705,7 @@ expected: {
 platform: "binance",
 market: "spot",
 binanceLive: false,
+binanceTestnet: false,
 tradeArmed: true,
 },
 },
@@ -709,8 +715,50 @@ const out = normalizeFormState(raw);
 assert.equal(out.platform, expected.platform, label + ": platform should normalize deterministically");
 assert.equal(out.market, expected.market, label + ": market should keep the safe restore fallback");
 assert.equal(out.binanceLive, expected.binanceLive, label + ": live mode should stay inside supported restore states");
+assert.equal(out.binanceTestnet, expected.binanceTestnet, label + ": testnet should stay inside supported restore states");
 assert.equal(out.tradeArmed, expected.tradeArmed, label + ": trade arming should stay platform-safe");
 assert.equal(out.botAdoptExistingPosition, true, label + ": existing-position adoption should always restore enabled");
+}
+});
+test("normalizeFormState exhaustively gates restored binanceTestnet by platform and market", () => {
+const platforms = ["binance", "coinbase", "kraken", "poloniex"];
+const markets = ["spot", "margin", "futures"];
+const bools = [false, true];
+for (const platform of platforms) {
+for (const market of markets) {
+for (const binanceLive of bools) {
+for (const binanceTestnet of bools) {
+const label = `platform=${platform}, market=${market}, binanceLive=${binanceLive}, binanceTestnet=${binanceTestnet}`;
+const out = normalizeFormState({
+platform,
+market,
+binanceLive,
+binanceTestnet,
+botAdoptExistingPosition: false,
+});
+const expectedMarket =
+platform !== "binance"
+? "spot"
+: market === "margin" && !binanceLive
+? "spot"
+: market;
+const expectedBinanceLive =
+platform === "binance"
+? market === "margin" && !binanceLive
+? false
+: binanceLive
+: platform === "coinbase"
+? binanceLive
+: false;
+const expectedBinanceTestnet = platform === "binance" && market !== "margin" ? binanceTestnet : false;
+assert.equal(out.platform, platform, label + ": platform should stay stable across restore gating");
+assert.equal(out.market, expectedMarket, label + ": market should normalize safely");
+assert.equal(out.binanceLive, expectedBinanceLive, label + ": live mode should normalize safely");
+assert.equal(out.binanceTestnet, expectedBinanceTestnet, label + ": testnet should only restore for Binance spot/futures");
+assert.equal(out.botAdoptExistingPosition, true, label + ": existing-position adoption should always restore enabled");
+}
+}
+}
 }
 });
 test("normalizeFormState normalizes trade toggles and booleans from strings", () => {
@@ -750,9 +798,11 @@ test("normalizeFormState treats margin+non-live as spot (safe fallback)", () => 
 const out = normalizeFormState({
 market: "margin",
 binanceLive: false,
+binanceTestnet: true,
 });
 assert.equal(out.market, "spot");
 assert.equal(out.binanceLive, false);
+assert.equal(out.binanceTestnet, false);
 });
 test("normalizeFormState forces margin to disable testnet", () => {
 const out = normalizeFormState({

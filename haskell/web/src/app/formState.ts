@@ -378,20 +378,24 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   );
   const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
   const platform = normalizePlatform(rawRec.platform ?? merged.platform, defaultForm.platform);
-  let market = platform === "binance" ? normalizeMarket(rawRec.market ?? merged.market, defaultForm.market) : "spot";
+  const restoredBinanceMarket =
+    platform === "binance" ? normalizeMarket(rawRec.market ?? merged.market, defaultForm.market) : "spot";
+  let market = restoredBinanceMarket;
+  const restoredBinanceMargin = platform === "binance" && restoredBinanceMarket === "margin";
   const liveOrdersSupported = platform === "binance" || platform === "coinbase";
   const binanceLiveCandidate =
     liveOrdersSupported ? normalizeBool(rawRec.binanceLive ?? merged.binanceLive, defaultForm.binanceLive) : false;
   // Margin requires live orders; prefer a safe fallback over implicitly enabling live mode.
-  const binanceLive = platform === "binance" && market === "margin" && !binanceLiveCandidate ? false : binanceLiveCandidate;
-  if (platform === "binance" && market === "margin" && !binanceLiveCandidate) market = "spot";
+  const binanceLive = restoredBinanceMargin && !binanceLiveCandidate ? false : binanceLiveCandidate;
+  if (restoredBinanceMargin && !binanceLiveCandidate) market = "spot";
   // Trade arming is meaningful for Binance + Coinbase; disable it for non-trading platforms.
   const tradeArmed =
     platform === "binance" || platform === "coinbase"
       ? normalizeBool(rawRec.tradeArmed ?? merged.tradeArmed, defaultForm.tradeArmed)
       : false;
+  // Persisted margin restores must clear the stale testnet toggle even when market falls back to spot.
   const binanceTestnet =
-    platform === "binance" && market !== "margin"
+    platform === "binance" && !restoredBinanceMargin
       ? normalizeBool(rawRec.binanceTestnet ?? merged.binanceTestnet, defaultForm.binanceTestnet)
       : false;
   const symbolFallback =
