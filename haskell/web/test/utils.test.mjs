@@ -193,6 +193,19 @@ test("buildOrphanedPositions keeps stopped bots with unknown market in scope", (
   assert.equal(orphans[0]?.reason, "bot stopped");
 });
 
+test("buildOrphanedPositions prefers stopped unknown-market bots over other-market evidence", () => {
+  const stoppedStatus = { running: false, symbol: "BTCUSDT" };
+  const positions = [{ symbol: "BTCUSDT", positionAmt: 1, positionSide: "LONG" }];
+  const bots = [
+    { symbol: "BTCUSDT", status: stoppedStatus },
+    { symbol: "BTCUSDT", status: { running: true, market: "spot", positions: [1] } },
+  ];
+  const orphans = buildOrphanedPositions(positions, bots, { market: "futures" });
+  assert.equal(orphans.length, 1);
+  assert.equal(orphans[0]?.reason, "bot stopped");
+  assert.equal(orphans[0]?.status, stoppedStatus);
+});
+
 test("normalizeApiBaseUrlInput supports bare loopback IPv6 with port", () => {
   assert.equal(normalizeApiBaseUrlInput("::1:8080"), "http://[::1]:8080");
   assert.equal(normalizeApiBaseUrlInput("[::1]:8080"), "http://[::1]:8080");
