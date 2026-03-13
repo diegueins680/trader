@@ -55,9 +55,11 @@ Clauses:
 2. Effective sizing follows a fixed precedence: `orderQuantity` > `orderQuote` > `orderQuoteFraction`.
 3. Invalid quote-fraction ranges (`< 0` or `> 1`) block trading only when no higher-precedence valid size is present.
 4. Multiple valid sizing inputs are allowed but must be reported as a conflict so the effective mode is explicit.
-5. `maxOrderQuote` is cap-only metadata: it never becomes an active sizing mode, never creates trade readiness by itself, and only changes labeling when `orderQuoteFraction` is the effective mode.
-6. The blocking-focus target is `orderQuoteFraction` only for fraction-only invalid states; every other state keeps the safe default target `orderQuote`.
-7. `statusLabel` is derived from the same finite state: blocked states say `Sizing required`, and ready states name the effective sizing mode.
+5. `maxOrderQuote` is cap-only metadata: it never becomes an active sizing mode, never creates trade readiness by itself, and only changes `effectiveLabel` / `hint` when `orderQuoteFraction` is the effective mode.
+6. `effectiveLabel` is exact and total for the modeled state space: `Quantity <qty>`, `Quote <quote>`, `Fraction <pct>[ cap <quote>]`, or `No sizing selected`.
+7. The blocking-focus target is `orderQuoteFraction` only for fraction-only invalid states; every other state keeps the safe default target `orderQuote`.
+8. `statusLabel` is derived from the same finite state: blocked states say `Sizing required`, and ready states name the effective sizing mode.
+9. `hint` is exact and state-derived: blocked states surface the blocking error verbatim, conflict states use the precedence warning, and non-conflict ready states mirror `effectiveLabel` as `Effective sizing: ...`.
 
 The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space (`32` states), plus paired cap/no-cap comparisons over every `(orderQuantity, orderQuote, orderQuoteFraction)` combination:
 
@@ -71,9 +73,17 @@ For every state, it checks:
 1. The active sizing modes match the executable spec.
 2. The effective sizing mode matches the documented precedence.
 3. Trade readiness, blocking reason, and `blockingTargetId` match the modeled state.
-4. `statusLabel` matches the modeled readiness/effective-mode summary.
-5. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
-6. The quote-cap metadata stays inert outside effective quote-fraction sizing and only changes `effectiveLabel` / `hint` when quote-fraction sizing is actually effective, including restored cap-only form states.
+4. `effectiveLabel` and `hint` match the modeled string contract for every state.
+5. `statusLabel` matches the modeled readiness/effective-mode summary.
+6. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
+7. The quote-cap metadata stays inert outside effective quote-fraction sizing and only changes `effectiveLabel` / `hint` when quote-fraction sizing is actually effective, including restored cap-only form states.
+
+Proof sketch:
+
+- `summarizeOrderSizing` computes precedence before any copy fields, so `effectiveLabel`, `statusLabel`, and `hint` are total functions of the same finite readiness/conflict state.
+- The only `maxOrderQuote` interpolation sits inside the `effective === "orderQuoteFraction"` label branch and only when `maxOrderQuote > 0`, so cap-only metadata cannot create readiness or alter non-fraction copy.
+- `hint` is derived from exactly three branches: the blocking error, the precedence warning for conflicts, or `Effective sizing: ${effectiveLabel}.`; once the modeled state and `effectiveLabel` are fixed, the hint string is fixed too.
+- `haskell/web/test/utils.test.mjs` now exhaustively enumerates all 32 modeled states and asserts the exact `effectiveLabel` / `hint` outputs, with paired cap/no-cap comparisons to prove the cap-only inertness contract.
 
 ## Formal numeric input fallback contract
 
