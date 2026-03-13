@@ -43,8 +43,6 @@ executable trader-hs
                      , Trader.OrderExecution
                      , Trader.Ops.Migrations
                      , Trader.Optimizer.Json
-                     , Trader.Optimizer.Optimize
-                     , Trader.Optimizer.Random
                      , Trader.OnlineStats
                      , Trader.Poloniex
                      , Trader.Predictors
