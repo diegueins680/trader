@@ -178,7 +178,9 @@ export function uniqueStrings(values) {
 
 export function prepareShellCommand(command) {
   const normalized = String(command ?? "").trim();
-  if (!normalized || !/\bcabal\b/.test(normalized) || normalized.includes(".ghcup/env")) return normalized;
+  const needsGhcup =
+    /\bcabal\b/.test(normalized) || normalized === "cd haskell && bash scripts/ci_smoke.sh";
+  if (!normalized || !needsGhcup || normalized.includes(".ghcup/env")) return normalized;
   return `source "$HOME/.ghcup/env" 2>/dev/null || true; ${normalized}`;
 }
 

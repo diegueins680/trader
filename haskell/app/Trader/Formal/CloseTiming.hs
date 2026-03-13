@@ -65,43 +65,60 @@ buildCloseTimingStats obs =
     map statsFor grouped
   where
     grouped =
-        groupBy ((==) `on` ctoCombo) . sortOn ctoCombo $ filter valid obs
-
-    valid x =
-        let denom = ctoCloseAtMs x - ctoOpenAtMs x
-            num = ctoOptimalCloseAtMs x - ctoOpenAtMs x
-         in denom > 0 && num >= 0 && num <= 2 * denom
+        groupBy ((==) `on` ctoCombo) . sortOn ctoCombo $ filter validObservation obs
 
     statsFor xs =
         let combo = ctoCombo (head xs)
-            ratios = sortOn id (map ratio xs)
-            med = percentile 0.5 ratios
-            mad = percentile 0.5 (sortOn id (map (abs . subtract med) ratios))
+            ratios = sortOn id (map observationRatio xs)
+            q25 = boundedPercentile 0.25 ratios
+            q50 = boundedPercentile 0.5 ratios
+            q75 = boundedPercentile 0.75 ratios
+            (q25Bound, q50Bound, q75Bound) = orderQuartiles q25 q50 q75
+            mad = boundedPercentile 0.5 (sortOn id (map (abs . subtract q50Bound) ratios))
          in CloseTimingStats
                 { ctsCombo = combo
                 , ctsSamples = length ratios
-                , ctsMedianRatio = med
-                , ctsMadRatio = mad
-                , ctsQ25Ratio = percentile 0.25 ratios
-                , ctsQ75Ratio = percentile 0.75 ratios
+                , ctsMedianRatio = q50Bound
+                , ctsMadRatio = clampRatio mad
+                , ctsQ25Ratio = q25Bound
+                , ctsQ75Ratio = q75Bound
                 }
-
-    ratio x =
-        let denom = fromIntegral (ctoCloseAtMs x - ctoOpenAtMs x)
-            num = fromIntegral (ctoOptimalCloseAtMs x - ctoOpenAtMs x)
-         in clamp 0 2 (num / denom)
 
 closeTimingDecision :: Double -> CloseTimingStats -> Int -> Int -> Int -> CloseTimingDecision
 closeTimingDecision riskBudget stats ta expectedDurationMs now =
     let denom = max 1 expectedDurationMs
         age = max 0 (now - ta)
         ageRatio = fromIntegral age / fromIntegral denom
-        target = mix (clamp 0 1 riskBudget) (ctsMedianRatio stats) (ctsQ75Ratio stats)
+        budget = clamp 0 1 riskBudget
+        medianRatio = clampRatio (ctsMedianRatio stats)
+        q75Ratio = max medianRatio (clampRatio (ctsQ75Ratio stats))
+        target = clampRatio (mix budget medianRatio q75Ratio)
      in CloseTimingDecision
             { ctdShouldClose = ageRatio >= target
             , ctdAgeRatio = ageRatio
             , ctdTargetRatio = target
             }
+
+validObservation :: CloseTimingObservation -> Bool
+validObservation x =
+    let denom = toInteger (ctoCloseAtMs x) - toInteger (ctoOpenAtMs x)
+        num = toInteger (ctoOptimalCloseAtMs x) - toInteger (ctoOpenAtMs x)
+     in denom > 0 && num >= 0 && num <= 2 * denom
+
+observationRatio :: CloseTimingObservation -> Double
+observationRatio x =
+    let denom = fromInteger (toInteger (ctoCloseAtMs x) - toInteger (ctoOpenAtMs x))
+        num = fromInteger (toInteger (ctoOptimalCloseAtMs x) - toInteger (ctoOpenAtMs x))
+     in clampRatio (num / denom)
+
+boundedPercentile :: Double -> [Double] -> Double
+boundedPercentile p = clampRatio . percentile p
+
+orderQuartiles :: Double -> Double -> Double -> (Double, Double, Double)
+orderQuartiles q25 q50 q75 =
+    case sortOn id (map clampRatio [q25, q50, q75]) of
+        [a, b, c] -> (a, b, c)
+        _ -> (0, 0, 0)
 
 mix :: Double -> Double -> Double -> Double
 mix w a b = (1 - w) * a + w * b
@@ -113,6 +130,9 @@ percentile p xs =
         n = length ys
         idx = floor (clamp 0 1 p * fromIntegral (n - 1))
      in ys !! idx
+
+clampRatio :: Double -> Double
+clampRatio = clamp 0 2
 
 clamp :: Double -> Double -> Double -> Double
 clamp lo hi = max lo . min hi

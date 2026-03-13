@@ -152,11 +152,15 @@ test("clampText preserves short text and truncates long text", () => {
   assert.notEqual(clamped, "abcdefghijklmnopqrstuvwxyz");
 });
 
-test("prepareShellCommand bootstraps ghcup only for cabal commands", () => {
+test("prepareShellCommand bootstraps ghcup for Haskell verification commands", () => {
   assert.equal(prepareShellCommand("cd haskell && cabal build"), 'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build');
   assert.equal(
     prepareShellCommand('source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build'),
     'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build',
+  );
+  assert.equal(
+    prepareShellCommand("cd haskell && bash scripts/ci_smoke.sh"),
+    'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && bash scripts/ci_smoke.sh',
   );
   assert.equal(prepareShellCommand("cd haskell/web && npm --workspaces=false run test"), "cd haskell/web && npm --workspaces=false run test");
 });

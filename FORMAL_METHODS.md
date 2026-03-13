@@ -122,17 +122,26 @@ We then normalize by realized duration:
 
 - `r = (tm-ta)/(tc-ta)`, so `r ∈ [0,2]`
 
+Before fitting per-combo stats, invalid observations are dropped:
+
+- realized duration must be positive (`tc > ta`)
+- optimal-close time must stay inside the modeled window, so normalized `r` remains in `[0,2]`
+
 Per combo, we estimate robust distribution statistics over `r`:
 
 - median (`Q50`) as center
 - MAD (`median |r-Q50|`) as robust dispersion
 - interquartile band (`Q25`, `Q75`) as a policy interval
+- the fitted quartiles are clamped back into the modeled domain and ordered so `0 <= Q25 <= Q50 <= Q75 <= 2`
 
 A risk-budgeted close policy is encoded as a convex blend target:
 
 - `target = (1-β)*Q50 + β*Q75`, with `β ∈ [0,1]`
+- implementation clamps any supplied risk budget into `[0,1]` before interpolation, so the target stays inside the modeled ratio interval
 
 A live position is marked close-ready when its age ratio exceeds `target`.
+
+The regression checks in `haskell/test/TestMain.hs` cover invalid-observation filtering, ordered quantiles inside `[0,2]`, and clamped risk-budget interpolation between `Q50` and `Q75`.
 
 ### Implementation pointers
 
