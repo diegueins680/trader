@@ -94,7 +94,7 @@ closeTimingDecision riskBudget stats ta expectedDurationMs now =
     let denom = max 1 expectedDurationMs
         age = max 0 (now - ta)
         ageRatio = fromIntegral age / fromIntegral denom
-        budget = clamp 0 1 riskBudget
+        budget = normalizeRiskBudget riskBudget
         medianRatio = clampRatio (ctsMedianRatio stats)
         q75Ratio = max medianRatio (clampRatio (ctsQ75Ratio stats))
         target = clampRatio (mix budget medianRatio q75Ratio)
@@ -124,6 +124,11 @@ orderQuartiles q25 q50 q75 =
     case sortOn id (map clampRatio [q25, q50, q75]) of
         [a, b, c] -> (a, b, c)
         _ -> (0, 0, 0)
+
+normalizeRiskBudget :: Double -> Double
+normalizeRiskBudget x
+    | isFinite x = clamp 0 1 x
+    | otherwise = 0
 
 mix :: Double -> Double -> Double -> Double
 mix w a b = (1 - w) * a + w * b

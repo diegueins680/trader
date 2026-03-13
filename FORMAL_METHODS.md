@@ -137,11 +137,11 @@ Per combo, we estimate robust distribution statistics over `r`:
 A risk-budgeted close policy is encoded as a convex blend target:
 
 - `target = (1-β)*Q50 + β*Q75`, with `β ∈ [0,1]`
-- implementation clamps any supplied risk budget into `[0,1]` before interpolation, so the target stays inside the modeled ratio interval
+- implementation first canonicalizes any non-finite supplied risk budget to the safe default `beta = 0`, then clamps finite budgets into `[0,1]` before interpolation, so the target stays finite and inside the modeled ratio interval
 
 A live position is marked close-ready when its age ratio exceeds `target`.
 
-The regression checks in `haskell/test/TestMain.hs` cover invalid-observation filtering, ordered quantiles inside `[0,2]`, and clamped risk-budget interpolation between `Q50` and `Q75`.
+The regression checks in `haskell/test/TestMain.hs` cover invalid-observation filtering, ordered quantiles inside `[0,2]`, clamped risk-budget interpolation between `Q50` and `Q75`, and the non-finite-budget fallback `beta = 0` that keeps `target = Q50`.
 
 ### Implementation pointers
 
