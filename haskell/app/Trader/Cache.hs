@@ -15,9 +15,9 @@ module Trader.Cache (
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
 import Control.Exception (SomeException, throwIO, try)
 import Data.Aeson (ToJSON (..), object, (.=))
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.List (sortOn)
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 
 data TtlCache k v = TtlCache

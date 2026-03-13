@@ -189,8 +189,8 @@ import Trader.BotStartSemantics (
 import Trader.Coinbase (
     CoinbaseCandle (..),
     CoinbaseEnv (..),
-    coinbaseCandlesCacheStats,
     coinbaseBaseUrl,
+    coinbaseCandlesCacheStats,
     fetchCoinbaseAccounts,
     fetchCoinbaseAvailableBalance,
     fetchCoinbaseBaseMinSize,
@@ -10432,7 +10432,7 @@ apiCacheStatsJson cache = do
             ]
         )
 
-ttlCacheStatsPairToJson :: ToJSON v => (String, v) -> Aeson.Pair
+ttlCacheStatsPairToJson :: (ToJSON v) => (String, v) -> Aeson.Pair
 ttlCacheStatsPairToJson (label, value) = AK.fromString label .= value
 
 apiCacheClear :: ApiCache -> IO ()
