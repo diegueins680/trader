@@ -319,7 +319,7 @@ test("summarizeOrderSizing keeps maxOrderQuote cap-only unless quote fraction is
   }
 });
 
-test("summarizeOrderSizing exhaustively preserves the modeled sizing contract", () => {
+test("summarizeOrderSizing exhaustively preserves the modeled sizing and blocking-target contract", () => {
   const quantities = [0, 1];
   const quotes = [0, 1];
   const fractions = [-0.25, 0, 0.5, 1.25];
@@ -355,11 +355,13 @@ test("summarizeOrderSizing exhaustively preserves the modeled sizing contract", 
               : expectedEffective === "none"
                 ? "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction."
                 : null;
+          const expectedBlockingTargetId = fractionError && orderQuantity <= 0 && orderQuote <= 0 ? "orderQuoteFraction" : "orderQuote";
 
           assert.deepEqual(state.active, expectedActive);
           assert.equal(state.effective, expectedEffective);
           assert.equal(state.conflicts, expectedActive.length > 1);
           assert.equal(state.blockingError, expectedBlocking);
+          assert.equal(state.blockingTargetId, expectedBlockingTargetId);
           assert.equal(state.tone, expectedBlocking ? "bad" : expectedActive.length > 1 ? "warn" : "ok");
         }
       }
@@ -477,6 +479,7 @@ test("normalizeFormState preserves restored fraction validation and precedence",
   assert.equal(precedenceState.effective, "orderQuantity");
   assert.equal(precedenceState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
   assert.equal(precedenceState.blockingError, null);
+  assert.equal(precedenceState.blockingTargetId, "orderQuote");
   assert.equal(precedenceState.tone, "warn");
 });
 

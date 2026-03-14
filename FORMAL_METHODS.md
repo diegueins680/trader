@@ -54,8 +54,9 @@ Clauses:
 1. A manual trade is only ready when there is an effective sizing mode.
 2. Effective sizing follows a fixed precedence: `orderQuantity` > `orderQuote` > `orderQuoteFraction`.
 3. Invalid quote-fraction ranges (`< 0` or `> 1`) block trading only when no higher-precedence valid size is present.
-4. Multiple valid sizing inputs are allowed but must be reported as a conflict so the effective mode is explicit.
-5. `maxOrderQuote` is cap-only metadata: it never becomes an active sizing mode, never creates trade readiness by itself, and only changes labeling when `orderQuoteFraction` is the effective mode.
+4. The blocking target is `orderQuoteFraction` only for standalone quote-fraction validation failures; every other blocked sizing state anchors on `orderQuote`.
+5. Multiple valid sizing inputs are allowed but must be reported as a conflict so the effective mode is explicit.
+6. `maxOrderQuote` is cap-only metadata: it never becomes an active sizing mode, never creates trade readiness by itself, and only changes labeling when `orderQuoteFraction` is the effective mode.
 
 The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space:
 
@@ -69,8 +70,9 @@ For every state, it checks:
 1. The active sizing modes match the executable spec.
 2. The effective sizing mode matches the documented precedence.
 3. Trade readiness is blocked exactly when the model says no effective size exists.
-4. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
-5. The quote-cap metadata stays inert outside effective quote-fraction sizing, including restored cap-only form states.
+4. The blocking target matches the documented anchor: standalone quote-fraction validation failures target `orderQuoteFraction`; all other states target `orderQuote`.
+5. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
+6. The quote-cap metadata stays inert outside effective quote-fraction sizing, including restored cap-only form states.
 
 ## Formal autoloop safety contract
 
