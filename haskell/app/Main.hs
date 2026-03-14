@@ -10432,7 +10432,7 @@ apiCacheStatsJson cache = do
             ]
         )
 
-ttlCacheStatsPairToJson :: (ToJSON v) => (String, v) -> Aeson.Pair
+ttlCacheStatsPairToJson :: (ToJSON v) => (String, v) -> AT.Pair
 ttlCacheStatsPairToJson (label, value) = AK.fromString label .= value
 
 apiCacheClear :: ApiCache -> IO ()
