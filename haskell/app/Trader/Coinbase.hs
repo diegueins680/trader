@@ -12,6 +12,7 @@ module Trader.Coinbase (
     fetchCoinbaseCandles,
     decodeCoinbaseCandles,
     buildRanges,
+    coinbaseCandlesCacheStats,
     normalizeCoinbaseCandles,
     placeCoinbaseMarketOrder,
 ) where
@@ -42,7 +43,7 @@ import Network.HTTP.Types.Status (statusCode)
 import Numeric (showFFloat)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
-import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
+import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
 import Trader.Text (trim)
 
@@ -79,13 +80,19 @@ coinbaseMaxBarsPerRequest = 300
 
 {-# NOINLINE coinbaseCandlesCache #-}
 coinbaseCandlesCache :: TtlCache String [CoinbaseCandle]
-coinbaseCandlesCache = unsafePerformIO newTtlCache
+coinbaseCandlesCache = unsafePerformIO (newTtlCacheWithMaxEntries coinbaseCandlesMaxEntries)
+
+coinbaseCandlesMaxEntries :: Int
+coinbaseCandlesMaxEntries = 64
 
 coinbaseCandlesFreshTtl :: NominalDiffTime
 coinbaseCandlesFreshTtl = 30
 
 coinbaseCandlesStaleTtl :: NominalDiffTime
 coinbaseCandlesStaleTtl = 300
+
+coinbaseCandlesCacheStats :: IO TtlCacheStats
+coinbaseCandlesCacheStats = cacheStats coinbaseCandlesCache coinbaseCandlesStaleTtl
 
 data CoinbaseEnv = CoinbaseEnv
     { ceManager :: !Manager

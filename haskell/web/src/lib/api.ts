@@ -99,6 +99,7 @@ export type CacheStatsResponse = {
   maxEntries: number;
   signals: { entries: number; hits: number; misses: number };
   backtests: { entries: number; hits: number; misses: number };
+  marketData?: Record<string, { entries: number; maxEntries: number | null }>;
   atMs: number;
 };
 

@@ -78,6 +78,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Inject build commit metadata
+        run: printf '%s\n' "${GITHUB_SHA}" > haskell/.build-commit
+
       - name: Install flyctl
         id: setup_flyctl
         env:
