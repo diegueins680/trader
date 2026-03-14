@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Main where
 
@@ -454,7 +455,7 @@ withTempTestDir prefix action = do
 
 withBuildCommitEnv :: [(String, Maybe String)] -> IO a -> IO a
 withBuildCommitEnv entries action = do
-    original <- mapM (\(key, _) -> fmap (\value -> (key, value)) (lookupEnv key)) entries
+    original <- mapM (\(key, _) -> fmap (key,) (lookupEnv key)) entries
     let restore = mapM_ restoreEntry original
     applyEntries entries
     action `finally` restore
