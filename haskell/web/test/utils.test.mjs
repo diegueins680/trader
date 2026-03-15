@@ -3,7 +3,9 @@ import { test } from "node:test";
 import {
   buildOrphanedPositions,
   buildRequestIssueDetails,
+  downsampleArray,
   downsampleIndices,
+  downsampleOptionalArray,
   inferFlyApiAppName,
   inferFlyDirectApiBaseFromHostname,
   isLocalHostname,
@@ -36,6 +38,39 @@ function expectedNearestSampleIndex(indices, idx) {
     }
   }
   return bestIndex;
+}
+
+function assertSampledAlignment(source, indices, sampled, context) {
+  assert.equal(sampled.length, indices.length, `${context}: expected sampled length ${indices.length}, got ${sampled.length}`);
+  if (source.length === 0) {
+    assert.deepEqual(sampled, [], `${context}: expected empty sampled data`);
+    return;
+  }
+
+  for (let sampleIdx = 0; sampleIdx < indices.length; sampleIdx += 1) {
+    const rawIdx = indices[sampleIdx];
+    assert.equal(
+      sampled[sampleIdx],
+      source[rawIdx],
+      `${context}: expected sample ${sampleIdx} to align with raw index ${rawIdx}`,
+    );
+    assert.equal(
+      remapIndexToSample(indices, rawIdx),
+      sampleIdx,
+      `${context}: expected remap exact hit for raw index ${rawIdx}`,
+    );
+  }
+
+  if (indices.length > 0) {
+    assert.equal(sampled[0], source[0], `${context}: expected first sampled point to preserve the first endpoint`);
+  }
+  if (indices.length > 1) {
+    assert.equal(
+      sampled[indices.length - 1],
+      source[source.length - 1],
+      `${context}: expected final sampled point to preserve the last endpoint`,
+    );
+  }
 }
 
 test("buildRequestIssueDetails returns empty when clean", () => {
@@ -226,6 +261,35 @@ test("downsampleIndices preserves bounded chart sampling invariants", () => {
       if (total <= budget) {
         assert.deepEqual(indices, Array.from({ length: total }, (_, i) => i));
       }
+    }
+  }
+});
+
+test("downsampleArray preserves sampled length and per-index alignment", () => {
+  for (let total = 0; total <= 257; total += 1) {
+    const source = Array.from({ length: total }, (_, rawIdx) => ({ rawIdx, label: `bar-${rawIdx}` }));
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      const sampled = downsampleArray(source, indices);
+      assertSampledAlignment(source, indices, sampled, `total=${total}, maxPoints=${maxPoints}`);
+    }
+  }
+});
+
+test("downsampleOptionalArray preserves aligned optional series and nullish absence", () => {
+  const absenceIndices = downsampleIndices(12, 5);
+  assert.equal(downsampleOptionalArray(undefined, absenceIndices), undefined);
+  assert.equal(downsampleOptionalArray(null, absenceIndices), undefined);
+
+  for (let total = 0; total <= 257; total += 1) {
+    const source = Array.from({ length: total }, (_, rawIdx) =>
+      rawIdx % 11 === 0 ? null : rawIdx % 7 === 0 ? undefined : `pred-${rawIdx}`
+    );
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      const sampled = downsampleOptionalArray(source, indices);
+      assert.ok(Array.isArray(sampled), `total=${total}, maxPoints=${maxPoints}: expected sampled optional series array`);
+      assertSampledAlignment(source, indices, sampled, `total=${total}, maxPoints=${maxPoints}`);
     }
   }
 });
