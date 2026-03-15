@@ -13,7 +13,7 @@ import {
   remapIndexToSample,
   summarizeOrderSizing,
 } from "../.tmp/web-tests/utils.js";
-import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
+import { defaultForm, normalizeFormState, parseDurationSeconds } from "../.tmp/web-tests/formState.js";
 
 function assertStrictlyIncreasing(values, context) {
   for (let i = 1; i < values.length; i += 1) {
@@ -181,6 +181,18 @@ test("numFromInput parses thousands grouping and decimal comma consistently", ()
   assert.equal(numFromInput("1,234,567", 0), 1234567);
   assert.equal(numFromInput("1,23", 0), 1.23);
   assert.equal(numFromInput("0,123", 0), 0.123);
+});
+
+test("parseDurationSeconds keeps minute and month units distinct", () => {
+  assert.equal(parseDurationSeconds("1m"), 60);
+  assert.equal(parseDurationSeconds("1M"), 30 * 24 * 60 * 60);
+  assert.notEqual(parseDurationSeconds("1m"), parseDurationSeconds("1M"));
+});
+
+test("parseDurationSeconds rejects malformed duration strings", () => {
+  for (const raw of ["", " ", "1", "m", "1mm", "1MM", "1.5h", "-1h", "1 h", "1Q"]) {
+    assert.equal(parseDurationSeconds(raw), null, `expected ${JSON.stringify(raw)} to be rejected`);
+  }
 });
 
 test("downsampleIndices preserves bounded chart sampling invariants", () => {
@@ -366,6 +378,21 @@ test("summarizeOrderSizing exhaustively preserves the modeled sizing and blockin
         }
       }
     }
+  }
+});
+
+test("normalizeFormState preserves valid lookbackWindow minute and month units", () => {
+  assert.equal(normalizeFormState({ lookbackWindow: "1m" }).lookbackWindow, "1m");
+  assert.equal(normalizeFormState({ lookbackWindow: "1M" }).lookbackWindow, "1M");
+});
+
+test("normalizeFormState falls back to default lookbackWindow for malformed saved values", () => {
+  for (const raw of [null, 123, "", " ", "1", "m", "1mm", "1.5h", "0m", "bad"]) {
+    assert.equal(
+      normalizeFormState({ lookbackWindow: raw }).lookbackWindow,
+      defaultForm.lookbackWindow,
+      `expected ${JSON.stringify(raw)} to fall back to the default lookbackWindow`,
+    );
   }
 });
 
