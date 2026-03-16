@@ -32,6 +32,11 @@ function readNumber(raw: unknown): number | null {
 
 function readBoolean(raw: unknown): boolean | undefined {
   if (typeof raw === "boolean") return raw;
+  if (typeof raw === "string") {
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
   return undefined;
 }
 
