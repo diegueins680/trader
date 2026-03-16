@@ -4,11 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  buildForceWithLeaseFlag,
   buildOpenAiApiError,
   clampText,
   extractResponseText,
   normalizeIdeaSelection,
   normalizePatchPlan,
+  parseLsRemoteBranchHead,
   parseJsonResponse,
   prepareShellCommand,
   resolveAutoloopBackend,
@@ -202,6 +204,29 @@ test("resolveAutoloopBackend respects explicit backend requests", () => {
     () => resolveAutoloopBackend("mystery", { hasOpenAiKey: true, hasCodex: true }),
     /Unknown autoloop backend/,
   );
+});
+
+test("parseLsRemoteBranchHead extracts the requested remote branch head", () => {
+  const raw = [
+    `${"a".repeat(40)}\trefs/heads/main`,
+    `${"b".repeat(40)}\trefs/heads/autoloop/main`,
+  ].join("\n");
+  assert.equal(parseLsRemoteBranchHead(raw, "autoloop/main"), "b".repeat(40));
+  assert.equal(parseLsRemoteBranchHead(raw, "missing"), "");
+  assert.equal(parseLsRemoteBranchHead("", "main"), "");
+});
+
+test("buildForceWithLeaseFlag uses explicit branch heads and validates object ids", () => {
+  assert.equal(
+    buildForceWithLeaseFlag("autoloop/main", "a".repeat(40)),
+    `--force-with-lease=refs/heads/autoloop/main:${"a".repeat(40)}`,
+  );
+  assert.equal(
+    buildForceWithLeaseFlag("refs/heads/main", "b".repeat(40)),
+    `--force-with-lease=refs/heads/main:${"b".repeat(40)}`,
+  );
+  assert.equal(buildForceWithLeaseFlag("autoloop/main", ""), "--force-with-lease=refs/heads/autoloop/main:");
+  assert.throws(() => buildForceWithLeaseFlag("autoloop/main", "not-a-sha"), /expectedOid must be a 40-character hex object id/);
 });
 
 test("repo root test command includes the autoloop verifier", async () => {
