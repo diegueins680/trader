@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  buildActionsRunsApiPath,
   buildForceWithLeaseFlag,
   buildRemoteTrackingRefspec,
   buildOpenAiApiError,
@@ -236,6 +237,17 @@ test("buildRemoteTrackingRefspec targets refs/remotes/origin for branch heads", 
     "refs/heads/autoloop/main:refs/remotes/origin/autoloop/main",
   );
   assert.equal(buildRemoteTrackingRefspec("refs/heads/main"), "refs/heads/main:refs/remotes/origin/main");
+});
+
+test("buildActionsRunsApiPath scopes workflow run lookup to a head sha and branch", () => {
+  assert.equal(
+    buildActionsRunsApiPath("a".repeat(40), "autoloop/main", 30),
+    `repos/:owner/:repo/actions/runs?head_sha=${"a".repeat(40)}&per_page=30&branch=autoloop%2Fmain`,
+  );
+  assert.equal(
+    buildActionsRunsApiPath("b".repeat(40), "refs/heads/main", 200),
+    `repos/:owner/:repo/actions/runs?head_sha=${"b".repeat(40)}&per_page=100&branch=main`,
+  );
 });
 
 test("repo root package exposes the autoloop verifier script", async () => {
