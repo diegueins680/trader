@@ -4,11 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  buildForceWithLeaseFlag,
   buildOpenAiApiError,
   clampText,
   extractResponseText,
   normalizeIdeaSelection,
   normalizePatchPlan,
+  parseLsRemoteBranchHead,
   parseJsonResponse,
   resolveAutoloopBackend,
   sanitizeRelativePath,
@@ -190,6 +192,36 @@ test("resolveAutoloopBackend respects explicit backend requests", () => {
   );
 });
 
+test("parseLsRemoteBranchHead extracts the requested remote branch head", () => {
+  const raw = [
+    `${"a".repeat(40)}\trefs/heads/main`,
+    `${"b".repeat(40)}\trefs/heads/autoloop/main`,
+  ].join("\n");
+  assert.equal(parseLsRemoteBranchHead(raw, "autoloop/main"), "b".repeat(40));
+  assert.equal(parseLsRemoteBranchHead(raw, "missing"), "");
+  assert.equal(parseLsRemoteBranchHead("", "main"), "");
+});
+
+test("buildForceWithLeaseFlag uses explicit branch heads and validates object ids", () => {
+  assert.equal(
+    buildForceWithLeaseFlag("autoloop/main", "a".repeat(40)),
+    `--force-with-lease=refs/heads/autoloop/main:${"a".repeat(40)}`,
+  );
+  assert.equal(
+    buildForceWithLeaseFlag("refs/heads/main", "b".repeat(40)),
+    `--force-with-lease=refs/heads/main:${"b".repeat(40)}`,
+  );
+  assert.equal(buildForceWithLeaseFlag("autoloop/main", ""), "--force-with-lease=refs/heads/autoloop/main:");
+  assert.throws(() => buildForceWithLeaseFlag("autoloop/main", "not-a-sha"), /expectedOid must be a 40-character hex object id/);
+});
+
+test("repo root test command includes the autoloop verifier", async () => {
+  const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
+  const pkg = JSON.parse(pkgRaw);
+  const testScript = pkg?.scripts?.test;
+  assert.equal(typeof testScript, "string");
+  assert.match(testScript, /\bnpm run test:autoloop\b/);
+});
 test("writeJsonFileAtomic creates parent directories and writes formatted JSON", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-test-"));
   const filePath = path.join(dir, "nested", "status.json");

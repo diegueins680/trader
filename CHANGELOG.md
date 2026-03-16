@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: refresh the live `autoloop/<base-branch>` remote head before checkout/push and use an explicit `refs/heads/...` `--force-with-lease`, so repo-local autoloop cycles do not fail on stale local tracking info after earlier cycles already updated the loop branch.
 - Deploy/Fly: forward the Git commit SHA into both Fly Docker builds (`TRADER_GIT_COMMIT`) so `/health`, `/version`, and the web header build badge show the deployed commit instead of only the package version.
 - Optimizer/DB persistence: make combo UUIDs source-aware when a real combo `source` is present, persist that `source` in Postgres, and ignore legacy source-less DB rows once source-aware replacements exist, so Fly/ephemeral deployments keep all distinct combos across rebuilds instead of collapsing same-parameter combos from different sources.
 - Predictors/Backtests/CLI: add OHLCV-aware feature engineering (candle body/range/wick, ATR/breakout, volume shock, efficiency, plus market-context residual features) and new `knn` / `decision_tree` predictors wired through the existing `--predictors` Kalman/backtest/trade-only flow, so optimizer and backtest runs can learn from richer Kline context around entry/hold/exit decisions.

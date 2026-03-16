@@ -6,11 +6,13 @@ import path from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
 import {
+  buildForceWithLeaseFlag,
   buildOpenAiApiError,
   clampText,
   extractResponseText,
   normalizeIdeaSelection,
   normalizePatchPlan,
+  parseLsRemoteBranchHead,
   sanitizeRelativePath,
   parseJsonResponse,
   resolveAutoloopBackend,
@@ -104,7 +106,7 @@ async function main() {
   }
 
   assertCleanWorktree();
-  runGit(["fetch", "origin", BASE_BRANCH, "--prune"]);
+  fetchRemoteTrackingBranch(BASE_BRANCH);
   await checkoutLoopBranch();
   await updateStatus({ phase: "ready" });
 
@@ -373,12 +375,21 @@ function assertCleanWorktree() {
 }
 
 async function checkoutLoopBranch() {
-  const remoteBranch = runGit(["ls-remote", "--heads", "origin", LOOP_BRANCH]);
-  if (remoteBranch.trim()) {
+  const loopBranchHead = readRemoteBranchHead(LOOP_BRANCH);
+  if (loopBranchHead) {
+    fetchRemoteTrackingBranch(LOOP_BRANCH);
     runGit(["checkout", "-B", LOOP_BRANCH, `origin/${LOOP_BRANCH}`], { capture: false });
   } else {
     runGit(["checkout", "-B", LOOP_BRANCH, `origin/${BASE_BRANCH}`], { capture: false });
   }
+}
+
+function fetchRemoteTrackingBranch(branchName) {
+  runGit(["fetch", "origin", `${branchName}:refs/remotes/origin/${branchName}`, "--prune"]);
+}
+
+function readRemoteBranchHead(branchName) {
+  return parseLsRemoteBranchHead(runGit(["ls-remote", "--heads", "origin", branchName]), branchName);
 }
 
 function hardResetToCurrentHead() {
@@ -713,7 +724,11 @@ function commitBranch(message, changedPaths) {
 }
 
 function pushBranch() {
-  runGit(["push", "--force-with-lease", "-u", "origin", LOOP_BRANCH], { capture: false });
+  const remoteHead = readRemoteBranchHead(LOOP_BRANCH);
+  runGit(
+    ["push", buildForceWithLeaseFlag(LOOP_BRANCH, remoteHead), "-u", "origin", `${LOOP_BRANCH}:refs/heads/${LOOP_BRANCH}`],
+    { capture: false },
+  );
 }
 
 function ensurePullRequest(title, summary) {
