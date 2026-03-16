@@ -9,6 +9,7 @@ module Trader.Formal.CloseTiming (
 
 import Data.Function (on)
 import Data.List (groupBy, sortOn)
+import Data.Maybe (mapMaybe)
 
 -- | Historical position sample grouped by combo.
 data CloseTimingObservation = CloseTimingObservation
@@ -57,24 +58,28 @@ optimalCloseObservation combo ta tc pnlPath
                     , ctoOptimalCloseAtMs = tm
                     }
   where
-    upper = ta + 2 * (tc - ta)
-    candidates = filter (\(t, pnl) -> t >= ta && t <= upper && isFinite pnl) pnlPath
+    taInteger = toInteger ta
+    upper = taInteger + 2 * (toInteger tc - taInteger)
+    candidates =
+        filter
+            (\(t, pnl) ->
+                let tInteger = toInteger t
+                 in tInteger >= taInteger && tInteger <= upper && isFinite pnl
+            )
+            pnlPath
 
 buildCloseTimingStats :: [CloseTimingObservation] -> [CloseTimingStats]
 buildCloseTimingStats obs =
     map statsFor grouped
   where
     grouped =
-        groupBy ((==) `on` ctoCombo) . sortOn ctoCombo $ filter valid obs
+        groupBy ((==) `on` ctoCombo) . sortOn ctoCombo $ filter hasValidRatio obs
 
-    valid x =
-        let denom = ctoCloseAtMs x - ctoOpenAtMs x
-            num = ctoOptimalCloseAtMs x - ctoOpenAtMs x
-         in denom > 0 && num >= 0 && num <= 2 * denom
+    hasValidRatio = maybe False (const True) . observationRatio
 
     statsFor xs =
         let combo = ctoCombo (head xs)
-            ratios = sortOn id (map ratio xs)
+            ratios = sortOn id (mapMaybe observationRatio xs)
             med = percentile 0.5 ratios
             mad = percentile 0.5 (sortOn id (map (abs . subtract med) ratios))
          in CloseTimingStats
@@ -86,22 +91,33 @@ buildCloseTimingStats obs =
                 , ctsQ75Ratio = percentile 0.75 ratios
                 }
 
-    ratio x =
-        let denom = fromIntegral (ctoCloseAtMs x - ctoOpenAtMs x)
-            num = fromIntegral (ctoOptimalCloseAtMs x - ctoOpenAtMs x)
-         in clamp 0 2 (num / denom)
-
 closeTimingDecision :: Double -> CloseTimingStats -> Int -> Int -> Int -> CloseTimingDecision
 closeTimingDecision riskBudget stats ta expectedDurationMs now =
-    let denom = max 1 expectedDurationMs
-        age = max 0 (now - ta)
-        ageRatio = fromIntegral age / fromIntegral denom
+    let denom = max 1 (toInteger expectedDurationMs)
+        age = max 0 (toInteger now - toInteger ta)
+        ageRatio = fromInteger age / fromInteger denom
         target = mix (clamp 0 1 riskBudget) (ctsMedianRatio stats) (ctsQ75Ratio stats)
      in CloseTimingDecision
             { ctdShouldClose = ageRatio >= target
             , ctdAgeRatio = ageRatio
             , ctdTargetRatio = target
             }
+
+observationRatio :: CloseTimingObservation -> Maybe Double
+observationRatio x = do
+    (num, denom) <- observationSpan x
+    pure (clamp 0 2 (fromInteger num / fromInteger denom))
+
+observationSpan :: CloseTimingObservation -> Maybe (Integer, Integer)
+observationSpan x =
+    let ta = toInteger (ctoOpenAtMs x)
+        tc = toInteger (ctoCloseAtMs x)
+        tm = toInteger (ctoOptimalCloseAtMs x)
+        denom = tc - ta
+        num = tm - ta
+     in if denom > 0 && num >= 0 && num <= 2 * denom
+            then Just (num, denom)
+            else Nothing
 
 mix :: Double -> Double -> Double -> Double
 mix w a b = (1 - w) * a + w * b
