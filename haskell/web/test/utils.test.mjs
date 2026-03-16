@@ -73,6 +73,27 @@ function assertSampledAlignment(source, indices, sampled, context) {
   }
 }
 
+function assertSizingStatusAndHintContract(state, context) {
+  const expectedStatusLabel =
+    state.blockingError
+      ? "Sizing required"
+      : state.effective === "orderQuantity"
+        ? "Using order quantity"
+        : state.effective === "orderQuote"
+          ? "Using order quote"
+          : state.effective === "orderQuoteFraction"
+            ? "Using quote fraction"
+            : "Sizing required";
+  const expectedHint =
+    state.blockingError
+      ? state.blockingError
+      : state.conflicts
+        ? `${state.effective} takes precedence. Clear the other sizing inputs to avoid surprises.`
+        : `Effective sizing: ${state.effectiveLabel}.`;
+  assert.equal(state.statusLabel, expectedStatusLabel, `${context}: expected status label to follow the sizing contract`);
+  assert.equal(state.hint, expectedHint, `${context}: expected hint to follow the sizing contract`);
+}
+
 test("buildRequestIssueDetails returns empty when clean", () => {
   assert.deepEqual(buildRequestIssueDetails({}), []);
 });
@@ -344,7 +365,10 @@ test("summarizeOrderSizing blocks trade when no effective size is configured", (
   assert.equal(state.effective, "none");
   assert.equal(state.blockingError, "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction.");
   assert.equal(state.blockingTargetId, "orderQuote");
+  assert.equal(state.statusLabel, "Sizing required");
+  assert.equal(state.hint, "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction.");
   assert.equal(state.tone, "bad");
+  assertSizingStatusAndHintContract(state, "no effective sizing");
 });
 
 test("summarizeOrderSizing uses documented precedence when multiple sizing inputs are set", () => {
@@ -358,7 +382,10 @@ test("summarizeOrderSizing uses documented precedence when multiple sizing input
   assert.equal(state.effective, "orderQuantity");
   assert.equal(state.conflicts, true);
   assert.equal(state.blockingError, null);
+  assert.equal(state.statusLabel, "Using order quantity");
+  assert.equal(state.hint, "orderQuantity takes precedence. Clear the other sizing inputs to avoid surprises.");
   assert.equal(state.tone, "warn");
+  assertSizingStatusAndHintContract(state, "conflicting sizing");
 });
 
 test("summarizeOrderSizing keeps maxOrderQuote cap-only unless quote fraction is effective", () => {
@@ -374,6 +401,9 @@ test("summarizeOrderSizing keeps maxOrderQuote cap-only unless quote fraction is
   for (const { name, input } of cases) {
     const withoutCap = summarizeOrderSizing({ ...input, maxOrderQuote: 0 });
     const withCap = summarizeOrderSizing({ ...input, maxOrderQuote: 50 });
+
+    assertSizingStatusAndHintContract(withoutCap, `${name} without cap`);
+    assertSizingStatusAndHintContract(withCap, `${name} with cap`);
 
     assert.deepEqual(withCap.active, withoutCap.active, `${name}: cap must not create an active sizing mode`);
     assert.equal(withCap.conflicts, withoutCap.conflicts, `${name}: cap must not change conflict detection`);
@@ -395,7 +425,7 @@ test("summarizeOrderSizing keeps maxOrderQuote cap-only unless quote fraction is
   }
 });
 
-test("summarizeOrderSizing exhaustively preserves the modeled sizing and blocking-target contract", () => {
+test("summarizeOrderSizing exhaustively preserves the modeled sizing, status, hint, and blocking-target contract", () => {
   const quantities = [0, 1];
   const quotes = [0, 1];
   const fractions = [-0.25, 0, 0.5, 1.25];
@@ -439,6 +469,10 @@ test("summarizeOrderSizing exhaustively preserves the modeled sizing and blockin
           assert.equal(state.blockingError, expectedBlocking);
           assert.equal(state.blockingTargetId, expectedBlockingTargetId);
           assert.equal(state.tone, expectedBlocking ? "bad" : expectedActive.length > 1 ? "warn" : "ok");
+          assertSizingStatusAndHintContract(
+            state,
+            `orderQuantity=${orderQuantity}, orderQuote=${orderQuote}, orderQuoteFraction=${orderQuoteFraction}, maxOrderQuote=${maxOrderQuote}`,
+          );
         }
       }
     }

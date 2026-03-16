@@ -57,6 +57,9 @@ Clauses:
 4. The blocking target is `orderQuoteFraction` only for standalone quote-fraction validation failures; every other blocked sizing state anchors on `orderQuote`.
 5. Multiple valid sizing inputs are allowed but must be reported as a conflict so the effective mode is explicit.
 6. `maxOrderQuote` is cap-only metadata: it never becomes an active sizing mode, never creates trade readiness by itself, and only changes labeling when `orderQuoteFraction` is the effective mode.
+7. Every blocked sizing state must report `Sizing required` as the status label and repeat the blocking message as the operator hint.
+8. Every non-blocked conflict must surface the precedence warning for the effective mode so operators can see which sizing input wins.
+9. Every non-blocked single-mode state must surface `Effective sizing: <effectiveLabel>.` so the operator sees the exact active sizing label.
 
 The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space:
 
@@ -73,6 +76,8 @@ For every state, it checks:
 4. The blocking target matches the documented anchor: standalone quote-fraction validation failures target `orderQuoteFraction`; all other states target `orderQuote`.
 5. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
 6. The quote-cap metadata stays inert outside effective quote-fraction sizing, including restored cap-only form states.
+7. Blocked states report `Sizing required` and mirror the blocking message into the hint.
+8. Conflicting valid states surface the precedence warning, and single valid states surface the effective sizing label in the hint.
 
 ## Formal autoloop safety contract
 
