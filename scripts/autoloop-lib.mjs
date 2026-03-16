@@ -223,6 +223,17 @@ export function buildRemoteTrackingRefspec(branchName) {
   return `${headRef}:refs/remotes/origin/${shortName}`;
 }
 
+export function buildActionsRunsApiPath(headSha, branchName = "", perPage = 50) {
+  const sha = readString(headSha, "headSha");
+  const params = new URLSearchParams();
+  params.set("head_sha", sha);
+  params.set("per_page", String(Math.min(100, Math.max(1, Math.trunc(perPage) || 1))));
+  if (typeof branchName === "string" && branchName.trim()) {
+    params.set("branch", branchName.replace(/^refs\/heads\//, "").trim());
+  }
+  return `repos/:owner/:repo/actions/runs?${params.toString()}`;
+}
+
 export function buildOpenAiApiError(status, payload) {
   const errorObj = payload?.error && typeof payload.error === "object" ? payload.error : {};
   const code = typeof errorObj.code === "string" ? errorObj.code : "";

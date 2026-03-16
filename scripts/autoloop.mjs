@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
 import {
+  buildActionsRunsApiPath,
   buildForceWithLeaseFlag,
   buildRemoteTrackingRefspec,
   buildOpenAiApiError,
@@ -35,6 +36,9 @@ const STATUS_FILE = resolveOptionalPath(process.env.AUTOLOOP_STATUS_FILE);
 const RUN_ID = process.env.AUTOLOOP_RUN_ID || "";
 const RUN_MODE = process.env.AUTOLOOP_RUN_MODE || "bounded";
 const REQUESTED_BACKEND = process.env.AUTOLOOP_BACKEND || "auto";
+const CI_WORKFLOW_NAME = process.env.AUTOLOOP_CI_WORKFLOW_NAME || "CI";
+const CI_DISCOVERY_POLL_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_POLL_SECONDS, 30, 5, 300);
+const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_TIMEOUT_SECONDS, 900, 60, 7200);
 const HAS_CODEX = commandExists("codex");
 const PLANNER_BACKEND = resolveAutoloopBackend(REQUESTED_BACKEND, {
   hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
@@ -783,31 +787,27 @@ function waitForPullRequestCi(prNumber) {
   let runId = null;
   let runUrl = null;
 
-  for (let i = 0; i < 12; i += 1) {
-    const runs = JSON.parse(
-      runGh([
-        "run",
-        "list",
-        "--branch",
-        LOOP_BRANCH,
-        "--event",
-        "pull_request",
-        "--limit",
-        "10",
-        "--json",
-        "databaseId,headSha,status,conclusion,url,workflowName",
-      ]),
-    );
-    const match = runs.find((run) => run.headSha === headSha && run.workflowName === "CI");
+  const maxAttempts = Math.max(1, Math.ceil(CI_DISCOVERY_TIMEOUT_SECONDS / CI_DISCOVERY_POLL_SECONDS));
+  for (let i = 0; i < maxAttempts; i += 1) {
+    const runs = listWorkflowRunsForHead(headSha);
+    const match = runs.find((run) => run.head_sha === headSha && run.name === CI_WORKFLOW_NAME);
     if (match) {
-      runId = match.databaseId;
-      runUrl = match.url;
+      runId = match.id;
+      runUrl = match.html_url || match.url;
       break;
     }
-    runCommand("sleep", ["10"], { capture: false });
+    if (i + 1 < maxAttempts) {
+      runCommand("sleep", [String(CI_DISCOVERY_POLL_SECONDS)], { capture: false });
+    }
   }
 
-  if (!runId) throw new Error(`No CI run found for PR #${prNumber} and head ${headSha}.`);
+  if (!runId) {
+    const suiteSummary = summarizeCheckSuitesForHead(headSha);
+    throw new Error(
+      `No ${CI_WORKFLOW_NAME} workflow run found for PR #${prNumber} and head ${headSha} after ${CI_DISCOVERY_TIMEOUT_SECONDS}s.` +
+        `${suiteSummary ? ` Check suites: ${suiteSummary}.` : " Check suites: none."}`,
+    );
+  }
 
   try {
     runGh(["run", "watch", String(runId), "--interval", "30", "--exit-status"], { capture: false });
@@ -816,6 +816,24 @@ function waitForPullRequestCi(prNumber) {
     const failedLog = runGh(["run", "view", String(runId), "--log-failed"]);
     return { ok: false, runId, runUrl, failedLog };
   }
+}
+
+function listWorkflowRunsForHead(headSha) {
+  const response = JSON.parse(runGh(["api", buildActionsRunsApiPath(headSha, LOOP_BRANCH, 50)]));
+  return Array.isArray(response?.workflow_runs) ? response.workflow_runs : [];
+}
+
+function summarizeCheckSuitesForHead(headSha) {
+  const response = JSON.parse(runGh(["api", `repos/:owner/:repo/commits/${headSha}/check-suites`]));
+  const suites = Array.isArray(response?.check_suites) ? response.check_suites : [];
+  return uniqueStrings(
+    suites.map((suite) => {
+      const app = suite?.app?.slug || suite?.app?.name || "unknown";
+      const status = suite?.status || "unknown";
+      const conclusion = suite?.conclusion ? `/${suite.conclusion}` : "";
+      return `${app}:${status}${conclusion}`;
+    }),
+  ).join(", ");
 }
 
 function mergePullRequest(prNumber) {
