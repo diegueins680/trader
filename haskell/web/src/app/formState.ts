@@ -274,18 +274,24 @@ function normalizeLookbackWindow(raw: unknown, fallback: string): string {
   return sec && sec > 0 ? value : fallback;
 }
 
-function normalizeLookbackBars(raw: unknown, fallback: number): number {
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    const n = Math.trunc(raw);
-    return n >= 2 ? n : 0;
-  }
+function parseFiniteInteger(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw) && Number.isInteger(raw)) return raw;
   if (typeof raw === "string") {
     const n = Number(raw);
-    if (!Number.isFinite(n)) return fallback;
-    const i = Math.trunc(n);
-    return i >= 2 ? i : 0;
+    if (Number.isFinite(n) && Number.isInteger(n)) return n;
   }
-  return fallback;
+  return null;
+}
+
+function normalizeWholeNumber(raw: unknown, fallback: number, lo: number, hi: number): number {
+  const n = parseFiniteInteger(raw);
+  return n == null ? fallback : clamp(n, lo, hi);
+}
+
+function normalizeLookbackBars(raw: unknown, fallback: number): number {
+  const n = parseFiniteInteger(raw);
+  if (n == null) return fallback;
+  return n >= 2 ? n : 0;
 }
 
 function normalizeBool(raw: unknown, fallback: boolean): boolean {
@@ -429,9 +435,9 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     tuneStressVolMult: normalizeFiniteNumber(rawRec.tuneStressVolMult ?? merged.tuneStressVolMult, defaultForm.tuneStressVolMult, 0, 1e9),
     tuneStressShock: normalizeFiniteNumber(rawRec.tuneStressShock ?? merged.tuneStressShock, defaultForm.tuneStressShock, -1e9, 1e9),
     tuneStressWeight: normalizeFiniteNumber(rawRec.tuneStressWeight ?? merged.tuneStressWeight, defaultForm.tuneStressWeight, 0, 1e9),
-    minRoundTrips: normalizeFiniteNumber(rawRec.minRoundTrips ?? merged.minRoundTrips, defaultForm.minRoundTrips, 0, 1e9),
-    walkForwardFolds: normalizeFiniteNumber(rawRec.walkForwardFolds ?? merged.walkForwardFolds, defaultForm.walkForwardFolds, 1, 1000),
-    walkForwardEmbargoBars: normalizeFiniteNumber(
+    minRoundTrips: normalizeWholeNumber(rawRec.minRoundTrips ?? merged.minRoundTrips, defaultForm.minRoundTrips, 0, 1e9),
+    walkForwardFolds: normalizeWholeNumber(rawRec.walkForwardFolds ?? merged.walkForwardFolds, defaultForm.walkForwardFolds, 1, 1000),
+    walkForwardEmbargoBars: normalizeWholeNumber(
       rawRec.walkForwardEmbargoBars ?? merged.walkForwardEmbargoBars,
       defaultForm.walkForwardEmbargoBars,
       0,

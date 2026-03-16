@@ -460,6 +460,52 @@ test("normalizeFormState falls back to default lookbackWindow for malformed save
   }
 });
 
+test("normalizeFormState preserves restored whole-number counts", () => {
+  const restored = normalizeFormState({
+    lookbackBars: "24",
+    minRoundTrips: 9,
+    walkForwardFolds: "11.0",
+    walkForwardEmbargoBars: "3",
+  });
+  assert.deepEqual(
+    {
+      lookbackBars: restored.lookbackBars,
+      minRoundTrips: restored.minRoundTrips,
+      walkForwardFolds: restored.walkForwardFolds,
+      walkForwardEmbargoBars: restored.walkForwardEmbargoBars,
+    },
+    {
+      lookbackBars: 24,
+      minRoundTrips: 9,
+      walkForwardFolds: 11,
+      walkForwardEmbargoBars: 3,
+    },
+  );
+});
+
+test("normalizeFormState rejects fractional and non-finite restored whole-number counts", () => {
+  const restored = normalizeFormState({
+    lookbackBars: 24.5,
+    minRoundTrips: "9.5",
+    walkForwardFolds: Number.POSITIVE_INFINITY,
+    walkForwardEmbargoBars: "NaN",
+  });
+  assert.deepEqual(
+    {
+      lookbackBars: restored.lookbackBars,
+      minRoundTrips: restored.minRoundTrips,
+      walkForwardFolds: restored.walkForwardFolds,
+      walkForwardEmbargoBars: restored.walkForwardEmbargoBars,
+    },
+    {
+      lookbackBars: defaultForm.lookbackBars,
+      minRoundTrips: defaultForm.minRoundTrips,
+      walkForwardFolds: defaultForm.walkForwardFolds,
+      walkForwardEmbargoBars: defaultForm.walkForwardEmbargoBars,
+    },
+  );
+});
+
 test("normalizeFormState restores default minPositionSize for invalid input", () => {
   const fromInvalid = normalizeFormState({ minPositionSize: "not-a-number" });
   assert.equal(fromInvalid.minPositionSize, defaultForm.minPositionSize);
