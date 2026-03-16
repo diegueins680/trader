@@ -7,6 +7,7 @@ import process from "node:process";
 import { execFileSync } from "node:child_process";
 import {
   buildForceWithLeaseFlag,
+  buildRemoteTrackingRefspec,
   buildOpenAiApiError,
   clampText,
   extractResponseText,
@@ -385,7 +386,7 @@ async function checkoutLoopBranch() {
 }
 
 function fetchRemoteTrackingBranch(branchName) {
-  runGit(["fetch", "origin", `${branchName}:refs/remotes/origin/${branchName}`, "--prune"]);
+  runGit(["fetch", "origin", buildRemoteTrackingRefspec(branchName), "--prune"]);
 }
 
 function readRemoteBranchHead(branchName) {

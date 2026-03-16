@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   buildForceWithLeaseFlag,
+  buildRemoteTrackingRefspec,
   buildOpenAiApiError,
   clampText,
   extractResponseText,
@@ -213,6 +214,14 @@ test("buildForceWithLeaseFlag uses explicit branch heads and validates object id
   );
   assert.equal(buildForceWithLeaseFlag("autoloop/main", ""), "--force-with-lease=refs/heads/autoloop/main:");
   assert.throws(() => buildForceWithLeaseFlag("autoloop/main", "not-a-sha"), /expectedOid must be a 40-character hex object id/);
+});
+
+test("buildRemoteTrackingRefspec targets refs/remotes/origin for branch heads", () => {
+  assert.equal(
+    buildRemoteTrackingRefspec("autoloop/main"),
+    "refs/heads/autoloop/main:refs/remotes/origin/autoloop/main",
+  );
+  assert.equal(buildRemoteTrackingRefspec("refs/heads/main"), "refs/heads/main:refs/remotes/origin/main");
 });
 
 test("repo root package exposes the autoloop verifier script", async () => {
