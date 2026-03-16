@@ -224,6 +224,13 @@ export function buildForceWithLeaseFlag(branchName, expectedOid) {
   return `--force-with-lease=${ref}:${expected}`;
 }
 
+export function buildRemoteTrackingRefspec(branchName) {
+  const branch = readString(branchName, "branchName");
+  const headRef = branch.startsWith("refs/heads/") ? branch : `refs/heads/${branch}`;
+  const shortName = headRef.replace(/^refs\/heads\//, "");
+  return `${headRef}:refs/remotes/origin/${shortName}`;
+}
+
 export function buildOpenAiApiError(status, payload) {
   const errorObj = payload?.error && typeof payload.error === "object" ? payload.error : {};
   const code = typeof errorObj.code === "string" ? errorObj.code : "";
