@@ -404,32 +404,61 @@ test("api fallback allows inferred /api primary to fail over to cross-origin fal
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
 });
 
-test("api fallback allows stringified inferred /api primary to fail over to cross-origin fallback", async () => {
-  const calls = [];
-  await withApiModule(
-    {
-      apiBaseUrl: "/api",
-      apiBaseUrlInferred: "true",
-      apiFallbackUrl: "https://api.example.com",
-      apiToken: "",
-    },
-    async (url) => {
-      const href = String(url);
-      calls.push(href);
-      if (href === "/api/health") {
-        return jsonResponse(502, { error: "Bad Gateway" });
-      }
-      if (href === "https://api.example.com/health") {
-        return jsonResponse(200, { status: "ok" });
-      }
-      throw new Error(`unexpected request: ${href}`);
-    },
-    async (api) => {
-      const out = await api.health("/api", { timeoutMs: 5_000 });
-      assert.equal(out.status, "ok");
-    },
-  );
-  assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
+test("api fallback only enables inferred /api cross-origin failover for true/false and 1/0 encodings", async () => {
+  const cases = [
+    { label: "boolean true", value: true, expectFallback: true },
+    { label: "string \\\"true\\\"", value: "true", expectFallback: true },
+    { label: "number 1", value: 1, expectFallback: true },
+    { label: "string \\\"1\\\"", value: "1", expectFallback: true },
+    { label: "boolean false", value: false, expectFallback: false },
+    { label: "string \\\"false\\\"", value: "false", expectFallback: false },
+    { label: "number 0", value: 0, expectFallback: false },
+    { label: "string \\\"0\\\"", value: "0", expectFallback: false },
+    { label: "string \\\"yes\\\"", value: "yes", expectFallback: false },
+    { label: "number 2", value: 2, expectFallback: false },
+    { label: "string \\\"01\\\"", value: "01", expectFallback: false },
+    { label: "null", value: null, expectFallback: false },
+  ];
+
+  for (const testCase of cases) {
+    const calls = [];
+    await withApiModule(
+      {
+        apiBaseUrl: "/api",
+        apiBaseUrlInferred: testCase.value,
+        apiFallbackUrl: "https://api.example.com",
+        apiToken: "",
+      },
+      async (url) => {
+        const href = String(url);
+        calls.push(href);
+        if (href === "/api/health") {
+          return jsonResponse(502, { error: "Bad Gateway" });
+        }
+        if (href === "https://api.example.com/health") {
+          return jsonResponse(200, { status: "ok" });
+        }
+        throw new Error(`unexpected request: ${href}`);
+      },
+      async (api) => {
+        if (testCase.expectFallback) {
+          const out = await api.health("/api", { timeoutMs: 5_000 });
+          assert.equal(out.status, "ok", `${testCase.label} should preserve inferred failover`);
+          return;
+        }
+        await assert.rejects(
+          () => api.health("/api", { timeoutMs: 5_000 }),
+          (err) => err?.name === "HttpError" && err.status === 502,
+          `${testCase.label} should not trigger inferred failover`,
+        );
+      },
+    );
+    assert.deepEqual(
+      calls,
+      testCase.expectFallback ? ["/api/health", "https://api.example.com/health"] : ["/api/health"],
+      testCase.label,
+    );
+  }
 });
 
 test("api fallback allows inferred /api primary timeout failover to cross-origin fallback", async () => {
@@ -458,33 +487,6 @@ test("api fallback allows inferred /api primary timeout failover to cross-origin
     },
   );
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
-});
-
-test("api fallback does not use cross-origin failover for stringified non-inferred /api primary", async () => {
-  const calls = [];
-  await withApiModule(
-    {
-      apiBaseUrl: "/api",
-      apiBaseUrlInferred: "false",
-      apiFallbackUrl: "https://api.example.com",
-      apiToken: "",
-    },
-    async (url) => {
-      const href = String(url);
-      calls.push(href);
-      if (href === "/api/health") {
-        return jsonResponse(502, { error: "Bad Gateway" });
-      }
-      throw new Error(`unexpected request: ${href}`);
-    },
-    async (api) => {
-      await assert.rejects(
-        () => api.health("/api", { timeoutMs: 5_000 }),
-        (err) => err?.name === "HttpError" && err.status === 502,
-      );
-    },
-  );
-  assert.deepEqual(calls, ["/api/health"]);
 });
 
 test("api fallback skips inferred /api cross-origin failover for non-GET requests", async () => {
