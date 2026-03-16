@@ -13,7 +13,7 @@ numFromInput,
 remapIndexToSample,
 summarizeOrderSizing,
 } from "../.tmp/web-tests/utils.js";
-import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
+import { defaultForm, normalizeFormState, parseDurationSeconds, platformIntervalSeconds } from "../.tmp/web-tests/formState.js";
 function assertStrictlyIncreasing(values, context) {
 for (let i = 1; i < values.length; i += 1) {
 assert.ok(
@@ -439,6 +439,65 @@ assert.equal(state.tone, expected.tone, `${context}: severity should match the m
 }
 }
 }
+}
+});
+test("parseDurationSeconds keeps canonical units distinct and rejects malformed durations", () => {
+const supportedCases = [
+{ raw: "1s", expected: 1 },
+{ raw: " 15m ", expected: 15 * 60 },
+{ raw: "2H", expected: 2 * 60 * 60 },
+{ raw: "7d", expected: 7 * 24 * 60 * 60 },
+{ raw: "1M", expected: 30 * 24 * 60 * 60 },
+];
+for (const { raw, expected } of supportedCases) {
+assert.equal(parseDurationSeconds(raw), expected, `${JSON.stringify(raw)} should parse to ${expected} seconds`);
+}
+assert.equal(parseDurationSeconds("1m"), 60);
+assert.equal(parseDurationSeconds("1M"), 30 * 24 * 60 * 60);
+assert.notEqual(parseDurationSeconds("1M"), parseDurationSeconds("1m"));
+for (const raw of ["", "1", "1mm", "1Q", "1.5h", "-1h"]) {
+assert.equal(parseDurationSeconds(raw), null, `${JSON.stringify(raw)} should be rejected as a malformed duration`);
+}
+});
+test("platformIntervalSeconds keeps Binance catalog intervals distinct from generic duration parsing", () => {
+assert.equal(platformIntervalSeconds("binance", "1m"), 60);
+assert.equal(platformIntervalSeconds("binance", "1M"), 30 * 24 * 60 * 60);
+assert.notEqual(platformIntervalSeconds("binance", "1M"), platformIntervalSeconds("binance", "1m"));
+assert.equal(platformIntervalSeconds("binance", "90m"), null);
+assert.equal(platformIntervalSeconds("coinbase", "90m"), 90 * 60);
+assert.equal(platformIntervalSeconds("kraken", "1w"), 7 * 24 * 60 * 60);
+assert.equal(platformIntervalSeconds("poloniex", "bad"), null);
+});
+test("normalizeFormState restores platform-safe intervals and rejects unsupported restores", () => {
+const cases = [
+{ label: "binance keeps canonical monthly interval", raw: { platform: "binance", interval: "1M" }, expected: "1M" },
+{ label: "coinbase trims and keeps canonical interval", raw: { platform: "coinbase", interval: " 1m " }, expected: "1m" },
+{ label: "kraken keeps canonical weekly interval", raw: { platform: "kraken", interval: "1w" }, expected: "1w" },
+{ label: "poloniex keeps canonical 2h interval", raw: { platform: "poloniex", interval: "2h" }, expected: "2h" },
+{ label: "coinbase unsupported restores fall back to the shared safe default", raw: { platform: "coinbase", interval: "1M" }, expected: "1h" },
+{ label: "poloniex unsupported restores fall back to a supported platform default", raw: { platform: "poloniex", interval: "1h" }, expected: "5m" },
+{ label: "poloniex missing interval restores fall back to a supported platform default", raw: { platform: "poloniex" }, expected: "5m" },
+];
+for (const { label, raw, expected } of cases) {
+const out = normalizeFormState(raw);
+assert.equal(out.interval, expected, label + ": interval should restore to a supported value");
+assert.notEqual(platformIntervalSeconds(out.platform, out.interval), null, label + ": restored interval should stay parseable for downstream sizing");
+}
+});
+test("normalizeFormState keeps canonical lookback windows and rejects invalid restored durations", () => {
+const supportedCases = [
+{ raw: "1M", expected: "1M" },
+{ raw: " 48h ", expected: "48h" },
+{ raw: "2w", expected: "2w" },
+];
+for (const { raw, expected } of supportedCases) {
+const out = normalizeFormState({ lookbackWindow: raw });
+assert.equal(out.lookbackWindow, expected, `${JSON.stringify(raw)} should preserve its canonical duration form`);
+assert.ok((parseDurationSeconds(out.lookbackWindow) ?? 0) > 0, `${expected} should stay positive for lookback sizing`);
+}
+for (const raw of ["", "1", "1mm", "1Q", "0m", "-1h"]) {
+const out = normalizeFormState({ lookbackWindow: raw });
+assert.equal(out.lookbackWindow, defaultForm.lookbackWindow, `${JSON.stringify(raw)} should fall back to the default lookback window`);
 }
 });
 test("normalizeFormState restores default minPositionSize for invalid input", () => {

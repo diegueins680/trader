@@ -1,5 +1,5 @@
 import type { IntrabarFill, Market, Method, Normalization, Platform, Positioning } from "../lib/types";
-import { BINANCE_INTERVAL_SECONDS, PLATFORM_DEFAULT_SYMBOL, PLATFORM_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
+import { BINANCE_INTERVAL_SECONDS, PLATFORM_DEFAULT_SYMBOL, PLATFORM_INTERVAL_SET, PLATFORM_INTERVALS, TUNE_OBJECTIVE_SET } from "./constants";
 import { sanitizeSymbolForPlatform } from "./symbols";
 import { clamp } from "./utils";
 
@@ -274,6 +274,11 @@ function normalizeLookbackWindow(raw: unknown, fallback: string): string {
   return sec && sec > 0 ? value : fallback;
 }
 
+function defaultPlatformInterval(platform: Platform): string {
+  if (PLATFORM_INTERVAL_SET[platform].has(defaultForm.interval)) return defaultForm.interval;
+  return PLATFORM_INTERVALS[platform][0] ?? defaultForm.interval;
+}
+
 function normalizeLookbackBars(raw: unknown, fallback: number): number {
   if (typeof raw === "number" && Number.isFinite(raw)) {
     const n = Math.trunc(raw);
@@ -402,6 +407,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     sanitizeSymbolForPlatform(platform, PLATFORM_DEFAULT_SYMBOL[platform] ?? defaultForm.binanceSymbol)
     ?? defaultForm.binanceSymbol;
   const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform, symbolFallback);
+  const intervalFallback = defaultPlatformInterval(platform);
   // Keep restored manual sizing fields numeric before the sizing UI computes badges, cap state, and trade readiness.
   const orderQuote = normalizeFiniteNumber(rawRec.orderQuote ?? merged.orderQuote, defaultForm.orderQuote, 0, 1e9);
   const orderQuantity = normalizeFiniteNumber(rawRec.orderQuantity ?? merged.orderQuantity, defaultForm.orderQuantity, 0, 1e9);
@@ -423,7 +429,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     binanceLive,
     tradeArmed,
     binanceSymbol,
-    interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, defaultForm.interval),
+    interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, intervalFallback),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
     lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
