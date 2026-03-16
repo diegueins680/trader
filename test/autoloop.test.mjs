@@ -229,12 +229,12 @@ test("buildForceWithLeaseFlag uses explicit branch heads and validates object id
   assert.throws(() => buildForceWithLeaseFlag("autoloop/main", "not-a-sha"), /expectedOid must be a 40-character hex object id/);
 });
 
-test("repo root test command includes the autoloop verifier", async () => {
+test("repo root package exposes the autoloop verifier script", async () => {
   const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
   const pkg = JSON.parse(pkgRaw);
-  const testScript = pkg?.scripts?.test;
+  const testScript = pkg?.scripts?.["test:autoloop"];
   assert.equal(typeof testScript, "string");
-  assert.match(testScript, /\bnpm run test:autoloop\b/);
+  assert.match(testScript, /\bnode --test test\/autoloop\.test\.mjs\b/);
 });
 test("writeJsonFileAtomic creates parent directories and writes formatted JSON", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-test-"));
