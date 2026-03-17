@@ -281,6 +281,16 @@ test("normalizeApiBaseUrlInput preserves explicit same-origin paths", () => {
 assert.equal(normalizeApiBaseUrlInput("/api"), "/api");
 assert.equal(normalizeApiBaseUrlInput(" /api/v1?symbol=BTCUSDT "), "/api/v1?symbol=BTCUSDT");
 });
+test("normalizeApiBaseUrlInput rewrites bare relative targets to same-origin paths", () => {
+assert.equal(normalizeApiBaseUrlInput("api"), "/api");
+assert.equal(normalizeApiBaseUrlInput(" api/v1 "), "/api/v1");
+});
+test("normalizeApiBaseUrlInput infers schemes for non-loopback hosts", () => {
+assert.equal(normalizeApiBaseUrlInput("example.com"), "https://example.com");
+assert.equal(normalizeApiBaseUrlInput("example.com/api"), "https://example.com/api");
+assert.equal(normalizeApiBaseUrlInput("example.com:8443"), "http://example.com:8443");
+assert.equal(normalizeApiBaseUrlInput("example.com:443/api"), "https://example.com:443/api");
+});
 test("normalizeApiBaseUrlInput supports bare loopback IPv6 with port", () => {
 assert.equal(normalizeApiBaseUrlInput("::1:8080"), "http://[::1]:8080");
 assert.equal(normalizeApiBaseUrlInput("[::1]:8080"), "http://[::1]:8080");
