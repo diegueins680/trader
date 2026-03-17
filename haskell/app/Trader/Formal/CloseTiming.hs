@@ -46,10 +46,7 @@ optimalCloseObservation combo ta tc pnlPath
     | tc <= ta = Nothing
     | null candidates = Nothing
     | otherwise =
-        let (tm, _) =
-                foldl1
-                    (\best cur -> if snd cur > snd best then cur else best)
-                    candidates
+        let (tm, _) = foldl1 chooseBetterClose candidates
          in Just
                 CloseTimingObservation
                     { ctoCombo = combo
@@ -67,6 +64,13 @@ optimalCloseObservation combo ta tc pnlPath
                  in tInteger >= taInteger && tInteger <= upper && isFinite pnl
             )
             pnlPath
+
+chooseBetterClose :: (Int, Double) -> (Int, Double) -> (Int, Double)
+chooseBetterClose best cur
+    | snd cur > snd best = cur
+    | snd cur < snd best = best
+    | fst cur < fst best = cur
+    | otherwise = best
 
 buildCloseTimingStats :: [CloseTimingObservation] -> [CloseTimingStats]
 buildCloseTimingStats obs =

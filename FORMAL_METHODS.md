@@ -122,6 +122,11 @@ For each position with open time `ta` and realized close time `tc`, we define an
 
 `tm` is selected as the timestamp that maximizes path PnL inside that window.
 
+Close-timing selection invariant:
+
+1. `tm` must maximize path PnL over all in-window observations.
+2. If multiple in-window timestamps share the maximum path PnL, the model selects the earliest such timestamp, so downstream stats and risk-budget targets are invariant to input path order.
+
 We then normalize by realized duration:
 
 - `r = (tm-ta)/(tc-ta)`, so `r \u2208 [0,2]`
