@@ -103,6 +103,20 @@ test("normalizeIdeaSelection validates required fields", () => {
       }),
     /filesNeeded must include uiReviewPath/,
   );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad correctness coverage",
+        rationale: "Correctness review path is missing from filesNeeded",
+        uiReviewPath: "haskell/web/src/App.tsx",
+        uiReviewFocus: "Review the main UI.",
+        correctnessPath: "test/autoloop.test.mjs",
+        correctnessFocus: "Keep tests aligned.",
+        filesNeeded: ["haskell/web/src/App.tsx"],
+      }),
+    /filesNeeded must include correctnessPath/,
+  );
 });
 
 test("normalizePatchPlan validates change entries", () => {
