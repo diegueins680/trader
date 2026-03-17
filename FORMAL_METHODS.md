@@ -63,10 +63,10 @@ Clauses:
 
 The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space:
 
-- `orderQuantity \u2208 {0, 1}`
-- `orderQuote \u2208 {0, 1}`
-- `orderQuoteFraction \u2208 {-0.25, 0, 0.5, 1.25}`
-- `maxOrderQuote \u2208 {0, 25}`
+- `orderQuantity ∈ {0, 1}`
+- `orderQuote ∈ {0, 1}`
+- `orderQuoteFraction ∈ {-0.25, 0, 0.5, 1.25}`
+- `maxOrderQuote ∈ {0, 25}`
 
 For every state, it checks:
 
@@ -118,18 +118,19 @@ cabal test
 
 For each position with open time `ta` and realized close time `tc`, we define an optimization window:
 
-- `tm \u2208 [ta, ta + 2*(tc-ta)]`
+- `tm ∈ [ta, ta + 2*(tc-ta)]`
 
 `tm` is selected as the timestamp that maximizes path PnL inside that window.
 
 Close-timing selection invariant:
 
 1. `tm` must maximize path PnL over all in-window observations.
-2. If multiple in-window timestamps share the maximum path PnL, the model selects the earliest such timestamp, so downstream stats and risk-budget targets are invariant to input path order.
+2. If multiple in-window timestamps share the maximum path PnL, the model selects the earliest such timestamp.
+3. The earliest-max rule must be invariant to input path order, so downstream stats and risk-budget targets do not depend on how equal-PnL samples arrive.
 
 We then normalize by realized duration:
 
-- `r = (tm-ta)/(tc-ta)`, so `r \u2208 [0,2]`
+- `r = (tm-ta)/(tc-ta)`, so `r ∈ [0,2]`
 
 Per combo, we estimate robust distribution statistics over `r`:
 
@@ -139,15 +140,16 @@ Per combo, we estimate robust distribution statistics over `r`:
 
 A risk-budgeted close policy is encoded as a convex blend target:
 
-- `target = (1-\u03b2)*Q50 + \u03b2*Q75`, with `\u03b2 \u2208 [0,1]`
+- `target = (1-β)*Q50 + β*Q75`, with `β ∈ [0,1]`
 
 A live position is marked close-ready when its age ratio exceeds `target`.
 
 Bounded-arithmetic invariant:
 
 1. Window membership is evaluated in mathematical integer space before comparing timestamps, so a mathematically valid `tm` is not dropped when `ta + 2*(tc-ta)` exceeds `maxBound :: Int`.
-2. Observation validity and normalized `r` use mathematical integer deltas for `tm-ta` and `tc-ta`, so full-span `Int` observations are retained whenever they satisfy the model contract.
-3. Live age ratios use the same overflow-free delta arithmetic, so close-readiness depends on the modeled timestamps instead of machine-width wraparound.
+2. Boundary windows such as `ta = minBound :: Int`, `tc = 0`, `tm = maxBound :: Int` remain admissible whenever they satisfy the mathematical window.
+3. Observation validity and normalized `r` use mathematical integer deltas for `tm-ta` and `tc-ta`, so full-span `Int` observations such as `ta = minBound :: Int`, `tc = maxBound :: Int`, `tm = maxBound :: Int` retain `r = 1`.
+4. Live age ratios use the same overflow-free delta arithmetic, so full-span `Int` close-readiness remains finite and depends on the modeled timestamps instead of machine-width wraparound.
 
 ### Implementation pointers
 

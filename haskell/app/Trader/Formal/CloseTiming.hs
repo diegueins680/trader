@@ -55,16 +55,25 @@ optimalCloseObservation combo ta tc pnlPath
                     , ctoOptimalCloseAtMs = tm
                     }
   where
-    taInteger = toInteger ta
-    upper = taInteger + 2 * (toInteger tc - taInteger)
-    candidates =
-        filter
-            (\(t, pnl) ->
-                let tInteger = toInteger t
-                 in tInteger >= taInteger && tInteger <= upper && isFinite pnl
-            )
-            pnlPath
+    candidates = filter (isCloseTimingCandidate ta tc) pnlPath
 
+isCloseTimingCandidate :: Int -> Int -> (Int, Double) -> Bool
+isCloseTimingCandidate ta tc (t, pnl) =
+    inCloseTimingWindow ta tc t && isFinite pnl
+
+inCloseTimingWindow :: Int -> Int -> Int -> Bool
+inCloseTimingWindow ta tc t =
+    let taInteger = toInteger ta
+        tInteger = toInteger t
+     in tInteger >= taInteger && tInteger <= closeTimingWindowUpper ta tc
+
+closeTimingWindowUpper :: Int -> Int -> Integer
+closeTimingWindowUpper ta tc =
+    let taInteger = toInteger ta
+        tcInteger = toInteger tc
+     in taInteger + 2 * (tcInteger - taInteger)
+
+-- | Higher PnL wins; equal PnL picks the earliest timestamp so ties stay order-invariant.
 chooseBetterClose :: (Int, Double) -> (Int, Double) -> (Int, Double)
 chooseBetterClose best cur
     | snd cur > snd best = cur
@@ -97,8 +106,8 @@ buildCloseTimingStats obs =
 
 closeTimingDecision :: Double -> CloseTimingStats -> Int -> Int -> Int -> CloseTimingDecision
 closeTimingDecision riskBudget stats ta expectedDurationMs now =
-    let denom = max 1 (toInteger expectedDurationMs)
-        age = max 0 (toInteger now - toInteger ta)
+    let denom = positiveDurationInteger expectedDurationMs
+        age = nonNegativeIntegerDelta ta now
         ageRatio = fromInteger age / fromInteger denom
         target = mix (clamp 0 1 riskBudget) (ctsMedianRatio stats) (ctsQ75Ratio stats)
      in CloseTimingDecision
@@ -114,14 +123,20 @@ observationRatio x = do
 
 observationSpan :: CloseTimingObservation -> Maybe (Integer, Integer)
 observationSpan x =
-    let ta = toInteger (ctoOpenAtMs x)
-        tc = toInteger (ctoCloseAtMs x)
-        tm = toInteger (ctoOptimalCloseAtMs x)
-        denom = tc - ta
-        num = tm - ta
+    let denom = integerDelta (ctoOpenAtMs x) (ctoCloseAtMs x)
+        num = integerDelta (ctoOpenAtMs x) (ctoOptimalCloseAtMs x)
      in if denom > 0 && num >= 0 && num <= 2 * denom
             then Just (num, denom)
             else Nothing
+
+positiveDurationInteger :: Int -> Integer
+positiveDurationInteger = max 1 . toInteger
+
+integerDelta :: Int -> Int -> Integer
+integerDelta start end = toInteger end - toInteger start
+
+nonNegativeIntegerDelta :: Int -> Int -> Integer
+nonNegativeIntegerDelta start end = max 0 (integerDelta start end)
 
 mix :: Double -> Double -> Double -> Double
 mix w a b = (1 - w) * a + w * b
