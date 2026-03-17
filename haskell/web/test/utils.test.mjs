@@ -925,19 +925,60 @@ assert.equal(out.botAdoptExistingPosition, true, label + ": existing-position ad
 }
 }
 });
-test("normalizeFormState normalizes trade toggles and booleans from strings", () => {
+test("normalizeFormState trims and case-folds restored boolean-like strings", () => {
 const out = normalizeFormState({
-binanceLive: "false",
-tradeArmed: "1",
-optimizeOperations: "true",
-sweepThreshold: "0",
-autoRefresh: "false",
+binanceLive: " TRUE ",
+tradeArmed: " 1 ",
+binanceTestnet: " False ",
+optimizeOperations: " true ",
+sweepThreshold: " FALSE ",
+autoRefresh: " 1 ",
+costAwareEdge: " 0 ",
+botProtectionOrders: " TRUE ",
 });
-assert.equal(out.binanceLive, false);
+assert.equal(out.binanceLive, true);
 assert.equal(out.tradeArmed, true);
+assert.equal(out.binanceTestnet, false);
 assert.equal(out.optimizeOperations, true);
 assert.equal(out.sweepThreshold, false);
-assert.equal(out.autoRefresh, false);
+assert.equal(out.autoRefresh, true);
+assert.equal(out.costAwareEdge, false);
+assert.equal(out.botProtectionOrders, true);
+});
+test("normalizeFormState applies trimmed boolean-like strings before trading safety gates", () => {
+const binanceMarginFallback = normalizeFormState({
+platform: "binance",
+market: "margin",
+binanceLive: " FALSE ",
+binanceTestnet: " TRUE ",
+tradeArmed: " TRUE ",
+});
+assert.equal(binanceMarginFallback.market, "spot");
+assert.equal(binanceMarginFallback.binanceLive, false);
+assert.equal(binanceMarginFallback.binanceTestnet, false);
+assert.equal(binanceMarginFallback.tradeArmed, true);
+const binanceFuturesRestore = normalizeFormState({
+platform: "binance",
+market: "futures",
+binanceLive: " TRUE ",
+binanceTestnet: " TRUE ",
+tradeArmed: " FALSE ",
+});
+assert.equal(binanceFuturesRestore.market, "futures");
+assert.equal(binanceFuturesRestore.binanceLive, true);
+assert.equal(binanceFuturesRestore.binanceTestnet, true);
+assert.equal(binanceFuturesRestore.tradeArmed, false);
+const coinbaseSpotRestore = normalizeFormState({
+platform: "coinbase",
+market: "margin",
+binanceLive: " TRUE ",
+binanceTestnet: " TRUE ",
+tradeArmed: " TRUE ",
+});
+assert.equal(coinbaseSpotRestore.market, "spot");
+assert.equal(coinbaseSpotRestore.binanceLive, true);
+assert.equal(coinbaseSpotRestore.binanceTestnet, false);
+assert.equal(coinbaseSpotRestore.tradeArmed, true);
 });
 test("normalizeFormState forces non-binance platforms into spot and preserves coinbase live mode", () => {
 const out = normalizeFormState({

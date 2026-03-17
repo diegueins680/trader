@@ -63,10 +63,10 @@ Clauses:
 
 The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space (`32` states), plus paired cap/no-cap comparisons over every `(orderQuantity, orderQuote, orderQuoteFraction)` combination:
 
-- `orderQuantity ∈ {0, 1}`
-- `orderQuote ∈ {0, 1}`
-- `orderQuoteFraction ∈ {-0.25, 0, 0.5, 1.25}`
-- `maxOrderQuote ∈ {0, 25}`
+- `orderQuantity \u2208 {0, 1}`
+- `orderQuote \u2208 {0, 1}`
+- `orderQuoteFraction \u2208 {-0.25, 0, 0.5, 1.25}`
+- `maxOrderQuote \u2208 {0, 25}`
 
 For every state, it checks:
 
@@ -81,7 +81,7 @@ For every state, it checks:
 Proof sketch:
 
 - `summarizeOrderSizing` computes precedence before any copy fields, so `effectiveLabel`, `statusLabel`, and `hint` are total functions of the same finite readiness/conflict state.
-- The only `maxOrderQuote` interpolation sits inside the `effective === "orderQuoteFraction"` label branch and only when `maxOrderQuote > 0`, so cap-only metadata cannot create readiness or alter non-fraction copy.
+- The only `maxOrderQuote` interpolation sits inside the `effective === \"orderQuoteFraction\"` label branch and only when `maxOrderQuote > 0`, so cap-only metadata cannot create readiness or alter non-fraction copy.
 - `hint` is derived from exactly three branches: the blocking error, the precedence warning for conflicts, or `Effective sizing: ${effectiveLabel}.`; once the modeled state and `effectiveLabel` are fixed, the hint string is fixed too.
 - `haskell/web/test/utils.test.mjs` now exhaustively enumerates all 32 modeled states and asserts the exact `effectiveLabel` / `hint` outputs, with paired cap/no-cap comparisons to prove the cap-only inertness contract.
 
@@ -100,7 +100,7 @@ Clauses:
 Proof sketch:
 
 - `numFromInput` trims first and returns `fallback` on the empty string, so blank edits cannot overwrite a stored numeric value.
-- In the single-comma branch, the `^[-+]?\d{1,3}$` plus `^\d{3}$` ambiguity check is the path that treats `1,234`-style inputs as undecidable, and it returns `fallback` instead of rewriting the saved number.
+- In the single-comma branch, the `^[-+]?\\d{1,3}$` plus `^\\d{3}$` ambiguity check is the path that treats `1,234`-style inputs as undecidable, and it returns `fallback` instead of rewriting the saved number.
 - Other two-part comma inputs normalize to decimal-comma forms, so explicit decimals like `1,23`, `-1,23`, `+0,125`, and `1234,567` remain parseable.
 - The explicit multi-group branch keeps standard thousands-group forms such as `1,234,567` parseable.
 - `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, decimal-comma parses, ambiguous single-comma fallback, and multi-group comma parses.
@@ -117,10 +117,12 @@ Clauses:
 4. `binanceTestnet` can only stay enabled for Binance `spot` / `futures` restores; it always restores to `false` for non-Binance platforms and for any persisted Binance `margin` state, even when that margin state later falls back to `spot`.
 5. Binance `margin` restore state is only accepted when live trading is already enabled; otherwise normalization falls back to `market = spot` instead of implicitly enabling live mode.
 6. `tradeArmed` is only preserved for live-order platforms; non-trading platforms restore it to `false`.
+7. Boolean-like saved strings are normalized by trimming whitespace and ASCII-case-folding before the accepted `true` / `false` / `1` / `0` check runs, so values such as `\" TRUE \"` and `\"False\"` follow the same safety gates as canonical booleans.
 
 Proof sketch:
 
 - `normalizePlatform` first bounds the platform domain.
+- `normalizeBool` first accepts native booleans, then trims and lowercases string inputs before checking the accepted `true` / `false` / `1` / `0` domain, so values such as `\" TRUE \"` and `\"False\"` enter the same restore branches as canonical booleans instead of falling back to defaults.
 - `restoredBinanceMarket` captures the bounded persisted Binance market before any safety fallback runs.
 - `market` is initialized as `spot` for every non-Binance platform, so stale `margin` and `futures` values cannot leak outside Binance.
 - `liveOrdersSupported` gates `binanceLiveCandidate`, forcing `binanceLive = false` on non-trading platforms while still allowing supported Coinbase live restores.
@@ -128,7 +130,7 @@ Proof sketch:
 - `binanceTestnet` is gated by the original bounded Binance market, so a stale margin-only testnet toggle cannot survive either a non-Binance restore or a margin-to-spot safety fallback.
 - `tradeArmed` is gated separately to Binance and Coinbase, so a non-trading platform cannot restore an armed trade toggle.
 - The returned object overwrites any persisted value with `botAdoptExistingPosition: true`, so reloads keep orphaned-position adoption enabled by construction.
-- `haskell/web/test/utils.test.mjs` now mirrors this invariant with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix.
+- `haskell/web/test/utils.test.mjs` now mirrors this invariant with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix, including mixed-case/whitespace regression rows for `binanceLive`, `binanceTestnet`, `tradeArmed`, and representative boolean toggles.
 
 ## Formal autoloop safety contract
 
@@ -169,7 +171,7 @@ cabal test
 
 For each position with open time `ta` and realized close time `tc`, we define an optimization window:
 
-- `tm ∈ [ta, ta + 2*(tc-ta)]`
+- `tm \u2208 [ta, ta + 2*(tc-ta)]`
 
 `optimalCloseObservation` first filters the PnL path to finite candidates whose timestamps stay inside that window. If `tc <= ta` or no candidate survives, no observation is emitted. Otherwise `tm` is selected as the timestamp that maximizes path PnL inside the filtered window.
 
@@ -181,7 +183,7 @@ Close-timing selection invariant:
 
 We then normalize by realized duration:
 
-- `r = (tm-ta)/(tc-ta)`, so `r ∈ [0,2]`
+- `r = (tm-ta)/(tc-ta)`, so `r \u2208 [0,2]`
 
 Before fitting per-combo stats, `buildCloseTimingStats` drops any invalid stored observation:
 
@@ -199,7 +201,7 @@ A risk-budgeted close policy is encoded as a convex blend target:
 
 - `beta = clamp(0, 1, riskBudget)` when the supplied budget is finite; otherwise `beta = 0`
 - `closeTimingDecision` re-clamps `Q50`, promotes `Q75` to at least `Q50`, and computes `target = clampRatio ((1-beta)*Q50 + beta*Q75)`
-- therefore `target` stays finite and inside `[Q50, Q75] ⊆ [0,2]`
+- therefore `target` stays finite and inside `[Q50, Q75] \u2286 [0,2]`
 
 A live position is marked close-ready when its age ratio meets or exceeds `target`.
 

@@ -296,8 +296,12 @@ function normalizeLookbackBars(raw: unknown, fallback: number): number {
 
 function normalizeBool(raw: unknown, fallback: boolean): boolean {
   if (typeof raw === "boolean") return raw;
-  if (raw === 1 || raw === "1" || raw === "true") return true;
-  if (raw === 0 || raw === "0" || raw === "false") return false;
+  if (raw === 1 || raw === 0) return raw === 1;
+  if (typeof raw === "string") {
+    const value = raw.trim().toLowerCase();
+    if (value === "1" || value === "true") return true;
+    if (value === "0" || value === "false") return false;
+  }
   return fallback;
 }
 
