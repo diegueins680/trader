@@ -273,12 +273,27 @@ assert.equal(orphans.length, 1);
 assert.equal(orphans[0]?.reason, "bot stopped");
 assert.equal(orphans[0]?.status, stoppedStatus);
 });
+test("normalizeApiBaseUrlInput normalizes blank input to empty string", () => {
+assert.equal(normalizeApiBaseUrlInput(""), "");
+assert.equal(normalizeApiBaseUrlInput("   "), "");
+});
+test("normalizeApiBaseUrlInput preserves explicit same-origin paths", () => {
+assert.equal(normalizeApiBaseUrlInput("/api"), "/api");
+assert.equal(normalizeApiBaseUrlInput(" /api/v1?symbol=BTCUSDT "), "/api/v1?symbol=BTCUSDT");
+});
 test("normalizeApiBaseUrlInput supports bare loopback IPv6 with port", () => {
 assert.equal(normalizeApiBaseUrlInput("::1:8080"), "http://[::1]:8080");
 assert.equal(normalizeApiBaseUrlInput("[::1]:8080"), "http://[::1]:8080");
 });
-test("normalizeApiBaseUrlInput supports localhost host+path without explicit scheme", () => {
+test("normalizeApiBaseUrlInput normalizes loopback hosts without explicit scheme", () => {
 assert.equal(normalizeApiBaseUrlInput("localhost/api"), "http://localhost/api");
+assert.equal(normalizeApiBaseUrlInput("127.0.0.1:8080/api"), "http://127.0.0.1:8080/api");
+assert.equal(normalizeApiBaseUrlInput("0.0.0.0:9000"), "http://0.0.0.0:9000");
+});
+test("normalizeApiBaseUrlInput preserves explicit URL targets", () => {
+assert.equal(normalizeApiBaseUrlInput("https://api.example.com/v1"), "https://api.example.com/v1");
+assert.equal(normalizeApiBaseUrlInput(" HTTP://LOCALHOST:8080/api "), "HTTP://LOCALHOST:8080/api");
+assert.equal(normalizeApiBaseUrlInput("ws://feed.example.com/socket"), "ws://feed.example.com/socket");
 });
 test("inferFlyApiAppName resolves split -web-hs app names only", () => {
 assert.equal(inferFlyApiAppName("trader-web-hs"), "trader-hs");

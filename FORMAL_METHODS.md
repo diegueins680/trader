@@ -85,6 +85,25 @@ Proof sketch:
 - `hint` is derived from exactly three branches: the blocking error, the precedence warning for conflicts, or `Effective sizing: ${effectiveLabel}.`; once the modeled state and `effectiveLabel` are fixed, the hint string is fixed too.
 - `haskell/web/test/utils.test.mjs` now exhaustively enumerates all 32 modeled states and asserts the exact `effectiveLabel` / `hint` outputs, with paired cap/no-cap comparisons to prove the cap-only inertness contract.
 
+## Formal API base normalization contract
+
+`normalizeApiBaseUrlInput` in `haskell/web/src/app/utils.ts` is treated as a conservative normalizer for the manual API-base field in the web UI.
+
+Clauses:
+
+1. Empty or whitespace-only input normalizes to the empty string.
+2. Explicit same-origin path targets that already start with `/` pass through unchanged after trimming, so entries such as `/api` stay local.
+3. Scheme-less loopback hosts (`localhost`, `127.0.0.1`, `0.0.0.0`, bare/bracketed `::1`) infer `http://`, preserving any port and path.
+4. Explicit URLs that already contain a scheme (`http://`, `https://`, or any other `://` form) pass through unchanged after trimming.
+
+Proof sketch:
+
+- `normalizeApiBaseUrlInput` trims once and returns `""` for blank input, making empty edits idempotent.
+- The leading-slash fast path returns `/api`-style values verbatim, so explicit same-origin targets cannot be reinterpreted as hosts.
+- The `includes("://")` fast path returns any already-schemed target verbatim, which preserves explicit URLs across HTTP(S) and other URL schemes.
+- Host inference only applies after those passthrough branches; the `isLocal` predicate forces loopback authorities onto `http://`, while the IPv6 bracket normalization keeps `::1:PORT` and `[::1]:PORT` stable as valid URLs.
+- `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, `/api` passthrough, loopback inference, and explicit-URL preservation.
+
 ## Formal numeric input fallback contract
 
 `numFromInput` in `haskell/web/src/app/utils.ts` is treated as a conservative parser for restored numeric form fields.
