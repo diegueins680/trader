@@ -33,7 +33,7 @@ data CloseTimingStats = CloseTimingStats
     }
     deriving (Eq, Show)
 
--- | Close policy: recommend hold if age ratio is below the risk-budget quantile.
+-- | Close policy: mark close-ready once age ratio meets or exceeds the risk-budget quantile.
 data CloseTimingDecision = CloseTimingDecision
     { ctdShouldClose :: !Bool
     , ctdAgeRatio :: !Double
@@ -46,10 +46,7 @@ optimalCloseObservation combo ta tc pnlPath
     | tc <= ta = Nothing
     | null candidates = Nothing
     | otherwise =
-        let (tm, _) =
-                foldl1
-                    (\best cur -> if snd cur > snd best then cur else best)
-                    candidates
+        let (tm, _) = foldl1 chooseBetterClose candidates
          in Just
                 CloseTimingObservation
                     { ctoCombo = combo
@@ -58,8 +55,31 @@ optimalCloseObservation combo ta tc pnlPath
                     , ctoOptimalCloseAtMs = tm
                     }
   where
-    upper = ta + 2 * (tc - ta)
-    candidates = filter (\(t, pnl) -> t >= ta && t <= upper && isFinite pnl) pnlPath
+    candidates = filter (isCloseTimingCandidate ta tc) pnlPath
+
+isCloseTimingCandidate :: Int -> Int -> (Int, Double) -> Bool
+isCloseTimingCandidate ta tc (t, pnl) =
+    inCloseTimingWindow ta tc t && isFinite pnl
+
+inCloseTimingWindow :: Int -> Int -> Int -> Bool
+inCloseTimingWindow ta tc t =
+    let taInteger = toInteger ta
+        tInteger = toInteger t
+     in tInteger >= taInteger && tInteger <= closeTimingWindowUpper ta tc
+
+closeTimingWindowUpper :: Int -> Int -> Integer
+closeTimingWindowUpper ta tc =
+    let taInteger = toInteger ta
+        tcInteger = toInteger tc
+     in taInteger + 2 * (tcInteger - taInteger)
+
+-- | Higher PnL wins; equal PnL picks the earliest timestamp so ties stay order-invariant.
+chooseBetterClose :: (Int, Double) -> (Int, Double) -> (Int, Double)
+chooseBetterClose best cur
+    | snd cur > snd best = cur
+    | snd cur < snd best = best
+    | fst cur < fst best = cur
+    | otherwise = best
 
 buildCloseTimingStats :: [CloseTimingObservation] -> [CloseTimingStats]
 buildCloseTimingStats obs =
@@ -91,9 +111,9 @@ buildCloseTimingStats obs =
 
 closeTimingDecision :: Double -> CloseTimingStats -> Int -> Int -> Int -> CloseTimingDecision
 closeTimingDecision riskBudget stats ta expectedDurationMs now =
-    let denom = max 1 expectedDurationMs
-        age = max 0 (now - ta)
-        ageRatio = fromIntegral age / fromIntegral denom
+    let denom = positiveDurationInteger expectedDurationMs
+        age = nonNegativeIntegerDelta ta now
+        ageRatio = fromInteger age / fromInteger denom
         budget = normalizeRiskBudget riskBudget
         (medianRatio, q75Ratio) = decisionTargetBand stats
         target = clampRatio (mix budget medianRatio q75Ratio)
@@ -117,9 +137,18 @@ observationRatio x =
 
 observationRatioParts :: CloseTimingObservation -> Maybe (Integer, Integer)
 observationRatioParts x =
-    let denom = toInteger (ctoCloseAtMs x) - toInteger (ctoOpenAtMs x)
-        num = toInteger (ctoOptimalCloseAtMs x) - toInteger (ctoOpenAtMs x)
+    let denom = integerDelta (ctoOpenAtMs x) (ctoCloseAtMs x)
+        num = integerDelta (ctoOpenAtMs x) (ctoOptimalCloseAtMs x)
      in if denom > 0 then Just (num, denom) else Nothing
+
+positiveDurationInteger :: Int -> Integer
+positiveDurationInteger = max 1 . toInteger
+
+integerDelta :: Int -> Int -> Integer
+integerDelta start end = toInteger end - toInteger start
+
+nonNegativeIntegerDelta :: Int -> Int -> Integer
+nonNegativeIntegerDelta start end = max 0 (integerDelta start end)
 
 decisionTargetBand :: CloseTimingStats -> (Double, Double)
 decisionTargetBand stats =

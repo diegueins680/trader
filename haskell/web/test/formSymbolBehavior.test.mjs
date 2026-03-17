@@ -17,6 +17,24 @@ test("frontend symbol validation accepts backend-compatible aliases", () => {
   assert.deepEqual(invalidSymbolsForPlatform("coinbase", ["ETH/USD", "BTC-USD"]), []);
 });
 
+test("frontend symbol validation accepts spaced Coinbase and Poloniex delimiters without widening formats", () => {
+  assert.equal(sanitizeSymbolForPlatform("coinbase", " eth - usd "), "ETH-USD");
+  assert.equal(sanitizeSymbolForPlatform("poloniex", " eth _ usdt "), "ETH_USDT");
+  assert.deepEqual(
+    invalidSymbolsForPlatform("coinbase", ["ETH - USD", "BTC - USD", "ETH - USD - EXTRA"]),
+    ["ETH - USD - EXTRA"],
+  );
+  assert.deepEqual(
+    invalidSymbolsForPlatform("poloniex", ["ETH _ USDT", "BTC _ USDT", "ETH _ USDT _ EXTRA"]),
+    ["ETH _ USDT _ EXTRA"],
+  );
+});
+
+test("normalizeFormState canonicalizes spaced delimited symbols per platform", () => {
+  assert.equal(normalizeFormState({ platform: "coinbase", binanceSymbol: " eth - usd " }).binanceSymbol, "ETH-USD");
+  assert.equal(normalizeFormState({ platform: "poloniex", binanceSymbol: " eth _ usdt " }).binanceSymbol, "ETH_USDT");
+});
+
 test("applyComboToForm keeps valid slash-delimited combo symbols instead of falling back", () => {
   const combo = {
     id: 7,
@@ -37,6 +55,35 @@ test("applyComboToForm keeps valid slash-delimited combo symbols instead of fall
   const next = applyComboToForm(defaultForm, combo, null);
   assert.equal(next.platform, "coinbase");
   assert.equal(next.binanceSymbol, "ETH-USD");
+});
+
+test("applyComboToForm keeps spaced delimited combo symbols instead of falling back", () => {
+  const cases = [
+    { id: 8, platform: "coinbase", raw: "ETH - USD", expected: "ETH-USD" },
+    { id: 9, platform: "poloniex", raw: "ETH _ USDT", expected: "ETH_USDT" },
+  ];
+
+  for (const { id, platform, raw, expected } of cases) {
+    const combo = {
+      id,
+      openThreshold: defaultForm.openThreshold,
+      closeThreshold: defaultForm.closeThreshold,
+      params: {
+        platform,
+        binanceSymbol: raw,
+        interval: defaultForm.interval,
+        method: defaultForm.method,
+        positioning: defaultForm.positioning,
+        normalization: defaultForm.normalization,
+        fee: defaultForm.fee,
+        epochs: defaultForm.epochs,
+        hiddenSize: defaultForm.hiddenSize,
+      },
+    };
+    const next = applyComboToForm(defaultForm, combo, null);
+    assert.equal(next.platform, platform);
+    assert.equal(next.binanceSymbol, expected);
+  }
 });
 
 test("coinbase restores keep live-order mode enabled", () => {

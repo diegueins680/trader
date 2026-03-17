@@ -1,19 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-buildOrphanedPositions,
-buildRequestIssueDetails,
-downsampleIndices,
-inferFlyApiAppName,
-inferFlyDirectApiBaseFromHostname,
-isLocalHostname,
-methodLabel,
-normalizeApiBaseUrlInput,
-numFromInput,
-remapIndexToSample,
-summarizeOrderSizing,
+  buildOrphanedPositions,
+  buildRequestIssueDetails,
+  downsampleArray,
+  downsampleIndices,
+  downsampleOptionalArray,
+  inferFlyApiAppName,
+  inferFlyDirectApiBaseFromHostname,
+  isLocalHostname,
+  methodLabel,
+  normalizeApiBaseUrlInput,
+  numFromInput,
+  remapIndexToSample,
+  summarizeOrderSizing,
 } from "../.tmp/web-tests/utils.js";
-import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
+import { defaultForm, normalizeFormState, parseDurationSeconds } from "../.tmp/web-tests/formState.js";
 function assertStrictlyIncreasing(values, context) {
 for (let i = 1; i < values.length; i += 1) {
 assert.ok(
@@ -109,6 +111,60 @@ statusLabel,
 hint,
 tone,
 };
+}
+
+function assertSampledAlignment(source, indices, sampled, context) {
+  assert.equal(sampled.length, indices.length, `${context}: expected sampled length ${indices.length}, got ${sampled.length}`);
+  if (source.length === 0) {
+    assert.deepEqual(sampled, [], `${context}: expected empty sampled data`);
+    return;
+  }
+
+  for (let sampleIdx = 0; sampleIdx < indices.length; sampleIdx += 1) {
+    const rawIdx = indices[sampleIdx];
+    assert.equal(
+      sampled[sampleIdx],
+      source[rawIdx],
+      `${context}: expected sample ${sampleIdx} to align with raw index ${rawIdx}`,
+    );
+    assert.equal(
+      remapIndexToSample(indices, rawIdx),
+      sampleIdx,
+      `${context}: expected remap exact hit for raw index ${rawIdx}`,
+    );
+  }
+
+  if (indices.length > 0) {
+    assert.equal(sampled[0], source[0], `${context}: expected first sampled point to preserve the first endpoint`);
+  }
+  if (indices.length > 1) {
+    assert.equal(
+      sampled[indices.length - 1],
+      source[source.length - 1],
+      `${context}: expected final sampled point to preserve the last endpoint`,
+    );
+  }
+}
+
+function assertSizingStatusAndHintContract(state, context) {
+  const expectedStatusLabel =
+    state.blockingError
+      ? "Sizing required"
+      : state.effective === "orderQuantity"
+        ? "Using order quantity"
+        : state.effective === "orderQuote"
+          ? "Using order quote"
+          : state.effective === "orderQuoteFraction"
+            ? "Using quote fraction"
+            : "Sizing required";
+  const expectedHint =
+    state.blockingError
+      ? state.blockingError
+      : state.conflicts
+        ? `${state.effective} takes precedence. Clear the other sizing inputs to avoid surprises.`
+        : `Effective sizing: ${state.effectiveLabel}.`;
+  assert.equal(state.statusLabel, expectedStatusLabel, `${context}: expected status label to follow the sizing contract`);
+  assert.equal(state.hint, expectedHint, `${context}: expected hint to follow the sizing contract`);
 }
 test("buildRequestIssueDetails returns empty when clean", () => {
 assert.deepEqual(buildRequestIssueDetails({}), []);
@@ -267,6 +323,17 @@ expected,
 );
 }
 });
+test("parseDurationSeconds keeps minute and month units distinct", () => {
+  assert.equal(parseDurationSeconds("1m"), 60);
+  assert.equal(parseDurationSeconds("1M"), 30 * 24 * 60 * 60);
+  assert.notEqual(parseDurationSeconds("1m"), parseDurationSeconds("1M"));
+});
+
+test("parseDurationSeconds rejects malformed duration strings", () => {
+  for (const raw of ["", " ", "1", "m", "1mm", "1MM", "1.5h", "-1h", "1 h", "1Q"]) {
+    assert.equal(parseDurationSeconds(raw), null, `expected ${JSON.stringify(raw)} to be rejected`);
+  }
+});
 test("downsampleIndices preserves bounded chart sampling invariants", () => {
 for (let total = 0; total <= 257; total += 1) {
 for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
@@ -298,6 +365,34 @@ assert.deepEqual(indices, Array.from({ length: total }, (_, i) => i));
 }
 }
 }
+});
+test("downsampleArray preserves sampled length and per-index alignment", () => {
+  for (let total = 0; total <= 257; total += 1) {
+    const source = Array.from({ length: total }, (_, rawIdx) => ({ rawIdx, label: `bar-${rawIdx}` }));
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      const sampled = downsampleArray(source, indices);
+      assertSampledAlignment(source, indices, sampled, `total=${total}, maxPoints=${maxPoints}`);
+    }
+  }
+});
+
+test("downsampleOptionalArray preserves aligned optional series and nullish absence", () => {
+  const absenceIndices = downsampleIndices(12, 5);
+  assert.equal(downsampleOptionalArray(undefined, absenceIndices), undefined);
+  assert.equal(downsampleOptionalArray(null, absenceIndices), undefined);
+
+  for (let total = 0; total <= 257; total += 1) {
+    const source = Array.from({ length: total }, (_, rawIdx) =>
+      rawIdx % 11 === 0 ? null : rawIdx % 7 === 0 ? undefined : `pred-${rawIdx}`
+    );
+    for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
+      const indices = downsampleIndices(total, maxPoints);
+      const sampled = downsampleOptionalArray(source, indices);
+      assert.ok(Array.isArray(sampled), `total=${total}, maxPoints=${maxPoints}: expected sampled optional series array`);
+      assertSampledAlignment(source, indices, sampled, `total=${total}, maxPoints=${maxPoints}`);
+    }
+  }
 });
 test("remapIndexToSample preserves exact sampled hits", () => {
 for (let total = 1; total <= 257; total += 1) {
@@ -337,109 +432,176 @@ expectedNearestSampleIndex(indices, rawIdx),
 }
 });
 test("summarizeOrderSizing blocks trade when no effective size is configured", () => {
-const state = summarizeOrderSizing({
-orderQuantity: 0,
-orderQuote: 0,
-orderQuoteFraction: 0,
-maxOrderQuote: 0,
+  const state = summarizeOrderSizing({
+    orderQuantity: 0,
+    orderQuote: 0,
+    orderQuoteFraction: 0,
+    maxOrderQuote: 0,
+  });
+  assert.equal(state.effective, "none");
+  assert.equal(state.blockingError, "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction.");
+  assert.equal(state.blockingTargetId, "orderQuote");
+  assert.equal(state.statusLabel, "Sizing required");
+  assert.equal(state.hint, "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction.");
+  assert.equal(state.tone, "bad");
+  assertSizingStatusAndHintContract(state, "no effective sizing");
 });
-assert.equal(state.effective, "none");
-assert.equal(state.blockingError, "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction.");
-assert.equal(state.blockingTargetId, "orderQuote");
-assert.equal(state.statusLabel, "Sizing required");
-assert.equal(state.tone, "bad");
-});
+
 test("summarizeOrderSizing uses documented precedence when multiple sizing inputs are set", () => {
-const state = summarizeOrderSizing({
-orderQuantity: 0.25,
-orderQuote: 100,
-orderQuoteFraction: 0.1,
-maxOrderQuote: 50,
+  const state = summarizeOrderSizing({
+    orderQuantity: 0.25,
+    orderQuote: 100,
+    orderQuoteFraction: 0.1,
+    maxOrderQuote: 50,
+  });
+  assert.deepEqual(state.active, ["orderQuantity", "orderQuote", "orderQuoteFraction"]);
+  assert.equal(state.effective, "orderQuantity");
+  assert.equal(state.conflicts, true);
+  assert.equal(state.blockingError, null);
+  assert.equal(state.statusLabel, "Using order quantity");
+  assert.equal(state.hint, "orderQuantity takes precedence. Clear the other sizing inputs to avoid surprises.");
+  assert.equal(state.tone, "warn");
+  assertSizingStatusAndHintContract(state, "conflicting sizing");
 });
-assert.deepEqual(state.active, ["orderQuantity", "orderQuote", "orderQuoteFraction"]);
-assert.equal(state.effective, "orderQuantity");
-assert.equal(state.conflicts, true);
-assert.equal(state.blockingError, null);
-assert.equal(state.statusLabel, "Using order quantity");
-assert.equal(state.tone, "warn");
+
+test("summarizeOrderSizing keeps maxOrderQuote cap-only unless quote fraction is effective", () => {
+  const cases = [
+    { name: "no sizing", input: { orderQuantity: 0, orderQuote: 0, orderQuoteFraction: 0 } },
+    { name: "quantity sizing", input: { orderQuantity: 0.25, orderQuote: 0, orderQuoteFraction: 0 } },
+    { name: "quote sizing", input: { orderQuantity: 0, orderQuote: 100, orderQuoteFraction: 0 } },
+    { name: "invalid fraction only", input: { orderQuantity: 0, orderQuote: 0, orderQuoteFraction: 1.25 } },
+    { name: "quantity precedence", input: { orderQuantity: 0.25, orderQuote: 0, orderQuoteFraction: 0.1 } },
+    { name: "fraction sizing", input: { orderQuantity: 0, orderQuote: 0, orderQuoteFraction: 0.1 } },
+  ];
+
+  for (const { name, input } of cases) {
+    const withoutCap = summarizeOrderSizing({ ...input, maxOrderQuote: 0 });
+    const withCap = summarizeOrderSizing({ ...input, maxOrderQuote: 50 });
+
+    assertSizingStatusAndHintContract(withoutCap, `${name} without cap`);
+    assertSizingStatusAndHintContract(withCap, `${name} with cap`);
+
+    assert.deepEqual(withCap.active, withoutCap.active, `${name}: cap must not create an active sizing mode`);
+    assert.equal(withCap.conflicts, withoutCap.conflicts, `${name}: cap must not change conflict detection`);
+    assert.equal(withCap.effective, withoutCap.effective, `${name}: cap must not change effective sizing`);
+    assert.equal(withCap.fractionError, withoutCap.fractionError, `${name}: cap must not change fraction validation`);
+    assert.equal(withCap.blockingError, withoutCap.blockingError, `${name}: cap must not change trade readiness`);
+    assert.equal(withCap.blockingTargetId, withoutCap.blockingTargetId, `${name}: cap must not change the blocking target`);
+    assert.equal(withCap.statusLabel, withoutCap.statusLabel, `${name}: cap must not change status labeling`);
+    assert.equal(withCap.tone, withoutCap.tone, `${name}: cap must not change severity`);
+
+    if (withCap.effective === "orderQuoteFraction") {
+      assert.notEqual(withCap.effectiveLabel, withoutCap.effectiveLabel, `${name}: active quote fraction should surface the cap label`);
+      assert.notEqual(withCap.hint, withoutCap.hint, `${name}: active quote fraction should surface the cap hint`);
+      assert.equal(withCap.effectiveLabel.includes("cap"), true, `${name}: capped quote fraction label should mention the cap`);
+      assert.equal(withCap.hint, `Effective sizing: ${withCap.effectiveLabel}.`, `${name}: capped quote fraction hint should mirror the effective label`);
+    } else {
+      assert.equal(withCap.effectiveLabel, withoutCap.effectiveLabel, `${name}: cap must stay label-inert outside effective quote-fraction sizing`);
+      assert.equal(withCap.hint, withoutCap.hint, `${name}: cap must stay hint-inert outside effective quote-fraction sizing`);
+    }
+  }
 });
-test("summarizeOrderSizing exhaustively keeps maxOrderQuote label-only unless quote fraction is effective", () => {
-const quantities = [0, 1];
-const quotes = [0, 1];
-const fractions = [-0.25, 0, 0.5, 1.25];
-for (const orderQuantity of quantities) {
-for (const orderQuote of quotes) {
-for (const orderQuoteFraction of fractions) {
-const context = `orderQuantity=${orderQuantity}, orderQuote=${orderQuote}, orderQuoteFraction=${orderQuoteFraction}`;
-const withoutCap = summarizeOrderSizing({
-orderQuantity,
-orderQuote,
-orderQuoteFraction,
-maxOrderQuote: 0,
-});
-const withCap = summarizeOrderSizing({
-orderQuantity,
-orderQuote,
-orderQuoteFraction,
-maxOrderQuote: 25,
-});
-assert.deepEqual(withCap.active, withoutCap.active, `${context}: cap must not create an active sizing mode`);
-assert.equal(withCap.conflicts, withoutCap.conflicts, `${context}: cap must not change conflict detection`);
-assert.equal(withCap.effective, withoutCap.effective, `${context}: cap must not change effective sizing`);
-assert.equal(withCap.fractionError, withoutCap.fractionError, `${context}: cap must not change fraction validation`);
-assert.equal(withCap.blockingError, withoutCap.blockingError, `${context}: cap must not change trade readiness`);
-assert.equal(withCap.blockingTargetId, withoutCap.blockingTargetId, `${context}: cap must not change the blocking target`);
-assert.equal(withCap.statusLabel, withoutCap.statusLabel, `${context}: cap must not change status labeling`);
-assert.equal(withCap.tone, withoutCap.tone, `${context}: cap must not change severity`);
-if (withCap.effective === "orderQuoteFraction") {
-assert.notEqual(withCap.effectiveLabel, withoutCap.effectiveLabel, `${context}: active quote fraction should surface the cap label`);
-assert.notEqual(withCap.hint, withoutCap.hint, `${context}: active quote fraction should surface the cap hint`);
-assert.equal(withCap.effectiveLabel.includes("cap"), true, `${context}: capped quote fraction label should mention the cap`);
-assert.equal(withCap.hint, `Effective sizing: ${withCap.effectiveLabel}.`, `${context}: capped quote fraction hint should mirror the effective label`);
-} else {
-assert.equal(withCap.effectiveLabel, withoutCap.effectiveLabel, `${context}: cap must stay label-inert outside effective quote-fraction sizing`);
-assert.equal(withCap.hint, withoutCap.hint, `${context}: cap must stay hint-inert outside effective quote-fraction sizing`);
-}
-}
-}
-}
-});
+
 test("summarizeOrderSizing exhaustively preserves the modeled sizing contract", () => {
-const quantities = [0, 1];
-const quotes = [0, 1];
-const fractions = [-0.25, 0, 0.5, 1.25];
-const maxOrderQuotes = [0, 25];
-for (const orderQuantity of quantities) {
-for (const orderQuote of quotes) {
-for (const orderQuoteFraction of fractions) {
-for (const maxOrderQuote of maxOrderQuotes) {
-const context = `orderQuantity=${orderQuantity}, orderQuote=${orderQuote}, orderQuoteFraction=${orderQuoteFraction}, maxOrderQuote=${maxOrderQuote}`;
-const state = summarizeOrderSizing({
-orderQuantity,
-orderQuote,
-orderQuoteFraction,
-maxOrderQuote,
+  const quantities = [0, 1];
+  const quotes = [0, 1];
+  const fractions = [-0.25, 0, 0.5, 1.25];
+  const maxOrderQuotes = [0, 25];
+
+  for (const orderQuantity of quantities) {
+    for (const orderQuote of quotes) {
+      for (const orderQuoteFraction of fractions) {
+        for (const maxOrderQuote of maxOrderQuotes) {
+          const context = `orderQuantity=${orderQuantity}, orderQuote=${orderQuote}, orderQuoteFraction=${orderQuoteFraction}, maxOrderQuote=${maxOrderQuote}`;
+          const state = summarizeOrderSizing({
+            orderQuantity,
+            orderQuote,
+            orderQuoteFraction,
+            maxOrderQuote,
+          });
+          const expected = expectedOrderSizingModel({
+            orderQuantity,
+            orderQuote,
+            orderQuoteFraction,
+            maxOrderQuote,
+          });
+
+          assert.deepEqual(state.active, expected.active, `${context}: active sizing modes should match the model`);
+          assert.equal(state.effective, expected.effective, `${context}: effective sizing should match the model`);
+          assert.equal(state.conflicts, expected.conflicts, `${context}: conflict flag should match the model`);
+          assert.equal(state.fractionError, expected.fractionError, `${context}: fraction validation should match the model`);
+          assert.equal(state.blockingError, expected.blockingError, `${context}: blocking error should match the model`);
+          assert.equal(state.blockingTargetId, expected.blockingTargetId, `${context}: blocking target should match the model`);
+          assert.equal(state.effectiveLabel, expected.effectiveLabel, `${context}: effective label should match the model`);
+          assert.equal(state.statusLabel, expected.statusLabel, `${context}: status label should match the model`);
+          assert.equal(state.hint, expected.hint, `${context}: hint should match the model`);
+          assert.equal(state.tone, expected.tone, `${context}: severity should match the model`);
+          assertSizingStatusAndHintContract(state, `${context}: derived copy contract`);
+        }
+      }
+    }
+  }
 });
-const expected = expectedOrderSizingModel({
-orderQuantity,
-orderQuote,
-orderQuoteFraction,
-maxOrderQuote,
+
+test("normalizeFormState preserves valid lookbackWindow minute and month units", () => {
+  assert.equal(normalizeFormState({ lookbackWindow: "1m" }).lookbackWindow, "1m");
+  assert.equal(normalizeFormState({ lookbackWindow: "1M" }).lookbackWindow, "1M");
 });
-assert.deepEqual(state.active, expected.active, `${context}: active sizing modes should match the model`);
-assert.equal(state.effective, expected.effective, `${context}: effective sizing should match the model`);
-assert.equal(state.conflicts, expected.conflicts, `${context}: conflict flag should match the model`);
-assert.equal(state.fractionError, expected.fractionError, `${context}: fraction validation should match the model`);
-assert.equal(state.blockingError, expected.blockingError, `${context}: blocking error should match the model`);
-assert.equal(state.blockingTargetId, expected.blockingTargetId, `${context}: blocking target should match the model`);
-assert.equal(state.effectiveLabel, expected.effectiveLabel, `${context}: effective label should match the model`);
-assert.equal(state.statusLabel, expected.statusLabel, `${context}: status label should match the model`);
-assert.equal(state.hint, expected.hint, `${context}: hint should match the model`);
-assert.equal(state.tone, expected.tone, `${context}: severity should match the model`);
-}
-}
-}
-}
+
+test("normalizeFormState falls back to default lookbackWindow for malformed saved values", () => {
+  for (const raw of [null, 123, "", " ", "1", "m", "1mm", "1.5h", "-1h", "0m", "bad"]) {
+    assert.equal(
+      normalizeFormState({ lookbackWindow: raw }).lookbackWindow,
+      defaultForm.lookbackWindow,
+      `expected ${JSON.stringify(raw)} to fall back to the default lookbackWindow`,
+    );
+  }
+});
+
+test("normalizeFormState preserves restored whole-number counts", () => {
+  const restored = normalizeFormState({
+    lookbackBars: "24",
+    minRoundTrips: 9,
+    walkForwardFolds: "11.0",
+    walkForwardEmbargoBars: "3",
+  });
+  assert.deepEqual(
+    {
+      lookbackBars: restored.lookbackBars,
+      minRoundTrips: restored.minRoundTrips,
+      walkForwardFolds: restored.walkForwardFolds,
+      walkForwardEmbargoBars: restored.walkForwardEmbargoBars,
+    },
+    {
+      lookbackBars: 24,
+      minRoundTrips: 9,
+      walkForwardFolds: 11,
+      walkForwardEmbargoBars: 3,
+    },
+  );
+});
+
+test("normalizeFormState rejects fractional and non-finite restored whole-number counts", () => {
+  const restored = normalizeFormState({
+    lookbackBars: 24.5,
+    minRoundTrips: "9.5",
+    walkForwardFolds: Number.POSITIVE_INFINITY,
+    walkForwardEmbargoBars: "NaN",
+  });
+  assert.deepEqual(
+    {
+      lookbackBars: restored.lookbackBars,
+      minRoundTrips: restored.minRoundTrips,
+      walkForwardFolds: restored.walkForwardFolds,
+      walkForwardEmbargoBars: restored.walkForwardEmbargoBars,
+    },
+    {
+      lookbackBars: defaultForm.lookbackBars,
+      minRoundTrips: defaultForm.minRoundTrips,
+      walkForwardFolds: defaultForm.walkForwardFolds,
+      walkForwardEmbargoBars: defaultForm.walkForwardEmbargoBars,
+    },
+  );
 });
 test("normalizeFormState restores default minPositionSize for invalid input", () => {
 const fromInvalid = normalizeFormState({ minPositionSize: "not-a-number" });
@@ -611,42 +773,44 @@ assert.equal(state.statusLabel, "Sizing required");
 assert.equal(state.hint, "Set one sizing input: orderQuote, orderQuantity, or orderQuoteFraction.");
 });
 test("normalizeFormState preserves restored fraction validation and precedence", () => {
-const invalidFractionOnly = normalizeFormState({
-orderQuote: 0,
-orderQuantity: 0,
-orderQuoteFraction: "1.25",
-maxOrderQuote: "40",
-});
-const invalidFractionState = summarizeOrderSizing({
-orderQuantity: invalidFractionOnly.orderQuantity,
-orderQuote: invalidFractionOnly.orderQuote,
-orderQuoteFraction: invalidFractionOnly.orderQuoteFraction,
-maxOrderQuote: invalidFractionOnly.maxOrderQuote,
-});
-assert.equal(invalidFractionOnly.orderQuoteFraction, 1.25);
-assert.equal(invalidFractionOnly.maxOrderQuote, 40);
-assert.equal(invalidFractionState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
-assert.equal(invalidFractionState.blockingError, "Order quote fraction must be <= 1 (use 0 to disable).");
-assert.equal(invalidFractionState.blockingTargetId, "orderQuoteFraction");
-assert.equal(invalidFractionState.statusLabel, "Sizing required");
-const precedenceRestored = normalizeFormState({
-orderQuantity: "0.25",
-orderQuote: "100",
-orderQuoteFraction: "1.25",
-maxOrderQuote: "40",
-});
-const precedenceState = summarizeOrderSizing({
-orderQuantity: precedenceRestored.orderQuantity,
-orderQuote: precedenceRestored.orderQuote,
-orderQuoteFraction: precedenceRestored.orderQuoteFraction,
-maxOrderQuote: precedenceRestored.maxOrderQuote,
-});
-assert.deepEqual(precedenceState.active, ["orderQuantity", "orderQuote"]);
-assert.equal(precedenceState.effective, "orderQuantity");
-assert.equal(precedenceState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
-assert.equal(precedenceState.blockingError, null);
-assert.equal(precedenceState.statusLabel, "Using order quantity");
-assert.equal(precedenceState.tone, "warn");
+  const invalidFractionOnly = normalizeFormState({
+    orderQuote: 0,
+    orderQuantity: 0,
+    orderQuoteFraction: "1.25",
+    maxOrderQuote: "40",
+  });
+  const invalidFractionState = summarizeOrderSizing({
+    orderQuantity: invalidFractionOnly.orderQuantity,
+    orderQuote: invalidFractionOnly.orderQuote,
+    orderQuoteFraction: invalidFractionOnly.orderQuoteFraction,
+    maxOrderQuote: invalidFractionOnly.maxOrderQuote,
+  });
+  assert.equal(invalidFractionOnly.orderQuoteFraction, 1.25);
+  assert.equal(invalidFractionOnly.maxOrderQuote, 40);
+  assert.equal(invalidFractionState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
+  assert.equal(invalidFractionState.blockingError, "Order quote fraction must be <= 1 (use 0 to disable).");
+  assert.equal(invalidFractionState.blockingTargetId, "orderQuoteFraction");
+  assert.equal(invalidFractionState.statusLabel, "Sizing required");
+
+  const precedenceRestored = normalizeFormState({
+    orderQuantity: "0.25",
+    orderQuote: "100",
+    orderQuoteFraction: "1.25",
+    maxOrderQuote: "40",
+  });
+  const precedenceState = summarizeOrderSizing({
+    orderQuantity: precedenceRestored.orderQuantity,
+    orderQuote: precedenceRestored.orderQuote,
+    orderQuoteFraction: precedenceRestored.orderQuoteFraction,
+    maxOrderQuote: precedenceRestored.maxOrderQuote,
+  });
+  assert.deepEqual(precedenceState.active, ["orderQuantity", "orderQuote"]);
+  assert.equal(precedenceState.effective, "orderQuantity");
+  assert.equal(precedenceState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
+  assert.equal(precedenceState.blockingError, null);
+  assert.equal(precedenceState.blockingTargetId, "orderQuote");
+  assert.equal(precedenceState.statusLabel, "Using order quantity");
+  assert.equal(precedenceState.tone, "warn");
 });
 test("defaultForm uses safe trade defaults", () => {
 assert.equal(defaultForm.binanceLive, false);

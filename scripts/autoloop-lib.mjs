@@ -200,6 +200,48 @@ export function resolveAutoloopBackend(rawBackend, { hasOpenAiKey, hasCodex }) {
   throw new Error(`Unknown autoloop backend: ${rawBackend}`);
 }
 
+export function parseLsRemoteBranchHead(raw, branchName = "") {
+  const text = String(raw ?? "").trim();
+  if (!text) return "";
+  const expectedRef = typeof branchName === "string" && branchName.trim() ? `refs/heads/${branchName.trim()}` : "";
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const [oid = "", ref = ""] = trimmed.split(/\s+/, 2);
+    if (!/^[0-9a-f]{40}$/i.test(oid)) continue;
+    if (!expectedRef || ref === expectedRef) return oid;
+  }
+  return "";
+}
+
+export function buildForceWithLeaseFlag(branchName, expectedOid) {
+  const branch = readString(branchName, "branchName");
+  const ref = branch.startsWith("refs/heads/") ? branch : `refs/heads/${branch}`;
+  const expected = String(expectedOid ?? "").trim();
+  if (expected && !/^[0-9a-f]{40}$/i.test(expected)) {
+    throw new Error("expectedOid must be a 40-character hex object id.");
+  }
+  return `--force-with-lease=${ref}:${expected}`;
+}
+
+export function buildRemoteTrackingRefspec(branchName) {
+  const branch = readString(branchName, "branchName");
+  const headRef = branch.startsWith("refs/heads/") ? branch : `refs/heads/${branch}`;
+  const shortName = headRef.replace(/^refs\/heads\//, "");
+  return `${headRef}:refs/remotes/origin/${shortName}`;
+}
+
+export function buildActionsRunsApiPath(headSha, branchName = "", perPage = 50) {
+  const sha = readString(headSha, "headSha");
+  const params = new URLSearchParams();
+  params.set("head_sha", sha);
+  params.set("per_page", String(Math.min(100, Math.max(1, Math.trunc(perPage) || 1))));
+  if (typeof branchName === "string" && branchName.trim()) {
+    params.set("branch", branchName.replace(/^refs\/heads\//, "").trim());
+  }
+  return `repos/:owner/:repo/actions/runs?${params.toString()}`;
+}
+
 export function buildOpenAiApiError(status, payload) {
   const errorObj = payload?.error && typeof payload.error === "object" ? payload.error : {};
   const code = typeof errorObj.code === "string" ? errorObj.code : "";

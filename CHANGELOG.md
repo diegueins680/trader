@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: refresh the live `autoloop/<base-branch>` remote head before checkout/push and use an explicit `refs/heads/...` `--force-with-lease`, so repo-local autoloop cycles do not fail on stale local tracking info after earlier cycles already updated the loop branch.
+- Dev/CI: make autoloop wait for GitHub Actions `CI` by querying workflow runs for the exact pushed SHA and waiting longer for delayed workflow registration, while reporting visible commit check suites when no CI run appears so local loop failures are diagnosable.
 - Web UI: restore the ambiguous single-comma numeric-input guard so values like `1,234` keep the prior setting instead of silently coercing to `1234`; explicit multi-group thousands and decimal-comma forms still parse.
 - Dev/CI: include `test/autoloop.test.mjs` in the repo-root `npm run test` entrypoint, and assert that aggregate contract in the autoloop test suite so the formal autoloop verifier cannot be skipped silently.
 - Web UI: normalize every numeric saved-setting/profile field back to a finite number when restoring browser state, so legacy stringified values no longer leak into the typed form model.

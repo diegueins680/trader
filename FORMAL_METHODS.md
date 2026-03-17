@@ -173,6 +173,12 @@ For each position with open time `ta` and realized close time `tc`, we define an
 
 `optimalCloseObservation` first filters the PnL path to finite candidates whose timestamps stay inside that window. If `tc <= ta` or no candidate survives, no observation is emitted. Otherwise `tm` is selected as the timestamp that maximizes path PnL inside the filtered window.
 
+Close-timing selection invariant:
+
+1. `tm` must maximize path PnL over all in-window observations.
+2. If multiple in-window timestamps share the maximum path PnL, the model selects the earliest such timestamp.
+3. The earliest-max rule must be invariant to input path order, so downstream stats and risk-budget targets do not depend on how equal-PnL samples arrive.
+
 We then normalize by realized duration:
 
 - `r = (tm-ta)/(tc-ta)`, so `r ∈ [0,2]`
@@ -195,7 +201,19 @@ A risk-budgeted close policy is encoded as a convex blend target:
 - `closeTimingDecision` re-clamps `Q50`, promotes `Q75` to at least `Q50`, and computes `target = clampRatio ((1-beta)*Q50 + beta*Q75)`
 - therefore `target` stays finite and inside `[Q50, Q75] ⊆ [0,2]`
 
-A live position is marked close-ready when its age ratio exceeds `target`.
+A live position is marked close-ready when its age ratio meets or exceeds `target`.
+
+Close-readiness boundary invariant:
+
+1. `ageRatio < target` implies hold.
+2. `ageRatio >= target` implies close-ready, including the exact boundary `ageRatio == target`.
+
+Bounded-arithmetic invariant:
+
+1. Window membership is evaluated in mathematical integer space before comparing timestamps, so a mathematically valid `tm` is not dropped when `ta + 2*(tc-ta)` exceeds `maxBound :: Int`.
+2. Boundary windows such as `ta = minBound :: Int`, `tc = 0`, `tm = maxBound :: Int` remain admissible whenever they satisfy the mathematical window.
+3. Observation validity and normalized `r` use mathematical integer deltas for `tm-ta` and `tc-ta`, so full-span `Int` observations such as `ta = minBound :: Int`, `tc = maxBound :: Int`, `tm = maxBound :: Int` retain `r = 1`.
+4. Live age ratios use the same overflow-free delta arithmetic, so full-span `Int` close-readiness remains finite and depends on the modeled timestamps instead of machine-width wraparound.
 
 The regression checks in `haskell/test/TestMain.hs` cover representative window selection and the boundary risk-budget decisions (`beta = 0` and `beta = 1`). This proof sketch now also makes the invalid-sample dropping (`tc <= ta`, `tm < ta`, and `tm > ta + 2*(tc-ta)`) and non-finite-budget contract (`NaN`, `+Infinity`, and `-Infinity` normalize to the same median-target policy as `beta = 0`) explicit, matching `observationRatioParts`, `validObservation`, `decisionTargetBand`, `normalizeRiskBudget`, and `clampRatio` in `haskell/app/Trader/Formal/CloseTiming.hs`. The local `isFinite` guard in `optimalCloseObservation` also excludes non-finite PnL candidates before `tm` selection, while `normalizeRiskBudget` plus `clampRatio` keep the downstream `ctdTargetRatio` finite and bounded inside `[0,2]`, so this formatter-only repair does not change runtime behavior.
 

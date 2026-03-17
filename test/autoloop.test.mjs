@@ -4,11 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  buildActionsRunsApiPath,
+  buildForceWithLeaseFlag,
+  buildRemoteTrackingRefspec,
   buildOpenAiApiError,
   clampText,
   extractResponseText,
   normalizeIdeaSelection,
   normalizePatchPlan,
+  parseLsRemoteBranchHead,
   parseJsonResponse,
   prepareShellCommand,
   resolveAutoloopBackend,
@@ -98,6 +102,20 @@ test("normalizeIdeaSelection validates required fields", () => {
         filesNeeded: ["test/autoloop.test.mjs"],
       }),
     /filesNeeded must include uiReviewPath/,
+  );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad correctness coverage",
+        rationale: "Correctness review path is missing from filesNeeded",
+        uiReviewPath: "haskell/web/src/App.tsx",
+        uiReviewFocus: "Review the main UI.",
+        correctnessPath: "test/autoloop.test.mjs",
+        correctnessFocus: "Keep tests aligned.",
+        filesNeeded: ["haskell/web/src/App.tsx"],
+      }),
+    /filesNeeded must include correctnessPath/,
   );
 });
 
@@ -204,6 +222,56 @@ test("resolveAutoloopBackend respects explicit backend requests", () => {
   );
 });
 
+test("parseLsRemoteBranchHead extracts the requested remote branch head", () => {
+  const raw = [
+    `${"a".repeat(40)}\trefs/heads/main`,
+    `${"b".repeat(40)}\trefs/heads/autoloop/main`,
+  ].join("\n");
+  assert.equal(parseLsRemoteBranchHead(raw, "autoloop/main"), "b".repeat(40));
+  assert.equal(parseLsRemoteBranchHead(raw, "missing"), "");
+  assert.equal(parseLsRemoteBranchHead("", "main"), "");
+});
+
+test("buildForceWithLeaseFlag uses explicit branch heads and validates object ids", () => {
+  assert.equal(
+    buildForceWithLeaseFlag("autoloop/main", "a".repeat(40)),
+    `--force-with-lease=refs/heads/autoloop/main:${"a".repeat(40)}`,
+  );
+  assert.equal(
+    buildForceWithLeaseFlag("refs/heads/main", "b".repeat(40)),
+    `--force-with-lease=refs/heads/main:${"b".repeat(40)}`,
+  );
+  assert.equal(buildForceWithLeaseFlag("autoloop/main", ""), "--force-with-lease=refs/heads/autoloop/main:");
+  assert.throws(() => buildForceWithLeaseFlag("autoloop/main", "not-a-sha"), /expectedOid must be a 40-character hex object id/);
+});
+
+test("buildRemoteTrackingRefspec targets refs/remotes/origin for branch heads", () => {
+  assert.equal(
+    buildRemoteTrackingRefspec("autoloop/main"),
+    "refs/heads/autoloop/main:refs/remotes/origin/autoloop/main",
+  );
+  assert.equal(buildRemoteTrackingRefspec("refs/heads/main"), "refs/heads/main:refs/remotes/origin/main");
+});
+
+test("buildActionsRunsApiPath scopes workflow run lookup to a head sha and branch", () => {
+  assert.equal(
+    buildActionsRunsApiPath("a".repeat(40), "autoloop/main", 30),
+    `repos/:owner/:repo/actions/runs?head_sha=${"a".repeat(40)}&per_page=30&branch=autoloop%2Fmain`,
+  );
+  assert.equal(
+    buildActionsRunsApiPath("b".repeat(40), "refs/heads/main", 200),
+    `repos/:owner/:repo/actions/runs?head_sha=${"b".repeat(40)}&per_page=100&branch=main`,
+  );
+});
+
+test("repo root package exposes the autoloop verifier script", async () => {
+  const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
+  const pkg = JSON.parse(pkgRaw);
+  const testScript = pkg?.scripts?.["test:autoloop"];
+  assert.equal(typeof testScript, "string");
+  assert.match(testScript, /\bnode --test test\/autoloop\.test\.mjs\b/);
+});
+
 test("repo root test command includes the autoloop verifier", async () => {
   const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
   const pkg = JSON.parse(pkgRaw);
@@ -211,7 +279,6 @@ test("repo root test command includes the autoloop verifier", async () => {
   assert.equal(typeof testScript, "string");
   assert.match(testScript, /\bnpm run test:autoloop\b/);
 });
-
 test("writeJsonFileAtomic creates parent directories and writes formatted JSON", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-test-"));
   const filePath = path.join(dir, "nested", "status.json");
