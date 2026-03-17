@@ -110,31 +110,56 @@ type AsyncJobOptions = FetchJsonOptions & {
   maxStartRetries?: number;
 };
 
-function resolveUrl(baseUrl: string, path: string): string {
-  const base = baseUrl.trim().replace(/\/+$/, "");
+type ResolvedPath = {
+  pathname: string;
+  searchParams: URLSearchParams;
+  hash: string;
+};
+
+function parseResolvedPath(path: string): ResolvedPath {
   const raw = path.startsWith("/") ? path : `/${path}`;
   const hashIndex = raw.indexOf("#");
   const rawNoHash = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
   const hash = hashIndex >= 0 ? raw.slice(hashIndex) : "";
   const queryIndex = rawNoHash.indexOf("?");
   const pathname = queryIndex >= 0 ? rawNoHash.slice(0, queryIndex) : rawNoHash;
-  const search = queryIndex >= 0 ? rawNoHash.slice(queryIndex) : "";
+  const search = queryIndex >= 0 ? rawNoHash.slice(queryIndex + 1) : "";
+  return { pathname, searchParams: new URLSearchParams(search), hash };
+}
+
+function mergeSearchParams(baseSearch: string, pathSearchParams: URLSearchParams): string {
+  const merged = new URLSearchParams(baseSearch);
+  const overriddenKeys = new Set<string>();
+  for (const key of pathSearchParams.keys()) overriddenKeys.add(key);
+  for (const key of overriddenKeys) merged.delete(key);
+  for (const [key, value] of pathSearchParams.entries()) merged.append(key, value);
+  const search = merged.toString();
+  return search ? `?${search}` : "";
+}
+
+function resolveUrl(baseUrl: string, path: string): string {
+  const base = baseUrl.trim();
+  const { pathname, searchParams, hash } = parseResolvedPath(path);
+  const search = searchParams.toString();
 
   if (!base || base === "/") {
-    return `${pathname}${search}${hash}`;
+    return `${pathname}${search ? `?${search}` : ""}${hash}`;
   }
 
-  if (/^https?:\/\//.test(base)) {
-    const url = new URL(base);
-    const basePath = url.pathname.replace(/\/+$/, "");
-    url.pathname = `${basePath}${pathname}`.replace(/\/{2,}/g, "/") || "/";
-    url.search = search;
+  const normalizedBase = /^https?:\/\//.test(base) || base.startsWith("/") ? base : `/${base}`;
+  const url = new URL(normalizedBase, "https://trader.invalid");
+  const basePath = url.pathname.replace(/\/+$/, "");
+  const resolvedPath = `${basePath}${pathname}`.replace(/\/{2,}/g, "/") || "/";
+  const mergedSearch = mergeSearchParams(url.search, searchParams);
+
+  if (/^https?:\/\//.test(normalizedBase)) {
+    url.pathname = resolvedPath;
+    url.search = mergedSearch;
     url.hash = hash;
     return url.toString();
   }
 
-  const rel = base.startsWith("/") ? base : `/${base}`;
-  return `${rel}${pathname}${search}${hash}`;
+  return `${resolvedPath}${mergedSearch}${hash}`;
 }
 
 function normalizeBaseUrl(raw: string): string {

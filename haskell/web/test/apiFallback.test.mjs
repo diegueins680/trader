@@ -83,6 +83,81 @@ async function withApiModuleNoWindow(fetchImpl, run) {
   }
 }
 
+test("api client preserves relative base pathname and query for health requests", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api/base?tenantKey=demo&mode=proxy",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { status: "ok" });
+    },
+    async (api) => {
+      const out = await api.health("/api/base?tenantKey=demo&mode=proxy", { timeoutMs: 5_000 });
+      assert.equal(out.status, "ok");
+    },
+  );
+  assert.deepEqual(calls, ["/api/base/health?tenantKey=demo&mode=proxy"]);
+});
+
+test("api client keeps base and request query params for relative bot URLs", async () => {
+  const calls = [];
+  let tenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "/api/base?tenantKey=demo&mode=proxy",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      calls.push(String(url));
+      tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+      return jsonResponse(200, { running: false });
+    },
+    async (api) => {
+      const out = await api.botStatus(
+        "/api/base?tenantKey=demo&mode=proxy",
+        { timeoutMs: 5_000 },
+        100,
+        undefined,
+        "tenant-request",
+      );
+      assert.equal(out.running, false);
+    },
+  );
+  assert.equal(tenantHeader, "tenant-request");
+  assert.deepEqual(calls, ["/api/base/bot/status?mode=proxy&tail=100&tenantKey=tenant-request"]);
+});
+
+test("api client preserves absolute base path and merges base query with state sync query", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com/base?tenantKey=demo&mode=direct",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, {});
+    },
+    async (api) => {
+      const out = await api.stateSyncExport(
+        "https://api.example.com/base?tenantKey=demo&mode=direct",
+        { timeoutMs: 5_000, tenantKey: "tenant-request" },
+      );
+      assert.deepEqual(out, {});
+    },
+  );
+  assert.deepEqual(calls, ["https://api.example.com/base/state/sync?mode=direct&tenantKey=tenant-request"]);
+});
+
 test("api fallback does not use 401 for explicit direct hosts", async () => {
   const calls = [];
   await withApiModule(
