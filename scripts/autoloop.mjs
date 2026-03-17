@@ -7,7 +7,6 @@ import process from "node:process";
 import { execFileSync } from "node:child_process";
 import {
   buildActionsRunsApiPath,
-  buildForceWithLeaseFlag,
   buildRemoteTrackingRefspec,
   buildOpenAiApiError,
   clampText,
@@ -28,7 +27,7 @@ const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/
 const OPENAI_MODEL = process.env.AUTOLOOP_MODEL || process.env.OPENAI_MODEL || "gpt-5.4";
 const BASE_BRANCH =
   process.env.AUTOLOOP_BASE_BRANCH || process.env.GITHUB_BASE_REF || process.env.GITHUB_REF_NAME || "main";
-const LOOP_BRANCH = process.env.AUTOLOOP_BRANCH || `autoloop/${BASE_BRANCH}`;
+const LOOP_BRANCH = BASE_BRANCH;
 const MAX_ITERATIONS = clampInt(process.env.AUTOLOOP_MAX_ITERATIONS, 2, 1, 5);
 const MAX_EDITABLE_FILE_BYTES = clampInt(process.env.AUTOLOOP_MAX_FILE_BYTES, 40000, 4000, 100000);
 const MAX_EDITABLE_FILES = clampInt(process.env.AUTOLOOP_MAX_FILES, 120, 20, 300);
@@ -40,6 +39,7 @@ const REQUESTED_BACKEND = process.env.AUTOLOOP_BACKEND || "auto";
 const CI_WORKFLOW_NAME = process.env.AUTOLOOP_CI_WORKFLOW_NAME || "CI";
 const CI_DISCOVERY_POLL_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_POLL_SECONDS, 30, 5, 300);
 const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_TIMEOUT_SECONDS, 900, 60, 7200);
+const SKIP_CI_WAIT = readBooleanEnv(process.env.AUTOLOOP_SKIP_CI_WAIT);
 const HAS_CODEX = commandExists("codex");
 const PLANNER_BACKEND = resolveAutoloopBackend(REQUESTED_BACKEND, {
   hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
@@ -219,19 +219,42 @@ async function main() {
     commitBranch(commitMessage, changedPaths);
     pushBranch();
 
-    const pr = ensurePullRequest(plan.title, plan.summary);
-    await updateStatus({ phase: "ci-wait", iteration, pr, changedPaths, plan: summarizePlan(plan) });
-    const ci = waitForPullRequestCi(pr.number);
+    const pushedHeadSha = runGit(["rev-parse", "HEAD"]);
+    if (SKIP_CI_WAIT) {
+      const skipMessage = "Skipped post-push CI wait because AUTOLOOP_SKIP_CI_WAIT is set.";
+      await updateStatus({
+        phase: "complete",
+        iteration,
+        outcome: "pushed_skip_ci_wait",
+        branch: LOOP_BRANCH,
+        headSha: pushedHeadSha,
+        changedPaths,
+        plan: summarizePlan(plan),
+        message: skipMessage,
+      });
+      console.log(`${skipMessage} Pushed ${pushedHeadSha} directly to ${LOOP_BRANCH}.`);
+      return;
+    }
+
+    await updateStatus({
+      phase: "ci-wait",
+      iteration,
+      branch: LOOP_BRANCH,
+      headSha: pushedHeadSha,
+      changedPaths,
+      plan: summarizePlan(plan),
+    });
+    const ci = waitForBranchCi(pushedHeadSha, LOOP_BRANCH);
     if (ci.ok) {
-      mergePullRequest(pr.number);
-      await updateStatus({ phase: "complete", iteration, outcome: "merged", pr, ci });
-      console.log(`Merged PR #${pr.number}.`);
+      await updateStatus({ phase: "complete", iteration, outcome: "pushed", branch: LOOP_BRANCH, headSha: pushedHeadSha, ci });
+      console.log(`Pushed ${pushedHeadSha} directly to ${LOOP_BRANCH}.`);
       return;
     }
 
     failureContext = {
       iteration,
-      prNumber: pr.number,
+      branchName: LOOP_BRANCH,
+      headSha: pushedHeadSha,
       runId: ci.runId,
       runUrl: ci.runUrl,
       failedLog: ci.failedLog,
@@ -241,19 +264,24 @@ async function main() {
       phase: "repair-needed",
       iteration,
       outcome: "ci_failed",
-      pr,
+      branch: LOOP_BRANCH,
+      headSha: pushedHeadSha,
       ci,
       failureContext: summarizeFailureContext(failureContext),
     });
   }
 
-  throw new Error(`Autoloop exhausted ${MAX_ITERATIONS} iteration(s) without a green merge.`);
+  throw new Error(`Autoloop exhausted ${MAX_ITERATIONS} iteration(s) without a green CI result.`);
 }
 
 function clampInt(raw, fallback, min, max) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(n)));
+}
+
+function readBooleanEnv(raw) {
+  return /^(1|true|yes|on)$/i.test(String(raw ?? "").trim());
 }
 
 function runCommand(command, args, opts = {}) {
@@ -368,7 +396,8 @@ function summarizeFailureContext(failureContext) {
   if (!failureContext) return null;
   return {
     iteration: failureContext.iteration,
-    prNumber: failureContext.prNumber,
+    branchName: failureContext.branchName,
+    headSha: failureContext.headSha,
     runId: failureContext.runId,
     runUrl: failureContext.runUrl,
     changedPaths: failureContext.changedPaths,
@@ -571,7 +600,7 @@ async function requestIdeaSelection(repoContext) {
 
 async function requestFixIdea(repoContext, failureContext) {
   const prompt = [
-    "You are selecting a repair for a failed autonomous PR CI run.",
+    "You are selecting a repair for a failed autonomous CI run on the repository branch.",
     "Respond in JSON with keys: noChange, title, rationale, uiReviewPath, uiReviewFocus, correctnessPath, correctnessFocus, filesNeeded, verificationCommands.",
     "Constraints:",
     "- Focus on fixing the reported failure with the smallest safe change.",
@@ -581,6 +610,8 @@ async function requestFixIdea(repoContext, failureContext) {
     "- correctnessPath must be FORMAL_METHODS.md or a file under test/, haskell/test/, or haskell/web/test/, and filesNeeded must include it.",
     `- Verification commands must be chosen from this allowlist: ${Array.from(SAFE_VERIFICATION_COMMANDS).join(" | ")}`,
     "",
+    `Failed branch: ${failureContext.branchName}`,
+    `Failed head: ${failureContext.headSha}`,
     `Failed run: ${failureContext.runUrl}`,
     `Changed paths on the current branch: ${failureContext.changedPaths.join(", ")}`,
     "Failed log excerpt:",
@@ -730,67 +761,16 @@ function commitBranch(message, changedPaths) {
 }
 
 function pushBranch() {
-  const remoteHead = readRemoteBranchHead(LOOP_BRANCH);
-  runGit(
-    ["push", buildForceWithLeaseFlag(LOOP_BRANCH, remoteHead), "-u", "origin", `${LOOP_BRANCH}:refs/heads/${LOOP_BRANCH}`],
-    { capture: false },
-  );
+  runGit(["push", "-u", "origin", `${LOOP_BRANCH}:refs/heads/${LOOP_BRANCH}`], { capture: false });
 }
 
-function ensurePullRequest(title, summary) {
-  const listJson = runGh([
-    "pr",
-    "list",
-    "--head",
-    LOOP_BRANCH,
-    "--base",
-    BASE_BRANCH,
-    "--state",
-    "open",
-    "--json",
-    "number,url,title",
-  ]);
-  const existing = JSON.parse(listJson);
-  const body = [
-    "Autonomous improvement loop.",
-    "",
-    `Summary: ${summary}`,
-    "",
-    `Branch: \`${LOOP_BRANCH}\``,
-    `Base: \`${BASE_BRANCH}\``,
-  ].join("\n");
-
-  if (existing.length > 0) {
-    const pr = existing[0];
-    runGh(["pr", "edit", String(pr.number), "--title", title, "--body", body], { capture: false });
-    return { number: pr.number, url: pr.url };
-  }
-
-  const out = runGh([
-    "pr",
-    "create",
-    "--base",
-    BASE_BRANCH,
-    "--head",
-    LOOP_BRANCH,
-    "--title",
-    title,
-    "--body",
-    body,
-  ]);
-  const prNumber = Number(out.match(/\/pull\/(\d+)/)?.[1]);
-  if (!Number.isFinite(prNumber)) throw new Error(`Unable to parse PR number from: ${out}`);
-  return { number: prNumber, url: out.trim() };
-}
-
-function waitForPullRequestCi(prNumber) {
-  const headSha = runGit(["rev-parse", "HEAD"]);
+function waitForBranchCi(headSha, branchName) {
   let runId = null;
   let runUrl = null;
 
   const maxAttempts = Math.max(1, Math.ceil(CI_DISCOVERY_TIMEOUT_SECONDS / CI_DISCOVERY_POLL_SECONDS));
   for (let i = 0; i < maxAttempts; i += 1) {
-    const runs = listWorkflowRunsForHead(headSha);
+    const runs = listWorkflowRunsForHead(headSha, branchName);
     const match = runs.find((run) => run.head_sha === headSha && run.name === CI_WORKFLOW_NAME);
     if (match) {
       runId = match.id;
@@ -805,7 +785,7 @@ function waitForPullRequestCi(prNumber) {
   if (!runId) {
     const suiteSummary = summarizeCheckSuitesForHead(headSha);
     throw new Error(
-      `No ${CI_WORKFLOW_NAME} workflow run found for PR #${prNumber} and head ${headSha} after ${CI_DISCOVERY_TIMEOUT_SECONDS}s.` +
+      `No ${CI_WORKFLOW_NAME} workflow run found for branch ${branchName} and head ${headSha} after ${CI_DISCOVERY_TIMEOUT_SECONDS}s.` +
         `${suiteSummary ? ` Check suites: ${suiteSummary}.` : " Check suites: none."}`,
     );
   }
@@ -819,8 +799,8 @@ function waitForPullRequestCi(prNumber) {
   }
 }
 
-function listWorkflowRunsForHead(headSha) {
-  const response = JSON.parse(runGh(["api", buildActionsRunsApiPath(headSha, LOOP_BRANCH, 50)]));
+function listWorkflowRunsForHead(headSha, branchName) {
+  const response = JSON.parse(runGh(["api", buildActionsRunsApiPath(headSha, branchName, 50)]));
   return Array.isArray(response?.workflow_runs) ? response.workflow_runs : [];
 }
 
@@ -835,10 +815,6 @@ function summarizeCheckSuitesForHead(headSha) {
       return `${app}:${status}${conclusion}`;
     }),
   ).join(", ");
-}
-
-function mergePullRequest(prNumber) {
-  runGh(["pr", "merge", String(prNumber), "--squash", "--delete-branch"], { capture: false });
 }
 
 main().catch(async (err) => {

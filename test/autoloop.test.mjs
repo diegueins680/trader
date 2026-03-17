@@ -264,6 +264,23 @@ test("buildActionsRunsApiPath scopes workflow run lookup to a head sha and branc
   );
 });
 
+test("autoloop script targets the base branch directly without PR helpers", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const LOOP_BRANCH = BASE_BRANCH;/);
+  assert.match(script, /const SKIP_CI_WAIT = readBooleanEnv\(process\.env\.AUTOLOOP_SKIP_CI_WAIT\);/);
+  assert.match(script, /function waitForBranchCi\(headSha, branchName\)/);
+  assert.doesNotMatch(script, /function ensurePullRequest\(/);
+  assert.doesNotMatch(script, /function mergePullRequest\(/);
+});
+
+test("autoloop workflow uses an optional dedicated push token and no PR permission", async () => {
+  const workflow = await fs.readFile(new URL("../.github/workflows/autoloop.yml", import.meta.url), "utf8");
+  assert.match(workflow, /contents:\s+write/);
+  assert.doesNotMatch(workflow, /pull-requests:\s+write/);
+  assert.match(workflow, /token:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN \|\| github\.token\s*\}\}/);
+  assert.match(workflow, /AUTOLOOP_SKIP_CI_WAIT:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN == '' && '1' \|\| ''\s*\}\}/);
+});
+
 test("repo root package exposes the autoloop verifier script", async () => {
   const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
   const pkg = JSON.parse(pkgRaw);
