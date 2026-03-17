@@ -142,7 +142,12 @@ A risk-budgeted close policy is encoded as a convex blend target:
 
 - `target = (1-β)*Q50 + β*Q75`, with `β ∈ [0,1]`
 
-A live position is marked close-ready when its age ratio exceeds `target`.
+A live position is marked close-ready when its age ratio meets or exceeds `target`.
+
+Close-readiness boundary invariant:
+
+1. `ageRatio < target` implies hold.
+2. `ageRatio >= target` implies close-ready, including the exact boundary `ageRatio == target`.
 
 Bounded-arithmetic invariant:
 

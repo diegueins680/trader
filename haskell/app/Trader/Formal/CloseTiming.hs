@@ -33,7 +33,7 @@ data CloseTimingStats = CloseTimingStats
     }
     deriving (Eq, Show)
 
--- | Close policy: recommend hold if age ratio is below the risk-budget quantile.
+-- | Close policy: mark close-ready once age ratio meets or exceeds the risk-budget quantile.
 data CloseTimingDecision = CloseTimingDecision
     { ctdShouldClose :: !Bool
     , ctdAgeRatio :: !Double
