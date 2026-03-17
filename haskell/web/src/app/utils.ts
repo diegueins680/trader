@@ -264,14 +264,15 @@ export function numFromInput(raw: string, fallback: number): number {
     if (parts.length === 2) {
       const left = parts[0] ?? "";
       const right = parts[1] ?? "";
-      const leftDigits = left.replace(/\D/g, "");
-      const rightDigits = right.replace(/\D/g, "");
-      if (leftDigits === "0") return `${left}.${right}`;
-      if (/^[-+]?\d{1,3}$/.test(left) && /^\d{3}$/.test(right)) return `${left}${right}`;
+      // Invariant: a single comma with a 3-digit suffix is ambiguous between
+      // decimal-comma and thousands-grouping, so preserve the prior value.
+      if (/^[-+]?0$/.test(left) && /^\d+$/.test(right)) return `${left}.${right}`;
+      if (/^[-+]?\d{1,3}$/.test(left) && /^\d{3}$/.test(right)) return null;
       return `${left}.${right}`;
     }
     return trimmed.replace(/,/g, "");
   })();
+  if (normalized == null) return fallback;
   const n = Number(normalized);
   return Number.isFinite(n) ? n : fallback;
 }

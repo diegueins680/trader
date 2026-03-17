@@ -88,7 +88,7 @@ test("buildBinanceTradeIpMap aggregates entry IPs when multiple opening lots are
 
 test("parseOptionalInt accepts whole numbers and rejects fractional values", () => {
   assert.equal(parseOptionalInt("123"), 123);
-  assert.equal(parseOptionalInt("1,234"), 1234);
+  assert.equal(parseOptionalInt("1,234"), undefined);
   assert.equal(parseOptionalInt("12.5"), undefined);
   assert.equal(parseOptionalInt("0,5"), undefined);
 });

@@ -14,6 +14,7 @@ import {
   normalizePatchPlan,
   parseLsRemoteBranchHead,
   parseJsonResponse,
+  prepareShellCommand,
   resolveAutoloopBackend,
   sanitizeRelativePath,
   stripMarkdownFences,
@@ -169,6 +170,19 @@ test("clampText preserves short text and truncates long text", () => {
   assert.notEqual(clamped, "abcdefghijklmnopqrstuvwxyz");
 });
 
+test("prepareShellCommand bootstraps ghcup for Haskell verification commands", () => {
+  assert.equal(prepareShellCommand("cd haskell && cabal build"), 'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build');
+  assert.equal(
+    prepareShellCommand('source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build'),
+    'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build',
+  );
+  assert.equal(
+    prepareShellCommand("cd haskell && bash scripts/ci_smoke.sh"),
+    'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && bash scripts/ci_smoke.sh',
+  );
+  assert.equal(prepareShellCommand("cd haskell/web && npm --workspaces=false run test"), "cd haskell/web && npm --workspaces=false run test");
+});
+
 test("uniqueStrings preserves first occurrence order", () => {
   assert.deepEqual(uniqueStrings(["a", "b", "a", "c"]), ["a", "b", "c"]);
 });
@@ -256,6 +270,14 @@ test("repo root package exposes the autoloop verifier script", async () => {
   const testScript = pkg?.scripts?.["test:autoloop"];
   assert.equal(typeof testScript, "string");
   assert.match(testScript, /\bnode --test test\/autoloop\.test\.mjs\b/);
+});
+
+test("repo root test command includes the autoloop verifier", async () => {
+  const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
+  const pkg = JSON.parse(pkgRaw);
+  const testScript = pkg?.scripts?.test;
+  assert.equal(typeof testScript, "string");
+  assert.match(testScript, /\bnpm run test:autoloop\b/);
 });
 test("writeJsonFileAtomic creates parent directories and writes formatted JSON", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-test-"));

@@ -545,7 +545,7 @@ cd haskell
 cabal test
 ```
 
-From the repo root, `npm run build` and `npm run test` now pin Cabal state to the tracked `./.cabal` directory, so shared scripts do not depend on or write to a user-specific `~/.cabal`.
+From the repo root, `npm run build` and `npm run test` now pin Cabal state to the tracked `./.cabal` directory, so shared scripts do not depend on or write to a user-specific `~/.cabal`. The repo-root `npm run test` entrypoint runs the Haskell suite, the web suite, and the autoloop contract verifier in `test/autoloop.test.mjs`.
 
 REST API
 --------
@@ -582,8 +582,8 @@ Tenant isolation (multi-user UI):
 
 Build info:
 - `GET /`, `GET /health`, and `GET /version` include build version details.
-- Commit metadata is included when env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA` is set.
-- For Fly Docker deploys, pass `--build-arg TRADER_GIT_COMMIT=$(git rev-parse HEAD)` so `/health`, `/version`, and the UI build badge retain the deployed commit.
+- Commit metadata is resolved from env (`TRADER_GIT_COMMIT`, `TRADER_COMMIT`, `GIT_COMMIT`, `COMMIT_SHA`, `SOURCE_COMMIT`, `SOURCE_VERSION`, `GITHUB_SHA`), then `haskell/.build-commit`, then local `git rev-parse HEAD` when available.
+- The Fly/GitHub Actions deploy flow writes `haskell/.build-commit` before building the Docker image so `/health` and `/version` can report the deployed commit even when `.git` is not present in the runtime image.
 
 Endpoints:
 - `GET /` → build metadata plus the advertised endpoint list
@@ -593,7 +593,7 @@ Endpoints:
 - `GET /ops` → persisted operations feed (requires DB-backed ops persistence via `TRADER_DB_URL`/`DATABASE_URL`; requires `tenantKey` when `TRADER_MULTI_USER=true`)
 - `GET /ops/performance` → ops rollups/deltas (requires `haskell/scripts/rollup_performance.sh`; `tenantKey` required when `TRADER_MULTI_USER=true`)
 - `GET /outbox` → outbox queue stats (counts by status + oldest pending age; requires DB-backed ops persistence via `TRADER_DB_URL`/`DATABASE_URL`; when `TRADER_MULTI_USER=true`, `tenantKey` is required and results are tenant-scoped)
-- `GET /cache` → in-memory cache stats (entries + hit/miss)
+- `GET /cache` → in-memory cache stats for API caches plus bounded market-data cache entry counts/max entries (`binanceTickers`, `binanceExchangeInfo`, `binanceKlines`, `binanceTimeOffset`, `krakenCandles`, `coinbaseCandles`, `poloniexCandles`)
 - `POST /cache/clear` → clears the in-memory cache
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /signal/async` → starts an async signal job
@@ -1040,6 +1040,7 @@ Binance “Check keys” only upgrades trade-test failures to “Auth OK, but or
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 Missing/invalid saved symbols fall back to platform defaults, and trade-test skips surface as a warning callout with the skip reason.
 Optimizer-run fields that represent counts or bar windows now require whole numbers; fractional values are rejected instead of being truncated client-side.
+Ambiguous single-comma numeric inputs such as `1,234` now keep the previous value instead of being silently reinterpreted; explicit multi-group thousands (`1,234,567`) and decimal-comma forms like `1,23` still parse.
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.
@@ -1088,6 +1089,7 @@ The issue bar Fix button clamps bars/epochs/hidden size to the API limits when t
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades date filters use date pickers with YYYY-MM-DD inputs.
 Loading a profile clears manual override locks so combos can apply again.
+Saved profiles/settings now rehydrate all numeric fields from browser storage as finite numbers, so legacy stringified values do not leak back into the typed UI form state.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
 Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.

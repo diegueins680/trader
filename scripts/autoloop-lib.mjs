@@ -176,6 +176,14 @@ export function uniqueStrings(values) {
   return Array.from(new Set(values.map((value) => String(value))));
 }
 
+export function prepareShellCommand(command) {
+  const normalized = String(command ?? "").trim();
+  const needsGhcup =
+    /\bcabal\b/.test(normalized) || normalized === "cd haskell && bash scripts/ci_smoke.sh";
+  if (!normalized || !needsGhcup || normalized.includes(".ghcup/env")) return normalized;
+  return `source "$HOME/.ghcup/env" 2>/dev/null || true; ${normalized}`;
+}
+
 export function resolveAutoloopBackend(rawBackend, { hasOpenAiKey, hasCodex }) {
   const requested = String(rawBackend ?? "").trim().toLowerCase();
   if (!requested || requested === "auto") {

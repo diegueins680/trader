@@ -12,7 +12,7 @@
     "lint": "npm run lint:haskell && npm run lint:web",
     "lint:haskell": "cd haskell && hlint app test",
     "lint:web": "npm --workspaces=false --prefix haskell/web run typecheck",
-    "test": "npm run test:haskell && npm run test:web",
+    "test": "npm run test:haskell && npm run test:web && npm run test:autoloop",
     "test:autoloop": "node --test test/autoloop.test.mjs",
     "test:haskell": "cd haskell && CABAL_DIR=$(cd .. && pwd)/.cabal cabal test",
     "test:web": "npm --workspaces=false --prefix haskell/web run test",

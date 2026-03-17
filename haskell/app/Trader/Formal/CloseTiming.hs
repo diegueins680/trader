@@ -83,51 +83,63 @@ chooseBetterClose best cur
 
 buildCloseTimingStats :: [CloseTimingObservation] -> [CloseTimingStats]
 buildCloseTimingStats obs =
-    map statsFor grouped
+    mapMaybe statsFor grouped
   where
     grouped =
-        groupBy ((==) `on` ctoCombo) . sortOn ctoCombo $ filter hasValidRatio obs
+        groupBy ((==) `on` ctoCombo) . sortOn ctoCombo $ filter validObservation obs
 
-    hasValidRatio = maybe False (const True) . observationRatio
-
-    statsFor xs =
-        let combo = ctoCombo (head xs)
-            ratios = sortOn id (mapMaybe observationRatio xs)
-            med = percentile 0.5 ratios
-            mad = percentile 0.5 (sortOn id (map (abs . subtract med) ratios))
-         in CloseTimingStats
-                { ctsCombo = combo
-                , ctsSamples = length ratios
-                , ctsMedianRatio = med
-                , ctsMadRatio = mad
-                , ctsQ25Ratio = percentile 0.25 ratios
-                , ctsQ75Ratio = percentile 0.75 ratios
-                }
+    -- groupBy emits non-empty groups, but we still pattern-match so the helper
+    -- stays total without relying on partial list functions.
+    statsFor [] = Nothing
+    statsFor xs@(x : _) =
+        let combo = ctoCombo x
+            ratios = sortOn id (map observationRatio xs)
+            q25 = boundedPercentile 0.25 ratios
+            q50 = boundedPercentile 0.5 ratios
+            q75 = boundedPercentile 0.75 ratios
+            (q25Bound, q50Bound, q75Bound) = orderQuartiles q25 q50 q75
+            mad = boundedPercentile 0.5 (sortOn id (map (abs . subtract q50Bound) ratios))
+         in Just
+                CloseTimingStats
+                    { ctsCombo = combo
+                    , ctsSamples = length ratios
+                    , ctsMedianRatio = q50Bound
+                    , ctsMadRatio = clampRatio mad
+                    , ctsQ25Ratio = q25Bound
+                    , ctsQ75Ratio = q75Bound
+                    }
 
 closeTimingDecision :: Double -> CloseTimingStats -> Int -> Int -> Int -> CloseTimingDecision
 closeTimingDecision riskBudget stats ta expectedDurationMs now =
     let denom = positiveDurationInteger expectedDurationMs
         age = nonNegativeIntegerDelta ta now
         ageRatio = fromInteger age / fromInteger denom
-        target = mix (clamp 0 1 riskBudget) (ctsMedianRatio stats) (ctsQ75Ratio stats)
+        budget = normalizeRiskBudget riskBudget
+        (medianRatio, q75Ratio) = decisionTargetBand stats
+        target = clampRatio (mix budget medianRatio q75Ratio)
      in CloseTimingDecision
             { ctdShouldClose = ageRatio >= target
             , ctdAgeRatio = ageRatio
             , ctdTargetRatio = target
             }
 
-observationRatio :: CloseTimingObservation -> Maybe Double
-observationRatio x = do
-    (num, denom) <- observationSpan x
-    pure (clamp 0 2 (fromInteger num / fromInteger denom))
+validObservation :: CloseTimingObservation -> Bool
+validObservation x =
+    case observationRatioParts x of
+        Just (num, denom) -> num >= 0 && num <= 2 * denom
+        Nothing -> False
 
-observationSpan :: CloseTimingObservation -> Maybe (Integer, Integer)
-observationSpan x =
+observationRatio :: CloseTimingObservation -> Double
+observationRatio x =
+    case observationRatioParts x of
+        Just (num, denom) -> clampRatio (fromInteger num / fromInteger denom)
+        Nothing -> 0
+
+observationRatioParts :: CloseTimingObservation -> Maybe (Integer, Integer)
+observationRatioParts x =
     let denom = integerDelta (ctoOpenAtMs x) (ctoCloseAtMs x)
         num = integerDelta (ctoOpenAtMs x) (ctoOptimalCloseAtMs x)
-     in if denom > 0 && num >= 0 && num <= 2 * denom
-            then Just (num, denom)
-            else Nothing
+     in if denom > 0 then Just (num, denom) else Nothing
 
 positiveDurationInteger :: Int -> Integer
 positiveDurationInteger = max 1 . toInteger
@@ -137,6 +149,27 @@ integerDelta start end = toInteger end - toInteger start
 
 nonNegativeIntegerDelta :: Int -> Int -> Integer
 nonNegativeIntegerDelta start end = max 0 (integerDelta start end)
+
+decisionTargetBand :: CloseTimingStats -> (Double, Double)
+decisionTargetBand stats =
+    let medianRatio = clampRatio (ctsMedianRatio stats)
+        q75Ratio = max medianRatio (clampRatio (ctsQ75Ratio stats))
+     in (medianRatio, q75Ratio)
+
+boundedPercentile :: Double -> [Double] -> Double
+boundedPercentile p = clampRatio . percentile p
+
+orderQuartiles :: Double -> Double -> Double -> (Double, Double, Double)
+orderQuartiles q25 q50 q75 =
+    case sortOn id (map clampRatio [q25, q50, q75]) of
+        [a, b, c] -> (a, b, c)
+        _ -> (0, 0, 0)
+
+-- Non-finite budgets collapse to beta=0, preserving the median-target policy.
+normalizeRiskBudget :: Double -> Double
+normalizeRiskBudget x
+    | isFinite x = clamp 0 1 x
+    | otherwise = 0
 
 mix :: Double -> Double -> Double -> Double
 mix w a b = (1 - w) * a + w * b
@@ -148,6 +181,9 @@ percentile p xs =
         n = length ys
         idx = floor (clamp 0 1 p * fromIntegral (n - 1))
      in ys !! idx
+
+clampRatio :: Double -> Double
+clampRatio = clamp 0 2
 
 clamp :: Double -> Double -> Double -> Double
 clamp lo hi = max lo . min hi

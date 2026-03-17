@@ -54,14 +54,14 @@ Clauses:
 1. A manual trade is only ready when there is an effective sizing mode.
 2. Effective sizing follows a fixed precedence: `orderQuantity` > `orderQuote` > `orderQuoteFraction`.
 3. Invalid quote-fraction ranges (`< 0` or `> 1`) block trading only when no higher-precedence valid size is present.
-4. The blocking target is `orderQuoteFraction` only for standalone quote-fraction validation failures; every other blocked sizing state anchors on `orderQuote`.
-5. Multiple valid sizing inputs are allowed but must be reported as a conflict so the effective mode is explicit.
-6. `maxOrderQuote` is cap-only metadata: it never becomes an active sizing mode, never creates trade readiness by itself, and only changes labeling when `orderQuoteFraction` is the effective mode.
-7. Every blocked sizing state must report `Sizing required` as the status label and repeat the blocking message as the operator hint.
-8. Every non-blocked conflict must surface the precedence warning for the effective mode so operators can see which sizing input wins.
-9. Every non-blocked single-mode state must surface `Effective sizing: <effectiveLabel>.` so the operator sees the exact active sizing label.
+4. Multiple valid sizing inputs are allowed but must be reported as a conflict so the effective mode is explicit.
+5. `maxOrderQuote` is cap-only metadata: it never becomes an active sizing mode, never creates trade readiness by itself, and only changes `effectiveLabel` / `hint` when `orderQuoteFraction` is the effective mode.
+6. `effectiveLabel` is exact and total for the modeled state space: `Quantity <qty>`, `Quote <quote>`, `Fraction <pct>[ cap <quote>]`, or `No sizing selected`.
+7. The blocking-focus target is `orderQuoteFraction` only for fraction-only invalid states; every other state keeps the safe default target `orderQuote`.
+8. `statusLabel` is derived from the same finite state: blocked states say `Sizing required`, and ready states name the effective sizing mode.
+9. `hint` is exact and state-derived: blocked states surface the blocking error verbatim, conflict states use the precedence warning, and non-conflict ready states mirror `effectiveLabel` as `Effective sizing: ...`.
 
-The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space:
+The verifier in `haskell/web/test/utils.test.mjs` performs bounded exhaustive enumeration over the modeled sizing state space (`32` states), plus paired cap/no-cap comparisons over every `(orderQuantity, orderQuote, orderQuoteFraction)` combination:
 
 - `orderQuantity ∈ {0, 1}`
 - `orderQuote ∈ {0, 1}`
@@ -72,12 +72,63 @@ For every state, it checks:
 
 1. The active sizing modes match the executable spec.
 2. The effective sizing mode matches the documented precedence.
-3. Trade readiness is blocked exactly when the model says no effective size exists.
-4. The blocking target matches the documented anchor: standalone quote-fraction validation failures target `orderQuoteFraction`; all other states target `orderQuote`.
-5. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
-6. The quote-cap metadata stays inert outside effective quote-fraction sizing, including restored cap-only form states.
-7. Blocked states report `Sizing required` and mirror the blocking message into the hint.
-8. Conflicting valid states surface the precedence warning, and single valid states surface the effective sizing label in the hint.
+3. Trade readiness, blocking reason, and `blockingTargetId` match the modeled state.
+4. `effectiveLabel` and `hint` match the modeled string contract for every state.
+5. `statusLabel` matches the modeled readiness/effective-mode summary.
+6. Conflict severity (`ok` / `warn` / `bad`) matches the modeled state.
+7. The quote-cap metadata stays inert outside effective quote-fraction sizing and only changes `effectiveLabel` / `hint` when quote-fraction sizing is actually effective, including restored cap-only form states.
+
+Proof sketch:
+
+- `summarizeOrderSizing` computes precedence before any copy fields, so `effectiveLabel`, `statusLabel`, and `hint` are total functions of the same finite readiness/conflict state.
+- The only `maxOrderQuote` interpolation sits inside the `effective === "orderQuoteFraction"` label branch and only when `maxOrderQuote > 0`, so cap-only metadata cannot create readiness or alter non-fraction copy.
+- `hint` is derived from exactly three branches: the blocking error, the precedence warning for conflicts, or `Effective sizing: ${effectiveLabel}.`; once the modeled state and `effectiveLabel` are fixed, the hint string is fixed too.
+- `haskell/web/test/utils.test.mjs` now exhaustively enumerates all 32 modeled states and asserts the exact `effectiveLabel` / `hint` outputs, with paired cap/no-cap comparisons to prove the cap-only inertness contract.
+
+## Formal numeric input fallback contract
+
+`numFromInput` in `haskell/web/src/app/utils.ts` is treated as a conservative parser for restored numeric form fields.
+
+Clauses:
+
+1. Empty or whitespace-only input keeps the supplied fallback unchanged.
+2. Unambiguous decimal-comma forms parse as decimals, including signed values and long-prefix forms such as `1234,567`.
+3. A single comma with a 1-3 digit prefix and an exactly 3-digit suffix (for example `1,234`, `12,345`, `-1,234`) is ambiguous between decimal-comma and thousands grouping, so the fallback is preserved.
+4. Explicit multi-group thousands forms such as `1,234,567` remain parseable.
+5. After normalization, only finite numeric results are accepted; non-finite results keep the fallback.
+
+Proof sketch:
+
+- `numFromInput` trims first and returns `fallback` on the empty string, so blank edits cannot overwrite a stored numeric value.
+- In the single-comma branch, the `^[-+]?\d{1,3}$` plus `^\d{3}$` ambiguity check is the path that treats `1,234`-style inputs as undecidable, and it returns `fallback` instead of rewriting the saved number.
+- Other two-part comma inputs normalize to decimal-comma forms, so explicit decimals like `1,23`, `-1,23`, `+0,125`, and `1234,567` remain parseable.
+- The explicit multi-group branch keeps standard thousands-group forms such as `1,234,567` parseable.
+- `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, decimal-comma parses, ambiguous single-comma fallback, and multi-group comma parses.
+
+## Formal persisted form restore safety
+
+`normalizeFormState` in `haskell/web/src/app/formState.ts` treats restored live-trading settings as a safety-preserving normalization step rather than a blind local-storage replay.
+
+Clauses:
+
+1. `botAdoptExistingPosition` always restores to `true`, even if older saved state persisted `false`.
+2. Non-Binance platforms always normalize `market` to `spot`.
+3. `binanceLive` can only stay enabled on live-order platforms (`binance` and `coinbase`); every other platform restores it to `false`.
+4. `binanceTestnet` can only stay enabled for Binance `spot` / `futures` restores; it always restores to `false` for non-Binance platforms and for any persisted Binance `margin` state, even when that margin state later falls back to `spot`.
+5. Binance `margin` restore state is only accepted when live trading is already enabled; otherwise normalization falls back to `market = spot` instead of implicitly enabling live mode.
+6. `tradeArmed` is only preserved for live-order platforms; non-trading platforms restore it to `false`.
+
+Proof sketch:
+
+- `normalizePlatform` first bounds the platform domain.
+- `restoredBinanceMarket` captures the bounded persisted Binance market before any safety fallback runs.
+- `market` is initialized as `spot` for every non-Binance platform, so stale `margin` and `futures` values cannot leak outside Binance.
+- `liveOrdersSupported` gates `binanceLiveCandidate`, forcing `binanceLive = false` on non-trading platforms while still allowing supported Coinbase live restores.
+- The Binance margin branch rewrites `market` back to `spot` when the restored state is `margin` without live mode, preserving the current safe fallback instead of upgrading to live orders.
+- `binanceTestnet` is gated by the original bounded Binance market, so a stale margin-only testnet toggle cannot survive either a non-Binance restore or a margin-to-spot safety fallback.
+- `tradeArmed` is gated separately to Binance and Coinbase, so a non-trading platform cannot restore an armed trade toggle.
+- The returned object overwrites any persisted value with `botAdoptExistingPosition: true`, so reloads keep orphaned-position adoption enabled by construction.
+- `haskell/web/test/utils.test.mjs` now mirrors this invariant with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix.
 
 ## Formal autoloop safety contract
 
@@ -120,7 +171,7 @@ For each position with open time `ta` and realized close time `tc`, we define an
 
 - `tm ∈ [ta, ta + 2*(tc-ta)]`
 
-`tm` is selected as the timestamp that maximizes path PnL inside that window.
+`optimalCloseObservation` first filters the PnL path to finite candidates whose timestamps stay inside that window. If `tc <= ta` or no candidate survives, no observation is emitted. Otherwise `tm` is selected as the timestamp that maximizes path PnL inside the filtered window.
 
 Close-timing selection invariant:
 
@@ -132,15 +183,23 @@ We then normalize by realized duration:
 
 - `r = (tm-ta)/(tc-ta)`, so `r ∈ [0,2]`
 
-Per combo, we estimate robust distribution statistics over `r`:
+Before fitting per-combo stats, `buildCloseTimingStats` drops any invalid stored observation:
+
+- realized duration must be positive (`tc > ta`)
+- optimal-close time must stay inside the modeled window, so normalized `r` remains in `[0,2]`
+
+For stats emitted by `buildCloseTimingStats`, we estimate robust distribution statistics over `r`:
 
 - median (`Q50`) as center
 - MAD (`median |r-Q50|`) as robust dispersion
 - interquartile band (`Q25`, `Q75`) as a policy interval
+- `boundedPercentile` clamps every percentile back into `[0,2]`, and `orderQuartiles` sorts the fitted quartiles so `0 <= Q25 <= Q50 <= Q75 <= 2`
 
 A risk-budgeted close policy is encoded as a convex blend target:
 
-- `target = (1-β)*Q50 + β*Q75`, with `β ∈ [0,1]`
+- `beta = clamp(0, 1, riskBudget)` when the supplied budget is finite; otherwise `beta = 0`
+- `closeTimingDecision` re-clamps `Q50`, promotes `Q75` to at least `Q50`, and computes `target = clampRatio ((1-beta)*Q50 + beta*Q75)`
+- therefore `target` stays finite and inside `[Q50, Q75] ⊆ [0,2]`
 
 A live position is marked close-ready when its age ratio meets or exceeds `target`.
 
@@ -155,6 +214,8 @@ Bounded-arithmetic invariant:
 2. Boundary windows such as `ta = minBound :: Int`, `tc = 0`, `tm = maxBound :: Int` remain admissible whenever they satisfy the mathematical window.
 3. Observation validity and normalized `r` use mathematical integer deltas for `tm-ta` and `tc-ta`, so full-span `Int` observations such as `ta = minBound :: Int`, `tc = maxBound :: Int`, `tm = maxBound :: Int` retain `r = 1`.
 4. Live age ratios use the same overflow-free delta arithmetic, so full-span `Int` close-readiness remains finite and depends on the modeled timestamps instead of machine-width wraparound.
+
+The regression checks in `haskell/test/TestMain.hs` cover representative window selection and the boundary risk-budget decisions (`beta = 0` and `beta = 1`). This proof sketch now also makes the invalid-sample dropping (`tc <= ta`, `tm < ta`, and `tm > ta + 2*(tc-ta)`) and non-finite-budget contract (`NaN`, `+Infinity`, and `-Infinity` normalize to the same median-target policy as `beta = 0`) explicit, matching `observationRatioParts`, `validObservation`, `decisionTargetBand`, `normalizeRiskBudget`, and `clampRatio` in `haskell/app/Trader/Formal/CloseTiming.hs`. The local `isFinite` guard in `optimalCloseObservation` also excludes non-finite PnL candidates before `tm` selection, while `normalizeRiskBudget` plus `clampRatio` keep the downstream `ctdTargetRatio` finite and bounded inside `[0,2]`, so this formatter-only repair does not change runtime behavior.
 
 ### Implementation pointers
 

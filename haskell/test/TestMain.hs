@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Main where
 
@@ -20,17 +21,19 @@ import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
-import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
+import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive, withCurrentDirectory)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 
 import Trader.App.Args (Args (..), argBinanceMarket, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parsePositioning, parseTimestampMs, validateArgs)
+import Trader.App.Env (getBuildCommit)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceMarket (..), BinanceOrderMode (..), BinanceTrade (..), Kline (..), OrderSide (..), binanceBaseUrl, newBinanceEnv, placeMarketOrder, signQuery)
 import Trader.BinanceIntervals (binanceIntervalsCsv, isBinanceInterval)
 import Trader.BotStartSemantics (botTradeEnabledFromApi, shouldClearPositionOriginOnStart, shouldPersistPositionOriginOnSwitch, shouldPreserveProvidedComboOnActiveAdopt, shouldResolveOriginComboOnAutoStart)
-import Trader.Cache (cacheSize, fetchWithCache, insertCache, newTtlCache)
+import Trader.Cache (TtlCacheStats (..), cacheSize, cacheStats, fetchWithCache, insertCache, newTtlCache, newTtlCacheWithMaxEntries)
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles, normalizeCoinbaseCandles)
 import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
@@ -199,6 +202,11 @@ main = do
               , run "cache returns stale value on quick upstream failure" testCacheQuickFailureUsesStale
               , run "cache rejects stale value after slow upstream failure" testCacheSlowFailureRejectsExpiredStale
               , run "cache prunes expired entries on access" testCachePrunesExpiredEntriesOnAccess
+              , run "cache evicts the oldest entry when max entries is exceeded" testCacheCapEvictsOldestEntry
+              , run "cache enforces max entries after pruning expired keys" testCacheCapPrunesExpiredBeforeEviction
+              , run "cache stats prune expired entries and report configured cap" testCacheStatsPruneExpiredEntries
+              , run "build commit prefers env over file" testGetBuildCommitPrefersEnv
+              , run "build commit falls back to .build-commit file" testGetBuildCommitFallsBackToFile
               , run "initial balance must be positive" testInitialBalanceValidation
               , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
               , run "bot/auto-start resolves origin combo for active adoption" testAutoStartResolvesOriginComboForActiveAdopt
@@ -444,6 +452,25 @@ withTempTestDir prefix action = do
     cleanup dir = do
         _ <- try (removeDirectoryRecursive dir) :: IO (Either SomeException ())
         pure ()
+
+withBuildCommitEnv :: [(String, Maybe String)] -> IO a -> IO a
+withBuildCommitEnv entries action = do
+    original <- mapM (\(key, _) -> fmap (key,) (lookupEnv key)) entries
+    let restore = mapM_ restoreEntry original
+    applyEntries entries
+    action `finally` restore
+  where
+    applyEntries = mapM_ setEntry
+
+    setEntry (key, mValue) =
+        case mValue of
+            Just value -> setEnv key value
+            Nothing -> unsetEnv key
+
+    restoreEntry (key, mValue) =
+        case mValue of
+            Just value -> setEnv key value
+            Nothing -> unsetEnv key
 
 parseArgs :: [String] -> IO Args
 parseArgs argv = do
@@ -2150,7 +2177,7 @@ testRetryJitterMaxDelayClamp = do
 testCacheQuickFailureUsesStale :: IO ()
 testCacheQuickFailureUsesStale = do
     cache <- newTtlCache
-    insertCache cache ("btc-usdt" :: String) (42 :: Int)
+    insertCache cache 0.2 ("btc-usdt" :: String) (42 :: Int)
     threadDelay 20000
     result <- try (fetchWithCache cache 0 0.2 "btc-usdt" (fail "upstream failed")) :: IO (Either SomeException Int)
     case result of
@@ -2160,7 +2187,7 @@ testCacheQuickFailureUsesStale = do
 testCacheSlowFailureRejectsExpiredStale :: IO ()
 testCacheSlowFailureRejectsExpiredStale = do
     cache <- newTtlCache
-    insertCache cache ("btc-usdt" :: String) (42 :: Int)
+    insertCache cache 0.1 ("btc-usdt" :: String) (42 :: Int)
     threadDelay 20000
     result <- try (fetchWithCache cache 0 0.1 "btc-usdt" (threadDelay 150000 >> fail "upstream failed")) :: IO (Either SomeException Int)
     case result of
@@ -2170,7 +2197,7 @@ testCacheSlowFailureRejectsExpiredStale = do
 testCachePrunesExpiredEntriesOnAccess :: IO ()
 testCachePrunesExpiredEntriesOnAccess = do
     cache <- newTtlCache
-    insertCache cache ("btc-usdt" :: String) (42 :: Int)
+    insertCache cache 0.05 ("btc-usdt" :: String) (42 :: Int)
     threadDelay 120000
     fetched <- fetchWithCache cache 0 0.05 "eth-usdt" (pure (7 :: Int))
     assert "cache keeps fresh fetch result after pruning expired entries" (fetched == 7)
@@ -2180,6 +2207,67 @@ testCachePrunesExpiredEntriesOnAccess = do
     case result of
         Left _ -> pure ()
         Right _ -> error "expected pruned expired cache entry to be unavailable"
+
+testCacheCapEvictsOldestEntry :: IO ()
+testCacheCapEvictsOldestEntry = do
+    cache <- newTtlCacheWithMaxEntries 2
+    insertCache cache 1 ("oldest" :: String) (1 :: Int)
+    threadDelay 20000
+    insertCache cache 1 "middle" 2
+    threadDelay 20000
+    insertCache cache 1 "newest" 3
+    size <- cacheSize cache
+    assert "cache size is capped after insert" (size == 2)
+    oldestResult <- try (fetchWithCache cache 1 1 "oldest" (fail "upstream failed")) :: IO (Either SomeException Int)
+    case oldestResult of
+        Left _ -> pure ()
+        Right _ -> error "expected oldest cache entry to be evicted"
+    middleValue <- fetchWithCache cache 1 1 "middle" (fail "unexpected miss for middle")
+    newestValue <- fetchWithCache cache 1 1 "newest" (fail "unexpected miss for newest")
+    assert "cache preserves more recent entries after eviction" (middleValue == 2 && newestValue == 3)
+
+testCacheCapPrunesExpiredBeforeEviction :: IO ()
+testCacheCapPrunesExpiredBeforeEviction = do
+    cache <- newTtlCacheWithMaxEntries 2
+    insertCache cache 0.2 ("stale" :: String) (1 :: Int)
+    threadDelay 300000
+    insertCache cache 0.2 "fresh-a" 2
+    threadDelay 20000
+    insertCache cache 0.2 "fresh-b" 3
+    size <- cacheSize cache
+    assert "cache prunes expired entries before enforcing cap" (size == 2)
+    result <- try (fetchWithCache cache 0 0.2 "stale" (fail "upstream failed")) :: IO (Either SomeException Int)
+    case result of
+        Left _ -> pure ()
+        Right _ -> error "expected expired entry to be removed before cap enforcement"
+
+testCacheStatsPruneExpiredEntries :: IO ()
+testCacheStatsPruneExpiredEntries = do
+    cache <- newTtlCacheWithMaxEntries 3
+    insertCache cache 0.05 ("btc-usdt" :: String) (42 :: Int)
+    threadDelay 70000
+    insertCache cache 0.05 "eth-usdt" 7
+    stats <- cacheStats cache 0.05
+    assert "cache stats prune expired entries" (tcsEntries stats == 1)
+    assert "cache stats expose configured cap" (tcsMaxEntries stats == Just 3)
+
+testGetBuildCommitPrefersEnv :: IO ()
+testGetBuildCommitPrefersEnv =
+    withTempTestDir "build-commit-env" $ \dir -> do
+        writeFile (dir </> ".build-commit") "file-commit\n"
+        withCurrentDirectory dir $
+            withBuildCommitEnv [("TRADER_GIT_COMMIT", Just "env-commit"), ("TRADER_COMMIT", Nothing), ("GIT_COMMIT", Nothing), ("COMMIT_SHA", Nothing), ("SOURCE_COMMIT", Nothing), ("SOURCE_VERSION", Nothing), ("GITHUB_SHA", Nothing)] $ do
+                actual <- getBuildCommit
+                assert "build commit prefers runtime env" (actual == Just "env-commit")
+
+testGetBuildCommitFallsBackToFile :: IO ()
+testGetBuildCommitFallsBackToFile =
+    withTempTestDir "build-commit-file" $ \dir -> do
+        writeFile (dir </> ".build-commit") "file-commit\n"
+        withCurrentDirectory dir $
+            withBuildCommitEnv [("TRADER_GIT_COMMIT", Nothing), ("TRADER_COMMIT", Nothing), ("GIT_COMMIT", Nothing), ("COMMIT_SHA", Nothing), ("SOURCE_COMMIT", Nothing), ("SOURCE_VERSION", Nothing), ("GITHUB_SHA", Nothing)] $ do
+                actual <- getBuildCommit
+                assert "build commit falls back to build metadata file" (actual == Just "file-commit")
 
 testInitialBalanceValidation :: IO ()
 testInitialBalanceValidation =

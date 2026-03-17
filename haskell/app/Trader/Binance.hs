@@ -47,6 +47,7 @@ module Trader.Binance (
     cancelFuturesOpenOrdersByClientPrefix,
     BinanceProxyHealth (..),
     binanceProxyHealth,
+    binanceMarketDataCacheStats,
     createListenKey,
     keepAliveListenKey,
     closeListenKey,
@@ -87,7 +88,7 @@ import Numeric (showFFloat)
 import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
-import Trader.Cache (TtlCache, fetchWithCache, insertCache, newTtlCache)
+import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insertCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
 import Trader.Text (normalizeKey)
 
@@ -284,19 +285,31 @@ binanceRecvWindowMs = "10000"
 
 {-# NOINLINE binanceTickersCache #-}
 binanceTickersCache :: TtlCache String [Ticker24h]
-binanceTickersCache = unsafePerformIO newTtlCache
+binanceTickersCache = unsafePerformIO (newTtlCacheWithMaxEntries binanceTickersMaxEntries)
 
 {-# NOINLINE binanceExchangeInfoCache #-}
 binanceExchangeInfoCache :: TtlCache String SymbolFilters
-binanceExchangeInfoCache = unsafePerformIO newTtlCache
+binanceExchangeInfoCache = unsafePerformIO (newTtlCacheWithMaxEntries binanceExchangeInfoMaxEntries)
 
 {-# NOINLINE binanceKlinesCache #-}
 binanceKlinesCache :: TtlCache String [Kline]
-binanceKlinesCache = unsafePerformIO newTtlCache
+binanceKlinesCache = unsafePerformIO (newTtlCacheWithMaxEntries binanceKlinesMaxEntries)
 
 {-# NOINLINE binanceTimeOffsetCache #-}
 binanceTimeOffsetCache :: TtlCache String Int64
-binanceTimeOffsetCache = unsafePerformIO newTtlCache
+binanceTimeOffsetCache = unsafePerformIO (newTtlCacheWithMaxEntries binanceTimeOffsetMaxEntries)
+
+binanceTickersMaxEntries :: Int
+binanceTickersMaxEntries = 16
+
+binanceExchangeInfoMaxEntries :: Int
+binanceExchangeInfoMaxEntries = 32
+
+binanceKlinesMaxEntries :: Int
+binanceKlinesMaxEntries = 128
+
+binanceTimeOffsetMaxEntries :: Int
+binanceTimeOffsetMaxEntries = 8
 
 binanceTickersFreshTtl :: NominalDiffTime
 binanceTickersFreshTtl = 10
@@ -321,6 +334,19 @@ binanceTimeOffsetFreshTtl = 10
 
 binanceTimeOffsetStaleTtl :: NominalDiffTime
 binanceTimeOffsetStaleTtl = 60
+
+binanceMarketDataCacheStats :: IO [(String, TtlCacheStats)]
+binanceMarketDataCacheStats =
+    sequence
+        [ named "binanceTickers" binanceTickersCache binanceTickersStaleTtl
+        , named "binanceExchangeInfo" binanceExchangeInfoCache binanceExchangeInfoStaleTtl
+        , named "binanceKlines" binanceKlinesCache binanceKlinesStaleTtl
+        , named "binanceTimeOffset" binanceTimeOffsetCache binanceTimeOffsetStaleTtl
+        ]
+  where
+    named label cache staleTtl = do
+        stats <- cacheStats cache staleTtl
+        pure (label, stats)
 
 newBinanceEnv :: BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnv market baseUrl apiKey apiSecret = do
@@ -945,7 +971,7 @@ getBinanceTimestampMsFresh env = do
     localMs <- getTimestampMs
     let offset = serverMs - localMs
         key = binanceTimeOffsetCacheKey env
-    insertCache binanceTimeOffsetCache key offset
+    insertCache binanceTimeOffsetCache binanceTimeOffsetStaleTtl key offset
     pure (localMs + offset)
 
 fetchBinanceServerTime :: BinanceEnv -> IO Int64

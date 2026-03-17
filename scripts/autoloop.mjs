@@ -15,6 +15,7 @@ import {
   normalizeIdeaSelection,
   normalizePatchPlan,
   parseLsRemoteBranchHead,
+  prepareShellCommand,
   sanitizeRelativePath,
   parseJsonResponse,
   resolveAutoloopBackend,
@@ -289,7 +290,7 @@ function runGh(args, opts = {}) {
 }
 
 function runBash(command, opts = {}) {
-  return runCommand("/bin/bash", ["-lc", command], opts);
+  return runCommand("/bin/bash", ["-lc", prepareShellCommand(command)], opts);
 }
 
 function commandExists(command) {
