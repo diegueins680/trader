@@ -36,6 +36,32 @@ test("normalizeFormState canonicalizes stale delimited restores for binance-like
   }
 });
 
+test("frontend symbol validation trims numeric combo suffixes for binance-like platforms", () => {
+  const cases = [
+    { platform: "binance", rawSymbol: "BTCUSDT_123", expected: "BTCUSDT" },
+    { platform: "binance", rawSymbol: "btc/usdt_123", expected: "BTCUSDT" },
+    { platform: "kraken", rawSymbol: "xbt/usd_99", expected: "XBTUSD" },
+  ];
+
+  for (const { platform, rawSymbol, expected } of cases) {
+    assert.equal(sanitizeSymbolForPlatform(platform, rawSymbol), expected);
+  }
+});
+
+test("normalizeFormState trims numeric combo suffixes during binance-like restore", () => {
+  const cases = [
+    { platform: "binance", rawSymbol: "BTCUSDT_123", expected: "BTCUSDT" },
+    { platform: "binance", rawSymbol: "btc/usdt_123", expected: "BTCUSDT" },
+    { platform: "kraken", rawSymbol: "xbt/usd_99", expected: "XBTUSD" },
+  ];
+
+  for (const { platform, rawSymbol, expected } of cases) {
+    const restored = normalizeFormState({ platform, binanceSymbol: rawSymbol });
+    assert.equal(restored.binanceSymbol, expected);
+    assert.equal(sanitizeSymbolForPlatform(platform, restored.binanceSymbol), restored.binanceSymbol);
+  }
+});
+
 test("frontend symbol validation accepts backend-compatible aliases", () => {
   assert.equal(sanitizeSymbolForPlatform("binance", "ETH/USDT"), "ETHUSDT");
   assert.equal(sanitizeSymbolForPlatform("coinbase", "ETH/USD"), "ETH-USD");
@@ -87,6 +113,36 @@ test("applyComboToForm keeps spaced delimited combo symbols instead of falling b
   const cases = [
     { id: 8, platform: "coinbase", raw: "ETH - USD", expected: "ETH-USD" },
     { id: 9, platform: "poloniex", raw: "ETH _ USDT", expected: "ETH_USDT" },
+  ];
+
+  for (const { id, platform, raw, expected } of cases) {
+    const combo = {
+      id,
+      openThreshold: defaultForm.openThreshold,
+      closeThreshold: defaultForm.closeThreshold,
+      params: {
+        platform,
+        binanceSymbol: raw,
+        interval: defaultForm.interval,
+        method: defaultForm.method,
+        positioning: defaultForm.positioning,
+        normalization: defaultForm.normalization,
+        fee: defaultForm.fee,
+        epochs: defaultForm.epochs,
+        hiddenSize: defaultForm.hiddenSize,
+      },
+    };
+    const next = applyComboToForm(defaultForm, combo, null);
+    assert.equal(next.platform, platform);
+    assert.equal(next.binanceSymbol, expected);
+  }
+});
+
+test("applyComboToForm trims numeric combo suffixes for binance-like combo imports", () => {
+  const cases = [
+    { id: 10, platform: "binance", raw: "BTCUSDT_123", expected: "BTCUSDT" },
+    { id: 11, platform: "binance", raw: "btc/usdt_123", expected: "BTCUSDT" },
+    { id: 12, platform: "kraken", raw: "xbt/usd_99", expected: "XBTUSD" },
   ];
 
   for (const { id, platform, raw, expected } of cases) {

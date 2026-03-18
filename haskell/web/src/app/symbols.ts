@@ -54,6 +54,14 @@ export function trimBinanceComboSuffix(value: string): string | null {
   return best;
 }
 
+function trimTokenizedBinanceComboSuffix(tokens: string[]): string | null {
+  if (tokens.length < 2 || tokens.length > 3) return null;
+  const suffix = tokens[tokens.length - 1] ?? "";
+  if (!/^[0-9]+$/.test(suffix)) return null;
+  const candidate = tokens.slice(0, -1).join("");
+  return BINANCE_SYMBOL_PATTERN.test(candidate) ? candidate : null;
+}
+
 function sanitizeBinanceLikeSymbol(raw: string): string | null {
   const value = normalizeSymbolText(raw);
   if (!value) return null;
@@ -63,6 +71,8 @@ function sanitizeBinanceLikeSymbol(raw: string): string | null {
   if (trimmed) return trimmed;
 
   const tokens = splitAlphaNumTokens(value);
+  const tokenTrimmed = trimTokenizedBinanceComboSuffix(tokens);
+  if (tokenTrimmed) return tokenTrimmed;
   if (tokens.length >= 2) {
     const joined = `${tokens[0]}${tokens[1]}`;
     if (tokens.length === 2 && BINANCE_SYMBOL_PATTERN.test(joined)) return joined;
