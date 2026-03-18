@@ -95,8 +95,9 @@ Clauses:
 2. Explicit same-origin path targets that already start with `/` pass through unchanged after trimming, so entries such as `/api` stay local.
 3. Bare relative targets whose first segment does not look like a host authority normalize to same-origin paths by gaining a leading slash, so inputs such as `api` and `api/v1` become `/api` and `/api/v1` instead of cross-origin URLs.
 4. Scheme-less loopback hosts (`localhost`, `127.0.0.1`, `0.0.0.0`, bare/bracketed `::1`) infer `http://`, preserving any port and trailing path suffix, so `::1/api` and `[::1]/api` stay loopback URLs instead of being rewritten as same-origin paths.
-5. Scheme-less non-loopback host-like authorities infer a scheme conservatively: default to `https://`, but use `http://` when an explicit non-`443` port is present; preserve the authority and any path suffix.
-6. Explicit URLs that already contain a scheme (`http://`, `https://`, or any other `://` form) pass through unchanged after trimming.
+5. Bare or bracketed non-loopback IPv6 literals normalize as direct hosts rather than same-origin paths: bare literals are bracketized, bracketed literals are preserved, and any trailing path suffix is preserved.
+6. Scheme-less non-loopback host-like authorities infer a scheme conservatively: default to `https://`, but use `http://` when an explicit non-`443` port is present; preserve the authority and any path suffix. For bare non-loopback IPv6 literals whose trailing `:...` segment is ambiguous, preserve direct-host intent by treating the full authority as the literal instead of guessing a port.
+7. Explicit URLs that already contain a scheme (`http://`, `https://`, or any other `://` form) pass through unchanged after trimming.
 
 Proof sketch:
 
@@ -104,9 +105,11 @@ Proof sketch:
 - The leading-slash fast path returns `/api`-style values verbatim, so explicit same-origin targets cannot be reinterpreted as hosts.
 - After trimming, the first-segment authority check only treats values containing `localhost`, a dot, or a colon as host-like; every other bare relative target falls through to `/${v}`, which preserves same-origin intent for inputs such as `api` and `api/v1`.
 - Host inference only applies after those same-origin branches; the `isLocal` predicate forces loopback authorities onto `http://`, while non-loopback host-like authorities use `https://` by default and switch to `http://` only for explicit non-`443` ports.
-- The IPv6 bracket normalization keeps bare/bracketed loopback authorities stable across `::1`, `::1/api`, `::1:PORT`, `[::1]/api`, and `[::1]:PORT`, without changing the inferred-scheme rules.
+- Because the host-like check treats any first segment containing `:` as an authority candidate, bare and bracketed non-loopback IPv6 literals stay on the direct-host path instead of falling through to same-origin `/${v}` rewriting.
+- The IPv6 bracket normalization keeps bare/bracketed loopback authorities stable across `::1`, `::1/api`, `::1:PORT`, `[::1]/api`, and `[::1]:PORT`, and it bracketizes bare non-loopback IPv6 literals so `2001:db8::1/api` remains a direct host target.
+- `portFromAuthority` only extracts IPv6 ports from bracketed authorities or the special `::1:PORT` loopback shorthand, so ambiguous bare non-loopback inputs such as `2001:db8::1:8443` preserve direct-host intent by treating the full authority as the literal, while bracketed `[2001:db8::1]:8443` still triggers the explicit non-`443` `http://` inference.
 - The `includes("://")` fast path returns any already-schemed target verbatim, which preserves explicit URLs across HTTP(S) and other URL schemes.
-- `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, `/api` passthrough, bare relative same-origin rewrites, loopback inference (including bare/bracketed `::1` path preservation), non-loopback host inference (including `example.com` and `example.com:8443`), and explicit-URL preservation.
+- `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, `/api` passthrough, bare relative same-origin rewrites, loopback inference (including bare/bracketed `::1` path preservation), non-loopback host inference (including `example.com`, bare/bracketed `2001:db8::1`, ambiguous bare `2001:db8::1:8443`, and bracketed `[2001:db8::1]:8443`), and explicit-URL preservation.
 
 ## Formal numeric input fallback contract
 

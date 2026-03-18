@@ -291,6 +291,17 @@ assert.equal(normalizeApiBaseUrlInput("example.com/api"), "https://example.com/a
 assert.equal(normalizeApiBaseUrlInput("example.com:8443"), "http://example.com:8443");
 assert.equal(normalizeApiBaseUrlInput("example.com:443/api"), "https://example.com:443/api");
 });
+test("normalizeApiBaseUrlInput preserves direct-host intent for bare and bracketed non-loopback IPv6 literals", () => {
+assert.equal(normalizeApiBaseUrlInput("2001:db8::1"), "https://[2001:db8::1]");
+assert.equal(normalizeApiBaseUrlInput("2001:db8::1/api"), "https://[2001:db8::1]/api");
+assert.equal(normalizeApiBaseUrlInput("2001:db8::1:8443"), "https://[2001:db8::1:8443]");
+assert.equal(normalizeApiBaseUrlInput("2001:db8::1:8443/api"), "https://[2001:db8::1:8443]/api");
+assert.equal(normalizeApiBaseUrlInput("[2001:db8::1]"), "https://[2001:db8::1]");
+assert.equal(normalizeApiBaseUrlInput("[2001:db8::1]/api"), "https://[2001:db8::1]/api");
+assert.equal(normalizeApiBaseUrlInput("[2001:db8::1]:8443"), "http://[2001:db8::1]:8443");
+assert.equal(normalizeApiBaseUrlInput("[2001:db8::1]:8443/api"), "http://[2001:db8::1]:8443/api");
+assert.equal(normalizeApiBaseUrlInput("[2001:db8::1]:443/api"), "https://[2001:db8::1]:443/api");
+});
 test("normalizeApiBaseUrlInput preserves bare and bracketed loopback IPv6 authorities", () => {
 assert.equal(normalizeApiBaseUrlInput("::1"), "http://[::1]");
 assert.equal(normalizeApiBaseUrlInput("::1/api"), "http://[::1]/api");
