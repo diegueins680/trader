@@ -67,6 +67,7 @@ export const CONFIG_TARGET_PAGE_MAP: Record<string, ConfigPageId> = {
   epochs: "section-risk",
   hiddenSize: "section-risk",
   botSymbols: "section-livebot",
+  orderQuote: "section-trade",
   orderQuoteFraction: "section-trade",
 };
 

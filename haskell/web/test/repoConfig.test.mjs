@@ -4,6 +4,7 @@ import test from "node:test";
 
 const cabalConfig = readFileSync(new URL("../../../.cabal/config", import.meta.url), "utf8");
 const frontendConstantsSource = readFileSync(new URL("../src/app/constants.ts", import.meta.url), "utf8");
+const configLayoutSource = readFileSync(new URL("../src/app/configLayout.ts", import.meta.url), "utf8");
 const backendBinanceIntervalsSource = readFileSync(new URL("../../app/Trader/BinanceIntervals.hs", import.meta.url), "utf8");
 
 function parseStringLiterals(source) {
@@ -16,10 +17,14 @@ function parseTsConstStringArray(source, constName) {
   return parseStringLiterals(match[1]);
 }
 
-function parseTsConstObjectKeys(source, constName) {
+function parseTsConstObjectBody(source, constName) {
   const match = source.match(new RegExp(`export const ${constName}[^=]*= \\{(.*?)\\};`, "s"));
-  assert.ok(match, `expected ${constName} const object in frontend constants`);
-  return Array.from(match[1].matchAll(/"([^"]+)":/g), ([, value]) => value);
+  assert.ok(match, `expected ${constName} const object in TypeScript source`);
+  return match[1];
+}
+
+function parseTsConstObjectKeys(source, constName) {
+  return Array.from(parseTsConstObjectBody(source, constName).matchAll(/"([^"]+)":/g), ([, value]) => value);
 }
 
 function parseHsStringList(source, bindingName) {
@@ -54,4 +59,19 @@ test("repo contract keeps frontend Binance intervals aligned with backend valida
   assertUnique(backendBinanceIntervals, "backend binanceIntervals");
   assert.deepEqual(frontendBinanceIntervals, backendBinanceIntervals);
   assert.deepEqual(frontendBinanceIntervalSecondsKeys, frontendBinanceIntervals);
+});
+
+test("repo contract routes trade sizing validation targets to trade config page", () => {
+  const targetPageMapBody = parseTsConstObjectBody(configLayoutSource, "CONFIG_TARGET_PAGE_MAP");
+
+  assert.match(
+    targetPageMapBody,
+    /orderQuote:\s*"section-trade"/,
+    "orderQuote sizing issues must route to the Trade config page",
+  );
+  assert.match(
+    targetPageMapBody,
+    /orderQuoteFraction:\s*"section-trade"/,
+    "orderQuoteFraction sizing issues must route to the Trade config page",
+  );
 });
