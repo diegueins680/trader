@@ -242,6 +242,25 @@ Proof sketch:
 - `haskell/web/test/utils.test.mjs` continues to mirror the boolean/live-trading restore invariants with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix, mixed-case/whitespace regression rows for `binanceLive`, `binanceTestnet`, `tradeArmed`, and representative boolean toggles, plus regression rows proving accepted whole-number restores and fallback behavior for those seven integer-only execution counters.
 - `haskell/web/test/formSymbolBehavior.test.mjs` adds cross-platform restore regressions proving the symbol branch: Binance-style persisted symbols fall back to Coinbase/Poloniex defaults when they cannot be sanitized for those platforms, while stale delimited Binance/Kraken restores canonicalize to platform-valid symbols.
 
+## Formal combo-market classification contract
+
+`comboMarketValue` in `haskell/web/src/app/comboMarket.ts` is treated as the single classifier for optimizer combo filtering and display labels.
+
+Clauses:
+
+1. Classification follows a fixed precedence order: `params.platform` -> non-`csv` `source` -> `csv` -> `unknown`.
+2. An explicit `params.platform` always wins, even when `source` is present and disagrees.
+3. `csv` is only returned when no explicit platform is present.
+4. Missing platform/source metadata classify as `unknown`.
+5. `comboMarketLabel` is exact for this classifier codomain: platform values use `PLATFORM_LABELS`, `csv` maps to `CSV`, and `unknown` maps to `Unknown`.
+
+Proof sketch:
+
+- `comboMarketValue` is a straight-line precedence chain, so the result is total and deterministic once `params.platform` and `source` are fixed.
+- The `source !== "csv"` guard sits inside the fallback branch after the explicit-platform check, so `csv` can only win when no platform is present and no non-CSV source exists.
+- `haskell/web/src/App.tsx` filters combos via `comboMarketValue`, and `haskell/web/src/components/TopCombosChart.tsx` now derives its title label via `comboMarketLabel(comboMarketValue(combo))`, so filter semantics and displayed market/source copy share the same classifier.
+- `haskell/web/test/formSymbolBehavior.test.mjs` bundles `comboMarket.ts` in-memory and asserts representative regression rows for explicit-platform override, non-CSV source fallback, CSV-only fallback, and unknown fallback.
+
 ## Formal API base normalization contract
 
 The web UI treats configured API bases and inferred direct-host fallbacks as a small normalization contract, so the same input always maps to the same fetch target.

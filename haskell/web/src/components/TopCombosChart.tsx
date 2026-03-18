@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import type { IntrabarFill, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { fmtPct, fmtRatio } from "../lib/format";
-import { PLATFORM_LABELS } from "../app/constants";
+import { comboMarketLabel, comboMarketValue } from "../app/comboMarket";
 import { fmtTimeMs } from "../app/utils";
 
 export type OptimizationComboParams = {
@@ -184,8 +184,7 @@ export const TopCombosChart = React.memo(function TopCombosChart({ combos, loadi
       ) : null}
       {combos.map((combo) => {
         const barsLabel = combo.params.bars <= 0 ? "auto" : combo.params.bars.toString();
-        const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
-        const sourceLabel = platform ? PLATFORM_LABELS[platform] : combo.source === "csv" ? "CSV" : "Unknown";
+        const marketLabel = comboMarketLabel(comboMarketValue(combo));
         const symbolLabel = combo.params.binanceSymbol ? combo.params.binanceSymbol : null;
         const annualizedEquity = annualizedEquityValue(combo);
         const annualizedEquityLabel = annualizedEquity != null ? fmtRatio(annualizedEquity, 4) : null;
@@ -252,7 +251,7 @@ export const TopCombosChart = React.memo(function TopCombosChart({ combos, loadi
             <div className="comboRowHeader">
               <div>
                 <div className="comboTitle">
-                  #{combo.rank ?? combo.id} · {sourceLabel}
+                  #{combo.rank ?? combo.id} · {marketLabel}
                   {symbolLabel ? ` · ${symbolLabel}` : ""}
                   {" · "}
                   {combo.params.interval} · bars={barsLabel}

@@ -1,8 +1,52 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { buildSync } from "esbuild";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { applyComboToForm, buildDefaultOptimizerRunForm, invalidSymbolsForPlatform, sanitizeSymbolForPlatform } from "../.tmp/web-tests/appHelpers.js";
 import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
 import { methodLabel } from "../.tmp/web-tests/utils.js";
+
+const testDir = dirname(fileURLToPath(import.meta.url));
+const comboMarketBundle = buildSync({
+  entryPoints: [resolve(testDir, "../src/app/comboMarket.ts")],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  write: false,
+});
+const { comboMarketLabel, comboMarketValue } = await import(
+  `data:text/javascript;base64,${Buffer.from(comboMarketBundle.outputFiles[0].text).toString("base64")}`,
+);
+
+
+test("comboMarketValue keeps explicit params.platform precedence for filtering and display", () => {
+  const cases = [
+    { combo: { params: { platform: "coinbase" }, source: "binance" }, expectedValue: "coinbase", expectedLabel: "Coinbase" },
+    { combo: { params: { platform: "kraken" }, source: "csv" }, expectedValue: "kraken", expectedLabel: "Kraken" },
+    { combo: { params: { platform: "poloniex" }, source: null }, expectedValue: "poloniex", expectedLabel: "Poloniex" },
+  ];
+
+  for (const { combo, expectedValue, expectedLabel } of cases) {
+    const market = comboMarketValue(combo);
+    assert.equal(market, expectedValue);
+    assert.equal(comboMarketLabel(market), expectedLabel);
+  }
+});
+
+test("comboMarketValue falls back from non-csv source to csv to unknown", () => {
+  const cases = [
+    { combo: { params: {}, source: "binance" }, expectedValue: "binance", expectedLabel: "Binance" },
+    { combo: { params: { platform: null }, source: "csv" }, expectedValue: "csv", expectedLabel: "CSV" },
+    { combo: { params: {}, source: null }, expectedValue: "unknown", expectedLabel: "Unknown" },
+  ];
+
+  for (const { combo, expectedValue, expectedLabel } of cases) {
+    const market = comboMarketValue(combo);
+    assert.equal(market, expectedValue);
+    assert.equal(comboMarketLabel(market), expectedLabel);
+  }
+});
 
 test("normalizeFormState canonicalizes slash-delimited symbols per platform", () => {
   assert.equal(normalizeFormState({ platform: "binance", binanceSymbol: "eth/usdt" }).binanceSymbol, "ETHUSDT");
