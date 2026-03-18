@@ -228,9 +228,13 @@ export function platformIntervalSeconds(platform: Platform, interval: string): n
   return parseDurationSeconds(interval);
 }
 
-function normalizeSymbol(raw: unknown, platform: Platform, fallback: string): string {
+function platformDefaultSymbol(platform: Platform): string {
+  return PLATFORM_DEFAULT_SYMBOL[platform];
+}
+
+function normalizeSymbol(raw: unknown, platform: Platform): string {
   const s = typeof raw === "string" ? raw : "";
-  return sanitizeSymbolForPlatform(platform, s) ?? fallback;
+  return sanitizeSymbolForPlatform(platform, s) ?? platformDefaultSymbol(platform);
 }
 
 export function parseDurationSeconds(raw: string): number | null {
@@ -408,10 +412,9 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     platform === "binance" && !restoredBinanceMargin
       ? normalizeBool(rawRec.binanceTestnet ?? merged.binanceTestnet, defaultForm.binanceTestnet)
       : false;
-  const symbolFallback =
-    sanitizeSymbolForPlatform(platform, PLATFORM_DEFAULT_SYMBOL[platform] ?? defaultForm.binanceSymbol)
-    ?? defaultForm.binanceSymbol;
-  const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform, symbolFallback);
+  // Restore-time symbol hydration must keep the field usable for the active platform:
+  // canonicalize compatible aliases and otherwise fall back to that platform's default symbol.
+  const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform);
   // Keep restored manual sizing fields numeric before the sizing UI computes badges, cap state, and trade readiness.
   const orderQuote = normalizeFiniteNumber(rawRec.orderQuote ?? merged.orderQuote, defaultForm.orderQuote, 0, 1e9);
   const orderQuantity = normalizeFiniteNumber(rawRec.orderQuantity ?? merged.orderQuantity, defaultForm.orderQuantity, 0, 1e9);

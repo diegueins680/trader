@@ -10,6 +10,32 @@ test("normalizeFormState canonicalizes slash-delimited symbols per platform", ()
   assert.equal(normalizeFormState({ platform: "poloniex", binanceSymbol: "eth/usdt" }).binanceSymbol, "ETH_USDT");
 });
 
+test("normalizeFormState falls back to platform defaults for unsanitizable cross-platform restores", () => {
+  const cases = [
+    { platform: "coinbase", rawSymbol: "BTCUSDT", expected: "BTC-USD" },
+    { platform: "poloniex", rawSymbol: "BTCUSDT", expected: "BTC_USDT" },
+  ];
+
+  for (const { platform, rawSymbol, expected } of cases) {
+    const restored = normalizeFormState({ platform, binanceSymbol: rawSymbol });
+    assert.equal(restored.binanceSymbol, expected);
+    assert.equal(sanitizeSymbolForPlatform(platform, restored.binanceSymbol), restored.binanceSymbol);
+  }
+});
+
+test("normalizeFormState canonicalizes stale delimited restores for binance-like platforms", () => {
+  const cases = [
+    { platform: "binance", rawSymbol: "btc/usdt", expected: "BTCUSDT" },
+    { platform: "kraken", rawSymbol: "eth-usdt", expected: "ETHUSDT" },
+  ];
+
+  for (const { platform, rawSymbol, expected } of cases) {
+    const restored = normalizeFormState({ platform, binanceSymbol: rawSymbol });
+    assert.equal(restored.binanceSymbol, expected);
+    assert.equal(sanitizeSymbolForPlatform(platform, restored.binanceSymbol), restored.binanceSymbol);
+  }
+});
+
 test("frontend symbol validation accepts backend-compatible aliases", () => {
   assert.equal(sanitizeSymbolForPlatform("binance", "ETH/USDT"), "ETHUSDT");
   assert.equal(sanitizeSymbolForPlatform("coinbase", "ETH/USD"), "ETH-USD");

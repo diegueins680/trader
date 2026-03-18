@@ -141,6 +141,7 @@ Clauses:
 5. Binance `margin` restore state is only accepted when live trading is already enabled; otherwise normalization falls back to `market = spot` instead of implicitly enabling live mode.
 6. `tradeArmed` is only preserved for live-order platforms; non-trading platforms restore it to `false`.
 7. Boolean-like saved strings are normalized by trimming whitespace and ASCII-case-folding before the accepted `true` / `false` / `1` / `0` check runs, so values such as `\" TRUE \"` and `\"False\"` follow the same safety gates as canonical booleans.
+8. `binanceSymbol` must restore to a symbol that the active platform sanitizer accepts unchanged; platform-compatible aliases should canonicalize, and any unsanitizable restored symbol must fall back to `PLATFORM_DEFAULT_SYMBOL[platform]`.
 
 Proof sketch:
 
@@ -152,8 +153,10 @@ Proof sketch:
 - The Binance margin branch rewrites `market` back to `spot` when the restored state is `margin` without live mode, preserving the current safe fallback instead of upgrading to live orders.
 - `binanceTestnet` is gated by the original bounded Binance market, so a stale margin-only testnet toggle cannot survive either a non-Binance restore or a margin-to-spot safety fallback.
 - `tradeArmed` is gated separately to Binance and Coinbase, so a non-trading platform cannot restore an armed trade toggle.
+- `normalizeSymbol` now returns `sanitizeSymbolForPlatform(platform, raw) ?? PLATFORM_DEFAULT_SYMBOL[platform]`, so restore-time symbol hydration is total for the active platform: compatible aliases canonicalize through the sanitizer, and unsanitizable persisted symbols fall back to the current platform default instead of surviving as invalid UI state.
 - The returned object overwrites any persisted value with `botAdoptExistingPosition: true`, so reloads keep orphaned-position adoption enabled by construction.
-- `haskell/web/test/utils.test.mjs` now mirrors this invariant with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix, including mixed-case/whitespace regression rows for `binanceLive`, `binanceTestnet`, `tradeArmed`, and representative boolean toggles.
+- `haskell/web/test/utils.test.mjs` continues to mirror the boolean/live-trading restore invariants with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix, including mixed-case/whitespace regression rows for `binanceLive`, `binanceTestnet`, `tradeArmed`, and representative boolean toggles.
+- `haskell/web/test/formSymbolBehavior.test.mjs` adds cross-platform restore regressions proving the symbol branch: Binance-style persisted symbols fall back to Coinbase/Poloniex defaults when they cannot be sanitized for those platforms, while stale delimited Binance/Kraken restores canonicalize to platform-valid symbols.
 
 ## Formal autoloop safety contract
 
