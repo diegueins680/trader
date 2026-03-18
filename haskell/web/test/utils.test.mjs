@@ -285,6 +285,28 @@ test("normalizeApiBaseUrlInput rewrites bare relative targets to same-origin pat
 assert.equal(normalizeApiBaseUrlInput("api"), "/api");
 assert.equal(normalizeApiBaseUrlInput(" api/v1 "), "/api/v1");
 });
+test("normalizeApiBaseUrlInput preserves trailing query and fragment suffixes across conservative normalization branches", () => {
+const cases = [
+{ raw: "/api?tenant=paper#mode=bot", expected: "/api?tenant=paper#mode=bot" },
+{ raw: "api?tenant=paper#mode=bot", expected: "/api?tenant=paper#mode=bot" },
+{ raw: "api/v1?tenant=paper#mode=bot", expected: "/api/v1?tenant=paper#mode=bot" },
+{ raw: "localhost?tenant=paper#mode=bot", expected: "http://localhost?tenant=paper#mode=bot" },
+{ raw: "127.0.0.1:8080?tenant=paper#mode=bot", expected: "http://127.0.0.1:8080?tenant=paper#mode=bot" },
+{ raw: "::1?tenant=paper#mode=bot", expected: "http://[::1]?tenant=paper#mode=bot" },
+{ raw: "[::1]:8080?tenant=paper#mode=bot", expected: "http://[::1]:8080?tenant=paper#mode=bot" },
+{ raw: "example.com?tenant=paper#mode=bot", expected: "https://example.com?tenant=paper#mode=bot" },
+{ raw: "example.com:8443?tenant=paper#mode=bot", expected: "http://example.com:8443?tenant=paper#mode=bot" },
+{ raw: "2001:db8::1?tenant=paper#mode=bot", expected: "https://[2001:db8::1]?tenant=paper#mode=bot" },
+{ raw: "[2001:db8::1]:8443?tenant=paper#mode=bot", expected: "http://[2001:db8::1]:8443?tenant=paper#mode=bot" },
+];
+for (const { raw, expected } of cases) {
+assert.equal(
+normalizeApiBaseUrlInput(raw),
+expected,
+`expected ${JSON.stringify(raw)} to preserve its trailing query/fragment suffix`,
+);
+}
+});
 test("normalizeApiBaseUrlInput infers schemes for non-loopback hosts", () => {
 assert.equal(normalizeApiBaseUrlInput("example.com"), "https://example.com");
 assert.equal(normalizeApiBaseUrlInput("example.com/api"), "https://example.com/api");

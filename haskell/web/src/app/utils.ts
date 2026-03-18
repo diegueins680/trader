@@ -9,9 +9,11 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   if (v.startsWith("/") || /^https?:\/\//i.test(v)) return v;
   if (v.includes("://")) return v;
 
-  const slashIdx = v.indexOf("/");
-  const authority = slashIdx === -1 ? v : v.slice(0, slashIdx);
-  const rest = slashIdx === -1 ? "" : v.slice(slashIdx);
+  const suffixIdx = [v.indexOf("/"), v.indexOf("?"), v.indexOf("#")]
+    .filter((idx) => idx >= 0)
+    .reduce((min, idx) => (idx < min ? idx : min), v.length);
+  const authority = suffixIdx === v.length ? v : v.slice(0, suffixIdx);
+  const rest = suffixIdx === v.length ? "" : v.slice(suffixIdx);
   const lowerAuthority = authority.toLowerCase();
   const looksLikeHost =
     lowerAuthority === "localhost" ||
