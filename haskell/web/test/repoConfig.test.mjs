@@ -61,6 +61,31 @@ test("repo contract keeps frontend Binance intervals aligned with backend valida
   assert.deepEqual(frontendBinanceIntervalSecondsKeys, frontendBinanceIntervals);
 });
 
+test("repo contract routes lookback and live-bot validation targets to their config pages", () => {
+  const targetPageMapBody = parseTsConstObjectBody(configLayoutSource, "CONFIG_TARGET_PAGE_MAP");
+
+  assert.match(
+    targetPageMapBody,
+    /platformKeys:\s*"section-api"/,
+    "platformKeys validation issues must route to the API config page",
+  );
+  assert.match(
+    targetPageMapBody,
+    /lookbackWindow:\s*"section-lookback"/,
+    "lookbackWindow validation issues must route to the Lookback config page",
+  );
+  assert.match(
+    targetPageMapBody,
+    /lookbackBars:\s*"section-lookback"/,
+    "lookbackBars validation issues must route to the Lookback config page",
+  );
+  assert.match(
+    targetPageMapBody,
+    /botSymbols:\s*"section-livebot"/,
+    "botSymbols validation issues must route to the Live bot config page",
+  );
+});
+
 test("repo contract routes trade sizing validation targets to trade config page", () => {
   const targetPageMapBody = parseTsConstObjectBody(configLayoutSource, "CONFIG_TARGET_PAGE_MAP");
 
