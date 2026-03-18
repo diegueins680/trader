@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
+import { transformSync } from "esbuild";
 
 const cabalConfig = readFileSync(new URL("../../../.cabal/config", import.meta.url), "utf8");
 const frontendConstantsSource = readFileSync(new URL("../src/app/constants.ts", import.meta.url), "utf8");
@@ -35,9 +37,37 @@ function parseHsStringList(source, bindingName) {
   return parseStringLiterals(match[1]);
 }
 
+function loadConfigLayoutModule() {
+  const { code } = transformSync(configLayoutSource, {
+    loader: "ts",
+    format: "cjs",
+    platform: "node",
+    target: "node20",
+  });
+  const module = { exports: {} };
+  const context = { module, exports: module.exports };
+  vm.runInNewContext(code, context, { filename: "configLayout.js" });
+  return module.exports;
+}
+
 function assertUnique(values, label) {
   assert.equal(new Set(values).size, values.length, `${label} must stay duplicate-free`);
 }
+
+function assertContainsExactly(values, expected, label) {
+  assertUnique(values, label);
+  assert.deepEqual(
+    [...values].sort(),
+    [...expected].sort(),
+    `${label} must contain each expected value exactly once`,
+  );
+}
+
+const configLayoutModule = loadConfigLayoutModule();
+const configPageIds = Array.from(configLayoutModule.CONFIG_PAGE_IDS);
+const configPanelIds = Array.from(configLayoutModule.CONFIG_PANEL_IDS);
+const configPanelDefaultPage = { ...configLayoutModule.CONFIG_PANEL_DEFAULT_PAGE };
+const configTargetPageMap = { ...configLayoutModule.CONFIG_TARGET_PAGE_MAP };
 
 test("tracked cabal config leaves machine-specific path overrides disabled", () => {
   const activeLines = cabalConfig
@@ -99,4 +129,60 @@ test("repo contract routes trade sizing validation targets to trade config page"
     /orderQuoteFraction:\s*"section-trade"/,
     "orderQuoteFraction sizing issues must route to the Trade config page",
   );
+});
+
+test("repo contract keeps config page normalization total and deterministic", () => {
+  assertUnique(configPageIds, "config page ids");
+  assertUnique(configPanelIds, "config panel ids");
+  assertContainsExactly(Object.keys(configPanelDefaultPage), configPanelIds, "config panel default-page keys");
+
+  for (const pageId of Object.values(configPanelDefaultPage)) {
+    assert.ok(configPageIds.includes(pageId), `${pageId} must remain a valid config page`);
+  }
+  for (const pageId of configPageIds) {
+    assert.equal(configLayoutModule.normalizeConfigPage(pageId), pageId);
+  }
+  for (const [panelId, pageId] of Object.entries(configPanelDefaultPage)) {
+    assert.equal(configLayoutModule.normalizeConfigPage(panelId), pageId);
+  }
+  for (const value of [undefined, null, "", "section-missing", "config-missing", 7, {}, []]) {
+    assert.equal(configLayoutModule.normalizeConfigPage(value), "section-api");
+  }
+});
+
+test("repo contract normalizes config panel restore order without duplicates or dropped panels", () => {
+  const normalized = Array.from(
+    configLayoutModule.normalizeConfigPanelOrder([
+      configPanelIds[2],
+      "invalid-panel",
+      configPanelIds[0],
+      configPanelIds[2],
+      configPanelIds[4],
+    ]),
+  );
+
+  assert.deepEqual(normalized, [
+    configPanelIds[2],
+    configPanelIds[0],
+    configPanelIds[4],
+    configPanelIds[1],
+    configPanelIds[3],
+  ]);
+  assertContainsExactly(normalized, configPanelIds, "normalized config panel order");
+  assert.deepEqual(Array.from(configLayoutModule.normalizeConfigPanelOrder(null)), configPanelIds);
+});
+
+test("repo contract resolves config page ids and validation target ids only", () => {
+  for (const pageId of Object.values(configTargetPageMap)) {
+    assert.ok(configPageIds.includes(pageId), `${pageId} must remain a valid config page`);
+  }
+  for (const pageId of configPageIds) {
+    assert.equal(configLayoutModule.resolveConfigPageForTarget(pageId), pageId);
+  }
+  for (const [targetId, pageId] of Object.entries(configTargetPageMap)) {
+    assert.equal(configLayoutModule.resolveConfigPageForTarget(targetId), pageId);
+  }
+  for (const targetId of ["", "section-missing", "config-market", "unknown-field"]) {
+    assert.equal(configLayoutModule.resolveConfigPageForTarget(targetId), null);
+  }
 });

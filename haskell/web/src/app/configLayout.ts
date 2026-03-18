@@ -20,6 +20,13 @@ export const CONFIG_PAGE_IDS: ConfigPageId[] = [
   "section-trade",
 ];
 
+const DEFAULT_CONFIG_PAGE: ConfigPageId = "section-api";
+const CONFIG_PAGE_ID_SET = new Set<ConfigPageId>(CONFIG_PAGE_IDS);
+const CONFIG_PANEL_ID_SET = new Set<ConfigPanelId>(CONFIG_PANEL_IDS);
+
+const isConfigPageId = (value: unknown) => CONFIG_PAGE_ID_SET.has(value as ConfigPageId);
+const isConfigPanelId = (value: unknown) => CONFIG_PANEL_ID_SET.has(value as ConfigPanelId);
+
 export const CONFIG_PAGE_LABELS: Record<ConfigPageId, string> = {
   "section-api": "API",
   "section-market": "Market",
@@ -45,7 +52,7 @@ export const CONFIG_PAGE_PANEL_MAP: Record<ConfigPageId, ConfigPanelId> = {
 };
 
 export const CONFIG_PANEL_DEFAULT_PAGE: Record<ConfigPanelId, ConfigPageId> = {
-  "config-access": "section-api",
+  "config-access": DEFAULT_CONFIG_PAGE,
   "config-market": "section-market",
   "config-strategy": "section-thresholds",
   "config-optimization": "section-optimizer-run",
@@ -80,37 +87,43 @@ export const CONFIG_PANEL_HEIGHTS: Record<ConfigPanelId, string> = {
 };
 
 export const normalizeConfigPage = (page: unknown): ConfigPageId => {
-  if (CONFIG_PAGE_IDS.includes(page as ConfigPageId)) {
+  if (isConfigPageId(page)) {
     return page as ConfigPageId;
   }
-  if (CONFIG_PANEL_IDS.includes(page as ConfigPanelId)) {
+  if (isConfigPanelId(page)) {
     return CONFIG_PANEL_DEFAULT_PAGE[page as ConfigPanelId];
   }
-  return "section-api";
+  return DEFAULT_CONFIG_PAGE;
 };
 
 export const normalizeConfigPanelOrder = (order: unknown): ConfigPanelId[] => {
+  if (!Array.isArray(order)) {
+    return [...CONFIG_PANEL_IDS];
+  }
+
   const seen = new Set<ConfigPanelId>();
   const out: ConfigPanelId[] = [];
-  if (Array.isArray(order)) {
-    for (const value of order) {
-      if (CONFIG_PANEL_IDS.includes(value as ConfigPanelId)) {
-        const id = value as ConfigPanelId;
-        if (!seen.has(id)) {
-          seen.add(id);
-          out.push(id);
-        }
-      }
+  for (const value of order) {
+    if (!isConfigPanelId(value)) {
+      continue;
     }
+    const id = value as ConfigPanelId;
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    out.push(id);
   }
   for (const id of CONFIG_PANEL_IDS) {
-    if (!seen.has(id)) out.push(id);
+    if (!seen.has(id)) {
+      out.push(id);
+    }
   }
   return out;
 };
 
 export const resolveConfigPageForTarget = (targetId: string): ConfigPageId | null => {
-  if (CONFIG_PAGE_IDS.includes(targetId as ConfigPageId)) {
+  if (isConfigPageId(targetId)) {
     return targetId as ConfigPageId;
   }
   return CONFIG_TARGET_PAGE_MAP[targetId] ?? null;
