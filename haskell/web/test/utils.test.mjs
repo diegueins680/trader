@@ -166,6 +166,72 @@ function assertSizingStatusAndHintContract(state, context) {
   assert.equal(state.statusLabel, expectedStatusLabel, `${context}: expected status label to follow the sizing contract`);
   assert.equal(state.hint, expectedHint, `${context}: expected hint to follow the sizing contract`);
 }
+function orphanReasonTestPosition(posSideKnown) {
+  return posSideKnown
+    ? { symbol: "BTCUSDT", positionAmt: 1, positionSide: "LONG" }
+    : { symbol: "BTCUSDT", positionAmt: 0, positionSide: null };
+}
+
+function orphanReasonSidePositions(botSide) {
+  return botSide === "match" ? [1] : botSide === "mismatch" ? [-1] : [0];
+}
+
+function orphanReasonScopedStatus({ lifecycle, marketScope, tradeEnabled, botSide }) {
+  const sidePositions = orphanReasonSidePositions(botSide);
+  const market = marketScope === "target-only" ? "futures" : undefined;
+
+  if (lifecycle === "running") {
+    return {
+      running: true,
+      ...(market ? { market } : {}),
+      positions: sidePositions,
+      settings: { tradeEnabled },
+    };
+  }
+
+  return {
+    running: false,
+    ...(lifecycle === "starting" ? { starting: true } : {}),
+    ...(market ? { market } : {}),
+    snapshot: {
+      ...(market ? { market } : {}),
+      positions: sidePositions,
+      settings: { tradeEnabled },
+    },
+  };
+}
+
+function expectedOrphanReason({ marketScope, lifecycle, tradeEnabled, posSideKnown, botSide }) {
+  const hasScopedStatus =
+    marketScope === "target-only" || marketScope === "unknown-only" || marketScope === "unknown+other";
+  const hasOtherMarketStatus = marketScope === "other-only" || marketScope === "unknown+other";
+  if (!hasScopedStatus) return hasOtherMarketStatus ? "market mismatch" : "no bot";
+  if (lifecycle === "stopped") return "bot stopped";
+  if (!tradeEnabled) return "trading disabled";
+  if (!posSideKnown) return "position side unknown";
+  if (botSide === "match" || botSide === "unknown") return null;
+  return "side mismatch (bot SHORT)";
+}
+
+function buildOrphanReasonMatrixCase({ marketScope, lifecycle, tradeEnabled, posSideKnown, botSide }) {
+  const position = orphanReasonTestPosition(posSideKnown);
+  const botEntries = [];
+  let scopedStatus = null;
+
+  if (marketScope === "target-only" || marketScope === "unknown-only" || marketScope === "unknown+other") {
+    scopedStatus = orphanReasonScopedStatus({ lifecycle, marketScope, tradeEnabled, botSide });
+    botEntries.push({ symbol: position.symbol, status: scopedStatus });
+  }
+
+  if (marketScope === "other-only" || marketScope === "unknown+other") {
+    botEntries.push({
+      symbol: position.symbol,
+      status: { running: true, market: "spot", positions: [1], settings: { tradeEnabled: true } },
+    });
+  }
+
+  return { position, botEntries, scopedStatus };
+}
 test("buildRequestIssueDetails returns empty when clean", () => {
 assert.deepEqual(buildRequestIssueDetails({}), []);
 });
@@ -272,6 +338,46 @@ const orphans = buildOrphanedPositions(positions, bots, { market: "futures" });
 assert.equal(orphans.length, 1);
 assert.equal(orphans[0]?.reason, "bot stopped");
 assert.equal(orphans[0]?.status, stoppedStatus);
+});
+
+test("buildOrphanedPositions preserves precedence across a bounded orphan state matrix", () => {
+const marketScopes = ["none", "other-only", "target-only", "unknown-only", "unknown+other"];
+const lifecycles = ["stopped", "starting", "running"];
+const tradeEnabledStates = [false, true];
+const posSideKnownStates = [false, true];
+const botSides = ["match", "mismatch", "unknown"];
+
+for (const marketScope of marketScopes) {
+for (const lifecycle of lifecycles) {
+for (const tradeEnabled of tradeEnabledStates) {
+for (const posSideKnown of posSideKnownStates) {
+for (const botSide of botSides) {
+const context = `marketScope=${marketScope}, lifecycle=${lifecycle}, tradeEnabled=${tradeEnabled}, posSideKnown=${posSideKnown}, botSide=${botSide}`;
+const expectedReason = expectedOrphanReason({ marketScope, lifecycle, tradeEnabled, posSideKnown, botSide });
+const { position, botEntries, scopedStatus } = buildOrphanReasonMatrixCase({
+marketScope,
+lifecycle,
+tradeEnabled,
+posSideKnown,
+botSide,
+});
+const orphans = buildOrphanedPositions([position], botEntries, { market: "futures" });
+if (expectedReason == null) {
+assert.equal(orphans.length, 0, `${context}: expected adopted/reconciling state to suppress orphan warnings`);
+continue;
+}
+assert.equal(orphans.length, 1, `${context}: expected a single classified orphan`);
+assert.equal(orphans[0]?.reason, expectedReason, `${context}: expected precedence-ordered orphan reason`);
+assert.equal(
+orphans[0]?.status,
+scopedStatus,
+`${context}: expected representative status to stay tied to the in-scope bot evidence`,
+);
+}
+}
+}
+}
+}
 });
 test("normalizeApiBaseUrlInput keeps relative proxy paths relative and preserves explicit URLs", () => {
   const cases = [

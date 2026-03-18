@@ -85,6 +85,40 @@ Proof sketch:
 - `hint` is derived from exactly three branches: the blocking error, the precedence warning for conflicts, or `Effective sizing: ${effectiveLabel}.`; once the modeled state and `effectiveLabel` are fixed, the hint string is fixed too.
 - `haskell/web/test/utils.test.mjs` now exhaustively enumerates all 32 modeled states and asserts the exact `effectiveLabel` / `hint` outputs, with paired cap/no-cap comparisons to prove the cap-only inertness contract.
 
+## Formal orphaned-position classification contract
+
+`buildOrphanedPositions` in `haskell/web/src/app/utils.ts` is treated as a precedence-ordered classifier for the orphaned-operations panel.
+
+Clauses:
+
+1. Market scoping is symbol-local: exact target-market bots and unknown-market snapshots remain in scope for the requested panel market, while same-symbol bots from a different explicit market only contribute fallback `market mismatch` evidence.
+2. Adoption is reconcile-first: trade-enabled running bots with a matching side are adopted, and trade-enabled running or starting bots with no known internal side are also treated as adopted/reconciling when the position side is known, so flat or initializing bots do not surface false orphan warnings.
+3. Once a position is not adopted, the displayed reason string follows a total precedence order: `market mismatch` -> `bot stopped` -> `trading disabled` -> `position side unknown` -> `bot side unknown` -> `side mismatch (bot ...)` -> `no bot`.
+4. Other-market evidence is only allowed to win when there is no in-scope status for the symbol; stopped or active unknown-market snapshots must outrank same-symbol other-market bots.
+5. The representative `status` attached to an orphan stays tied to the in-scope status set: prefer a running status, otherwise an in-scope active status, otherwise the first in-scope stopped snapshot; pure `market mismatch` / `no bot` cases keep `status = null`.
+
+The verifier in `haskell/web/test/utils.test.mjs` now checks this contract with a bounded orphan-state matrix (`180` states):
+
+- `marketScope \u2208 {none, other-only, target-only, unknown-only, unknown+other}`
+- `lifecycle \u2208 {stopped, starting, running}`
+- `tradeEnabled \u2208 {false, true}`
+- `positionSideKnown \u2208 {false, true}`
+- `botSide \u2208 {match, mismatch, unknown}`
+
+For every state, it checks:
+
+1. Adopted/reconciling states return no orphan row.
+2. Non-adopted states return exactly one orphan row with the precedence-ordered reason.
+3. Unknown-market stopped snapshots keep beating same-symbol other-market evidence.
+4. The representative `status` remains the in-scope status for scoped states and `null` for pure `market mismatch` / `no bot` states.
+
+Proof sketch:
+
+- `buildOrphanedPositions` partitions bot evidence into an in-scope `statusesBySymbol` map and an `otherMarketSymbols` set. Because the market filter only excludes explicit non-target markets, unknown-market snapshots stay in scope instead of being downgraded into `market mismatch` evidence.
+- The adoption check runs before the reason chain and treats running/starting bots with no known internal side as adopted whenever the position side is known, preserving the current flat/startup suppression behavior.
+- The remaining `if` / `else if` chain is a fixed ordered precedence model: market scope first, then lifecycle, trade-enabled state, position-side knowledge, bot-side knowledge, and finally side mismatch or no bot.
+- `haskell/web/test/utils.test.mjs` mirrors the contract with the bounded 5 x 3 x 2 x 2 x 3 enumeration plus targeted regressions for hedge-side mismatches, flat-running adoption, starting adoption, and stopped unknown-market precedence.
+
 ## Formal API base normalization contract
 
 `normalizeApiBaseUrlInput` in `haskell/web/src/app/utils.ts` is treated as a conservative normalizer for the manual API-base field in the web UI.
