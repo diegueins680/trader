@@ -426,15 +426,15 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   );
   const maxOrderQuote = normalizeFiniteNumber(rawRec.maxOrderQuote ?? merged.maxOrderQuote, defaultForm.maxOrderQuote, 0, 1e9);
   // Integer-only bar/count controls and live-bot poll cadence should not reopen with
-  // fractional values that the UI later truncates differently when building requests.
+  // fractional or over-cap values that the UI later clamps differently when building requests.
   const minHoldBars = normalizeWholeNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1_000_000);
   const maxHoldBars = normalizeWholeNumber(rawRec.maxHoldBars ?? merged.maxHoldBars, defaultForm.maxHoldBars, 0, 1_000_000);
   const cooldownBars = normalizeWholeNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1_000_000);
   const maxOrderErrors = normalizeWholeNumber(rawRec.maxOrderErrors ?? merged.maxOrderErrors, defaultForm.maxOrderErrors, 0, 1_000_000);
-  const trendLookback = normalizeWholeNumber(rawRec.trendLookback ?? merged.trendLookback, defaultForm.trendLookback, 0, 1e9);
+  const trendLookback = normalizeWholeNumber(rawRec.trendLookback ?? merged.trendLookback, defaultForm.trendLookback, 0, 1_000_000);
   const volLookback = normalizeWholeNumber(rawRec.volLookback ?? merged.volLookback, defaultForm.volLookback, 0, 1e9);
   const rebalanceBars = normalizeWholeNumber(rawRec.rebalanceBars ?? merged.rebalanceBars, defaultForm.rebalanceBars, 0, 1e9);
-  const routerLookback = normalizeWholeNumber(rawRec.routerLookback ?? merged.routerLookback, defaultForm.routerLookback, 2, 1e9);
+  const routerLookback = normalizeWholeNumber(rawRec.routerLookback ?? merged.routerLookback, defaultForm.routerLookback, 2, 1_000_000);
   const botPollSeconds = normalizeWholeNumber(rawRec.botPollSeconds ?? merged.botPollSeconds, defaultForm.botPollSeconds, 0, 3600);
   const botOnlineEpochs = normalizeWholeNumber(
     rawRec.botOnlineEpochs ?? merged.botOnlineEpochs,
@@ -493,7 +493,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     tuneStressVolMult: normalizeFiniteNumber(rawRec.tuneStressVolMult ?? merged.tuneStressVolMult, defaultForm.tuneStressVolMult, 0, 1e9),
     tuneStressShock: normalizeFiniteNumber(rawRec.tuneStressShock ?? merged.tuneStressShock, defaultForm.tuneStressShock, -1e9, 1e9),
     tuneStressWeight: normalizeFiniteNumber(rawRec.tuneStressWeight ?? merged.tuneStressWeight, defaultForm.tuneStressWeight, 0, 1e9),
-    minRoundTrips: normalizeWholeNumber(rawRec.minRoundTrips ?? merged.minRoundTrips, defaultForm.minRoundTrips, 0, 1e9),
+    minRoundTrips: normalizeWholeNumber(rawRec.minRoundTrips ?? merged.minRoundTrips, defaultForm.minRoundTrips, 0, 1_000_000),
     walkForwardFolds: normalizeWholeNumber(rawRec.walkForwardFolds ?? merged.walkForwardFolds, defaultForm.walkForwardFolds, 1, 1000),
     walkForwardEmbargoBars: normalizeWholeNumber(
       rawRec.walkForwardEmbargoBars ?? merged.walkForwardEmbargoBars,

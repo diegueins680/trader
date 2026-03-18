@@ -223,6 +223,52 @@ test("coinbase restores keep live-order mode enabled", () => {
   assert.equal(restored.tradeArmed, true);
 });
 
+test("normalizeFormState keeps representative whole-number restores aligned with emitted request bounds", () => {
+  const restored = normalizeFormState({
+    trendLookback: "1000001",
+    routerLookback: "1000001",
+    minRoundTrips: "1000001",
+    walkForwardFolds: "0",
+    walkForwardEmbargoBars: "-5",
+    botPollSeconds: "3605",
+    botTrainBars: "5",
+    botMaxPoints: "100001",
+  });
+
+  assert.equal(restored.trendLookback, 1_000_000);
+  assert.equal(restored.routerLookback, 1_000_000);
+  assert.equal(restored.minRoundTrips, 1_000_000);
+  assert.equal(restored.walkForwardFolds, 1);
+  assert.equal(restored.walkForwardEmbargoBars, 0);
+  assert.equal(restored.botPollSeconds, 3600);
+  assert.equal(restored.botTrainBars, 10);
+  assert.equal(restored.botMaxPoints, 100_000);
+});
+
+test("normalizeFormState falls back from representative fractional legacy saved states on integer-backed fields", () => {
+  const restored = normalizeFormState({
+    trendLookback: "45.5",
+    routerLookback: 12.25,
+    minRoundTrips: "9.5",
+    walkForwardFolds: 6.5,
+    walkForwardEmbargoBars: "3.25",
+    botPollSeconds: "60.5",
+    botOnlineEpochs: 4.5,
+    botTrainBars: "1200.25",
+    botMaxPoints: 2500.5,
+  });
+
+  assert.equal(restored.trendLookback, defaultForm.trendLookback);
+  assert.equal(restored.routerLookback, defaultForm.routerLookback);
+  assert.equal(restored.minRoundTrips, defaultForm.minRoundTrips);
+  assert.equal(restored.walkForwardFolds, defaultForm.walkForwardFolds);
+  assert.equal(restored.walkForwardEmbargoBars, defaultForm.walkForwardEmbargoBars);
+  assert.equal(restored.botPollSeconds, defaultForm.botPollSeconds);
+  assert.equal(restored.botOnlineEpochs, defaultForm.botOnlineEpochs);
+  assert.equal(restored.botTrainBars, defaultForm.botTrainBars);
+  assert.equal(restored.botMaxPoints, defaultForm.botMaxPoints);
+});
+
 test("rebalance cost defaults stay aligned with backend defaults", () => {
   assert.equal(defaultForm.rebalanceCostMult, 0);
   const optimizerDefaults = buildDefaultOptimizerRunForm("BTCUSDT", "binance");
