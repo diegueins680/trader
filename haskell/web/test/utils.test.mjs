@@ -232,6 +232,65 @@ function buildOrphanReasonMatrixCase({ marketScope, lifecycle, tradeEnabled, pos
 
   return { position, botEntries, scopedStatus };
 }
+const REQUEST_ISSUE_SYMBOL_REQUIRED = "Symbol is required.";
+const REQUEST_ISSUE_INTERVAL_REQUIRED = "Interval is required.";
+
+function expectedRequestIssueDetailsModel(input) {
+  const issues = [];
+  if (input.rateLimitReason) issues.push({ kind: "rateLimit", message: input.rateLimitReason });
+  if (input.apiStatusIssue) {
+    issues.push({
+      kind: "apiStatus",
+      message: input.apiStatusIssue,
+      targetId: input.apiTargetId,
+      disabledMessage: input.apiBlockedReason ?? input.apiStatusIssue,
+    });
+  }
+  if (input.missingSymbol) {
+    issues.push({
+      kind: "symbol",
+      message: REQUEST_ISSUE_SYMBOL_REQUIRED,
+      targetId: input.symbolTargetId,
+    });
+  } else if (input.symbolError) {
+    issues.push({
+      kind: "symbol",
+      message: input.symbolError,
+      targetId: input.symbolTargetId,
+    });
+  }
+  if (input.missingInterval) {
+    issues.push({
+      kind: "interval",
+      message: REQUEST_ISSUE_INTERVAL_REQUIRED,
+      targetId: input.intervalTargetId,
+    });
+  }
+  if (input.lookbackError) {
+    issues.push({
+      kind: "lookback",
+      message: input.lookbackError,
+      targetId: input.lookbackTargetId,
+    });
+  }
+  if (input.apiLimitsReason) {
+    issues.push({
+      kind: "apiLimits",
+      message: input.apiLimitsReason,
+      targetId: input.apiLimitsTargetId,
+    });
+  }
+  return issues;
+}
+
+function stripRequestIssueKinds(issues) {
+  return issues.map(({ kind, ...issue }) => issue);
+}
+
+function firstActionableTargetId(issues) {
+  return issues.find((issue) => issue.targetId)?.targetId ?? null;
+}
+
 test("buildRequestIssueDetails returns empty when clean", () => {
 assert.deepEqual(buildRequestIssueDetails({}), []);
 });
@@ -274,6 +333,174 @@ lookbackError: undefined,
 apiLimitsReason: undefined,
 });
 assert.deepEqual(issues, []);
+});
+test("buildRequestIssueDetails preserves the documented request-issue contract across a bounded matrix", () => {
+const rateLimitStates = [
+{ label: "absent", fields: { rateLimitReason: undefined } },
+{ label: "present", fields: { rateLimitReason: "rate limit" } },
+];
+const apiStatusStates = [
+{ label: "absent", fields: { apiStatusIssue: undefined, apiBlockedReason: undefined } },
+{ label: "issue", fields: { apiStatusIssue: "api down", apiBlockedReason: undefined } },
+{ label: "blocked", fields: { apiStatusIssue: "api down", apiBlockedReason: "api blocked" } },
+];
+const symbolStates = [
+{ label: "absent", fields: { missingSymbol: false, symbolError: undefined } },
+{ label: "missing", fields: { missingSymbol: true, symbolError: undefined } },
+{ label: "error", fields: { missingSymbol: false, symbolError: "symbol issue" } },
+{ label: "both", fields: { missingSymbol: true, symbolError: "symbol issue" } },
+];
+const intervalStates = [
+{ label: "absent", fields: { missingInterval: false } },
+{ label: "present", fields: { missingInterval: true } },
+];
+const lookbackStates = [
+{ label: "absent", fields: { lookbackError: undefined } },
+{ label: "present", fields: { lookbackError: "lookback issue" } },
+];
+const apiLimitsStates = [
+{ label: "absent", fields: { apiLimitsReason: undefined } },
+{ label: "present", fields: { apiLimitsReason: "limits issue" } },
+];
+const baseInput = {
+apiTargetId: "api",
+symbolTargetId: "symbol",
+intervalTargetId: "interval",
+lookbackTargetId: "lookbackWindow",
+apiLimitsTargetId: "bars",
+};
+
+for (const rateLimitState of rateLimitStates) {
+for (const apiStatusState of apiStatusStates) {
+for (const symbolState of symbolStates) {
+for (const intervalState of intervalStates) {
+for (const lookbackState of lookbackStates) {
+for (const apiLimitsState of apiLimitsStates) {
+const context = [
+"rateLimit=" + rateLimitState.label,
+"apiStatus=" + apiStatusState.label,
+"symbol=" + symbolState.label,
+"interval=" + intervalState.label,
+"lookback=" + lookbackState.label,
+"apiLimits=" + apiLimitsState.label,
+].join(", " );
+const input = {
+...baseInput,
+...rateLimitState.fields,
+...apiStatusState.fields,
+...symbolState.fields,
+...intervalState.fields,
+...lookbackState.fields,
+...apiLimitsState.fields,
+};
+const expected = expectedRequestIssueDetailsModel(input);
+const expectedIssues = stripRequestIssueKinds(expected);
+const issues = buildRequestIssueDetails(input);
+assert.deepEqual(issues, expectedIssues, context + ": expected request issues to match the documented contract");
+assert.equal(
+firstActionableTargetId(issues),
+firstActionableTargetId(expectedIssues),
+context + ": expected first actionable target to follow the documented priority",
+);
+for (let i = 0; i < issues.length; i += 1) {
+assert.equal(
+issues[i]?.disabledMessage,
+expected[i]?.kind === "apiStatus" ? input.apiBlockedReason ?? input.apiStatusIssue : undefined,
+context + ": only the API-status row may surface disabledMessage",
+);
+}
+}
+}
+}
+}
+}
+}
+});
+test("buildRequestIssueDetails keeps focus on the first actionable issue across sparse targets", () => {
+const targetStates = [
+{ label: "missing", value: undefined },
+{ label: "present", value: true },
+];
+
+for (const apiTarget of targetStates) {
+for (const symbolTarget of targetStates) {
+for (const intervalTarget of targetStates) {
+for (const lookbackTarget of targetStates) {
+for (const apiLimitsTarget of targetStates) {
+const context = [
+"api=" + apiTarget.label,
+"symbol=" + symbolTarget.label,
+"interval=" + intervalTarget.label,
+"lookback=" + lookbackTarget.label,
+"apiLimits=" + apiLimitsTarget.label,
+].join(", " );
+const issues = buildRequestIssueDetails({
+rateLimitReason: "rate limit",
+apiStatusIssue: "api down",
+apiBlockedReason: "api blocked",
+apiTargetId: apiTarget.value ? "api" : undefined,
+missingSymbol: true,
+symbolTargetId: symbolTarget.value ? "symbol" : undefined,
+missingInterval: true,
+intervalTargetId: intervalTarget.value ? "interval" : undefined,
+lookbackError: "lookback issue",
+lookbackTargetId: lookbackTarget.value ? "lookbackWindow" : undefined,
+apiLimitsReason: "limits issue",
+apiLimitsTargetId: apiLimitsTarget.value ? "bars" : undefined,
+});
+const expectedFirstTarget = [
+apiTarget.value ? "api" : undefined,
+symbolTarget.value ? "symbol" : undefined,
+intervalTarget.value ? "interval" : undefined,
+lookbackTarget.value ? "lookbackWindow" : undefined,
+apiLimitsTarget.value ? "bars" : undefined,
+].find((value) => value) ?? null;
+assert.equal(
+firstActionableTargetId(issues),
+expectedFirstTarget,
+context + ": expected focus to stay on the first actionable issue",
+);
+}
+}
+}
+}
+}
+});
+test("buildRequestIssueDetails ignores falsy optional issue inputs and keeps apiBlockedReason inert on its own", () => {
+const falsyValues = [undefined, null, ""];
+for (const rateLimitReason of falsyValues) {
+for (const apiStatusIssue of falsyValues) {
+for (const symbolError of falsyValues) {
+for (const lookbackError of falsyValues) {
+for (const apiLimitsReason of falsyValues) {
+const context = [
+"rateLimit=" + String(rateLimitReason),
+"apiStatus=" + String(apiStatusIssue),
+"symbol=" + String(symbolError),
+"lookback=" + String(lookbackError),
+"apiLimits=" + String(apiLimitsReason),
+].join(", " );
+const issues = buildRequestIssueDetails({
+rateLimitReason,
+apiStatusIssue,
+apiBlockedReason: "api blocked only",
+apiTargetId: "api",
+missingSymbol: false,
+symbolError,
+symbolTargetId: "symbol",
+missingInterval: false,
+intervalTargetId: "interval",
+lookbackError,
+lookbackTargetId: "lookbackWindow",
+apiLimitsReason,
+apiLimitsTargetId: "bars",
+});
+assert.deepEqual(issues, [], context + ": expected falsy issue sources to stay inert");
+}
+}
+}
+}
+}
 });
 test("buildOrphanedPositions flags missing bots and matches hedge sides", () => {
 const positions = [

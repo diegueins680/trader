@@ -119,6 +119,46 @@ Proof sketch:
 - The remaining `if` / `else if` chain is a fixed ordered precedence model: market scope first, then lifecycle, trade-enabled state, position-side knowledge, bot-side knowledge, and finally side mismatch or no bot.
 - `haskell/web/test/utils.test.mjs` mirrors the contract with the bounded 5 x 3 x 2 x 2 x 3 enumeration plus targeted regressions for hedge-side mismatches, flat-running adoption, starting adoption, and stopped unknown-market precedence.
 
+## Formal request-issue ordering contract
+
+`buildRequestIssueDetails` in `haskell/web/src/app/utils.ts` is treated as a straight-line request-validation contract for the web UI fetch/action gating.
+
+Clauses:
+
+1. Issue rows are emitted in a fixed priority order: `rateLimit -> apiStatus -> symbol -> interval -> lookback -> apiLimits`.
+2. The symbol branch is mutually exclusive: `missingSymbol` emits `Symbol is required.` and suppresses `symbolError`; otherwise a truthy `symbolError` emits the symbol row.
+3. Falsy optional inputs never emit rows, and `apiBlockedReason` by itself is inert when `apiStatusIssue` is absent.
+4. `disabledMessage` is only attached to the API-status row, where it equals `apiBlockedReason ?? apiStatusIssue`.
+5. The first actionable `targetId` is the first populated target in that same row order, so untargetable rows such as `rateLimit` do not steal focus from later actionable issues.
+
+The verifier in `haskell/web/test/utils.test.mjs` now checks this contract with:
+
+- a bounded issue-presence matrix (`192` states):
+  - `rateLimit ∈ {absent, present}`
+  - `apiStatus ∈ {absent, issue, blocked}`
+  - `symbol ∈ {absent, missing, error, both}`
+  - `interval ∈ {absent, present}`
+  - `lookback ∈ {absent, present}`
+  - `apiLimits ∈ {absent, present}`
+- a sparse-target matrix (`32` states) over present/absent target IDs for the actionable rows
+- a falsy-input inertness matrix (`243` states) over `rateLimitReason`, `apiStatusIssue`, `symbolError`, `lookbackError`, and `apiLimitsReason` in {`undefined`, `null`, `""`} with `apiBlockedReason` set but no other enabled issue
+
+For every state, it checks:
+
+1. The emitted row list matches the documented order and per-row message contract.
+2. Missing-symbol rows beat symbol-error rows.
+3. Falsy issue inputs create no rows.
+4. `apiBlockedReason` only affects the API-status row `disabledMessage`.
+5. The first actionable `targetId` matches the first populated target in precedence order.
+
+Proof sketch:
+
+- `buildRequestIssueDetails` is straight-line code that appends to a single `issues` array, so emitted order is exactly the source branch order.
+- The symbol branch uses `if (missingSymbol) ... else if (symbolError) ...`, which makes the missing-symbol row dominate symbol-error output by construction.
+- `disabledMessage` only appears inside the API-status push branch; no other branch assigns it.
+- Every other row is gated by a direct truthiness check, so falsy optional inputs are inert, and `apiBlockedReason` cannot create a row without the enclosing `apiStatusIssue` branch.
+- Because only the actionable rows carry `targetId`, and they are appended in precedence order, the UI first actionable target is simply the first emitted row with a populated `targetId`.
+
 ## Formal API base normalization contract
 
 `normalizeApiBaseUrlInput` in `haskell/web/src/app/utils.ts` is treated as a conservative normalizer for the manual API-base field in the web UI.
