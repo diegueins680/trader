@@ -273,9 +273,24 @@ assert.equal(orphans.length, 1);
 assert.equal(orphans[0]?.reason, "bot stopped");
 assert.equal(orphans[0]?.status, stoppedStatus);
 });
-test("normalizeApiBaseUrlInput normalizes blank input to empty string", () => {
-assert.equal(normalizeApiBaseUrlInput(""), "");
-assert.equal(normalizeApiBaseUrlInput("   "), "");
+test("normalizeApiBaseUrlInput keeps relative proxy paths relative and preserves explicit URLs", () => {
+  const cases = [
+    ["", ""],
+    ["   ", ""],
+    ["/api", "/api"],
+    [" /api/v1?symbol=BTCUSDT ", "/api/v1?symbol=BTCUSDT"],
+    ["api", "/api"],
+    [" api/v1 ", "/api/v1"],
+    ["healthz", "/healthz"],
+    ["https://api.example.com/base", "https://api.example.com/base"],
+    ["http://localhost:8080/api", "http://localhost:8080/api"],
+    [" HTTP://LOCALHOST:8080/api ", "HTTP://LOCALHOST:8080/api"],
+    ["ws://feed.example.com/socket", "ws://feed.example.com/socket"],
+  ];
+
+  for (const [raw, expected] of cases) {
+    assert.equal(normalizeApiBaseUrlInput(raw), expected, `expected ${JSON.stringify(raw)} to normalize to ${expected}`);
+  }
 });
 test("normalizeApiBaseUrlInput preserves explicit same-origin paths", () => {
 assert.equal(normalizeApiBaseUrlInput("/api"), "/api");
@@ -342,6 +357,28 @@ assert.equal(normalizeApiBaseUrlInput("https://api.example.com/v1"), "https://ap
 assert.equal(normalizeApiBaseUrlInput(" HTTP://LOCALHOST:8080/api "), "HTTP://LOCALHOST:8080/api");
 assert.equal(normalizeApiBaseUrlInput("ws://feed.example.com/socket"), "ws://feed.example.com/socket");
 });
+test("normalizeApiBaseUrlInput normalizes loopback and host-like inputs deterministically", () => {
+  const cases = [
+    ["localhost", "http://localhost"],
+    ["localhost/api", "http://localhost/api"],
+    ["localhost:443", "http://localhost:443"],
+    ["127.0.0.1", "http://127.0.0.1"],
+    ["127.0.0.1:9000/health", "http://127.0.0.1:9000/health"],
+    ["0.0.0.0:8080", "http://0.0.0.0:8080"],
+    ["::1", "http://[::1]"],
+    ["::1:8080", "http://[::1]:8080"],
+    ["[::1]:443/api", "http://[::1]:443/api"],
+    ["example.com", "https://example.com"],
+    ["example.com/api", "https://example.com/api"],
+    ["example.com:443/api", "https://example.com:443/api"],
+    ["example.com:8443/api", "http://example.com:8443/api"],
+    ["2001:db8::1", "https://[2001:db8::1]"],
+  ];
+
+  for (const [raw, expected] of cases) {
+    assert.equal(normalizeApiBaseUrlInput(raw), expected, `expected ${JSON.stringify(raw)} to normalize to ${expected}`);
+  }
+});
 test("inferFlyApiAppName resolves split -web-hs app names only", () => {
 assert.equal(inferFlyApiAppName("trader-web-hs"), "trader-hs");
 assert.equal(inferFlyApiAppName("alpha-web-api-web-hs"), "alpha-web-api-hs");
@@ -349,19 +386,31 @@ assert.equal(inferFlyApiAppName("trader-web"), "");
 assert.equal(inferFlyApiAppName("news-web-api"), "");
 assert.equal(inferFlyApiAppName("trader-web-hs2"), "");
 });
-test("inferFlyDirectApiBaseFromHostname infers direct fly API host for split web apps", () => {
-assert.equal(inferFlyDirectApiBaseFromHostname("trader-web-hs.fly.dev"), "https://trader-hs.fly.dev");
-assert.equal(inferFlyDirectApiBaseFromHostname("ALPHA-web-api-web-hs.fly.dev"), "https://alpha-web-api-hs.fly.dev");
-assert.equal(inferFlyDirectApiBaseFromHostname("trader-web.fly.dev"), "");
-assert.equal(inferFlyDirectApiBaseFromHostname("price-webhook.fly.dev"), "");
-assert.equal(inferFlyDirectApiBaseFromHostname("trader-web-hs2.fly.dev"), "");
-assert.equal(inferFlyDirectApiBaseFromHostname("example.com"), "");
+test("inferFlyDirectApiBaseFromHostname only infers supported split fly app hosts", () => {
+  const cases = [
+    ["trader-web-hs.fly.dev", "https://trader-hs.fly.dev"],
+    ["ALPHA-web-api-web-hs.fly.dev", "https://alpha-web-api-hs.fly.dev"],
+    ["trader-web.fly.dev", ""],
+    ["price-webhook.fly.dev", ""],
+    ["trader-web-hs2.fly.dev", ""],
+    ["api.trader-web-hs.fly.dev", ""],
+    ["trader-web-hs.fly.dev.example.com", ""],
+    ["example.com", ""],
+  ];
+
+  for (const [raw, expected] of cases) {
+    assert.equal(inferFlyDirectApiBaseFromHostname(raw), expected, `expected ${JSON.stringify(raw)} to infer ${expected}`);
+  }
 });
-test("isLocalHostname accepts bracketed IPv6 loopback", () => {
-assert.equal(isLocalHostname("[::1]"), true);
-});
-test("isLocalHostname accepts 0.0.0.0", () => {
-assert.equal(isLocalHostname("0.0.0.0"), true);
+
+test("isLocalHostname accepts the supported loopback hosts and rejects others", () => {
+  for (const hostname of ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]) {
+    assert.equal(isLocalHostname(hostname), true, `expected ${hostname} to be recognized as local`);
+  }
+
+  for (const hostname of ["example.com", "192.168.1.5", "[2001:db8::1]"]) {
+    assert.equal(isLocalHostname(hostname), false, `expected ${hostname} to be recognized as non-local`);
+  }
 });
 test("numFromInput preserves the conservative comma-parsing contract for blank, signed, explicit, and ambiguous inputs", () => {
 const cases = [

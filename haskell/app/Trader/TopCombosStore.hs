@@ -2,6 +2,7 @@
 
 module Trader.TopCombosStore (
     ComboBacktestUpdate (..),
+    TopCombosMergeStats (..),
     TopCombosStore (..),
     applyComboUpdates,
     comboFinalEquityValue,
@@ -14,6 +15,7 @@ module Trader.TopCombosStore (
     isPoloniexPlatformKey,
     isTopCombosPayload,
     mergeTopCombosPayloads,
+    mergeTopCombosPayloadsWithStats,
     newTopCombosStore,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
@@ -63,6 +65,13 @@ data TopCombosStore = TopCombosStore
     , tcsHistoryDir :: !(Maybe FilePath)
     , tcsLock :: !(MVar ())
     }
+
+data TopCombosMergeStats = TopCombosMergeStats
+    { tcmsRawCount :: !Int
+    , tcmsDroppedCount :: !Int
+    , tcmsDedupedCount :: !Int
+    }
+    deriving (Eq, Show)
 
 newTopCombosStore :: FilePath -> Maybe FilePath -> IO TopCombosStore
 newTopCombosStore path historyDir = do
@@ -561,20 +570,37 @@ applyComboCreatedAt createdAtMs val =
         _ -> val
 
 mergeTopCombosPayloads :: Int -> Int64 -> [Aeson.Value] -> Aeson.Value
-mergeTopCombosPayloads maxItems now payloads =
-    let sanitized = map (fst . sanitizeTopCombosValue) payloads
+mergeTopCombosPayloads maxItems now payloads = fst (mergeTopCombosPayloadsWithStats maxItems now payloads)
+
+mergeTopCombosPayloadsWithStats :: Int -> Int64 -> [Aeson.Value] -> (Aeson.Value, TopCombosMergeStats)
+mergeTopCombosPayloadsWithStats maxItems now payloads =
+    let rawCount = sum (map payloadComboCount payloads)
+        sanitized = map (fst . sanitizeTopCombosValue) payloads
         combos = concatMap extractCombos sanitized
         payloadSource = listToMaybe (Data.Maybe.mapMaybe extractPayloadSource sanitized)
         mergedMap = foldl' mergeCombo M.empty combos
+        mergedUniqueCount = M.size mergedMap
         merged = take (max 0 maxItems) (sortBy compareCombos (M.elems mergedMap))
         ranked = zipWith addRank [1 ..] merged
         sourceVal = fromMaybe "top-combos-store" payloadSource
-     in object
+        sanitizedCount = length combos
+        stats =
+            TopCombosMergeStats
+                { tcmsRawCount = rawCount
+                , tcmsDroppedCount = max 0 (rawCount - sanitizedCount)
+                , tcmsDedupedCount = max 0 (sanitizedCount - mergedUniqueCount)
+                }
+     in ( object
             [ "generatedAtMs" .= now
             , "source" .= sourceVal
             , "combos" .= ranked
             ]
+        , stats
+        )
   where
+    payloadComboCount :: Aeson.Value -> Int
+    payloadComboCount = length . extractCombos
+
     mergeCombo acc comboVal =
         case comboMergeKey comboVal of
             Nothing -> acc

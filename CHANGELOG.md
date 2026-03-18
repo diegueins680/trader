@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- API/Web UI: expose `/optimizer/combos` merge diagnostics (`rawCount`, `droppedCount`, `dedupedCount`) and show them in the Optimizer combos panel so Fly/live deployments can explain why the visible combo count is lower than the raw candidate set.
 - Web UI: restore the ambiguous single-comma numeric-input guard so values like `1,234` keep the prior setting instead of silently coercing to `1234`; explicit multi-group thousands and decimal-comma forms still parse.
 - Dev/CI: include `test/autoloop.test.mjs` in the repo-root `npm run test` entrypoint, and assert that aggregate contract in the autoloop test suite so the formal autoloop verifier cannot be skipped silently.
 - Web UI: normalize every numeric saved-setting/profile field back to a finite number when restoring browser state, so legacy stringified values no longer leak into the typed form model.

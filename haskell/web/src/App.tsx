@@ -686,6 +686,9 @@ type SanitizedTopCombosPayload = {
   generatedAtMs: number | null;
   payloadSource: string | null;
   payloadSources: string[] | null;
+  rawCount: number | null;
+  droppedCount: number | null;
+  dedupedCount: number | null;
 };
 
 const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload | null => {
@@ -1122,6 +1125,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     .map((src) => (typeof src === "string" ? src.trim() : ""))
     .filter((src) => src.length > 0);
   const payloadSourcesFinal = payloadSources.length > 0 ? payloadSources : payloadSourceRaw ? [payloadSourceRaw] : null;
+  const parseCount = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : null;
   return {
     combos: sanitized,
     payload: payloadObj,
@@ -1129,6 +1134,9 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     generatedAtMs,
     payloadSource: payloadSourceRaw,
     payloadSources: payloadSourcesFinal,
+    rawCount: parseCount(payloadRec.rawCount),
+    droppedCount: parseCount(payloadRec.droppedCount),
+    dedupedCount: parseCount(payloadRec.dedupedCount),
   };
 };
 
@@ -1980,6 +1988,9 @@ export function App() {
     payloadSources: null,
     fallbackReason: null,
     comboCount: null,
+    rawCount: null,
+    droppedCount: null,
+    dedupedCount: null,
   });
   const [topCombosPayload, setTopCombosPayload] = useState<Record<string, unknown> | null>(null);
   const [comboImportUi, setComboImportUi] = useState<ComboImportUiState>(() => ({
@@ -6571,6 +6582,9 @@ export function App() {
           payloadSources: parsed.payloadSources,
           fallbackReason,
           comboCount: parsed.comboCount,
+          rawCount: parsed.rawCount,
+          droppedCount: parsed.droppedCount,
+          dedupedCount: parsed.dedupedCount,
         });
         if (parsed.comboCount > 0) {
           writeJson(STORAGE_TOP_COMBOS_KEY, parsed.payload);

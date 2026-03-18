@@ -614,6 +614,7 @@ Endpoints:
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
   - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), then score (`score` or `metrics.score`), then final equity.
   - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist; when a combo omits `source`, merge inherits the payload-level `source` before de-duplication.
+  - The response also reports `rawCount`, `droppedCount`, and `dedupedCount` so the UI can show how many candidate combos were seen before sanitization (`finalEquity <= 1`) and merge de-duplication.
   - Imported top-json payloads preserve arbitrary combo/payload `source` labels during merge normalization, so identical params from different source files do not collapse into one combo just because the source name is non-platform text.
   - Top-combo merges read `finalEquity`/`score` from either the top level or nested `metrics`, backfill missing `metrics.annualizedReturn` only when bars/periods are available (including nested `metrics.periods`), and new optimizer runs stamp `params.binanceSymbol` so combos stay labeled.
   - JSONL merge inputs now require a real boolean-like success flag for `ok` (`true`, `1`, `yes`, etc.); strings like `"false"` no longer count as successful optimizer records.
@@ -1053,7 +1054,7 @@ Realtime telemetry and feed history are tracked per running bot so switching bot
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API LSTM compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
-The UI reads combos from the API and falls back to the repo-tracked `haskell/web/public/top-combos.json` (plus the local cache) when the API is unavailable or returns no combos; it shows their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
+The UI reads combos from the API and falls back to the repo-tracked `haskell/web/public/top-combos.json` (plus the local cache) when the API is unavailable or returns no combos; it shows their last update time, how many combos are displayed, and when the API provides them, the raw/dropped/deduped merge counts; you can choose the combo count (default 5, up to the available combos).
 Backtest actions now stay enabled when split constraints can be auto-corrected; running backtests auto-adjusts bars/backtest ratio when a valid local fix exists.
 Live-bot status polling skips overlapping `/bot/status` requests and runs at a modest cadence to avoid client aborts while keeping the dashboard responsive.
 Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, display full combo parameters inline, and can be filtered by symbol/market/interval/method plus minimum final equity.

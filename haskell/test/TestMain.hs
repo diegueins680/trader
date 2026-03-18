@@ -69,7 +69,7 @@ import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
-import Trader.TopCombosStore (comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue)
+import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 
 main :: IO ()
@@ -193,6 +193,9 @@ main = do
               , run "bars rejects non-decimal integer" testBarsNonDecimalValidation
               , run "cli numeric args reject non-finite values" testNumericArgsFiniteValidation
               , run "trade sizing args reject zero values" testTradeSizingPositiveValidation
+              , run "max-drawdown rejects upper bound" testMaxDrawdownUpperBoundValidation
+              , run "max-daily-loss rejects upper bound" testMaxDailyLossUpperBoundValidation
+              , run "max-weekly-loss rejects upper bound" testMaxWeeklyLossUpperBoundValidation
               , run "risk-per-trade requires stop definition" testRiskPerTradeRequiresStopDefinition
               , run "retry-after date parsing" testRetryAfterDateParsing
               , run "retry-after header lookup is case-insensitive" testRetryAfterHeaderLookupCaseInsensitive
@@ -236,6 +239,7 @@ main = do
               , run "top combos merge ignores non-numeric boolean scores" testMergeTopCombosIgnoresBooleanScore
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "top combos merge keeps same params across distinct sources" testMergeTopCombosKeepsDistinctSources
+              , run "top combos merge stats report dropped and deduped combos" testMergeTopCombosWithStats
               , run "top combos identity keys keep distinct sources separate" testComboIdentityKeyKeepsDistinctSources
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
@@ -2108,6 +2112,33 @@ testTradeSizingPositiveValidation = do
         Left err -> assert "max-order-quote rejects zero" ("--max-order-quote must be > 0" `isInfixOf` err)
         Right _ -> error "expected --max-order-quote=0 to fail validation"
 
+testMaxDrawdownUpperBoundValidation :: IO ()
+testMaxDrawdownUpperBoundValidation =
+    case parseArgsResult ["--data", "sample.csv", "--max-drawdown", "1"] of
+        Left err ->
+            assert
+                "max-drawdown rejects upper bound"
+                ("--max-drawdown must be > 0 and < 1" `isInfixOf` err)
+        Right _ -> error "expected --max-drawdown=1 to fail validation"
+
+testMaxDailyLossUpperBoundValidation :: IO ()
+testMaxDailyLossUpperBoundValidation =
+    case parseArgsResult ["--data", "sample.csv", "--max-daily-loss", "1"] of
+        Left err ->
+            assert
+                "max-daily-loss rejects upper bound"
+                ("--max-daily-loss must be > 0 and < 1" `isInfixOf` err)
+        Right _ -> error "expected --max-daily-loss=1 to fail validation"
+
+testMaxWeeklyLossUpperBoundValidation :: IO ()
+testMaxWeeklyLossUpperBoundValidation =
+    case parseArgsResult ["--data", "sample.csv", "--max-weekly-loss", "1"] of
+        Left err ->
+            assert
+                "max-weekly-loss rejects upper bound"
+                ("--max-weekly-loss must be > 0 and < 1" `isInfixOf` err)
+        Right _ -> error "expected --max-weekly-loss=1 to fail validation"
+
 testRiskPerTradeRequiresStopDefinition :: IO ()
 testRiskPerTradeRequiresStopDefinition = do
     case parseArgsResult ["--data", "sample.csv", "--risk-per-trade", "0.01"] of
@@ -2833,6 +2864,40 @@ testMergeTopCombosKeepsDistinctSources = do
         sources = sort (map (requireComboSource "distinct source combo") combos)
     assert "same params should be kept when payload sources differ" (length combos == 2)
     assert "merged combos preserve distinct payload sources" (sources == ["unit-source-a", "unit-source-b"])
+
+testMergeTopCombosWithStats :: IO ()
+testMergeTopCombosWithStats = do
+    let mkCombo sym finalEq score =
+            object
+                [ "params" .= object ["symbol" .= sym]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= finalEq, "score" .= score]
+                ]
+        payloadA =
+            object
+                [ "source" .= ("unit-source" :: String)
+                , "generatedAtMs" .= (1 :: Int64)
+                , "combos"
+                    .= [ mkCombo ("BTCUSDT" :: String) (1.1 :: Double) (0.3 :: Double)
+                       , mkCombo ("BTCUSDT" :: String) (1.4 :: Double) (0.9 :: Double)
+                       , mkCombo ("ETHUSDT" :: String) (0.8 :: Double) (0.7 :: Double)
+                       ]
+                ]
+        payloadB =
+            object
+                [ "source" .= ("unit-source" :: String)
+                , "generatedAtMs" .= (2 :: Int64)
+                , "combos" .= [mkCombo ("SOLUSDT" :: String) (1.2 :: Double) (0.6 :: Double)]
+                ]
+        (merged, TopCombosMergeStats{tcmsRawCount = rawCount, tcmsDroppedCount = droppedCount, tcmsDedupedCount = dedupedCount}) =
+            mergeTopCombosPayloadsWithStats 10 3 [payloadA, payloadB]
+        combos = requireCombosArray "merged payload with stats" merged
+    assert "merge stats should count raw combos before sanitize" (rawCount == 4)
+    assert "merge stats should count combos dropped by sanitize" (droppedCount == 1)
+    assert "merge stats should count combos removed by dedupe" (dedupedCount == 1)
+    assert "merged payload should keep the remaining unique combos" (length combos == 2)
 
 testComboIdentityKeyKeepsDistinctSources :: IO ()
 testComboIdentityKeyKeepsDistinctSources = do

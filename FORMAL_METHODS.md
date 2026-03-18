@@ -164,6 +164,35 @@ Proof sketch:
 - `haskell/web/test/utils.test.mjs` continues to mirror the boolean/live-trading restore invariants with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix, including mixed-case/whitespace regression rows for `binanceLive`, `binanceTestnet`, `tradeArmed`, and representative boolean toggles.
 - `haskell/web/test/formSymbolBehavior.test.mjs` adds cross-platform restore regressions proving the symbol branch: Binance-style persisted symbols fall back to Coinbase/Poloniex defaults when they cannot be sanitized for those platforms, while stale delimited Binance/Kraken restores canonicalize to platform-valid symbols.
 
+## Formal API base normalization contract
+
+The web UI treats configured API bases and inferred direct-host fallbacks as a small normalization contract, so the same input always maps to the same fetch target.
+
+Clauses:
+
+1. Relative proxy inputs remain relative: `/api` stays `/api`, and bare path inputs like `api` normalize to `/api`.
+2. Explicit absolute URLs are preserved verbatim.
+3. Loopback hosts (`localhost`, `127.0.0.1`, `0.0.0.0`, `::1`, `[::1]`, with optional ports/paths) always normalize to `http://...`, with deterministic IPv6 bracketization when needed.
+4. Non-local host-like inputs default to `https://...`, except explicit non-`443` ports default to `http://...`.
+5. Split Fly direct-host inference only rewrites `.fly.dev` hostnames when the first label matches a valid `*-web-hs` split-app name; unrelated hostnames remain untouched.
+6. Local-host detection for the UI start-help path accepts exactly the supported loopback hostname set.
+
+The verifier in `haskell/web/test/utils.test.mjs` checks a representative invariant matrix over:
+
+- relative proxy paths and explicit absolute URLs
+- loopback IPv4/IPv6 authorities
+- non-local host-like inputs with and without explicit ports
+- valid and invalid Fly direct-host inference inputs
+- accepted and rejected local hostname samples
+
+For every case, it checks:
+
+1. Relative proxy inputs do not become cross-origin absolute URLs.
+2. Loopback normalization stays on HTTP and produces deterministic IPv6 authority formatting.
+3. Non-local host normalization selects the documented default scheme.
+4. Direct Fly inference fires only for supported split-app hostnames.
+5. Local hostname detection accepts only the supported loopback set.
+
 ## Formal autoloop safety contract
 
 The GitHub autoloop runner treats model output as untrusted input and checks a small executable contract before any commit is created.
@@ -190,7 +219,7 @@ This does not prove that:
 - exchange integrations, network I/O, or persistence layers are free of bugs
 - floating-point arithmetic is globally free of all numerical issues
 
-It proves that the repo's stated ROI contract, as encoded in the optimizer, matches the implementation over the modeled state space.
+It proves that the repo's stated optimizer and selected web-UI contracts match the implementations over the modeled state spaces.
 
 ## Running the verifier
 

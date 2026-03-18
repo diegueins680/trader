@@ -299,6 +299,7 @@ import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
 import Trader.Text (dedupeStable, normalizeKey, trim)
 import Trader.TopCombosStore (
     ComboBacktestUpdate (..),
+    TopCombosMergeStats (..),
     TopCombosStore (..),
     applyComboUpdates,
     comboIdentityKey,
@@ -306,6 +307,7 @@ import Trader.TopCombosStore (
     comboPerformanceKey,
     isTopCombosPayload,
     mergeTopCombosPayloads,
+    mergeTopCombosPayloadsWithStats,
     newTopCombosStore,
     readTopCombosValueLocal,
     recalculateComboPerformanceFromOperation,
@@ -12651,8 +12653,8 @@ persistTopCombosHistoryMaybe topJsonPath st contents = do
             _ <- s3PutObject st key contents
             pure ()
 
-readTopCombosValueFromDb :: OpsStore -> IO (Either String Aeson.Value)
-readTopCombosValueFromDb store = do
+readTopCombosValueFromDbRaw :: OpsStore -> IO (Either String Aeson.Value)
+readTopCombosValueFromDbRaw store = do
     result <- try readDb :: IO (Either SomeException (Either String Aeson.Value))
     case result of
         Left e -> pure (Left ("Failed to read top combos from the database: " ++ show e))
@@ -12685,19 +12687,7 @@ readTopCombosValueFromDb store = do
                             , "source" .= ("db" :: String)
                             , "combos" .= combosRanked
                             ]
-                    (sanitized, _) = sanitizeTopCombosValue payload
-                    ranked =
-                        case sanitized of
-                            Aeson.Object o ->
-                                case KM.lookup (AK.fromString "combos") o of
-                                    Just (Aeson.Array arr) ->
-                                        let combos' = V.toList arr
-                                            combosRanked' = zipWith addRank [1 ..] (sortOn comboPerformanceKey combos')
-                                            o' = KM.insert (AK.fromString "combos") (Aeson.Array (V.fromList combosRanked')) o
-                                         in Aeson.Object o'
-                                    _ -> sanitized
-                            _ -> sanitized
-                pure (Right ranked)
+                pure (Right payload)
 
     addRank :: Int -> Aeson.Value -> Aeson.Value
     addRank rank val =
@@ -12705,9 +12695,17 @@ readTopCombosValueFromDb store = do
             Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
             other -> other
 
+readTopCombosValueFromDb :: OpsStore -> IO (Either String Aeson.Value)
+readTopCombosValueFromDb store =
+    fmap sanitizeAndRankTopCombosPayload <$> readTopCombosValueFromDbRaw store
+
 readTopCombosValueWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallback mOps store =
     withTopCombosLock store (readTopCombosValueWithDbFallbackUnlocked mOps store)
+
+readTopCombosValueWithDbFallbackRaw :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
+readTopCombosValueWithDbFallbackRaw mOps store =
+    withTopCombosLock store (readTopCombosValueWithDbFallbackRawUnlocked mOps store)
 
 readTopCombosValueWithDbFallbackUnlocked :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallbackUnlocked mOps store = do
@@ -12724,13 +12722,26 @@ readTopCombosValueWithDbFallbackUnlocked mOps store = do
                         Left dbErr -> pure (Left (localErr ++ " " ++ dbErr))
                         Right val -> pure (Right val)
 
-readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
-readTopCombosValue path = do
+readTopCombosValueWithDbFallbackRawUnlocked :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
+readTopCombosValueWithDbFallbackRawUnlocked mOps store = do
+    let path = tcsPath store
+    localResult <- readTopCombosValueRaw path
+    case localResult of
+        Right val -> pure (Right val)
+        Left localErr ->
+            case mOps of
+                Nothing -> pure (Left localErr)
+                Just opsStore -> do
+                    dbResult <- readTopCombosValueFromDbRaw opsStore
+                    case dbResult of
+                        Left dbErr -> pure (Left (localErr ++ " " ++ dbErr))
+                        Right val -> pure (Right val)
+
+readTopCombosValueRaw :: FilePath -> IO (Either String Aeson.Value)
+readTopCombosValueRaw path = do
     localResult <- readTopCombosValueLocal path
     case localResult of
-        Right val -> do
-            let (filteredVal, _) = sanitizeTopCombosValue val
-            pure (Right filteredVal)
+        Right val -> pure (Right val)
         Left localErr -> do
             mS3 <- resolveS3State
             case mS3 of
@@ -12744,9 +12755,31 @@ readTopCombosValue path = do
                         Right (Just contents) ->
                             case Aeson.eitherDecode' contents of
                                 Left err -> pure (Left ("Failed to parse top combos JSON from S3: " ++ err))
-                                Right val -> do
-                                    let (filteredVal, _) = sanitizeTopCombosValue val
-                                    pure (Right filteredVal)
+                                Right val -> pure (Right val)
+
+readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
+readTopCombosValue path =
+    fmap (fst . sanitizeTopCombosValue) <$> readTopCombosValueRaw path
+
+sanitizeAndRankTopCombosPayload :: Aeson.Value -> Aeson.Value
+sanitizeAndRankTopCombosPayload payload =
+    let (sanitized, _) = sanitizeTopCombosValue payload
+     in case sanitized of
+            Aeson.Object o ->
+                case KM.lookup (AK.fromString "combos") o of
+                    Just (Aeson.Array arr) ->
+                        let combos = V.toList arr
+                            combosRanked = zipWith addRank [1 ..] (sortOn comboPerformanceKey combos)
+                            o' = KM.insert (AK.fromString "combos") (Aeson.Array (V.fromList combosRanked)) o
+                         in Aeson.Object o'
+                    _ -> sanitized
+            _ -> sanitized
+  where
+    addRank :: Int -> Aeson.Value -> Aeson.Value
+    addRank rank val =
+        case val of
+            Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
+            other -> other
 
 extractBacktestMetrics :: Aeson.Value -> Maybe Aeson.Value
 extractBacktestMetrics val =
@@ -12992,7 +13025,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
             _ -> pure topVal
     minPersist <- topCombosMinPersistFromEnv
     maxCombos <- optimizerMaxCombosFromEnv
-    topVal' <-
+    _ <-
         case (mOps, topValBackfilled) of
             (Just opsStore, Right val) -> do
                 let currentCount = topCombosComboCount val
@@ -13033,30 +13066,44 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                     _ <- writeTopCombosValue topJsonPath seed
                     persistTopCombosMaybe mStateSyncTarget topJsonPath
         _ -> pure ()
-    let allVals = [topVal', tmpVal, fallbackVal]
+    topResponseVal <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
+    tmpResponseVal <-
+        if tmpPath /= topJsonPath
+            then readTopCombosValueLocal tmpPath
+            else pure (Left "missing")
+    fallbackResponseVal <-
+        if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
+            then readTopCombosValueLocal fallbackPath
+            else pure (Left "missing")
+    let responseVals = rights [topResponseVal, tmpResponseVal, fallbackResponseVal]
     now <- getTimestampMs
-    let combosBySource =
-            map
-                (either (const ([], Nothing)) (\val -> (extractCombos val, extractPayloadSource val)))
-                allVals
-        combos = concatMap fst combosBySource
+    let maxResponseCombos = max minPersist maxCombos
+        (mergedVal, TopCombosMergeStats{tcmsRawCount = rawCount, tcmsDroppedCount = droppedCount, tcmsDedupedCount = dedupedCount}) =
+            mergeTopCombosPayloadsWithStats maxResponseCombos now responseVals
+        combos = extractCombos mergedVal
         payloadSources =
             concatMap
-                (\(cs, src) -> if null cs then [] else maybeToList src)
-                combosBySource
+                ( \val ->
+                    let sanitized = fst (sanitizeTopCombosValue val)
+                     in if null (extractCombos sanitized)
+                            then []
+                            else maybeToList (extractPayloadSource sanitized)
+                )
+                responseVals
         payloadSource = listToMaybe payloadSources
     if null combos
         then respond (jsonError status404 "Optimizer combos not available yet.")
         else do
-            let combosSorted = sortOn comboKey combos
-                combosRanked = zipWith addRank [1 ..] combosSorted
-                out =
+            let out =
                     object
                         [ "generatedAtMs" .= now
                         , "source" .= ("optimizer/combos" :: String)
                         , "payloadSource" .= payloadSource
                         , "payloadSources" .= payloadSources
-                        , "combos" .= combosRanked
+                        , "rawCount" .= rawCount
+                        , "droppedCount" .= droppedCount
+                        , "dedupedCount" .= dedupedCount
+                        , "combos" .= combos
                         ]
             respond (jsonValue status200 out)
   where
@@ -13115,15 +13162,6 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                     persistTopCombosMaybe mStateSyncTarget topPath
                     pure (Just val)
                 Left _ -> restoreFirst ps
-
-    comboKey :: Aeson.Value -> (Double, Double, Double, Int)
-    comboKey = comboPerformanceKey
-
-    addRank :: Int -> Aeson.Value -> Aeson.Value
-    addRank rank val =
-        case val of
-            Aeson.Object o -> Aeson.Object (KM.insert "rank" (toJSON rank) o)
-            other -> other
 
 handleStateSyncExport ::
     Maybe OpsStore ->

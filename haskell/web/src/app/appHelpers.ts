@@ -1412,6 +1412,9 @@ export type TopCombosMeta = {
   payloadSources: string[] | null;
   fallbackReason: string | null;
   comboCount: number | null;
+  rawCount: number | null;
+  droppedCount: number | null;
+  dedupedCount: number | null;
 };
 
 export type ComboOrder = "annualized-equity" | "rank" | "date-desc" | "date-asc";
