@@ -291,8 +291,12 @@ assert.equal(normalizeApiBaseUrlInput("example.com/api"), "https://example.com/a
 assert.equal(normalizeApiBaseUrlInput("example.com:8443"), "http://example.com:8443");
 assert.equal(normalizeApiBaseUrlInput("example.com:443/api"), "https://example.com:443/api");
 });
-test("normalizeApiBaseUrlInput supports bare loopback IPv6 with port", () => {
+test("normalizeApiBaseUrlInput preserves bare and bracketed loopback IPv6 authorities", () => {
+assert.equal(normalizeApiBaseUrlInput("::1"), "http://[::1]");
+assert.equal(normalizeApiBaseUrlInput("::1/api"), "http://[::1]/api");
 assert.equal(normalizeApiBaseUrlInput("::1:8080"), "http://[::1]:8080");
+assert.equal(normalizeApiBaseUrlInput("[::1]"), "http://[::1]");
+assert.equal(normalizeApiBaseUrlInput("[::1]/api"), "http://[::1]/api");
 assert.equal(normalizeApiBaseUrlInput("[::1]:8080"), "http://[::1]:8080");
 });
 test("normalizeApiBaseUrlInput normalizes loopback hosts without explicit scheme", () => {
