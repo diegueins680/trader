@@ -148,6 +148,7 @@ Clauses:
 6. `tradeArmed` is only preserved for live-order platforms; non-trading platforms restore it to `false`.
 7. Boolean-like saved strings are normalized by trimming whitespace and ASCII-case-folding before the accepted `true` / `false` / `1` / `0` check runs, so values such as `\" TRUE \"` and `\"False\"` follow the same safety gates as canonical booleans.
 8. `binanceSymbol` must restore to a symbol that the active platform sanitizer accepts unchanged; platform-compatible aliases should canonicalize, and any unsanitizable restored symbol must fall back to `PLATFORM_DEFAULT_SYMBOL[platform]`.
+9. `minHoldBars`, `maxHoldBars`, `cooldownBars`, `maxOrderErrors`, `botOnlineEpochs`, `botTrainBars`, and `botMaxPoints` are integer-only restore fields: finite whole-number values survive with the same clamp floors/ceilings the web request builders use, while fractional or non-finite persisted values fall back to their safe defaults.
 
 Proof sketch:
 
@@ -160,8 +161,11 @@ Proof sketch:
 - `binanceTestnet` is gated by the original bounded Binance market, so a stale margin-only testnet toggle cannot survive either a non-Binance restore or a margin-to-spot safety fallback.
 - `tradeArmed` is gated separately to Binance and Coinbase, so a non-trading platform cannot restore an armed trade toggle.
 - `normalizeSymbol` now returns `sanitizeSymbolForPlatform(platform, raw) ?? PLATFORM_DEFAULT_SYMBOL[platform]`, so restore-time symbol hydration is total for the active platform: compatible aliases canonicalize through the sanitizer, and unsanitizable persisted symbols fall back to the current platform default instead of surviving as invalid UI state.
+- `normalizeRestoredNumericFields` still guarantees a finite baseline for every numeric key, but the returned object now overwrites the integer-only bar/count controls with `normalizeWholeNumber(...)`, so reload-time state cannot retain fractional execution counters from legacy storage.
+- `normalizeWholeNumber` only accepts `parseFiniteInteger` results, so fractional strings/numbers and non-finite inputs fall back to the default for `minHoldBars`, `maxHoldBars`, `cooldownBars`, `maxOrderErrors`, `botOnlineEpochs`, `botTrainBars`, and `botMaxPoints` instead of surviving until later `Math.trunc` calls.
+- Those integer-only overrides mirror the existing request-building semantics: `minHoldBars`, `maxHoldBars`, `cooldownBars`, and `maxOrderErrors` clamp to the backtest/trade request bounds, `botOnlineEpochs` clamps to `0..50`, `botTrainBars` keeps the `>= 10` floor, and `botMaxPoints` clamps to `100..100000`.
 - The returned object overwrites any persisted value with `botAdoptExistingPosition: true`, so reloads keep orphaned-position adoption enabled by construction.
-- `haskell/web/test/utils.test.mjs` continues to mirror the boolean/live-trading restore invariants with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix, including mixed-case/whitespace regression rows for `binanceLive`, `binanceTestnet`, `tradeArmed`, and representative boolean toggles.
+- `haskell/web/test/utils.test.mjs` continues to mirror the boolean/live-trading restore invariants with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix, mixed-case/whitespace regression rows for `binanceLive`, `binanceTestnet`, `tradeArmed`, and representative boolean toggles, plus regression rows proving accepted whole-number restores and fallback behavior for those seven integer-only execution counters.
 - `haskell/web/test/formSymbolBehavior.test.mjs` adds cross-platform restore regressions proving the symbol branch: Binance-style persisted symbols fall back to Coinbase/Poloniex defaults when they cannot be sanitized for those platforms, while stale delimited Binance/Kraken restores canonicalize to platform-valid symbols.
 
 ## Formal API base normalization contract

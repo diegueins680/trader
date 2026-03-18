@@ -714,6 +714,68 @@ test("normalizeFormState rejects fractional and non-finite restored whole-number
     },
   );
 });
+test("normalizeFormState preserves restored integer-only execution counters", () => {
+const restored = normalizeFormState({
+minHoldBars: "12.0",
+maxHoldBars: 48,
+cooldownBars: "3",
+maxOrderErrors: "4.0",
+botOnlineEpochs: "7.0",
+botTrainBars: "1200",
+botMaxPoints: "5000.0",
+});
+assert.deepEqual(
+{
+minHoldBars: restored.minHoldBars,
+maxHoldBars: restored.maxHoldBars,
+cooldownBars: restored.cooldownBars,
+maxOrderErrors: restored.maxOrderErrors,
+botOnlineEpochs: restored.botOnlineEpochs,
+botTrainBars: restored.botTrainBars,
+botMaxPoints: restored.botMaxPoints,
+},
+{
+minHoldBars: 12,
+maxHoldBars: 48,
+cooldownBars: 3,
+maxOrderErrors: 4,
+botOnlineEpochs: 7,
+botTrainBars: 1200,
+botMaxPoints: 5000,
+},
+);
+});
+test("normalizeFormState falls back for fractional and non-finite restored integer-only execution counters", () => {
+const restored = normalizeFormState({
+minHoldBars: "12.5",
+maxHoldBars: Number.POSITIVE_INFINITY,
+cooldownBars: "NaN",
+maxOrderErrors: 2.5,
+botOnlineEpochs: "7.5",
+botTrainBars: Number.NaN,
+botMaxPoints: "-Infinity",
+});
+assert.deepEqual(
+{
+minHoldBars: restored.minHoldBars,
+maxHoldBars: restored.maxHoldBars,
+cooldownBars: restored.cooldownBars,
+maxOrderErrors: restored.maxOrderErrors,
+botOnlineEpochs: restored.botOnlineEpochs,
+botTrainBars: restored.botTrainBars,
+botMaxPoints: restored.botMaxPoints,
+},
+{
+minHoldBars: defaultForm.minHoldBars,
+maxHoldBars: defaultForm.maxHoldBars,
+cooldownBars: defaultForm.cooldownBars,
+maxOrderErrors: defaultForm.maxOrderErrors,
+botOnlineEpochs: defaultForm.botOnlineEpochs,
+botTrainBars: defaultForm.botTrainBars,
+botMaxPoints: defaultForm.botMaxPoints,
+},
+);
+});
 test("normalizeFormState restores default minPositionSize for invalid input", () => {
 const fromInvalid = normalizeFormState({ minPositionSize: "not-a-number" });
 assert.equal(fromInvalid.minPositionSize, defaultForm.minPositionSize);

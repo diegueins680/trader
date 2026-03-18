@@ -425,6 +425,20 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     1e9,
   );
   const maxOrderQuote = normalizeFiniteNumber(rawRec.maxOrderQuote ?? merged.maxOrderQuote, defaultForm.maxOrderQuote, 0, 1e9);
+  // Integer-only bar/count controls should not reopen with fractional values that the UI
+  // later truncates differently when building requests.
+  const minHoldBars = normalizeWholeNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1_000_000);
+  const maxHoldBars = normalizeWholeNumber(rawRec.maxHoldBars ?? merged.maxHoldBars, defaultForm.maxHoldBars, 0, 1_000_000);
+  const cooldownBars = normalizeWholeNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1_000_000);
+  const maxOrderErrors = normalizeWholeNumber(rawRec.maxOrderErrors ?? merged.maxOrderErrors, defaultForm.maxOrderErrors, 0, 1_000_000);
+  const botOnlineEpochs = normalizeWholeNumber(
+    rawRec.botOnlineEpochs ?? merged.botOnlineEpochs,
+    defaultForm.botOnlineEpochs,
+    0,
+    50,
+  );
+  const botTrainBars = normalizeWholeNumber(rawRec.botTrainBars ?? merged.botTrainBars, defaultForm.botTrainBars, 10, 1e9);
+  const botMaxPoints = normalizeWholeNumber(rawRec.botMaxPoints ?? merged.botMaxPoints, defaultForm.botMaxPoints, 100, 100_000);
   const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
   return {
     ...mergedNoLegacy,
@@ -463,9 +477,10 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
       0,
       1e9,
     ),
-    minHoldBars: normalizeFiniteNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1e9),
-    maxHoldBars: normalizeFiniteNumber(rawRec.maxHoldBars ?? merged.maxHoldBars, defaultForm.maxHoldBars, 0, 1e9),
-    cooldownBars: normalizeFiniteNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1e9),
+    minHoldBars,
+    maxHoldBars,
+    cooldownBars,
+    maxOrderErrors,
     tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
     tuneObjective: normalizeTuneObjective(rawRec.tuneObjective ?? merged.tuneObjective, defaultForm.tuneObjective),
     tunePenaltyMaxDrawdown: normalizeFiniteNumber(rawRec.tunePenaltyMaxDrawdown ?? merged.tunePenaltyMaxDrawdown, defaultForm.tunePenaltyMaxDrawdown, 0, 1e9),
@@ -549,6 +564,9 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     orderQuantity,
     orderQuoteFraction,
     maxOrderQuote,
+    botOnlineEpochs,
+    botTrainBars,
+    botMaxPoints,
     botProtectionOrders: normalizeBool(rawRec.botProtectionOrders ?? merged.botProtectionOrders, defaultForm.botProtectionOrders),
     botAdoptExistingPosition: true,
   };
