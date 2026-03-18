@@ -1109,6 +1109,50 @@ botMaxPoints: defaultForm.botMaxPoints,
 },
 );
 });
+test("normalizeFormState preserves restored Strategy bar-count settings as whole numbers", () => {
+const restored = normalizeFormState({
+trendLookback: "45.0",
+volLookback: 64,
+rebalanceBars: "12",
+routerLookback: "18.0",
+});
+assert.deepEqual(
+{
+trendLookback: restored.trendLookback,
+volLookback: restored.volLookback,
+rebalanceBars: restored.rebalanceBars,
+routerLookback: restored.routerLookback,
+},
+{
+trendLookback: 45,
+volLookback: 64,
+rebalanceBars: 12,
+routerLookback: 18,
+},
+);
+});
+test("normalizeFormState falls back for fractional and non-finite restored Strategy bar-count settings", () => {
+const restored = normalizeFormState({
+trendLookback: "45.5",
+volLookback: Number.POSITIVE_INFINITY,
+rebalanceBars: "NaN",
+routerLookback: 18.5,
+});
+assert.deepEqual(
+{
+trendLookback: restored.trendLookback,
+volLookback: restored.volLookback,
+rebalanceBars: restored.rebalanceBars,
+routerLookback: restored.routerLookback,
+},
+{
+trendLookback: defaultForm.trendLookback,
+volLookback: defaultForm.volLookback,
+rebalanceBars: defaultForm.rebalanceBars,
+routerLookback: defaultForm.routerLookback,
+},
+);
+});
 test("normalizeFormState restores default minPositionSize for invalid input", () => {
 const fromInvalid = normalizeFormState({ minPositionSize: "not-a-number" });
 assert.equal(fromInvalid.minPositionSize, defaultForm.minPositionSize);

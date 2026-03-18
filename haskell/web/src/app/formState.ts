@@ -431,6 +431,10 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   const maxHoldBars = normalizeWholeNumber(rawRec.maxHoldBars ?? merged.maxHoldBars, defaultForm.maxHoldBars, 0, 1_000_000);
   const cooldownBars = normalizeWholeNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1_000_000);
   const maxOrderErrors = normalizeWholeNumber(rawRec.maxOrderErrors ?? merged.maxOrderErrors, defaultForm.maxOrderErrors, 0, 1_000_000);
+  const trendLookback = normalizeWholeNumber(rawRec.trendLookback ?? merged.trendLookback, defaultForm.trendLookback, 0, 1e9);
+  const volLookback = normalizeWholeNumber(rawRec.volLookback ?? merged.volLookback, defaultForm.volLookback, 0, 1e9);
+  const rebalanceBars = normalizeWholeNumber(rawRec.rebalanceBars ?? merged.rebalanceBars, defaultForm.rebalanceBars, 0, 1e9);
+  const routerLookback = normalizeWholeNumber(rawRec.routerLookback ?? merged.routerLookback, defaultForm.routerLookback, 2, 1e9);
   const botOnlineEpochs = normalizeWholeNumber(
     rawRec.botOnlineEpochs ?? merged.botOnlineEpochs,
     defaultForm.botOnlineEpochs,
@@ -507,15 +511,15 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     ),
     costAwareEdge: normalizeBool(rawRec.costAwareEdge ?? merged.costAwareEdge, defaultForm.costAwareEdge),
     edgeBuffer: normalizeFiniteNumber(rawRec.edgeBuffer ?? merged.edgeBuffer, defaultForm.edgeBuffer, 0, 1e9),
-    trendLookback: normalizeFiniteNumber(rawRec.trendLookback ?? merged.trendLookback, defaultForm.trendLookback, 0, 1e9),
+    trendLookback,
     maxPositionSize: normalizeFiniteNumber(rawRec.maxPositionSize ?? merged.maxPositionSize, defaultForm.maxPositionSize, 0, 1e9),
     volTarget: normalizeFiniteNumber(rawRec.volTarget ?? merged.volTarget, defaultForm.volTarget, 0, 1e9),
-    volLookback: normalizeFiniteNumber(rawRec.volLookback ?? merged.volLookback, defaultForm.volLookback, 0, 1e9),
+    volLookback,
     volEwmaAlpha: normalizeFiniteNumber(rawRec.volEwmaAlpha ?? merged.volEwmaAlpha, defaultForm.volEwmaAlpha, 0, 0.999999),
     volFloor: normalizeFiniteNumber(rawRec.volFloor ?? merged.volFloor, defaultForm.volFloor, 0, 1e9),
     volScaleMax: normalizeFiniteNumber(rawRec.volScaleMax ?? merged.volScaleMax, defaultForm.volScaleMax, 0, 1e9),
     maxVolatility: normalizeFiniteNumber(rawRec.maxVolatility ?? merged.maxVolatility, defaultForm.maxVolatility, 0, 1e9),
-    rebalanceBars: normalizeFiniteNumber(rawRec.rebalanceBars ?? merged.rebalanceBars, defaultForm.rebalanceBars, 0, 1e9),
+    rebalanceBars,
     rebalanceThreshold: normalizeFiniteNumber(
       rawRec.rebalanceThreshold ?? merged.rebalanceThreshold,
       defaultForm.rebalanceThreshold,
@@ -537,7 +541,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     fundingBySide: normalizeBool(rawRec.fundingBySide ?? merged.fundingBySide, defaultForm.fundingBySide),
     fundingOnOpen: normalizeBool(rawRec.fundingOnOpen ?? merged.fundingOnOpen, defaultForm.fundingOnOpen),
     blendWeight: normalizeFiniteNumber(rawRec.blendWeight ?? merged.blendWeight, defaultForm.blendWeight, 0, 1),
-    routerLookback: normalizeFiniteNumber(rawRec.routerLookback ?? merged.routerLookback, defaultForm.routerLookback, 2, 1e9),
+    routerLookback,
     routerMinScore: normalizeFiniteNumber(rawRec.routerMinScore ?? merged.routerMinScore, defaultForm.routerMinScore, 0, 1),
     maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
     maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
