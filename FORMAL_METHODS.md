@@ -85,6 +85,44 @@ Proof sketch:
 - `hint` is derived from exactly three branches: the blocking error, the precedence warning for conflicts, or `Effective sizing: ${effectiveLabel}.`; once the modeled state and `effectiveLabel` are fixed, the hint string is fixed too.
 - `haskell/web/test/utils.test.mjs` now exhaustively enumerates all 32 modeled states and asserts the exact `effectiveLabel` / `hint` outputs, with paired cap/no-cap comparisons to prove the cap-only inertness contract.
 
+## Formal sampled-chart downsampling contract
+
+The sampled backtest-chart path treats `downsampleIndices`, `downsampleArray`, `downsampleOptionalArray`, and `remapIndexToSample` in `haskell/web/src/app/utils.ts` as a shared projection/remap contract for every downsampled chart series.
+
+Clauses:
+
+1. `downsampleIndices(total, maxPoints)` is total: it truncates both inputs, clamps the effective sample budget to at least `1`, returns `[]` for `total <= 0`, and otherwise returns at least one in-bounds raw index.
+2. The sampled index list is strictly increasing, starts at raw index `0` whenever data is present, and preserves the last raw endpoint `total - 1` whenever the effective budget can show at least two points.
+3. The sampled index count never exceeds `min(total, effectiveBudget)` and grows monotonically as `maxPoints` increases, saturating at the raw series length once the budget is large enough.
+4. `downsampleArray` and `downsampleOptionalArray` are order-preserving projections over that sampled index list: each sampled element equals the raw element at the corresponding sampled index, and optional `null`/`undefined` inputs stay absent.
+5. `remapIndexToSample(indices, idx)` is total: exact sampled hits map back to their exact sampled slot, and every other raw index maps to one of the nearest visible sampled points.
+6. Nearest-point remapping is deterministic and left-biased on ties, and the returned sampled slot is monotone non-decreasing as the raw index increases.
+
+The verifier in `haskell/web/test/utils.test.mjs` now checks this contract with:
+
+- a bounded sample-budget matrix (`17,028` states) over `total ∈ {0..257}` and `maxPoints ∈ {0..65}`
+- aligned projection checks for required and optional arrays over that same matrix
+- a bounded remap matrix (`2,188,098` raw-index cases) over every `rawIdx ∈ {0..total-1}` for `total ∈ {1..257}` and `maxPoints ∈ {0..65}`
+
+For every state, it checks:
+
+1. Sampled indices stay in bounds, within budget, and strictly increasing.
+2. First/last visible endpoints are preserved according to the budget rules.
+3. Sample count grows monotonically with `maxPoints` and saturates once the budget reaches the raw length.
+4. Required and optional sampled arrays remain pointwise aligned with the sampled indices, while nullish optional sources remain absent.
+5. Exact-hit remaps return the exact sampled slot.
+6. Non-hit remaps choose the documented nearest sampled point, use deterministic left-biased ties, and never move backward as raw indices increase.
+
+Proof sketch:
+
+- `downsampleIndices` emits candidates in increasing `i` order across the closed range `[0, n - 1]` and skips duplicates with the `last` guard, so every emitted raw index is in bounds and the output is strictly increasing.
+- The `n <= max` identity branch proves saturation, while the `max === 1` branch explains why the one-point budget preserves only the first visible endpoint.
+- For `max >= 2`, the first loop iteration emits `0` and the final iteration reaches `n - 1` (with a final endpoint append as a fallback), which yields the two-endpoint preservation rule whenever two visible points are available.
+- `downsampleArray` is just `indices.map((idx) => arr[idx])`, and `downsampleOptionalArray` either returns the nullish source as absent or delegates to that same projection, so alignment follows directly from the sampled index list.
+- `remapIndexToSample` binary-searches the insertion interval and compares absolute distances to the two surrounding sampled points; the `<=` comparison makes equal-distance ties resolve to the left neighbor deterministically.
+- Because the sampled indices are strictly increasing, the midpoint boundaries between adjacent sampled points are ordered, so the nearest-sample slot selected by `remapIndexToSample` cannot decrease as raw indices increase.
+- `haskell/web/src/components/BacktestChart.tsx` consumes this contract through `indexFor` and `remapIndexToSample` for sampled hover/marker rendering, so proving the helper contract bounds the sampled chart alignment behavior without changing the chart logic in this cycle.
+
 ## Formal orphaned-position classification contract
 
 `buildOrphanedPositions` in `haskell/web/src/app/utils.ts` is treated as a precedence-ordered classifier for the orphaned-operations panel.
