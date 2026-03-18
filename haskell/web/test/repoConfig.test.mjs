@@ -5,7 +5,9 @@ import vm from "node:vm";
 import { transformSync } from "esbuild";
 
 const cabalConfig = readFileSync(new URL("../../../.cabal/config", import.meta.url), "utf8");
+const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const frontendConstantsSource = readFileSync(new URL("../src/app/constants.ts", import.meta.url), "utf8");
+const frontendUtilsSource = readFileSync(new URL("../src/app/utils.ts", import.meta.url), "utf8");
 const configLayoutSource = readFileSync(new URL("../src/app/configLayout.ts", import.meta.url), "utf8");
 const backendBinanceIntervalsSource = readFileSync(new URL("../../app/Trader/BinanceIntervals.hs", import.meta.url), "utf8");
 
@@ -37,6 +39,17 @@ function parseHsStringList(source, bindingName) {
   return parseStringLiterals(match[1]);
 }
 
+function parseTargetIdLiterals(source) {
+  return Array.from(
+    source.matchAll(/\b(?:targetId|[A-Za-z]+TargetId)\b\s*(?:\??:|=)\s*([^\n;]+)/g),
+    ([, expression]) => parseStringLiterals(expression),
+  ).flat();
+}
+
+function parseUiTargetIdLiterals(...sources) {
+  return Array.from(new Set(sources.flatMap((source) => parseTargetIdLiterals(source))));
+}
+
 function loadConfigLayoutModule() {
   const { code } = transformSync(configLayoutSource, {
     loader: "ts",
@@ -62,6 +75,27 @@ function assertContainsExactly(values, expected, label) {
     `${label} must contain each expected value exactly once`,
   );
 }
+
+const emittedUiTargetPageMap = {
+  "section-api": "section-api",
+  symbol: "section-market",
+  platform: "section-market",
+  market: "section-market",
+  interval: "section-market",
+  bars: "section-market",
+  lookbackWindow: "section-lookback",
+  lookbackBars: "section-lookback",
+  positioning: "section-thresholds",
+  backtestRatio: "section-thresholds",
+  tuneRatio: "section-thresholds",
+  epochs: "section-risk",
+  hiddenSize: "section-risk",
+  botSymbols: "section-livebot",
+  orderQuote: "section-trade",
+  orderQuoteFraction: "section-trade",
+  platformKeys: "section-api",
+  "section-trade": "section-trade",
+};
 
 const configLayoutModule = loadConfigLayoutModule();
 const configPageIds = Array.from(configLayoutModule.CONFIG_PAGE_IDS);
@@ -129,6 +163,26 @@ test("repo contract routes trade sizing validation targets to trade config page"
     /orderQuoteFraction:\s*"section-trade"/,
     "orderQuoteFraction sizing issues must route to the Trade config page",
   );
+});
+
+test("repo contract routes every emitted UI target id to the intended config page", () => {
+  const emittedUiTargetIds = parseUiTargetIdLiterals(appSource, frontendUtilsSource);
+
+  assertContainsExactly(emittedUiTargetIds, Object.keys(emittedUiTargetPageMap), "emitted UI target ids");
+
+  for (const [targetId, expectedPageId] of Object.entries(emittedUiTargetPageMap)) {
+    assert.ok(configPageIds.includes(expectedPageId), `${expectedPageId} must remain a valid config page`);
+    if (configPageIds.includes(targetId)) {
+      assert.equal(targetId, expectedPageId, `${targetId} must stay a direct config page id`);
+    } else {
+      assert.equal(
+        configTargetPageMap[targetId],
+        expectedPageId,
+        `${targetId} must stay routed by CONFIG_TARGET_PAGE_MAP`,
+      );
+    }
+    assert.equal(configLayoutModule.resolveConfigPageForTarget(targetId), expectedPageId, `${targetId} must resolve to ${expectedPageId}`);
+  }
 });
 
 test("repo contract keeps config page normalization total and deterministic", () => {
