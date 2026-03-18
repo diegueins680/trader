@@ -22,6 +22,19 @@ import {
   writeJsonFileAtomic,
 } from "../scripts/autoloop-lib.mjs";
 
+function extractAutoloopPhases(script) {
+  return Array.from(script.matchAll(/phase:\s*"([^"]+)"/g), (match) => match[1]);
+}
+
+function assertOrderedSubsequence(values, expected, label) {
+  let cursor = -1;
+  for (const value of expected) {
+    const next = values.indexOf(value, cursor + 1);
+    assert.notEqual(next, -1, `${label} is missing ${value}`);
+    cursor = next;
+  }
+}
+
 test("stripMarkdownFences unwraps fenced JSON", () => {
   assert.equal(stripMarkdownFences("```json\n{\"ok\":true}\n```"), "{\"ok\":true}");
   assert.equal(stripMarkdownFences("{\"ok\":true}"), "{\"ok\":true}");
@@ -271,6 +284,22 @@ test("autoloop script targets the base branch directly without PR helpers", asyn
   assert.match(script, /function waitForBranchCi\(headSha, branchName\)/);
   assert.doesNotMatch(script, /function ensurePullRequest\(/);
   assert.doesNotMatch(script, /function mergePullRequest\(/);
+});
+
+test("bounded autoloop reports the required lifecycle phases in order", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  const phases = extractAutoloopPhases(script);
+
+  assertOrderedSubsequence(
+    phases,
+    ["choose-change", "ui-ux-review", "correctness-review", "verify", "commit-push", "ci-wait"],
+    "required autoloop lifecycle phases",
+  );
+  assertOrderedSubsequence(
+    phases,
+    ["correctness-review", "plan-patch", "apply-patch", "verify"],
+    "autoloop review-to-verification bridge phases",
+  );
 });
 
 test("autoloop workflow uses an optional dedicated push token and no PR permission", async () => {
