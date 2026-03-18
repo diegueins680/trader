@@ -425,8 +425,8 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     1e9,
   );
   const maxOrderQuote = normalizeFiniteNumber(rawRec.maxOrderQuote ?? merged.maxOrderQuote, defaultForm.maxOrderQuote, 0, 1e9);
-  // Integer-only bar/count controls should not reopen with fractional values that the UI
-  // later truncates differently when building requests.
+  // Integer-only bar/count controls and live-bot poll cadence should not reopen with
+  // fractional values that the UI later truncates differently when building requests.
   const minHoldBars = normalizeWholeNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1_000_000);
   const maxHoldBars = normalizeWholeNumber(rawRec.maxHoldBars ?? merged.maxHoldBars, defaultForm.maxHoldBars, 0, 1_000_000);
   const cooldownBars = normalizeWholeNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1_000_000);
@@ -435,6 +435,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   const volLookback = normalizeWholeNumber(rawRec.volLookback ?? merged.volLookback, defaultForm.volLookback, 0, 1e9);
   const rebalanceBars = normalizeWholeNumber(rawRec.rebalanceBars ?? merged.rebalanceBars, defaultForm.rebalanceBars, 0, 1e9);
   const routerLookback = normalizeWholeNumber(rawRec.routerLookback ?? merged.routerLookback, defaultForm.routerLookback, 2, 1e9);
+  const botPollSeconds = normalizeWholeNumber(rawRec.botPollSeconds ?? merged.botPollSeconds, defaultForm.botPollSeconds, 0, 3600);
   const botOnlineEpochs = normalizeWholeNumber(
     rawRec.botOnlineEpochs ?? merged.botOnlineEpochs,
     defaultForm.botOnlineEpochs,
@@ -568,6 +569,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     orderQuantity,
     orderQuoteFraction,
     maxOrderQuote,
+    botPollSeconds,
     botOnlineEpochs,
     botTrainBars,
     botMaxPoints,
