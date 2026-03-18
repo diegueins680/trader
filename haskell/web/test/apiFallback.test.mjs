@@ -479,16 +479,20 @@ test("api fallback allows inferred /api primary to fail over to cross-origin fal
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
 });
 
-test("api fallback only enables inferred /api cross-origin failover for true/false and 1/0 encodings", async () => {
+test("api fallback only enables inferred /api cross-origin failover for normalized boolean-like encodings", async () => {
   const cases = [
     { label: "boolean true", value: true, expectFallback: true },
     { label: "string \\\"true\\\"", value: "true", expectFallback: true },
+    { label: "string \\\" TrUe \\\"", value: " TrUe ", expectFallback: true },
     { label: "number 1", value: 1, expectFallback: true },
     { label: "string \\\"1\\\"", value: "1", expectFallback: true },
+    { label: "string \\\" 1 \\\"", value: " 1 ", expectFallback: true },
     { label: "boolean false", value: false, expectFallback: false },
     { label: "string \\\"false\\\"", value: "false", expectFallback: false },
+    { label: "string \\\" FaLsE \\\"", value: " FaLsE ", expectFallback: false },
     { label: "number 0", value: 0, expectFallback: false },
     { label: "string \\\"0\\\"", value: "0", expectFallback: false },
+    { label: "string \\\" 0 \\\"", value: " 0 ", expectFallback: false },
     { label: "string \\\"yes\\\"", value: "yes", expectFallback: false },
     { label: "number 2", value: 2, expectFallback: false },
     { label: "string \\\"01\\\"", value: "01", expectFallback: false },
