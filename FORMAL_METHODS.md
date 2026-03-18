@@ -113,23 +113,25 @@ Proof sketch:
 
 ## Formal numeric input fallback contract
 
-`numFromInput` in `haskell/web/src/app/utils.ts` is treated as a conservative parser for restored numeric form fields.
+`numFromInput` in `haskell/web/src/app/utils.ts` is treated as a conservative parser for shared web numeric fields and restored numeric form fields.
 
 Clauses:
 
 1. Empty or whitespace-only input keeps the supplied fallback unchanged.
-2. Unambiguous decimal-comma forms parse as decimals, including signed values and long-prefix forms such as `1234,567`.
-3. A single comma with a 1-3 digit prefix and an exactly 3-digit suffix (for example `1,234`, `12,345`, `-1,234`) is ambiguous between decimal-comma and thousands grouping, so the fallback is preserved.
-4. Explicit multi-group thousands forms such as `1,234,567` remain parseable.
-5. After normalization, only finite numeric results are accepted; non-finite results keep the fallback.
+2. Signed zero-prefixed single-comma forms remain decimal-comma inputs even when the suffix has exactly three digits, so entries such as `0,125`, `-0,125`, and `+0,125` parse as decimals instead of preserving fallback.
+3. A single comma with a signed non-zero 1-3 digit prefix and an exactly 3-digit suffix (for example `1,234`, `12,345`, `-123,456`, `+1,234`) is ambiguous between decimal-comma and thousands grouping, so the fallback is preserved.
+4. Other finite single-comma forms parse as decimals, including shorter suffixes such as `1,23` and long-prefix forms such as `1234,567`, `-1234,567`, and `+1234,567`.
+5. Explicit multi-group thousands forms such as `1,234,567` remain parseable.
+6. After normalization, only finite numeric results are accepted; non-finite results keep the fallback.
 
 Proof sketch:
 
 - `numFromInput` trims first and returns `fallback` on the empty string, so blank edits cannot overwrite a stored numeric value.
-- In the single-comma branch, the `^[-+]?\\d{1,3}$` plus `^\\d{3}$` ambiguity check is the path that treats `1,234`-style inputs as undecidable, and it returns `fallback` instead of rewriting the saved number.
-- Other two-part comma inputs normalize to decimal-comma forms, so explicit decimals like `1,23`, `-1,23`, `+0,125`, and `1234,567` remain parseable.
+- In the two-part comma branch, the signed-zero check runs before the ambiguity guard, so `0,125`, `-0,125`, and `+0,125` normalize to decimal forms even when the suffix length is three digits.
+- The ambiguity guard only fires for signed non-zero 1-3 digit prefixes paired with a 3-digit suffix, so `1,234`, `12,345`, `-123,456`, and `+1,234` keep the prior value instead of guessing between decimal-comma and thousands-grouping intent.
+- Once the input falls past those branches, the remaining two-part comma forms normalize to decimal-comma values; this is why shorter suffixes and long-prefix inputs such as `1,23`, `1234,567`, `-1234,567`, and `+1234,567` remain parseable.
 - The explicit multi-group branch keeps standard thousands-group forms such as `1,234,567` parseable.
-- `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, decimal-comma parses, ambiguous single-comma fallback, and multi-group comma parses.
+- The intended boundary can be described as a bounded sign/prefix/suffix matrix over prefixes `1`, `12`, `123`, `-1`, `-12`, `-123`, `+1`, `+12`, `+123`, `0`, `-0`, `+0`, `1234`, `-1234`, `+1234` and suffixes `2`, `23`, `234`, `2345`: only the signed non-zero 1-3 digit prefix plus 3-digit suffix rows preserve fallback, while every other finite single-comma row parses as a decimal.
 
 ## Formal persisted form restore safety
 
