@@ -330,6 +330,14 @@ import Trader.Trading (
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
  )
+import Trader.VolConfGate (
+    VolConfGateBehavior (..),
+    VolConfGateCell (..),
+    VolConfGatePreset (..),
+    applyVolConfGateBehavior,
+    volConfGateCell,
+    volConfGateCode,
+ )
 
 firstJust :: [Maybe a] -> Maybe a
 firstJust xs =
@@ -354,6 +362,7 @@ data PredHistory = PredHistory
 
 data LatestSignal = LatestSignal
     { lsMethod :: !Method
+    , lsVolConfGate :: !VolConfGatePreset
     , lsCurrentPrice :: !Double
     , lsOpenThreshold :: !Double
     , lsCloseThreshold :: !Double
@@ -402,6 +411,7 @@ data BacktestSummary = BacktestSummary
     , bsBacktestToMs :: !(Maybe Int64)
     , bsInitialBalance :: !Double
     , bsMethodUsed :: !Method
+    , bsVolConfGate :: !VolConfGatePreset
     , bsBestOpenThreshold :: !Double
     , bsBestCloseThreshold :: !Double
     , bsMinHoldBars :: !Int
@@ -1154,6 +1164,8 @@ instance ToJSON LatestSignal where
                          in Just (object ["lo" .= iLo i, "hi" .= iHi i, "width" .= w])
          in object
                 [ "method" .= methodCode (lsMethod s)
+                , "volConfGate" .= volConfGateCode (lsVolConfGate s)
+                , "vol_conf_gate" .= volConfGateCode (lsVolConfGate s)
                 , "currentPrice" .= lsCurrentPrice s
                 , "threshold" .= lsOpenThreshold s
                 , "openThreshold" .= lsOpenThreshold s
@@ -6970,6 +6982,7 @@ botOptimizeAfterOperation st = do
                                 , ecVolFloor = argVolFloor args
                                 , ecVolScaleMax = argVolScaleMax args
                                 , ecMaxVolatility = argMaxVolatility args
+                                , ecVolConfGate = argVolConfGate args
                                 , ecRebalanceBars = argRebalanceBars args
                                 , ecRebalanceThreshold = rebalanceThreshold
                                 , ecRebalanceGlobal = argRebalanceGlobal args
@@ -16625,7 +16638,7 @@ lstmConfidenceScore args sig = do
 
 lstmConfidenceSizing :: Args -> LatestSignal -> (Double, Maybe String)
 lstmConfidenceSizing args sig =
-    if not (argConfidenceSizing args)
+    if argVolConfGate args /= VolConfGateDisabled || not (argConfidenceSizing args)
         then (1, Nothing)
         else
             let hard0 = clamp01 (argLstmConfidenceHard args)
@@ -18117,7 +18130,8 @@ gateKalmanDir args useSizing thr kalZ mReg mI mQ confScore dirRaw =
     case dirRaw of
         Nothing -> (Nothing, Nothing)
         Just dir ->
-            let zMin = max 0 (argKalmanZMin args)
+            let effectiveUseSizing = useSizing && argVolConfGate args == VolConfGateDisabled
+                zMin = max 0 (argKalmanZMin args)
                 hvOk =
                     ( not (predictorEnabled (argPredictors args) SensorHMM)
                         || ( case (argMaxHighVolProb args, mReg) of
@@ -18160,7 +18174,7 @@ gateKalmanDir args useSizing thr kalZ mReg mI mQ confScore dirRaw =
                                                         if not (confirmQuantiles args thr mQ dir)
                                                             then (Nothing, Just "QUANTILE_CONFIRM")
                                                             else
-                                                                if useSizing && confScore < argMinPositionSize args
+                                                                if effectiveUseSizing && confScore < argMinPositionSize args
                                                                     then (Nothing, Just "MIN_SIZE")
                                                                     else (Just dir, Nothing)
 
@@ -19707,7 +19721,8 @@ computeBacktestFromSeries args series mBinanceEnv = do
 
 backtestSummaryJson :: BacktestSummary -> Aeson.Value
 backtestSummaryJson summary =
-    let tuneStatsJson =
+    let metrics = bsMetrics summary
+        tuneStatsJson =
             case bsTuneStats summary of
                 Nothing -> Nothing
                 Just st ->
@@ -19793,6 +19808,8 @@ backtestSummaryJson summary =
                     ]
             , "initialBalance" .= bsInitialBalance summary
             , "method" .= methodCode (bsMethodUsed summary)
+            , "volConfGate" .= volConfGateCode (bsVolConfGate summary)
+            , "vol_conf_gate" .= volConfGateCode (bsVolConfGate summary)
             , "threshold" .= bsBestOpenThreshold summary
             , "openThreshold" .= bsBestOpenThreshold summary
             , "closeThreshold" .= bsBestCloseThreshold summary
@@ -19843,7 +19860,11 @@ backtestSummaryJson summary =
             , "tuning" .= tuningJson
             , "costs" .= costsJson
             , "walkForward" .= walkForwardJson
-            , "metrics" .= metricsToJson (bsMetrics summary)
+            , "metrics" .= metricsToJson metrics
+            , "sharpe" .= bmSharpe metrics
+            , "max_drawdown" .= bmMaxDrawdown metrics
+            , "avg_trade" .= bmAvgTradeReturn metrics
+            , "closed_trades" .= bmRoundTrips metrics
             , "baselines" .= map baselineToJson (bsBaselines summary)
             , "latestSignal" .= bsLatestSignal summary
             , "equityCurve" .= bsEquityCurve summary
@@ -19895,15 +19916,20 @@ metricsToJson m =
         , "tradeCount" .= bmTradeCount m
         , "positionChanges" .= bmPositionChanges m
         , "roundTrips" .= bmRoundTrips m
+        , "closedTrades" .= bmRoundTrips m
+        , "closed_trades" .= bmRoundTrips m
         , "winRate" .= bmWinRate m
         , "grossProfit" .= bmGrossProfit m
         , "grossLoss" .= bmGrossLoss m
         , "profitFactor" .= bmProfitFactor m
         , "avgTradeReturn" .= bmAvgTradeReturn m
+        , "avgTrade" .= bmAvgTradeReturn m
+        , "avg_trade" .= bmAvgTradeReturn m
         , "avgHoldingPeriods" .= bmAvgHoldingPeriods m
         , "exposure" .= bmExposure m
         , "agreementRate" .= bmAgreementRate m
         , "turnover" .= bmTurnover m
+        , "max_drawdown" .= bmMaxDrawdown m
         ]
 
 runTradeOnly :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
@@ -20040,6 +20066,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                 (bsEstimatedPerSideCost summary)
                 (bsEstimatedRoundTripCost summary)
             printFundingGuidance (argFundingRate args) (argFundingBySide args)
+            putStrLn (printf "Vol/conf gate: %s" (volConfGateCode (bsVolConfGate summary)))
 
             putStrLn $
                 case bsMethodUsed summary of
@@ -20841,6 +20868,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecVolFloor = argVolFloor args
                 , ecVolScaleMax = argVolScaleMax args
                 , ecMaxVolatility = argMaxVolatility args
+                , ecVolConfGate = argVolConfGate args
                 , ecRebalanceBars = argRebalanceBars args
                 , ecRebalanceThreshold = rebalanceThresholdUsed
                 , ecRebalanceGlobal = argRebalanceGlobal args
@@ -21496,6 +21524,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsBacktestToMs = backtestToMs
             , bsInitialBalance = initialBalance
             , bsMethodUsed = methodUsed
+            , bsVolConfGate = argVolConfGate args
             , bsBestOpenThreshold = bestOpenThr
             , bsBestCloseThreshold = bestCloseThr
             , bsMinHoldBars = argMinHoldBars args
@@ -22378,6 +22407,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             trendLookback = max 0 (argTrendLookback args)
             maxPositionSize = max 0 (argMaxPositionSize args)
             ppy = max 1e-12 (periodsPerYear args)
+            volConfGatePreset = argVolConfGate args
+            volConfGateEnabled = volConfGatePreset /= VolConfGateDisabled
+            confidenceSizingEnabled = argConfidenceSizing args && not volConfGateEnabled
             volTarget =
                 case argVolTarget args of
                     Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
@@ -22390,9 +22422,12 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     Just a | a > 0 && not (isNaN a || isInfinite a) -> Just (max 0 (min 1 a))
                     _ -> Nothing
             maxVolatility =
-                case argMaxVolatility args of
-                    Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
-                    _ -> Nothing
+                if volConfGateEnabled
+                    then Nothing
+                    else
+                        case argMaxVolatility args of
+                            Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
+                            _ -> Nothing
 
             bad x = isNaN x || isInfinite x
 
@@ -24062,6 +24097,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodBanditRouter -> routerConfidence
                     _ -> mConfidence
 
+            volConfConfidence =
+                methodConfidence
+                    <|> (mLstmNext >>= lstmConfidenceScoreFromPred openThrBase currentPrice)
+
             metaBandAgree dir =
                 case (mConformal, mQuantiles) of
                     (Just i, _) ->
@@ -24104,7 +24143,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     (fundingPressure dir)
                     oiVolProxy
 
-            closeDir =
+            closeDirBase =
                 case method of
                     MethodBoth ->
                         if kalCloseDir == lstmCloseDir
@@ -24217,6 +24256,18 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     Just sz | sz <= 0 -> Nothing
                                     _ -> chosenDir1
 
+            volConfCell =
+                volConfGateCell volConfGatePreset volEstimate volConfConfidence
+            volConfBehavior = vcgBehavior volConfCell
+            volConfSizeMult =
+                if isJust chosenDir2
+                    then vcgSizeMult volConfCell
+                    else 1
+            closeDir =
+                case volConfBehavior of
+                    VolConfGateHold -> Nothing
+                    _ -> closeDirBase
+
             baseSize =
                 case method of
                     MethodLstmOnly ->
@@ -24252,24 +24303,37 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     then 0
                                     else kellyLiteFraction * (mu / sig2)
                          in max kellyLiteFloor (min kellyLiteCap raw)
-            sizeScaled = baseSize * volScale * snrScaleWeighted
+            sizeScaled = baseSize * volConfSizeMult * volScale * snrScaleWeighted
             sizeScaledRisk = sizeScaled * riskScale
             sizeAfterOverlays = sizeScaledRisk * regimeSizeMult * pairsSizeScale * fundingOiSizeScale * kellyLiteScale
             sizeCapped = min maxPositionSize (max 0 sizeAfterOverlays)
             sizeFinal0 =
-                if argConfidenceSizing args && sizeCapped < argMinPositionSize args
+                if (confidenceSizingEnabled || volConfGateEnabled) && sizeCapped < argMinPositionSize args
                     then 0
                     else sizeCapped
 
+            (chosenDirVolConf, sizeFinal1) =
+                applyVolConfGateBehavior volConfBehavior Nothing 0 chosenDir2 sizeFinal0
+
+            volConfGateReason =
+                if not (isJust chosenDir2)
+                    then Nothing
+                    else
+                        case volConfBehavior of
+                            VolConfGateAllowEntry -> Nothing
+                            VolConfGateHold -> Just "VOL_CONF_GATE_HOLD"
+                            VolConfGateBlock -> Just "VOL_CONF_GATE_BLOCK"
+                            VolConfGateAllowExitOnly -> Just "VOL_CONF_GATE_ALLOW_EXIT_ONLY"
+
             (chosenDir, mSizeGateReason) =
-                case chosenDir2 of
+                case chosenDirVolConf of
                     Nothing -> (Nothing, Nothing)
                     Just _ ->
-                        if sizeFinal0 <= 0
+                        if sizeFinal1 <= 0
                             then (Nothing, Just "MIN_SIZE")
-                            else (chosenDir2, Nothing)
+                            else (chosenDirVolConf, Nothing)
 
-            gateReasonFinal = mPostGateReason <|> mSizeGateReason <|> gateReasonForMethod
+            gateReasonFinal = mPostGateReason <|> volConfGateReason <|> mSizeGateReason <|> gateReasonForMethod
 
             action =
                 let downAction =
@@ -24540,38 +24604,44 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (bandit_router neutral)"
-            posSizeFinal = Just sizeFinal0
+            posSizeFinal = Just sizeFinal1
             tradePosSize =
-                case method of
-                    MethodBlend -> blendPosSize
-                    MethodConfBlend -> confBlendPosSize
-                    MethodConfPick -> confPickPosSize
-                    MethodConformalClip -> conformalClipPosSize
-                    MethodCostPick -> costPickPosSize
-                    MethodHarmonicBlend -> harmonicBlendPosSize
-                    MethodDisagreementGuard -> disagreementGuardPosSize
-                    MethodMedianBlend -> medianBlendPosSize
-                    MethodNeutralGuard -> neutralGuardPosSize
-                    MethodRiskParityBlend -> riskParityBlendPosSize
-                    MethodConsensusBoost -> consensusBoostPosSize
-                    MethodAnchorBlend -> anchorBlendPosSize
-                    MethodTensionGate -> tensionGatePosSize
-                    MethodEntropyBlend -> entropyBlendPosSize
-                    MethodCoherenceGate -> coherenceGatePosSize
-                    MethodDivergenceGate -> divergenceGatePosSize
-                    MethodFractalBlend -> fractalBlendPosSize
-                    MethodPhaseCancel -> phaseCancelPosSize
-                    MethodSoftmaxBlend -> softmaxBlendPosSize
-                    MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendPosSize
-                    MethodHedgeBlend -> hedgeBlendPosSize
-                    MethodNetSoftmaxBlend -> netSoftmaxBlendPosSize
-                    MethodEdgeBlend -> edgeBlendPosSize
-                    MethodEdgePick -> edgePickPosSize
-                    MethodGeoBlend -> geoBlendPosSize
-                    MethodRegimeSwitch -> regimeSwitchPosSize
-                    MethodRouter -> routerPosSize
-                    MethodBanditRouter -> routerPosSize
-                    _ -> mPosSize
+                if volConfGateEnabled
+                    then
+                        case chosenDir1 of
+                            Just _ -> Just 1
+                            Nothing -> Just 0
+                    else
+                        case method of
+                            MethodBlend -> blendPosSize
+                            MethodConfBlend -> confBlendPosSize
+                            MethodConfPick -> confPickPosSize
+                            MethodConformalClip -> conformalClipPosSize
+                            MethodCostPick -> costPickPosSize
+                            MethodHarmonicBlend -> harmonicBlendPosSize
+                            MethodDisagreementGuard -> disagreementGuardPosSize
+                            MethodMedianBlend -> medianBlendPosSize
+                            MethodNeutralGuard -> neutralGuardPosSize
+                            MethodRiskParityBlend -> riskParityBlendPosSize
+                            MethodConsensusBoost -> consensusBoostPosSize
+                            MethodAnchorBlend -> anchorBlendPosSize
+                            MethodTensionGate -> tensionGatePosSize
+                            MethodEntropyBlend -> entropyBlendPosSize
+                            MethodCoherenceGate -> coherenceGatePosSize
+                            MethodDivergenceGate -> divergenceGatePosSize
+                            MethodFractalBlend -> fractalBlendPosSize
+                            MethodPhaseCancel -> phaseCancelPosSize
+                            MethodSoftmaxBlend -> softmaxBlendPosSize
+                            MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendPosSize
+                            MethodHedgeBlend -> hedgeBlendPosSize
+                            MethodNetSoftmaxBlend -> netSoftmaxBlendPosSize
+                            MethodEdgeBlend -> edgeBlendPosSize
+                            MethodEdgePick -> edgePickPosSize
+                            MethodGeoBlend -> geoBlendPosSize
+                            MethodRegimeSwitch -> regimeSwitchPosSize
+                            MethodRouter -> routerPosSize
+                            MethodBanditRouter -> routerPosSize
+                            _ -> mPosSize
             gateReasonForMethod =
                 case method of
                     MethodBlend -> blendGateReason
@@ -24605,6 +24675,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     _ -> mGateReason
          in LatestSignal
                 { lsMethod = methodForReport
+                , lsVolConfGate = volConfGatePreset
                 , lsCurrentPrice = currentPrice
                 , lsOpenThreshold = openThrAdj
                 , lsCloseThreshold = closeThrAdj
@@ -24640,6 +24711,7 @@ printLatestSignalSummary sig = do
     putStrLn ""
     putStrLn "**Latest Signal**"
     putStrLn (printf "Method: %s" (methodCode (lsMethod sig)))
+    putStrLn (printf "Vol/conf gate: %s" (volConfGateCode (lsVolConfGate sig)))
     case lsKalmanNext sig of
         Nothing -> putStrLn "Kalman next: (disabled)"
         Just kalNext -> putStrLn (printf "Kalman next: %.4f (%s)" kalNext (showDir (lsKalmanDir sig)))
@@ -25278,7 +25350,7 @@ printMetrics method initialBalance m = do
     putStrLn "**Trade Execution**"
     putStrLn (printf "Position changes: %d" (bmPositionChanges m))
     putStrLn (printf "Trades: %d" (bmTradeCount m))
-    putStrLn (printf "Round trips: %d" (bmRoundTrips m))
+    putStrLn (printf "Closed trades (round trips): %d" (bmRoundTrips m))
     putStrLn (printf "Win rate: %.1f%%" (bmWinRate m * 100))
     let profitFactorLabel :: String
         profitFactorLabel =

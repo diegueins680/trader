@@ -461,7 +461,10 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--vol-floor F` annualized vol floor for sizing (default: `0.15`)
     - `--vol-scale-max F` cap volatility scaling (limits leverage)
     - `--max-volatility F` block entries when annualized vol exceeds this (`0` disables; default: `1.5`)
-- `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables rebalancing; backtests only; default: `24`, entry-anchored)
+  - `--vol-conf-gate PRESET` apply the frozen volatility/confidence gate directly without hand-composing legacy flags
+    - Choices: `disabled`, `vol_conf_v1_default`, `vol_conf_v1_high_vol_tighter`, `vol_conf_v1_high_vol_looser`, `vol_conf_v1_conf_stricter`
+    - The active preset is echoed in help, latest-signal output, backtest JSON, and the text backtest report as `vol_conf_gate`.
+  - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables rebalancing; backtests only; default: `24`, entry-anchored)
 - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables rebalancing; default: `0.05`)
 - `--rebalance-cost-mult F` optional: require size delta ≥ `F * perSideCost` to rebalance (`0` disables)
 - `--rebalance-global` optional: anchor rebalance cadence to global bars instead of entry age
@@ -530,6 +533,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--json` machine-readable JSON to stdout:
     - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
     - Backtest: `{ "mode": "backtest", "backtest": ... }` (includes `"baselines"` like `buy-hold` / `sma-cross(...)`, and `"trade"` if `--binance-trade` is set)
+    - Backtest JSON now includes top-level scorecard fields `vol_conf_gate`, `sharpe`, `max_drawdown`, `avg_trade`, and `closed_trades`; `metrics` also includes `avg_trade` / `closed_trades` aliases.
     - Backtest JSON includes `split.from`, `split.to`, and `initialBalance` when a window/balance override is used.
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
     - Trade responses include `txHash` when a DEX swap is submitted.

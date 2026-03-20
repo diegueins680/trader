@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- CLI/Backtests: add the frozen `--vol-conf-gate` preset surface with the locked names `disabled`, `vol_conf_v1_default`, `vol_conf_v1_high_vol_tighter`, `vol_conf_v1_high_vol_looser`, and `vol_conf_v1_conf_stricter`; wire those presets directly into the trading/backtest path; and expose `vol_conf_gate`, `sharpe`, `max_drawdown`, `avg_trade`, and `closed_trades` in backtest JSON/report output for the research scorecard.
 - API/Web UI: expose `/optimizer/combos` merge diagnostics (`rawCount`, `droppedCount`, `dedupedCount`) and show them in the Optimizer combos panel so Fly/live deployments can explain why the visible combo count is lower than the raw candidate set.
 - Web UI: restore the ambiguous single-comma numeric-input guard so values like `1,234` keep the prior setting instead of silently coercing to `1234`; explicit multi-group thousands and decimal-comma forms still parse.
 - Dev/CI: include `test/autoloop.test.mjs` in the repo-root `npm run test` entrypoint, and assert that aggregate contract in the autoloop test suite so the formal autoloop verifier cannot be skipped silently.
