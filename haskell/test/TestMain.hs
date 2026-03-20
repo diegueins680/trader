@@ -71,6 +71,7 @@ import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
+import Trader.VolConfGate (VolConfGatePreset (..))
 
 main :: IO ()
 main = do
@@ -565,6 +566,7 @@ baseEnsembleConfig =
         , ecVolFloor = 0
         , ecVolScaleMax = 1
         , ecMaxVolatility = Nothing
+        , ecVolConfGate = VolConfGateDisabled
         , ecRebalanceBars = 0
         , ecRebalanceThreshold = 0
         , ecRebalanceGlobal = False
