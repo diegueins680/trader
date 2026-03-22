@@ -464,11 +464,12 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--vol-conf-gate PRESET` apply the frozen volatility/confidence gate directly without hand-composing legacy flags
     - Choices: `disabled`, `vol_conf_v1_default`, `vol_conf_v1_high_vol_tighter`, `vol_conf_v1_high_vol_looser`, `vol_conf_v1_conf_stricter`
     - The active preset is echoed in help, latest-signal output, backtest JSON, and the text backtest report as `vol_conf_gate`.
+    - Explicit `--max-volatility` still applies when a preset is enabled.
   - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables rebalancing; backtests only; default: `24`, entry-anchored)
-- `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables rebalancing; default: `0.05`)
-- `--rebalance-cost-mult F` optional: require size delta ≥ `F * perSideCost` to rebalance (`0` disables)
-- `--rebalance-global` optional: anchor rebalance cadence to global bars instead of entry age
-- `--rebalance-reset-on-signal` optional: reset rebalance cadence when a same-side open signal updates size
+  - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables rebalancing; default: `0.05`)
+  - `--rebalance-cost-mult F` optional: require size delta ≥ `F * perSideCost` to rebalance (`0` disables)
+  - `--rebalance-global` optional: anchor rebalance cadence to global bars instead of entry age
+  - `--rebalance-reset-on-signal` optional: reset rebalance cadence when a same-side open signal updates size
   - `--funding-rate F` optional: annualized funding/borrow rate applied per bar in backtests (`0` disables; negative allowed; default: `0.1`)
   - `--funding-by-side` optional: apply funding sign by side (long pays positive, short receives)
     - Without `--funding-by-side`, the funding rate is applied uniformly (negative values credit both sides).

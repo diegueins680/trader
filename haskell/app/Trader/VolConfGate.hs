@@ -98,7 +98,7 @@ volConfGateCell preset mVolatility mConfidence =
                      in gateCellFor preset volB confB
 
 applyVolConfGateBehavior ::
-    Eq side =>
+    (Eq side) =>
     VolConfGateBehavior ->
     Maybe side ->
     Double ->

@@ -772,12 +772,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                 Just a | a > 0 && not (isNaN a || isInfinite a) -> Just (max 0 (min 1 a))
                                 _ -> Nothing
                         maxVolatility =
-                            if volConfGateEnabled
-                                then Nothing
-                                else
-                                    case ecMaxVolatility cfg of
-                                        Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
-                                        _ -> Nothing
+                            case ecMaxVolatility cfg of
+                                Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
+                                _ -> Nothing
                         dayKeyAt :: Int -> Int
                         dayKeyAt i =
                             case openTimesV of

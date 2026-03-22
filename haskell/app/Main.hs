@@ -6594,24 +6594,27 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         -- - Otherwise, entry uses openThreshold via lsChosenDir.
         allowShort = argPositioning args == LongShort
         chosenDir = lsChosenDir latest0Raw
+        volConfHoldActive = "VOL_CONF_GATE_HOLD" `isInfixOf` lsAction latest0Raw
 
         desiredPosSignal =
-            case startPos0 of
-                1 ->
-                    case chosenDir of
-                        Just 1 -> 1
-                        Just (-1) | allowShort -> -1
-                        _ -> 0
-                (-1) ->
-                    case chosenDir of
-                        Just (-1) -> -1
-                        Just 1 | allowShort -> 1
-                        _ -> 0
-                _ ->
-                    case chosenDir of
-                        Just 1 -> 1
-                        Just (-1) | allowShort -> -1
-                        _ -> 0
+            if startPos0 /= 0 && volConfHoldActive
+                then startPos0
+                else case startPos0 of
+                    1 ->
+                        case chosenDir of
+                            Just 1 -> 1
+                            Just (-1) | allowShort -> -1
+                            _ -> 0
+                    (-1) ->
+                        case chosenDir of
+                            Just (-1) -> -1
+                            Just 1 | allowShort -> 1
+                            _ -> 0
+                    _ ->
+                        case chosenDir of
+                            Just 1 -> 1
+                            Just (-1) | allowShort -> -1
+                            _ -> 0
 
         latest =
             case (startPos0, desiredPosSignal) of
@@ -8602,36 +8605,39 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         allowShort = argPositioning args == LongShort
         chosenDir = lsChosenDir latest0Raw
         closeDir = lsCloseDir latest0Raw
+        volConfHoldActive = "VOL_CONF_GATE_HOLD" `isInfixOf` lsAction latest0Raw
 
         desiredPosSignal =
-            case prevPos of
-                1 ->
-                    case chosenDir of
-                        Just 1 -> 1
-                        Just (-1) ->
-                            if allowShort
-                                then -1
-                                else 0
-                        _ ->
-                            case closeDir of
-                                Just 1 -> 1
-                                _ -> 0
-                (-1) ->
-                    case chosenDir of
-                        Just (-1) -> -1
-                        Just 1 ->
-                            if allowShort
-                                then 1
-                                else 0
-                        _ ->
-                            case closeDir of
-                                Just (-1) -> -1
-                                _ -> 0
-                _ ->
-                    case chosenDir of
-                        Just 1 -> 1
-                        Just (-1) | allowShort -> -1
-                        _ -> 0
+            if prevPos /= 0 && volConfHoldActive
+                then prevPos
+                else case prevPos of
+                    1 ->
+                        case chosenDir of
+                            Just 1 -> 1
+                            Just (-1) ->
+                                if allowShort
+                                    then -1
+                                    else 0
+                            _ ->
+                                case closeDir of
+                                    Just 1 -> 1
+                                    _ -> 0
+                    (-1) ->
+                        case chosenDir of
+                            Just (-1) -> -1
+                            Just 1 ->
+                                if allowShort
+                                    then 1
+                                    else 0
+                            _ ->
+                                case closeDir of
+                                    Just (-1) -> -1
+                                    _ -> 0
+                    _ ->
+                        case chosenDir of
+                            Just 1 -> 1
+                            Just (-1) | allowShort -> -1
+                            _ -> 0
 
         -- If we decide to exit (open/close signal neutral/opposite), force chosenDir to the exit side
         -- so a closing order can be placed when trading is enabled.
@@ -22422,12 +22428,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     Just a | a > 0 && not (isNaN a || isInfinite a) -> Just (max 0 (min 1 a))
                     _ -> Nothing
             maxVolatility =
-                if volConfGateEnabled
-                    then Nothing
-                    else
-                        case argMaxVolatility args of
-                            Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
-                            _ -> Nothing
+                case argMaxVolatility args of
+                    Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
+                    _ -> Nothing
 
             bad x = isNaN x || isInfinite x
 
@@ -24316,14 +24319,13 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 applyVolConfGateBehavior volConfBehavior Nothing 0 chosenDir2 sizeFinal0
 
             volConfGateReason =
-                if not (isJust chosenDir2)
+                if isNothing chosenDir2
                     then Nothing
-                    else
-                        case volConfBehavior of
-                            VolConfGateAllowEntry -> Nothing
-                            VolConfGateHold -> Just "VOL_CONF_GATE_HOLD"
-                            VolConfGateBlock -> Just "VOL_CONF_GATE_BLOCK"
-                            VolConfGateAllowExitOnly -> Just "VOL_CONF_GATE_ALLOW_EXIT_ONLY"
+                    else case volConfBehavior of
+                        VolConfGateAllowEntry -> Nothing
+                        VolConfGateHold -> Just "VOL_CONF_GATE_HOLD"
+                        VolConfGateBlock -> Just "VOL_CONF_GATE_BLOCK"
+                        VolConfGateAllowExitOnly -> Just "VOL_CONF_GATE_ALLOW_EXIT_ONLY"
 
             (chosenDir, mSizeGateReason) =
                 case chosenDirVolConf of
@@ -24607,41 +24609,39 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             posSizeFinal = Just sizeFinal1
             tradePosSize =
                 if volConfGateEnabled
-                    then
-                        case chosenDir1 of
-                            Just _ -> Just 1
-                            Nothing -> Just 0
-                    else
-                        case method of
-                            MethodBlend -> blendPosSize
-                            MethodConfBlend -> confBlendPosSize
-                            MethodConfPick -> confPickPosSize
-                            MethodConformalClip -> conformalClipPosSize
-                            MethodCostPick -> costPickPosSize
-                            MethodHarmonicBlend -> harmonicBlendPosSize
-                            MethodDisagreementGuard -> disagreementGuardPosSize
-                            MethodMedianBlend -> medianBlendPosSize
-                            MethodNeutralGuard -> neutralGuardPosSize
-                            MethodRiskParityBlend -> riskParityBlendPosSize
-                            MethodConsensusBoost -> consensusBoostPosSize
-                            MethodAnchorBlend -> anchorBlendPosSize
-                            MethodTensionGate -> tensionGatePosSize
-                            MethodEntropyBlend -> entropyBlendPosSize
-                            MethodCoherenceGate -> coherenceGatePosSize
-                            MethodDivergenceGate -> divergenceGatePosSize
-                            MethodFractalBlend -> fractalBlendPosSize
-                            MethodPhaseCancel -> phaseCancelPosSize
-                            MethodSoftmaxBlend -> softmaxBlendPosSize
-                            MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendPosSize
-                            MethodHedgeBlend -> hedgeBlendPosSize
-                            MethodNetSoftmaxBlend -> netSoftmaxBlendPosSize
-                            MethodEdgeBlend -> edgeBlendPosSize
-                            MethodEdgePick -> edgePickPosSize
-                            MethodGeoBlend -> geoBlendPosSize
-                            MethodRegimeSwitch -> regimeSwitchPosSize
-                            MethodRouter -> routerPosSize
-                            MethodBanditRouter -> routerPosSize
-                            _ -> mPosSize
+                    then case chosenDir1 of
+                        Just _ -> Just 1
+                        Nothing -> Just 0
+                    else case method of
+                        MethodBlend -> blendPosSize
+                        MethodConfBlend -> confBlendPosSize
+                        MethodConfPick -> confPickPosSize
+                        MethodConformalClip -> conformalClipPosSize
+                        MethodCostPick -> costPickPosSize
+                        MethodHarmonicBlend -> harmonicBlendPosSize
+                        MethodDisagreementGuard -> disagreementGuardPosSize
+                        MethodMedianBlend -> medianBlendPosSize
+                        MethodNeutralGuard -> neutralGuardPosSize
+                        MethodRiskParityBlend -> riskParityBlendPosSize
+                        MethodConsensusBoost -> consensusBoostPosSize
+                        MethodAnchorBlend -> anchorBlendPosSize
+                        MethodTensionGate -> tensionGatePosSize
+                        MethodEntropyBlend -> entropyBlendPosSize
+                        MethodCoherenceGate -> coherenceGatePosSize
+                        MethodDivergenceGate -> divergenceGatePosSize
+                        MethodFractalBlend -> fractalBlendPosSize
+                        MethodPhaseCancel -> phaseCancelPosSize
+                        MethodSoftmaxBlend -> softmaxBlendPosSize
+                        MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendPosSize
+                        MethodHedgeBlend -> hedgeBlendPosSize
+                        MethodNetSoftmaxBlend -> netSoftmaxBlendPosSize
+                        MethodEdgeBlend -> edgeBlendPosSize
+                        MethodEdgePick -> edgePickPosSize
+                        MethodGeoBlend -> geoBlendPosSize
+                        MethodRegimeSwitch -> regimeSwitchPosSize
+                        MethodRouter -> routerPosSize
+                        MethodBanditRouter -> routerPosSize
+                        _ -> mPosSize
             gateReasonForMethod =
                 case method of
                     MethodBlend -> blendGateReason
