@@ -71,6 +71,7 @@ import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
+import Trader.VolConfGate (VolConfGatePreset (..))
 
 main :: IO ()
 main = do
@@ -107,6 +108,7 @@ main = do
               , run "lstm key uses platform" testLstmModelKeyPlatform
               , run "ensemble agreement gate" testAgreementGate
               , run "hold on close agreement" testHoldOnCloseAgree
+              , run "vol-conf gate still honors explicit max-volatility" testVolConfGateKeepsMaxVolatility
               , run "min-hold blocks exit" testMinHoldBars
               , run "max-hold forces exit" testMaxHoldBars
               , run "cooldown blocks re-entry" testCooldownBars
@@ -565,6 +567,7 @@ baseEnsembleConfig =
         , ecVolFloor = 0
         , ecVolScaleMax = 1
         , ecMaxVolatility = Nothing
+        , ecVolConfGate = VolConfGateDisabled
         , ecRebalanceBars = 0
         , ecRebalanceThreshold = 0
         , ecRebalanceGlobal = False
@@ -1005,6 +1008,29 @@ testHoldOnCloseAgree = do
         btExit = requireRight "simulateEnsemble exit" (simulateEnsemble cfgExit lookback prices kalPred lstmPred Nothing)
     assert "holds when close signal still agrees" (brPositions btHold == [1, 1])
     assert "exits when open signal neutral and close signal does not agree" (brPositions btExit == [1, 0])
+
+testVolConfGateKeepsMaxVolatility :: IO ()
+testVolConfGateKeepsMaxVolatility = do
+    let prices = [100, 200, 100, 200]
+        lookback = 1
+        preds = [110, 220, 110]
+        gateCfg =
+            baseEnsembleConfig
+                { ecOpenThreshold = 0.02
+                , ecCloseThreshold = 0.02
+                , ecVolEwmaAlpha = Just 0.5
+                , ecVolConfGate = VolConfGateV1Default
+                }
+        btGate =
+            requireRight
+                "simulateEnsemble vol-conf gate"
+                (simulateEnsemble gateCfg lookback prices preds preds Nothing)
+        btGateMaxVol =
+            requireRight
+                "simulateEnsemble vol-conf gate + max-vol"
+                (simulateEnsemble (gateCfg{ecMaxVolatility = Just 1}) lookback prices preds preds Nothing)
+    assert "vol-conf gate alone can still enter on strong confidence" (any (> 0) (brPositions btGate))
+    assert "explicit max-volatility still blocks entries under vol-conf gate" (all (== 0) (brPositions btGateMaxVol))
 
 testMinHoldBars :: IO ()
 testMinHoldBars = do

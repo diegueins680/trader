@@ -52,6 +52,11 @@ import Trader.Predictors.Types (
 import Trader.Symbol (sanitizeSymbolForPlatform)
 import Trader.Text (normalizeKey, trim)
 import Trader.Trading (IntrabarFill (..), Positioning (..))
+import Trader.VolConfGate (
+    VolConfGatePreset (..),
+    parseVolConfGatePreset,
+    volConfGateChoicesCsv,
+ )
 
 data Args = Args
     { argData :: Maybe FilePath
@@ -211,6 +216,7 @@ data Args = Args
     , argVolFloor :: Double
     , argVolScaleMax :: Double
     , argMaxVolatility :: Maybe Double
+    , argVolConfGate :: VolConfGatePreset
     , argRebalanceBars :: Int
     , argRebalanceThreshold :: Double
     , argRebalanceCostMult :: Double
@@ -854,6 +860,15 @@ opts = do
                     <> showDefault
                     <> help "Block entries when annualized vol exceeds this (0 disables)"
                 )
+            )
+    argVolConfGate <-
+        option
+            (eitherReader parseVolConfGatePreset)
+            ( long "vol-conf-gate"
+                <> value VolConfGateDisabled
+                <> showDefaultWith (const "disabled")
+                <> metavar "PRESET"
+                <> help ("Frozen volatility/confidence gate preset. Choices: " ++ volConfGateChoicesCsv)
             )
     argRebalanceBars <- option auto (long "rebalance-bars" <> value 24 <> showDefault <> help "Rebalance position size every N bars when size targets change (0 disables; default anchors to entry age)")
     argRebalanceThreshold <- option auto (long "rebalance-threshold" <> value 0.05 <> showDefault <> help "Minimum abs size delta required to rebalance (0 disables)")
