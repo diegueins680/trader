@@ -2426,11 +2426,11 @@ testStartupOrderExecutionRequiresFillEvidence = do
                 , oeeStatus = Just "PARTIALLY_FILLED"
                 , oeeExecutedQty = Just 4.0
                 }
-        closeQtyNew = maybe 0 id (orderAppliedQuantity newAck 11.978)
+        closeQtyNew = Data.Maybe.fromMaybe 0 (orderAppliedQuantity newAck 11.978)
         (posCloseNew, sizeCloseNew, closeOnlyNew, openOnlyNew) = applyReduceOnlyExecutedQuantity 1 11.978 closeQtyNew
-        flipQtyNew = maybe 0 id (orderAppliedQuantity newAck 13.978)
+        flipQtyNew = Data.Maybe.fromMaybe 0 (orderAppliedQuantity newAck 13.978)
         (posFlipNew, sizeFlipNew, closeFlipNew, openFlipNew) = applyExecutedQuantity 1 11.978 False flipQtyNew
-        closeQtyPartial = maybe 0 id (orderAppliedQuantity partialFill 11.978)
+        closeQtyPartial = Data.Maybe.fromMaybe 0 (orderAppliedQuantity partialFill 11.978)
         (posClosePartial, sizeClosePartial, closeOnlyPartial, openOnlyPartial) = applyReduceOnlyExecutedQuantity 1 11.978 closeQtyPartial
     assert "startup close NEW without fills keeps prior long" (posCloseNew == 1)
     assertApprox "startup close NEW keeps full size" 1e-12 sizeCloseNew 11.978

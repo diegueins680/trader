@@ -37,7 +37,7 @@ mkRequest method path query extraHeaders =
         }
 
 lookupResponseHeader :: HeaderName -> ResponseHeaders -> Maybe BS.ByteString
-lookupResponseHeader name hs = lookup name hs
+lookupResponseHeader = lookup
 
 expectOriginAllowed :: String -> Wai.Request -> IO ()
 expectOriginAllowed label req =
