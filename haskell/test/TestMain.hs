@@ -1024,7 +1024,8 @@ testVolConfGateKeepsMaxVolatility :: IO ()
 testVolConfGateKeepsMaxVolatility = do
     let prices = [100, 200, 100, 200]
         lookback = 1
-        preds = [110, 220, 110]
+        -- Keep the confidence strong while staying below the 4x EDGE_SPIKE cap.
+        preds = [106, 212, 106]
         gateCfg =
             baseEnsembleConfig
                 { ecOpenThreshold = 0.02
@@ -1040,7 +1041,7 @@ testVolConfGateKeepsMaxVolatility = do
             requireRight
                 "simulateEnsemble vol-conf gate + max-vol"
                 (simulateEnsemble (gateCfg{ecMaxVolatility = Just 1}) lookback prices preds preds Nothing)
-    assert "vol-conf gate alone can still enter on strong confidence" (any (> 0) (brPositions btGate))
+    assert "vol-conf gate alone can still enter on strong non-spike confidence" (any (> 0) (brPositions btGate))
     assert "explicit max-volatility still blocks entries under vol-conf gate" (all (== 0) (brPositions btGateMaxVol))
 
 testMinHoldBars :: IO ()
