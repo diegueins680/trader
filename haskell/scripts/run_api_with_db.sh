@@ -39,15 +39,53 @@ check_pg_ready() {
 }
 
 cleanup_stale_postmaster() {
-  if [ -f "/opt/homebrew/var/postgresql@16/postmaster.pid" ]; then
-    stale_pid="$(head -n 1 /opt/homebrew/var/postgresql@16/postmaster.pid 2>/dev/null || true)"
-    if [ -n "${stale_pid}" ]; then
-      if ! ps -p "${stale_pid}" -o comm= >/dev/null 2>&1; then
-        echo "Removing stale postmaster.pid (PID ${stale_pid} not running)..."
-        rm -f /opt/homebrew/var/postgresql@16/postmaster.pid >/dev/null 2>&1 || true
-      fi
+  local brew_prefix=""
+  local formula_prefix=""
+  local data_root=""
+  local pid_file=""
+  local stale_pid=""
+  local process_comm=""
+  local reason=""
+  local -a pid_candidates=(
+    "/opt/homebrew/var/postgresql@16/postmaster.pid"
+    "/usr/local/var/postgresql@16/postmaster.pid"
+  )
+
+  if command -v brew >/dev/null 2>&1; then
+    brew_prefix="$(brew --prefix 2>/dev/null || true)"
+    if [ -n "${brew_prefix}" ]; then
+      pid_candidates=("${brew_prefix}/var/postgresql@16/postmaster.pid" "${pid_candidates[@]}")
+    fi
+
+    formula_prefix="$(brew --prefix postgresql@16 2>/dev/null || true)"
+    if [ -n "${formula_prefix}" ]; then
+      data_root="$(dirname "$(dirname "${formula_prefix}")")"
+      pid_candidates=("${data_root}/var/postgresql@16/postmaster.pid" "${pid_candidates[@]}")
     fi
   fi
+
+  for pid_file in "${pid_candidates[@]}"; do
+    [ -f "${pid_file}" ] || continue
+    stale_pid="$(head -n 1 "${pid_file}" 2>/dev/null || true)"
+    process_comm=""
+    reason=""
+
+    if [ -z "${stale_pid}" ]; then
+      reason="missing PID"
+    else
+      process_comm="$(ps -p "${stale_pid}" -o comm= 2>/dev/null || true)"
+      if [ -z "${process_comm}" ]; then
+        reason="PID ${stale_pid} not running"
+      elif [[ "${process_comm}" != *postgres* ]]; then
+        reason="PID ${stale_pid} belongs to ${process_comm}"
+      fi
+    fi
+
+    if [ -n "${reason}" ]; then
+      echo "Removing stale postmaster.pid at ${pid_file} (${reason})..."
+      rm -f "${pid_file}" >/dev/null 2>&1 || true
+    fi
+  done
 }
 
 if ! check_pg_ready; then

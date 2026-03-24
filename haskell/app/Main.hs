@@ -200,6 +200,7 @@ import Trader.Coinbase (
  )
 import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
+import Trader.Cors (CorsConfig (..), corsHeadersFor, resolveCorsConfig, withCors)
 import Trader.Dex (
     DexEnv (..),
     DexSwapResult (..),
@@ -287,7 +288,9 @@ import Trader.S3 (
  )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.SignalGates (
+    normalizeSignalThreshold,
     signalCrossAssetCheck,
+    signalEntryEdgeSpikeOk,
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
@@ -3807,7 +3810,9 @@ botOpenTradeJson trade =
         [ "entryIndex" .= botOpenEntryIndex trade
         , "entryEquity" .= botOpenEntryEquity trade
         , "entryIp" .= botOpenEntryIp trade
+        , "comboUuid" .= botOpenComboUuid trade
         , "entryHighVolProb" .= botOpenEntryHighVolProb trade
+        , "holdingPeriods" .= botOpenHoldingPeriods trade
         , "entryPrice" .= botOpenEntryPrice trade
         , "trail" .= botOpenTrail trade
         , "size" .= botOpenSize trade
@@ -4717,6 +4722,7 @@ botStatusJson st =
             , "operations" .= botOps st
             , "orders" .= botOrders st
             , "trades" .= map tradeToJson (botTrades st)
+            , "openTrade" .= fmap botOpenTradeJson (botOpenTrade st)
             , "performance" .= perfJson
             , "adaptive" .= adaptiveJson
             , "latestSignal" .= botLatestSignal st
@@ -6595,6 +6601,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         allowShort = argPositioning args == LongShort
         chosenDir = lsChosenDir latest0Raw
         volConfHoldActive = "VOL_CONF_GATE_HOLD" `isInfixOf` lsAction latest0Raw
+        closeDir = lsCloseDir latest0Raw
 
         desiredPosSignal =
             if startPos0 /= 0 && volConfHoldActive
@@ -6604,12 +6611,18 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                         case chosenDir of
                             Just 1 -> 1
                             Just (-1) | allowShort -> -1
-                            _ -> 0
+                            _ ->
+                                case closeDir of
+                                    Just 1 -> 1
+                                    _ -> 0
                     (-1) ->
                         case chosenDir of
                             Just (-1) -> -1
                             Just 1 | allowShort -> 1
-                            _ -> 0
+                            _ ->
+                                case closeDir of
+                                    Just (-1) -> -1
+                                    _ -> 0
                     _ ->
                         case chosenDir of
                             Just 1 -> 1
@@ -6669,35 +6682,74 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                     then Just <$> placeBotCloseIfEnabled args settings latestOrder env sym
                     else Just <$> placeIfEnabled args settings latestOrder env sym
 
-    let orderSent = maybe False aorSent mOrder
+    let qtyEps = 1e-9
+        isPositiveQty q = q > qtyEps
         alreadyMsg =
             case mOrder of
                 Nothing -> False
                 Just o ->
                     let msg = aorMessage o
                      in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
+        requestedQtyFromOrder fallbackQty o =
+            case aorQuantity o of
+                Just q | not (isNaN q || isInfinite q) && q > 0 -> q
+                _ ->
+                    if not (isNaN fallbackQty || isInfinite fallbackQty) && fallbackQty > 0
+                        then fallbackQty
+                        else 0
+        executedQtyFromOrder fallbackQty o =
+            let evidence =
+                    OrderExecutionEvidence
+                        { oeeSent = aorSent o
+                        , oeeLive = argBinanceLive args
+                        , oeeStatus = aorStatus o
+                        , oeeExecutedQty = aorExecutedQty o
+                        }
+             in orderAppliedQuantity evidence fallbackQty
+        targetQtyForSwitch =
+            case (startPos0, desiredPosSignal) of
+                (0, 1) -> entrySize
+                (0, -1) -> entrySize
+                (1, 0) -> startSize
+                (-1, 0) -> startSize
+                (1, -1) -> startSize + entrySize
+                (-1, 1) -> startSize + entrySize
+                _ -> max startSize entrySize
+        closeOnlySwitch = desiredPosSignal == 0 && startPos0 /= 0
+        requestedQty =
+            case mOrder of
+                Just o -> requestedQtyFromOrder targetQtyForSwitch o
+                Nothing -> 0
+        executedQtyRaw
+            | not wantSwitch = 0
+            | not tradeEnabled = requestedQty
+            | alreadyMsg = requestedQty
+            | otherwise =
+                case mOrder of
+                    Nothing -> 0
+                    Just o -> fromMaybe 0 (executedQtyFromOrder requestedQty o)
+        (desiredPos, desiredSize, closeQty, openQty)
+            | not wantSwitch =
+                let size0 =
+                        if startPos0 == 0
+                            then 0
+                            else startSize
+                 in (startPos0, size0, 0, 0)
+            | closeOnlySwitch = applyReduceOnlyExecutedQuantity startPos0 startSize executedQtyRaw
+            | otherwise = applyExecutedQuantity startPos0 startSize (opSide == "BUY") executedQtyRaw
+        appliedExecution = isPositiveQty closeQty || isPositiveQty openQty
+        stateReconciled = alreadyMsg || appliedExecution
         appliedSwitch =
-            not tradeEnabled || (orderSent || alreadyMsg)
-        feeApplied =
-            not tradeEnabled || orderSent
-        desiredPos
-            | not wantSwitch = startPos0
-            | appliedSwitch = desiredPosSignal
-            | otherwise = startPos0
-        didTradeNow = wantSwitch && appliedSwitch && feeApplied
+            stateReconciled && desiredPos /= startPos0
+        didTradeNow = wantSwitch && appliedExecution && not alreadyMsg
         volPerBar = volPerBarFromSignal args latest
-        costFor size = costPerSideTotal args size volPerBar
-        exitSize =
-            if wantSwitch && startPos0 /= 0
-                then startSize
-                else 0
-        entryCostSize =
-            if wantSwitch && desiredPosSignal /= 0
-                then entrySize
-                else 0
-        exitCost = costFor exitSize
-        entryCost = costFor entryCostSize
-        eqAfterCost = baseEq * (1 - exitCost) * (1 - entryCost)
+        applyCostForSize eq size =
+            if isPositiveQty size
+                then
+                    let feeFrac = costPerSideTotal args size volPerBar
+                     in eq * (1 - feeFrac)
+                else eq
+        eqAfterCost = applyCostForSize (applyCostForSize baseEq closeQty) openQty
         eq1 =
             if didTradeNow
                 then eq0 V.// [(n - 1, eqAfterCost)]
@@ -6707,7 +6759,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
             case desiredPos of
                 1 ->
                     let px = lastPrice
-                        openSize = if desiredPos == startPos0 then startSize else entrySize
+                        openSize = max 0 desiredSize
                         entryHv = rpHighVol <$> lsRegimes latest
                      in Just
                             BotOpenTrade
@@ -6725,7 +6777,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                                 }
                 (-1) ->
                     let px = lastPrice
-                        openSize = if desiredPos == startPos0 then startSize else entrySize
+                        openSize = max 0 desiredSize
                         entryHv = rpHighVol <$> lsRegimes latest
                      in Just
                             BotOpenTrade
@@ -6801,7 +6853,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         weekKey = vectorLastOr now openV2 `div` weekMs
         weekStartEq = vectorLastOr 1.0 eq2
         initOrderErrors =
-            if tradeEnabled && wantSwitch && not appliedSwitch
+            if tradeEnabled && wantSwitch && not stateReconciled
                 then 1
                 else 0
         (haltReason0, haltedAt0) =
@@ -9741,7 +9793,7 @@ runRestApi cliArgs mWebhook = do
         else case ccAllowedOrigins corsConfig of
             [] ->
                 if ccAllowAuthOrigin corsConfig
-                    then putStrLn "CORS: auth-origin allowed (Origin echoed when Authorization/X-API-Key/X-Tenant-Key is present)"
+                    then putStrLn "CORS: implicit read/auth origins allowed (auth-like headers, /health, /version, /optimizer/combos, and tenantKey-scoped GETs)"
                     else putStrLn "CORS: disabled (set TRADER_CORS_ORIGIN to allow a specific origin)"
             origins ->
                 putStrLn ("CORS: allowed origins " ++ intercalate ", " (map BS.unpack origins))
@@ -9865,71 +9917,10 @@ runRestApi cliArgs mWebhook = do
                     )
                 )
 
-data CorsConfig = CorsConfig
-    { ccAllowedOrigins :: ![BS.ByteString]
-    , ccAllowAnyOrigin :: !Bool
-    , ccAllowAuthOrigin :: !Bool
-    }
-
-resolveCorsConfig :: Maybe BS.ByteString -> IO CorsConfig
-resolveCorsConfig _mToken = do
-    mOriginEnv <- lookupEnv "TRADER_CORS_ORIGIN"
-    let rawOrigins = maybe [] splitEnvList mOriginEnv
-        trimmed = map (T.strip . T.pack) rawOrigins
-        normalized = filter (not . T.null) trimmed
-        tokens = map (normalizeKey . T.unpack) normalized
-        allowAny = "*" `elem` normalized
-        origins =
-            [ TE.encodeUtf8 (T.dropWhileEnd (== '/') t)
-            | (t, tok) <- zip normalized tokens
-            , t /= "*"
-            , tok /= "*"
-            ]
-        allowAuth = null origins && not allowAny
-    pure (CorsConfig origins allowAny allowAuth)
-
 lookupHeaderNormalized :: String -> RequestHeaders -> Maybe BS.ByteString
 lookupHeaderNormalized wanted hs =
     let wantedNorm = normalizeKey wanted
      in snd <$> find (\(h, _) -> normalizeKey (BS.unpack (CI.original h)) == wantedNorm) hs
-
-corsRequestHasAuthHeaders :: Wai.Request -> Bool
-corsRequestHasAuthHeaders req =
-    let hs = Wai.requestHeaders req
-        hasHeader key = isJust (lookupHeaderNormalized key hs)
-        requested =
-            case lookupHeaderNormalized "Access-Control-Request-Headers" hs of
-                Nothing -> []
-                Just raw -> map normalizeKey (splitEnvList (BS.unpack raw))
-        requestedHasAuth =
-            let authHeaderKeys = map normalizeKey ["authorization", "x-api-key", "x-tenant-key"]
-             in any (`elem` authHeaderKeys) requested
-     in case Wai.requestMethod req of
-            "OPTIONS" -> requestedHasAuth
-            _ -> hasHeader "Authorization" || hasHeader "X-API-Key" || hasHeader "X-Tenant-Key"
-
-corsHeadersFor :: CorsConfig -> Wai.Request -> ResponseHeaders
-corsHeadersFor cors req =
-    let base =
-            [ ("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-            , ("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key,X-Tenant-Key")
-            , ("Access-Control-Max-Age", "86400")
-            ]
-        mAllowed
-            | ccAllowAnyOrigin cors = Just "*"
-            | otherwise =
-                case lookupHeaderNormalized "Origin" (Wai.requestHeaders req) of
-                    Just origin | origin `elem` ccAllowedOrigins cors -> Just origin
-                    Just origin | ccAllowAuthOrigin cors && corsRequestHasAuthHeaders req -> Just origin
-                    _ -> Nothing
-        extra =
-            case mAllowed of
-                Nothing -> []
-                Just origin ->
-                    if origin == "*"
-                        then [("Access-Control-Allow-Origin", origin)]
-                        else [("Access-Control-Allow-Origin", origin), ("Vary", "Origin")]
-     in extra ++ base
 
 noCacheHeaders :: ResponseHeaders
 noCacheHeaders =
@@ -9938,9 +9929,6 @@ noCacheHeaders =
     , ("Expires", "0")
     , ("Vary", "Authorization, X-API-Key")
     ]
-
-withCors :: CorsConfig -> Wai.Request -> Wai.Response -> Wai.Response
-withCors cors req = Wai.mapResponseHeaders (\hs -> corsHeadersFor cors req ++ hs)
 
 data CacheEntry a = CacheEntry
     { ceCreatedAtMs :: !Int64
@@ -18224,6 +18212,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 factorMin = max 1e-6 (min factorMinRaw factorMaxRaw)
                 factorMax = max factorMin (max factorMinRaw factorMaxRaw)
                 factorFloor = max 0 (argThresholdFactorFloor args)
+                openThrBase' = normalizeSignalThreshold openThrBase
+                closeThrBase' = normalizeSignalThreshold closeThrBase
                 factorWEdgeKal = argThresholdFactorEdgeKalWeight args
                 factorWEdgeLstm = argThresholdFactorEdgeLstmWeight args
                 factorWKalmanZ = argThresholdFactorKalmanZWeight args
@@ -18259,7 +18249,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 edgePickPred0 = edgePickPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 costPickPred0 = costPickPredictionsV blendWeight roundTripCost pricesV kalPred0 lstmPred0
                 geoBlendPred0 = geometricBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
-                confBlendOpenThr = max openThrBase minEdge
+                confBlendOpenThr = max openThrBase' minEdge
                 divergenceGatePred0 = divergenceGatePredictionsV blendWeight confBlendOpenThr pricesV kalPred0 lstmPred0
                 confBlendPred0 =
                     confidenceBlendPredictionsV
@@ -18399,14 +18389,15 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         (Just lo, Just hi) -> Just (Interval lo hi)
                         _ -> Nothing
                 direction thr prev next =
-                    if prev <= 0 || bad prev || bad next
-                        then Nothing
-                        else
-                            let up = prev * (1 + thr)
-                                down = prev * (1 - thr)
-                             in if next > up
-                                    then Just (1 :: Int)
-                                    else if next < down then Just (-1) else Nothing
+                    let thr' = normalizeSignalThreshold thr
+                     in if prev <= 0 || bad prev || bad next
+                            then Nothing
+                            else
+                                let up = prev * (1 + thr')
+                                    down = prev * (1 - thr')
+                                 in if next > up
+                                        then Just (1 :: Int)
+                                        else if next < down then Just (-1) else Nothing
                 updateFactor prev target =
                     if factorAlpha <= 0
                         then prev
@@ -18417,7 +18408,9 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                     let fOpenBase = clampRange factorMin factorMax fOpenPrev
                         fCloseBase = clampRange factorMin factorMax fClosePrev
                         minEdgeAdj = max factorFloor (minEdge * fOpenBase)
-                        openThrAdj = max minEdgeAdj (max factorFloor (openThrBase * fOpenBase))
+                        openThrAdj =
+                            normalizeSignalThreshold
+                                (max minEdgeAdj (max factorFloor (openThrBase' * fOpenBase)))
                         prev = pricesUsed V.! t
                         kalNext = kalPred V.! t
                         lstmNext = lstmPred V.! t
@@ -18478,7 +18471,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                                     case argMaxQuantileWidth args of
                                         Just maxW | maxW > 0 -> Just (clamp01 ((maxW - quantileWidth q) / max 1e-12 maxW))
                                         _ -> Nothing
-                        lstmScore = scoreOrNeutral (lstmConfidenceScoreFromPred openThrBase prev lstmNext)
+                        lstmScore = scoreOrNeutral (lstmConfidenceScoreFromPred openThrBase' prev lstmNext)
                         healthScore = lstmHealthScore
                         factorTarget thr =
                             let edgeKalScore = edgeScore thr edgeKal
@@ -18496,11 +18489,11 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                              in if bad raw then 1 else clampFrac raw
                         fOpenNext =
                             if pendingUpdate
-                                then updateFactor fOpenBase (factorTarget openThrBase)
+                                then updateFactor fOpenBase (factorTarget openThrBase')
                                 else fOpenBase
                         fCloseNext =
                             if pendingUpdate
-                                then updateFactor fCloseBase (factorTarget closeThrBase)
+                                then updateFactor fCloseBase (factorTarget closeThrBase')
                                 else fCloseBase
                      in (fOpenNext, fCloseNext, posSide')
              in if stepCount <= 0 || startT > stepCount - 1
@@ -22318,8 +22311,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     then max minEdgeBase (breakEvenThresholdFromPerSideCost perSideCost + max 0 (argEdgeBuffer args))
                     else minEdgeBase
             minSignalToNoiseBase = max 0 (argMinSignalToNoise args)
-            openThrBase = max (max 0 (argOpenThreshold args)) minEdge
-            closeThrBase = max 0 (argCloseThreshold args)
+            openThrBase =
+                normalizeSignalThreshold (max (max 0 (argOpenThreshold args)) minEdge)
+            closeThrBase =
+                normalizeSignalThreshold (max 0 (argCloseThreshold args))
             factorEnabled = argThresholdFactorEnabled args
             factorMinRaw = argThresholdFactorMin args
             factorMaxRaw = argThresholdFactorMax args
@@ -22354,11 +22349,11 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     else minEdge
             openThrAdj =
                 if factorEnabled
-                    then max minEdgeAdj (max factorFloor (openThrBase * factorOpenBase))
+                    then normalizeSignalThreshold (max minEdgeAdj (max factorFloor (openThrBase * factorOpenBase)))
                     else openThrBase
             closeThrAdj =
                 if factorEnabled
-                    then max factorFloor (closeThrBase * factorCloseBase)
+                    then normalizeSignalThreshold (max factorFloor (closeThrBase * factorCloseBase))
                     else closeThrBase
             minSignalToNoise =
                 if factorEnabled
@@ -22404,8 +22399,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             kellyLiteFloor = max 0 (argKellyLiteFloor args)
             kellyLiteCap = max kellyLiteFloor (argKellyLiteCap args)
             directionPrice thr pred =
-                let upEdge = currentPrice * (1 + thr)
-                    downEdge = currentPrice * (1 - thr)
+                let thr' = normalizeSignalThreshold thr
+                    upEdge = currentPrice * (1 + thr')
+                    downEdge = currentPrice * (1 - thr')
                  in if pred > upEdge
                         then Just (1 :: Int)
                         else if pred < downEdge then Just (-1) else Nothing
@@ -24222,17 +24218,27 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchDirGated
                     MethodRouter -> routerDirGated
                     MethodBanditRouter -> routerDirGated
+            chosenDirBase1 =
+                case chosenDirBase of
+                    Just dir
+                        | signalEntryEdgeSpikeOk openThrAdj edgeForMethod -> Just dir
+                    Just _ -> Nothing
+                    Nothing -> Nothing
+            mEdgeSpikeReason =
+                case (chosenDirBase, chosenDirBase1) of
+                    (Just _, Nothing) -> Just "EDGE_SPIKE"
+                    _ -> Nothing
             (chosenDir0, pairsOverlayActive, mPairsOverlayReason) =
                 if not pairsStatArbEnabled
-                    then (chosenDirBase, False, Nothing)
-                    else case (chosenDirBase, pairsDirRaw) of
+                    then (chosenDirBase1, False, Nothing)
+                    else case (chosenDirBase1, pairsDirRaw) of
                         (Nothing, Just d) -> (Just d, True, Nothing)
                         (Just d0, Just d1) ->
                             if d0 == d1
                                 then (Just d0, True, Nothing)
                                 else (Nothing, False, Just "PAIRS_CONFLICT")
                         (x, Nothing) -> (x, False, Nothing)
-            (chosenDir1, mPostGateReason) =
+            (chosenDir1Base, mPostGateReasonBase) =
                 signalRunPostDirectionGates
                     chosenDir0
                     mPairsOverlayReason
@@ -24247,6 +24253,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     crossAssetCheck
                     metaLabelOk
                     fundingOiCheck
+            (chosenDir1, mPostGateReason) =
+                case chosenDir1Base of
+                    Just _ -> (chosenDir1Base, mPostGateReasonBase)
+                    Nothing -> (Nothing, mPostGateReasonBase <|> mEdgeSpikeReason)
 
             chosenDir2 =
                 case chosenDir1 of

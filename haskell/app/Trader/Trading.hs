@@ -30,6 +30,7 @@ import Data.Maybe (isJust, isNothing)
 import qualified Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk)
 import Trader.Duration (TimeWindow, minuteOfDayFromMs, timeWindowContains)
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
 import Trader.VolConfGate (
@@ -631,14 +632,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             case ecLstmTrainingHealth cfg of
                                 Just v | not (isBad v) -> clamp01 v
                                 _ -> 0.5
-                        openThr0 = max openThrRawBase minEdgeBase
+                        openThr0 = normalizeSignalThreshold (max openThrRawBase minEdgeBase)
                         priceActionBodyMin = max 0 (ecTriLayerPriceActionBody cfg)
                         bodyMinFracBase = max 1e-6 (0.25 * openThr0)
                         bodyMinFrac =
                             if priceActionBodyMin > 0
                                 then priceActionBodyMin
                                 else bodyMinFracBase
-                        closeThrBase = max 0 (ecCloseThreshold cfg)
+                        closeThrBase = normalizeSignalThreshold (max 0 (ecCloseThreshold cfg))
                         minHoldBars = max 0 (ecMinHoldBars cfg)
                         cooldownBars = max 0 (ecCooldownBars cfg)
                         maxHoldBars =
@@ -1635,7 +1636,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         kalmanZMinAdd = strictness * adaptiveKalmanZMinMax
                                         trendLookbackAdd = round (strictness * fromIntegral adaptiveTrendLookbackMax)
                                         minEdgeStep = minEdgeBase + edgeAdd
-                                        openThrBase = max openThrRawBase minEdgeStep
+                                        openThrBase = normalizeSignalThreshold (max openThrRawBase minEdgeStep)
                                         minSignalToNoiseStep = minSignalToNoiseBase + minSnrAdd
                                         kalmanZMinStep = kalmanZMinBase + kalmanZMinAdd
                                         trendLookbackStep = trendLookbackBase + trendLookbackAdd
@@ -1656,8 +1657,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 then clampRange factorMin factorMax factorCloseBase0
                                                 else 1
                                         minEdgeAdj = max factorFloor (minEdgeStep * factorOpenBase)
-                                        openThrAdj = max minEdgeAdj (max factorFloor (openThrBase * factorOpenBase))
-                                        closeThrAdj = max factorFloor (closeThrBase * factorCloseBase)
+                                        openThrAdj =
+                                            normalizeSignalThreshold
+                                                (max minEdgeAdj (max factorFloor (openThrBase * factorOpenBase)))
+                                        closeThrAdj =
+                                            normalizeSignalThreshold
+                                                (max factorFloor (closeThrBase * factorCloseBase))
                                         minSignalToNoiseAdj = max factorFloor (minSignalToNoiseStep * factorOpenBase)
                                         openTrade0 =
                                             case posSide of
@@ -1893,6 +1898,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 (True, Just side) -> cloudOkAt t side && priceActionOkAt t side
                                                 _ -> True
 
+                                        edgeSpikeOk =
+                                            not needsEntry || signalEntryEdgeSpikeOk openThrAdj (Just (max 0 edgeRaw))
+
                                         slowCrossExit =
                                             case posSide of
                                                 Just side ->
@@ -1938,7 +1946,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         kalmanExit = slowCrossExit || kalmanBandExit
 
                                         desiredSide1 =
-                                            if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk
+                                            if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk || not edgeSpikeOk
                                                 then Nothing
                                                 else desiredSide0
 

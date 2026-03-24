@@ -19,6 +19,7 @@ executable trader-hs
                      , Trader.Coinbase
                      , Trader.ComboTracking
                      , Trader.Config
+                     , Trader.Cors
                      , Trader.Dex
                      , Trader.App.Args
                      , Trader.BinanceIntervals
@@ -189,6 +190,7 @@ test-suite trader-tests
                      , Trader.Coinbase
                      , Trader.ComboTracking
                      , Trader.Config
+                     , Trader.Cors
                      , Trader.Dex
                      , Trader.App.Args
                      , Trader.App.Runtime
@@ -233,6 +235,7 @@ test-suite trader-tests
                      , Trader.Split
                      , Trader.Symbol
                      , Trader.Test.BinanceProbe
+                     , Trader.Test.Cors
                      , Trader.TopCombosStore
                      , Trader.Test.ApiRoutes
                      , Trader.Text
@@ -245,6 +248,7 @@ test-suite trader-tests
                      , bytestring >=0.10
                      , base16-bytestring
                      , cassava >=0.5
+                     , case-insensitive
                      , cryptonite
                      , directory
                      , filepath
@@ -254,6 +258,7 @@ test-suite trader-tests
                      , http-types
                      , network-uri
                      , containers
+                     , wai
                      , unordered-containers
                      , optparse-applicative >=0.17
                      , random >=1.2

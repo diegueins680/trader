@@ -1,4 +1,6 @@
 module Trader.SignalGates (
+    normalizeSignalThreshold,
+    signalEntryEdgeSpikeOk,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
     signalCrossAssetCheck,
@@ -8,6 +10,32 @@ module Trader.SignalGates (
 ) where
 
 import Data.Maybe (catMaybes)
+
+maxSignalThreshold :: Double
+maxSignalThreshold = 0.999999
+
+normalizeSignalThreshold :: Double -> Double
+normalizeSignalThreshold raw =
+    if finite raw && raw > 0
+        then min maxSignalThreshold raw
+        else 0
+  where
+    finite x = not (isNaN x || isInfinite x)
+
+entryEdgeSpikeLimit :: Double
+entryEdgeSpikeLimit = 4.0
+
+signalEntryEdgeSpikeOk :: Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeOk openThreshold edgeForMethod =
+    let finite x = not (isNaN x || isInfinite x)
+        openThreshold' = normalizeSignalThreshold openThreshold
+     in openThreshold' <= 0
+            || case edgeForMethod of
+                Just edge ->
+                    finite edge
+                        && edge >= 0
+                        && edge <= entryEdgeSpikeLimit * openThreshold'
+                Nothing -> False
 
 signalMetaLabelOk ::
     Bool ->

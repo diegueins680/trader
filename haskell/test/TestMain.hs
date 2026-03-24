@@ -64,11 +64,12 @@ import Trader.Predictors.KNN (predictKNN, trainKNN)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors, predictorSetFromString)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
-import Trader.SignalGates (signalCrossAssetCheck, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
+import Trader.SignalGates (normalizeSignalThreshold, signalCrossAssetCheck, signalEntryEdgeSpikeOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
 import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
+import Trader.Test.Cors (corsSuite)
 import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 import Trader.VolConfGate (VolConfGatePreset (..))
@@ -221,12 +222,21 @@ main = do
               , run "active combo prefers open trade combo" testActiveComboUuid
               , run "order combo keeps origin combo while position is open" testOrderComboUuid
               , run "order execution uses fill evidence for live orders" testOrderAppliedQuantity
+              , run "startup order execution keeps position until fills arrive" testStartupOrderExecutionRequiresFillEvidence
               , run "order execution updates position by executed qty" testApplyExecutedQuantity
               , run "reduce-only order execution clamps oversize fills at flat" testApplyReduceOnlyExecutedQuantity
               , run "order execution transition invariants hold across grid" testApplyExecutedQuantityInvariantGrid
               , run "reduce-only order execution invariants hold across grid" testApplyReduceOnlyExecutedQuantityInvariantGrid
               , run "order execution preserves invariants on corrupted inputs" testApplyExecutedQuantityInvariants
               , run "signal gate emits MTF_WARMUP reason" testSignalGateMtfWarmup
+              , run "signal gate emits MAX_VOLATILITY reason" testSignalGateMaxVolatility
+              , run "signal gate prioritizes MAX_VOLATILITY over warmup" testSignalGateMaxVolatilityPrecedesWarmup
+              , run "signal gate prioritizes MAX_VOLATILITY over trend filter" testSignalGateMaxVolatilityPrecedesTrendFilter
+              , run "signal gate emits VOL_TARGET_WARMUP reason" testSignalGateVolTargetWarmup
+              , run "signal gate prioritizes VOL_TARGET_WARMUP over trend filter" testSignalGateVolTargetWarmupPrecedesTrendFilter
+              , run "signal gate repeat blocked state stays hold" testSignalGateRepeatedBlockStaysHold
+              , run "signal gate normalizes pathological thresholds" testSignalThresholdNormalization
+              , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
               , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
               , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
               , run "signal gate emits META_LABEL reason" testSignalGateMetaLabel
@@ -304,6 +314,7 @@ main = do
               ]
                 ++ map (uncurry run) apiRouteSuite
                 ++ map (uncurry run) binanceProbeSuite
+                ++ map (uncurry run) corsSuite
             )
     if and results then exitSuccess else exitFailure
 
@@ -2399,6 +2410,41 @@ testOrderAppliedQuantity = do
     assert "live explicit fill is not capped by requested qty" (orderAppliedQuantity (mk True True (Just "PARTIALLY_FILLED") (Just 0.8)) 0.5 == Just 0.8)
     assert "live explicit fill still applies when requested qty is unavailable" (orderAppliedQuantity (mk True True (Just "PARTIALLY_FILLED") (Just 0.8)) 0 == Just 0.8)
 
+testStartupOrderExecutionRequiresFillEvidence :: IO ()
+testStartupOrderExecutionRequiresFillEvidence = do
+    let newAck =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "NEW"
+                , oeeExecutedQty = Nothing
+                }
+        partialFill =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "PARTIALLY_FILLED"
+                , oeeExecutedQty = Just 4.0
+                }
+        closeQtyNew = maybe 0 id (orderAppliedQuantity newAck 11.978)
+        (posCloseNew, sizeCloseNew, closeOnlyNew, openOnlyNew) = applyReduceOnlyExecutedQuantity 1 11.978 closeQtyNew
+        flipQtyNew = maybe 0 id (orderAppliedQuantity newAck 13.978)
+        (posFlipNew, sizeFlipNew, closeFlipNew, openFlipNew) = applyExecutedQuantity 1 11.978 False flipQtyNew
+        closeQtyPartial = maybe 0 id (orderAppliedQuantity partialFill 11.978)
+        (posClosePartial, sizeClosePartial, closeOnlyPartial, openOnlyPartial) = applyReduceOnlyExecutedQuantity 1 11.978 closeQtyPartial
+    assert "startup close NEW without fills keeps prior long" (posCloseNew == 1)
+    assertApprox "startup close NEW keeps full size" 1e-12 sizeCloseNew 11.978
+    assertApprox "startup close NEW records no executed close qty" 1e-12 closeOnlyNew 0
+    assertApprox "startup close NEW records no executed open qty" 1e-12 openOnlyNew 0
+    assert "startup flip NEW without fills keeps prior long" (posFlipNew == 1)
+    assertApprox "startup flip NEW keeps full size" 1e-12 sizeFlipNew 11.978
+    assertApprox "startup flip NEW records no executed close qty" 1e-12 closeFlipNew 0
+    assertApprox "startup flip NEW records no executed open qty" 1e-12 openFlipNew 0
+    assert "startup partial close keeps long side until fully filled" (posClosePartial == 1)
+    assertApprox "startup partial close shrinks size by executed qty only" 1e-12 sizeClosePartial 7.978
+    assertApprox "startup partial close tracks executed close qty" 1e-12 closeOnlyPartial 4.0
+    assertApprox "startup partial close does not open opposite side" 1e-12 openOnlyPartial 0
+
 testApplyExecutedQuantity :: IO ()
 testApplyExecutedQuantity = do
     let (pos1, size1, close1, open1) = applyExecutedQuantity 1 2 False 0.5
@@ -2662,6 +2708,150 @@ testSignalGateMtfWarmup = do
                 (const True)
                 (const (True, 1))
     assert "insufficient MTF directions returns MTF_WARMUP" (result == (Nothing, Just "MTF_WARMUP"))
+
+testSignalGateMaxVolatility :: IO ()
+testSignalGateMaxVolatility = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                False
+                True
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "realized volatility above cap returns MAX_VOLATILITY" (result == (Nothing, Just "MAX_VOLATILITY"))
+
+testSignalGateMaxVolatilityPrecedesWarmup :: IO ()
+testSignalGateMaxVolatilityPrecedesWarmup = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                False
+                False
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "MAX_VOLATILITY takes precedence over VOL_TARGET_WARMUP when both block" (result == (Nothing, Just "MAX_VOLATILITY"))
+
+testSignalGateMaxVolatilityPrecedesTrendFilter :: IO ()
+testSignalGateMaxVolatilityPrecedesTrendFilter = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                False
+                True
+                (const False)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "MAX_VOLATILITY takes precedence over TREND_FILTER when both would block" (result == (Nothing, Just "MAX_VOLATILITY"))
+
+testSignalGateVolTargetWarmup :: IO ()
+testSignalGateVolTargetWarmup = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "missing realized-volatility state returns VOL_TARGET_WARMUP" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
+testSignalGateVolTargetWarmupPrecedesTrendFilter :: IO ()
+testSignalGateVolTargetWarmupPrecedesTrendFilter = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const False)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "VOL_TARGET_WARMUP takes precedence over TREND_FILTER when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
+testSignalGateRepeatedBlockStaysHold :: IO ()
+testSignalGateRepeatedBlockStaysHold = do
+    let blockedResult =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+        repeatedResult =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+        expected = (Nothing, Just "VOL_TARGET_WARMUP")
+    assert "repeated blocked gate stays hold/no-intent" (blockedResult == expected && repeatedResult == expected && repeatedResult == blockedResult)
+
+testSignalThresholdNormalization :: IO ()
+testSignalThresholdNormalization = do
+    assert "threshold normalization leaves sane fractions unchanged" (normalizeSignalThreshold 0.05 == 0.05)
+    assert "threshold normalization clamps pathological values below 100%" (normalizeSignalThreshold 9.605316615448567 < 1)
+    assert "threshold normalization disables negative thresholds" (normalizeSignalThreshold (-0.1) == 0)
+
+testSignalGateEntryEdgeSpike :: IO ()
+testSignalGateEntryEdgeSpike = do
+    assert "edge spike gate accepts edges at the configured 4x limit" (signalEntryEdgeSpikeOk 0.01 (Just 0.04))
+    assert "edge spike gate rejects edges above the configured 4x limit" (not (signalEntryEdgeSpikeOk 0.01 (Just 0.040001)))
+    assert "edge spike gate rejects missing edge when open threshold is active" (not (signalEntryEdgeSpikeOk 0.01 Nothing))
+    assert "edge spike gate bypasses when open threshold is disabled" (signalEntryEdgeSpikeOk 0 Nothing)
+    assert "edge spike gate still rejects DOGE-style spikes when the incoming threshold is pathological" (not (signalEntryEdgeSpikeOk 9.605316615448567 (Just 9.757279245379696)))
 
 testSignalGateMtfConsensus :: IO ()
 testSignalGateMtfConsensus = do
