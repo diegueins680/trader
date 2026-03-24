@@ -8440,12 +8440,36 @@ export function App() {
     return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
   };
 
-  const systemVersionRaw = healthInfo?.version?.trim() ?? "";
-  const systemCommitRaw = healthInfo?.commit?.trim() || __TRADER_UI_COMMIT__.trim();
-  const systemVersionTag = systemVersionRaw ? (systemVersionRaw.toLowerCase().startsWith("v") ? systemVersionRaw : `v${systemVersionRaw}`) : null;
-  const systemCommitShort = systemCommitRaw ? shortCommitHash(systemCommitRaw, 12) : null;
-  const systemBuildLabel = systemVersionTag && systemCommitShort ? `${systemVersionTag} (${systemCommitShort})` : systemVersionTag ?? (systemCommitShort ? `commit ${systemCommitShort}` : "build unknown");
-  const systemBuildTitle = systemVersionRaw && systemCommitRaw ? `System build ${systemVersionRaw} (${systemCommitRaw})` : systemVersionRaw ? `System build ${systemVersionRaw}` : systemCommitRaw ? `System commit ${systemCommitRaw}` : "System build unknown";
+  const formatVersionTag = (version?: string | null): string | null => {
+    if (!version) return null;
+    const trimmed = version.trim();
+    if (!trimmed) return null;
+    return trimmed.toLowerCase().startsWith("v") ? trimmed : `v${trimmed}`;
+  };
+
+  const buildLabel = (kind: "UI" | "API", versionRaw: string, commitRaw: string, missingLabel = "build unknown"): string => {
+    const versionTag = formatVersionTag(versionRaw);
+    const commitShort = commitRaw ? shortCommitHash(commitRaw, 12) : null;
+    const details = versionTag && commitShort ? `${versionTag} (${commitShort})` : versionTag ?? (commitShort ? `commit ${commitShort}` : missingLabel);
+    return `${kind} ${details}`;
+  };
+
+  const buildTitle = (kind: "UI" | "API", versionRaw: string, commitRaw: string, missingLabel = "build unknown"): string => {
+    if (versionRaw && commitRaw) return `${kind} build ${versionRaw} (${commitRaw})`;
+    if (versionRaw) return `${kind} build ${versionRaw}`;
+    if (commitRaw) return `${kind} commit ${commitRaw}`;
+    return `${kind} ${missingLabel}`;
+  };
+
+  const uiVersionRaw = __TRADER_UI_VERSION__.trim();
+  const uiCommitRaw = __TRADER_UI_COMMIT__.trim();
+  const apiVersionRaw = healthInfo?.version?.trim() ?? "";
+  const apiCommitRaw = healthInfo?.commit?.trim() ?? "";
+  const apiBuildMissingLabel = apiOk === "unknown" ? "checking…" : apiOk === "down" ? "unavailable" : apiOk === "auth" ? "auth required" : "build unknown";
+  const uiBuildLabel = buildLabel("UI", uiVersionRaw, uiCommitRaw);
+  const uiBuildTitle = buildTitle("UI", uiVersionRaw, uiCommitRaw);
+  const apiBuildLabel = buildLabel("API", apiVersionRaw, apiCommitRaw, apiBuildMissingLabel);
+  const apiBuildTitle = buildTitle("API", apiVersionRaw, apiCommitRaw, apiBuildMissingLabel);
 
   const shortComboUuid = (uuid?: string | null, size = 6): string => {
     if (!uuid) return "—";
@@ -8475,8 +8499,13 @@ export function App() {
                 <div className="title">
                   <h1>
                     <span>Trader UI</span>
-                    <span className="titleBuild" title={systemBuildTitle}>
-                      {systemBuildLabel}
+                    <span className="titleBuilds">
+                      <span className="titleBuild" title={uiBuildTitle}>
+                        {uiBuildLabel}
+                      </span>
+                      <span className="titleBuild" title={apiBuildTitle}>
+                        {apiBuildLabel}
+                      </span>
                     </span>
                   </h1>
                   <p>Configure, backtest, optimize, and trade via the local REST API.</p>

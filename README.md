@@ -1023,8 +1023,8 @@ A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST 
 The UI layout uses a refreshed header, section grouping, and spacing for faster scanning on desktop and mobile.
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
-The header title now also shows the running system build (`version` + short `commit`) from `/health` for quick deployment verification, with fallback to the UI build commit when `/health` omits `commit`.
-When building the standalone Fly frontend image, pass `--build-arg TRADER_GIT_COMMIT=$(git rev-parse HEAD)` so the UI fallback commit is embedded even when the backend omits commit metadata.
+The header title now shows separate `UI` and `API` build badges for quick deployment verification: the UI badge uses the web package version plus embedded frontend commit when available, and the API badge uses `/health` `version`/`commit`.
+When building the standalone Fly frontend image, pass `--build-arg TRADER_GIT_COMMIT=$(git rev-parse HEAD)` so the UI badge can include the deployed frontend commit even when the image is built without `.git`.
 The header also exposes layout controls (expand/collapse all, reset layout) plus per-page issue badges and a quick issues dropdown with jump links; expand/collapse all also controls the floating Bot activity panel, and the layout controls display a dismissible hint that it is included.
 Collapsible panels now include explicit Maximize/Restore and Expand/Collapse controls in their headers, including the optimizer combos dock.
 Configuration uses a menu bar to switch between single-section pages (API, Market, Lookback, Thresholds, Risk, Optimizer run, Optimization, Live bot, Trade) and expands into a full-page scroll rather than fixed-height panels; sections and result panels remain collapsible, the UI remembers open/closed state locally, and starts low-signal panels (Data Log, Request preview) collapsed by default.
@@ -1183,7 +1183,7 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` and `
 In the UI status badge, health-check `401/403` responses are treated as auth errors (not generic down) to surface token issues clearly.
 Health-check `429` and other non-availability client errors no longer force the UI status to `down`; the last known status is preserved while the error is logged (including manual Recheck API probes, which now use the same classification and rate-limit handling).
 On page load, the UI retries startup `/health` probes up to 3 times (4s delay, `down`-classified failures only) before settling on `API unreachable`, reducing false negatives during cold starts/proxy warm-up.
-The UI now preserves `/health` `version`/`commit` metadata, so the API build label reflects the server response consistently.
+The UI now preserves `/health` `version`/`commit` metadata, so the API header badge reflects the server response consistently.
 Non-JSON proxy/base misroutes (for example HTML error pages returned to API requests) now mark API status as `down` in regular request flows, not just health probes.
 Health summary details in the Config dock now render even when `computeLimits` is absent, so build/auth/cache metadata from older or minimal `/health` responses remains visible.
 Manual Recheck API now sets status to `ok` immediately after a healthy/authenticated `/health` response, then only downgrades on real follow-up auth/down failures (so follow-up `429` checks don’t keep stale `down` state).
