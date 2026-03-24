@@ -1751,7 +1751,7 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                                 Just val -> not (topCombosPayloadEquivalent merged val)
                                                 Nothing -> True
                                         dbNeedsWrite =
-                                            maybe False (\fetch -> topCombosReplicaNeedsRepair merged fetch) dbFetch
+                                            maybe False (topCombosReplicaNeedsRepair merged) dbFetch
                                         remoteFetches = catMaybes [s3Fetch, stateSyncFetch]
                                         remoteNeedsRepair = any (topCombosReplicaNeedsRepair merged) remoteFetches
                                         localReadyBeforeWrite =

@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -3132,14 +3133,14 @@ testMergeTopCombosPreservesNewestPayloadMetadata = do
             object
                 [ "source" .= ("older-source" :: String)
                 , "generatedAtMs" .= (1 :: Int64)
-                , "bestOptimizationTechniques" .= [("older-technique" :: String)]
+                , "bestOptimizationTechniques" .= ["older-technique" :: String]
                 , "combos" .= [mkCombo ("BTCUSDT" :: String) (1.2 :: Double)]
                 ]
         newerPayload =
             object
                 [ "source" .= ("newer-source" :: String)
                 , "generatedAtMs" .= (2 :: Int64)
-                , "bestOptimizationTechniques" .= [("newer-technique" :: String)]
+                , "bestOptimizationTechniques" .= ["newer-technique" :: String]
                 , "ensemble" .= object ["name" .= ("fresh-ensemble" :: String)]
                 , "combos" .= [mkCombo ("ETHUSDT" :: String) (1.3 :: Double)]
                 ]
@@ -3153,10 +3154,9 @@ testMergeTopCombosPreservesNewestPayloadMetadata = do
                         ([] :: [String])
                         (KM.lookup "bestOptimizationTechniques" o >>= AT.parseMaybe Aeson.parseJSON)
                 ensembleName =
-                    KM.lookup "ensemble" o >>= \v ->
-                        case v of
-                            Aeson.Object ensemble -> KM.lookup "name" ensemble >>= AT.parseMaybe Aeson.parseJSON
-                            _ -> Nothing
+                    KM.lookup "ensemble" o >>= \case
+                        Aeson.Object ensemble -> KM.lookup "name" ensemble >>= AT.parseMaybe Aeson.parseJSON
+                        _ -> Nothing
             assert "merged payload should prefer newest metadata for overlapping keys" (techniques == ["newer-technique"])
             assert "merged payload should keep newest auxiliary metadata fields" (ensembleName == Just ("fresh-ensemble" :: String))
         _ -> error "merged payload root is not an object"
@@ -3209,9 +3209,9 @@ testTopCombosPayloadEquivalentIgnoresRootSyncMetadata = do
                             ]
                        ]
                 ]
-        payloadA = mkPayload (1 :: Int64) ("db" :: String) [("sobol" :: String)]
-        payloadB = mkPayload (2 :: Int64) ("top-combos-store" :: String) [("sobol" :: String)]
-        payloadC = mkPayload (2 :: Int64) ("top-combos-store" :: String) [("bayes" :: String)]
+        payloadA = mkPayload (1 :: Int64) ("db" :: String) ["sobol" :: String]
+        payloadB = mkPayload (2 :: Int64) ("top-combos-store" :: String) ["sobol" :: String]
+        payloadC = mkPayload (2 :: Int64) ("top-combos-store" :: String) ["bayes" :: String]
     assert "payload equivalence should ignore generatedAt/source churn" (topCombosPayloadEquivalent payloadA payloadB)
     assert "payload equivalence should still detect meaningful metadata changes" (not (topCombosPayloadEquivalent payloadA payloadC))
 
