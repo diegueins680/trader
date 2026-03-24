@@ -8,10 +8,10 @@ module Trader.Cors (
 ) where
 
 import Control.Applicative ((<|>))
-import Data.List (find)
-import Data.Maybe (isJust)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.CaseInsensitive as CI
+import Data.List (find)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE

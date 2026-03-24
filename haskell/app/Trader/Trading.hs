@@ -30,9 +30,9 @@ import Data.Maybe (isJust, isNothing)
 import qualified Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk)
 import Trader.Duration (TimeWindow, minuteOfDayFromMs, timeWindowContains)
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
+import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk)
 import Trader.VolConfGate (
     VolConfGateCell (..),
     VolConfGatePreset (..),
