@@ -823,10 +823,14 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - `TRADER_OPTIMIZER_MAX_BARS` (default: `1500`) max bars accepted by `/optimizer/run` (caps `barsMin`/`barsMax` and rejects lookback windows that require more bars at the selected intervals).
 - `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
 - `TRADER_TOP_COMBOS_MIN_PERSIST` (default: `100`) ensures at least this many top combos are retained when rebuilding from DB/state-sync/S3 after deploys (if available).
+- `TRADER_TOP_COMBOS_SYNC_ENABLED` (default: `true`) enables the background anti-entropy worker that reconciles the local combo file with Postgres, S3, and optional `/state/sync` state.
+- `TRADER_TOP_COMBOS_SYNC_EVERY_SEC` (default: `15`, minimum: `5`) controls how often running API instances repair stale combo replicas.
+- Running API instances now converge by periodically merging the best combo set across the configured shared stores instead of relying only on startup-time fallback reads; this keeps long-lived replicas aligned without last-writer-wins combo loss.
 - When `TRADER_STATE_SYNC_URL` is set, new optimizer runs merge against the sync target's `top-combos` on-the-fly; if state sync is unavailable and S3 persistence is enabled, it falls back to S3. History snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
 - When `TRADER_DB_URL` is set, the API can rebuild `top-combos.json` from Postgres if local/S3 state is missing, so combos persist across deploys.
 - Combo `source` metadata is persisted alongside each DB combo row, and same-parameter combos from different sources now keep distinct UUIDs during DB restore/rebuilds (important for Fly or other ephemeral-instance deploys).
+- Top-combo merges preserve newer top-level optimizer metadata (for example `bestOptimizationTechniques` / `ensemble`) while still de-duplicating combos by full identity and keeping the highest-performing version of each combo.
 - The API container image seeds `web/public/top-combos.json` from the repo-level `top-combos.s3.json` so fresh deploys have a multi-symbol fallback payload.
 - `top-combos.json` drops combos with `finalEquity <= 1` on read/write (including numeric strings), sanitizes combo symbols, and persists the filtered file to S3 when configured.
 - `merge-top-combos` now tolerates malformed UTF-8 bytes in JSONL input files by skipping unparseable lines instead of failing the entire merge.

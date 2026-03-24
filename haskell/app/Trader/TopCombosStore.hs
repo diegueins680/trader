@@ -17,12 +17,14 @@ module Trader.TopCombosStore (
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStats,
     newTopCombosStore,
+    normalizeTopCombosPayload,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
     normalizeComboPlatform,
     readTopCombosValueLocal,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
+    topCombosPayloadEquivalent,
     topCombosGeneratedAtMs,
     withTopCombosLock,
     writeTopCombosValue,
@@ -215,6 +217,43 @@ sanitizeTopCombosValue val =
                      in (Aeson.Object o', changed)
                 _ -> (val, 0)
         _ -> (val, 0)
+
+normalizeTopCombosPayload :: Aeson.Value -> Aeson.Value
+normalizeTopCombosPayload payload =
+    let (sanitized, _) = sanitizeTopCombosValue payload
+     in case sanitized of
+            Aeson.Object o ->
+                case KM.lookup (AK.fromString "combos") o of
+                    Just (Aeson.Array arr) ->
+                        let combos = V.toList arr
+                            combosRanked = zipWith addRank [1 ..] (sortBy compareCombos combos)
+                            o' = KM.insert (AK.fromString "combos") (Aeson.Array (V.fromList combosRanked)) o
+                         in Aeson.Object o'
+                    _ -> sanitized
+            _ -> sanitized
+  where
+    addRank :: Int -> Aeson.Value -> Aeson.Value
+    addRank rank val =
+        case val of
+            Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
+            other -> other
+
+    compareCombos :: Aeson.Value -> Aeson.Value -> Ordering
+    compareCombos a b = compare (comboPerformanceKey a) (comboPerformanceKey b)
+
+topCombosPayloadEquivalent :: Aeson.Value -> Aeson.Value -> Bool
+topCombosPayloadEquivalent a b =
+    stripEphemeralRootFields (normalizeTopCombosPayload a) == stripEphemeralRootFields (normalizeTopCombosPayload b)
+  where
+    stripEphemeralRootFields val =
+        case val of
+            Aeson.Object o ->
+                Aeson.Object
+                    ( KM.delete
+                        (AK.fromString "generatedAtMs")
+                        (KM.delete (AK.fromString "source") o)
+                    )
+            _ -> val
 
 topCombosGeneratedAtMs :: Aeson.Value -> Maybe Int64
 topCombosGeneratedAtMs val =
@@ -578,6 +617,7 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
         sanitized = map (fst . sanitizeTopCombosValue) payloads
         combos = concatMap extractCombos sanitized
         payloadSource = listToMaybe (Data.Maybe.mapMaybe extractPayloadSource sanitized)
+        payloadMetadata = mergePayloadMetadata sanitized
         mergedMap = foldl' mergeCombo M.empty combos
         mergedUniqueCount = M.size mergedMap
         merged = take (max 0 maxItems) (sortBy compareCombos (M.elems mergedMap))
@@ -590,16 +630,54 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
                 , tcmsDroppedCount = max 0 (rawCount - sanitizedCount)
                 , tcmsDedupedCount = max 0 (sanitizedCount - mergedUniqueCount)
                 }
-     in ( object
-            [ "generatedAtMs" .= now
-            , "source" .= sourceVal
-            , "combos" .= ranked
-            ]
+        mergedObj =
+            KM.insert
+                (AK.fromString "generatedAtMs")
+                (toJSON now)
+                ( KM.insert
+                    (AK.fromString "source")
+                    (toJSON sourceVal)
+                    (KM.insert (AK.fromString "combos") (toJSON ranked) payloadMetadata)
+                )
+     in ( Aeson.Object mergedObj
         , stats
         )
   where
     payloadComboCount :: Aeson.Value -> Int
     payloadComboCount = length . extractCombos
+
+    mergePayloadMetadata :: [Aeson.Value] -> KM.KeyMap Aeson.Value
+    mergePayloadMetadata vals =
+        let byFreshness = sortBy comparePayloadFreshness vals
+         in foldl' mergeOne KM.empty byFreshness
+
+    mergeOne acc val =
+        case val of
+            Aeson.Object o ->
+                foldl'
+                    ( \obj (k, v) ->
+                        if isControlKey k || KM.member k obj
+                            then obj
+                            else KM.insert k v obj
+                    )
+                    acc
+                    (KM.toList o)
+            _ -> acc
+
+    comparePayloadFreshness a b =
+        compareMaybeDesc (topCombosGeneratedAtMs a) (topCombosGeneratedAtMs b)
+
+    compareMaybeDesc :: (Ord a) => Maybe a -> Maybe a -> Ordering
+    compareMaybeDesc lhs rhs =
+        case compare lhs rhs of
+            LT -> GT
+            GT -> LT
+            EQ -> EQ
+
+    isControlKey key =
+        key == AK.fromString "generatedAtMs"
+            || key == AK.fromString "source"
+            || key == AK.fromString "combos"
 
     mergeCombo acc comboVal =
         case comboMergeKey comboVal of

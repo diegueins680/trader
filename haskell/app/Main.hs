@@ -312,12 +312,14 @@ import Trader.TopCombosStore (
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStats,
     newTopCombosStore,
+    normalizeTopCombosPayload,
     readTopCombosValueLocal,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
     topCombosGeneratedAtMs,
+    topCombosPayloadEquivalent,
     withTopCombosLock,
     writeTopCombosValue,
  )
@@ -1575,6 +1577,232 @@ recordStateSyncError target msg = do
 
 clearStateSyncError :: StateSyncTarget -> IO ()
 clearStateSyncError target = writeIORef (sstLastError target) Nothing
+
+data TopCombosReplicaFetch = TopCombosReplicaFetch
+    { tcrfName :: !String
+    , tcrfPayload :: !(Maybe Aeson.Value)
+    , tcrfError :: !(Maybe String)
+    }
+
+data TopCombosSyncPlan = TopCombosSyncPlan
+    { tcspRepairDb :: !Bool
+    , tcspRepairRemote :: !Bool
+    , tcspRepairedTargets :: ![String]
+    , tcspComboCount :: !Int
+    }
+
+defaultTopCombosSyncEverySec :: Int
+defaultTopCombosSyncEverySec = 15
+
+topCombosSyncEverySecFromEnv :: IO Int
+topCombosSyncEverySecFromEnv = do
+    syncEnv <- lookupEnv "TRADER_TOP_COMBOS_SYNC_EVERY_SEC"
+    pure $
+        case syncEnv >>= readMaybe of
+            Just n | n >= 5 -> n
+            _ -> defaultTopCombosSyncEverySec
+
+topCombosSyncEnabledFromEnv :: IO Bool
+topCombosSyncEnabledFromEnv = do
+    enabledEnv <- lookupEnv "TRADER_TOP_COMBOS_SYNC_ENABLED"
+    pure (readEnvBool enabledEnv True)
+
+topCombosReplicaMissing :: String -> TopCombosReplicaFetch
+topCombosReplicaMissing name = TopCombosReplicaFetch{tcrfName = name, tcrfPayload = Nothing, tcrfError = Nothing}
+
+topCombosReplicaPayload :: String -> Aeson.Value -> TopCombosReplicaFetch
+topCombosReplicaPayload name val =
+    TopCombosReplicaFetch{tcrfName = name, tcrfPayload = Just val, tcrfError = Nothing}
+
+topCombosReplicaFailure :: String -> String -> TopCombosReplicaFetch
+topCombosReplicaFailure name msg =
+    TopCombosReplicaFetch{tcrfName = name, tcrfPayload = Nothing, tcrfError = Just msg}
+
+topCombosReplicaRepairable :: TopCombosReplicaFetch -> Bool
+topCombosReplicaRepairable fetch = isNothing (tcrfError fetch)
+
+topCombosReplicaNeedsRepair :: Aeson.Value -> TopCombosReplicaFetch -> Bool
+topCombosReplicaNeedsRepair merged fetch =
+    topCombosReplicaRepairable fetch
+        && case tcrfPayload fetch of
+            Just val -> not (topCombosPayloadEquivalent merged val)
+            Nothing -> True
+
+topCombosSyncErrorIsMissing :: String -> String -> Bool
+topCombosSyncErrorIsMissing name msg =
+    case name of
+        "local" -> msg == "Top combos JSON not found."
+        "db" -> msg == "No persisted combos found in the database."
+        _ -> False
+
+validateTopCombosReplicaPayload :: String -> Aeson.Value -> Either String Aeson.Value
+validateTopCombosReplicaPayload name val =
+    let normalized = normalizeTopCombosPayload val
+     in if isTopCombosPayload normalized
+            then Right normalized
+            else Left (name ++ " payload missing combos array.")
+
+fetchTopCombosReplicaLocal :: FilePath -> IO TopCombosReplicaFetch
+fetchTopCombosReplicaLocal path = do
+    result <- readTopCombosValueLocal path
+    pure $
+        case result of
+            Left err
+                | topCombosSyncErrorIsMissing "local" err -> topCombosReplicaMissing "local"
+                | otherwise -> topCombosReplicaFailure "local" err
+            Right val ->
+                case validateTopCombosReplicaPayload "local" val of
+                    Left err -> topCombosReplicaFailure "local" err
+                    Right normalized -> topCombosReplicaPayload "local" normalized
+
+fetchTopCombosReplicaDb :: OpsStore -> IO TopCombosReplicaFetch
+fetchTopCombosReplicaDb store = do
+    result <- readTopCombosValueFromDbRaw store
+    pure $
+        case result of
+            Left err
+                | topCombosSyncErrorIsMissing "db" err -> topCombosReplicaMissing "db"
+                | otherwise -> topCombosReplicaFailure "db" err
+            Right val ->
+                case validateTopCombosReplicaPayload "db" val of
+                    Left err -> topCombosReplicaFailure "db" err
+                    Right normalized -> topCombosReplicaPayload "db" normalized
+
+fetchTopCombosReplicaS3 :: IO (Maybe TopCombosReplicaFetch)
+fetchTopCombosReplicaS3 = do
+    mS3 <- resolveS3State
+    case mS3 of
+        Nothing -> pure Nothing
+        Just st -> do
+            let key = s3TopCombosKey st
+            result <- s3GetObject st key
+            pure $
+                case result of
+                    Left err -> Just (topCombosReplicaFailure "s3" ("Failed to read top combos from S3: " ++ err))
+                    Right Nothing -> Just (topCombosReplicaMissing "s3")
+                    Right (Just contents) ->
+                        case Aeson.eitherDecode' contents of
+                            Left err -> Just (topCombosReplicaFailure "s3" ("Failed to parse top combos JSON from S3: " ++ err))
+                            Right val ->
+                                case validateTopCombosReplicaPayload "s3" val of
+                                    Left err -> Just (topCombosReplicaFailure "s3" err)
+                                    Right normalized -> Just (topCombosReplicaPayload "s3" normalized)
+
+fetchTopCombosReplicaStateSync :: Maybe StateSyncTarget -> IO (Maybe TopCombosReplicaFetch)
+fetchTopCombosReplicaStateSync mTarget =
+    case mTarget of
+        Nothing -> pure Nothing
+        Just target -> do
+            result <- fetchStateSyncPayload target
+            pure $
+                case result of
+                    Left err -> Just (topCombosReplicaFailure "state-sync" err)
+                    Right payload ->
+                        case sspTopCombos payload of
+                            Nothing -> Just (topCombosReplicaMissing "state-sync")
+                            Just val ->
+                                case validateTopCombosReplicaPayload "state-sync" val of
+                                    Left err -> Just (topCombosReplicaFailure "state-sync" err)
+                                    Right normalized -> Just (topCombosReplicaPayload "state-sync" normalized)
+
+updateTopCombosSyncError :: IORef (HM.HashMap String String) -> TopCombosReplicaFetch -> IO ()
+updateTopCombosSyncError errRef fetch =
+    case tcrfError fetch of
+        Nothing -> modifyIORef' errRef (HM.delete (tcrfName fetch))
+        Just msg -> do
+            prev <- readIORef errRef
+            if HM.lookup (tcrfName fetch) prev == Just msg
+                then pure ()
+                else do
+                    writeIORef errRef (HM.insert (tcrfName fetch) msg prev)
+                    putStrLn ("Top combos sync " ++ tcrfName fetch ++ " failed: " ++ msg)
+
+topCombosSyncLoop :: Maybe OpsStore -> Maybe StateSyncTarget -> TopCombosStore -> IO ()
+topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
+    enabled <- topCombosSyncEnabledFromEnv
+    if not enabled
+        then putStrLn "Top combos sync worker disabled (TRADER_TOP_COMBOS_SYNC_ENABLED=false)."
+        else do
+            everySec <- topCombosSyncEverySecFromEnv
+            let topJsonPath = tcsPath topCombosStore
+            errRef <- newIORef HM.empty
+            putStrLn (printf "Top combos sync enabled: everySec=%d path=%s" everySec topJsonPath)
+            let sleepSec s = threadDelay (max 1 s * 1000000)
+                loop = do
+                    dbFetch <- traverse fetchTopCombosReplicaDb mOps
+                    s3Fetch <- fetchTopCombosReplicaS3
+                    stateSyncFetch <- fetchTopCombosReplicaStateSync mStateSyncTarget
+                    forM_ (catMaybes [dbFetch, s3Fetch, stateSyncFetch]) (updateTopCombosSyncError errRef)
+                    plan <-
+                        withTopCombosLock topCombosStore $ do
+                            localFetch <- fetchTopCombosReplicaLocal topJsonPath
+                            updateTopCombosSyncError errRef localFetch
+                            let sharedFetches = catMaybes [dbFetch, s3Fetch, stateSyncFetch]
+                                allFetches = localFetch : sharedFetches
+                                candidates = mapMaybe tcrfPayload allFetches
+                            if null candidates
+                                then pure Nothing
+                                else do
+                                    maxCombos <- optimizerMaxCombosFromEnv
+                                    now <- getTimestampMs
+                                    let merged = mergeTopCombosPayloads maxCombos now candidates
+                                        localNeedsWrite =
+                                            case tcrfPayload localFetch of
+                                                Just val -> not (topCombosPayloadEquivalent merged val)
+                                                Nothing -> True
+                                        dbNeedsWrite =
+                                            maybe False (\fetch -> topCombosReplicaNeedsRepair merged fetch) dbFetch
+                                        remoteFetches = catMaybes [s3Fetch, stateSyncFetch]
+                                        remoteNeedsRepair = any (topCombosReplicaNeedsRepair merged) remoteFetches
+                                        localReadyBeforeWrite =
+                                            topCombosReplicaRepairable localFetch && isJust (tcrfPayload localFetch)
+                                        repairRemoteRequested = not (null remoteFetches) && (localNeedsWrite || remoteNeedsRepair)
+                                    localReady <-
+                                        if localNeedsWrite
+                                            then do
+                                                writeResult <- writeTopCombosValue topJsonPath merged
+                                                case writeResult of
+                                                    Left err -> do
+                                                        updateTopCombosSyncError errRef (topCombosReplicaFailure "local" err)
+                                                        pure False
+                                                    Right _ -> do
+                                                        updateTopCombosSyncError errRef (topCombosReplicaPayload "local" merged)
+                                                        pure True
+                                            else pure localReadyBeforeWrite
+                                    let repairDb = localReady && dbNeedsWrite
+                                        repairRemote = localReady && repairRemoteRequested
+                                        repairedTargets =
+                                            concat
+                                                [ ["local" | localNeedsWrite]
+                                                , ["db" | repairDb]
+                                                , ["remote" | repairRemote]
+                                                ]
+                                    if null repairedTargets
+                                        then pure Nothing
+                                        else
+                                            pure
+                                                ( Just
+                                                    TopCombosSyncPlan
+                                                        { tcspRepairDb = repairDb
+                                                        , tcspRepairRemote = repairRemote
+                                                        , tcspRepairedTargets = repairedTargets
+                                                        , tcspComboCount = topCombosComboCount merged
+                                                        }
+                                                )
+                    case plan of
+                        Nothing -> pure ()
+                        Just TopCombosSyncPlan{tcspRepairDb = repairDb, tcspRepairRemote = repairRemote, tcspRepairedTargets = repairedTargets, tcspComboCount = comboCount} -> do
+                            when repairDb (persistTopCombosDbMaybe mOps topCombosStore)
+                            when repairRemote (persistTopCombosMaybe mStateSyncTarget topJsonPath)
+                            putStrLn
+                                ( printf
+                                    "Top combos sync reconciled %s (%d combos)."
+                                    (intercalate ", " repairedTargets)
+                                    comboCount
+                                )
+                    sleepSec everySec
+                    loop
+            loop
 
 webhookEventBotStarted :: Args -> String -> WebhookEvent
 webhookEventBotStarted args sym =
@@ -9830,6 +10058,7 @@ runRestApi cliArgs mWebhook = do
                         "Ops persistence is required in --serve mode. Set TRADER_DB_URL (or DATABASE_URL) and ensure the database is reachable."
                     )
     mStateSyncTarget <- newStateSyncTargetFromEnv
+    _ <- forkSupervisedWorker "top-combos-sync" (topCombosSyncLoop mOps mStateSyncTarget topCombosStore)
     listenKeyManager <- newListenKeyManager
     mBotStateDir <- resolveBotStateDir
     backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
@@ -12704,7 +12933,7 @@ readTopCombosValueFromDbRaw store = do
 
 readTopCombosValueFromDb :: OpsStore -> IO (Either String Aeson.Value)
 readTopCombosValueFromDb store =
-    fmap sanitizeAndRankTopCombosPayload <$> readTopCombosValueFromDbRaw store
+    fmap normalizeTopCombosPayload <$> readTopCombosValueFromDbRaw store
 
 readTopCombosValueWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallback mOps store =
@@ -12766,27 +12995,7 @@ readTopCombosValueRaw path = do
 
 readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
 readTopCombosValue path =
-    fmap (fst . sanitizeTopCombosValue) <$> readTopCombosValueRaw path
-
-sanitizeAndRankTopCombosPayload :: Aeson.Value -> Aeson.Value
-sanitizeAndRankTopCombosPayload payload =
-    let (sanitized, _) = sanitizeTopCombosValue payload
-     in case sanitized of
-            Aeson.Object o ->
-                case KM.lookup (AK.fromString "combos") o of
-                    Just (Aeson.Array arr) ->
-                        let combos = V.toList arr
-                            combosRanked = zipWith addRank [1 ..] (sortOn comboPerformanceKey combos)
-                            o' = KM.insert (AK.fromString "combos") (Aeson.Array (V.fromList combosRanked)) o
-                         in Aeson.Object o'
-                    _ -> sanitized
-            _ -> sanitized
-  where
-    addRank :: Int -> Aeson.Value -> Aeson.Value
-    addRank rank val =
-        case val of
-            Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
-            other -> other
+    fmap normalizeTopCombosPayload <$> readTopCombosValueRaw path
 
 extractBacktestMetrics :: Aeson.Value -> Maybe Aeson.Value
 extractBacktestMetrics val =

@@ -15,7 +15,7 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, sort, sortOn)
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Maybe
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -70,7 +70,7 @@ import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.Cors (corsSuite)
-import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue)
+import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue, topCombosPayloadEquivalent)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 import Trader.VolConfGate (VolConfGatePreset (..))
 
@@ -252,8 +252,10 @@ main = do
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "top combos merge keeps same params across distinct sources" testMergeTopCombosKeepsDistinctSources
               , run "top combos merge stats report dropped and deduped combos" testMergeTopCombosWithStats
+              , run "top combos merge preserves newest payload metadata" testMergeTopCombosPreservesNewestPayloadMetadata
               , run "top combos identity keys keep distinct sources separate" testComboIdentityKeyKeepsDistinctSources
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
+              , run "top combos payload equivalence ignores root sync metadata" testTopCombosPayloadEquivalentIgnoresRootSyncMetadata
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
               , run "optimizer merge preserves distinct payload sources from top-json inputs" testRunMergePreservesDistinctPayloadSources
@@ -3116,6 +3118,49 @@ testMergeTopCombosWithStats = do
     assert "merge stats should count combos removed by dedupe" (dedupedCount == 1)
     assert "merged payload should keep the remaining unique combos" (length combos == 2)
 
+testMergeTopCombosPreservesNewestPayloadMetadata :: IO ()
+testMergeTopCombosPreservesNewestPayloadMetadata = do
+    let mkCombo sym finalEq =
+            object
+                [ "params" .= object ["symbol" .= sym]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= finalEq, "score" .= (0.7 :: Double)]
+                ]
+        olderPayload =
+            object
+                [ "source" .= ("older-source" :: String)
+                , "generatedAtMs" .= (1 :: Int64)
+                , "bestOptimizationTechniques" .= [("older-technique" :: String)]
+                , "combos" .= [mkCombo ("BTCUSDT" :: String) (1.2 :: Double)]
+                ]
+        newerPayload =
+            object
+                [ "source" .= ("newer-source" :: String)
+                , "generatedAtMs" .= (2 :: Int64)
+                , "bestOptimizationTechniques" .= [("newer-technique" :: String)]
+                , "ensemble" .= object ["name" .= ("fresh-ensemble" :: String)]
+                , "combos" .= [mkCombo ("ETHUSDT" :: String) (1.3 :: Double)]
+                ]
+        merged = mergeTopCombosPayloads 10 3 [olderPayload, newerPayload]
+        combos = requireCombosArray "merged payload combos" merged
+    assert "merged payload should preserve both combos" (length combos == 2)
+    case merged of
+        Aeson.Object o -> do
+            let techniques =
+                    fromMaybe
+                        ([] :: [String])
+                        (KM.lookup "bestOptimizationTechniques" o >>= AT.parseMaybe Aeson.parseJSON)
+                ensembleName =
+                    KM.lookup "ensemble" o >>= \v ->
+                        case v of
+                            Aeson.Object ensemble -> KM.lookup "name" ensemble >>= AT.parseMaybe Aeson.parseJSON
+                            _ -> Nothing
+            assert "merged payload should prefer newest metadata for overlapping keys" (techniques == ["newer-technique"])
+            assert "merged payload should keep newest auxiliary metadata fields" (ensembleName == Just ("fresh-ensemble" :: String))
+        _ -> error "merged payload root is not an object"
+
 testComboIdentityKeyKeepsDistinctSources :: IO ()
 testComboIdentityKeyKeepsDistinctSources = do
     let mkCombo source =
@@ -3146,6 +3191,29 @@ testComboPerformanceKeyRanksScoreBeforeEquity = do
                 ]
         first = requireHead "expected ranked combos" ranked
     assert "higher score should outrank higher equity when annualized return ties" (requireComboSymbol "performance key first combo" first == "BBBUSDT")
+
+testTopCombosPayloadEquivalentIgnoresRootSyncMetadata :: IO ()
+testTopCombosPayloadEquivalentIgnoresRootSyncMetadata = do
+    let mkPayload generatedAt source techniques =
+            object
+                [ "generatedAtMs" .= generatedAt
+                , "source" .= source
+                , "bestOptimizationTechniques" .= techniques
+                , "combos"
+                    .= [ object
+                            [ "params" .= object ["symbol" .= ("BTCUSDT" :: String)]
+                            , "openThreshold" .= (0.1 :: Double)
+                            , "closeThreshold" .= (0.05 :: Double)
+                            , "objective" .= ("score" :: String)
+                            , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= (1.4 :: Double), "score" .= (0.8 :: Double)]
+                            ]
+                       ]
+                ]
+        payloadA = mkPayload (1 :: Int64) ("db" :: String) [("sobol" :: String)]
+        payloadB = mkPayload (2 :: Int64) ("top-combos-store" :: String) [("sobol" :: String)]
+        payloadC = mkPayload (2 :: Int64) ("top-combos-store" :: String) [("bayes" :: String)]
+    assert "payload equivalence should ignore generatedAt/source churn" (topCombosPayloadEquivalent payloadA payloadB)
+    assert "payload equivalence should still detect meaningful metadata changes" (not (topCombosPayloadEquivalent payloadA payloadC))
 
 runMergeAndReadFirstCombo :: String -> Aeson.Value -> IO Aeson.Value
 runMergeAndReadFirstCombo label barsValue =
