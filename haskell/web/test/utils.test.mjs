@@ -876,6 +876,28 @@ assert.deepEqual(indices, Array.from({ length: total }, (_, i) => i));
 }
 }
 });
+test("downsampleIndices normalizes fractional and non-finite numeric inputs before sampling", () => {
+  const cases = [
+    { total: 5.9, maxPoints: 2.9, expected: [0, 4], label: "finite inputs truncate before sampling" },
+    { total: Number.NaN, maxPoints: 8, expected: [], label: "NaN total falls back to empty series" },
+    { total: Number.POSITIVE_INFINITY, maxPoints: 8, expected: [], label: "infinite total falls back to empty series" },
+    { total: 5, maxPoints: Number.NaN, expected: [0, 1, 2, 3, 4], label: "NaN budget falls back to identity sampling" },
+    {
+      total: 5,
+      maxPoints: Number.POSITIVE_INFINITY,
+      expected: [0, 1, 2, 3, 4],
+      label: "infinite budget falls back to identity sampling",
+    },
+  ];
+
+  for (const { total, maxPoints, expected, label } of cases) {
+    assert.deepEqual(
+      downsampleIndices(total, maxPoints),
+      expected,
+      `${label}: expected ${JSON.stringify(expected)} for total=${String(total)}, maxPoints=${String(maxPoints)}`,
+    );
+  }
+});
 test("downsampleArray preserves sampled length and per-index alignment", () => {
   for (let total = 0; total <= 257; total += 1) {
     const source = Array.from({ length: total }, (_, rawIdx) => ({ rawIdx, label: `bar-${rawIdx}` }));

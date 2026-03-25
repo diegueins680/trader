@@ -91,7 +91,7 @@ The sampled backtest-chart path treats `downsampleIndices`, `downsampleArray`, `
 
 Clauses:
 
-1. `downsampleIndices(total, maxPoints)` is total: it truncates both inputs, clamps the effective sample budget to at least `1`, returns `[]` for `total <= 0`, and otherwise returns at least one in-bounds raw index.
+1. `downsampleIndices(total, maxPoints)` is total: it truncates finite inputs, treats non-finite `total` as `0`, treats non-finite `maxPoints` as the lossless identity budget `total`, clamps the effective sample budget to at least `1`, returns `[]` for `total <= 0`, and otherwise returns at least one in-bounds raw index.
 2. The sampled index list is strictly increasing, starts at raw index `0` whenever data is present, and preserves the last raw endpoint `total - 1` whenever the effective budget can show at least two points.
 3. The sampled index count never exceeds `min(total, effectiveBudget)` and grows monotonically as `maxPoints` increases, saturating at the raw series length once the budget is large enough.
 4. `downsampleArray` and `downsampleOptionalArray` are order-preserving projections over that sampled index list: each sampled element equals the raw element at the corresponding sampled index, and optional `null`/`undefined` inputs stay absent.
@@ -101,6 +101,7 @@ Clauses:
 The verifier in `haskell/web/test/utils.test.mjs` now checks this contract with:
 
 - a bounded sample-budget matrix (`17,028` states) over `total ∈ {0..257}` and `maxPoints ∈ {0..65}`
+- explicit fractional/non-finite normalization rows for `downsampleIndices`
 - aligned projection checks for required and optional arrays over that same matrix
 - a bounded remap matrix (`2,188,098` raw-index cases) over every `rawIdx ∈ {0..total-1}` for `total ∈ {1..257}` and `maxPoints ∈ {0..65}`
 
@@ -109,12 +110,14 @@ For every state, it checks:
 1. Sampled indices stay in bounds, within budget, and strictly increasing.
 2. First/last visible endpoints are preserved according to the budget rules.
 3. Sample count grows monotonically with `maxPoints` and saturates once the budget reaches the raw length.
-4. Required and optional sampled arrays remain pointwise aligned with the sampled indices, while nullish optional sources remain absent.
-5. Exact-hit remaps return the exact sampled slot.
-6. Non-hit remaps choose the documented nearest sampled point, use deterministic left-biased ties, and never move backward as raw indices increase.
+4. Fractional inputs truncate before sampling, non-finite totals fall back to `[]`, and non-finite budgets fall back to the lossless identity projection.
+5. Required and optional sampled arrays remain pointwise aligned with the sampled indices, while nullish optional sources remain absent.
+6. Exact-hit remaps return the exact sampled slot.
+7. Non-hit remaps choose the documented nearest sampled point, use deterministic left-biased ties, and never move backward as raw indices increase.
 
 Proof sketch:
 
+- `downsampleIndices` now normalizes the raw series length before any array allocation: non-finite totals collapse to `0`, and non-finite budgets reuse the finite raw length as the lossless identity budget, so malformed numeric inputs cannot produce `NaN`/`Infinity` lengths or drop the leading endpoint.
 - `downsampleIndices` emits candidates in increasing `i` order across the closed range `[0, n - 1]` and skips duplicates with the `last` guard, so every emitted raw index is in bounds and the output is strictly increasing.
 - The `n <= max` identity branch proves saturation, while the `max === 1` branch explains why the one-point budget preserves only the first visible endpoint.
 - For `max >= 2`, the first loop iteration emits `0` and the final iteration reaches `n - 1` (with a final endpoint append as a fallback), which yields the two-endpoint preservation rule whenever two visible points are available.

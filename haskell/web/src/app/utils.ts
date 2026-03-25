@@ -143,9 +143,11 @@ export function botTradeEnabled(status: BotStatusSingle): boolean | null {
 }
 
 export function downsampleIndices(total: number, maxPoints: number): number[] {
-  const n = Math.max(0, Math.trunc(total));
-  const max = Math.max(1, Math.trunc(maxPoints));
+  const n = Number.isFinite(total) ? Math.max(0, Math.trunc(total)) : 0;
   if (n === 0) return [];
+  // Non-finite budgets have no meaningful lossy projection, so preserve the
+  // full finite series instead of inventing a smaller sampled view.
+  const max = Number.isFinite(maxPoints) ? Math.max(1, Math.trunc(maxPoints)) : n;
   if (n <= max) return Array.from({ length: n }, (_, i) => i);
   if (max === 1) return [0];
   const step = (n - 1) / (max - 1);
