@@ -10,6 +10,7 @@ import {
   inferFlyApiAppName,
   inferFlyDirectApiBaseFromHostname,
   isLocalHostname,
+  latestSignalTone,
   methodLabel,
   normalizeApiBaseUrlInput,
   numFromInput,
@@ -756,6 +757,20 @@ test("isLocalHostname accepts the supported loopback hosts and rejects others", 
   }
 });
 test("actionBadgeClass follows the latest-signal action head token contract", () => {
+  const toneCases = [
+    ["LONG", "bullish"],
+    ["LONG (edge)", "bullish"],
+    ["SHORT", "bearish"],
+    ["SHORT (VOL_CONF_GATE_HOLD)", "bearish"],
+    ["FLAT", "bearish"],
+    ["HOLD (MAX_VOLATILITY)", "neutral"],
+    ["", "neutral"],
+  ];
+
+  for (const [action, expected] of toneCases) {
+    assert.equal(latestSignalTone(action), expected, `expected ${JSON.stringify(action)} to map to ${expected}`);
+  }
+
   const cases = [
     ["LONG", "badge badgeStrong badgeLong"],
     ["LONG (edge)", "badge badgeStrong badgeLong"],

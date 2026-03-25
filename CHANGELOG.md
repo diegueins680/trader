@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: share one latest-signal action-tone classifier across header badges and Live bot visual aids, so `FLAT` no longer renders neutral in one panel while `SHORT`/`FLAT` stay bearish elsewhere.
 - Web UI: classify latest-signal `SHORT (...)` badges as bearish instead of neutral by deriving badge tone from the action head token and ignoring explanatory suffix text.
 - Web UI/API client: only serialize safe integers for `/bot/status` tail, `/ops` numeric filters, and `/ops/performance` limits; fractional or unsafe values are now dropped instead of being truncated or rounded into different requests.
 - Web UI: normalize restored `bars`, `epochs`, `hiddenSize`, and `patience` as exact safe integers, so saved fractional/unsafe values fall back to defaults instead of reopening with values the emitted request would later truncate or clamp differently.

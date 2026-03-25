@@ -1061,6 +1061,7 @@ Optimizer-run fields that represent counts or bar windows now require exactly re
 Ambiguous single-comma numeric inputs such as `1,234` now keep the previous value instead of being silently reinterpreted; explicit multi-group thousands (`1,234,567`) and decimal-comma forms like `1,23` still parse.
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
+Latest-signal action tones now come from one shared head-token classifier across the header badges and Live bot visual aids, so `SHORT` and `FLAT` stay visually aligned while `HOLD` remains neutral.
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.
 A floating “Bot activity” panel summarizes the selected bot’s status, phase, latest action, poll timing, and last event/order, and can be minimized into a header-only strip that collapses the panel height or dragged to a new position.
 The Bot activity panel includes a bot selector so you can switch between running bots.

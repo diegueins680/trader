@@ -523,10 +523,19 @@ export function isTimeoutError(err: unknown): boolean {
   return errorName(err) === "TimeoutError";
 }
 
-export function actionBadgeClass(action: string): string {
+export type LatestSignalTone = "bullish" | "bearish" | "neutral";
+
+export function latestSignalTone(action: string): LatestSignalTone {
   const head = action.trim().split(/\s+/)[0]?.toUpperCase() ?? "";
-  if (head === "LONG") return "badge badgeStrong badgeLong";
-  if (head === "SHORT" || head === "FLAT") return "badge badgeStrong badgeFlat";
+  if (head === "LONG") return "bullish";
+  if (head === "SHORT" || head === "FLAT") return "bearish";
+  return "neutral";
+}
+
+export function actionBadgeClass(action: string): string {
+  const tone = latestSignalTone(action);
+  if (tone === "bullish") return "badge badgeStrong badgeLong";
+  if (tone === "bearish") return "badge badgeStrong badgeFlat";
   return "badge badgeStrong badgeHold";
 }
 

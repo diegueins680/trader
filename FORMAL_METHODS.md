@@ -199,21 +199,24 @@ Proof sketch:
 
 ## Formal latest-signal badge contract
 
-`actionBadgeClass` in `haskell/web/src/app/utils.ts` is treated as the total classifier from latest-signal action strings to web badge tones.
+`latestSignalTone` and `actionBadgeClass` in `haskell/web/src/app/utils.ts` are treated as the shared classifier from latest-signal action strings to UI tones.
 
 Clauses:
 
 1. Classification depends only on the trimmed first token of the action string; any explanatory suffix is inert.
-2. `LONG` maps to `badgeLong`.
-3. `SHORT` and `FLAT` map to `badgeFlat`.
-4. Every other head token maps to `badgeHold`.
+2. `LONG` maps to the shared `bullish` tone.
+3. `SHORT` and `FLAT` map to the shared `bearish` tone.
+4. Every other head token maps to the shared `neutral` tone.
+5. `actionBadgeClass` is a total projection of that shared tone: `bullish -> badgeLong`, `bearish -> badgeFlat`, `neutral -> badgeHold`.
+6. All latest-signal UI surfaces must consume the shared tone instead of duplicating token parsing, so `FLAT` cannot render bearish in one panel and neutral in another.
 
 The verifier in `haskell/web/test/utils.test.mjs` checks representative head-token cases with and without explanatory suffixes.
 
 Proof sketch:
 
 - The backend latest-signal action strings are emitted as a semantic head token (`LONG`, `SHORT`, `FLAT`, `HOLD`) optionally followed by explanatory text, so splitting on the first token preserves the executable signal while ignoring annotation text.
-- `actionBadgeClass` now branches only on that head token, making the mapping total for the current action vocabulary and preventing bearish `SHORT` actions from falling through to the neutral hold badge.
+- `latestSignalTone` is now the only head-token classifier, so every consumer starts from the same semantic tone before mapping into surface-specific CSS classes.
+- `actionBadgeClass` becomes a pure tone-to-badge projection, which keeps the header/latest-signal badges aligned with Live visuals and prevents `SHORT` or `FLAT` actions from drifting into a neutral tone on one surface while staying bearish on another.
 
 ## Formal API base normalization contract
 

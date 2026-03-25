@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import type { LatestSignal } from "../lib/types";
 import { fmtMoney, fmtPct } from "../lib/format";
-import { fmtDurationMs, fmtEtaMs } from "../app/utils";
+import { fmtDurationMs, fmtEtaMs, latestSignalTone } from "../app/utils";
 
 type Props = {
   prices: number[];
@@ -78,13 +78,6 @@ function signalDirectionValue(dir: LatestSignal["chosenDirection"]): number {
   return 0;
 }
 
-function actionTone(action: string): "long" | "short" | "flat" {
-  const head = action.trim().split(/\s+/)[0]?.toUpperCase() ?? "";
-  if (head.includes("BUY") || head.includes("LONG")) return "long";
-  if (head.includes("SELL") || head.includes("SHORT")) return "short";
-  return "flat";
-}
-
 function fmtSignedMoney(value: number, digits = 4): string {
   if (!Number.isFinite(value)) return "—";
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
@@ -137,7 +130,7 @@ export function LiveVisuals({
   }, [candleAgeMs, closeEtaMs]);
 
   const actionText = signal.action ?? "HOLD";
-  const actionBadgeClass = actionTone(actionText);
+  const actionTone = latestSignalTone(actionText);
   const directionBadgeClass = signalDirection === "UP" ? "long" : signalDirection === "DOWN" ? "short" : "flat";
 
   const riskBadge = halted ? "halted" : typeof cooldownLeft === "number" && cooldownLeft > 0 ? "cooldown" : "active";
@@ -187,7 +180,7 @@ export function LiveVisuals({
       <div className="liveVizCard">
         <div className="liveVizHeader">
           <div className="liveVizLabel">Signal compass</div>
-          <span className={`badge liveVizBadge liveVizBadge${actionBadgeClass === "long" ? "Long" : actionBadgeClass === "short" ? "Short" : "Flat"}`}>
+          <span className={`badge liveVizBadge liveVizBadge${actionTone === "bullish" ? "Long" : actionTone === "bearish" ? "Short" : "Flat"}`}>
             {actionText}
           </span>
         </div>
