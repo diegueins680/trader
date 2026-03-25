@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: canonicalize autoloop inspection/patch paths before allowlist and duplicate checks, so dot-segment aliases like `haskell/web/src/./App.tsx` cannot bypass the single-file identity contract.
 - Web UI: derive top-combo method sanitization from the shared method contract, so imported/fallback combos using `kalman_physics_error` keep their method identity instead of silently falling back to the default strategy.
 - Web UI: share one latest-signal action-tone classifier across header badges and Live bot visual aids, so `FLAT` no longer renders neutral in one panel while `SHORT`/`FLAT` stay bearish elsewhere.
 - Web UI: classify latest-signal `SHORT (...)` badges as bearish instead of neutral by deriving badge tone from the action head token and ignoring explanatory suffix text.

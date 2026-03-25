@@ -61,11 +61,16 @@ export function clampText(raw, maxChars) {
 export function sanitizeRelativePath(raw) {
   const value = String(raw ?? "").trim().replace(/\\/g, "/");
   if (!value) throw new Error("Path is empty.");
+  if (value.includes("\0")) throw new Error(`Path contains NUL byte: ${value}`);
   if (value.startsWith("/")) throw new Error(`Absolute path is not allowed: ${value}`);
   if (/^[A-Za-z]:\//.test(value)) throw new Error(`Absolute path is not allowed: ${value}`);
   if (value.split("/").some((part) => part === "..")) throw new Error(`Path traversal is not allowed: ${value}`);
-  if (value.includes("\0")) throw new Error(`Path contains NUL byte: ${value}`);
-  const normalized = value.replace(/^\.\/+/, "");
+  const normalized = path.posix.normalize(value).replace(/^\.\/+/, "");
+  if (normalized.startsWith("/")) throw new Error(`Absolute path is not allowed: ${value}`);
+  if (/^[A-Za-z]:\//.test(normalized)) throw new Error(`Absolute path is not allowed: ${value}`);
+  if (normalized === ".." || normalized.startsWith("../") || normalized.split("/").some((part) => part === "..")) {
+    throw new Error(`Path traversal is not allowed: ${value}`);
+  }
   if (!normalized || normalized === ".") throw new Error(`Path resolves to empty: ${value}`);
   return normalized;
 }

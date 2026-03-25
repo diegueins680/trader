@@ -413,8 +413,8 @@ The GitHub autoloop runner treats model output as untrusted input and checks a s
 
 Clauses:
 
-1. Every proposed path must be relative, non-empty, and traversal-free.
-2. A patch plan may not repeat the same path twice.
+1. Every proposed path must be relative, non-empty, traversal-free, and canonical under POSIX slash/dot-segment normalization.
+2. A patch plan may not repeat the same canonical path twice.
 3. Every bounded cycle must name one local UI review file under `haskell/web/src/` and one correctness/formal review file under `test/`, `haskell/test/`, `haskell/web/test/`, or `FORMAL_METHODS.md`; both files must already be part of the inspected file set.
 4. A patch plan may only modify files that were explicitly requested for inspection by the idea-selection phase.
 5. The patch plan must report both review outcomes: `uiReviewSummary` for the UI/UX pass and `correctnessSummary` for the invariant/property/test or proof-sketch pass.
@@ -428,9 +428,10 @@ The verifier in `test/autoloop.test.mjs` checks the JSON/path normalization, rev
 Proof sketch:
 
 - Inside `main`, each lifecycle phase is emitted by a single `updateStatus({ phase: ... })` call in straight-line control flow within the bounded iteration loop.
+- `sanitizeRelativePath` now normalizes every candidate with `path.posix.normalize` after rejecting absolute/NUL/traversal forms, so aliases such as `haskell/web/src/App.tsx`, `./haskell/web/src/App.tsx`, and `haskell/web/src/./App.tsx` collapse to the same canonical relative path before any allowlist or duplicate-path comparison runs.
 - `choose-change` is followed immediately by `ui-ux-review` and `correctness-review` before any patch planning begins, so the review phases cannot be reordered ahead of selection or behind verification on a patch-producing iteration.
 - `plan-patch` and `apply-patch` sit between `correctness-review` and `verify`, and the only branches after `verify` either complete early or flow directly into `commit-push` and then `ci-wait`, so verification cannot occur after push and CI wait cannot precede commit.
-- `test/autoloop.test.mjs` statically extracts the ordered `phase:` literals from `scripts/autoloop.mjs` and asserts both the required lifecycle subset and the `correctness-review` -> `plan-patch` -> `apply-patch` -> `verify` bridge ordering.
+- `test/autoloop.test.mjs` statically extracts the ordered `phase:` literals from `scripts/autoloop.mjs`, asserts both the required lifecycle subset and the `correctness-review` -> `plan-patch` -> `apply-patch` -> `verify` bridge ordering, and now pins the canonical-path invariant by proving that dot-segment aliases collapse before duplicate-path checks.
 
 ## What is not proved
 

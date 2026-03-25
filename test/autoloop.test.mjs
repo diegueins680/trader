@@ -62,6 +62,8 @@ test("parseJsonResponse rejects invalid JSON", () => {
 
 test("sanitizeRelativePath rejects absolute and traversal paths", () => {
   assert.equal(sanitizeRelativePath("./haskell/web/src/App.tsx"), "haskell/web/src/App.tsx");
+  assert.equal(sanitizeRelativePath("haskell/web/src/./App.tsx"), "haskell/web/src/App.tsx");
+  assert.equal(sanitizeRelativePath("docs//guide.md"), "docs/guide.md");
   assert.throws(() => sanitizeRelativePath("./"), /resolves to empty/);
   assert.throws(() => sanitizeRelativePath("/tmp/nope"), /Absolute path/);
   assert.throws(() => sanitizeRelativePath("C:/tmp/nope"), /Absolute path/);
@@ -170,6 +172,22 @@ test("normalizePatchPlan validates change entries", () => {
         changes: [
           { path: "README.md", content: "# one" },
           { path: "README.md", content: "# two" },
+        ],
+      }),
+    /duplicate path/,
+  );
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Canonical duplicate patch",
+        summary: "Canonical duplicate patch",
+        commitMessage: "Canonical duplicate patch",
+        uiReviewSummary: "Reviewed the UI file.",
+        correctnessSummary: "The contract is unchanged.",
+        changes: [
+          { path: "haskell/web/src/App.tsx", content: "# one" },
+          { path: "haskell/web/src/./App.tsx", content: "# two" },
         ],
       }),
     /duplicate path/,
