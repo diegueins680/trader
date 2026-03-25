@@ -44,6 +44,7 @@ Features
 - Exchange candle parsers now require integral numeric timestamps (fractional timestamps are rejected), normalize exact/negative millisecond epoch boundaries consistently, and reject non-finite numeric strings (`NaN`/`Infinity`) for OHLC values.
 - Coinbase candle pagination now keeps chunk windows contiguous across the 300-candle API page boundary, so large lookbacks do not skip boundary candles.
 - Saved web settings now restore integer-backed `bars`, `epochs`, `hiddenSize`, and `patience` fields as exact safe integers; fractional/unsafe persisted values fall back to defaults instead of reopening with values the emitted request would later truncate or clamp.
+- Saved web settings now also normalize restored `method`/`normalization` enum fields and clamp restored `fee`, stop/drawdown ratios, `backtestRatio`, and `autoRefreshSec` to the same safe ranges used later by the request builder and auto-refresh scheduler.
 - Sample dataset in `data/sample_prices.csv`.
 
 ROI playbook

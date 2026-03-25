@@ -1,5 +1,6 @@
 import type { IntrabarFill, Market, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { BINANCE_INTERVAL_SECONDS, PLATFORM_DEFAULT_SYMBOL, PLATFORM_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
+import { METHOD_IDS } from "./contracts";
 import { sanitizeSymbolForPlatform } from "./symbols";
 import { clamp } from "./utils";
 
@@ -208,6 +209,9 @@ export const defaultForm: FormState = {
   botAdoptExistingPosition: true,
 };
 
+const METHOD_SET = new Set<Method>(METHOD_IDS);
+const NORMALIZATION_SET = new Set<Normalization>(["none", "minmax", "standard", "log"]);
+
 export type FormStateJson = Partial<FormState> & {
   threshold?: unknown; // legacy field (maps to openThreshold/closeThreshold)
   platform?: unknown;
@@ -370,6 +374,24 @@ function normalizeTuneObjective(raw: unknown, fallback: string): string {
   return "roi";
 }
 
+function normalizeMethod(raw: unknown, fallback: Method): Method {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (METHOD_SET.has(s as Method)) return s as Method;
+  if (METHOD_SET.has(fallback)) return fallback;
+  return defaultForm.method;
+}
+
+function normalizeNormalization(raw: unknown, fallback: Normalization): Normalization {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (NORMALIZATION_SET.has(s as Normalization)) return s as Normalization;
+  if (NORMALIZATION_SET.has(fallback)) return fallback;
+  return defaultForm.normalization;
+}
+
+function normalizeNonNegativeFiniteNumber(raw: unknown, fallback: number): number {
+  return normalizeFiniteNumber(raw, fallback, 0, Number.MAX_VALUE);
+}
+
 export function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
   const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
@@ -464,15 +486,20 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     tradeArmed,
     binanceSymbol,
     bars,
+    method: normalizeMethod(rawRec.method ?? merged.method, defaultForm.method),
     interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, defaultForm.interval),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
     lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
     openThreshold,
     closeThreshold,
+    fee: normalizeNonNegativeFiniteNumber(rawRec.fee ?? merged.fee, defaultForm.fee),
     slippage: normalizeFiniteNumber(rawRec.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
     spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
     intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
+    stopLoss: normalizeFiniteNumber(rawRec.stopLoss ?? merged.stopLoss, defaultForm.stopLoss, 0, 0.999999),
+    takeProfit: normalizeFiniteNumber(rawRec.takeProfit ?? merged.takeProfit, defaultForm.takeProfit, 0, 0.999999),
+    trailingStop: normalizeFiniteNumber(rawRec.trailingStop ?? merged.trailingStop, defaultForm.trailingStop, 0, 0.999999),
     stopLossVolMult: normalizeFiniteNumber(
       rawRec.stopLossVolMult ?? merged.stopLossVolMult,
       defaultForm.stopLossVolMult,
@@ -494,7 +521,10 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     minHoldBars,
     maxHoldBars,
     cooldownBars,
+    maxDrawdown: normalizeFiniteNumber(rawRec.maxDrawdown ?? merged.maxDrawdown, defaultForm.maxDrawdown, 0, 0.999999),
+    maxDailyLoss: normalizeFiniteNumber(rawRec.maxDailyLoss ?? merged.maxDailyLoss, defaultForm.maxDailyLoss, 0, 0.999999),
     maxOrderErrors,
+    backtestRatio: normalizeFiniteNumber(rawRec.backtestRatio ?? merged.backtestRatio, defaultForm.backtestRatio, 0.01, 0.99),
     tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
     tuneObjective: normalizeTuneObjective(rawRec.tuneObjective ?? merged.tuneObjective, defaultForm.tuneObjective),
     tunePenaltyMaxDrawdown: normalizeFiniteNumber(rawRec.tunePenaltyMaxDrawdown ?? merged.tunePenaltyMaxDrawdown, defaultForm.tunePenaltyMaxDrawdown, 0, 1e9),
@@ -510,6 +540,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
       0,
       1e9,
     ),
+    normalization: normalizeNormalization(rawRec.normalization ?? merged.normalization, defaultForm.normalization),
     kalmanZMin,
     kalmanZMax,
     minEdge: normalizeFiniteNumber(rawRec.minEdge ?? merged.minEdge, defaultForm.minEdge, 0, 1e9),
@@ -563,6 +594,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     sweepThreshold: normalizeBool(rawRec.sweepThreshold ?? merged.sweepThreshold, defaultForm.sweepThreshold),
     bypassCache: normalizeBool(rawRec.bypassCache ?? merged.bypassCache, defaultForm.bypassCache),
     autoRefresh: normalizeBool(rawRec.autoRefresh ?? merged.autoRefresh, defaultForm.autoRefresh),
+    autoRefreshSec: normalizeFiniteNumber(rawRec.autoRefreshSec ?? merged.autoRefreshSec, defaultForm.autoRefreshSec, 5, 600),
     positionsOpenTimeCacheSec: normalizeFiniteNumber(
       rawRec.positionsOpenTimeCacheSec ?? merged.positionsOpenTimeCacheSec,
       defaultForm.positionsOpenTimeCacheSec,

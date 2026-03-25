@@ -1475,6 +1475,84 @@ assert.equal(defaultForm.binanceLive, false);
 assert.equal(defaultForm.tradeArmed, false);
 assert.equal(defaultForm.botAdoptExistingPosition, true);
 });
+test("normalizeFormState keeps restored enums and downstream-clamped fields inside their finite domains", () => {
+const methodIds = [
+"11",
+"10",
+"01",
+"blend",
+"conf_blend",
+"conf_pick",
+"conformal_clip",
+"cost_pick",
+"harmonic_blend",
+"disagreement_guard",
+"median_blend",
+"neutral_guard",
+"risk_parity_blend",
+"consensus_boost",
+"anchor_blend",
+"tension_gate",
+"entropy_blend",
+"coherence_gate",
+"divergence_gate",
+"fractal_blend",
+"phase_cancel",
+"softmax_blend",
+"smooth_softmax_blend",
+"hedge_blend",
+"net_softmax_blend",
+"edge_blend",
+"edge_pick",
+"geo_blend",
+"regime_switch",
+"router",
+"bandit_router",
+"kalman_physics_error",
+];
+const normalizationIds = ["none", "minmax", "standard", "log"];
+for (const method of methodIds) {
+assert.equal(normalizeFormState({ method }).method, method, `valid method ${method} should survive restore`);
+assert.equal(normalizeFormState({ method: ` ${method} ` }).method, method, `trimmed method ${method} should survive restore`);
+}
+for (const normalization of normalizationIds) {
+assert.equal(
+normalizeFormState({ normalization }).normalization,
+normalization,
+`valid normalization ${normalization} should survive restore`,
+);
+assert.equal(
+normalizeFormState({ normalization: ` ${normalization} ` }).normalization,
+normalization,
+`trimmed normalization ${normalization} should survive restore`,
+);
+}
+assert.equal(normalizeFormState({ method: "bogus" }).method, defaultForm.method);
+assert.equal(normalizeFormState({ normalization: "bogus" }).normalization, defaultForm.normalization);
+
+const boundedCases = [
+{ field: "fee", values: [-1, "-1", 0, 0.25], expect: (value) => Math.max(0, Number(value)) },
+{ field: "stopLoss", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "takeProfit", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "trailingStop", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "maxDrawdown", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "maxDailyLoss", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "backtestRatio", values: [-1, "0", 0.2, 2], expect: (value) => Math.min(0.99, Math.max(0.01, Number(value))) },
+{ field: "autoRefreshSec", values: [1, "1", 20, 999], expect: (value) => Math.min(600, Math.max(5, Number(value))) },
+];
+for (const { field, values, expect } of boundedCases) {
+for (const value of values) {
+const restored = normalizeFormState({ [field]: value });
+const expected = expect(value);
+assert.equal(restored[field], expected, `${field}=${String(value)} should normalize into the downstream-safe range`);
+assert.equal(
+normalizeFormState({ [field]: restored[field] })[field],
+restored[field],
+`${field}=${String(value)} should already be a restore fixed point`,
+);
+}
+}
+});
 test("normalizeFormState preserves persisted restore safety invariants for live trading and bot adoption", () => {
 const cases = [
 {
