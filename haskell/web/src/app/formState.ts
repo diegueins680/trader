@@ -1,6 +1,6 @@
 import type { IntrabarFill, Market, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { BINANCE_INTERVAL_SECONDS, PLATFORM_DEFAULT_SYMBOL, PLATFORM_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
-import { METHOD_IDS } from "./contracts";
+import { METHOD_IDS, canonicalExchangePlatform } from "./contracts";
 import { sanitizeSymbolForPlatform } from "./symbols";
 import { clamp } from "./utils";
 
@@ -391,9 +391,7 @@ function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFi
 }
 
 function normalizePlatform(raw: unknown, fallback: Platform): Platform {
-  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
-  if (value === "binance" || value === "coinbase" || value === "kraken" || value === "poloniex") return value;
-  return fallback;
+  return canonicalExchangePlatform(raw) ?? fallback;
 }
 
 function normalizeMarket(raw: unknown, fallback: Market): Market {

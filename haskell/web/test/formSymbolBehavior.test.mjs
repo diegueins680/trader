@@ -48,10 +48,71 @@ test("comboMarketValue falls back from non-csv source to csv to unknown", () => 
   }
 });
 
+test("comboMarketValue canonicalizes backend-compatible exchange aliases before precedence", () => {
+  const cases = [
+    {
+      combo: { params: { platform: " coinbase-advanced " }, source: "binance" },
+      expectedValue: "coinbase",
+      expectedLabel: "Coinbase",
+    },
+    {
+      combo: { params: { platform: null }, source: " poloniex-v2 " },
+      expectedValue: "poloniex",
+      expectedLabel: "Poloniex",
+    },
+    {
+      combo: { params: { platform: null }, source: " CSV " },
+      expectedValue: "csv",
+      expectedLabel: "CSV",
+    },
+  ];
+
+  for (const { combo, expectedValue, expectedLabel } of cases) {
+    const market = comboMarketValue(combo);
+    assert.equal(market, expectedValue);
+    assert.equal(comboMarketLabel(market), expectedLabel);
+  }
+});
+
 test("normalizeFormState canonicalizes slash-delimited symbols per platform", () => {
   assert.equal(normalizeFormState({ platform: "binance", binanceSymbol: "eth/usdt" }).binanceSymbol, "ETHUSDT");
   assert.equal(normalizeFormState({ platform: "coinbase", binanceSymbol: "eth/usd" }).binanceSymbol, "ETH-USD");
   assert.equal(normalizeFormState({ platform: "poloniex", binanceSymbol: "eth/usdt" }).binanceSymbol, "ETH_USDT");
+});
+
+test("normalizeFormState canonicalizes backend-compatible exchange platform aliases on restore", () => {
+  const coinbase = normalizeFormState({
+    platform: " coinbase-advanced ",
+    binanceSymbol: "eth/usd",
+    binanceLive: true,
+    tradeArmed: true,
+  });
+  assert.equal(coinbase.platform, "coinbase");
+  assert.equal(coinbase.binanceSymbol, "ETH-USD");
+  assert.equal(coinbase.binanceLive, true);
+  assert.equal(coinbase.tradeArmed, true);
+
+  const poloniex = normalizeFormState({
+    platform: "poloniex-v2",
+    binanceSymbol: "eth/usdt",
+    binanceLive: true,
+    tradeArmed: true,
+  });
+  assert.equal(poloniex.platform, "poloniex");
+  assert.equal(poloniex.binanceSymbol, "ETH_USDT");
+  assert.equal(poloniex.binanceLive, false);
+  assert.equal(poloniex.tradeArmed, false);
+
+  const binance = normalizeFormState({
+    platform: "binanceusdm",
+    market: "futures",
+    binanceSymbol: "eth/usdt",
+    binanceTestnet: true,
+  });
+  assert.equal(binance.platform, "binance");
+  assert.equal(binance.market, "futures");
+  assert.equal(binance.binanceSymbol, "ETHUSDT");
+  assert.equal(binance.binanceTestnet, true);
 });
 
 test("normalizeFormState falls back to platform defaults for unsanitizable cross-platform restores", () => {
@@ -262,6 +323,61 @@ test("applyComboToForm preserves live-order toggles exactly on supported trade p
     assert.equal(next.binanceLive, expectedLive);
     assert.equal(next.tradeArmed, expectedTradeArmed);
   }
+});
+
+test("applyComboToForm canonicalizes exchange aliases and falls back to source metadata", () => {
+  const prev = {
+    ...defaultForm,
+    platform: "binance",
+    binanceSymbol: "BTCUSDT",
+    binanceLive: true,
+    tradeArmed: true,
+  };
+
+  const aliasCombo = {
+    id: 17,
+    openThreshold: prev.openThreshold,
+    closeThreshold: prev.closeThreshold,
+    params: {
+      platform: "coinbase-advanced",
+      binanceSymbol: "ETH/USD",
+      interval: prev.interval,
+      method: prev.method,
+      positioning: prev.positioning,
+      normalization: prev.normalization,
+      fee: prev.fee,
+      epochs: prev.epochs,
+      hiddenSize: prev.hiddenSize,
+    },
+    source: null,
+  };
+  const aliasNext = applyComboToForm(prev, aliasCombo, null);
+  assert.equal(aliasNext.platform, "coinbase");
+  assert.equal(aliasNext.binanceSymbol, "ETH-USD");
+  assert.equal(aliasNext.binanceLive, true);
+  assert.equal(aliasNext.tradeArmed, true);
+
+  const sourceFallbackCombo = {
+    id: 18,
+    openThreshold: prev.openThreshold,
+    closeThreshold: prev.closeThreshold,
+    params: {
+      binanceSymbol: "ETH/USD",
+      interval: prev.interval,
+      method: prev.method,
+      positioning: prev.positioning,
+      normalization: prev.normalization,
+      fee: prev.fee,
+      epochs: prev.epochs,
+      hiddenSize: prev.hiddenSize,
+    },
+    source: " coinbase-advanced ",
+  };
+  const sourceFallbackNext = applyComboToForm(prev, sourceFallbackCombo, null);
+  assert.equal(sourceFallbackNext.platform, "coinbase");
+  assert.equal(sourceFallbackNext.binanceSymbol, "ETH-USD");
+  assert.equal(sourceFallbackNext.binanceLive, true);
+  assert.equal(sourceFallbackNext.tradeArmed, true);
 });
 
 test("normalizeFormState keeps representative whole-number restores aligned with emitted request bounds", () => {

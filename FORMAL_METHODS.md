@@ -369,18 +369,19 @@ Proof sketch:
 
 Clauses:
 
-1. Combo application never invents a live-order or trade-arming toggle: on supported target platforms (`binance`, `coinbase`) it preserves `binanceLive` and `tradeArmed` exactly from the prior form state.
-2. Unsupported target platforms (`kraken`, `poloniex`) clear both toggles to `false`.
-3. `binanceTestnet` remains Binance-only metadata: non-Binance combo application clears it even when live-order toggles are preserved for Coinbase.
-4. The toggle result depends only on the target platform and prior toggles, not on unrelated combo fields such as symbol, thresholds, or sizing.
+1. Combo application first resolves the target platform from canonicalized `params.platform`, falling back to canonicalized non-`csv` `source` metadata when `params.platform` is absent.
+2. Combo application never invents a live-order or trade-arming toggle: on supported target platforms (`binance`, `coinbase`) it preserves `binanceLive` and `tradeArmed` exactly from the prior form state.
+3. Unsupported target platforms (`kraken`, `poloniex`) clear both toggles to `false`.
+4. `binanceTestnet` remains Binance-only metadata: non-Binance combo application clears it even when live-order toggles are preserved for Coinbase.
+5. The toggle result depends only on the resolved target platform and prior toggles, not on unrelated combo fields such as symbol, thresholds, or sizing.
 
 Proof sketch:
 
-- `applyComboToForm` determines `nextPlatform` once from the combo payload before building the returned form.
-- The new `liveOrdersSupported` guard is exactly `nextPlatform === "binance" || nextPlatform === "coinbase"`, so `binanceLive` and `tradeArmed` are copied from `prev` if and only if the target platform supports manual live trading; every other target gets `false`.
+- `applyComboToForm` determines `nextPlatform` once from the canonicalized combo payload (`params.platform` first, then non-`csv` `source`) before building the returned form.
+- The `liveOrdersSupported` guard is exactly `nextPlatform === "binance" || nextPlatform === "coinbase"`, so `binanceLive` and `tradeArmed` are copied from `prev` if and only if the resolved target platform supports manual live trading; every other target gets `false`.
 - `binanceTestnet` still uses the stricter `nextPlatform === "binance"` guard, so Coinbase keeps live/manual-trade readiness without inheriting Binance-only testnet state.
-- `App.tsx` consumes these same toggles to gate `/trade` readiness for Coinbase and Binance, so preserving them on supported targets removes the prior contradiction where applying a Coinbase combo could silently disable a previously live-ready manual trade form.
-- `haskell/web/test/formSymbolBehavior.test.mjs` now checks the full supported/unsupported platform matrix, proving the projection preserves toggles exactly on Binance/Coinbase and clears them on Kraken/Poloniex.
+- `App.tsx` consumes these same toggles to gate `/trade` readiness for Coinbase and Binance, so resolving aliases/source fallbacks before toggle projection removes the prior contradiction where applying an imported Coinbase-prefixed combo could silently downgrade the form into a Binance-like or read-only state.
+- `haskell/web/test/formSymbolBehavior.test.mjs` now checks the full supported/unsupported platform matrix plus alias/source-fallback regressions, proving the projection preserves toggles exactly on Binance/Coinbase and clears them on Kraken/Poloniex.
 
 ## Formal combo-market classification contract
 
@@ -389,17 +390,19 @@ Proof sketch:
 Clauses:
 
 1. Classification follows a fixed precedence order: `params.platform` -> non-`csv` `source` -> `csv` -> `unknown`.
-2. An explicit `params.platform` always wins, even when `source` is present and disagrees.
-3. `csv` is only returned when no explicit platform is present.
-4. Missing platform/source metadata classify as `unknown`.
-5. `comboMarketLabel` is exact for this classifier codomain: platform values use `PLATFORM_LABELS`, `csv` maps to `CSV`, and `unknown` maps to `Unknown`.
+2. Before that precedence is applied, `params.platform` and `source` are canonicalized with the same supported exchange alias rules used by web restore/combo apply, so values such as `coinbase-advanced`, `poloniex-v2`, and `binanceusdm` project into the finite UI platform domain.
+3. An explicit `params.platform` always wins, even when `source` is present and disagrees.
+4. `csv` is only returned when no explicit/canonicalized platform is present.
+5. Missing platform/source metadata classify as `unknown`.
+6. `comboMarketLabel` is exact for this classifier codomain: platform values use `PLATFORM_LABELS`, `csv` maps to `CSV`, and `unknown` maps to `Unknown`.
 
 Proof sketch:
 
-- `comboMarketValue` is a straight-line precedence chain, so the result is total and deterministic once `params.platform` and `source` are fixed.
-- The `source !== "csv"` guard sits inside the fallback branch after the explicit-platform check, so `csv` can only win when no platform is present and no non-CSV source exists.
+- `comboMarketValue` first canonicalizes the raw platform/source strings into the finite `{binance, coinbase, kraken, poloniex, csv}` helper codomain, so alias-bearing payloads cannot leak raw strings like `coinbase-advanced` into filters or labels.
+- The explicit-platform check still runs before the source fallback, so `params.platform` keeps precedence after canonicalization.
+- The `csv` branch sits after those platform projections, so `csv` can only win when no explicit/canonicalized exchange platform is present.
 - `haskell/web/src/App.tsx` filters combos via `comboMarketValue`, and `haskell/web/src/components/TopCombosChart.tsx` now derives its title label via `comboMarketLabel(comboMarketValue(combo))`, so filter semantics and displayed market/source copy share the same classifier.
-- `haskell/web/test/formSymbolBehavior.test.mjs` bundles `comboMarket.ts` in-memory and asserts representative regression rows for explicit-platform override, non-CSV source fallback, CSV-only fallback, and unknown fallback.
+- `haskell/web/test/formSymbolBehavior.test.mjs` bundles `comboMarket.ts` in-memory and asserts representative regression rows for explicit-platform override, exchange-alias canonicalization, non-CSV source fallback, CSV-only fallback, and unknown fallback.
 
 ## Formal API base normalization contract
 
@@ -539,7 +542,7 @@ Clauses:
 
 1. Restored enum fields are closed over their declared domains: `method` must be one of the supported method IDs, and `normalization` must be one of `none|minmax|standard|log`.
 2. Restored `method` and `normalization` inputs are trimmed before membership checks; unsupported values fall back to the documented defaults instead of leaking arbitrary strings into the typed UI state.
-3. Restored `platform`, `market`, `interval`, `positioning`, `intrabarFill`, `tuneObjective`, and `normalization` values are canonicalized with the same whitespace/casing/alias rules used by the backend parsers; unsupported values still fall back to the documented safe defaults, and Binance `1M` month intervals remain distinct from `1m` minute intervals.
+3. Restored `platform`, `market`, `interval`, `positioning`, `intrabarFill`, `tuneObjective`, and `normalization` values are canonicalized with the same whitespace/casing/alias rules used by the backend parsers; supported exchange aliases such as `coinbase-advanced`, `poloniex-v2`, and `binanceusdm` therefore restore as `coinbase`, `poloniex`, and `binance`, unsupported values still fall back to the documented safe defaults, and Binance `1M` month intervals remain distinct from `1m` minute intervals.
 4. Restored numeric strings are conservative after trimming: blank or whitespace-only strings are treated as absent and therefore fall back to the documented defaults instead of silently normalizing to `0` or a clamped boundary value.
 5. Restored values for `fee`, `stopLoss`, `takeProfit`, `trailingStop`, `maxDrawdown`, `maxDailyLoss`, `backtestRatio`, and `autoRefreshSec` must already lie inside the same bounded domains later assumed by downstream consumers.
 6. For those bounded fields, restore is a fixed point: once a value has been normalized, applying `normalizeFormState` again does not change it.
@@ -555,7 +558,7 @@ The verifier in `haskell/web/test/utils.test.mjs` checks this contract with:
 Proof sketch:
 
 - `normalizeFormState` now routes `method` and `normalization` through explicit finite-set membership checks, so the returned `FormState` cannot contain out-of-domain enum strings even when persisted storage is stale or manually edited.
-- The restore helpers for `platform`, `market`, `interval`, `positioning`, `intrabarFill`, and `tuneObjective` now mirror the backend parsers' finite canonicalization rules closely enough to preserve supported stale/local-storage spellings without widening the accepted UI state space; the dedicated interval normalizer preserves uppercase `M` so Binance month intervals cannot collapse into minute intervals.
+- The restore helpers for `platform`, `market`, `interval`, `positioning`, `intrabarFill`, and `tuneObjective` now mirror the backend parsers' finite canonicalization rules closely enough to preserve supported stale/local-storage spellings without widening the accepted UI state space; the platform helper explicitly projects supported exchange aliases such as `coinbase-advanced`, `poloniex-v2`, and `binanceusdm` into the finite UI platform domain, while the dedicated interval normalizer preserves uppercase `M` so Binance month intervals cannot collapse into minute intervals.
 - The numeric restore helpers now trim string inputs before `Number` conversion and reject the empty post-trim case, so malformed persisted blanks stay absent instead of being reinterpreted by JavaScript as numeric zero.
 - The restore path now uses the same clamp intervals already enforced later by `haskell/web/src/App.tsx` when building API requests (`fee`, stop/drawdown ratios, `backtestRatio`) and scheduling auto-refresh (`autoRefreshSec`), so restored UI state is aligned with downstream behavior instead of reopening with values that would later serialize or execute differently.
 - Because each bounded field is normalized by a pure clamp onto a closed interval, the normalized value is already in the image of the clamp; reapplying the same normalization leaves it unchanged, which yields the restore fixed-point property checked by the test suite.

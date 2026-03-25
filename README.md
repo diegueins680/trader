@@ -34,6 +34,7 @@ Features
 - Top-combo symbol cleanup recovers Binance pairs from prefixed/tokenized strings (for example `binance:btc/usdt` and `binance-btc-usdt`) so valid symbols are preserved for combo selection.
 - `merge-top-combos` canonicalizes prefixed platform keys (for example `coinbase-advanced` -> `coinbase`, `uniswap-v3` -> `uniswap`) so merged combo platform/symbol fields keep exchange-specific delimiter semantics.
 - Top-combo symbol resolution now preserves Coinbase/Poloniex/DEX symbols and can fall back to payload `source` metadata when `params.platform` is absent, so persisted/imported combos keep their symbol identity outside Binance too.
+- The web UI now canonicalizes the same supported exchange platform aliases when restoring saved settings and when filtering/applying imported combos, so `coinbase-advanced`, `poloniex-v2`, and `binanceusdm` keep the correct platform, symbol formatting, and live-order toggles.
 - Base/quote symbol splitting now handles delimited exchange formats (`BASE-QUOTE`, `BASE_QUOTE`, `BASE/QUOTE`) without leaking delimiter characters into the extracted asset legs.
 - `kalman_physics_error` backtests/signals now preserve their method identity in outputs (instead of being reported as `10`/`kalman`), and bot post-trade threshold tuning no longer downgrades that method label, keeping API responses and ops strategy mapping consistent.
 - Backtest-to-signal handoff now aligns prediction-history indices to the full price series before latest-signal computation, and `kalman_physics_error` latest-signal paths prefer the physics-model prediction history when present.
@@ -46,7 +47,7 @@ Features
 - Sampled web charts now normalize malformed numeric lengths/budgets conservatively, keeping downsampling total instead of throwing on non-finite values.
 - Saved web settings now restore integer-backed `bars`, `epochs`, `hiddenSize`, and `patience` fields as exact safe integers; fractional/unsafe persisted values fall back to defaults instead of reopening with values the emitted request would later truncate or clamp.
 - Saved web settings now also normalize restored `method`/`normalization` enum fields and clamp restored `fee`, stop/drawdown ratios, `backtestRatio`, and `autoRefreshSec` to the same safe ranges used later by the request builder and auto-refresh scheduler.
-- Saved web settings now canonicalize restored `platform`, `market`, `interval`, `positioning`, `intrabarFill`, `tuneObjective`, and `normalization` values with the same whitespace/casing/alias rules accepted by backend parsing, preserving Binance `1M` month semantics instead of falling back to defaults on stale local storage.
+- Saved web settings now canonicalize restored `platform`, `market`, `interval`, `positioning`, `intrabarFill`, `tuneObjective`, and `normalization` values with the same whitespace/casing/alias rules accepted by backend parsing; supported exchange aliases such as `coinbase-advanced`, `poloniex-v2`, and `binanceusdm` now restore to the correct platform, preserving Binance `1M` month semantics instead of falling back to defaults on stale local storage.
 - Saved web settings now treat blank numeric-string restores as absent, so malformed local storage/profile payloads fall back to the documented defaults instead of reopening at `0` or a clamped minimum.
 - Sample dataset in `data/sample_prices.csv`.
 

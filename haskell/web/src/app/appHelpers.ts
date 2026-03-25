@@ -26,6 +26,7 @@ import { defaultForm, parseDurationSeconds, platformIntervalSeconds } from "./fo
 import type { FormState } from "./formState";
 import type { cacheStats, health } from "../lib/api";
 import { PLATFORM_DEFAULT_SYMBOL } from "./constants";
+import { preferredExchangePlatform } from "./contracts";
 import { METHOD_TIPS } from "./methodMeta";
 import {
   BINANCE_SYMBOL_PATTERN,
@@ -2220,7 +2221,7 @@ export function applyComboToForm(
   manualOverrides?: Set<ManualOverrideKey>,
   allowPositioning = true,
 ): FormState {
-  const nextPlatform = combo.params.platform ?? prev.platform;
+  const nextPlatform = preferredExchangePlatform(combo.params.platform, combo.source) ?? prev.platform;
   const comboSymbolRaw = combo.params.binanceSymbol?.trim() ?? "";
   const comboSymbol = comboSymbolRaw ? sanitizeSymbolForPlatform(nextPlatform, comboSymbolRaw) : null;
   const prevSymbol = sanitizeSymbolForPlatform(nextPlatform, prev.binanceSymbol);

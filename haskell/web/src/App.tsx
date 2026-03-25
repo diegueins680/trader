@@ -83,7 +83,7 @@ import {
   normalizeConfigPanelOrder,
   resolveConfigPageForTarget,
 } from "./app/configLayout";
-import { METHOD_IDS } from "./app/contracts";
+import { METHOD_IDS, canonicalComboSource, canonicalExchangePlatform, preferredExchangePlatform } from "./app/contracts";
 import { comboMarketValue, type ComboMarketFilter, type ComboMarketValue } from "./app/comboMarket";
 import {
   BACKTEST_TIMEOUT_MS,
@@ -718,11 +718,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
       typeof params.normalization === "string" && normalizations.includes(params.normalization as Normalization)
         ? (params.normalization as Normalization)
         : defaultForm.normalization;
-    const rawPlatform = typeof params.platform === "string" ? params.platform : null;
-    const platform =
-      rawPlatform && PLATFORMS.includes(rawPlatform as Platform)
-        ? (rawPlatform as Platform)
-        : null;
+    const platform = canonicalExchangePlatform(params.platform);
     const interval = typeof params.interval === "string" && params.interval ? params.interval : defaultForm.interval;
     const bars = typeof params.bars === "number" && Number.isFinite(params.bars) ? Math.trunc(params.bars) : Math.trunc(defaultForm.bars);
     const positioning =
@@ -735,13 +731,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
         : typeof params.symbol === "string"
           ? params.symbol
           : "";
-    const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
-    const source: OptimizationCombo["source"] =
-      rawSource === "binance" || rawSource === "coinbase" || rawSource === "kraken" || rawSource === "poloniex" || rawSource === "csv"
-        ? rawSource
-        : null;
-    const resolvedPlatform =
-      platform ?? (source && source !== "csv" ? (source as Platform) : null);
+    const source = canonicalComboSource(rawRec.source) as OptimizationCombo["source"];
+    const resolvedPlatform = preferredExchangePlatform(params.platform, rawRec.source);
     const binanceSymbol = normalizeComboSymbol(rawSymbol, resolvedPlatform);
     const baseOpenThreshold =
       typeof params.baseOpenThreshold === "number" && Number.isFinite(params.baseOpenThreshold)

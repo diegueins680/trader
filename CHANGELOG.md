@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: canonicalize supported exchange platform aliases when restoring saved settings and when filtering/applying imported combos, so `coinbase-advanced`, `poloniex-v2`, and `binanceusdm` keep the correct platform, symbol formatting, source fallback, and live-order toggles instead of degrading into Binance/default behavior.
 - Web UI: make Live bot datetime filters reject impossible local calendar timestamps and suppress invalid-date formatting, so month-end typos no longer roll into neighboring days and out-of-range metadata no longer renders as `NaN-NaN-NaNTNaN:NaN`.
 - Web UI: preserve `Live orders` and `Arm trading` when applying Coinbase optimizer combos, so supported manual `/trade` forms no longer get silently disarmed by combo selection.
 - Web UI/API client: preserve same-origin root-path API bases (`/`) through client fallback normalization, so explicit local-root configs no longer get reclassified as direct hosts and fail over cross-origin unexpectedly.
