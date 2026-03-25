@@ -197,6 +197,24 @@ Proof sketch:
 - Every other row is gated by a direct truthiness check, so falsy optional inputs are inert, and `apiBlockedReason` cannot create a row without the enclosing `apiStatusIssue` branch.
 - Because only the actionable rows carry `targetId`, and they are appended in precedence order, the UI first actionable target is simply the first emitted row with a populated `targetId`.
 
+## Formal latest-signal badge contract
+
+`actionBadgeClass` in `haskell/web/src/app/utils.ts` is treated as the total classifier from latest-signal action strings to web badge tones.
+
+Clauses:
+
+1. Classification depends only on the trimmed first token of the action string; any explanatory suffix is inert.
+2. `LONG` maps to `badgeLong`.
+3. `SHORT` and `FLAT` map to `badgeFlat`.
+4. Every other head token maps to `badgeHold`.
+
+The verifier in `haskell/web/test/utils.test.mjs` checks representative head-token cases with and without explanatory suffixes.
+
+Proof sketch:
+
+- The backend latest-signal action strings are emitted as a semantic head token (`LONG`, `SHORT`, `FLAT`, `HOLD`) optionally followed by explanatory text, so splitting on the first token preserves the executable signal while ignoring annotation text.
+- `actionBadgeClass` now branches only on that head token, making the mapping total for the current action vocabulary and preventing bearish `SHORT` actions from falling through to the neutral hold badge.
+
 ## Formal API base normalization contract
 
 `normalizeApiBaseUrlInput` in `haskell/web/src/app/utils.ts` is treated as a conservative normalizer for the manual API-base field in the web UI.

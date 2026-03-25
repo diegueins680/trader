@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  actionBadgeClass,
   buildOrphanedPositions,
   buildRequestIssueDetails,
   downsampleArray,
@@ -752,6 +753,20 @@ test("isLocalHostname accepts the supported loopback hosts and rejects others", 
 
   for (const hostname of ["example.com", "192.168.1.5", "[2001:db8::1]"]) {
     assert.equal(isLocalHostname(hostname), false, `expected ${hostname} to be recognized as non-local`);
+  }
+});
+test("actionBadgeClass follows the latest-signal action head token contract", () => {
+  const cases = [
+    ["LONG", "badge badgeStrong badgeLong"],
+    ["LONG (edge)", "badge badgeStrong badgeLong"],
+    ["SHORT", "badge badgeStrong badgeFlat"],
+    ["SHORT (VOL_CONF_GATE_HOLD)", "badge badgeStrong badgeFlat"],
+    ["FLAT", "badge badgeStrong badgeFlat"],
+    ["HOLD (MAX_VOLATILITY)", "badge badgeStrong badgeHold"],
+  ];
+
+  for (const [action, expected] of cases) {
+    assert.equal(actionBadgeClass(action), expected, `expected ${JSON.stringify(action)} to map to ${expected}`);
   }
 });
 test("numFromInput preserves the conservative comma-parsing contract for blank, signed, explicit, and ambiguous inputs", () => {

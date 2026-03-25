@@ -1096,6 +1096,7 @@ The UI includes a “State sync” panel to export bot snapshots and optimizer c
 The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available; open-position charts also show inferred position open times when available ("opened before" means the position predates the fetched trade window).
 Charts surface range and change badges in the chart headers and group the main backtest view with compact side charts for prediction and telemetry analysis.
+Latest-signal badges derive from the action head token, so bearish `SHORT (...)` actions stay red while neutral `HOLD (...)` actions stay gray even when the backend appends explanatory suffixes.
 The Backtest summary includes a trade P&L analysis with win/loss breakdown and top winners/losers.
 Backtest trade P&L top winners/losers tables are paginated with a configurable rows-per-page input.
 Binance account trade tables now include origin/close IP columns when ops persistence is enabled (including trades closed via `POST /binance/positions/close`).

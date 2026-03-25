@@ -524,9 +524,9 @@ export function isTimeoutError(err: unknown): boolean {
 }
 
 export function actionBadgeClass(action: string): string {
-  const a = action.toUpperCase();
-  if (a.includes("LONG")) return "badge badgeStrong badgeLong";
-  if (a.includes("FLAT")) return "badge badgeStrong badgeFlat";
+  const head = action.trim().split(/\s+/)[0]?.toUpperCase() ?? "";
+  if (head === "LONG") return "badge badgeStrong badgeLong";
+  if (head === "SHORT" || head === "FLAT") return "badge badgeStrong badgeFlat";
   return "badge badgeStrong badgeHold";
 }
 
