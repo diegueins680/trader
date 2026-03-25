@@ -644,6 +644,12 @@ test("normalizeApiBaseUrlInput rewrites bare relative targets to same-origin pat
 assert.equal(normalizeApiBaseUrlInput("api"), "/api");
 assert.equal(normalizeApiBaseUrlInput(" api/v1 "), "/api/v1");
 });
+test("normalizeApiBaseUrlInput keeps non-authority colon paths same-origin while preserving numeric-port hosts", () => {
+assert.equal(normalizeApiBaseUrlInput("api:v1"), "/api:v1");
+assert.equal(normalizeApiBaseUrlInput("tenant:demo/path?mode=paper#bot"), "/tenant:demo/path?mode=paper#bot");
+assert.equal(normalizeApiBaseUrlInput("example.com:tenant/api"), "/example.com:tenant/api");
+assert.equal(normalizeApiBaseUrlInput("api:8443"), "http://api:8443");
+});
 test("normalizeApiBaseUrlInput preserves trailing query and fragment suffixes across conservative normalization branches", () => {
 const cases = [
 { raw: "/api?tenant=paper#mode=bot", expected: "/api?tenant=paper#mode=bot" },

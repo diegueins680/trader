@@ -66,7 +66,13 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   };
 
   const scheme = isLocal ? "http" : port && port !== "443" ? "http" : "https";
-  return `${scheme}://${normalizeAuthority()}${rest}`;
+  const candidate = `${scheme}://${normalizeAuthority()}${rest}`;
+  try {
+    new URL(candidate);
+    return candidate;
+  } catch {
+    return `/${source}`;
+  }
 }
 
 export function inferFlyApiAppName(appNameRaw: string): string {

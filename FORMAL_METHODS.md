@@ -227,11 +227,12 @@ Clauses:
 1. Empty or whitespace-only input normalizes to the empty string.
 2. Explicit same-origin path targets that start with a single `/` pass through unchanged after trimming, so entries such as `/api` stay local.
 3. Protocol-relative authority targets that start with `//` (for example `//example.com/api` or `//localhost:8080/api`) must not leak through unchanged; they normalize to explicit direct-host URLs by inferring the same conservative scheme that the scheme-less host branch would choose.
-4. Bare relative targets whose first segment does not look like a host authority normalize to same-origin paths by gaining a leading slash while preserving any trailing path/query/fragment suffix, so inputs such as `api`, `api/v1`, and `api?tenant=paper#mode=bot` become `/api`, `/api/v1`, and `/api?tenant=paper#mode=bot` instead of cross-origin URLs.
+4. Bare relative targets whose first segment does not look like a host authority normalize to same-origin paths by gaining a leading slash while preserving any trailing path/query/fragment suffix, so inputs such as `api`, `api/v1`, `api:v1`, and `api?tenant=paper#mode=bot` become `/api`, `/api/v1`, `/api:v1`, and `/api?tenant=paper#mode=bot` instead of cross-origin URLs.
 5. Scheme-less loopback hosts (`localhost`, `127.0.0.1`, `0.0.0.0`, bare/bracketed `::1`) infer `http://`, preserving any port and trailing path/query/fragment suffix, so `::1?tenant=paper#mode=bot`, `::1/api`, and `[::1]/api?tenant=paper#mode=bot` stay loopback URLs instead of being rewritten as same-origin paths.
 6. Bare or bracketed non-loopback IPv6 literals normalize as direct hosts rather than same-origin paths: bare literals are bracketized, bracketed literals are preserved, and any trailing path/query/fragment suffix is preserved.
 7. Scheme-less non-loopback host-like authorities infer a scheme conservatively: default to `https://`, but use `http://` when an explicit non-`443` port is present; preserve the authority and any trailing path/query/fragment suffix. For bare non-loopback IPv6 literals whose trailing `:...` segment is ambiguous, preserve direct-host intent by treating the full authority as the literal instead of guessing a port.
-8. Explicit URLs that already contain a scheme (`http://`, `https://`, or any other `://` form) pass through unchanged after trimming, except that a stray leading protocol-relative prefix is collapsed first (`//https://example.com` -> `https://example.com`).
+8. When the normalizer synthesizes an explicit `http(s)://` target from an unschemed input, the result must itself be a parseable URL; malformed pseudo-authorities fall back to same-origin `/${source}` normalization instead of emitting invalid direct-host URLs.
+9. Explicit URLs that already contain a scheme (`http://`, `https://`, or any other `://` form) pass through unchanged after trimming, except that a stray leading protocol-relative prefix is collapsed first (`//https://example.com` -> `https://example.com`).
 
 Proof sketch:
 
@@ -239,13 +240,13 @@ Proof sketch:
 - The single-slash fast path is now gated away from `//authority` inputs, and the protocol-relative branch strips exactly one leading `//` pair before the ordinary authority parser runs; this ensures protocol-relative host entries normalize into explicit URLs instead of leaking through as scheme-relative browser URLs.
 - Before host inference, it now splits unschemed input at the first `/`, `?`, or `#`, so authority detection, loopback checks, IPv6 bracket normalization, and port inference only inspect the authority while the full trailing suffix is appended back verbatim.
 - The leading-slash fast path still returns `/api`-style values verbatim, so explicit same-origin targets cannot be reinterpreted as hosts.
-- After trimming, the first-segment authority check only treats values containing `localhost`, a dot, or a colon as host-like; every other bare relative target falls through to `/${v}`, which preserves same-origin intent and any trailing query/fragment suffix for inputs such as `api`, `api/v1`, and `api?tenant=paper#mode=bot`.
+- After trimming, the first-segment authority check still routes obvious host candidates through the direct-host path, but the synthesized `http(s)://...` candidate is now validated before it can escape; malformed pseudo-authorities such as `api:v1`, `tenant:demo/path?mode=paper#bot`, and `example.com:tenant/api` therefore fall back to same-origin `/${source}` normalization instead of producing invalid cross-origin URLs.
 - Host inference only applies after those same-origin branches; the `isLocal` predicate forces loopback authorities onto `http://`, while non-loopback host-like authorities use `https://` by default and switch to `http://` only for explicit non-`443` ports.
 - Because the host-like check treats any first segment containing `:` as an authority candidate, bare and bracketed non-loopback IPv6 literals stay on the direct-host path instead of falling through to same-origin `/${v}` rewriting.
 - The IPv6 bracket normalization keeps bare/bracketed loopback authorities stable across `::1`, `::1?tenant=paper#mode=bot`, `::1/api`, `::1:PORT`, `[::1]?tenant=paper#mode=bot`, `[::1]/api`, and `[::1]:PORT`, and it bracketizes bare non-loopback IPv6 literals so `2001:db8::1?tenant=paper#mode=bot` and `2001:db8::1/api` remain direct host targets.
 - `portFromAuthority` only extracts IPv6 ports from bracketed authorities or the special `::1:PORT` loopback shorthand, so ambiguous bare non-loopback inputs such as `2001:db8::1:8443` preserve direct-host intent by treating the full authority as the literal, while bracketed `[2001:db8::1]:8443?tenant=paper#mode=bot` still triggers the explicit non-`443` `http://` inference.
 - The `includes("://")` fast path returns any already-schemed target verbatim after that protocol-relative collapse, which preserves explicit URLs across HTTP(S) and other URL schemes.
-- `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, `/api` passthrough, protocol-relative authorities, bare relative same-origin rewrites, suffix preservation across `/api`, `api`, loopback hosts, bare/bracketed `::1`, non-loopback host inference (`example.com`, `example.com:8443`, bare/bracketed `2001:db8::1`, ambiguous bare `2001:db8::1:8443`, and bracketed `[2001:db8::1]:8443`), and explicit-URL preservation.
+- `haskell/web/test/utils.test.mjs` mirrors this contract with regression rows for blank input, `/api` passthrough, protocol-relative authorities, bare relative same-origin rewrites (including colon-bearing non-authorities), suffix preservation across `/api`, `api`, loopback hosts, bare/bracketed `::1`, non-loopback host inference (`example.com`, `example.com:8443`, `api:8443`, bare/bracketed `2001:db8::1`, ambiguous bare `2001:db8::1:8443`, and bracketed `[2001:db8::1]:8443`), and explicit-URL preservation.
 
 ## Formal numeric input fallback contract
 
@@ -384,10 +385,10 @@ The web UI treats configured API bases and inferred direct-host fallbacks as a s
 
 Clauses:
 
-1. Relative proxy inputs remain relative: `/api` stays `/api`, and bare path inputs like `api` normalize to `/api`.
+1. Relative proxy inputs remain relative: `/api` stays `/api`, bare path inputs like `api` normalize to `/api`, and colon-bearing non-authorities like `api:v1` normalize to `/api:v1` instead of malformed cross-origin URLs.
 2. Explicit absolute URLs are preserved verbatim.
 3. Loopback hosts (`localhost`, `127.0.0.1`, `0.0.0.0`, `::1`, `[::1]`, with optional ports/paths) always normalize to `http://...`, with deterministic IPv6 bracketization when needed.
-4. Non-local host-like inputs default to `https://...`, except explicit non-`443` ports default to `http://...`.
+4. Non-local host-like inputs default to `https://...`, except explicit non-`443` ports default to `http://...`; if the synthesized direct-host target is not itself a parseable URL, normalization falls back to the same-origin `/${source}` path instead of emitting an invalid absolute URL.
 5. Split Fly direct-host inference only rewrites `.fly.dev` hostnames when the first label matches a valid `*-web-hs` split-app name; unrelated hostnames remain untouched.
 6. Local-host detection for the UI start-help path accepts exactly the supported loopback hostname set.
 
@@ -401,7 +402,7 @@ The verifier in `haskell/web/test/utils.test.mjs` checks a representative invari
 
 For every case, it checks:
 
-1. Relative proxy inputs do not become cross-origin absolute URLs.
+1. Relative proxy inputs do not become cross-origin absolute URLs, including colon-bearing non-authorities.
 2. Loopback normalization stays on HTTP and produces deterministic IPv6 authority formatting.
 3. Non-local host normalization selects the documented default scheme.
 4. Direct Fly inference fires only for supported split-app hostnames.
