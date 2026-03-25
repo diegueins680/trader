@@ -1105,6 +1105,7 @@ Chart panels lift height caps so the full chart area is visible without panel sc
 Charts lazy-load to reduce the initial bundle size; placeholders appear while chart chunks load.
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
 The Binance account trades panel requires a non-negative whole-number From ID when provided; fractional or unsafe integers are rejected instead of being truncated or rounded.
+The UI/API client only serializes safe integers for `/bot/status` tail, `/ops` numeric filters, and `/ops/performance` limits; fractional or unsafe values are dropped instead of being truncated or rounded into different requests.
 Raw Binance account-trades millisecond timestamp inputs must also fit in an exactly representable integer; oversized integer timestamps are rejected instead of being silently rounded.
 Binance account trades date filters use date pickers with YYYY-MM-DD inputs, and impossible calendar dates are rejected instead of being normalized forward.
 Loading a profile clears manual override locks so combos can apply again.

@@ -134,6 +134,95 @@ test("api client keeps base and request query params for relative bot URLs", asy
   assert.deepEqual(calls, ["/api/base/bot/status?mode=proxy&tail=100&tenantKey=tenant-request"]);
 });
 
+test("api client preserves exact safe integer query params for bot status, ops, and ops performance", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { ok: true, running: false });
+    },
+    async (api) => {
+      const status = await api.botStatus("/api", { timeoutMs: 5_000 }, 25, undefined, "tenant-status");
+      assert.equal(status.running, false);
+      await api.ops(
+        "/api",
+        {
+          limit: 10,
+          since: 20,
+          fromMs: 30,
+          toMs: 40,
+          bot: true,
+          tenantKey: "tenant-ops",
+        },
+        { timeoutMs: 5_000 },
+      );
+      await api.opsPerformance(
+        "/api",
+        { commitLimit: 7, comboLimit: 9, tenantKey: "tenant-perf" },
+        { timeoutMs: 5_000 },
+      );
+    },
+  );
+  assert.deepEqual(calls, [
+    "/api/bot/status?tail=25&tenantKey=tenant-status",
+    "/api/ops?limit=10&since=20&fromMs=30&toMs=40&bot=1&tenantKey=tenant-ops",
+    "/api/ops/performance?commitLimit=7&comboLimit=9&tenantKey=tenant-perf",
+  ]);
+});
+
+test("api client omits fractional and unsafe integer query params instead of truncating them", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { ok: true, running: false });
+    },
+    async (api) => {
+      await api.botStatus("/api", { timeoutMs: 5_000 }, 12.5, undefined, "tenant-fractional");
+      await api.botStatus("/api", { timeoutMs: 5_000 }, Number.MAX_SAFE_INTEGER + 1, undefined, "tenant-unsafe");
+      await api.ops(
+        "/api",
+        {
+          limit: 10.5,
+          since: Number.MAX_SAFE_INTEGER + 1,
+          fromMs: 30.5,
+          toMs: Number.MAX_SAFE_INTEGER + 1,
+          bot: true,
+          tenantKey: "tenant-ops",
+        },
+        { timeoutMs: 5_000 },
+      );
+      await api.opsPerformance(
+        "/api",
+        {
+          commitLimit: 7.5,
+          comboLimit: Number.MAX_SAFE_INTEGER + 1,
+          tenantKey: "tenant-perf",
+        },
+        { timeoutMs: 5_000 },
+      );
+    },
+  );
+  assert.deepEqual(calls, [
+    "/api/bot/status?tenantKey=tenant-fractional",
+    "/api/bot/status?tenantKey=tenant-unsafe",
+    "/api/ops?bot=1&tenantKey=tenant-ops",
+    "/api/ops/performance?tenantKey=tenant-perf",
+  ]);
+});
+
 test("api client preserves absolute base path and merges base query with state sync query", async () => {
   const calls = [];
   await withApiModule(

@@ -168,6 +168,11 @@ function normalizeBaseUrl(raw: string): string {
 
 const TENANT_HEADER = "X-Tenant-Key";
 
+function normalizeExactIntegerQueryParam(raw: unknown): number | null {
+  if (typeof raw !== "number" || !Number.isSafeInteger(raw)) return null;
+  return Object.is(raw, -0) ? 0 : raw;
+}
+
 function normalizeTenantKeyValue(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
@@ -1152,7 +1157,7 @@ export async function botStatus(
   symbol?: string,
   tenantKey?: string,
 ): Promise<BotStatus> {
-  const tailSafe = typeof tail === "number" && Number.isFinite(tail) ? Math.trunc(tail) : 0;
+  const tailSafe = normalizeExactIntegerQueryParam(tail) ?? 0;
   const query = new URLSearchParams();
   if (tailSafe > 0) query.set("tail", String(tailSafe));
   if (symbol) query.set("symbol", symbol);
@@ -1177,11 +1182,15 @@ export async function ops(
 ): Promise<OpsResponse> {
   const query = new URLSearchParams();
   if (params?.kind) query.set("kind", params.kind);
-  if (typeof params?.limit === "number" && Number.isFinite(params.limit)) query.set("limit", String(Math.trunc(params.limit)));
-  if (typeof params?.since === "number" && Number.isFinite(params.since)) query.set("since", String(Math.trunc(params.since)));
+  const limit = normalizeExactIntegerQueryParam(params?.limit);
+  if (limit != null) query.set("limit", String(limit));
+  const since = normalizeExactIntegerQueryParam(params?.since);
+  if (since != null) query.set("since", String(since));
   if (params?.symbol) query.set("symbol", params.symbol);
-  if (typeof params?.fromMs === "number" && Number.isFinite(params.fromMs)) query.set("fromMs", String(Math.trunc(params.fromMs)));
-  if (typeof params?.toMs === "number" && Number.isFinite(params.toMs)) query.set("toMs", String(Math.trunc(params.toMs)));
+  const fromMs = normalizeExactIntegerQueryParam(params?.fromMs);
+  if (fromMs != null) query.set("fromMs", String(fromMs));
+  const toMs = normalizeExactIntegerQueryParam(params?.toMs);
+  if (toMs != null) query.set("toMs", String(toMs));
   if (typeof params?.bot === "boolean") query.set("bot", params.bot ? "1" : "0");
   if (params?.tenantKey) query.set("tenantKey", params.tenantKey);
   const path = query.size > 0 ? `/ops?${query.toString()}` : "/ops";
@@ -1194,12 +1203,10 @@ export async function opsPerformance(
   opts?: FetchJsonOptions,
 ): Promise<OpsPerformanceResponse> {
   const query = new URLSearchParams();
-  if (typeof params?.commitLimit === "number" && Number.isFinite(params.commitLimit)) {
-    query.set("commitLimit", String(Math.trunc(params.commitLimit)));
-  }
-  if (typeof params?.comboLimit === "number" && Number.isFinite(params.comboLimit)) {
-    query.set("comboLimit", String(Math.trunc(params.comboLimit)));
-  }
+  const commitLimit = normalizeExactIntegerQueryParam(params?.commitLimit);
+  if (commitLimit != null) query.set("commitLimit", String(commitLimit));
+  const comboLimit = normalizeExactIntegerQueryParam(params?.comboLimit);
+  if (comboLimit != null) query.set("comboLimit", String(comboLimit));
   if (params?.comboScope) query.set("comboScope", params.comboScope);
   if (params?.comboOrder) query.set("comboOrder", params.comboOrder);
   if (params?.tenantKey) query.set("tenantKey", params.tenantKey);

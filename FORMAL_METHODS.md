@@ -266,6 +266,23 @@ Proof sketch:
 - `normalizeWholeNumber` only consumes `parseFiniteInteger` outputs, and `parseFiniteInteger` now accepts only safe integers, so restored bar/count fields cannot enter the clamp path from a rounded-invalid precursor state.
 - `haskell/web/test/binanceTradeIpMap.test.mjs` and `haskell/web/test/utils.test.mjs` pin the boundary with `Number.MAX_SAFE_INTEGER + 1`, overflowed duration products, and restored integer-only fields, proving those states are rejected rather than rounded.
 
+## Formal API integer-query contract
+
+The web API client treats integer-valued query parameters as exact values rather than "anything finite that can be truncated later."
+
+Clauses:
+
+1. `/bot/status` `tail`, `/ops` numeric filters (`limit`, `since`, `fromMs`, `toMs`), and `/ops/performance` limits (`commitLimit`, `comboLimit`) are admissible only when the caller supplies a JavaScript safe integer.
+2. Fractional, non-finite, and unsafe integer-like values are omitted before query construction, so the client never truncates or rounds them into a different request.
+3. Accepted safe integers serialize exactly as their decimal value; `/bot/status` keeps its existing positive-only rule by emitting `tail` only when that exact safe integer is greater than `0`.
+
+Proof sketch:
+
+- `normalizeExactIntegerQueryParam` is now the single gate for these query-valued integers, and it only returns values that satisfy `Number.isSafeInteger`.
+- `botStatus`, `ops`, and `opsPerformance` only append query entries when that gate succeeds, so values like `12.5` and `9007199254740993` cannot cross the boundary as `12` or `9007199254740992`.
+- Because accepted values are forwarded unchanged after the safe-integer check, exact integers keep their prior wire format and only the rounded-invalid states disappear.
+- `haskell/web/test/apiFallback.test.mjs` pins both sides of the contract with representative safe integers and with fractional/unsafe cases that previously truncated into different URLs.
+
 ## Formal deploy-time timeout contract
 
 The web deploy-config timeout loader now treats `timeoutsMs.*` as exact whole-millisecond inputs instead of "any finite number that can be rounded later."

@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI/API client: only serialize safe integers for `/bot/status` tail, `/ops` numeric filters, and `/ops/performance` limits; fractional or unsafe values are now dropped instead of being truncated or rounded into different requests.
 - Web UI: normalize restored `bars`, `epochs`, `hiddenSize`, and `patience` as exact safe integers, so saved fractional/unsafe values fall back to defaults instead of reopening with values the emitted request would later truncate or clamp differently.
 - Web UI: reject fractional and unsafe integer-like `trader-config.js` `timeoutsMs.*` values instead of rounding/clamping them into different request timeouts.
 - Web UI: make Binance account-trades filters reject fractional `From ID` inputs and impossible ISO calendar dates instead of silently truncating or rolling them forward.
