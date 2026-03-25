@@ -243,7 +243,7 @@ export function parseDurationSeconds(raw: string): number | null {
   if (!m) return null;
 
   const n = Number(m[1]);
-  if (!Number.isFinite(n)) return null;
+  if (!Number.isSafeInteger(n)) return null;
   const unitRaw = m[2] ?? "";
   const unit = unitRaw === "M" ? "M" : unitRaw.toLowerCase();
 
@@ -262,7 +262,8 @@ export function parseDurationSeconds(raw: string): number | null {
                 ? 30 * 24 * 60 * 60
                 : null;
   if (!mult) return null;
-  return n * mult;
+  const seconds = n * mult;
+  return Number.isSafeInteger(seconds) ? seconds : null;
 }
 
 function normalizePlatformInterval(platform: Platform, raw: unknown, fallback: string): string {
@@ -279,10 +280,11 @@ function normalizeLookbackWindow(raw: unknown, fallback: string): string {
 }
 
 function parseFiniteInteger(raw: unknown): number | null {
-  if (typeof raw === "number" && Number.isFinite(raw) && Number.isInteger(raw)) return raw;
+  // Restored whole-number fields must remain exactly representable after JSON/string hydration.
+  if (typeof raw === "number" && Number.isSafeInteger(raw)) return raw;
   if (typeof raw === "string") {
     const n = Number(raw);
-    if (Number.isFinite(n) && Number.isInteger(n)) return n;
+    if (Number.isSafeInteger(n)) return n;
   }
   return null;
 }

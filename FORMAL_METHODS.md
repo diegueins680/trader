@@ -248,6 +248,24 @@ Proof sketch:
 - The explicit multi-group branch keeps standard thousands-group forms such as `1,234,567` parseable.
 - The intended boundary can be described as a bounded sign/prefix/suffix matrix over prefixes `1`, `12`, `123`, `-1`, `-12`, `-123`, `+1`, `+12`, `+123`, `0`, `-0`, `+0`, `1234`, `-1234`, `+1234` and suffixes `2`, `23`, `234`, `2345`: only the signed non-zero 1-3 digit prefix plus 3-digit suffix rows preserve fallback, while every other finite single-comma row parses as a decimal.
 
+## Formal exact-integer input contract
+
+The web integer parsers and integer-only restore path treat exactness as part of validity rather than accepting any finite `Number(...)` result.
+
+Clauses:
+
+1. `parseMaybeInt`, `parseOptionalInt`, and the raw-millisecond branch of `parseTimeInputMs` only accept integers that are exactly representable as JavaScript safe integers.
+2. `parseDurationSeconds` only accepts safe integer magnitudes and only returns a duration when the post-unit product is still a safe integer.
+3. Integer-only restore fields normalized through `parseFiniteInteger` / `normalizeWholeNumber` only accept safe integers; fractional, non-finite, and unsafe integer-like persisted values fall back to the documented safe defaults before any clamp is applied.
+4. Safe but out-of-range integer restores still clamp through the existing request-aligned bounds, so the change only removes rounded-invalid states, not legitimate bounded restores.
+
+Proof sketch:
+
+- Each integer parser now guards its numeric result with `Number.isSafeInteger`, so strings such as `9007199254740993` cannot round to `9007199254740992` and survive as a different value than the user typed.
+- `parseDurationSeconds` checks exactness twice: once after parsing the integer magnitude and again after multiplying by the unit seconds, so overflowed duration products cannot slip through as rounded whole numbers.
+- `normalizeWholeNumber` only consumes `parseFiniteInteger` outputs, and `parseFiniteInteger` now accepts only safe integers, so restored bar/count fields cannot enter the clamp path from a rounded-invalid precursor state.
+- `haskell/web/test/binanceTradeIpMap.test.mjs` and `haskell/web/test/utils.test.mjs` pin the boundary with `Number.MAX_SAFE_INTEGER + 1`, overflowed duration products, and restored integer-only fields, proving those states are rejected rather than rounded.
+
 ## Formal persisted form restore safety
 
 `normalizeFormState` in `haskell/web/src/app/formState.ts` treats restored live-trading settings as a safety-preserving normalization step rather than a blind local-storage replay.

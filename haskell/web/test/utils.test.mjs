@@ -787,6 +787,13 @@ test("parseDurationSeconds rejects malformed duration strings", () => {
     assert.equal(parseDurationSeconds(raw), null, `expected ${JSON.stringify(raw)} to be rejected`);
   }
 });
+
+test("parseDurationSeconds rejects unsafe integer magnitudes and overflowed unit products", () => {
+  const unsafeSeconds = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
+  const overflowMinutes = (BigInt(Number.MAX_SAFE_INTEGER) / 60n + 1n).toString();
+  assert.equal(parseDurationSeconds(`${unsafeSeconds}s`), null);
+  assert.equal(parseDurationSeconds(`${overflowMinutes}m`), null);
+});
 test("downsampleIndices preserves bounded chart sampling invariants", () => {
 for (let total = 0; total <= 257; total += 1) {
 for (let maxPoints = 0; maxPoints <= 65; maxPoints += 1) {
@@ -1159,6 +1166,26 @@ trendLookback: defaultForm.trendLookback,
 volLookback: defaultForm.volLookback,
 rebalanceBars: defaultForm.rebalanceBars,
 routerLookback: defaultForm.routerLookback,
+},
+);
+});
+test("normalizeFormState rejects unsafe integer restores instead of rounding them", () => {
+const unsafe = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
+const restored = normalizeFormState({
+trendLookback: unsafe,
+minHoldBars: unsafe,
+botTrainBars: unsafe,
+});
+assert.deepEqual(
+{
+trendLookback: restored.trendLookback,
+minHoldBars: restored.minHoldBars,
+botTrainBars: restored.botTrainBars,
+},
+{
+trendLookback: defaultForm.trendLookback,
+minHoldBars: defaultForm.minHoldBars,
+botTrainBars: defaultForm.botTrainBars,
 },
 );
 });

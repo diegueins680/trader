@@ -1056,7 +1056,7 @@ The Trade result panel shows the backend server egress IP (when available) with 
 Binance “Check keys” only upgrades trade-test failures to “Auth OK, but order rejected” for clear order-validation errors; auth/IP/permission failures stay marked as `FAIL`.
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 Missing/invalid saved symbols fall back to platform defaults, and trade-test skips surface as a warning callout with the skip reason.
-Optimizer-run fields that represent counts or bar windows now require whole numbers; fractional values are rejected instead of being truncated client-side.
+Optimizer-run fields that represent counts or bar windows now require exactly representable whole numbers; fractional or unsafe integers are rejected instead of being truncated or rounded client-side.
 Ambiguous single-comma numeric inputs such as `1,234` now keep the previous value instead of being silently reinterpreted; explicit multi-group thousands (`1,234,567`) and decimal-comma forms like `1,23` still parse.
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
@@ -1103,7 +1103,8 @@ Charts scale to use most of the viewport height for easier inspection.
 Chart panels lift height caps so the full chart area is visible without panel scrollbars.
 Charts lazy-load to reduce the initial bundle size; placeholders appear while chart chunks load.
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
-The Binance account trades panel requires a non-negative whole-number From ID when provided; fractional values are rejected instead of being truncated.
+The Binance account trades panel requires a non-negative whole-number From ID when provided; fractional or unsafe integers are rejected instead of being truncated or rounded.
+Raw Binance account-trades millisecond timestamp inputs must also fit in an exactly representable integer; oversized integer timestamps are rejected instead of being silently rounded.
 Binance account trades date filters use date pickers with YYYY-MM-DD inputs, and impossible calendar dates are rejected instead of being normalized forward.
 Loading a profile clears manual override locks so combos can apply again.
 Saved profiles/settings now rehydrate all numeric fields from browser storage as finite numbers, so legacy stringified values do not leak back into the typed UI form state.

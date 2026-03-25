@@ -259,7 +259,8 @@ export function parseMaybeInt(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const n = Number(trimmed);
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null;
+  // Integer-only request fields must round-trip exactly through JS numbers.
+  if (!Number.isSafeInteger(n) || n < 0) return null;
   return Object.is(n, -0) ? 0 : n;
 }
 
@@ -281,7 +282,7 @@ export function parseTimeInputMs(raw: string): number | null {
   if (!trimmed) return null;
   if (/^\d+$/.test(trimmed)) {
     const n = Number(trimmed);
-    return Number.isFinite(n) ? n : null;
+    return Number.isSafeInteger(n) ? n : null;
   }
   const iso = normalizeIsoInput(trimmed);
   if (!iso) return null;
@@ -1147,7 +1148,7 @@ export function parseOptionalNumber(raw: string): number | undefined {
 
 export function parseOptionalInt(raw: string): number | undefined {
   const parsed = parseOptionalNumber(raw);
-  if (parsed == null || !Number.isInteger(parsed)) return undefined;
+  if (parsed == null || !Number.isSafeInteger(parsed)) return undefined;
   return parsed;
 }
 
@@ -1160,7 +1161,7 @@ export type OptionalWholeNumberField = {
 export function findOptionalWholeNumberFieldError(fields: OptionalWholeNumberField[]): string | null {
   for (const field of fields) {
     if (typeof field.override === "number") {
-      if (!Number.isFinite(field.override) || !Number.isInteger(field.override)) {
+      if (!Number.isSafeInteger(field.override)) {
         return `${field.label} must be a whole number.`;
       }
       continue;

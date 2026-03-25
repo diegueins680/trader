@@ -103,6 +103,13 @@ test("parseMaybeInt preserves the non-negative whole-number contract", () => {
   assert.equal(parseMaybeInt("-1"), null);
 });
 
+test("whole-number parsers reject unsafe integers instead of rounding them", () => {
+  const unsafe = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
+  assert.equal(parseOptionalInt(unsafe), undefined);
+  assert.equal(parseMaybeInt(unsafe), null);
+  assert.equal(parseTimeInputMs(unsafe), null);
+});
+
 test("parseTimeInputMs rejects impossible ISO calendar dates instead of rolling them forward", () => {
   assert.equal(parseTimeInputMs("2024-02-29"), Date.parse("2024-02-29T00:00:00Z"));
   assert.equal(parseTimeInputMs("2025-02-30"), null);
@@ -115,6 +122,12 @@ test("findOptionalWholeNumberFieldError reports invalid form and override values
   assert.equal(
     findOptionalWholeNumberFieldError([{ label: "Trials", raw: "12.5" }]),
     "Trials must be a whole number.",
+  );
+  assert.equal(
+    findOptionalWholeNumberFieldError([
+      { label: "Seed", raw: (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString() },
+    ]),
+    "Seed must be a whole number.",
   );
   assert.equal(
     findOptionalWholeNumberFieldError([{ label: "Bars min", raw: "", override: 10.25 }]),
