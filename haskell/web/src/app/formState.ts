@@ -271,8 +271,7 @@ export function parseDurationSeconds(raw: string): number | null {
 }
 
 function normalizePlatformInterval(platform: Platform, raw: unknown, fallback: string): string {
-  if (typeof raw !== "string") return fallback;
-  const value = raw.trim();
+  const value = normalizeIntervalCode(raw);
   return PLATFORM_INTERVAL_SET[platform].has(value) ? value : fallback;
 }
 
@@ -281,6 +280,16 @@ function normalizeLookbackWindow(raw: unknown, fallback: string): string {
   const value = raw.trim();
   const sec = parseDurationSeconds(value);
   return sec && sec > 0 ? value : fallback;
+}
+
+function normalizeIntervalCode(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const value = raw.trim();
+  const match = /^(\d+)([A-Za-z])$/.exec(value);
+  if (!match) return value;
+  const digits = match[1] ?? "";
+  const unit = match[2] ?? "";
+  return `${digits}${unit === "M" ? "M" : unit.toLowerCase()}`;
 }
 
 function parseFiniteInteger(raw: unknown): number | null {
@@ -348,28 +357,64 @@ function normalizeRestoredNumericFields(raw: Record<string, unknown>): Pick<Form
 }
 
 function normalizePositioning(raw: unknown, fallback: Positioning): Positioning {
-  if (raw === "long-flat" || raw === "long-short") return raw;
+  const value =
+    typeof raw === "string"
+      ? raw
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "")
+      : "";
+  if (value === "longflat" || value === "lf" || value === "flat" || value === "longonly" || value === "long") return "long-flat";
+  if (value === "longshort" || value === "ls") return "long-short";
   return fallback;
 }
 
 function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFill {
-  if (raw === "stop-first" || raw === "take-profit-first") return raw;
+  const value =
+    typeof raw === "string"
+      ? raw
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "")
+      : "";
+  if (value === "stopfirst" || value === "slfirst" || value === "stop" || value === "worst") return "stop-first";
+  if (value === "takeprofitfirst" || value === "tpfirst" || value === "takeprofit" || value === "tp" || value === "best") {
+    return "take-profit-first";
+  }
   return fallback;
 }
 
 function normalizePlatform(raw: unknown, fallback: Platform): Platform {
-  if (raw === "binance" || raw === "coinbase" || raw === "kraken" || raw === "poloniex") return raw;
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (value === "binance" || value === "coinbase" || value === "kraken" || value === "poloniex") return value;
   return fallback;
 }
 
 function normalizeMarket(raw: unknown, fallback: Market): Market {
-  if (raw === "spot" || raw === "margin" || raw === "futures") return raw;
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (value === "spot" || value === "margin" || value === "futures") return value;
   return fallback;
 }
 
 function normalizeTuneObjective(raw: unknown, fallback: string): string {
-  const s = typeof raw === "string" ? raw.trim() : "";
-  if (s && TUNE_OBJECTIVE_SET.has(s)) return s;
+  const s = typeof raw === "string" ? raw.trim().toLowerCase().replace(/\s+/g, "").replace(/_/g, "-") : "";
+  const canonical =
+    s === "finalequity" || s === "final-equity"
+      ? "final-equity"
+      : s === "annualizedequity" || s === "annualized-equity" || s === "annualizedreturn" || s === "annualized-return"
+        ? "annualized-equity"
+        : s === "roi" || s === "riskadjustedroi" || s === "risk-adjusted-roi"
+          ? "roi"
+          : s === "sharpe"
+            ? "sharpe"
+            : s === "calmar"
+              ? "calmar"
+              : s === "equitydd" || s === "equity-dd"
+                ? "equity-dd"
+                : s === "equityddturnover" || s === "equity-dd-turnover"
+                  ? "equity-dd-turnover"
+                  : "";
+  if (canonical && TUNE_OBJECTIVE_SET.has(canonical)) return canonical;
   if (TUNE_OBJECTIVE_SET.has(fallback)) return fallback;
   return "roi";
 }
@@ -382,7 +427,7 @@ function normalizeMethod(raw: unknown, fallback: Method): Method {
 }
 
 function normalizeNormalization(raw: unknown, fallback: Normalization): Normalization {
-  const s = typeof raw === "string" ? raw.trim() : "";
+  const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   if (NORMALIZATION_SET.has(s as Normalization)) return s as Normalization;
   if (NORMALIZATION_SET.has(fallback)) return fallback;
   return defaultForm.normalization;

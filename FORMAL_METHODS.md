@@ -516,17 +516,20 @@ Clauses:
 
 1. Restored enum fields are closed over their declared domains: `method` must be one of the supported method IDs, and `normalization` must be one of `none|minmax|standard|log`.
 2. Restored `method` and `normalization` inputs are trimmed before membership checks; unsupported values fall back to the documented defaults instead of leaking arbitrary strings into the typed UI state.
-3. Restored values for `fee`, `stopLoss`, `takeProfit`, `trailingStop`, `maxDrawdown`, `maxDailyLoss`, `backtestRatio`, and `autoRefreshSec` must already lie inside the same bounded domains later assumed by downstream consumers.
-4. For those bounded fields, restore is a fixed point: once a value has been normalized, applying `normalizeFormState` again does not change it.
+3. Restored `platform`, `market`, `interval`, `positioning`, `intrabarFill`, `tuneObjective`, and `normalization` values are canonicalized with the same whitespace/casing/alias rules used by the backend parsers; unsupported values still fall back to the documented safe defaults, and Binance `1M` month intervals remain distinct from `1m` minute intervals.
+4. Restored values for `fee`, `stopLoss`, `takeProfit`, `trailingStop`, `maxDrawdown`, `maxDailyLoss`, `backtestRatio`, and `autoRefreshSec` must already lie inside the same bounded domains later assumed by downstream consumers.
+5. For those bounded fields, restore is a fixed point: once a value has been normalized, applying `normalizeFormState` again does not change it.
 
 The verifier in `haskell/web/test/utils.test.mjs` checks this contract with:
 
 - exhaustive membership preservation over the full supported method set and normalization set, with trimmed-string acceptance
 - invalid enum regressions proving fallback to the default method/normalization
+- representative restore regressions for backend-compatible platform/market/interval/positioning/intrabar-fill/tune-objective aliases and casing, including `1M` month preservation
 - representative bounded restore matrices for the downstream-clamped numeric fields, including numeric-string hydration and fixed-point re-normalization
 
 Proof sketch:
 
 - `normalizeFormState` now routes `method` and `normalization` through explicit finite-set membership checks, so the returned `FormState` cannot contain out-of-domain enum strings even when persisted storage is stale or manually edited.
+- The restore helpers for `platform`, `market`, `interval`, `positioning`, `intrabarFill`, and `tuneObjective` now mirror the backend parsers' finite canonicalization rules closely enough to preserve supported stale/local-storage spellings without widening the accepted UI state space; the dedicated interval normalizer preserves uppercase `M` so Binance month intervals cannot collapse into minute intervals.
 - The restore path now uses the same clamp intervals already enforced later by `haskell/web/src/App.tsx` when building API requests (`fee`, stop/drawdown ratios, `backtestRatio`) and scheduling auto-refresh (`autoRefreshSec`), so restored UI state is aligned with downstream behavior instead of reopening with values that would later serialize or execute differently.
 - Because each bounded field is normalized by a pure clamp onto a closed interval, the normalized value is already in the image of the clamp; reapplying the same normalization leaves it unchanged, which yields the restore fixed-point property checked by the test suite.

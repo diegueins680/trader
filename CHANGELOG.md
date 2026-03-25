@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: canonicalize restored `platform`, `market`, `interval`, `positioning`, `intrabarFill`, `tuneObjective`, and `normalization` values with the same whitespace/casing/alias rules the backend accepts, preserving Binance `1M` month semantics instead of silently falling back to defaults on stale saved state.
 - Web UI: normalize restored `method`/`normalization` enum fields and clamp restored `fee`, stop/drawdown ratios, `backtestRatio`, and `autoRefreshSec` to the same safe ranges used by downstream request/scheduler code, so stale local storage cannot reopen with state that later serializes differently.
 - Dev/CI: canonicalize autoloop inspection/patch paths before allowlist and duplicate checks, so dot-segment aliases like `haskell/web/src/./App.tsx` cannot bypass the single-file identity contract.
 - Web UI: derive top-combo method sanitization from the shared method contract, so imported/fallback combos using `kalman_physics_error` keep their method identity instead of silently falling back to the default strategy.

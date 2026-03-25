@@ -1553,6 +1553,32 @@ restored[field],
 }
 }
 });
+test("normalizeFormState canonicalizes restored backend-compatible enum aliases and interval casing", () => {
+const canonicalBinance = normalizeFormState({
+platform: " Binance ",
+market: " FUTURES ",
+interval: " 1W ",
+});
+assert.equal(canonicalBinance.platform, "binance");
+assert.equal(canonicalBinance.market, "futures");
+assert.equal(canonicalBinance.interval, "1w");
+
+const monthInterval = normalizeFormState({ interval: " 1M " });
+assert.equal(monthInterval.interval, "1M", "Binance month intervals must preserve the uppercase M month code");
+
+const canonicalAliases = normalizeFormState({
+platform: " Coinbase ",
+positioning: " LONG ONLY ",
+intrabarFill: " TP ",
+tuneObjective: " annualized_return ",
+normalization: " Standard ",
+});
+assert.equal(canonicalAliases.platform, "coinbase");
+assert.equal(canonicalAliases.positioning, "long-flat");
+assert.equal(canonicalAliases.intrabarFill, "take-profit-first");
+assert.equal(canonicalAliases.tuneObjective, "annualized-equity");
+assert.equal(canonicalAliases.normalization, "standard");
+});
 test("normalizeFormState preserves persisted restore safety invariants for live trading and bot adoption", () => {
 const cases = [
 {
