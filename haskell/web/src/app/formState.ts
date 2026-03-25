@@ -427,6 +427,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     1e9,
   );
   const maxOrderQuote = normalizeFiniteNumber(rawRec.maxOrderQuote ?? merged.maxOrderQuote, defaultForm.maxOrderQuote, 0, 1e9);
+  // Integer-backed request fields should restore as exact safe integers so the UI state
+  // cannot diverge from the values later emitted by the request builder.
+  const bars = normalizeWholeNumber(rawRec.bars ?? merged.bars, defaultForm.bars, 0, 1e9);
+  const epochs = normalizeWholeNumber(rawRec.epochs ?? merged.epochs, defaultForm.epochs, 0, 5000);
+  const hiddenSize = normalizeWholeNumber(rawRec.hiddenSize ?? merged.hiddenSize, defaultForm.hiddenSize, 1, 512);
+  const patience = normalizeWholeNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 1000);
   // Integer-only bar/count controls and live-bot poll cadence should not reopen with
   // fractional or over-cap values that the UI later clamps differently when building requests.
   const minHoldBars = normalizeWholeNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1_000_000);
@@ -457,6 +463,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     binanceLive,
     tradeArmed,
     binanceSymbol,
+    bars,
     interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, defaultForm.interval),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
@@ -562,10 +569,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
       0,
       86_400,
     ),
+    epochs,
     learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1),
     valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
-    patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
+    patience,
     gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
+    hiddenSize,
     minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, defaultForm.minPositionSize, 0, 1),
     orderQuote,
     orderQuantity,

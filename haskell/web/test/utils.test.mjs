@@ -1147,6 +1147,51 @@ routerLookback: 18,
 },
 );
 });
+test("normalizeFormState preserves restored integer-backed request fields as whole numbers", () => {
+const restored = normalizeFormState({
+bars: "720.0",
+epochs: "64.0",
+hiddenSize: "32",
+patience: "250.0",
+});
+assert.deepEqual(
+{
+bars: restored.bars,
+epochs: restored.epochs,
+hiddenSize: restored.hiddenSize,
+patience: restored.patience,
+},
+{
+bars: 720,
+epochs: 64,
+hiddenSize: 32,
+patience: 250,
+},
+);
+});
+test("normalizeFormState rejects fractional and unsafe restored integer-backed request fields", () => {
+const unsafe = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
+const restored = normalizeFormState({
+bars: "720.5",
+epochs: Number.POSITIVE_INFINITY,
+hiddenSize: unsafe,
+patience: "NaN",
+});
+assert.deepEqual(
+{
+bars: restored.bars,
+epochs: restored.epochs,
+hiddenSize: restored.hiddenSize,
+patience: restored.patience,
+},
+{
+bars: defaultForm.bars,
+epochs: defaultForm.epochs,
+hiddenSize: defaultForm.hiddenSize,
+patience: defaultForm.patience,
+},
+);
+});
 test("normalizeFormState falls back for fractional and non-finite restored Strategy bar-count settings", () => {
 const restored = normalizeFormState({
 trendLookback: "45.5",

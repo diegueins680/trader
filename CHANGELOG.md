@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: normalize restored `bars`, `epochs`, `hiddenSize`, and `patience` as exact safe integers, so saved fractional/unsafe values fall back to defaults instead of reopening with values the emitted request would later truncate or clamp differently.
 - Web UI: reject fractional and unsafe integer-like `trader-config.js` `timeoutsMs.*` values instead of rounding/clamping them into different request timeouts.
 - Web UI: make Binance account-trades filters reject fractional `From ID` inputs and impossible ISO calendar dates instead of silently truncating or rolling them forward.
 - Web UI: reject unsafe integer-valued account-trade IDs/timestamps, duration magnitudes, and integer-only restored/optimizer fields when JavaScript would otherwise round them to a different whole number.
