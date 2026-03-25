@@ -794,6 +794,7 @@ Optional state sync push (keep a central Fly deployment updated):
 - Set `TRADER_STATE_SYNC_TENANT_KEY` to the tenant key expected by the target; when unset, the server derives it from `BINANCE_API_KEY`/`BINANCE_API_SECRET` (or Coinbase keys).
 - If the target requires auth, set `TRADER_STATE_SYNC_API_TOKEN` (Authorization: Bearer) or `TRADER_STATE_SYNC_API_KEY` (X-API-Key).
 - The API POSTs updated `top-combos.json` to the target whenever combos are written.
+- If the target rejects the full combo payload with `413`, background sync retries automatically with a compact payload that drops per-combo `operations`; `/state/sync` pulls also surface non-JSON responses as content-type errors so misrouted frontend/proxy URLs are easier to spot.
 - Optimizer merges now also pull `top-combos` from the sync target on-the-fly (via `GET /state/sync`) before merging local runs; this provides non-S3 continuity across deployments.
 - To avoid sync loops, configure this only on non-target instances (leave it unset on the target/central instance).
 

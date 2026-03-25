@@ -5,6 +5,7 @@ module Trader.TopCombosStore (
     TopCombosMergeStats (..),
     TopCombosStore (..),
     applyComboUpdates,
+    compactTopCombosPayloadForSync,
     comboFinalEquityValue,
     comboIdentityKey,
     comboMetricDouble,
@@ -197,6 +198,22 @@ writeTopCombosValue path val = do
                                             _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
                                             pure (Left ("Failed to write top combos JSON: " ++ show e))
                                         Right _ -> pure (Right ())
+
+compactTopCombosPayloadForSync :: Aeson.Value -> Aeson.Value
+compactTopCombosPayloadForSync payload =
+    case payload of
+        Aeson.Object o ->
+            case KM.lookup (AK.fromString "combos") o of
+                Just (Aeson.Array combos) ->
+                    let compacted = Aeson.Array (V.map compactCombo combos)
+                     in Aeson.Object (KM.insert (AK.fromString "combos") compacted o)
+                _ -> payload
+        _ -> payload
+  where
+    compactCombo combo =
+        case combo of
+            Aeson.Object o -> Aeson.Object (KM.delete (AK.fromString "operations") o)
+            _ -> combo
 
 sanitizeTopCombosValue :: Aeson.Value -> (Aeson.Value, Int)
 sanitizeTopCombosValue val =

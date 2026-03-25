@@ -52,10 +52,10 @@ import Database.PostgreSQL.Simple.Types (PGArray (..))
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
-import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus, responseTimeout, responseTimeoutMicro)
+import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status413, status429, status500, status502, status504, statusCode)
-import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
+import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hContentType, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -305,6 +305,7 @@ import Trader.TopCombosStore (
     TopCombosMergeStats (..),
     TopCombosStore (..),
     applyComboUpdates,
+    compactTopCombosPayloadForSync,
     comboIdentityKey,
     comboMetricDouble,
     comboPerformanceKey,
@@ -1520,21 +1521,39 @@ syncTopCombosMaybe mTarget contents =
                     if not (isTopCombosPayload val)
                         then recordStateSyncError target "Invalid top-combos.json payload (missing combos array)."
                         else do
-                            let payload =
-                                    StateSyncPayload
-                                        { sspGeneratedAtMs = topCombosGeneratedAtMs val
-                                        , sspBotSnapshots = Nothing
-                                        , sspTopCombos = Just val
-                                        }
-                                req = (sstRequest target){requestBody = RequestBodyLBS (encode payload)}
-                            respOrErr <- try (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
-                            case respOrErr of
-                                Left ex -> recordStateSyncError target (show ex)
-                                Right resp -> do
-                                    let code = statusCode (responseStatus resp)
-                                    if code >= 200 && code < 300
-                                        then clearStateSyncError target
-                                        else recordStateSyncError target ("HTTP " ++ show code)
+                            let payload = mkStateSyncTopCombosPayload val
+                                compactPayload = mkStateSyncTopCombosPayload (compactTopCombosPayloadForSync val)
+                            outcome <- sendStateSyncPayload target payload
+                            case outcome of
+                                Right _ -> clearStateSyncError target
+                                Left "HTTP 413"
+                                    | payload /= compactPayload -> do
+                                        compactOutcome <- sendStateSyncPayload target compactPayload
+                                        case compactOutcome of
+                                            Right _ -> clearStateSyncError target
+                                            Left err -> recordStateSyncError target err
+                                Left err -> recordStateSyncError target err
+
+mkStateSyncTopCombosPayload :: Aeson.Value -> StateSyncPayload
+mkStateSyncTopCombosPayload val =
+    StateSyncPayload
+        { sspGeneratedAtMs = topCombosGeneratedAtMs val
+        , sspBotSnapshots = Nothing
+        , sspTopCombos = Just val
+        }
+
+sendStateSyncPayload :: StateSyncTarget -> StateSyncPayload -> IO (Either String ())
+sendStateSyncPayload target payload = do
+    let req = (sstRequest target){requestBody = RequestBodyLBS (encode payload)}
+    respOrErr <- try (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
+    pure $
+        case respOrErr of
+            Left ex -> Left (show ex)
+            Right resp ->
+                let code = statusCode (responseStatus resp)
+                 in if code >= 200 && code < 300
+                        then Right ()
+                        else Left ("HTTP " ++ show code)
 
 fetchStateSyncPayload :: StateSyncTarget -> IO (Either String StateSyncPayload)
 fetchStateSyncPayload target = do
@@ -1556,14 +1575,49 @@ fetchStateSyncPayload target = do
                     let err = "HTTP " ++ show code
                     recordStateSyncError target err
                     pure (Left err)
-                else case Aeson.eitherDecode' (responseBody resp) of
-                    Left err -> do
-                        let msg = "Invalid /state/sync payload: " ++ err
-                        recordStateSyncError target msg
-                        pure (Left msg)
-                    Right payload -> do
-                        clearStateSyncError target
-                        pure (Right payload)
+                else
+                    case nonJsonStateSyncResponseError resp of
+                        Just msg -> do
+                            recordStateSyncError target msg
+                            pure (Left msg)
+                        Nothing ->
+                            case Aeson.eitherDecode' (responseBody resp) of
+                                Left err -> do
+                                    let msg = "Invalid /state/sync payload: " ++ err
+                                    recordStateSyncError target msg
+                                    pure (Left msg)
+                                Right payload -> do
+                                    clearStateSyncError target
+                                    pure (Right payload)
+
+nonJsonStateSyncResponseError :: Response BL.ByteString -> Maybe String
+nonJsonStateSyncResponseError resp =
+    case lookup hContentType (responseHeaders resp) of
+        Just rawType
+            | not (responseContentTypeIsJson rawType) ->
+                Just
+                    ( "Unexpected /state/sync content type "
+                        ++ BS.unpack rawType
+                        ++ previewSuffix (responseBodyPreview (responseBody resp))
+                    )
+        _ -> Nothing
+  where
+    previewSuffix preview =
+        if null preview
+            then ""
+            else " (body starts with " ++ show preview ++ ")"
+
+responseContentTypeIsJson :: BS.ByteString -> Bool
+responseContentTypeIsJson rawType =
+    "json" `BS.isInfixOf` BS.map toLower rawType
+
+responseBodyPreview :: BL.ByteString -> String
+responseBodyPreview =
+    take 120
+        . filter (\c -> c /= '\r' && c /= '\n')
+        . BS.unpack
+        . BL.toStrict
+        . BL.take 120
 
 recordStateSyncError :: StateSyncTarget -> String -> IO ()
 recordStateSyncError target msg = do
@@ -1585,9 +1639,9 @@ data TopCombosReplicaFetch = TopCombosReplicaFetch
     }
 
 data TopCombosSyncPlan = TopCombosSyncPlan
-    { tcspRepairDb :: !Bool
-    , tcspRepairRemote :: !Bool
-    , tcspRepairedTargets :: ![String]
+    { tcspRepairLocal :: !Bool
+    , tcspRepairDb :: !Bool
+    , tcspRemoteTargets :: ![String]
     , tcspComboCount :: !Int
     }
 
@@ -1753,10 +1807,16 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                         dbNeedsWrite =
                                             maybe False (topCombosReplicaNeedsRepair merged) dbFetch
                                         remoteFetches = catMaybes [s3Fetch, stateSyncFetch]
-                                        remoteNeedsRepair = any (topCombosReplicaNeedsRepair merged) remoteFetches
+                                        remoteTargets =
+                                            if localNeedsWrite
+                                                then map tcrfName remoteFetches
+                                                else
+                                                    [ tcrfName fetch
+                                                    | fetch <- remoteFetches
+                                                    , topCombosReplicaNeedsRepair merged fetch
+                                                    ]
                                         localReadyBeforeWrite =
                                             topCombosReplicaRepairable localFetch && isJust (tcrfPayload localFetch)
-                                        repairRemoteRequested = not (null remoteFetches) && (localNeedsWrite || remoteNeedsRepair)
                                     localReady <-
                                         if localNeedsWrite
                                             then do
@@ -1770,12 +1830,12 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                                         pure True
                                             else pure localReadyBeforeWrite
                                     let repairDb = localReady && dbNeedsWrite
-                                        repairRemote = localReady && repairRemoteRequested
+                                        remoteTargetsReady = if localReady then remoteTargets else []
                                         repairedTargets =
                                             concat
                                                 [ ["local" | localNeedsWrite]
                                                 , ["db" | repairDb]
-                                                , ["remote" | repairRemote]
+                                                , remoteTargetsReady
                                                 ]
                                     if null repairedTargets
                                         then pure Nothing
@@ -1783,22 +1843,31 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                             pure
                                                 ( Just
                                                     TopCombosSyncPlan
-                                                        { tcspRepairDb = repairDb
-                                                        , tcspRepairRemote = repairRemote
-                                                        , tcspRepairedTargets = repairedTargets
+                                                        { tcspRepairLocal = localNeedsWrite
+                                                        , tcspRepairDb = repairDb
+                                                        , tcspRemoteTargets = remoteTargetsReady
                                                         , tcspComboCount = topCombosComboCount merged
                                                         }
                                                 )
                     case plan of
                         Nothing -> pure ()
-                        Just TopCombosSyncPlan{tcspRepairDb = repairDb, tcspRepairRemote = repairRemote, tcspRepairedTargets = repairedTargets, tcspComboCount = comboCount} -> do
+                        Just TopCombosSyncPlan{tcspRepairLocal = repairLocal, tcspRepairDb = repairDb, tcspRemoteTargets = remoteTargets, tcspComboCount = comboCount} -> do
                             when repairDb (persistTopCombosDbMaybe mOps topCombosStore)
-                            when repairRemote (persistTopCombosMaybe mStateSyncTarget topJsonPath)
-                            putStrLn
-                                ( printf
-                                    "Top combos sync reconciled %s (%d combos)."
-                                    (intercalate ", " repairedTargets)
-                                    comboCount
+                            remotePersisted <- persistTopCombosTargets remoteTargets mStateSyncTarget topJsonPath
+                            let repairedTargets =
+                                    concat
+                                        [ ["local" | repairLocal]
+                                        , ["db" | repairDb]
+                                        , remotePersisted
+                                        ]
+                            unless
+                                (null repairedTargets)
+                                ( putStrLn
+                                    ( printf
+                                        "Top combos sync reconciled %s (%d combos)."
+                                        (intercalate ", " repairedTargets)
+                                        comboCount
+                                    )
                                 )
                     sleepSec everySec
                     loop
@@ -12766,6 +12835,41 @@ persistTopCombosMaybe mSync path = do
                             persistTopCombosHistoryMaybe path st contents
                             pure ()
                     syncTopCombosMaybe mSync contents
+
+persistTopCombosTargets :: [String] -> Maybe StateSyncTarget -> FilePath -> IO [String]
+persistTopCombosTargets targets mSync path =
+    if null targets
+        then pure []
+        else do
+            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+            case contentsOrErr of
+                Left _ -> pure []
+                Right contents -> do
+                    s3Persisted <-
+                        if "s3" `elem` targets
+                            then do
+                                mS3 <- resolveS3State
+                                case mS3 of
+                                    Nothing -> pure []
+                                    Just st -> do
+                                        result <- s3PutObject st (s3TopCombosKey st) contents
+                                        case result of
+                                            Left _ -> pure []
+                                            Right _ -> do
+                                                persistTopCombosHistoryMaybe path st contents
+                                                pure ["s3"]
+                            else pure []
+                    stateSyncPersisted <-
+                        if "state-sync" `elem` targets
+                            then do
+                                syncTopCombosMaybe mSync contents
+                                lastErr <-
+                                    case mSync of
+                                        Nothing -> pure (Just "missing state sync target")
+                                        Just target -> readIORef (sstLastError target)
+                                pure ["state-sync" | isNothing lastErr]
+                            else pure []
+                    pure (s3Persisted ++ stateSyncPersisted)
 
 strategyCodeFromMethod :: Maybe String -> Text
 strategyCodeFromMethod mMethod =
