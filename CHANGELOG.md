@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: treat blank saved numeric strings as absent during `normalizeFormState`, so malformed local-storage/profile payloads fall back to documented defaults instead of reopening at `0` or a clamped boundary such as the auto-refresh minimum.
 - Web UI: make sampled-chart downsampling total for malformed numeric inputs by collapsing non-finite raw lengths to an empty series and non-finite point budgets to identity sampling, preventing chart-helper crashes and dropped leading endpoints.
 - Web UI: treat only exactly-one-slash `apiBaseUrl` / `apiFallbackUrl` values as same-origin paths, so `//api`, `///api`, and `///example.com/api` no longer leak through as browser-resolved cross-origin URLs.
 - Web UI: keep colon-bearing relative `apiBaseUrl` / `apiFallbackUrl` entries such as `api:v1` and `tenant:demo/path` on same-origin `/<path>` targets unless the synthesized direct-host form is a valid URL, so malformed pseudo-authorities no longer turn into broken cross-origin `https://...` URLs.

@@ -1336,6 +1336,17 @@ for (const key of numericKeys) {
 assert.equal(restored[key], defaultForm[key], `${key} should fall back to the default numeric value`);
 }
 });
+test("normalizeFormState treats blank restored numeric strings as absent across numeric fields", () => {
+const numericKeys = Object.entries(defaultForm)
+.filter(([, value]) => typeof value === "number")
+.map(([key]) => key);
+const restored = normalizeFormState(
+Object.fromEntries(numericKeys.map((key) => [key, "   "])),
+);
+for (const key of numericKeys) {
+assert.equal(restored[key], defaultForm[key], `${key} blank restore should fall back to the default numeric value`);
+}
+});
 test("normalizeFormState rehydrates manual sizing fields as finite numbers", () => {
 const restored = normalizeFormState({
 orderQuote: "125.5",

@@ -296,7 +296,9 @@ function parseFiniteInteger(raw: unknown): number | null {
   // Restored whole-number fields must remain exactly representable after JSON/string hydration.
   if (typeof raw === "number" && Number.isSafeInteger(raw)) return raw;
   if (typeof raw === "string") {
-    const n = Number(raw);
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
     if (Number.isSafeInteger(n)) return n;
   }
   return null;
@@ -327,7 +329,9 @@ function normalizeBool(raw: unknown, fallback: boolean): boolean {
 function normalizeFiniteNumber(raw: unknown, fallback: number, lo: number, hi: number): number {
   if (typeof raw === "number" && Number.isFinite(raw)) return clamp(raw, lo, hi);
   if (typeof raw === "string") {
-    const n = Number(raw);
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    const n = Number(trimmed);
     if (Number.isFinite(n)) return clamp(n, lo, hi);
   }
   return fallback;
@@ -340,7 +344,9 @@ type NumericFormKey = {
 function coerceFiniteNumber(raw: unknown, fallback: number): number {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw === "string") {
-    const n = Number(raw);
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    const n = Number(trimmed);
     if (Number.isFinite(n)) return n;
   }
   return fallback;
