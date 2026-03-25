@@ -6,21 +6,24 @@ import { methodLabelFromMeta } from "./methodMeta";
 export function normalizeApiBaseUrlInput(raw: string): string {
   const v = raw.trim();
   if (!v) return "";
-  if (v.startsWith("/") || /^https?:\/\//i.test(v)) return v;
-  if (v.includes("://")) return v;
+  const protocolRelative = /^\/\/[^/?#]/.test(v);
+  const source = protocolRelative ? v.slice(2) : v;
+  if (!protocolRelative && (v.startsWith("/") || /^https?:\/\//i.test(v))) return v;
+  if (source.includes("://")) return source;
 
-  const suffixIdx = [v.indexOf("/"), v.indexOf("?"), v.indexOf("#")]
+  const suffixIdx = [source.indexOf("/"), source.indexOf("?"), source.indexOf("#")]
     .filter((idx) => idx >= 0)
-    .reduce((min, idx) => (idx < min ? idx : min), v.length);
-  const authority = suffixIdx === v.length ? v : v.slice(0, suffixIdx);
-  const rest = suffixIdx === v.length ? "" : v.slice(suffixIdx);
+    .reduce((min, idx) => (idx < min ? idx : min), source.length);
+  const authority = suffixIdx === source.length ? source : source.slice(0, suffixIdx);
+  const rest = suffixIdx === source.length ? "" : source.slice(suffixIdx);
   const lowerAuthority = authority.toLowerCase();
   const looksLikeHost =
+    protocolRelative ||
     lowerAuthority === "localhost" ||
     lowerAuthority.startsWith("localhost:") ||
     authority.includes(".") ||
     authority.includes(":");
-  if (!looksLikeHost) return `/${v}`;
+  if (!looksLikeHost) return `/${source}`;
 
   const isLocal =
     lowerAuthority === "localhost" ||

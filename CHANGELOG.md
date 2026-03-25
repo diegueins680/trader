@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: normalize protocol-relative `apiBaseUrl` / `apiFallbackUrl` entries like `//example.com/api` into explicit `http(s)://...` URLs so the config normalizer no longer leaks scheme-relative cross-origin targets through the same-origin path fast path.
 - API/Top-combos: add a supervised anti-entropy sync worker that periodically merges local `top-combos.json` with Postgres, S3, and optional `/state/sync` state, then repairs stale local/shared replicas only when the merged combo set materially improves them; preserves newer top-level optimizer metadata during merges and ignores root `generatedAtMs`/`source` churn when deciding whether replicas are already in sync.
 - Web UI: split the header build badge into explicit `UI` and `API` badges, source the UI version from `haskell/web/package.json`, and show API build metadata only from `/health` so both deployed versions are visible without mixing frontend/backend commits.
 - Trading/Backtests: preserve live positions when the frozen volatility/confidence gate returns `VOL_CONF_GATE_HOLD`, and keep explicit `--max-volatility` entry blocking active even when `--vol-conf-gate` is enabled.

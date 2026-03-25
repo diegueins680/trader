@@ -632,6 +632,12 @@ test("normalizeApiBaseUrlInput preserves explicit same-origin paths", () => {
 assert.equal(normalizeApiBaseUrlInput("/api"), "/api");
 assert.equal(normalizeApiBaseUrlInput(" /api/v1?symbol=BTCUSDT "), "/api/v1?symbol=BTCUSDT");
 });
+test("normalizeApiBaseUrlInput never leaks protocol-relative authorities", () => {
+assert.equal(normalizeApiBaseUrlInput("//example.com/api"), "https://example.com/api");
+assert.equal(normalizeApiBaseUrlInput(" //localhost:8080/api "), "http://localhost:8080/api");
+assert.equal(normalizeApiBaseUrlInput("//[::1]:8080/api"), "http://[::1]:8080/api");
+assert.equal(normalizeApiBaseUrlInput("//2001:db8::1/api"), "https://[2001:db8::1]/api");
+});
 test("normalizeApiBaseUrlInput rewrites bare relative targets to same-origin paths", () => {
 assert.equal(normalizeApiBaseUrlInput("api"), "/api");
 assert.equal(normalizeApiBaseUrlInput(" api/v1 "), "/api/v1");
