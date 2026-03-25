@@ -1172,6 +1172,7 @@ Open `http://127.0.0.1:5173`.
 Timeouts:
 - Backend: set `TRADER_API_TIMEOUT_SEC` (default: `1800`) when starting `trader-hs`.
 - Frontend: set `timeoutsMs` in `haskell/web/public/trader-config.js` to increase UI request timeouts (e.g. long backtests).
+- Frontend: `timeoutsMs.*` accepts only exact safe-integer millisecond values; fractional or unsafe integer-like values are ignored instead of being rounded to a different timeout.
 - Frontend: `timeoutsMs.botStatusMs` controls live bot status polling timeouts (useful if `/bot/status` is slow).
 - Frontend: Binance listenKey start/keep-alive/close requests use a 90s UI timeout to tolerate backend retry/backoff under transient Binance/API network issues.
 - Frontend (dev proxy): set `TRADER_UI_PROXY_TIMEOUT_MS` to increase the Vite `/api` proxy timeout.

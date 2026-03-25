@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: reject fractional and unsafe integer-like `trader-config.js` `timeoutsMs.*` values instead of rounding/clamping them into different request timeouts.
 - Web UI: make Binance account-trades filters reject fractional `From ID` inputs and impossible ISO calendar dates instead of silently truncating or rolling them forward.
 - Web UI: reject unsafe integer-valued account-trade IDs/timestamps, duration magnitudes, and integer-only restored/optimizer fields when JavaScript would otherwise round them to a different whole number.
 - Dev/CI: deploy both Fly apps from GitHub Actions after green `main` pushes, using repo-root `fly.toml` for the backend and `haskell/web/fly.frontend.toml` for the split frontend, with optional `FLY_APP` / `FLY_FRONTEND_APP` overrides and `TRADER_GIT_COMMIT` forwarded into both Docker builds so the hosted UI/API build badges stay in sync.

@@ -50,7 +50,10 @@ function readBoolean(raw: unknown): boolean | undefined {
 function normalizeTimeoutMs(raw: unknown): number | undefined {
   const n0 = readNumber(raw);
   if (n0 == null) return undefined;
-  const n = Math.round(n0);
+  // Timeout configuration is integer-valued in milliseconds, so only exact safe
+  // integers may cross the normalization boundary before range clamping.
+  if (!Number.isSafeInteger(n0)) return undefined;
+  const n = n0;
   if (n < 1_000) return undefined;
   // Avoid giant values overflowing timers / confusing UIs.
   return Math.min(n, 24 * 60 * 60 * 1_000);

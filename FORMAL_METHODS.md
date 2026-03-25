@@ -266,6 +266,22 @@ Proof sketch:
 - `normalizeWholeNumber` only consumes `parseFiniteInteger` outputs, and `parseFiniteInteger` now accepts only safe integers, so restored bar/count fields cannot enter the clamp path from a rounded-invalid precursor state.
 - `haskell/web/test/binanceTradeIpMap.test.mjs` and `haskell/web/test/utils.test.mjs` pin the boundary with `Number.MAX_SAFE_INTEGER + 1`, overflowed duration products, and restored integer-only fields, proving those states are rejected rather than rounded.
 
+## Formal deploy-time timeout contract
+
+The web deploy-config timeout loader now treats `timeoutsMs.*` as exact whole-millisecond inputs instead of "any finite number that can be rounded later."
+
+Clauses:
+
+1. A configured timeout is admissible only when `Number(...)` yields a JavaScript safe integer millisecond count.
+2. Fractional, non-finite, and unsafe integer-like timeout values are rejected before range clamping, so normalization never changes an invalid input into a different valid timeout.
+3. Safe integer timeout values still apply the existing bounds: values below `1000` ms are ignored, and values above one day clamp to `86,400,000` ms.
+
+Proof sketch:
+
+- `readNumber` remains the only numeric parser, so the candidate timeout is still determined by a single `Number(...)` conversion for string inputs and by the raw numeric value for numeric inputs.
+- `normalizeTimeoutMs` now checks `Number.isSafeInteger(n0)` before any bound logic. Therefore every accepted timeout round-trips exactly through JavaScript integer arithmetic; fractional values like `1000.4` and unsafe magnitudes like `9007199254740993` stop at the validation boundary instead of being rounded or saturated.
+- The existing lower/upper bound checks run only after that exactness gate, so previously valid safe integers preserve the same bounded postcondition.
+
 ## Formal persisted form restore safety
 
 `normalizeFormState` in `haskell/web/src/app/formState.ts` treats restored live-trading settings as a safety-preserving normalization step rather than a blind local-storage replay.
