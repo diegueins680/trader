@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: treat only exactly-one-slash `apiBaseUrl` / `apiFallbackUrl` values as same-origin paths, so `//api`, `///api`, and `///example.com/api` no longer leak through as browser-resolved cross-origin URLs.
 - Web UI: keep colon-bearing relative `apiBaseUrl` / `apiFallbackUrl` entries such as `api:v1` and `tenant:demo/path` on same-origin `/<path>` targets unless the synthesized direct-host form is a valid URL, so malformed pseudo-authorities no longer turn into broken cross-origin `https://...` URLs.
 - Web UI: canonicalize restored `platform`, `market`, `interval`, `positioning`, `intrabarFill`, `tuneObjective`, and `normalization` values with the same whitespace/casing/alias rules the backend accepts, preserving Binance `1M` month semantics instead of silently falling back to defaults on stale saved state.
 - Web UI: normalize restored `method`/`normalization` enum fields and clamp restored `fee`, stop/drawdown ratios, `backtestRatio`, and `autoRefreshSec` to the same safe ranges used by downstream request/scheduler code, so stale local storage cannot reopen with state that later serializes differently.

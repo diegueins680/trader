@@ -6,9 +6,10 @@ import { methodLabelFromMeta } from "./methodMeta";
 export function normalizeApiBaseUrlInput(raw: string): string {
   const v = raw.trim();
   if (!v) return "";
-  const protocolRelative = /^\/\/[^/?#]/.test(v);
-  const source = protocolRelative ? v.slice(2) : v;
-  if (!protocolRelative && (v.startsWith("/") || /^https?:\/\//i.test(v))) return v;
+  const leadingSlashMatch = v.match(/^\/+/);
+  const leadingSlashes = leadingSlashMatch ? leadingSlashMatch[0].length : 0;
+  const source = leadingSlashes >= 2 ? v.slice(leadingSlashes) : v;
+  if (leadingSlashes === 1) return v;
   if (source.includes("://")) return source;
 
   const suffixIdx = [source.indexOf("/"), source.indexOf("?"), source.indexOf("#")]
@@ -18,7 +19,6 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   const rest = suffixIdx === source.length ? "" : source.slice(suffixIdx);
   const lowerAuthority = authority.toLowerCase();
   const looksLikeHost =
-    protocolRelative ||
     lowerAuthority === "localhost" ||
     lowerAuthority.startsWith("localhost:") ||
     authority.includes(".") ||

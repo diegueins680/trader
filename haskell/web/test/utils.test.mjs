@@ -639,10 +639,24 @@ assert.equal(normalizeApiBaseUrlInput("//example.com/api"), "https://example.com
 assert.equal(normalizeApiBaseUrlInput(" //localhost:8080/api "), "http://localhost:8080/api");
 assert.equal(normalizeApiBaseUrlInput("//[::1]:8080/api"), "http://[::1]:8080/api");
 assert.equal(normalizeApiBaseUrlInput("//2001:db8::1/api"), "https://[2001:db8::1]/api");
+assert.equal(normalizeApiBaseUrlInput("///example.com/api"), "https://example.com/api");
+assert.equal(normalizeApiBaseUrlInput("////localhost:8080/api"), "http://localhost:8080/api");
 });
 test("normalizeApiBaseUrlInput rewrites bare relative targets to same-origin paths", () => {
 assert.equal(normalizeApiBaseUrlInput("api"), "/api");
 assert.equal(normalizeApiBaseUrlInput(" api/v1 "), "/api/v1");
+assert.equal(normalizeApiBaseUrlInput("//api"), "/api");
+assert.equal(normalizeApiBaseUrlInput("///api"), "/api");
+assert.equal(normalizeApiBaseUrlInput("////api/v1?tenant=paper#mode=bot"), "/api/v1?tenant=paper#mode=bot");
+const origin = "https://ui.example.com/base";
+for (const raw of ["//api", "///api", "////api/v1?tenant=paper#mode=bot"]) {
+const normalized = normalizeApiBaseUrlInput(raw);
+assert.equal(
+new URL(normalized, origin).origin,
+new URL(origin).origin,
+`expected ${JSON.stringify(raw)} to stay same-origin after normalization`,
+);
+}
 });
 test("normalizeApiBaseUrlInput keeps non-authority colon paths same-origin while preserving numeric-port hosts", () => {
 assert.equal(normalizeApiBaseUrlInput("api:v1"), "/api:v1");
