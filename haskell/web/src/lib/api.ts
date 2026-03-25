@@ -163,7 +163,12 @@ function resolveUrl(baseUrl: string, path: string): string {
 }
 
 function normalizeBaseUrl(raw: string): string {
-  return raw.trim().replace(/\/+$/, "");
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const withoutTrailingSlashes = trimmed.replace(/\/+$/, "");
+  // Preserve same-origin root-path identity so fallback policy can still
+  // distinguish "/" from a direct-host base.
+  return withoutTrailingSlashes || (trimmed.startsWith("/") ? "/" : "");
 }
 
 const TENANT_HEADER = "X-Tenant-Key";

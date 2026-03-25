@@ -568,6 +568,36 @@ test("api fallback allows inferred /api primary to fail over to cross-origin fal
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
 });
 
+test("api fallback keeps root-path bases same-origin in explicit configs", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "https://api.example.com",
+      apiToken: "",
+    },
+    async (url) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "/health") {
+        return jsonResponse(502, { error: "Bad Gateway" });
+      }
+      if (href === "https://api.example.com/health") {
+        return jsonResponse(200, { status: "ok" });
+      }
+      throw new Error(`unexpected request: ${href}`);
+    },
+    async (api) => {
+      await assert.rejects(
+        () => api.health("/", { timeoutMs: 5_000 }),
+        (err) => err?.name === "HttpError" && err.status === 502,
+      );
+    },
+  );
+  assert.deepEqual(calls, ["/health"]);
+});
+
 test("api fallback only enables inferred /api cross-origin failover for normalized boolean-like encodings", async () => {
   const cases = [
     { label: "boolean true", value: true, expectFallback: true },
