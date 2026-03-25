@@ -83,6 +83,7 @@ import {
   normalizeConfigPanelOrder,
   resolveConfigPageForTarget,
 } from "./app/configLayout";
+import { METHOD_IDS } from "./app/contracts";
 import { comboMarketValue, type ComboMarketFilter, type ComboMarketValue } from "./app/comboMarket";
 import {
   BACKTEST_TIMEOUT_MS,
@@ -700,39 +701,9 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
   const generatedAtMsRaw = payloadRec.generatedAtMs;
   const generatedAtMs =
     typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
-  const methods: Method[] = [
-    "11",
-    "10",
-    "01",
-    "blend",
-    "conf_blend",
-    "conf_pick",
-    "conformal_clip",
-    "cost_pick",
-    "harmonic_blend",
-    "disagreement_guard",
-    "median_blend",
-    "neutral_guard",
-    "risk_parity_blend",
-    "consensus_boost",
-    "anchor_blend",
-    "tension_gate",
-    "entropy_blend",
-    "coherence_gate",
-    "divergence_gate",
-    "fractal_blend",
-    "phase_cancel",
-    "softmax_blend",
-    "smooth_softmax_blend",
-    "hedge_blend",
-    "net_softmax_blend",
-    "edge_blend",
-    "edge_pick",
-    "geo_blend",
-    "regime_switch",
-    "router",
-    "bandit_router",
-  ];
+  // Invariant: top-combo imports must accept every shared method contract id so
+  // combo preview/apply preserves the backend-selected strategy exactly.
+  const methods: Method[] = [...METHOD_IDS];
   const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
   const positionings: Positioning[] = ["long-flat", "long-short"];
   const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];

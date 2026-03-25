@@ -1072,6 +1072,7 @@ When trading is armed, Long/Short positioning requires Futures market (the UI sw
 Optimizer combos are clamped to API LSTM compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
 The UI reads combos from the API and falls back to the repo-tracked `haskell/web/public/top-combos.json` (plus the local cache) when the API is unavailable or returns no combos; it shows their last update time, how many combos are displayed, and when the API provides them, the raw/dropped/deduped merge counts; you can choose the combo count (default 5, up to the available combos).
+Top-combo import/sanitization uses the shared method contract, so combos carrying supported method ids such as `kalman_physics_error` keep that exact method when previewed or applied in the UI.
 Backtest actions now stay enabled when split constraints can be auto-corrected; running backtests auto-adjusts bars/backtest ratio when a valid local fix exists.
 Live-bot status polling skips overlapping `/bot/status` requests and runs at a modest cadence to avoid client aborts while keeping the dashboard responsive.
 Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, display full combo parameters inline, and can be filtered by symbol/market/interval/method plus minimum final equity.

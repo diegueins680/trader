@@ -6,6 +6,7 @@ import { transformSync } from "esbuild";
 
 const cabalConfig = readFileSync(new URL("../../../.cabal/config", import.meta.url), "utf8");
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+const contractsSource = readFileSync(new URL("../src/app/contracts.ts", import.meta.url), "utf8");
 const frontendConstantsSource = readFileSync(new URL("../src/app/constants.ts", import.meta.url), "utf8");
 const frontendUtilsSource = readFileSync(new URL("../src/app/utils.ts", import.meta.url), "utf8");
 const configLayoutSource = readFileSync(new URL("../src/app/configLayout.ts", import.meta.url), "utf8");
@@ -123,6 +124,19 @@ test("repo contract keeps frontend Binance intervals aligned with backend valida
   assertUnique(backendBinanceIntervals, "backend binanceIntervals");
   assert.deepEqual(frontendBinanceIntervals, backendBinanceIntervals);
   assert.deepEqual(frontendBinanceIntervalSecondsKeys, frontendBinanceIntervals);
+});
+
+test("repo contract keeps top-combo method sanitization aligned with shared method ids", () => {
+  const contractMethods = parseTsConstStringArray(contractsSource, "METHOD_IDS");
+  assert.ok(contractMethods.includes("kalman_physics_error"), "shared method contract must include kalman_physics_error");
+
+  const usesSharedMethodIds = /const methods:\s*Method\[\]\s*=\s*\[\.\.\.METHOD_IDS\];/.test(appSource);
+  if (usesSharedMethodIds) return;
+
+  const appMethodsMatch = appSource.match(/const methods:\s*Method\[\]\s*=\s*\[(.*?)\];/s);
+  assert.ok(appMethodsMatch, "expected sanitizeTopCombosPayload method allowlist in App.tsx");
+  const appMethods = parseStringLiterals(appMethodsMatch[1]);
+  assert.deepEqual(appMethods, contractMethods);
 });
 
 test("repo contract routes lookback and live-bot validation targets to their config pages", () => {
