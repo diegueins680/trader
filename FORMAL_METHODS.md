@@ -363,6 +363,25 @@ Proof sketch:
 - `haskell/web/test/utils.test.mjs` continues to mirror the boolean/live-trading restore invariants with representative restored states plus an exhaustive 4 x 3 x 2 x 2 platform/market/live/testnet matrix and mixed-case/whitespace regression rows for `binanceLive`, `binanceTestnet`, `tradeArmed`, and representative boolean toggles.
 - `haskell/web/test/formSymbolBehavior.test.mjs` and `haskell/web/test/utils.test.mjs` now pin representative legacy saved-state regressions for the request-aligned whole-number restore contract: accepted integer strings clamp exactly like emitted requests for request/bar-count/live-bot fields, while representative fractional strings/numbers and unsafe integer-like values fall back to defaults; the former file also keeps the existing cross-platform symbol restore regressions.
 
+## Formal combo-apply trade-toggle contract
+
+`applyComboToForm` in `haskell/web/src/app/appHelpers.ts` is treated as a platform-bounded projection for the manual-trade toggles that survive optimizer-combo application.
+
+Clauses:
+
+1. Combo application never invents a live-order or trade-arming toggle: on supported target platforms (`binance`, `coinbase`) it preserves `binanceLive` and `tradeArmed` exactly from the prior form state.
+2. Unsupported target platforms (`kraken`, `poloniex`) clear both toggles to `false`.
+3. `binanceTestnet` remains Binance-only metadata: non-Binance combo application clears it even when live-order toggles are preserved for Coinbase.
+4. The toggle result depends only on the target platform and prior toggles, not on unrelated combo fields such as symbol, thresholds, or sizing.
+
+Proof sketch:
+
+- `applyComboToForm` determines `nextPlatform` once from the combo payload before building the returned form.
+- The new `liveOrdersSupported` guard is exactly `nextPlatform === "binance" || nextPlatform === "coinbase"`, so `binanceLive` and `tradeArmed` are copied from `prev` if and only if the target platform supports manual live trading; every other target gets `false`.
+- `binanceTestnet` still uses the stricter `nextPlatform === "binance"` guard, so Coinbase keeps live/manual-trade readiness without inheriting Binance-only testnet state.
+- `App.tsx` consumes these same toggles to gate `/trade` readiness for Coinbase and Binance, so preserving them on supported targets removes the prior contradiction where applying a Coinbase combo could silently disable a previously live-ready manual trade form.
+- `haskell/web/test/formSymbolBehavior.test.mjs` now checks the full supported/unsupported platform matrix, proving the projection preserves toggles exactly on Binance/Coinbase and clears them on Kraken/Poloniex.
+
 ## Formal combo-market classification contract
 
 `comboMarketValue` in `haskell/web/src/app/comboMarket.ts` is treated as the single classifier for optimizer combo filtering and display labels.

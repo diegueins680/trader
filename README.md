@@ -1055,6 +1055,7 @@ The Bot activity panel now tolerates bot status payloads that omit `latestSignal
 The overview card summarizes connection, execution mode, and the latest signal/backtest/trade results for quick scanning.
 Overview summary metadata (like API URLs or error strings) wraps so full content stays visible.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
+Applying an optimizer combo now preserves `Live orders` and `Arm trading` on Coinbase the same way it already does on Binance, so selecting a Coinbase combo no longer silently disarms manual `/trade` runs.
 On startup the UI auto-checks API keys for Binance/Coinbase (when selected) and auto-starts the Binance listenKey user-data stream once keys are available.
 In inferred Fly split-host mode, listenKey start/keep-alive/close actions now use the same `/api`-preferring base as stream reads to avoid cross-origin preflight CORS failures on direct API hosts.
 The Trade result panel shows the backend server egress IP (when available) with a Copy button so Binance IP allowlisting is faster.

@@ -223,6 +223,47 @@ test("coinbase restores keep live-order mode enabled", () => {
   assert.equal(restored.tradeArmed, true);
 });
 
+test("applyComboToForm preserves live-order toggles exactly on supported trade platforms", () => {
+  const cases = [
+    { id: 13, platform: "binance", symbol: "ETHUSDT", expectedLive: true, expectedTradeArmed: true },
+    { id: 14, platform: "coinbase", symbol: "ETH-USD", expectedLive: true, expectedTradeArmed: true },
+    { id: 15, platform: "kraken", symbol: "ETHUSD", expectedLive: false, expectedTradeArmed: false },
+    { id: 16, platform: "poloniex", symbol: "ETH_USDT", expectedLive: false, expectedTradeArmed: false },
+  ];
+
+  for (const { id, platform, symbol, expectedLive, expectedTradeArmed } of cases) {
+    const prev = {
+      ...defaultForm,
+      platform: "binance",
+      binanceSymbol: "BTCUSDT",
+      binanceLive: true,
+      tradeArmed: true,
+    };
+    const combo = {
+      id,
+      openThreshold: prev.openThreshold,
+      closeThreshold: prev.closeThreshold,
+      params: {
+        platform,
+        binanceSymbol: symbol,
+        interval: prev.interval,
+        method: prev.method,
+        positioning: prev.positioning,
+        normalization: prev.normalization,
+        fee: prev.fee,
+        epochs: prev.epochs,
+        hiddenSize: prev.hiddenSize,
+      },
+    };
+
+    const next = applyComboToForm(prev, combo, null);
+
+    assert.equal(next.platform, platform);
+    assert.equal(next.binanceLive, expectedLive);
+    assert.equal(next.tradeArmed, expectedTradeArmed);
+  }
+});
+
 test("normalizeFormState keeps representative whole-number restores aligned with emitted request bounds", () => {
   const restored = normalizeFormState({
     trendLookback: "1000001",

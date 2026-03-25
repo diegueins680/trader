@@ -2365,6 +2365,8 @@ export function applyComboToForm(
     }
   }
 
+  const liveOrdersSupported = nextPlatform === "binance" || nextPlatform === "coinbase";
+
   return {
     ...prev,
     binanceSymbol: symbol,
@@ -2428,8 +2430,10 @@ export function applyComboToForm(
     confidenceSizing,
     minPositionSize,
     binanceTestnet: nextPlatform === "binance" ? prev.binanceTestnet : false,
-    binanceLive: nextPlatform === "binance" ? prev.binanceLive : false,
-    tradeArmed: nextPlatform === "binance" ? prev.tradeArmed : false,
+    // Applying a combo should preserve manual trade readiness on supported live-order
+    // platforms while still clearing those toggles for read-only exchanges.
+    binanceLive: liveOrdersSupported ? prev.binanceLive : false,
+    tradeArmed: liveOrdersSupported ? prev.tradeArmed : false,
     orderQuantity,
     orderQuote,
     orderQuoteFraction,
