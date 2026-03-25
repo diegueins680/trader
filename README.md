@@ -986,12 +986,13 @@ The quick deploy script also runs post-deploy health checks for the API and (whe
 If an S3 bucket already exists and is owned by you, the quick deploy script treats it as success (including `BucketAlreadyOwnedByYou`).
 
 CI/CD (GitHub Actions):
-- On push to `main`/`master`, `.github/workflows/ci.yml` deploys to Fly.io via `flyctl deploy --remote-only` after CI passes.
-- The Fly deploy step forwards `TRADER_GIT_COMMIT=$GITHUB_SHA` as a Docker build arg, so the deployed API `/health` response and the header build badge show the pushed commit.
+- On push to `main`/`master`, `.github/workflows/ci.yml` deploys both Fly apps after CI passes: the backend from repo-root `fly.toml` and the split frontend from `haskell/web/fly.frontend.toml` when that config exists.
+- The Fly deploy step forwards `TRADER_GIT_COMMIT=$GITHUB_SHA` into both Docker builds, so the deployed API `/health` response and the web header build badges show the pushed commit.
 - Haskell CI gates enforce formatting (`fourmolu --mode check`), lint (`hlint`), `cabal build`, and `cabal test`.
 - Required secret: `FLY_API_TOKEN` (use a Fly deploy token, for example from `fly tokens create deploy`).
-- Optional secret: `FLY_APP` (if unset, Fly uses the app configured in `fly.toml`).
-- If `FLY_APP` is unset, the workflow falls back to repo-root `fly.toml`; if neither is present, the deploy step is skipped with a warning.
+- Optional secret: `FLY_APP` (overrides the backend app name from repo-root `fly.toml`).
+- Optional secret: `FLY_FRONTEND_APP` (overrides the frontend app name from `haskell/web/fly.frontend.toml`).
+- If `FLY_APP` is unset, the workflow falls back to repo-root `fly.toml`; if `FLY_FRONTEND_APP` is unset, it falls back to `haskell/web/fly.frontend.toml`. Missing configs are skipped with a warning instead of failing CI.
 - If `FLY_API_TOKEN` is present but invalid for CI (for example “missing third-party discharge token”), the deploy step is skipped with a warning so CI does not fail on token-shape issues.
 - The Fly deploy job now installs `flyctl` with explicit retries and also retries `flyctl deploy` itself. Repeated transient Fly upstream/control-plane failures (for example `503` responses from `fly.io/install.sh` or release-status updates) are downgraded to a warning + deploy skip, so green application/test builds are not marked failed just because Fly is temporarily unavailable.
 - Repo defaults keep Fly machines warm for split apps (`auto_stop_machines="off"`, `min_machines_running=1` in `fly.toml` and `haskell/web/fly.frontend.toml`) to reduce cold-start `/api` `502` windows.
@@ -1033,7 +1034,7 @@ The UI layout uses a refreshed header, section grouping, and spacing for faster 
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
 The header title now shows separate `UI` and `API` build badges for quick deployment verification: the UI badge uses the web package version plus embedded frontend commit when available, and the API badge uses `/health` `version`/`commit`.
-When building the standalone Fly frontend image, pass `--build-arg TRADER_GIT_COMMIT=$(git rev-parse HEAD)` so the UI badge can include the deployed frontend commit even when the image is built without `.git`.
+When building the standalone Fly frontend image, pass `--build-arg TRADER_GIT_COMMIT=$(git rev-parse HEAD)` so the UI badge can include the deployed frontend commit even when the image is built without `.git`; the CI Fly deploy now does this automatically for both the backend and split frontend apps.
 The header also exposes layout controls (expand/collapse all, reset layout) plus per-page issue badges and a quick issues dropdown with jump links; expand/collapse all also controls the floating Bot activity panel, and the layout controls display a dismissible hint that it is included.
 Collapsible panels now include explicit Maximize/Restore and Expand/Collapse controls in their headers, including the optimizer combos dock.
 Configuration uses a menu bar to switch between single-section pages (API, Market, Lookback, Thresholds, Risk, Optimizer run, Optimization, Live bot, Trade) and expands into a full-page scroll rather than fixed-height panels; sections and result panels remain collapsible, the UI remembers open/closed state locally, and starts low-signal panels (Data Log, Request preview) collapsed by default.

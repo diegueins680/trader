@@ -134,6 +134,7 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           FLY_APP: ${{ secrets.FLY_APP }}
+          FLY_FRONTEND_APP: ${{ secrets.FLY_FRONTEND_APP }}
         run: |
           set -euo pipefail
           auth_err_file="$(mktemp)"
@@ -155,32 +156,52 @@ jobs:
             exit 1
           fi
 
-          if [[ -n "${FLY_APP:-}" ]]; then
-            deploy_args=(deploy --remote-only --build-arg "TRADER_GIT_COMMIT=${GITHUB_SHA}" --app "${FLY_APP}")
-          elif [[ -f fly.toml ]]; then
-            deploy_args=(deploy --remote-only --build-arg "TRADER_GIT_COMMIT=${GITHUB_SHA}")
-          else
-            echo "::warning::No FLY_APP secret and no fly.toml found; skipping Fly deploy."
-            exit 0
-          fi
+          deploy_with_retries() {
+            local label="$1"
+            local workdir="$2"
+            local config_path="$3"
+            local app_name="$4"
+            local config_basename
 
-          for attempt in 1 2 3; do
-            : > "$deploy_log"
-            if flyctl "${deploy_args[@]}" 2>&1 | tee "$deploy_log"; then
-              exit 0
+            if [[ ! -f "$config_path" ]]; then
+              echo "::notice::No ${label} Fly config at ${config_path}; skipping ${label} deploy."
+              return 0
             fi
 
-            if grep -qiE "503 Service Unavailable|502 Bad Gateway|504 Gateway Timeout|failed to set release status|temporary failure|temporarily unavailable|timeout" "$deploy_log"; then
-              if [[ "$attempt" -lt 3 ]]; then
-                echo "::warning::Transient Fly deploy failure on attempt ${attempt}; retrying."
-                sleep "$((attempt * 20))"
-                continue
+            config_basename="$(basename "$config_path")"
+            pushd "$workdir" >/dev/null
+
+            local deploy_args=(deploy . --config "$config_basename" --remote-only --build-arg "TRADER_GIT_COMMIT=${GITHUB_SHA}")
+            if [[ -n "$app_name" ]]; then
+              deploy_args+=(--app "$app_name")
+            fi
+
+            for attempt in 1 2 3; do
+              : > "$deploy_log"
+              if flyctl "${deploy_args[@]}" 2>&1 | tee "$deploy_log"; then
+                popd >/dev/null
+                return 0
               fi
-              echo "::warning::Fly deploy hit repeated transient upstream failures after ${attempt} attempts; skipping deploy failure for this run."
-              exit 0
-            fi
 
-            echo "::error::Fly deploy failed."
-            cat "$deploy_log"
-            exit 1
-          done
+              if grep -qiE "503 Service Unavailable|502 Bad Gateway|504 Gateway Timeout|failed to set release status|temporary failure|temporarily unavailable|timeout" "$deploy_log"; then
+                if [[ "$attempt" -lt 3 ]]; then
+                  echo "::warning::Transient ${label} Fly deploy failure on attempt ${attempt}; retrying."
+                  sleep "$((attempt * 20))"
+                  continue
+                fi
+                echo "::warning::${label} Fly deploy hit repeated transient upstream failures after ${attempt} attempts; skipping ${label} deploy for this run."
+                popd >/dev/null
+                return 0
+              fi
+
+              echo "::error::${label} Fly deploy failed."
+              cat "$deploy_log"
+              popd >/dev/null
+              return 1
+            done
+
+            popd >/dev/null
+          }
+
+          deploy_with_retries "backend" "." "fly.toml" "${FLY_APP:-}"
+          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FLY_FRONTEND_APP:-}"
