@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: make Binance account-trades filters reject fractional `From ID` inputs and impossible ISO calendar dates instead of silently truncating or rolling them forward.
 - Dev/CI: deploy both Fly apps from GitHub Actions after green `main` pushes, using repo-root `fly.toml` for the backend and `haskell/web/fly.frontend.toml` for the split frontend, with optional `FLY_APP` / `FLY_FRONTEND_APP` overrides and `TRADER_GIT_COMMIT` forwarded into both Docker builds so the hosted UI/API build badges stay in sync.
 - Web UI: normalize protocol-relative `apiBaseUrl` / `apiFallbackUrl` entries like `//example.com/api` into explicit `http(s)://...` URLs so the config normalizer no longer leaks scheme-relative cross-origin targets through the same-origin path fast path.
 - API/Top-combos: add a supervised anti-entropy sync worker that periodically merges local `top-combos.json` with Postgres, S3, and optional `/state/sync` state, then repairs stale local/shared replicas only when the merged combo set materially improves them; preserves newer top-level optimizer metadata during merges and ignores root `generatedAtMs`/`source` churn when deciding whether replicas are already in sync.

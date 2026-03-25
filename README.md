@@ -1103,8 +1103,8 @@ Charts scale to use most of the viewport height for easier inspection.
 Chart panels lift height caps so the full chart area is visible without panel scrollbars.
 Charts lazy-load to reduce the initial bundle size; placeholders appear while chart chunks load.
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
-The Binance account trades panel requires a non-negative From ID when provided.
-Binance account trades date filters use date pickers with YYYY-MM-DD inputs.
+The Binance account trades panel requires a non-negative whole-number From ID when provided; fractional values are rejected instead of being truncated.
+Binance account trades date filters use date pickers with YYYY-MM-DD inputs, and impossible calendar dates are rejected instead of being normalized forward.
 Loading a profile clears manual override locks so combos can apply again.
 Saved profiles/settings now rehydrate all numeric fields from browser storage as finite numbers, so legacy stringified values do not leak back into the typed UI form state.
 Hover optimizer combos to inspect the operations captured for each top performer.

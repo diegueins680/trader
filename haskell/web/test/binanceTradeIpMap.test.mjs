@@ -5,7 +5,9 @@ import {
   binanceTradeKey,
   buildBinanceTradeIpMap,
   findOptionalWholeNumberFieldError,
+  parseMaybeInt,
   parseOptionalInt,
+  parseTimeInputMs,
 } from "../.tmp/web-tests/appHelpers.js";
 
 function mkTrade({
@@ -91,6 +93,22 @@ test("parseOptionalInt accepts whole numbers and rejects fractional values", () 
   assert.equal(parseOptionalInt("1,234"), undefined);
   assert.equal(parseOptionalInt("12.5"), undefined);
   assert.equal(parseOptionalInt("0,5"), undefined);
+});
+
+test("parseMaybeInt preserves the non-negative whole-number contract", () => {
+  assert.equal(parseMaybeInt("123"), 123);
+  assert.equal(parseMaybeInt("12.0"), 12);
+  assert.equal(parseMaybeInt("12.5"), null);
+  assert.equal(parseMaybeInt("-0.5"), null);
+  assert.equal(parseMaybeInt("-1"), null);
+});
+
+test("parseTimeInputMs rejects impossible ISO calendar dates instead of rolling them forward", () => {
+  assert.equal(parseTimeInputMs("2024-02-29"), Date.parse("2024-02-29T00:00:00Z"));
+  assert.equal(parseTimeInputMs("2025-02-30"), null);
+  assert.equal(parseTimeInputMs("2025-02-30T00:00:00Z"), null);
+  assert.equal(parseTimeInputMs("2025-01-01T24:01"), null);
+  assert.equal(parseTimeInputMs("2025-01-01T23:59:59+02:30"), Date.parse("2025-01-01T23:59:59+02:30"));
 });
 
 test("findOptionalWholeNumberFieldError reports invalid form and override values", () => {

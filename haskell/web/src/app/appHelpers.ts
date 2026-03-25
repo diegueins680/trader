@@ -259,9 +259,8 @@ export function parseMaybeInt(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const n = Number(trimmed);
-  if (!Number.isFinite(n)) return null;
-  const rounded = Math.trunc(n);
-  return rounded < 0 ? null : rounded;
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null;
+  return Object.is(n, -0) ? 0 : n;
 }
 
 export function normalizeIsoInput(raw: string): string | null {
@@ -287,7 +286,53 @@ export function parseTimeInputMs(raw: string): number | null {
   const iso = normalizeIsoInput(trimmed);
   if (!iso) return null;
   const parsed = Date.parse(iso);
-  return Number.isNaN(parsed) ? null : parsed;
+  if (Number.isNaN(parsed)) return null;
+  return normalizedIsoMatchesParsedTime(iso, parsed) ? parsed : null;
+}
+
+function normalizedIsoMatchesParsedTime(iso: string, parsedMs: number): boolean {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(?:(Z)|([+-])(\d{2}):(\d{2}))?$/.exec(iso);
+  if (!match) return false;
+  const [
+    ,
+    yearRaw,
+    monthRaw,
+    dayRaw,
+    hourRaw,
+    minuteRaw,
+    secondRaw = "0",
+    millisecondRaw = "0",
+    zuluRaw,
+    offsetSignRaw,
+    offsetHourRaw = "0",
+    offsetMinuteRaw = "0",
+  ] = match;
+  const expectedYear = Number(yearRaw);
+  const expectedMonth = Number(monthRaw);
+  const expectedDay = Number(dayRaw);
+  const expectedHour = Number(hourRaw);
+  const expectedMinute = Number(minuteRaw);
+  const expectedSecond = Number(secondRaw);
+  const expectedMillisecond = Number(millisecondRaw.padEnd(3, "0"));
+  const offsetMinutes =
+    zuluRaw === "Z"
+      ? 0
+      : offsetSignRaw
+        ? (offsetSignRaw === "-" ? -1 : 1) * (Number(offsetHourRaw) * 60 + Number(offsetMinuteRaw))
+        : null;
+  const observed = new Date(offsetMinutes == null ? parsedMs : parsedMs + offsetMinutes * 60_000);
+  const readPart = (useUtc: boolean, local: () => number, utc: () => number) => (useUtc ? utc() : local());
+  const useUtc = offsetMinutes != null;
+  return (
+    readPart(useUtc, () => observed.getFullYear(), () => observed.getUTCFullYear()) === expectedYear &&
+    readPart(useUtc, () => observed.getMonth() + 1, () => observed.getUTCMonth() + 1) === expectedMonth &&
+    readPart(useUtc, () => observed.getDate(), () => observed.getUTCDate()) === expectedDay &&
+    readPart(useUtc, () => observed.getHours(), () => observed.getUTCHours()) === expectedHour &&
+    readPart(useUtc, () => observed.getMinutes(), () => observed.getUTCMinutes()) === expectedMinute &&
+    readPart(useUtc, () => observed.getSeconds(), () => observed.getUTCSeconds()) === expectedSecond &&
+    readPart(useUtc, () => observed.getMilliseconds(), () => observed.getUTCMilliseconds()) === expectedMillisecond
+  );
 }
 
 export function sanitizeFilenameSegment(raw: string, fallback: string): string {
