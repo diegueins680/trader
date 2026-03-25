@@ -139,17 +139,48 @@ export function botStatusKeyFromSingle(status: BotStatusSingle): string | null {
   return botStatusKey({ market, symbol, interval });
 }
 
+const LOCAL_DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
+
+function localDateTimePartsMatch(parsedMs: number, match: RegExpExecArray): boolean {
+  const [
+    ,
+    yearRaw,
+    monthRaw,
+    dayRaw,
+    hourRaw,
+    minuteRaw,
+    secondRaw = "0",
+    millisecondRaw = "0",
+  ] = match;
+  const observed = new Date(parsedMs);
+  if (!Number.isFinite(observed.getTime())) return false;
+  return (
+    observed.getFullYear() === Number(yearRaw) &&
+    observed.getMonth() + 1 === Number(monthRaw) &&
+    observed.getDate() === Number(dayRaw) &&
+    observed.getHours() === Number(hourRaw) &&
+    observed.getMinutes() === Number(minuteRaw) &&
+    observed.getSeconds() === Number(secondRaw) &&
+    observed.getMilliseconds() === Number(millisecondRaw.padEnd(3, "0"))
+  );
+}
+
 export function formatDatetimeLocal(ms: number): string {
   if (!Number.isFinite(ms)) return "";
   const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return "";
   const pad = (v: number) => String(v).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export function parseDatetimeLocal(raw: string): number | null {
-  if (!raw.trim()) return null;
-  const parsed = Date.parse(raw);
-  return Number.isNaN(parsed) ? null : parsed;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const match = LOCAL_DATETIME_RE.exec(trimmed);
+  if (!match) return null;
+  const parsed = Date.parse(trimmed.replace(" ", "T"));
+  if (Number.isNaN(parsed)) return null;
+  return localDateTimePartsMatch(parsed, match) ? parsed : null;
 }
 
 export function parseBotStatusOp(op: OpsOperation): BotStatusOp | null {

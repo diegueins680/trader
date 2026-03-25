@@ -559,3 +559,28 @@ Proof sketch:
 - The numeric restore helpers now trim string inputs before `Number` conversion and reject the empty post-trim case, so malformed persisted blanks stay absent instead of being reinterpreted by JavaScript as numeric zero.
 - The restore path now uses the same clamp intervals already enforced later by `haskell/web/src/App.tsx` when building API requests (`fee`, stop/drawdown ratios, `backtestRatio`) and scheduling auto-refresh (`autoRefreshSec`), so restored UI state is aligned with downstream behavior instead of reopening with values that would later serialize or execute differently.
 - Because each bounded field is normalized by a pure clamp onto a closed interval, the normalized value is already in the image of the clamp; reapplying the same normalization leaves it unchanged, which yields the restore fixed-point property checked by the test suite.
+
+## Formal local-datetime filter contract
+
+`formatDatetimeLocal` and `parseDatetimeLocal` in `haskell/web/src/app/appHelpers.ts` are treated as the total formatter/parser pair for the Live bot timeline range inputs.
+
+Clauses:
+
+1. `formatDatetimeLocal` is total over numeric input: non-finite values and finite values outside the ECMAScript `Date` domain produce the empty string rather than malformed `NaN-...` fragments.
+2. `parseDatetimeLocal` accepts only exact local calendar timestamps in `YYYY-MM-DDTHH:mm[:ss[.sss]]` form (with a single space accepted in place of `T` for compatibility).
+3. Parsing is conservative: any input whose parsed local year/month/day/hour/minute/second/millisecond fields differ from the source fields is rejected.
+4. Therefore impossible local timestamps such as `2024-02-31T12:34` are rejected instead of being normalized into a neighboring date by `Date.parse`.
+5. For accepted minute-aligned inputs in the modeled state space, `formatDatetimeLocal(parseDatetimeLocal(x)) = canonical(x)`.
+
+The verifier in `haskell/web/test/appHelpers.test.mjs` checks this contract with:
+
+- a bounded month-end matrix over `year ∈ {2023, 2024}`, `month ∈ {1..12}`, and `day ∈ {28, 29, 30, 31}` at `12:34`
+- targeted regressions for impossible local timestamps that `Date.parse` would otherwise normalize
+- out-of-range finite formatter inputs (`±1e20`)
+
+Proof sketch:
+
+- `parseDatetimeLocal` first matches the input against a finite local-datetime grammar, so date-only strings, timezone-bearing strings, and malformed separators are excluded before parsing.
+- After `Date.parse`, it re-reads the local calendar fields from the resulting `Date` and compares them against the source tuple; any normalization by the JS date parser therefore becomes an observable mismatch and is rejected.
+- `formatDatetimeLocal` now checks `d.getTime()` after constructing the `Date`, so finite numbers outside the representable `Date` range collapse to the same empty-string behavior already used for non-finite inputs.
+- The bounded month-end matrix proves the intended accept/reject split around leap-year and 30-day/31-day boundaries, while the round-trip assertions establish the parser/formatter fixed-point property on the accepted states.
