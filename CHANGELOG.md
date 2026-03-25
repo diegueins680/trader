@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: deploy both Fly apps from GitHub Actions after green `main` pushes, using repo-root `fly.toml` for the backend and `haskell/web/fly.frontend.toml` for the split frontend, with optional `FLY_APP` / `FLY_FRONTEND_APP` overrides and `TRADER_GIT_COMMIT` forwarded into both Docker builds so the hosted UI/API build badges stay in sync.
 - API/Top-combos: add a supervised anti-entropy sync worker that periodically merges local `top-combos.json` with Postgres, S3, and optional `/state/sync` state, then repairs stale local/shared replicas only when the merged combo set materially improves them; preserves newer top-level optimizer metadata during merges and ignores root `generatedAtMs`/`source` churn when deciding whether replicas are already in sync.
 - Web UI: split the header build badge into explicit `UI` and `API` badges, source the UI version from `haskell/web/package.json`, and show API build metadata only from `/health` so both deployed versions are visible without mixing frontend/backend commits.
 - Trading/Backtests: preserve live positions when the frozen volatility/confidence gate returns `VOL_CONF_GATE_HOLD`, and keep explicit `--max-volatility` entry blocking active even when `--vol-conf-gate` is enabled.
