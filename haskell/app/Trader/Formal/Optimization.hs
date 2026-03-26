@@ -20,7 +20,7 @@ import Trader.VolConfGate (
     VolConfGateCell (..),
     VolConfGatePreset (..),
     volConfGateCell,
-  )
+ )
 
 roiRequirementSummary :: String
 roiRequirementSummary =
