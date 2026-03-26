@@ -687,7 +687,44 @@ test("api fallback allows inferred /api primary timeout failover to cross-origin
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
 });
 
-test("api fallback skips inferred /api cross-origin failover for non-GET requests", async () => {
+test("api fallback allows inferred /api cross-origin failover for tenant-scoped non-GET requests", async () => {
+  const calls = [];
+  let directTenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: true,
+      apiFallbackUrl: "https://api.example.com",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "/api/binance/listenKey") {
+        return jsonResponse(502, { error: "Bad Gateway" });
+      }
+      if (href === "https://api.example.com/binance/listenKey") {
+        directTenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+        return jsonResponse(200, {
+          listenKey: "listen-key-1",
+          market: "spot",
+          testnet: false,
+          wsUrl: "wss://stream.example.com/ws/listen-key-1",
+          keepAliveMs: 60_000,
+        });
+      }
+      throw new Error(`unexpected request: ${href}`);
+    },
+    async (api) => {
+      const out = await api.binanceListenKey("/api", { tenantKey: "tenant" }, { timeoutMs: 5_000 });
+      assert.equal(out.listenKey, "listen-key-1");
+    },
+  );
+  assert.deepEqual(calls, ["/api/binance/listenKey", "https://api.example.com/binance/listenKey"]);
+  assert.equal(directTenantHeader, "tenant");
+});
+
+test("api fallback still skips inferred /api cross-origin failover for unauthenticated non-GET requests", async () => {
   const calls = [];
   await withApiModule(
     {
@@ -699,19 +736,19 @@ test("api fallback skips inferred /api cross-origin failover for non-GET request
     async (url) => {
       const href = String(url);
       calls.push(href);
-      if (href === "/api/binance/listenKey") {
+      if (href === "/api/cache/clear") {
         return jsonResponse(502, { error: "Bad Gateway" });
       }
       throw new Error(`unexpected request: ${href}`);
     },
     async (api) => {
       await assert.rejects(
-        () => api.binanceListenKey("/api", { tenantKey: "tenant" }, { timeoutMs: 5_000 }),
+        () => api.cacheClear("/api", { timeoutMs: 5_000 }),
         (err) => err?.name === "HttpError" && err.status === 502,
       );
     },
   );
-  assert.deepEqual(calls, ["/api/binance/listenKey"]);
+  assert.deepEqual(calls, ["/api/cache/clear"]);
 });
 
 test("api client forwards tenant key as X-Tenant-Key from JSON body params", async () => {
@@ -822,6 +859,33 @@ test("api client skips X-Tenant-Key header for cross-origin direct hosts", async
     },
   );
   assert.equal(tenantHeader, null);
+});
+
+test("api client forwards X-Tenant-Key for cross-origin direct-host writes", async () => {
+  let tenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const href = String(url);
+      if (href !== "https://api.example.com/bot/start") throw new Error(`unexpected request: ${href}`);
+      tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+      return jsonResponse(202, { starting: true, symbol: "BTCUSDT" });
+    },
+    async (api) => {
+      const out = await api.botStart(
+        "https://api.example.com",
+        { tenantKey: "tenant-body", binanceSymbol: "BTCUSDT" },
+        { timeoutMs: 5_000 },
+      );
+      assert.equal(out.starting, true);
+    },
+  );
+  assert.equal(tenantHeader, "tenant-body");
 });
 
 test("health preserves version and commit metadata", async () => {
