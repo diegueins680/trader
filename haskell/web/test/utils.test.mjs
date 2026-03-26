@@ -14,6 +14,7 @@ import {
   methodLabel,
   normalizeApiBaseUrlInput,
   numFromInput,
+  positionSideFromAmount,
   remapIndexToSample,
   summarizeOrderSizing,
 } from "../.tmp/web-tests/utils.js";
@@ -171,7 +172,7 @@ function assertSizingStatusAndHintContract(state, context) {
 function orphanReasonTestPosition(posSideKnown) {
   return posSideKnown
     ? { symbol: "BTCUSDT", positionAmt: 1, positionSide: "LONG" }
-    : { symbol: "BTCUSDT", positionAmt: 0, positionSide: null };
+    : { symbol: "BTCUSDT", positionAmt: Number.NaN, positionSide: null };
 }
 
 function orphanReasonSidePositions(botSide) {
@@ -542,6 +543,14 @@ const bots = [{ symbol: "FILUSDT", status: { running: false, starting: true, mar
 const orphans = buildOrphanedPositions(positions, bots, { market: "futures" });
 assert.equal(orphans.length, 0);
 });
+test("buildOrphanedPositions ignores flat/dust positions even with stale explicit sides", () => {
+const positions = [
+{ symbol: "BTCUSDT", positionAmt: 0, positionSide: "LONG" },
+{ symbol: "ETHUSDT", positionAmt: 1e-13, positionSide: "SHORT" },
+];
+const orphans = buildOrphanedPositions(positions, [], { market: "futures" });
+assert.deepEqual(orphans, []);
+});
 test("buildOrphanedPositions flags market mismatch", () => {
 const positions = [{ symbol: "BTCUSDT", positionAmt: 1, positionSide: "LONG" }];
 const bots = [{ symbol: "BTCUSDT", status: { running: true, market: "spot", positions: [1] } }];
@@ -825,6 +834,13 @@ expected,
 `${label}: expected ${expected} from ${JSON.stringify(raw)} with fallback ${fallback}`,
 );
 }
+});
+test("positionSideFromAmount treats zero and dust-sized amounts as flat", () => {
+  assert.equal(positionSideFromAmount(0), null);
+  assert.equal(positionSideFromAmount(1e-13), null);
+  assert.equal(positionSideFromAmount(-1e-13), null);
+  assert.equal(positionSideFromAmount(1e-9), "LONG");
+  assert.equal(positionSideFromAmount(-1e-9), "SHORT");
 });
 test("parseDurationSeconds keeps minute and month units distinct", () => {
   assert.equal(parseDurationSeconds("1m"), 60);

@@ -6420,7 +6420,9 @@ export function App() {
 
   const binancePositionsList = useMemo(() => {
     const raw = binancePositionsUi.response?.positions ?? [];
-    return [...raw].sort((a, b) => a.symbol.localeCompare(b.symbol));
+    return raw
+      .filter((pos) => positionSideInfo(pos.positionAmt, pos.positionSide).dir !== 0)
+      .sort((a, b) => a.symbol.localeCompare(b.symbol));
   }, [binancePositionsUi.response?.positions]);
   const binancePositionsCharts = useMemo(() => {
     const charts = binancePositionsUi.response?.charts ?? [];

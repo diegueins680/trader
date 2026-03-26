@@ -110,8 +110,14 @@ export function normalizePositionSide(raw: string | null | undefined): "LONG" | 
   return null;
 }
 
+export const POSITION_AMOUNT_EPS = 1e-12;
+
+export function isEffectivelyFlatPositionAmount(amount: number): boolean {
+  return Number.isFinite(amount) && Math.abs(amount) <= POSITION_AMOUNT_EPS;
+}
+
 export function positionSideFromAmount(amount: number): "LONG" | "SHORT" | null {
-  if (!Number.isFinite(amount) || amount === 0) return null;
+  if (!Number.isFinite(amount) || isEffectivelyFlatPositionAmount(amount)) return null;
   return amount > 0 ? "LONG" : "SHORT";
 }
 
@@ -119,7 +125,7 @@ export function botPositionSide(status: BotStatusSingle): "LONG" | "SHORT" | nul
   const positions = status.running ? status.positions : status.snapshot?.positions;
   if (!positions || positions.length === 0) return null;
   const last = positions[positions.length - 1];
-  if (typeof last !== "number" || !Number.isFinite(last) || Math.abs(last) <= 1e-12) return null;
+  if (typeof last !== "number" || !Number.isFinite(last) || isEffectivelyFlatPositionAmount(last)) return null;
   return last > 0 ? "LONG" : "SHORT";
 }
 
@@ -225,6 +231,7 @@ export function buildOrphanedPositions<T extends { symbol: string; positionAmt: 
 
   return positions
     .map((pos): OrphanedPosition<T> | null => {
+      if (isEffectivelyFlatPositionAmount(pos.positionAmt)) return null;
       const statuses = statusesBySymbol.get(normalizeSymbolKey(pos.symbol)) ?? [];
       const activeStatuses = statuses.filter((status) => status.running || status.starting === true);
       const activeTradingStatuses = activeStatuses.filter((status) => botTradeEnabled(status) !== false);

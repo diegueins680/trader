@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDatetimeLocal, parseDatetimeLocal } from "../.tmp/web-tests/appHelpers.js";
+import { formatDatetimeLocal, parseDatetimeLocal, positionSideInfo } from "../.tmp/web-tests/appHelpers.js";
 
 function pad2(value) {
   return String(value).padStart(2, "0");
@@ -56,4 +56,10 @@ test("parseDatetimeLocal rejects impossible local timestamps that Date.parse wou
 test("formatDatetimeLocal suppresses finite out-of-range timestamps instead of rendering NaN fragments", () => {
   assert.equal(formatDatetimeLocal(1e20), "");
   assert.equal(formatDatetimeLocal(-1e20), "");
+});
+
+test("positionSideInfo treats zero/dust amounts as flat before stale side metadata", () => {
+  assert.deepEqual(positionSideInfo(0, "LONG"), { dir: 0, label: "FLAT", key: "FLAT" });
+  assert.deepEqual(positionSideInfo(1e-13, "SHORT"), { dir: 0, label: "FLAT", key: "FLAT" });
+  assert.deepEqual(positionSideInfo(2, "SHORT"), { dir: -1, label: "SHORT", key: "SHORT" });
 });

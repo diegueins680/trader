@@ -38,7 +38,14 @@ import {
   symbolFormatPattern,
   trimBinanceComboSuffix,
 } from "./symbols";
-import { clamp, normalizePositionSide, normalizeSymbolKey, numFromInput, positionSideFromAmount } from "./utils";
+import {
+  clamp,
+  isEffectivelyFlatPositionAmount,
+  normalizePositionSide,
+  normalizeSymbolKey,
+  numFromInput,
+  positionSideFromAmount,
+} from "./utils";
 
 export type RequestKind = "signal" | "backtest" | "trade";
 
@@ -763,7 +770,7 @@ export function inferBinancePositionOpenTime(
   trades: BinanceTrade[],
 ): PositionOpenTimeEstimate | null {
   const posAmt = position.positionAmt;
-  if (!Number.isFinite(posAmt) || Math.abs(posAmt) <= 1e-12) return null;
+  if (!Number.isFinite(posAmt) || isEffectivelyFlatPositionAmount(posAmt)) return null;
   const sideRaw = normalizePositionSide(position.positionSide);
   const posSide = sideRaw && sideRaw !== "BOTH" ? sideRaw : positionSideFromAmount(posAmt);
   if (!posSide) return null;
@@ -1109,6 +1116,7 @@ export function buildEquityCurve(prices: number[], side: number): number[] {
 }
 
 export function positionSideInfo(positionAmt: number, positionSide?: string | null): { dir: number; label: string; key: string } {
+  if (isEffectivelyFlatPositionAmount(positionAmt)) return { dir: 0, label: "FLAT", key: "FLAT" };
   const raw = positionSide?.trim().toUpperCase();
   const side = raw && raw !== "BOTH" ? raw : null;
   const dir = side === "SHORT" ? -1 : side === "LONG" ? 1 : positionAmt > 0 ? 1 : positionAmt < 0 ? -1 : 0;

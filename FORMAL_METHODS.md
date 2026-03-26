@@ -132,11 +132,12 @@ Proof sketch:
 
 Clauses:
 
-1. Market scoping is symbol-local: exact target-market bots and unknown-market snapshots remain in scope for the requested panel market, while same-symbol bots from a different explicit market only contribute fallback `market mismatch` evidence.
-2. Adoption is reconcile-first: trade-enabled running bots with a matching side are adopted, and trade-enabled running or starting bots with no known internal side are also treated as adopted/reconciling when the position side is known, so flat or initializing bots do not surface false orphan warnings.
-3. Once a position is not adopted, the displayed reason string follows a total precedence order: `market mismatch` -> `bot stopped` -> `trading disabled` -> `position side unknown` -> `bot side unknown` -> `side mismatch (bot ...)` -> `no bot`.
-4. Other-market evidence is only allowed to win when there is no in-scope status for the symbol; stopped or active unknown-market snapshots must outrank same-symbol other-market bots.
-5. The representative `status` attached to an orphan stays tied to the in-scope status set: prefer a running status, otherwise an in-scope active status, otherwise the first in-scope stopped snapshot; pure `market mismatch` / `no bot` cases keep `status = null`.
+1. Finite zero/dust positions are not orphan candidates at all: they are treated as flat and suppressed before any reason classification.
+2. Market scoping is symbol-local: exact target-market bots and unknown-market snapshots remain in scope for the requested panel market, while same-symbol bots from a different explicit market only contribute fallback `market mismatch` evidence.
+3. Adoption is reconcile-first: trade-enabled running bots with a matching side are adopted, and trade-enabled running or starting bots with no known internal side are also treated as adopted/reconciling when the position side is known, so flat or initializing bots do not surface false orphan warnings.
+4. Once a position is not adopted, the displayed reason string follows a total precedence order: `market mismatch` -> `bot stopped` -> `trading disabled` -> `position side unknown` -> `bot side unknown` -> `side mismatch (bot ...)` -> `no bot`.
+5. Other-market evidence is only allowed to win when there is no in-scope status for the symbol; stopped or active unknown-market snapshots must outrank same-symbol other-market bots.
+6. The representative `status` attached to an orphan stays tied to the in-scope status set: prefer a running status, otherwise an in-scope active status, otherwise the first in-scope stopped snapshot; pure `market mismatch` / `no bot` cases keep `status = null`.
 
 The verifier in `haskell/web/test/utils.test.mjs` now checks this contract with a bounded orphan-state matrix (`180` states):
 
@@ -146,19 +147,49 @@ The verifier in `haskell/web/test/utils.test.mjs` now checks this contract with 
 - `positionSideKnown \u2208 {false, true}`
 - `botSide \u2208 {match, mismatch, unknown}`
 
+`positionSideKnown = false` is modeled with a non-finite amount rather than a zero amount so the matrix still exercises the true `position side unknown` branch after the flat-position contract removes zero/dust rows from orphan classification.
+
 For every state, it checks:
 
 1. Adopted/reconciling states return no orphan row.
 2. Non-adopted states return exactly one orphan row with the precedence-ordered reason.
 3. Unknown-market stopped snapshots keep beating same-symbol other-market evidence.
 4. The representative `status` remains the in-scope status for scoped states and `null` for pure `market mismatch` / `no bot` states.
+5. Separate zero/dust regressions prove that stale explicit sides do not manufacture orphan rows for effectively flat positions.
 
 Proof sketch:
 
 - `buildOrphanedPositions` partitions bot evidence into an in-scope `statusesBySymbol` map and an `otherMarketSymbols` set. Because the market filter only excludes explicit non-target markets, unknown-market snapshots stay in scope instead of being downgraded into `market mismatch` evidence.
+- `buildOrphanedPositions` now exits early for finite zero/dust amounts, so stale exchange-side metadata cannot manufacture orphan rows for effectively closed positions.
 - The adoption check runs before the reason chain and treats running/starting bots with no known internal side as adopted whenever the position side is known, preserving the current flat/startup suppression behavior.
 - The remaining `if` / `else if` chain is a fixed ordered precedence model: market scope first, then lifecycle, trade-enabled state, position-side knowledge, bot-side knowledge, and finally side mismatch or no bot.
-- `haskell/web/test/utils.test.mjs` mirrors the contract with the bounded 5 x 3 x 2 x 2 x 3 enumeration plus targeted regressions for hedge-side mismatches, flat-running adoption, starting adoption, and stopped unknown-market precedence.
+- `haskell/web/test/utils.test.mjs` mirrors the contract with the bounded 5 x 3 x 2 x 2 x 3 enumeration plus targeted regressions for hedge-side mismatches, flat-running adoption, starting adoption, stopped unknown-market precedence, and zero/dust stale-side suppression.
+
+## Formal flat-position side contract
+
+`positionSideFromAmount` in `haskell/web/src/app/utils.ts`, `positionSideInfo` / `inferBinancePositionOpenTime` in `haskell/web/src/app/appHelpers.ts`, and the Open positions/orphaned-operations consumers in `haskell/web/src/App.tsx` now share one amount-first flat-position contract.
+
+Clauses:
+
+1. Finite position amounts with `abs(amount) <= 1e-12` are flat, regardless of stale `positionSide` metadata.
+2. Directional side inference only starts once the amount is outside that flat epsilon.
+3. For directional amounts, explicit hedge-side metadata (`LONG` / `SHORT`) still outranks raw sign inference.
+4. Flat positions must not render as orphan candidates and must not appear in the Open positions panel.
+5. Open-time inference is only defined for directional positions, so flat amounts return `null`.
+
+The verifier in `haskell/web/test/utils.test.mjs` and `haskell/web/test/appHelpers.test.mjs` checks representative zero/dust and directional states:
+
+- `positionSideFromAmount(0)` and `positionSideFromAmount(±1e-13)` collapse to `null`
+- `positionSideInfo(0, "LONG")` and `positionSideInfo(1e-13, "SHORT")` collapse to `{ dir: 0, label: "FLAT", key: "FLAT" }`
+- `buildOrphanedPositions` drops zero/dust positions even when stale explicit sides are present
+- `positionSideInfo(2, "SHORT")` preserves the directional hedge side
+
+Proof sketch:
+
+- `isEffectivelyFlatPositionAmount` is now the shared gate for flatness, so side inference, orphan classification, and open-time inference no longer disagree on whether a zero/dust amount is directional.
+- `positionSideInfo` checks flatness before consulting `positionSide`, which prevents stale hedge-side metadata from manufacturing a `LONG` / `SHORT` label for an effectively closed position.
+- `buildOrphanedPositions` exits early on flat amounts, so the orphan panel cannot surface phantom rows for positions that the rest of the UI already treats as flat.
+- `App.tsx` filters the raw `/binance/positions` list through `positionSideInfo(...).dir !== 0`, making the Open positions panel a direct consumer of the same flatness contract instead of duplicating ad hoc zero checks.
 
 ## Formal request-issue ordering contract
 
