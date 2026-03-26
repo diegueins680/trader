@@ -14,6 +14,12 @@ module Trader.Formal.Optimization (
 import Data.Ord (Down (..))
 
 import Trader.Metrics (BacktestMetrics (..))
+import Trader.VolConfGate
+    ( VolConfGateBehavior (..)
+    , VolConfGateCell (..)
+    , VolConfGatePreset (..)
+    , volConfGateCell
+    )
 
 roiRequirementSummary :: String
 roiRequirementSummary =
@@ -41,6 +47,7 @@ data TieBreakCandidate = TieBreakCandidate
 data FormalVerificationReport = FormalVerificationReport
     { fvrRoiStateCount :: !Int
     , fvrTieBreakPairCount :: !Int
+    , fvrVolConfStateCount :: !Int
     , fvrRoiSpecMatchesImplementation :: !Bool
     , fvrReturnMonotone :: !Bool
     , fvrDrawdownMonotone :: !Bool
@@ -53,6 +60,11 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrExposurePenaltyOrdered :: !Bool
     , fvrTieBreakTotalOrderAfterNormalization :: !Bool
     , fvrTieBreakSpecMatchesImplementation :: !Bool
+    , fvrVolConfCanonicalizationInvariant :: !Bool
+    , fvrVolConfMalformedVolMatchesMissing :: !Bool
+    , fvrVolConfMalformedConfidenceMatchesWeak :: !Bool
+    , fvrVolConfMalformedInputsStayConservative :: !Bool
+    , fvrVolConfOutputBounded :: !Bool
     }
     deriving (Eq, Show)
 
@@ -171,9 +183,11 @@ verifyFormalOptimization :: FormalVerificationReport
 verifyFormalOptimization =
     let roiInputs = allRoiInputs
         tieBreakPairs = [(cand, best) | cand <- tieBreakDomain, best <- tieBreakDomain]
+        volConfInputs = allVolConfInputs
      in FormalVerificationReport
             { fvrRoiStateCount = length roiInputs
             , fvrTieBreakPairCount = length tieBreakPairs
+            , fvrVolConfStateCount = length volConfInputs
             , fvrRoiSpecMatchesImplementation =
                 all roiSpecMatchesImplementationFor roiInputs
             , fvrReturnMonotone =
@@ -364,6 +378,29 @@ verifyFormalOptimization =
                 all tieBreakTotalOrderAfterNormalizationFor tieBreakPairs
             , fvrTieBreakSpecMatchesImplementation =
                 all tieBreakMatchesImplementationFor tieBreakPairs
+            , fvrVolConfCanonicalizationInvariant =
+                all volConfCanonicalizationInvariantFor volConfInputs
+            , fvrVolConfMalformedVolMatchesMissing =
+                and
+                    [ volConfMalformedVolMatchesMissingFor preset mConfidence
+                    | preset <- volConfPresetDomain
+                    , mConfidence <- volConfConfidenceDomain
+                    ]
+            , fvrVolConfMalformedConfidenceMatchesWeak =
+                and
+                    [ volConfMalformedConfidenceMatchesWeakFor preset mVolatility
+                    | preset <- volConfPresetDomain
+                    , mVolatility <- volConfVolatilityDomain
+                    ]
+            , fvrVolConfMalformedInputsStayConservative =
+                and
+                    [ volConfMalformedInputsStayConservativeFor preset volatility confidence
+                    | preset <- volConfPresetDomain
+                    , volatility <- volConfFiniteVolatilityDomain
+                    , confidence <- volConfFiniteConfidenceDomain
+                    ]
+            , fvrVolConfOutputBounded =
+                all volConfOutputBoundedFor volConfInputs
             }
 
 roiViewFromMetrics :: BacktestMetrics -> RoiView
@@ -471,6 +508,29 @@ sanitizeFiniteWith fallback x =
 sanitizeFinite0 :: Double -> Double
 sanitizeFinite0 = sanitizeFiniteWith 0
 
+sanitizeFiniteMaybe :: Maybe Double -> Maybe Double
+sanitizeFiniteMaybe mValue =
+    case mValue of
+        Just x | isFinite x -> Just x
+        _ -> Nothing
+
+clamp :: Double -> Double -> Double -> Double
+clamp lo hi x = max lo (min hi x)
+
+-- Mirror the production contract: malformed volatility collapses to missing
+-- data, while missing or malformed confidence collapses to a weak finite score.
+canonicalizeVolatilityInput :: Maybe Double -> Maybe Double
+canonicalizeVolatilityInput mVolatility =
+    case sanitizeFiniteMaybe mVolatility of
+        Nothing -> Nothing
+        Just rawVol -> Just (max 0 rawVol)
+
+canonicalizeConfidenceInput :: Maybe Double -> Maybe Double
+canonicalizeConfidenceInput mConfidence =
+    case sanitizeFiniteMaybe mConfidence of
+        Nothing -> Just 0.0
+        Just rawConfidence -> Just (clamp 0 1 rawConfidence)
+
 approxEq :: Double -> Double -> Bool
 approxEq x y = abs (x - y) <= comparisonEps
 
@@ -502,6 +562,72 @@ tieBreakTotalOrderAfterNormalizationFor (cand, best) =
             && bestPreferred == (bestKey > candKey)
             && (candPreferred || bestPreferred || candKey == bestKey)
             && not (candPreferred && bestPreferred)
+
+volConfCanonicalizationInvariantFor :: (VolConfGatePreset, Maybe Double, Maybe Double) -> Bool
+volConfCanonicalizationInvariantFor (preset, mVolatility, mConfidence) =
+    volConfGateCell preset mVolatility mConfidence
+        == volConfGateCell
+            preset
+            (canonicalizeVolatilityInput mVolatility)
+            (canonicalizeConfidenceInput mConfidence)
+
+volConfMalformedVolMatchesMissingFor :: VolConfGatePreset -> Maybe Double -> Bool
+volConfMalformedVolMatchesMissingFor preset mConfidence =
+    let missingVolCell = volConfGateCell preset Nothing mConfidence
+     in and
+            [ volConfGateCell preset (Just badVol) mConfidence == missingVolCell
+            | badVol <- nonFiniteDomain
+            ]
+
+volConfMalformedConfidenceMatchesWeakFor :: VolConfGatePreset -> Maybe Double -> Bool
+volConfMalformedConfidenceMatchesWeakFor preset mVolatility =
+    let weakConfidenceCell = volConfGateCell preset mVolatility Nothing
+     in and
+            [ volConfGateCell preset mVolatility (Just badConfidence) == weakConfidenceCell
+            | badConfidence <- nonFiniteDomain
+            ]
+
+volConfMalformedInputsStayConservativeFor :: VolConfGatePreset -> Double -> Double -> Bool
+volConfMalformedInputsStayConservativeFor preset volatility confidence =
+    let baseline = volConfGateCell preset (Just volatility) (Just confidence)
+        noBetterThanBaseline cell = gateCellNoMorePermissiveThan cell baseline
+     in and
+            [ noBetterThanBaseline (volConfGateCell preset (Just badVol) (Just confidence))
+            | badVol <- nonFiniteDomain
+            ]
+            && and
+                [ noBetterThanBaseline (volConfGateCell preset (Just volatility) (Just badConfidence))
+                | badConfidence <- nonFiniteDomain
+                ]
+            && and
+                [ noBetterThanBaseline (volConfGateCell preset (Just badVol) (Just badConfidence))
+                | badVol <- nonFiniteDomain
+                , badConfidence <- nonFiniteDomain
+                ]
+
+volConfOutputBoundedFor :: (VolConfGatePreset, Maybe Double, Maybe Double) -> Bool
+volConfOutputBoundedFor (preset, mVolatility, mConfidence) =
+    let sizeMult = vcgSizeMult (volConfGateCell preset mVolatility mConfidence)
+     in isFinite sizeMult && sizeMult >= 0 && sizeMult <= 1
+
+gateCellNoMorePermissiveThan :: VolConfGateCell -> VolConfGateCell -> Bool
+gateCellNoMorePermissiveThan candidate baseline =
+    let candidateRank = gateCellPermissivenessRank (vcgBehavior candidate)
+        baselineRank = gateCellPermissivenessRank (vcgBehavior baseline)
+        candidateSize = vcgSizeMult candidate
+        baselineSize = vcgSizeMult baseline
+     in candidateRank < baselineRank
+            || (candidateRank == baselineRank && candidateSize <= baselineSize + comparisonEps)
+
+-- `Block` and `AllowExitOnly` are both reduce-only in the production gate,
+-- so the conservative order treats them equally.
+gateCellPermissivenessRank :: VolConfGateBehavior -> Int
+gateCellPermissivenessRank behavior =
+    case behavior of
+        VolConfGateBlock -> 0
+        VolConfGateAllowExitOnly -> 0
+        VolConfGateHold -> 1
+        VolConfGateAllowEntry -> 2
 
 zeroRoundTripRewardInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Int -> Double -> Bool
 zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover tradeCount exposure =
@@ -615,6 +741,41 @@ tieBreakMalformedDomain =
         ++ [ TieBreakCandidate 1.05 0.1 2 0.01 closeThr
            | closeThr <- nonFiniteDomain
            ]
+
+allVolConfInputs :: [(VolConfGatePreset, Maybe Double, Maybe Double)]
+allVolConfInputs =
+    [ (preset, mVolatility, mConfidence)
+    | preset <- volConfPresetDomain
+    , mVolatility <- volConfVolatilityDomain
+    , mConfidence <- volConfConfidenceDomain
+    ]
+
+volConfPresetDomain :: [VolConfGatePreset]
+volConfPresetDomain =
+    [ VolConfGateDisabled
+    , VolConfGateV1Default
+    , VolConfGateV1HighVolTighter
+    , VolConfGateV1HighVolLooser
+    , VolConfGateV1ConfStricter
+    ]
+
+volConfFiniteVolatilityDomain :: [Double]
+volConfFiniteVolatilityDomain = [-1.0, 0.0, 0.25, 0.5, 1.0, 1.2, 1.4, 2.0]
+
+volConfVolatilityDomain :: [Maybe Double]
+volConfVolatilityDomain =
+    [Nothing]
+        ++ map Just volConfFiniteVolatilityDomain
+        ++ map Just nonFiniteDomain
+
+volConfFiniteConfidenceDomain :: [Double]
+volConfFiniteConfidenceDomain = [-0.5, 0.0, 0.59, 0.60, 0.64, 0.65, 0.79, 0.80, 1.0, 1.5]
+
+volConfConfidenceDomain :: [Maybe Double]
+volConfConfidenceDomain =
+    [Nothing]
+        ++ map Just volConfFiniteConfidenceDomain
+        ++ map Just nonFiniteDomain
 
 nonFiniteDomain :: [Double]
 nonFiniteDomain = [nanValue, positiveInfinity, negativeInfinity]
