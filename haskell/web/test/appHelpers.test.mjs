@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDatetimeLocal, parseDatetimeLocal, positionSideInfo } from "../.tmp/web-tests/appHelpers.js";
+import { formatDatetimeLocal, parseDatetimeLocal, positionSideInfo, readExactSafeInteger } from "../.tmp/web-tests/appHelpers.js";
 
 function pad2(value) {
   return String(value).padStart(2, "0");
@@ -56,6 +56,27 @@ test("parseDatetimeLocal rejects impossible local timestamps that Date.parse wou
 test("formatDatetimeLocal suppresses finite out-of-range timestamps instead of rendering NaN fragments", () => {
   assert.equal(formatDatetimeLocal(1e20), "");
   assert.equal(formatDatetimeLocal(-1e20), "");
+});
+
+test("readExactSafeInteger accepts only exact safe integers from combo payloads", () => {
+  const unsafe = Number.MAX_SAFE_INTEGER + 1;
+  const cases = [
+    { raw: 0, expected: 0 },
+    { raw: -7, expected: -7 },
+    { raw: 12.5, expected: null },
+    { raw: Number.NaN, expected: null },
+    { raw: Number.POSITIVE_INFINITY, expected: null },
+    { raw: unsafe, expected: null },
+    { raw: "9", expected: null },
+  ];
+
+  for (const { raw, expected } of cases) {
+    assert.equal(
+      readExactSafeInteger(raw),
+      expected,
+      `expected ${String(raw)} to normalize to ${String(expected)}`,
+    );
+  }
 });
 
 test("positionSideInfo treats zero/dust amounts as flat before stale side metadata", () => {

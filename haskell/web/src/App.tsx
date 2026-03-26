@@ -262,6 +262,7 @@ import {
   ratioForTrainEnd,
   roundRatioDown,
   roundRatioUp,
+  readExactSafeInteger,
   safeJsonParse,
   sanitizeSymbolForPlatform,
   sanitizeFilenameSegment,
@@ -728,8 +729,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
   const payloadRec = payloadObj;
   const rawCombos: unknown[] = payloadObj.combos as unknown[];
   const generatedAtMsRaw = payloadRec.generatedAtMs;
-  const generatedAtMs =
-    typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
+  const generatedAtMs = readExactSafeInteger(generatedAtMsRaw);
   // Invariant: top-combo imports must accept every shared method contract id so
   // combo preview/apply preserves the backend-selected strategy exactly.
   const methods: Method[] = [...METHOD_IDS];
@@ -749,7 +749,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
         : defaultForm.normalization;
     const platform = canonicalExchangePlatform(params.platform);
     const interval = typeof params.interval === "string" && params.interval ? params.interval : defaultForm.interval;
-    const bars = typeof params.bars === "number" && Number.isFinite(params.bars) ? Math.trunc(params.bars) : Math.trunc(defaultForm.bars);
+    const bars = readExactSafeInteger(params.bars) ?? Math.trunc(defaultForm.bars);
     const positioning =
       typeof params.positioning === "string" && positionings.includes(params.positioning as Positioning)
         ? (params.positioning as Positioning)
@@ -772,56 +772,47 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
         ? Math.max(0, params.baseCloseThreshold)
         : null;
     const fee = typeof params.fee === "number" && Number.isFinite(params.fee) ? Math.max(0, params.fee) : defaultForm.fee;
-    const hiddenSize =
-      typeof params.hiddenSize === "number" && Number.isFinite(params.hiddenSize) ? Math.max(1, Math.trunc(params.hiddenSize)) : Math.trunc(defaultForm.hiddenSize);
+    const hiddenSizeRaw = readExactSafeInteger(params.hiddenSize);
+    const hiddenSize = hiddenSizeRaw != null ? Math.max(1, hiddenSizeRaw) : Math.trunc(defaultForm.hiddenSize);
     const learningRate =
       typeof params.learningRate === "number" && Number.isFinite(params.learningRate) ? params.learningRate : 0.001;
     const valRatio =
       typeof params.valRatio === "number" && Number.isFinite(params.valRatio)
         ? clamp(params.valRatio, 0, 1)
         : defaultForm.valRatio;
-    const patience =
-      typeof params.patience === "number" && Number.isFinite(params.patience) ? Math.max(0, Math.trunc(params.patience)) : Math.trunc(defaultForm.patience);
+    const patienceRaw = readExactSafeInteger(params.patience);
+    const patience = patienceRaw != null ? Math.max(0, patienceRaw) : Math.trunc(defaultForm.patience);
     const gradClip =
       typeof params.gradClip === "number" && Number.isFinite(params.gradClip) ? Math.max(0, params.gradClip) : null;
-    const epochs = typeof params.epochs === "number" && Number.isFinite(params.epochs) ? Math.max(0, Math.trunc(params.epochs)) : Math.trunc(defaultForm.epochs);
+    const epochsRaw = readExactSafeInteger(params.epochs);
+    const epochs = epochsRaw != null ? Math.max(0, epochsRaw) : Math.trunc(defaultForm.epochs);
     const slippage = typeof params.slippage === "number" && Number.isFinite(params.slippage) ? params.slippage : defaultForm.slippage;
     const spread = typeof params.spread === "number" && Number.isFinite(params.spread) ? params.spread : defaultForm.spread;
     const intrabarFill =
       typeof params.intrabarFill === "string" && intrabarFills.includes(params.intrabarFill as IntrabarFill)
         ? (params.intrabarFill as IntrabarFill)
         : defaultForm.intrabarFill;
-    const minHoldBars =
-      typeof params.minHoldBars === "number" && Number.isFinite(params.minHoldBars)
-        ? Math.max(0, Math.trunc(params.minHoldBars))
-        : null;
-    const maxHoldBars =
-      typeof params.maxHoldBars === "number" && Number.isFinite(params.maxHoldBars)
-        ? Math.max(0, Math.trunc(params.maxHoldBars))
-        : null;
-    const cooldownBars =
-      typeof params.cooldownBars === "number" && Number.isFinite(params.cooldownBars)
-        ? Math.max(0, Math.trunc(params.cooldownBars))
-        : null;
+    const minHoldBarsRaw = readExactSafeInteger(params.minHoldBars);
+    const minHoldBars = minHoldBarsRaw != null ? Math.max(0, minHoldBarsRaw) : null;
+    const maxHoldBarsRaw = readExactSafeInteger(params.maxHoldBars);
+    const maxHoldBars = maxHoldBarsRaw != null ? Math.max(0, maxHoldBarsRaw) : null;
+    const cooldownBarsRaw = readExactSafeInteger(params.cooldownBars);
+    const cooldownBars = cooldownBarsRaw != null ? Math.max(0, cooldownBarsRaw) : null;
     const minEdge =
       typeof params.minEdge === "number" && Number.isFinite(params.minEdge) ? Math.max(0, params.minEdge) : null;
     const costAwareEdge = typeof params.costAwareEdge === "boolean" ? params.costAwareEdge : null;
     const edgeBuffer =
       typeof params.edgeBuffer === "number" && Number.isFinite(params.edgeBuffer) ? Math.max(0, params.edgeBuffer) : null;
-    const trendLookback =
-      typeof params.trendLookback === "number" && Number.isFinite(params.trendLookback)
-        ? Math.max(0, Math.trunc(params.trendLookback))
-        : null;
+    const trendLookbackRaw = readExactSafeInteger(params.trendLookback);
+    const trendLookback = trendLookbackRaw != null ? Math.max(0, trendLookbackRaw) : null;
     const maxPositionSize =
       typeof params.maxPositionSize === "number" && Number.isFinite(params.maxPositionSize)
         ? Math.max(0, params.maxPositionSize)
         : null;
     const volTarget =
       typeof params.volTarget === "number" && Number.isFinite(params.volTarget) ? Math.max(0, params.volTarget) : null;
-    const volLookback =
-      typeof params.volLookback === "number" && Number.isFinite(params.volLookback)
-        ? Math.max(0, Math.trunc(params.volLookback))
-        : null;
+    const volLookbackRaw = readExactSafeInteger(params.volLookback);
+    const volLookback = volLookbackRaw != null ? Math.max(0, volLookbackRaw) : null;
     const volEwmaAlphaRaw =
       typeof params.volEwmaAlpha === "number" && Number.isFinite(params.volEwmaAlpha) ? params.volEwmaAlpha : null;
     const volEwmaAlpha = volEwmaAlphaRaw != null && volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : null;
@@ -833,10 +824,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
       typeof params.maxVolatility === "number" && Number.isFinite(params.maxVolatility)
         ? Math.max(0, params.maxVolatility)
         : null;
-    const rebalanceBars =
-      typeof params.rebalanceBars === "number" && Number.isFinite(params.rebalanceBars)
-        ? Math.max(0, Math.trunc(params.rebalanceBars))
-        : null;
+    const rebalanceBarsRaw = readExactSafeInteger(params.rebalanceBars);
+    const rebalanceBars = rebalanceBarsRaw != null ? Math.max(0, rebalanceBarsRaw) : null;
     const rebalanceThreshold =
       typeof params.rebalanceThreshold === "number" && Number.isFinite(params.rebalanceThreshold)
         ? Math.max(0, params.rebalanceThreshold)
@@ -855,18 +844,12 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
       typeof params.periodsPerYear === "number" && Number.isFinite(params.periodsPerYear)
         ? Math.max(0, params.periodsPerYear)
         : null;
-    const kalmanMarketTopN =
-      typeof params.kalmanMarketTopN === "number" && Number.isFinite(params.kalmanMarketTopN)
-        ? Math.max(0, Math.trunc(params.kalmanMarketTopN))
-        : null;
-    const walkForwardFolds =
-      typeof params.walkForwardFolds === "number" && Number.isFinite(params.walkForwardFolds)
-        ? Math.max(1, Math.trunc(params.walkForwardFolds))
-        : null;
-    const walkForwardEmbargoBars =
-      typeof params.walkForwardEmbargoBars === "number" && Number.isFinite(params.walkForwardEmbargoBars)
-        ? Math.max(0, Math.trunc(params.walkForwardEmbargoBars))
-        : null;
+    const kalmanMarketTopNRaw = readExactSafeInteger(params.kalmanMarketTopN);
+    const kalmanMarketTopN = kalmanMarketTopNRaw != null ? Math.max(0, kalmanMarketTopNRaw) : null;
+    const walkForwardFoldsRaw = readExactSafeInteger(params.walkForwardFolds);
+    const walkForwardFolds = walkForwardFoldsRaw != null ? Math.max(1, walkForwardFoldsRaw) : null;
+    const walkForwardEmbargoBarsRaw = readExactSafeInteger(params.walkForwardEmbargoBars);
+    const walkForwardEmbargoBars = walkForwardEmbargoBarsRaw != null ? Math.max(0, walkForwardEmbargoBarsRaw) : null;
     const blendWeightRaw =
       typeof params.blendWeight === "number" && Number.isFinite(params.blendWeight) ? params.blendWeight : null;
     const blendWeight = blendWeightRaw != null ? clamp(blendWeightRaw, 0, 1) : null;
@@ -915,11 +898,9 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     const maxOrderQuoteRaw =
       typeof params.maxOrderQuote === "number" && Number.isFinite(params.maxOrderQuote) ? params.maxOrderQuote : null;
     const maxOrderQuote = maxOrderQuoteRaw != null && maxOrderQuoteRaw > 0 ? Math.max(0, maxOrderQuoteRaw) : null;
-    const createdAtMsRaw = rawRec.createdAtMs;
-    const createdAtMs =
-      typeof createdAtMsRaw === "number" && Number.isFinite(createdAtMsRaw) ? Math.trunc(createdAtMsRaw) : null;
+    const createdAtMs = readExactSafeInteger(rawRec.createdAtMs);
     const createdAtMsFinal = createdAtMs ?? generatedAtMs;
-    const rankRaw = typeof rawRec.rank === "number" && Number.isFinite(rawRec.rank) ? Math.trunc(rawRec.rank) : null;
+    const rankRaw = readExactSafeInteger(rawRec.rank);
     const rank = rankRaw != null && rankRaw >= 1 ? rankRaw : null;
     const objective = typeof rawRec.objective === "string" && rawRec.objective ? rawRec.objective : null;
     const score = typeof rawRec.score === "number" && Number.isFinite(rawRec.score) ? rawRec.score : null;
@@ -932,10 +913,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
         : null;
     const turnover =
       typeof metricsRec["turnover"] === "number" && Number.isFinite(metricsRec["turnover"]) ? (metricsRec["turnover"] as number) : null;
-    const roundTrips =
-      typeof metricsRec["roundTrips"] === "number" && Number.isFinite(metricsRec["roundTrips"])
-        ? Math.trunc(metricsRec["roundTrips"] as number)
-        : null;
+    const roundTripsRaw = readExactSafeInteger(metricsRec["roundTrips"]);
+    const roundTrips = roundTripsRaw != null ? roundTripsRaw : null;
     const annualizedReturn =
       typeof metricsRec["annualizedReturn"] === "number" && Number.isFinite(metricsRec["annualizedReturn"])
         ? (metricsRec["annualizedReturn"] as number)

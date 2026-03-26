@@ -19,6 +19,34 @@ const { comboMarketLabel, comboMarketValue } = await import(
   `data:text/javascript;base64,${Buffer.from(comboMarketBundle.outputFiles[0].text).toString("base64")}`,
 );
 
+function buildComboFromForm(prev, overrides = {}) {
+  return {
+    id: 999,
+    finalEquity: 1,
+    openThreshold: prev.openThreshold,
+    closeThreshold: prev.closeThreshold,
+    params: {
+      platform: prev.platform,
+      binanceSymbol: prev.binanceSymbol,
+      interval: prev.interval,
+      bars: prev.bars,
+      method: prev.method,
+      positioning: prev.positioning,
+      normalization: prev.normalization,
+      fee: prev.fee,
+      epochs: prev.epochs,
+      hiddenSize: prev.hiddenSize,
+      learningRate: prev.learningRate,
+      valRatio: prev.valRatio,
+      patience: prev.patience,
+      slippage: prev.slippage,
+      spread: prev.spread,
+      ...overrides,
+    },
+    source: prev.platform,
+  };
+}
+
 
 test("comboMarketValue keeps explicit params.platform precedence for filtering and display", () => {
   const cases = [
@@ -378,6 +406,77 @@ test("applyComboToForm canonicalizes exchange aliases and falls back to source m
   assert.equal(sourceFallbackNext.binanceSymbol, "ETH-USD");
   assert.equal(sourceFallbackNext.binanceLive, true);
   assert.equal(sourceFallbackNext.tradeArmed, true);
+});
+
+test("applyComboToForm only accepts exact safe integers for integer-backed combo fields", () => {
+  const unsafe = Number.MAX_SAFE_INTEGER + 1;
+  const prev = {
+    ...defaultForm,
+    bars: 777,
+    epochs: 13,
+    hiddenSize: 17,
+    patience: 11,
+    minHoldBars: 9,
+    maxHoldBars: 21,
+    cooldownBars: 4,
+    maxOrderErrors: 7,
+    trendLookback: 40,
+    volLookback: 55,
+    rebalanceBars: 24,
+    walkForwardFolds: 7,
+    walkForwardEmbargoBars: 2,
+  };
+  const cases = [
+    { field: "bars", valid: 640, expectedMissing: prev.bars, expectedInvalid: prev.bars },
+    { field: "epochs", valid: 27, expectedMissing: prev.epochs, expectedInvalid: prev.epochs },
+    { field: "hiddenSize", valid: 33, expectedMissing: prev.hiddenSize, expectedInvalid: prev.hiddenSize },
+    { field: "patience", valid: 18, expectedMissing: prev.patience, expectedInvalid: prev.patience },
+    { field: "minHoldBars", valid: 12, expectedMissing: prev.minHoldBars, expectedInvalid: prev.minHoldBars },
+    { field: "maxHoldBars", valid: 28, expectedMissing: prev.maxHoldBars, expectedInvalid: prev.maxHoldBars },
+    { field: "cooldownBars", valid: 6, expectedMissing: prev.cooldownBars, expectedInvalid: prev.cooldownBars },
+    { field: "maxOrderErrors", valid: 5, expectedMissing: 0, expectedInvalid: prev.maxOrderErrors },
+    { field: "trendLookback", valid: 31, expectedMissing: prev.trendLookback, expectedInvalid: prev.trendLookback },
+    { field: "volLookback", valid: 34, expectedMissing: prev.volLookback, expectedInvalid: prev.volLookback },
+    { field: "rebalanceBars", valid: 14, expectedMissing: prev.rebalanceBars, expectedInvalid: prev.rebalanceBars },
+    { field: "walkForwardFolds", valid: 9, expectedMissing: prev.walkForwardFolds, expectedInvalid: prev.walkForwardFolds },
+    {
+      field: "walkForwardEmbargoBars",
+      valid: 3,
+      expectedMissing: prev.walkForwardEmbargoBars,
+      expectedInvalid: prev.walkForwardEmbargoBars,
+    },
+  ];
+
+  for (const { field, valid, expectedMissing, expectedInvalid } of cases) {
+    const missingCombo = buildComboFromForm(prev);
+    delete missingCombo.params[field];
+    assert.equal(
+      applyComboToForm(prev, missingCombo, null)[field],
+      expectedMissing,
+      `${field}: missing combo values should follow the documented fallback`,
+    );
+
+    const validCombo = buildComboFromForm(prev, { [field]: valid });
+    assert.equal(
+      applyComboToForm(prev, validCombo, null)[field],
+      valid,
+      `${field}: exact safe integers should apply unchanged`,
+    );
+
+    const fractionalCombo = buildComboFromForm(prev, { [field]: valid + 0.5 });
+    assert.equal(
+      applyComboToForm(prev, fractionalCombo, null)[field],
+      expectedInvalid,
+      `${field}: fractional combo values should be inert`,
+    );
+
+    const unsafeCombo = buildComboFromForm(prev, { [field]: unsafe });
+    assert.equal(
+      applyComboToForm(prev, unsafeCombo, null)[field],
+      expectedInvalid,
+      `${field}: unsafe combo integers should be inert`,
+    );
+  }
 });
 
 test("normalizeFormState keeps representative whole-number restores aligned with emitted request bounds", () => {

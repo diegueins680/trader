@@ -1950,8 +1950,16 @@ export function sigNumber(value: number | null | undefined): string {
   return String(rounded);
 }
 
+export function readExactSafeInteger(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isSafeInteger(raw) ? raw : null;
+}
+
 export function coerceNumber(value: number | null | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+export function coerceExactSafeInteger(value: number | null | undefined, fallback: number): number {
+  return Number.isSafeInteger(value) ? value : fallback;
 }
 
 export function clampOptionalRatio(value: number | null | undefined): number {
@@ -1964,9 +1972,9 @@ export function clampOptionalRange(value: number | null | undefined, min: number
   return v > 0 ? clamp(v, min, max) : 0;
 }
 
-export function clampOptionalInt(value: number | null | undefined, min: number, max: number): number {
-  const v = coerceNumber(value, 0);
-  return v > 0 ? clamp(Math.trunc(v), min, max) : 0;
+export function clampOptionalInt(value: number | null | undefined, fallback: number, min: number, max: number): number {
+  const v = coerceExactSafeInteger(value, fallback);
+  return v > 0 ? clamp(v, min, max) : 0;
 }
 
 export function sigText(value: string | null | undefined): string {
@@ -2195,13 +2203,18 @@ export function ratioForTrainEnd(bars: number, trainEnd: number): number {
   return clamp(raw, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
 }
 
-export function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits | null, platform: Platform): {
+export function clampComboForLimits(
+  combo: OptimizationCombo,
+  apiLimits: ComputeLimits | null,
+  platform: Platform,
+  fallback: { bars: number; epochs: number; hiddenSize: number },
+): {
   bars: number;
   epochs: number;
   hiddenSize: number;
 } {
   const lstmEnabled = combo.params.method !== "10";
-  let bars = Math.trunc(combo.params.bars);
+  let bars = coerceExactSafeInteger(combo.params.bars, fallback.bars);
   if (!Number.isFinite(bars) || bars < 0) bars = 0;
   if (bars > 0) {
     bars = Math.max(MIN_LOOKBACK_BARS, bars);
@@ -2211,8 +2224,8 @@ export function clampComboForLimits(combo: OptimizationCombo, apiLimits: Compute
     }
   }
 
-  let epochs = clamp(Math.trunc(combo.params.epochs), 0, 5000);
-  let hiddenSize = clamp(Math.trunc(combo.params.hiddenSize), 1, 512);
+  let epochs = clamp(coerceExactSafeInteger(combo.params.epochs, fallback.epochs), 0, 5000);
+  let hiddenSize = clamp(coerceExactSafeInteger(combo.params.hiddenSize, fallback.hiddenSize), 1, 512);
 
   if (lstmEnabled && apiLimits) {
     epochs = Math.min(epochs, apiLimits.maxEpochs);
@@ -2254,7 +2267,11 @@ export function applyComboToForm(
           ...combo,
           params: { ...combo.params, method },
         };
-  const { bars, epochs, hiddenSize } = clampComboForLimits(comboForLimits, apiLimits, nextPlatform);
+  const { bars, epochs, hiddenSize } = clampComboForLimits(comboForLimits, apiLimits, nextPlatform, {
+    bars: prev.bars,
+    epochs: prev.epochs,
+    hiddenSize: prev.hiddenSize,
+  });
   const openThrRaw = coerceNumber(combo.openThreshold, prev.openThreshold);
   const closeThrRaw =
     combo.closeThreshold == null ? openThrRaw : coerceNumber(combo.closeThreshold, prev.closeThreshold);
@@ -2263,7 +2280,7 @@ export function applyComboToForm(
   const fee = Math.max(0, coerceNumber(combo.params.fee, prev.fee));
   const learningRate = Math.max(1e-9, coerceNumber(combo.params.learningRate, prev.learningRate));
   const valRatio = clamp(coerceNumber(combo.params.valRatio, prev.valRatio), 0, 1);
-  const patience = clamp(Math.trunc(coerceNumber(combo.params.patience, prev.patience)), 0, 1000);
+  const patience = clamp(coerceExactSafeInteger(combo.params.patience, prev.patience), 0, 1000);
   const gradClipRaw = coerceNumber(combo.params.gradClip, 0);
   const gradClip = gradClipRaw > 0 ? clamp(gradClipRaw, 0, 100) : 0;
 
@@ -2278,26 +2295,29 @@ export function applyComboToForm(
     0,
     coerceNumber(combo.params.trailingStopVolMult ?? prev.trailingStopVolMult, prev.trailingStopVolMult),
   );
-  const minHoldBars = clampOptionalInt(combo.params.minHoldBars ?? prev.minHoldBars, 0, 1_000_000);
-  const maxHoldBars = clampOptionalInt(combo.params.maxHoldBars ?? prev.maxHoldBars, 0, 1_000_000);
-  const cooldownBars = clampOptionalInt(combo.params.cooldownBars ?? prev.cooldownBars, 0, 1_000_000);
+  const minHoldBars = clampOptionalInt(combo.params.minHoldBars, prev.minHoldBars, 0, 1_000_000);
+  const maxHoldBars = clampOptionalInt(combo.params.maxHoldBars, prev.maxHoldBars, 0, 1_000_000);
+  const cooldownBars = clampOptionalInt(combo.params.cooldownBars, prev.cooldownBars, 0, 1_000_000);
   const maxDrawdown = clampOptionalRatio(combo.params.maxDrawdown);
   const maxDailyLoss = clampOptionalRatio(combo.params.maxDailyLoss);
-  const maxOrderErrors = clampOptionalInt(combo.params.maxOrderErrors, 1, 1_000_000);
+  const maxOrderErrors =
+    combo.params.maxOrderErrors == null
+      ? 0
+      : clampOptionalInt(combo.params.maxOrderErrors, prev.maxOrderErrors, 1, 1_000_000);
   const minEdge = Math.max(0, coerceNumber(combo.params.minEdge ?? prev.minEdge, prev.minEdge));
   const minSignalToNoise = Math.max(0, coerceNumber(combo.params.minSignalToNoise ?? prev.minSignalToNoise, prev.minSignalToNoise));
   const costAwareEdge = combo.params.costAwareEdge ?? prev.costAwareEdge;
   const edgeBuffer = Math.max(0, coerceNumber(combo.params.edgeBuffer ?? prev.edgeBuffer, prev.edgeBuffer));
-  const trendLookback = clampOptionalInt(combo.params.trendLookback ?? prev.trendLookback, 0, 1_000_000);
+  const trendLookback = clampOptionalInt(combo.params.trendLookback, prev.trendLookback, 0, 1_000_000);
   const maxPositionSize = Math.max(0, coerceNumber(combo.params.maxPositionSize ?? prev.maxPositionSize, prev.maxPositionSize));
   const volTarget = Math.max(0, coerceNumber(combo.params.volTarget ?? prev.volTarget, prev.volTarget));
-  const volLookback = Math.max(0, Math.trunc(coerceNumber(combo.params.volLookback ?? prev.volLookback, prev.volLookback)));
+  const volLookback = Math.max(0, coerceExactSafeInteger(combo.params.volLookback, prev.volLookback));
   const volEwmaAlphaRaw = coerceNumber(combo.params.volEwmaAlpha ?? prev.volEwmaAlpha, prev.volEwmaAlpha);
   const volEwmaAlpha = volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : 0;
   const volFloor = Math.max(0, coerceNumber(combo.params.volFloor ?? prev.volFloor, prev.volFloor));
   const volScaleMax = Math.max(0, coerceNumber(combo.params.volScaleMax ?? prev.volScaleMax, prev.volScaleMax));
   const maxVolatility = Math.max(0, coerceNumber(combo.params.maxVolatility ?? prev.maxVolatility, prev.maxVolatility));
-  const rebalanceBars = clampOptionalInt(combo.params.rebalanceBars ?? prev.rebalanceBars, 0, 1_000_000);
+  const rebalanceBars = clampOptionalInt(combo.params.rebalanceBars, prev.rebalanceBars, 0, 1_000_000);
   const rebalanceThreshold = Math.max(
     0,
     coerceNumber(combo.params.rebalanceThreshold ?? prev.rebalanceThreshold, prev.rebalanceThreshold),
@@ -2315,9 +2335,10 @@ export function applyComboToForm(
   const tuneStressVolMult = Math.max(0, coerceNumber(combo.params.tuneStressVolMult ?? prev.tuneStressVolMult, prev.tuneStressVolMult));
   const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
   const tuneStressWeight = Math.max(0, coerceNumber(combo.params.tuneStressWeight ?? prev.tuneStressWeight, prev.tuneStressWeight));
-  const walkForwardFolds = clampOptionalInt(combo.params.walkForwardFolds ?? prev.walkForwardFolds, 1, 1000);
+  const walkForwardFolds = clampOptionalInt(combo.params.walkForwardFolds, prev.walkForwardFolds, 1, 1000);
   const walkForwardEmbargoBars = clampOptionalInt(
-    combo.params.walkForwardEmbargoBars ?? prev.walkForwardEmbargoBars,
+    combo.params.walkForwardEmbargoBars,
+    prev.walkForwardEmbargoBars,
     0,
     1_000_000,
   );

@@ -139,6 +139,16 @@ test("repo contract keeps top-combo method sanitization aligned with shared meth
   assert.deepEqual(appMethods, contractMethods);
 });
 
+test("repo contract routes top-combo integer imports through the exact safe-integer boundary", () => {
+  for (const field of ["bars", "epochs", "hiddenSize", "patience", "volLookback", "walkForwardFolds"]) {
+    assert.match(
+      appSource,
+      new RegExp(`readExactSafeInteger\\(params\\.${field}\\)`),
+      `${field} combo imports must use readExactSafeInteger`,
+    );
+  }
+});
+
 test("repo contract routes lookback and live-bot validation targets to their config pages", () => {
   const targetPageMapBody = parseTsConstObjectBody(configLayoutSource, "CONFIG_TARGET_PAGE_MAP");
 
