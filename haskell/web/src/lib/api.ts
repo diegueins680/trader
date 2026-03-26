@@ -3,6 +3,7 @@ import type {
   ApiBinanceClosePositionRequest,
   ApiBinancePositionsRequest,
   ApiBinancePositionsResponse,
+  ApiRequestProgressStatus,
   ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
   ApiOrderResult,
@@ -172,6 +173,7 @@ function normalizeBaseUrl(raw: string): string {
 }
 
 const TENANT_HEADER = "X-Tenant-Key";
+export const REQUEST_PROGRESS_HEADER = "X-Trader-Request-Id";
 
 function normalizeExactIntegerQueryParam(raw: unknown): number | null {
   if (typeof raw !== "number" || !Number.isSafeInteger(raw)) return null;
@@ -1016,6 +1018,14 @@ export async function coinbaseKeysStatus(
     },
     opts,
   );
+}
+
+export async function requestProgressStatus(
+  baseUrl: string,
+  requestId: string,
+  opts?: FetchJsonOptions,
+): Promise<ApiRequestProgressStatus> {
+  return fetchJson<ApiRequestProgressStatus>(baseUrl, `/request-progress/${encodeURIComponent(requestId)}`, { method: "GET" }, opts);
 }
 
 type BinanceListenKeyStartParams = Pick<ApiParams, "market" | "binanceTestnet" | "binanceApiKey" | "binanceApiSecret" | "tenantKey">;

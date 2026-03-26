@@ -71,7 +71,7 @@ import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.Cors (corsSuite)
-import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue, topCombosPayloadEquivalent)
+import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, compactTopCombosPayloadForSync, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue, topCombosPayloadEquivalent)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 import Trader.VolConfGate (VolConfGatePreset (..))
 
@@ -256,6 +256,7 @@ main = do
               , run "top combos merge preserves newest payload metadata" testMergeTopCombosPreservesNewestPayloadMetadata
               , run "top combos identity keys keep distinct sources separate" testComboIdentityKeyKeepsDistinctSources
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
+              , run "top combos sync compaction drops operations only" testCompactTopCombosPayloadForSync
               , run "top combos payload equivalence ignores root sync metadata" testTopCombosPayloadEquivalentIgnoresRootSyncMetadata
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
@@ -3214,6 +3215,35 @@ testTopCombosPayloadEquivalentIgnoresRootSyncMetadata = do
         payloadC = mkPayload (2 :: Int64) ("top-combos-store" :: String) ["bayes" :: String]
     assert "payload equivalence should ignore generatedAt/source churn" (topCombosPayloadEquivalent payloadA payloadB)
     assert "payload equivalence should still detect meaningful metadata changes" (not (topCombosPayloadEquivalent payloadA payloadC))
+
+testCompactTopCombosPayloadForSync :: IO ()
+testCompactTopCombosPayloadForSync = do
+    let payload =
+            object
+                [ "generatedAtMs" .= (1 :: Int64)
+                , "combos"
+                    .= [ object
+                            [ "uuid" .= ("combo-1" :: String)
+                            , "finalEquity" .= (1.4 :: Double)
+                            , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double)]
+                            , "params" .= object ["symbol" .= ("BTCUSDT" :: String)]
+                            , "operations"
+                                .= [ object
+                                        [ "side" .= ("BUY" :: String)
+                                        , "price" .= (100.0 :: Double)
+                                        ]
+                                   ]
+                            ]
+                       ]
+                ]
+        compacted = compactTopCombosPayloadForSync payload
+        combo = requireHead "expected compacted combo" (requireCombosArray "compacted combos" compacted)
+    case combo of
+        Aeson.Object o -> do
+            assert "sync compaction should drop operations" (KM.lookup "operations" o == Nothing)
+            assert "sync compaction should keep params" (KM.lookup "params" o /= Nothing)
+            assert "sync compaction should keep metrics" (KM.lookup "metrics" o /= Nothing)
+        _ -> error "expected compacted combo object"
 
 runMergeAndReadFirstCombo :: String -> Aeson.Value -> IO Aeson.Value
 runMergeAndReadFirstCombo label barsValue =
