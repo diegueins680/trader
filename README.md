@@ -631,6 +631,7 @@ Endpoints:
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
   - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), then score (`score` or `metrics.score`), then final equity.
   - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist; when a combo omits `source`, merge inherits the payload-level `source` before de-duplication.
+  - When a healthy local payload already exists, the endpoint serves it without synchronously repairing the Postgres combo replica; DB backfill stays on background sync/write paths so Web UI polling does not stall behind replica reconciliation.
   - The response also reports `rawCount`, `droppedCount`, and `dedupedCount` so the UI can show how many candidate combos were seen before sanitization (`finalEquity <= 1`) and merge de-duplication.
   - Imported top-json payloads preserve arbitrary combo/payload `source` labels during merge normalization, so identical params from different source files do not collapse into one combo just because the source name is non-platform text.
   - Top-combo merges read `finalEquity`/`score` from either the top level or nested `metrics`, backfill missing `metrics.annualizedReturn` only when bars/periods are available (including nested `metrics.periods`), and new optimizer runs stamp `params.binanceSymbol` so combos stay labeled.

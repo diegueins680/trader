@@ -34,6 +34,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix)
+import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Ord
 import Data.Scientific (FPFormat (Fixed), formatScientific, toBoundedInteger)
@@ -8517,36 +8518,45 @@ backtestTopCombosOnce topNRaw ctx = do
                             if null updates
                                 then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String)]
                                 else do
-                                    withTopCombosLock store $ do
-                                        latestValOrErr <- readTopCombosValueWithDbFallbackUnlocked (tcbcOps ctx) store
-                                        case latestValOrErr of
-                                            Left err ->
-                                                recordError
-                                                    "optimizer.combos.backtest_failed"
-                                                    ("Failed to read latest top combos before applying updates: " ++ err)
-                                                    Nothing
-                                                    Nothing
-                                            Right latestVal -> do
-                                                now <- getTimestampMs
-                                                let updateMap = HM.fromList updates
-                                                case applyComboUpdates now updateMap latestVal of
-                                                    Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                                                    Right (updatedVal, updatedCount) ->
-                                                        if updatedCount <= 0
-                                                            then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
-                                                            else do
-                                                                writeResult <- writeTopCombosValue topJsonPath updatedVal
-                                                                case writeResult of
-                                                                    Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                                                                    Right _ -> do
-                                                                        persistTopCombosMaybe (tcbcStateSync ctx) topJsonPath
-                                                                        persistTopCombosDbMaybeUnlocked mOps store
-                                                                        recordEvent
-                                                                            "optimizer.combos.backtest_updated"
-                                                                            [ "updated" .= updatedCount
-                                                                            , "topN" .= topN
-                                                                            , "path" .= topJsonPath
-                                                                            ]
+                                    dbPersistNeeded <-
+                                        withTopCombosLock store $ do
+                                            latestValOrErr <- readTopCombosValueWithDbFallbackUnlocked (tcbcOps ctx) store
+                                            case latestValOrErr of
+                                                Left err -> do
+                                                    recordError
+                                                        "optimizer.combos.backtest_failed"
+                                                        ("Failed to read latest top combos before applying updates: " ++ err)
+                                                        Nothing
+                                                        Nothing
+                                                    pure False
+                                                Right latestVal -> do
+                                                    now <- getTimestampMs
+                                                    let updateMap = HM.fromList updates
+                                                    case applyComboUpdates now updateMap latestVal of
+                                                        Left err -> do
+                                                            recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                                                            pure False
+                                                        Right (updatedVal, updatedCount) ->
+                                                            if updatedCount <= 0
+                                                                then do
+                                                                    recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
+                                                                    pure False
+                                                                else do
+                                                                    writeResult <- writeTopCombosValue topJsonPath updatedVal
+                                                                    case writeResult of
+                                                                        Left err -> do
+                                                                            recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                                                                            pure False
+                                                                        Right _ -> do
+                                                                            persistTopCombosMaybe (tcbcStateSync ctx) topJsonPath
+                                                                            recordEvent
+                                                                                "optimizer.combos.backtest_updated"
+                                                                                [ "updated" .= updatedCount
+                                                                                , "topN" .= topN
+                                                                                , "path" .= topJsonPath
+                                                                                ]
+                                                                            pure True
+                                    when dbPersistNeeded (persistTopCombosDbMaybe mOps store)
                         _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON missing combos array." Nothing Nothing
                 _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON root must be an object." Nothing Nothing
 
@@ -13063,26 +13073,50 @@ strategyCodeFromMethod mMethod =
                     <|> parseStrategyCodeNormalized raw
 
 persistTopCombosDbMaybe :: Maybe OpsStore -> TopCombosStore -> IO ()
-persistTopCombosDbMaybe mOps store =
-    withTopCombosLock store (persistTopCombosDbMaybeUnlocked mOps store)
+persistTopCombosDbMaybe mOps store = do
+    exportOrErr <- withTopCombosLock store (readTopCombosExport store)
+    persistTopCombosExportMaybe mOps exportOrErr
 
 persistTopCombosDbMaybeUnlocked :: Maybe OpsStore -> TopCombosStore -> IO ()
 persistTopCombosDbMaybeUnlocked mOps store =
+    readTopCombosExport store >>= persistTopCombosExportMaybe mOps
+
+persistTopCombosExportMaybe :: Maybe OpsStore -> Either String TopCombosExport -> IO ()
+persistTopCombosExportMaybe mOps exportOrErr =
     case mOps of
         Nothing -> pure ()
-        Just opsStore -> do
-            combosOrErr <- readTopCombosExport store
-            case combosOrErr of
+        Just opsStore ->
+            case exportOrErr of
                 Left err -> hPutStrLn stderr ("WARN: failed to persist top combos to DB (" ++ err ++ ")")
                 Right export -> do
                     _ <- try (withMVar (osLock opsStore) (\_ -> persistTopCombosToDb (osConn opsStore) export)) :: IO (Either SomeException ())
                     pure ()
+
+fetchTopComboOperationCounts :: Connection -> [TopCombo] -> IO (M.Map UUID.UUID Int)
+fetchTopComboOperationCounts conn combos =
+    let comboUuids =
+            dedupeStable
+                [ comboUuid
+                | combo <- combos
+                , Just comboUuid <- [uuidFromText (topComboUuid combo)]
+                ]
+     in if null comboUuids
+            then pure M.empty
+            else do
+                rows <-
+                    query
+                        conn
+                        "SELECT combo_uuid, COUNT(*) FROM ops WHERE combo_uuid = ANY(?) GROUP BY combo_uuid"
+                        (Only (PGArray comboUuids)) ::
+                        IO [(UUID.UUID, Int64)]
+                pure (M.fromList [(comboUuid, fromIntegral count) | (comboUuid, count) <- rows])
 
 persistTopCombosToDb :: Connection -> TopCombosExport -> IO ()
 persistTopCombosToDb conn export =
     withTransaction conn $ do
         strategyRows <- query_ conn "SELECT id, code FROM strategies" :: IO [(Int, Text)]
         let strategyMap = HM.fromList [(code, sid) | (sid, code) <- strategyRows]
+        opCountMap <- fetchTopComboOperationCounts conn (tceCombos export)
         now <- getTimestampMs
         forM_ (tceCombos export) $ \combo -> do
             case uuidFromText (topComboUuid combo) of
@@ -13096,11 +13130,7 @@ persistTopCombosToDb conn export =
                         mAnnualized = topComboMetricDouble "annualizedReturn" combo
                         paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
                         metricsJson = encodeJsonTextMaybe (Aeson.Object <$> tcMetrics combo)
-                    opRows <- query conn "SELECT COUNT(*) FROM ops WHERE combo_uuid = ?" (Only comboUuid) :: IO [Only Int64]
-                    let opCount =
-                            case opRows of
-                                (Only v : _) -> fromIntegral v
-                                _ -> 0 :: Int
+                        opCount = fromMaybe 0 (M.lookup comboUuid opCountMap)
                     void $
                         execute
                             conn
@@ -13210,11 +13240,11 @@ readTopCombosValueFromDb store =
 
 readTopCombosValueWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallback mOps store =
-    withTopCombosLock store (readTopCombosValueWithDbFallbackUnlocked mOps store)
+    readTopCombosValueWithDbFallbackUnlocked mOps store
 
 readTopCombosValueWithDbFallbackRaw :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallbackRaw mOps store =
-    withTopCombosLock store (readTopCombosValueWithDbFallbackRawUnlocked mOps store)
+    readTopCombosValueWithDbFallbackRawUnlocked mOps store
 
 readTopCombosValueWithDbFallbackUnlocked :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallbackUnlocked mOps store = do
@@ -13499,19 +13529,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                     case recovered of
                         Just val -> Right val
                         Nothing -> Left err
-    topValBackfilled <-
-        case (mOps, topVal) of
-            (Just opsStore, Right val) -> do
-                dbVal <- readTopCombosValueFromDb opsStore
-                let currentCount = topCombosComboCount val
-                    dbCount =
-                        case dbVal of
-                            Right dbVal' -> topCombosComboCount dbVal'
-                            Left _ -> 0
-                when (currentCount > dbCount) $
-                    withTopCombosLock topCombosStore (persistTopCombosDbMaybeUnlocked mOps topCombosStore)
-                pure (Right val)
-            _ -> pure topVal
+    let topValBackfilled = topVal
     minPersist <- topCombosMinPersistFromEnv
     maxCombos <- optimizerMaxCombosFromEnv
     _ <-
@@ -13531,10 +13549,11 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                                 if mergedCount <= currentCount
                                     then pure (Right val)
                                     else do
-                                        withTopCombosLock topCombosStore $ do
+                                        dbPersistNeeded <- withTopCombosLock topCombosStore $ do
                                             _ <- writeTopCombosValue topJsonPath mergedVal
                                             persistTopCombosMaybe mStateSyncTarget topJsonPath
-                                            persistTopCombosDbMaybeUnlocked mOps topCombosStore
+                                            pure True
+                                        when dbPersistNeeded (persistTopCombosDbMaybe mOps topCombosStore)
                                         pure (Right mergedVal)
             _ -> pure topValBackfilled
     let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
@@ -13723,7 +13742,7 @@ handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStor
                                     ++ maybe [] (\v -> ["localGeneratedAtMs" .= v]) local
                                 )
 
-                    topStatsOrErr <-
+                    (topDbPersistNeeded, topStatsOrErr) <-
                         case sspTopCombos payload of
                             Nothing -> do
                                 localTopValResult <- readTopCombosValueWithDbFallback mOps topCombosStore
@@ -13731,10 +13750,10 @@ handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStor
                                         case localTopValResult of
                                             Right val -> topCombosGeneratedAtMs val
                                             Left _ -> Nothing
-                                pure (Right (mkTopStats "skipped" Nothing localGeneratedAt))
+                                pure (False, Right (mkTopStats "skipped" Nothing localGeneratedAt))
                             Just raw ->
                                 if not (isTopCombosPayload raw)
-                                    then pure (Left (jsonError status400 "Invalid topCombos payload (expected object with combos array)."))
+                                    then pure (False, Left (jsonError status400 "Invalid topCombos payload (expected object with combos array)."))
                                     else withTopCombosLock topCombosStore $ do
                                         localTopValResult <- readTopCombosValueWithDbFallbackUnlocked mOps topCombosStore
                                         minPersist <- topCombosMinPersistFromEnv
@@ -13769,13 +13788,13 @@ handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStor
                                                 writeResult <- writeTopCombosValue topJsonPath mergedVal
                                                 case writeResult of
                                                     Left err ->
-                                                        pure (Left (jsonError status500 ("Failed to write top combos: " ++ err)))
+                                                        pure (False, Left (jsonError status500 ("Failed to write top combos: " ++ err)))
                                                     Right _ -> do
                                                         persistTopCombosMaybe mStateSyncTarget topJsonPath
-                                                        persistTopCombosDbMaybeUnlocked mOps topCombosStore
-                                                        pure (Right (mkTopStats action incomingGeneratedAt localGeneratedAt))
-                                            else pure (Right (mkTopStats "kept" incomingGeneratedAt localGeneratedAt))
+                                                        pure (True, Right (mkTopStats action incomingGeneratedAt localGeneratedAt))
+                                            else pure (False, Right (mkTopStats "kept" incomingGeneratedAt localGeneratedAt))
 
+                    when topDbPersistNeeded (persistTopCombosDbMaybe mOps topCombosStore)
                     case topStatsOrErr of
                         Left resp -> respond resp
                         Right topStats ->

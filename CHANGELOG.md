@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Web UI: applying router or bandit-router optimizer combos now restores `routerLookback` and `routerMinScore`, and combo identity now distinguishes those fields so applied-router replays match the selected combo.
+- API/Top-combos: keep `/optimizer/combos` on the fast read path by serving healthy local payloads without synchronous DB repair on `GET`, make combo reads lock-free against the top-combos process/file lock, and batch combo op-count lookups during DB persistence so split Fly deployments stop timing out related `/optimizer/combos`, `/ops`, and bot routes under replica reconciliation load.
 - Dev/CI: reorient bounded autoloop cycles around backend Haskell trading-algorithm work by requiring an `haskell/app/*` algorithm review plus a formal-methods review (`FORMAL_METHODS.md`, `haskell/app/Trader/Formal/*`, or backend tests), renaming the lifecycle phases to `algorithm-review` / `formal-methods-review`, and prioritizing backend/formal files in planner context before web UI files.
 - Web UI: make CSV/clipboard timestamp exports total for malformed finite timestamps, so Binance trades, performance rollups, and copied Data Log entries no longer throw `RangeError: Invalid time value` on out-of-range metadata.
 - Web UI: treat zero/dust-sized Binance positions as flat before trusting stale `positionSide` metadata, so the Open positions and orphaned-operations panels no longer show phantom LONG/SHORT rows for effectively closed positions.
