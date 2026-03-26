@@ -139,6 +139,33 @@ test("buildOptimizerRunRequest normalizes known integer extra overrides before m
   assert.equal(typeof request.barsMin, "number");
 });
 
+test("buildOptimizerRunRequest canonicalizes known source, symbol, path, and finite numeric extra overrides", () => {
+  const form = {
+    ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),
+    timeoutSec: "",
+    backtestRatio: "",
+    tuneRatio: "",
+  };
+  const request = buildOptimizerRunRequest(form, {
+    source: " Coinbase ",
+    binanceSymbol: " btc-usd ",
+    data: " ../data/sample_prices.csv ",
+    timeoutSec: "12",
+    backtestRatio: "0.2",
+    tuneRatio: "0.25",
+  });
+
+  assert.equal(request.source, "coinbase");
+  assert.equal(request.binanceSymbol, "BTC-USD");
+  assert.equal(request.data, "../data/sample_prices.csv");
+  assert.equal(request.timeoutSec, 12);
+  assert.equal(request.backtestRatio, 0.2);
+  assert.equal(request.tuneRatio, 0.25);
+  assert.equal(typeof request.timeoutSec, "number");
+  assert.equal(typeof request.backtestRatio, "number");
+  assert.equal(typeof request.tuneRatio, "number");
+});
+
 test("buildOptimizerRunRequest drops invalid known integer extra overrides instead of emitting stringly payloads", () => {
   const unsafe = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
   const form = {
@@ -153,6 +180,30 @@ test("buildOptimizerRunRequest drops invalid known integer extra overrides inste
 
   assert.equal("trials" in request, false);
   assert.equal("trendLookbackMin" in request, false);
+});
+
+test("buildOptimizerRunRequest keeps invalid known source and finite-number extra overrides inert", () => {
+  const form = {
+    ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),
+    timeoutSec: "",
+    backtestRatio: "",
+    tuneRatio: "",
+  };
+  const request = buildOptimizerRunRequest(form, {
+    source: "bogus",
+    binanceSymbol: "   ",
+    data: "   ",
+    timeoutSec: "oops",
+    backtestRatio: "nan",
+    tuneRatio: "inf",
+  });
+
+  assert.equal(request.source, "binance");
+  assert.equal(request.binanceSymbol, "BTCUSDT");
+  assert.equal("data" in request, false);
+  assert.equal("timeoutSec" in request, false);
+  assert.equal("backtestRatio" in request, false);
+  assert.equal("tuneRatio" in request, false);
 });
 
 test("sanitizeOptimizationComboOperation preserves only exact non-negative discrete operation coordinates", () => {

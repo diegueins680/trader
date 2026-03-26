@@ -1228,6 +1228,42 @@ const OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS = [
   "trendLookbackMax",
 ] as const;
 
+const OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS = ["timeoutSec", "backtestRatio", "tuneRatio"] as const;
+
+const OPTIMIZER_EXTRA_TRIMMED_STRING_KEYS = [
+  "data",
+  "priceColumn",
+  "highColumn",
+  "lowColumn",
+  "intervals",
+  "platforms",
+  "lookbackWindow",
+  "objective",
+  "tuneObjective",
+  "normalizations",
+] as const;
+
+function readOptionalTrimmedStringOverride(raw: unknown): { provided: boolean; value: string | null } {
+  if (raw == null) return { provided: false, value: null };
+  if (typeof raw !== "string") return { provided: true, value: null };
+  const trimmed = raw.trim();
+  if (!trimmed) return { provided: false, value: null };
+  return { provided: true, value: trimmed };
+}
+
+function readOptionalFiniteNumberOverride(raw: unknown): { provided: boolean; value: number | null } {
+  if (raw == null) return { provided: false, value: null };
+  if (typeof raw === "number") {
+    return { provided: true, value: Number.isFinite(raw) ? raw : null };
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return { provided: false, value: null };
+    return { provided: true, value: parseOptionalNumber(trimmed) ?? null };
+  }
+  return { provided: true, value: null };
+}
+
 function readOptionalWholeNumberOverride(raw: unknown): { provided: boolean; value: number | null } {
   if (raw == null) return { provided: false, value: null };
   if (typeof raw === "string") {
@@ -1239,6 +1275,56 @@ function readOptionalWholeNumberOverride(raw: unknown): { provided: boolean; val
     return { provided: true, value: Number.isSafeInteger(raw) ? raw : null };
   }
   return { provided: true, value: null };
+}
+
+function normalizeOptimizerSourceOverride(raw: unknown): OptimizerSource | null {
+  const override = readOptionalTrimmedStringOverride(raw);
+  if (!override.provided || override.value == null) return null;
+  switch (override.value.toLowerCase()) {
+    case "binance":
+    case "coinbase":
+    case "kraken":
+    case "poloniex":
+    case "csv":
+      return override.value.toLowerCase() as OptimizerSource;
+    default:
+      return null;
+  }
+}
+
+function normalizeKnownOptimizerRunExtras(extras: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...extras };
+  for (const key of OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS) {
+    const override = readOptionalWholeNumberOverride(normalized[key]);
+    if (!override.provided || override.value == null) {
+      delete normalized[key];
+      continue;
+    }
+    normalized[key] = override.value;
+  }
+  for (const key of OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS) {
+    const override = readOptionalFiniteNumberOverride(normalized[key]);
+    if (!override.provided || override.value == null) {
+      delete normalized[key];
+      continue;
+    }
+    normalized[key] = override.value;
+  }
+  for (const key of OPTIMIZER_EXTRA_TRIMMED_STRING_KEYS) {
+    const override = readOptionalTrimmedStringOverride(normalized[key]);
+    if (!override.provided || override.value == null) {
+      delete normalized[key];
+      continue;
+    }
+    normalized[key] = override.value;
+  }
+  const source = normalizeOptimizerSourceOverride(normalized.source);
+  if (source == null) delete normalized.source;
+  else normalized.source = source;
+  const symbolOverride = readOptionalTrimmedStringOverride(normalized.binanceSymbol);
+  if (!symbolOverride.provided || symbolOverride.value == null) delete normalized.binanceSymbol;
+  else normalized.binanceSymbol = symbolOverride.value.toUpperCase();
+  return normalized;
 }
 
 export function findOptionalWholeNumberFieldError(fields: OptionalWholeNumberField[]): string | null {
@@ -1955,17 +2041,9 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (form.noSweepThreshold) req.noSweepThreshold = true;
 
   if (extras) {
-    const normalizedExtras: Record<string, unknown> = { ...extras };
-    for (const key of OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS) {
-      const override = readOptionalWholeNumberOverride(normalizedExtras[key]);
-      if (!override.provided || override.value == null) {
-        delete normalizedExtras[key];
-        continue;
-      }
-      normalizedExtras[key] = override.value;
-    }
-    // Keep extra JSON forward-compatible, but never let known integer request
-    // keys drift into stringly or fractional payloads.
+    const normalizedExtras = normalizeKnownOptimizerRunExtras(extras);
+    // Keep extra JSON forward-compatible, but normalize the known typed
+    // override keys before merging so validation and request emission agree.
     Object.assign(req, normalizedExtras);
   }
 

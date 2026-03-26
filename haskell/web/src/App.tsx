@@ -29,7 +29,6 @@ import type {
   OpsOperation,
   OptimizerRunRequest,
   OptimizerRunResponse,
-  OptimizerSource,
   Platform,
   Positioning,
   StateSyncImportResponse,
@@ -252,8 +251,6 @@ import {
   parseDatetimeLocal,
   parseMaybeInt,
   parseOptimizerExtras,
-  parseOptionalInt,
-  parseOptionalNumber,
   parseOptionalString,
   parseSymbolsInput,
   parseTimeInputMs,
@@ -1667,25 +1664,6 @@ export function App() {
   const optimizerRunValidationError = useMemo(() => {
     if (optimizerRunExtras.error) return optimizerRunExtras.error;
     const extras = optimizerRunExtras.value ?? {};
-    const extraSourceRaw = typeof extras.source === "string" ? extras.source.trim().toLowerCase() : "";
-    const source =
-      extraSourceRaw === "binance" ||
-      extraSourceRaw === "coinbase" ||
-      extraSourceRaw === "kraken" ||
-      extraSourceRaw === "poloniex" ||
-      extraSourceRaw === "csv"
-        ? (extraSourceRaw as OptimizerSource)
-        : optimizerRunForm.source;
-    const dataPath = optimizerRunForm.dataPath.trim();
-    const extraData = typeof extras.data === "string" ? extras.data.trim() : "";
-    const symbol = optimizerRunForm.symbol.trim();
-    const extraSymbol = typeof extras.binanceSymbol === "string" ? extras.binanceSymbol.trim() : "";
-    const high = optimizerRunForm.highColumn.trim() || (typeof extras.highColumn === "string" ? extras.highColumn.trim() : "");
-    const low = optimizerRunForm.lowColumn.trim() || (typeof extras.lowColumn === "string" ? extras.lowColumn.trim() : "");
-    const intervals =
-      typeof extras.intervals === "string" ? extras.intervals.trim() : optimizerRunForm.intervals.trim();
-    const lookbackWindow =
-      typeof extras.lookbackWindow === "string" ? extras.lookbackWindow.trim() : optimizerRunForm.lookbackWindow.trim();
     const wholeNumberError = findOptionalWholeNumberFieldError([
       { label: "Bars min", raw: optimizerRunForm.barsMin, override: extras.barsMin },
       { label: "Bars max", raw: optimizerRunForm.barsMax, override: extras.barsMax },
@@ -1722,19 +1700,25 @@ export function App() {
       { label: "Trend lookback max", raw: optimizerRunForm.trendLookbackMax, override: extras.trendLookbackMax },
     ]);
     if (wholeNumberError) return wholeNumberError;
-    const trials = typeof extras.trials === "number" ? extras.trials : parseOptionalInt(optimizerRunForm.trials);
-    const timeoutSec =
-      typeof extras.timeoutSec === "number" ? extras.timeoutSec : parseOptionalNumber(optimizerRunForm.timeoutSec);
-    const barsMin = typeof extras.barsMin === "number" ? extras.barsMin : parseOptionalInt(optimizerRunForm.barsMin);
-    const barsMax = typeof extras.barsMax === "number" ? extras.barsMax : parseOptionalInt(optimizerRunForm.barsMax);
-    const backtestRatio =
-      typeof extras.backtestRatio === "number" ? extras.backtestRatio : parseOptionalNumber(optimizerRunForm.backtestRatio);
-    const tuneRatio = typeof extras.tuneRatio === "number" ? extras.tuneRatio : parseOptionalNumber(optimizerRunForm.tuneRatio);
+    const requestPreview = buildOptimizerRunRequest(optimizerRunForm, extras);
+    const source = requestPreview.source ?? optimizerRunForm.source;
+    const dataPath = requestPreview.data ?? "";
+    const symbol = requestPreview.binanceSymbol ?? "";
+    const high = requestPreview.highColumn ?? "";
+    const low = requestPreview.lowColumn ?? "";
+    const intervals = requestPreview.intervals ?? "";
+    const lookbackWindow = requestPreview.lookbackWindow ?? "";
+    const trials = typeof requestPreview.trials === "number" ? requestPreview.trials : null;
+    const timeoutSec = typeof requestPreview.timeoutSec === "number" ? requestPreview.timeoutSec : null;
+    const barsMin = typeof requestPreview.barsMin === "number" ? requestPreview.barsMin : null;
+    const barsMax = typeof requestPreview.barsMax === "number" ? requestPreview.barsMax : null;
+    const backtestRatio = typeof requestPreview.backtestRatio === "number" ? requestPreview.backtestRatio : null;
+    const tuneRatio = typeof requestPreview.tuneRatio === "number" ? requestPreview.tuneRatio : null;
 
     if (source === "csv") {
-      if (!dataPath && !extraData) return "CSV source requires a data path.";
+      if (!dataPath) return "CSV source requires a data path.";
       if ((high && !low) || (!high && low)) return "Provide both High/Low columns or leave both empty.";
-    } else if (!symbol && !extraSymbol) {
+    } else if (!symbol) {
       return "Symbol is required for exchange sources.";
     }
     if (backtestRatio != null && (backtestRatio < 0 || backtestRatio >= 1)) {
@@ -3250,21 +3234,9 @@ export function App() {
     setOptimizerRunUi((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const extraTimeoutSec = (() => {
-        const raw = optimizerRunExtras.value?.timeoutSec;
-        if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-        if (typeof raw === "string") {
-          const parsed = Number(raw);
-          return Number.isFinite(parsed) ? parsed : null;
-        }
-        return null;
-      })();
-      const timeoutSec = extraTimeoutSec ?? parseOptionalNumber(optimizerRunForm.timeoutSec);
-      const timeoutMs =
-        typeof timeoutSec === "number" && Number.isFinite(timeoutSec) && timeoutSec > 0
-          ? Math.max(1000, Math.round(timeoutSec * 1000))
-          : BACKTEST_TIMEOUT_MS;
       const payload = buildOptimizerRunRequest(optimizerRunForm, optimizerRunExtras.value);
+      const timeoutSec = typeof payload.timeoutSec === "number" && Number.isFinite(payload.timeoutSec) ? payload.timeoutSec : null;
+      const timeoutMs = timeoutSec != null && timeoutSec > 0 ? Math.max(1000, Math.round(timeoutSec * 1000)) : BACKTEST_TIMEOUT_MS;
       const out = await optimizerRun(apiBase, payload, {
         signal: controller.signal,
         headers: authHeaders,
