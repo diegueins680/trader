@@ -14,12 +14,12 @@ module Trader.Formal.Optimization (
 import Data.Ord (Down (..))
 
 import Trader.Metrics (BacktestMetrics (..))
-import Trader.VolConfGate
-    ( VolConfGateBehavior (..)
-    , VolConfGateCell (..)
-    , VolConfGatePreset (..)
-    , volConfGateCell
-    )
+import Trader.VolConfGate (
+    VolConfGateBehavior (..),
+    VolConfGateCell (..),
+    VolConfGatePreset (..),
+    volConfGateCell,
+  )
 
 roiRequirementSummary :: String
 roiRequirementSummary =
