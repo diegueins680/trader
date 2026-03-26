@@ -594,6 +594,29 @@ Proof sketch:
 - The restore path now uses the same clamp intervals already enforced later by `haskell/web/src/App.tsx` when building API requests (`fee`, stop/drawdown ratios, `backtestRatio`) and scheduling auto-refresh (`autoRefreshSec`), so restored UI state is aligned with downstream behavior instead of reopening with values that would later serialize or execute differently.
 - Because each bounded field is normalized by a pure clamp onto a closed interval, the normalized value is already in the image of the clamp; reapplying the same normalization leaves it unchanged, which yields the restore fixed-point property checked by the test suite.
 
+## Formal optimizer-combo integer boundary contract
+
+Top-combo payload sanitization in `haskell/web/src/App.tsx` and combo application in `haskell/web/src/app/appHelpers.ts` now share one exact-safe-integer admission boundary for integer-backed UI fields.
+
+Clauses:
+
+1. Only exact safe integers may cross from combo payloads into integer-backed form state.
+2. Fractional, non-finite, and unsafe integer-like combo values are rejected instead of being truncated or rounded into a different integer.
+3. Rejected combo integers are inert during combo application: carry-forward fields keep the previous form value, while truly absent opt-in fields keep their existing missing-field semantics.
+4. Accepted combo integers still flow through the existing per-field min/max clamps unchanged.
+
+The verifier in `haskell/web/test/appHelpers.test.mjs`, `haskell/web/test/formSymbolBehavior.test.mjs`, and `haskell/web/test/repoConfig.test.mjs` checks:
+
+- the helper boundary over representative exact-safe, fractional, non-finite, unsafe, and non-numeric inputs
+- a bounded per-field apply matrix over `{bars, epochs, hiddenSize, patience, minHoldBars, maxHoldBars, cooldownBars, maxOrderErrors, trendLookback, volLookback, rebalanceBars, walkForwardFolds, walkForwardEmbargoBars}` crossed with `{missing, valid exact, fractional, unsafe}`
+- that representative top-combo integer imports in `sanitizeTopCombosPayload` route through the shared exact-safe-integer helper
+
+Proof sketch:
+
+- `readExactSafeInteger` returns a value iff JavaScript can represent that integer exactly, so malformed payload numerics are rejected before any clamp logic can change them.
+- `coerceExactSafeInteger`, `clampComboForLimits`, and `applyComboToForm` now validate combo integers before clamping, so a present-but-invalid combo field can no longer be silently rewritten into a different integer state.
+- Missing-field semantics remain explicit at each call site (`maxOrderErrors` still distinguishes absent from invalid), which keeps the existing opt-in/off behavior while strengthening the validation boundary.
+
 ## Formal local-datetime filter contract
 
 `formatDatetimeLocal` and `parseDatetimeLocal` in `haskell/web/src/app/appHelpers.ts` are treated as the total formatter/parser pair for the Live bot timeline range inputs.

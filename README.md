@@ -47,6 +47,7 @@ Features
 - Sampled web charts now normalize malformed numeric lengths/budgets conservatively, keeping downsampling total instead of throwing on non-finite values.
 - Saved web settings now restore integer-backed `bars`, `epochs`, `hiddenSize`, and `patience` fields as exact safe integers; fractional/unsafe persisted values fall back to defaults instead of reopening with values the emitted request would later truncate or clamp.
 - Saved web settings now also normalize restored `method`/`normalization` enum fields and clamp restored `fee`, stop/drawdown ratios, `backtestRatio`, and `autoRefreshSec` to the same safe ranges used later by the request builder and auto-refresh scheduler.
+- Optimizer combo imports and combo apply now reject fractional/unsafe integer-backed fields instead of truncating them into different bars/epochs/lookback settings.
 - Saved web settings now canonicalize restored `platform`, `market`, `interval`, `positioning`, `intrabarFill`, `tuneObjective`, and `normalization` values with the same whitespace/casing/alias rules accepted by backend parsing; supported exchange aliases such as `coinbase-advanced`, `poloniex-v2`, and `binanceusdm` now restore to the correct platform, preserving Binance `1M` month semantics instead of falling back to defaults on stale local storage.
 - Saved web settings now treat blank numeric-string restores as absent, so malformed local storage/profile payloads fall back to the documented defaults instead of reopening at `0` or a clamped minimum.
 - Sample dataset in `data/sample_prices.csv`.
