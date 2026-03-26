@@ -8,6 +8,7 @@ import {
   buildDefaultOptimizerRunForm,
   formApplySignature,
   invalidSymbolsForPlatform,
+  parseSymbolsInput,
   sanitizeSymbolForPlatform,
 } from "../.tmp/web-tests/appHelpers.js";
 import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
@@ -219,6 +220,22 @@ test("frontend symbol validation accepts spaced Coinbase and Poloniex delimiters
     invalidSymbolsForPlatform("poloniex", ["ETH _ USDT", "BTC _ USDT", "ETH _ USDT _ EXTRA"]),
     ["ETH _ USDT _ EXTRA"],
   );
+});
+
+test("parseSymbolsInput preserves whitespace-padded delimiters inside multi-symbol entries", () => {
+  const coinbaseSymbols = parseSymbolsInput(" btc - usd, eth - usd  btc-usd ");
+  assert.deepEqual(coinbaseSymbols, ["BTC-USD", "ETH-USD"]);
+  assert.deepEqual(invalidSymbolsForPlatform("coinbase", coinbaseSymbols), []);
+
+  const poloniexSymbols = parseSymbolsInput(" eth _ usdt  btc _ usdt ");
+  assert.deepEqual(poloniexSymbols, ["ETH_USDT", "BTC_USDT"]);
+  assert.deepEqual(invalidSymbolsForPlatform("poloniex", poloniexSymbols), []);
+
+  const slashSymbols = parseSymbolsInput(" btc / usd, eth / usd ");
+  assert.deepEqual(slashSymbols, ["BTC/USD", "ETH/USD"]);
+
+  const malformed = parseSymbolsInput(" btc /, eth / usd ");
+  assert.deepEqual(malformed, ["BTC/", "ETH/USD"]);
 });
 
 test("normalizeFormState canonicalizes spaced delimited symbols per platform", () => {

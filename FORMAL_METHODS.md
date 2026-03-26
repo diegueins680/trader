@@ -705,3 +705,22 @@ Proof sketch:
 - `formatIsoUtc` first rejects non-number and non-finite inputs, so the only remaining candidates are finite numbers.
 - It then constructs `Date(ms)` and checks `d.getTime()` before calling `toISOString()`. ECMAScript invalid-date objects report `NaN` from `getTime()`, so out-of-range finite inputs stop at the empty-string branch instead of reaching the partial `toISOString()` call.
 - For every surviving in-range value, the function returns `d.toISOString()` directly, so the formatter agrees exactly with the built-in UTC ISO rendering on its defined domain.
+
+## Formal symbol-list tokenization contract
+
+`parseSymbolsInput` in `haskell/web/src/app/appHelpers.ts` is treated as the shared tokenizer for comma/space-separated symbol lists in the web UI.
+
+Clauses:
+
+1. Tokenization is case-insensitive, uppercases outputs, and preserves first-occurrence order.
+2. Commas and whitespace separate symbols, except that whitespace immediately adjacent to `-`, `_`, or `/` is formatting noise inside a symbol rather than a list boundary.
+3. Therefore delimiter-padded symbols such as `BTC / USD`, `BTC - USD`, and `BTC _ USDT` normalize to `BTC/USD`, `BTC-USD`, and `BTC_USDT` before list splitting.
+4. Malformed delimiter usage remains attached to its neighboring token so later per-platform validation can reject the whole symbol instead of manufacturing phantom standalone delimiter tokens.
+
+The verifier in `haskell/web/test/formSymbolBehavior.test.mjs` checks representative Coinbase, Poloniex, and slash-delimited multi-symbol cases plus first-occurrence deduplication.
+
+Proof sketch:
+
+- `parseSymbolsInput` first removes only whitespace adjacent to `-`, `_`, and `/`, so it preserves every alphanumeric symbol leg and every delimiter byte while erasing formatting-only spaces.
+- The subsequent split runs only on commas and the remaining whitespace, which means true list separators still divide tokens but internal delimiter padding no longer can.
+- A `Set` is populated in scan order on the normalized tokens, so deduplication preserves the first normalized occurrence exactly.

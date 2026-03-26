@@ -236,9 +236,11 @@ export function parseBotOrderOp(op: OpsOperation): BotOrderOp | null {
 }
 
 export function parseSymbolsInput(raw: string): string[] {
+  // Whitespace around symbol delimiters is formatting noise, not a list split.
+  const normalized = raw.replace(/\s*([/_-])\s*/g, "$1");
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const part of raw.split(/[,\s]+/)) {
+  for (const part of normalized.split(/[,\s]+/)) {
     const sym = part.trim().toUpperCase();
     if (!sym) continue;
     if (seen.has(sym)) continue;

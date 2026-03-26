@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: preserve whitespace-padded symbol delimiters when parsing comma/space-separated symbol lists, so inputs such as `BTC / USD, ETH / USD` stay as two symbols instead of being split into phantom `BTC`/`/`/`USD` tokens.
 - Web UI: treat non-finite Binance position amounts as non-directional in the Open positions panel, so stale hedge-side metadata cannot surface phantom LONG/SHORT rows from malformed exchange payloads.
 - Web UI: normalize known optimizer advanced-JSON `source` / `binanceSymbol` / `data` / `timeoutSec` / split-ratio overrides before validation and request emission, so guardrails and client timeout selection can no longer disagree with the payload sent to `/optimizer/run`.
 - Web UI: normalize optimizer advanced-JSON whole-number overrides through the same exact-integer contract as the visible form, so quoted integers like `"trials":"12"` now reach `/optimizer/run` as numbers while fractional/unsafe overrides are rejected locally instead of being sent as stringly typed request fields.
