@@ -618,3 +618,21 @@ Proof sketch:
 - After `Date.parse`, it re-reads the local calendar fields from the resulting `Date` and compares them against the source tuple; any normalization by the JS date parser therefore becomes an observable mismatch and is rejected.
 - `formatDatetimeLocal` now checks `d.getTime()` after constructing the `Date`, so finite numbers outside the representable `Date` range collapse to the same empty-string behavior already used for non-finite inputs.
 - The bounded month-end matrix proves the intended accept/reject split around leap-year and 30-day/31-day boundaries, while the round-trip assertions establish the parser/formatter fixed-point property on the accepted states.
+
+## Formal ISO UTC export formatter contract
+
+`formatIsoUtc` in `haskell/web/src/app/utils.ts` is treated as the total UTC timestamp formatter for copy/export surfaces that include raw millisecond fields.
+
+Clauses:
+
+1. `formatIsoUtc` is total over `number | null | undefined`: nullish, non-finite, and out-of-range finite inputs produce `""`.
+2. In-range finite timestamps produce exactly `new Date(ms).toISOString()`.
+3. Therefore CSV/clipboard export paths that depend on `formatIsoUtc` cannot throw `RangeError: Invalid time value` solely because a payload contains an out-of-range finite timestamp.
+
+The verifier in `haskell/web/test/utils.test.mjs` checks representative nullish, non-finite, out-of-range, and epoch-zero cases.
+
+Proof sketch:
+
+- `formatIsoUtc` first rejects non-number and non-finite inputs, so the only remaining candidates are finite numbers.
+- It then constructs `Date(ms)` and checks `d.getTime()` before calling `toISOString()`. ECMAScript invalid-date objects report `NaN` from `getTime()`, so out-of-range finite inputs stop at the empty-string branch instead of reaching the partial `toISOString()` call.
+- For every surviving in-range value, the function returns `d.toISOString()` directly, so the formatter agrees exactly with the built-in UTC ISO rendering on its defined domain.

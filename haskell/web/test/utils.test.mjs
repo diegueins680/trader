@@ -7,6 +7,7 @@ import {
   downsampleArray,
   downsampleIndices,
   downsampleOptionalArray,
+  formatIsoUtc,
   inferFlyApiAppName,
   inferFlyDirectApiBaseFromHostname,
   isLocalHostname,
@@ -859,6 +860,15 @@ test("parseDurationSeconds rejects unsafe integer magnitudes and overflowed unit
   const overflowMinutes = (BigInt(Number.MAX_SAFE_INTEGER) / 60n + 1n).toString();
   assert.equal(parseDurationSeconds(`${unsafeSeconds}s`), null);
   assert.equal(parseDurationSeconds(`${overflowMinutes}m`), null);
+});
+
+test("formatIsoUtc is total over nullish, non-finite, and out-of-range timestamps", () => {
+  assert.equal(formatIsoUtc(null), "");
+  assert.equal(formatIsoUtc(undefined), "");
+  assert.equal(formatIsoUtc(Number.NaN), "");
+  assert.equal(formatIsoUtc(1e20), "");
+  assert.equal(formatIsoUtc(-1e20), "");
+  assert.equal(formatIsoUtc(0), "1970-01-01T00:00:00.000Z");
 });
 test("downsampleIndices preserves bounded chart sampling invariants", () => {
 for (let total = 0; total <= 257; total += 1) {

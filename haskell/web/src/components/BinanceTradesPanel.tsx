@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { BinancePnlAnalysis, BinanceTradesUiState, CommissionTotal, OrderSideFilter } from "../app/appHelpers";
 import { binanceTradeSideLabel, csvEscape, pnlBadgeClass } from "../app/appHelpers";
 import { ACCOUNT_TRADE_PNL_TIPS } from "../app/pnlTips";
-import { fmtTimeMs, fmtTimeMsWithMs, marketLabel, numFromInput } from "../app/utils";
+import { fmtTimeMs, fmtTimeMsWithMs, formatIsoUtc, marketLabel, numFromInput } from "../app/utils";
 import { fmtMoney, fmtNum, fmtPct } from "../lib/format";
 import type { BinanceTrade } from "../lib/types";
 import { InfoList, InfoPopover } from "./InfoPopover";
@@ -237,11 +237,11 @@ export function BinanceTradesPanel({
     ];
     const rows = binanceTradesFiltered.map((trade) => {
       const timeMs = trade.time ?? null;
-      const timeIso = Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : "";
+      const timeIso = formatIsoUtc(timeMs);
       const entryTimeMs = trade.entryTime ?? null;
-      const entryTimeIso = typeof entryTimeMs === "number" && Number.isFinite(entryTimeMs) ? new Date(entryTimeMs).toISOString() : "";
+      const entryTimeIso = formatIsoUtc(entryTimeMs);
       const exitTimeMs = trade.exitTime ?? null;
-      const exitTimeIso = typeof exitTimeMs === "number" && Number.isFinite(exitTimeMs) ? new Date(exitTimeMs).toISOString() : "";
+      const exitTimeIso = formatIsoUtc(exitTimeMs);
       const side = binanceTradeSideLabel(trade);
       return [
         timeMs ?? "",

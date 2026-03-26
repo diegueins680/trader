@@ -1050,6 +1050,7 @@ The Data Log panel aligns toolbar controls and uses theme-matched styling with a
 The configuration pane preserves its scroll position during live updates.
 Tables now expand within panels (with horizontal scroll when needed) so long trade lists, including Binance account trades, stay visible without clipped columns.
 Performance and Binance trade tables include CSV export buttons, and destructive clears (profiles/logs/trade history) now require confirmation or offer undo.
+CSV/clipboard timestamp exports are total over malformed timestamp metadata: out-of-range finite millisecond values now render as blank/raw fallbacks instead of throwing during Binance trades export, performance export, or Data Log copy.
 Open positions chart headers and position badges wrap within the panel so all stats remain visible on narrower layouts.
 Binance positions auto-refresh no longer throws a startup error in the UI.
 The Bot activity panel now tolerates bot status payloads that omit `latestSignal` (including older API versions).

@@ -455,6 +455,13 @@ export function fmtTimeMs(ms: number): string {
   }
 }
 
+export function formatIsoUtc(ms: number | null | undefined): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return "";
+  return d.toISOString();
+}
+
 export function fmtTimeMsWithMs(ms: number): string {
   if (!Number.isFinite(ms)) return "—";
   try {
