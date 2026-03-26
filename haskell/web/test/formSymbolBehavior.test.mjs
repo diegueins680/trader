@@ -504,6 +504,30 @@ test("applyComboToForm only accepts exact safe integers for integer-backed combo
   }
 });
 
+test("training hyperparameters preserve their emitted bounds across combo apply and restore", () => {
+  const prev = {
+    ...defaultForm,
+    learningRate: 0.001,
+    valRatio: 0.3,
+    gradClip: 0,
+  };
+  const combo = buildComboFromForm(prev, {
+    learningRate: 2.5,
+    valRatio: 1,
+    gradClip: 50,
+  });
+
+  const applied = applyComboToForm(prev, combo, null);
+  assert.equal(applied.learningRate, 2.5);
+  assert.equal(applied.valRatio, 0.999999);
+  assert.equal(applied.gradClip, 50);
+
+  const restored = normalizeFormState(applied);
+  assert.equal(restored.learningRate, applied.learningRate);
+  assert.equal(restored.valRatio, applied.valRatio);
+  assert.equal(restored.gradClip, applied.gradClip);
+});
+
 test("router combo params apply exactly and participate in combo signatures", () => {
   const prev = {
     ...defaultForm,

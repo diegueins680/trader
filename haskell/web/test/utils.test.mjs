@@ -1617,6 +1617,9 @@ const boundedCases = [
 { field: "maxDrawdown", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
 { field: "maxDailyLoss", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
 { field: "backtestRatio", values: [-1, "0", 0.2, 2], expect: (value) => Math.min(0.99, Math.max(0.01, Number(value))) },
+{ field: "learningRate", values: [-1, "-1", 0.001, 2.5], expect: (value) => Math.min(1e9, Math.max(0, Number(value))) },
+{ field: "valRatio", values: [-1, "-1", 0.2, 1, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "gradClip", values: [-1, "-1", 0, 5, 50, 200], expect: (value) => Math.min(100, Math.max(0, Number(value))) },
 { field: "autoRefreshSec", values: [1, "1", 20, 999], expect: (value) => Math.min(600, Math.max(5, Number(value))) },
 ];
 for (const { field, values, expect } of boundedCases) {

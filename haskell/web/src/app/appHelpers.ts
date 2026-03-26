@@ -2456,7 +2456,7 @@ export function applyComboToForm(
   const closeThreshold = manualOverrides?.has("closeThreshold") ? prev.closeThreshold : Math.max(0, closeThrRaw);
   const fee = Math.max(0, coerceNumber(combo.params.fee, prev.fee));
   const learningRate = Math.max(1e-9, coerceNumber(combo.params.learningRate, prev.learningRate));
-  const valRatio = clamp(coerceNumber(combo.params.valRatio, prev.valRatio), 0, 1);
+  const valRatio = clamp(coerceNumber(combo.params.valRatio, prev.valRatio), 0, 0.999999);
   const patience = clamp(coerceExactSafeInteger(combo.params.patience, prev.patience), 0, 1000);
   const gradClipRaw = coerceNumber(combo.params.gradClip, 0);
   const gradClip = gradClipRaw > 0 ? clamp(gradClipRaw, 0, 100) : 0;

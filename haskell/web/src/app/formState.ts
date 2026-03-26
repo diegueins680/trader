@@ -651,10 +651,14 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
       86_400,
     ),
     epochs,
-    learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1),
-    valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
+    // Persisted training hyperparameters must stay aligned with the values the
+    // UI can still emit after restore: larger positive learning rates remain
+    // representable, while validation-split ratios stay strictly below 1 to
+    // satisfy backend validation.
+    learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1e9),
+    valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 0.999999),
     patience,
-    gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
+    gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 100),
     hiddenSize,
     minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, defaultForm.minPositionSize, 0, 1),
     orderQuote,

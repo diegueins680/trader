@@ -777,7 +777,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
       typeof params.learningRate === "number" && Number.isFinite(params.learningRate) ? params.learningRate : 0.001;
     const valRatio =
       typeof params.valRatio === "number" && Number.isFinite(params.valRatio)
-        ? clamp(params.valRatio, 0, 1)
+        ? clamp(params.valRatio, 0, 0.999999)
         : defaultForm.valRatio;
     const patienceRaw = readExactSafeInteger(params.patience);
     const patience = patienceRaw != null ? Math.max(0, patienceRaw) : Math.trunc(defaultForm.patience);
@@ -3745,7 +3745,7 @@ export function App() {
       epochs: clamp(Math.trunc(form.epochs), 0, 5000),
       hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
       lr: Math.max(1e-9, form.learningRate),
-      valRatio: clamp(form.valRatio, 0, 1),
+      valRatio: clamp(form.valRatio, 0, 0.999999),
       patience: clamp(Math.trunc(form.patience), 0, 1000),
       ...(form.gradClip > 0 ? { gradClip: clamp(form.gradClip, 0, 100) } : {}),
       kalmanZMin: Math.max(0, form.kalmanZMin),

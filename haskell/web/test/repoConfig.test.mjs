@@ -199,6 +199,19 @@ test("repo contract routes trade sizing validation targets to trade config page"
   );
 });
 
+test("repo contract keeps frontend valRatio strictly below the backend upper bound", () => {
+  assert.match(
+    appSource,
+    /clamp\(params\.valRatio,\s*0,\s*0\.999999\)/,
+    "top-combo sanitization must keep valRatio below 1 before combo apply",
+  );
+  assert.match(
+    appSource,
+    /valRatio:\s*clamp\(form\.valRatio,\s*0,\s*0\.999999\)/,
+    "request emission must keep valRatio below 1 to satisfy backend validation",
+  );
+});
+
 test("repo contract routes every emitted UI target id to the intended config page", () => {
   const emittedUiTargetIds = parseUiTargetIdLiterals(appSource, frontendUtilsSource);
 
