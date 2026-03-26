@@ -10,6 +10,7 @@ const contractsSource = readFileSync(new URL("../src/app/contracts.ts", import.m
 const frontendConstantsSource = readFileSync(new URL("../src/app/constants.ts", import.meta.url), "utf8");
 const frontendUtilsSource = readFileSync(new URL("../src/app/utils.ts", import.meta.url), "utf8");
 const configLayoutSource = readFileSync(new URL("../src/app/configLayout.ts", import.meta.url), "utf8");
+const topCombosChartSource = readFileSync(new URL("../src/components/TopCombosChart.tsx", import.meta.url), "utf8");
 const backendBinanceIntervalsSource = readFileSync(new URL("../../app/Trader/BinanceIntervals.hs", import.meta.url), "utf8");
 
 function parseStringLiterals(source) {
@@ -137,6 +138,26 @@ test("repo contract keeps top-combo method sanitization aligned with shared meth
   assert.ok(appMethodsMatch, "expected sanitizeTopCombosPayload method allowlist in App.tsx");
   const appMethods = parseStringLiterals(appMethodsMatch[1]);
   assert.deepEqual(appMethods, contractMethods);
+});
+
+test("repo contract keeps TopCombosChart hooks ahead of empty-state early returns", () => {
+  const loadingGuard = topCombosChartSource.indexOf("if (loading && combos.length === 0)");
+  const emptyGuard = topCombosChartSource.indexOf("if (combos.length === 0)");
+  const hoverStateHook = topCombosChartSource.indexOf("const [hoveredId, setHoveredId] = useState");
+  const maxRatingHook = topCombosChartSource.indexOf("const maxRating = useMemo(");
+
+  assert.ok(loadingGuard >= 0, "expected loading guard in TopCombosChart");
+  assert.ok(emptyGuard >= 0, "expected empty guard in TopCombosChart");
+  assert.ok(hoverStateHook >= 0, "expected hover state hook in TopCombosChart");
+  assert.ok(maxRatingHook >= 0, "expected maxRating hook in TopCombosChart");
+  assert.ok(
+    hoverStateHook < loadingGuard && hoverStateHook < emptyGuard,
+    "TopCombosChart must establish hook state before prop-dependent early returns.",
+  );
+  assert.ok(
+    maxRatingHook < loadingGuard && maxRatingHook < emptyGuard,
+    "TopCombosChart must establish memoized hook state before prop-dependent early returns.",
+  );
 });
 
 test("repo contract routes top-combo integer imports through the exact safe-integer boundary", () => {

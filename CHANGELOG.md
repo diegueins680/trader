@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: keep the Top combos panel hook order invariant across empty/loading and populated renders, preventing a React hook-order crash when optimizer combos first appear.
 - Web UI: make local timestamp labels total for out-of-range finite millisecond values, so log headers, chart hovers, and timeline badges fall back to the raw epoch number instead of surfacing `Invalid Date`.
 - Web UI: keep restored/applied LSTM training hyperparameters aligned with emitted request bounds, so `learningRate` and `gradClip` no longer get silently truncated on reload/profile restore and `valRatio` stays strictly below the backend's `< 1` validation boundary.
 - Web UI: project optimizer advanced-JSON source overrides through the effective data source, so CSV-only known keys (`data`/OHLC columns) are dropped on exchange runs and exchange-only known keys (`binanceSymbol`/`platforms`) are dropped on CSV runs instead of slipping into `/optimizer/run` payloads.
