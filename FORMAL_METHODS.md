@@ -254,7 +254,7 @@ Proof sketch:
 - `latestSignalTone` is now the only head-token classifier, so every consumer starts from the same semantic tone before mapping into surface-specific CSS classes.
 - `actionBadgeClass` becomes a pure tone-to-badge projection, which keeps the header/latest-signal badges aligned with Live visuals and prevents `SHORT` or `FLAT` actions from drifting into a neutral tone on one surface while staying bearish on another.
 
-## Formal API base normalization contract
+## Formal API target inference contract
 
 `normalizeApiBaseUrlInput` in `haskell/web/src/app/utils.ts` is treated as a conservative normalizer for the manual API-base field in the web UI.
 
@@ -506,6 +506,25 @@ For every case, it checks:
 3. Non-local host normalization selects the documented default scheme.
 4. Direct Fly inference fires only for supported split-app hostnames.
 5. Local hostname detection accepts only the supported loopback set.
+
+## Formal local timestamp display contract
+
+`fmtTimeMs`, `fmtTimeMsShort`, and `fmtTimeOfDayMs` in `haskell/web/src/app/utils.ts` are treated as the shared total local-time renderers for UI badges, chart hovers, and log headers that consume raw millisecond timestamps.
+
+Clauses:
+
+1. Non-finite inputs preserve their explicit placeholder fallbacks (`—` for full/time-only renderers and `--` for the compact renderer).
+2. Finite timestamps outside the ECMAScript `Date` domain render as `String(ms)` rather than engine-specific invalid-date placeholders.
+3. In-range finite timestamps render exactly with the corresponding locale formatter: `toLocaleString()`, `toLocaleString(undefined, { month, day, hour, minute })`, or `toLocaleTimeString()`.
+4. Therefore any UI surface that accepts a finite timestamp from normalized state remains total even when persisted or upstream data contains an out-of-range finite millisecond value.
+
+The verifier in `haskell/web/test/utils.test.mjs` checks representative `NaN`, out-of-range finite, and epoch-zero rows.
+
+Proof sketch:
+
+- `formatLocalTimestamp` first gates on `Number.isFinite(ms)`, so non-finite values stop at the per-renderer placeholder branch.
+- For finite values, it constructs `Date(ms)` and checks `getTime()` before calling a locale formatter. Invalid/out-of-range `Date` objects therefore fall back to `String(ms)` instead of surfacing `Invalid Date`.
+- Each exported formatter differs only by its locale-rendering function and placeholder, so once the shared validity gate succeeds the helpers agree exactly with the built-in locale formatting behavior on their defined domain.
 
 ## Formal autoloop safety contract
 

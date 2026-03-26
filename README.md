@@ -45,6 +45,7 @@ Features
 - Exchange candle parsers now require integral numeric timestamps (fractional timestamps are rejected), normalize exact/negative millisecond epoch boundaries consistently, and reject non-finite numeric strings (`NaN`/`Infinity`) for OHLC values.
 - Coinbase candle pagination now keeps chunk windows contiguous across the 300-candle API page boundary, so large lookbacks do not skip boundary candles.
 - Sampled web charts now normalize malformed numeric lengths/budgets conservatively, keeping downsampling total instead of throwing on non-finite values.
+- Web UI local timestamp labels now stay total for malformed finite millisecond values, falling back to the raw epoch number instead of surfacing `Invalid Date`.
 - Saved web settings now restore integer-backed `bars`, `epochs`, `hiddenSize`, and `patience` fields as exact safe integers; fractional/unsafe persisted values fall back to defaults instead of reopening with values the emitted request would later truncate or clamp.
 - Saved web settings now also normalize restored `method`/`normalization` enum fields and clamp restored `fee`, stop/drawdown ratios, `backtestRatio`, and `autoRefreshSec` to the same safe ranges used later by the request builder and auto-refresh scheduler.
 - Saved web settings and optimizer combo apply now preserve emitted `learningRate` and `gradClip` values across reloads/profiles, while `valRatio` stays strictly below `1` so restored/applied training settings cannot drift from backend validation.

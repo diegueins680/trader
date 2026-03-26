@@ -8,6 +8,9 @@ import {
   downsampleIndices,
   downsampleOptionalArray,
   formatIsoUtc,
+  fmtTimeMs,
+  fmtTimeMsShort,
+  fmtTimeOfDayMs,
   inferFlyApiAppName,
   inferFlyDirectApiBaseFromHostname,
   isLocalHostname,
@@ -869,6 +872,24 @@ test("formatIsoUtc is total over nullish, non-finite, and out-of-range timestamp
   assert.equal(formatIsoUtc(1e20), "");
   assert.equal(formatIsoUtc(-1e20), "");
   assert.equal(formatIsoUtc(0), "1970-01-01T00:00:00.000Z");
+});
+test("local timestamp formatters stay total for finite timestamps outside the Date domain", () => {
+  const ms = 1e20;
+  assert.equal(fmtTimeMs(Number.NaN), "—");
+  assert.equal(fmtTimeOfDayMs(Number.NaN), "—");
+  assert.equal(fmtTimeMsShort(Number.NaN), "--");
+  assert.equal(fmtTimeMs(ms), String(ms));
+  assert.equal(fmtTimeOfDayMs(ms), String(ms));
+  assert.equal(fmtTimeMsShort(ms), String(ms));
+});
+test("local timestamp formatters preserve locale rendering inside the Date domain", () => {
+  const ms = 0;
+  assert.equal(fmtTimeMs(ms), new Date(ms).toLocaleString());
+  assert.equal(fmtTimeOfDayMs(ms), new Date(ms).toLocaleTimeString());
+  assert.equal(
+    fmtTimeMsShort(ms),
+    new Date(ms).toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+  );
 });
 test("downsampleIndices preserves bounded chart sampling invariants", () => {
 for (let total = 0; total <= 257; total += 1) {

@@ -446,13 +446,32 @@ export function isLocalHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "::1" || hostname === "[::1]";
 }
 
+function validDateFromMs(ms: number): Date | null {
+  const d = new Date(ms);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function formatLocalTimestamp(ms: number, render: (date: Date) => string, fallback: string): string {
+  if (!Number.isFinite(ms)) return fallback;
+  const d = validDateFromMs(ms);
+  if (!d) return String(ms);
+  return render(d);
+}
+
 export function fmtTimeMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "—";
-  try {
-    return new Date(ms).toLocaleString();
-  } catch {
-    return String(ms);
-  }
+  return formatLocalTimestamp(ms, (d) => d.toLocaleString(), "—");
+}
+
+export function fmtTimeMsShort(ms: number): string {
+  return formatLocalTimestamp(
+    ms,
+    (d) => d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+    "--",
+  );
+}
+
+export function fmtTimeOfDayMs(ms: number): string {
+  return formatLocalTimestamp(ms, (d) => d.toLocaleTimeString(), "—");
 }
 
 export function formatIsoUtc(ms: number | null | undefined): string {
@@ -464,15 +483,11 @@ export function formatIsoUtc(ms: number | null | undefined): string {
 
 export function fmtTimeMsWithMs(ms: number): string {
   if (!Number.isFinite(ms)) return "—";
-  try {
-    const d = new Date(ms);
-    if (!Number.isFinite(d.getTime())) return String(ms);
-    const pad2 = (v: number) => String(v).padStart(2, "0");
-    const pad3 = (v: number) => String(v).padStart(3, "0");
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
-  } catch {
-    return String(ms);
-  }
+  const d = validDateFromMs(ms);
+  if (!d) return String(ms);
+  const pad2 = (v: number) => String(v).padStart(2, "0");
+  const pad3 = (v: number) => String(v).padStart(3, "0");
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
 }
 
 export function fmtDurationMs(ms: number | null | undefined): string {
