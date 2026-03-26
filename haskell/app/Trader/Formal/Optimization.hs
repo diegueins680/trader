@@ -626,7 +626,7 @@ positiveInfinity :: Double
 positiveInfinity = 1 / 0
 
 negativeInfinity :: Double
-negativeInfinity = -1 / 0
+negativeInfinity = negate positiveInfinity
 
 penaltyMaxDrawdownDomain :: [Double]
 penaltyMaxDrawdownDomain = [0.0, 1.5]
