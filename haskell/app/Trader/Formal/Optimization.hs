@@ -13,6 +13,7 @@ module Trader.Formal.Optimization (
 
 import Data.Ord (Down (..))
 
+import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
@@ -48,6 +49,7 @@ data FormalVerificationReport = FormalVerificationReport
     { fvrRoiStateCount :: !Int
     , fvrTieBreakPairCount :: !Int
     , fvrVolConfStateCount :: !Int
+    , fvrKalmanFusionStateCount :: !Int
     , fvrRoiSpecMatchesImplementation :: !Bool
     , fvrReturnMonotone :: !Bool
     , fvrDrawdownMonotone :: !Bool
@@ -65,6 +67,10 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrVolConfMalformedConfidenceMatchesWeak :: !Bool
     , fvrVolConfMalformedInputsStayConservative :: !Bool
     , fvrVolConfOutputBounded :: !Bool
+    , fvrKalmanFusionMalformedMeasurementsIgnored :: !Bool
+    , fvrKalmanFusionNoValidMeasurementsKeepPrior :: !Bool
+    , fvrKalmanFusionPosteriorFinite :: !Bool
+    , fvrKalmanFusionValidEvidenceShrinksVariance :: !Bool
     }
     deriving (Eq, Show)
 
@@ -184,10 +190,12 @@ verifyFormalOptimization =
     let roiInputs = allRoiInputs
         tieBreakPairs = [(cand, best) | cand <- tieBreakDomain, best <- tieBreakDomain]
         volConfInputs = allVolConfInputs
+        kalmanFusionInputs = allKalmanFusionInputs
      in FormalVerificationReport
             { fvrRoiStateCount = length roiInputs
             , fvrTieBreakPairCount = length tieBreakPairs
             , fvrVolConfStateCount = length volConfInputs
+            , fvrKalmanFusionStateCount = length kalmanFusionInputs
             , fvrRoiSpecMatchesImplementation =
                 all roiSpecMatchesImplementationFor roiInputs
             , fvrReturnMonotone =
@@ -401,6 +409,14 @@ verifyFormalOptimization =
                     ]
             , fvrVolConfOutputBounded =
                 all volConfOutputBoundedFor volConfInputs
+            , fvrKalmanFusionMalformedMeasurementsIgnored =
+                all kalmanFusionMalformedMeasurementsIgnoredFor kalmanFusionInputs
+            , fvrKalmanFusionNoValidMeasurementsKeepPrior =
+                all kalmanFusionNoValidMeasurementsKeepPriorFor kalmanFusionInputs
+            , fvrKalmanFusionPosteriorFinite =
+                all kalmanFusionPosteriorFiniteFor kalmanFusionInputs
+            , fvrKalmanFusionValidEvidenceShrinksVariance =
+                all kalmanFusionValidEvidenceShrinksVarianceFor kalmanFusionInputs
             }
 
 roiViewFromMetrics :: BacktestMetrics -> RoiView
@@ -610,6 +626,44 @@ volConfOutputBoundedFor (preset, mVolatility, mConfidence) =
     let sizeMult = vcgSizeMult (volConfGateCell preset mVolatility mConfidence)
      in isFinite sizeMult && sizeMult >= 0 && sizeMult <= 1
 
+kalmanFusionMalformedMeasurementsIgnoredFor :: (Kalman1, [(Double, Double)]) -> Bool
+kalmanFusionMalformedMeasurementsIgnoredFor (prior, measurements) =
+    kalmanApproxEq
+        (updateMulti measurements prior)
+        (updateMulti (kalmanValidMeasurements measurements) prior)
+
+kalmanFusionNoValidMeasurementsKeepPriorFor :: (Kalman1, [(Double, Double)]) -> Bool
+kalmanFusionNoValidMeasurementsKeepPriorFor (prior, measurements) =
+    let validMeasurements = kalmanValidMeasurements measurements
+     in not (null validMeasurements)
+            || kalmanApproxEq (updateMulti measurements prior) prior
+
+kalmanFusionPosteriorFiniteFor :: (Kalman1, [(Double, Double)]) -> Bool
+kalmanFusionPosteriorFiniteFor (prior, measurements) =
+    let post = updateMulti measurements prior
+     in isFinite (kMean post)
+            && isFinite (kVar post)
+            && kVar post > 0
+            && isFinite (kProcessVar post)
+
+kalmanFusionValidEvidenceShrinksVarianceFor :: (Kalman1, [(Double, Double)]) -> Bool
+kalmanFusionValidEvidenceShrinksVarianceFor (prior, measurements) =
+    let validMeasurements = kalmanValidMeasurements measurements
+     in null validMeasurements
+            || kVar (updateMulti measurements prior) <= kVar prior + comparisonEps
+
+kalmanValidMeasurements :: [(Double, Double)] -> [(Double, Double)]
+kalmanValidMeasurements = filter kalmanMeasurementValid
+
+kalmanMeasurementValid :: (Double, Double) -> Bool
+kalmanMeasurementValid (y, r) = isFinite y && isFinite r && r > 0
+
+kalmanApproxEq :: Kalman1 -> Kalman1 -> Bool
+kalmanApproxEq lhs rhs =
+    approxEq (kMean lhs) (kMean rhs)
+        && approxEq (kVar lhs) (kVar rhs)
+        && approxEq (kProcessVar lhs) (kProcessVar rhs)
+
 gateCellNoMorePermissiveThan :: VolConfGateCell -> VolConfGateCell -> Bool
 gateCellNoMorePermissiveThan candidate baseline =
     let candidateRank = gateCellPermissivenessRank (vcgBehavior candidate)
@@ -788,6 +842,47 @@ positiveInfinity = 1 / 0
 
 negativeInfinity :: Double
 negativeInfinity = negate positiveInfinity
+
+allKalmanFusionInputs :: [(Kalman1, [(Double, Double)])]
+allKalmanFusionInputs =
+    [ (prior, measurements)
+    | prior <- kalmanPriorDomain
+    , measurements <- kalmanMeasurementListDomain
+    ]
+
+kalmanPriorDomain :: [Kalman1]
+kalmanPriorDomain =
+    [ initKalman1 mean0 var0 processVar
+    | mean0 <- [-0.05, 0.0, 0.05]
+    , var0 <- [1.0e-6, 1.0e-3, 1.0]
+    , processVar <- [0.0, 1.0e-4]
+    ]
+
+kalmanMeasurementListDomain :: [[(Double, Double)]]
+kalmanMeasurementListDomain =
+    [[]]
+        ++ [[m0] | m0 <- kalmanMeasurementDomain]
+        ++ [[m0, m1] | m0 <- kalmanMeasurementDomain, m1 <- kalmanMeasurementDomain]
+
+kalmanMeasurementDomain :: [(Double, Double)]
+kalmanMeasurementDomain =
+    kalmanValidMeasurementDomain ++ kalmanMalformedMeasurementDomain
+
+kalmanValidMeasurementDomain :: [(Double, Double)]
+kalmanValidMeasurementDomain =
+    [ (y, r)
+    | y <- [-0.1, 0.0, 0.1]
+    , r <- [1.0e-18, 1.0e-6, 1.0e-3, 0.1]
+    ]
+
+kalmanMalformedMeasurementDomain :: [(Double, Double)]
+kalmanMalformedMeasurementDomain =
+    [ (badY, 0.1)
+    | badY <- nonFiniteDomain
+    ]
+        ++ [ (0.0, badR)
+           | badR <- [0.0, -0.1] ++ nonFiniteDomain
+           ]
 
 penaltyMaxDrawdownDomain :: [Double]
 penaltyMaxDrawdownDomain = [0.0, 1.5]
