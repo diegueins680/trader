@@ -165,6 +165,9 @@ main = do
               , run "formal ROI penalties stay ordered" testFormalRoiPenaltyOrdering
               , run "formal tune tie-break matches spec" testFormalTieBreakMatchesSpec
               , run "close timing selects in-window optimum" testCloseTimingSelectsWindowOptimum
+              , run "close timing zero-duration forces tm to ta" testCloseTimingZeroDuration
+              , run "close timing short side picks window minimum price" testCloseTimingShortSide
+              , run "close timing out-of-range exit yields no sample" testCloseTimingOutOfRangeExit
               , run "close timing summarizes combo ratios" testCloseTimingSummaryRatios
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
@@ -3145,6 +3148,42 @@ testCloseTimingSelectsWindowOptimum = do
             assert "tm chooses maximum return in [ta, ta+2*(tc-ta)]" (ttsOptimalIndex s == 4)
             assert "optimal duration measured from ta" (ttsOptimalDuration s == 3)
         _ -> error "expected exactly one timing sample"
+
+testCloseTimingZeroDuration :: IO ()
+testCloseTimingZeroDuration = do
+    -- When tc == ta, the window is empty: tm must be forced to ta.
+    let prices = [100, 101, 103, 102, 105]
+        trades = [ComboTrade "c1" 2 2 103 1]
+        samples = timingSamples prices trades
+    case samples of
+        [s] -> do
+            assert "tm equals ta when tc == ta" (ttsOptimalIndex s == 2)
+            assert "optimal duration is 0 when tc == ta" (ttsOptimalDuration s == 0)
+        _ -> error "expected exactly one timing sample for zero-duration trade"
+
+testCloseTimingShortSide :: IO ()
+testCloseTimingShortSide = do
+    -- Short trade: side=-1, prices drop after entry so minimum price gives highest return.
+    -- prices = [100, 98, 95, 97, 96, 94, 93], ta=0, tc=2, window=[0..4]
+    -- Returns: i=0→0, i=1→0.02, i=2→0.05, i=3→0.03, i=4→0.04 → best at i=2
+    let prices = [100, 98, 95, 97, 96, 94, 93 :: Double]
+        trades = [ComboTrade "c1" 0 2 100 (-1)]
+        samples = timingSamples prices trades
+    case samples of
+        [s] -> do
+            assert "short trade: tm is within window [ta, ta + 2*(tc-ta)]"
+                (ttsOptimalIndex s >= ttsEntryIndex s && ttsOptimalIndex s <= ttsEntryIndex s + 2 * ttsObservedDuration s)
+            assert "short trade: optimal return is non-negative" (ttsOptimalReturn s >= 0)
+            assert "short trade: tm at lowest price in window" (ttsOptimalIndex s == 2)
+        _ -> error "expected exactly one timing sample for short-side trade"
+
+testCloseTimingOutOfRangeExit :: IO ()
+testCloseTimingOutOfRangeExit = do
+    -- exitIndex out of range → sampleForTrade cannot compute observed return → no sample produced.
+    let prices = [100, 101 :: Double]
+        trades = [ComboTrade "c1" 0 10 100 1]
+        samples = timingSamples prices trades
+    assert "out-of-range exit produces no sample" (null samples)
 
 testCloseTimingSummaryRatios :: IO ()
 testCloseTimingSummaryRatios = do

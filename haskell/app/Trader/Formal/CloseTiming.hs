@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Trader.Formal.CloseTiming (
     ComboTrade (..),
@@ -9,8 +10,12 @@ module Trader.Formal.CloseTiming (
     summarizeAllCombos
 ) where
 
+import Data.Aeson ((.:), (.:?), (.!=), (.=))
+import qualified Data.Aeson as Aeson
 import Data.Function (on)
-import Data.List (foldl', groupBy, sort, sortOn)
+import Data.List (groupBy, sort, sortOn)
+import qualified Data.Text as T
+import qualified Data.Vector as V
 import GHC.Generics (Generic)
 
 -- | Trade tagged with combo identity and bar indices.
@@ -50,33 +55,63 @@ data ComboTimingStats = ComboTimingStats
     }
     deriving (Eq, Show, Generic)
 
-safeAt :: [Double] -> Int -> Maybe Double
-safeAt xs i
-    | i < 0 = Nothing
-    | otherwise = go xs i
-  where
-    go [] _ = Nothing
-    go (y : ys) k
-        | k == 0 = Just y
-        | otherwise = go ys (k - 1)
+-- | JSON instances for ComboTrade (input) and result types.
+instance Aeson.FromJSON ComboTrade where
+    parseJSON = Aeson.withObject "ComboTrade" $ \o -> do
+        comboId <- fmap T.unpack (o .:? "comboId" .!= "unknown")
+        ta <- o .: "entryIndex"
+        tc <- o .: "exitIndex"
+        entryPx <- o .:? "entryPrice" .!= 0
+        side <- o .:? "side" .!= (1 :: Double)
+        pure ComboTrade{ctComboId = comboId, ctEntryIndex = ta, ctExitIndex = tc, ctEntryPrice = entryPx, ctSide = side}
 
-returnAt :: [Double] -> ComboTrade -> Int -> Maybe Double
+instance Aeson.ToJSON TradeTimingSample where
+    toJSON s =
+        Aeson.object
+            [ "comboId" .= ttsComboId s
+            , "entryIndex" .= ttsEntryIndex s
+            , "exitIndex" .= ttsExitIndex s
+            , "optimalIndex" .= ttsOptimalIndex s
+            , "observedDuration" .= ttsObservedDuration s
+            , "optimalDuration" .= ttsOptimalDuration s
+            , "observedReturn" .= ttsObservedReturn s
+            , "optimalReturn" .= ttsOptimalReturn s
+            , "returnLift" .= ttsReturnLift s
+            ]
+
+instance Aeson.ToJSON ComboTimingStats where
+    toJSON s =
+        Aeson.object
+            [ "comboId" .= ctsComboId s
+            , "sampleCount" .= ctsSampleCount s
+            , "medianRatio" .= ctsMedianRatio s
+            , "q25Ratio" .= ctsQ25Ratio s
+            , "q75Ratio" .= ctsQ75Ratio s
+            , "madRatio" .= ctsMadRatio s
+            , "meanLift" .= ctsMeanLift s
+            , "medianLift" .= ctsMedianLift s
+            ]
+
+returnAt :: V.Vector Double -> ComboTrade -> Int -> Maybe Double
 returnAt prices tr i = do
-    px <- safeAt prices i
+    px <- prices V.!? i
     pure (ctSide tr * (px / ctEntryPrice tr - 1))
 
-optimalIndexInWindow :: [Double] -> ComboTrade -> Int
+optimalIndexInWindow :: V.Vector Double -> ComboTrade -> Int
 optimalIndexInWindow prices tr =
     let ta = ctEntryIndex tr
         tc = ctExitIndex tr
-        obsDuration = max 1 (tc - ta)
-        maxI = min (length prices - 1) (ta + (2 * obsDuration))
-        candidates = [ta .. maxI]
-        scored = [(i, returnAt prices tr i) | i <- candidates]
-        valid = [(i, r) | (i, Just r) <- scored]
-     in case valid of
-            [] -> tc
-            _ -> fst (maximumBySnd valid)
+     in if tc <= ta
+            then ta
+            else
+                let obsDuration = tc - ta
+                    maxI = min (V.length prices - 1) (ta + 2 * obsDuration)
+                    candidates = [ta .. maxI]
+                    scored = [(i, returnAt prices tr i) | i <- candidates]
+                    valid = [(i, r) | (i, Just r) <- scored]
+                 in case valid of
+                        [] -> tc
+                        _ -> fst (maximumBySnd valid)
 
 maximumBySnd :: [(Int, Double)] -> (Int, Double)
 maximumBySnd = foldl1 pick
@@ -85,7 +120,7 @@ maximumBySnd = foldl1 pick
         | rb > ra = b
         | otherwise = a
 
-sampleForTrade :: [Double] -> ComboTrade -> Maybe TradeTimingSample
+sampleForTrade :: V.Vector Double -> ComboTrade -> Maybe TradeTimingSample
 sampleForTrade prices tr = do
     let ta = ctEntryIndex tr
         tc = ctExitIndex tr
@@ -108,7 +143,9 @@ sampleForTrade prices tr = do
             }
 
 timingSamples :: [Double] -> [ComboTrade] -> [TradeTimingSample]
-timingSamples prices = foldr step []
+timingSamples priceList trades =
+    let prices = V.fromList priceList
+     in foldr step [] trades
   where
     step tr acc = case sampleForTrade prices tr of
         Just s -> s : acc
@@ -162,8 +199,8 @@ summarizeComboTiming ss@(s0 : _) =
 summarizeAllCombos :: [TradeTimingSample] -> [ComboTimingStats]
 summarizeAllCombos ss =
     let grouped = groupBy ((==) `on` ttsComboId) (sortOn ttsComboId ss)
-     in foldl' step [] grouped
+     in foldr step [] grouped
   where
-    step acc grp = case summarizeComboTiming grp of
+    step grp acc = case summarizeComboTiming grp of
         Just st -> st : acc
         Nothing -> acc

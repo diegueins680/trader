@@ -2,7 +2,7 @@
 
 module Main where
 
-import Data.Aeson ((.:), (.:?), (.!=), (.=))
+import Data.Aeson ((.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Lazy as BL
 import Data.List (sortOn)
@@ -29,42 +29,6 @@ instance Aeson.FromJSON ComboInput where
         trades <- o .: "trades"
         pure ComboInput{ciComboId = comboId, ciPrices = prices, ciTrades = trades}
 
-instance Aeson.FromJSON ComboTrade where
-    parseJSON = Aeson.withObject "ComboTrade" $ \o -> do
-        comboId <- fmap T.unpack (o .:? "comboId" .!= "unknown")
-        ta <- o .: "entryIndex"
-        tc <- o .: "exitIndex"
-        entryPx <- o .:? "entryPrice" .!= 0
-        side <- o .:? "side" .!= (1 :: Double)
-        pure ComboTrade{ctComboId = comboId, ctEntryIndex = ta, ctExitIndex = tc, ctEntryPrice = entryPx, ctSide = side}
-
-instance Aeson.ToJSON TradeTimingSample where
-    toJSON s =
-        Aeson.object
-            [ "comboId" .= ttsComboId s
-            , "entryIndex" .= ttsEntryIndex s
-            , "exitIndex" .= ttsExitIndex s
-            , "optimalIndex" .= ttsOptimalIndex s
-            , "observedDuration" .= ttsObservedDuration s
-            , "optimalDuration" .= ttsOptimalDuration s
-            , "observedReturn" .= ttsObservedReturn s
-            , "optimalReturn" .= ttsOptimalReturn s
-            , "returnLift" .= ttsReturnLift s
-            ]
-
-instance Aeson.ToJSON ComboTimingStats where
-    toJSON s =
-        Aeson.object
-            [ "comboId" .= ctsComboId s
-            , "sampleCount" .= ctsSampleCount s
-            , "medianRatio" .= ctsMedianRatio s
-            , "q25Ratio" .= ctsQ25Ratio s
-            , "q75Ratio" .= ctsQ75Ratio s
-            , "madRatio" .= ctsMadRatio s
-            , "meanLift" .= ctsMeanLift s
-            , "medianLift" .= ctsMedianLift s
-            ]
-
 argsParser :: Parser Args
 argsParser =
     Args
@@ -81,7 +45,19 @@ reportForCombo ci =
     ensureCombo prices tr =
         let comboFixed = if ctComboId tr == "unknown" then tr{ctComboId = baseId} else tr
             entryPx = ctEntryPrice comboFixed
-            pxFixed = if entryPx > 0 then entryPx else maybe 1 id (safeAt prices (ctEntryIndex comboFixed))
+            pxFixed =
+                if entryPx > 0
+                    then entryPx
+                    else case safeAt prices (ctEntryIndex comboFixed) of
+                        Just px -> px
+                        Nothing ->
+                            error
+                                ( "Trade in combo '"
+                                    ++ ctComboId comboFixed
+                                    ++ "' at entryIndex="
+                                    ++ show (ctEntryIndex comboFixed)
+                                    ++ " has no valid entryPrice and index is out of range"
+                                )
          in comboFixed{ctEntryPrice = pxFixed}
 
 safeAt :: [a] -> Int -> Maybe a
@@ -109,7 +85,7 @@ main = do
                         , "comboStats" .= stats
                         , "decisionIntegration" .=
                             Aeson.object
-                                [ "rule" .= ("Cerrar cuando la edad de posicion alcance el percentil 50-75 del ratio tm/td por combo, con banda robusta [Q25,Q75] y umbral de lift esperado > 0." :: String)
+                                [ "rule" .= ("Close when the position age reaches the 50th-75th percentile of the tm/td ratio per combo, using a robust band [Q25, Q75] and an expected lift threshold > 0." :: String)
                                 ]
                         ]
                 encoded = Aeson.encode payload
