@@ -19,6 +19,7 @@ corsSuite =
     , ("implicit cors rejects tenant-scoped reads without tenant key", testTenantScopedReadRequiresTenantKey)
     , ("implicit cors rejects non-read tenant routes without auth headers", testTenantScopedWriteStillBlocked)
     , ("auth-like headers still allow origin echo", testAuthHeaderAllowsOriginEcho)
+    , ("preflight allows request-progress header on tenant writes", testTenantWritePreflightAllowsRequestProgressHeader)
     ]
 
 implicitCorsConfig :: CorsConfig
@@ -76,6 +77,26 @@ testAuthHeaderAllowsOriginEcho =
     expectOriginAllowed
         "auth-like headers still allow origin echo"
         (mkRequest "GET" ["metrics"] [] [("X-API-Key", "demo-token")])
+
+testTenantWritePreflightAllowsRequestProgressHeader :: IO ()
+testTenantWritePreflightAllowsRequestProgressHeader = do
+    let req =
+            mkRequest
+                "OPTIONS"
+                ["binance", "positions"]
+                []
+                [ ("Access-Control-Request-Method", "POST")
+                , ("Access-Control-Request-Headers", "content-type,x-tenant-key,x-trader-request-id")
+                ]
+        headers = corsHeadersFor implicitCorsConfig req
+    expectEq
+        "OPTIONS /binance/positions with tenant/request-progress headers echoes origin"
+        (Just "https://trader-web-hs.fly.dev")
+        (lookupResponseHeader "Access-Control-Allow-Origin" headers)
+    expectEq
+        "OPTIONS /binance/positions allows request-progress header"
+        (Just "Authorization,Content-Type,X-API-Key,X-Tenant-Key,X-Trader-Request-Id")
+        (lookupResponseHeader "Access-Control-Allow-Headers" headers)
 
 expectEq :: (Eq a, Show a) => String -> a -> a -> IO ()
 expectEq label expected actual =

@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- API/CORS: allow `X-Trader-Request-Id` in preflight responses so split-host cross-origin fallback for Binance key/positions/bot flows can keep request-progress tracking enabled without browser CORS failures.
 - Web UI: applying router or bandit-router optimizer combos now restores `routerLookback` and `routerMinScore`, and combo identity now distinguishes those fields so applied-router replays match the selected combo.
 - API/Top-combos: keep `/optimizer/combos` on the fast read path by serving healthy local payloads without synchronous DB repair on `GET`, make combo reads lock-free against the top-combos process/file lock, and batch combo op-count lookups during DB persistence so split Fly deployments stop timing out related `/optimizer/combos`, `/ops`, and bot routes under replica reconciliation load.
 - Dev/CI: reorient bounded autoloop cycles around backend Haskell trading-algorithm work by requiring an `haskell/app/*` algorithm review plus a formal-methods review (`FORMAL_METHODS.md`, `haskell/app/Trader/Formal/*`, or backend tests), renaming the lifecycle phases to `algorithm-review` / `formal-methods-review`, and prioritizing backend/formal files in planner context before web UI files.
