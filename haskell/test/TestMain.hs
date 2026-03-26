@@ -49,6 +49,7 @@ import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles,
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), extractTxHash, resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
+import Trader.Formal.CloseTiming (ComboTimingStats (..), ComboTrade (..), TradeTimingSample (..), summarizeAllCombos, timingSamples)
 import Trader.Formal.Optimization (
     FormalVerificationReport (..),
     roiRequirementClauses,
@@ -163,6 +164,8 @@ main = do
               , run "formal ROI monotonicity holds" testFormalRoiMonotonicity
               , run "formal ROI penalties stay ordered" testFormalRoiPenaltyOrdering
               , run "formal tune tie-break matches spec" testFormalTieBreakMatchesSpec
+              , run "close timing selects in-window optimum" testCloseTimingSelectsWindowOptimum
+              , run "close timing summarizes combo ratios" testCloseTimingSummaryRatios
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
               , run "binance trade parser accepts numeric and whitespace fields" testBinanceTradeParserAcceptsNumericAndWhitespace
@@ -3131,3 +3134,30 @@ forwardReturns ps =
     [ if p0 == 0 then 0 else p1 / p0 - 1
     | (p0, p1) <- zip ps (drop 1 ps)
     ]
+
+testCloseTimingSelectsWindowOptimum :: IO ()
+testCloseTimingSelectsWindowOptimum = do
+    let prices = [100, 101, 103, 102, 105, 104, 103]
+        trades = [ComboTrade "c1" 1 3 101 1]
+        samples = timingSamples prices trades
+    case samples of
+        [s] -> do
+            assert "tm chooses maximum return in [ta, ta+2*(tc-ta)]" (ttsOptimalIndex s == 4)
+            assert "optimal duration measured from ta" (ttsOptimalDuration s == 3)
+        _ -> error "expected exactly one timing sample"
+
+testCloseTimingSummaryRatios :: IO ()
+testCloseTimingSummaryRatios = do
+    let prices = [100, 102, 104, 103, 106, 108, 107]
+        trades =
+            [ ComboTrade "combo-a" 0 2 100 1
+            , ComboTrade "combo-a" 1 3 102 1
+            ]
+        samples = timingSamples prices trades
+        stats = summarizeAllCombos samples
+    case stats of
+        [st] -> do
+            assert "summary keeps combo id" (ctsComboId st == "combo-a")
+            assert "summary counts samples" (ctsSampleCount st == 2)
+            assert "median ratio is >= 1 for profitable extension" (ctsMedianRatio st >= 1)
+        _ -> error "expected one combo summary"

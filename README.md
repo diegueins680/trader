@@ -969,6 +969,13 @@ CI/CD (GitHub Actions):
 
 Note: `/bot/*` is stateful. Async endpoints persist job state to Postgres when ops DB is enabled (`TRADER_DB_URL`/`DATABASE_URL`), and also to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default. If DB persistence is disabled, deployments behind non-sticky load balancers (including CloudFront `/api/*`) should keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to shared writable storage.
 
+
+Close timing analyzer (formal tm optimization):
+- Build/run: `cd haskell && cabal run analyze-close-timing -- --input ../data/close_timing_input.json --output ../data/close_timing_report.json`
+- Input schema: JSON array of combos: `{ "comboId": "...", "prices": [...], "trades": [{"entryIndex": ta, "exitIndex": tc, "entryPrice": p_ta, "side": 1|-1}] }`.
+- For each trade, the analyzer computes `tm = argmax PNL(t)` on `t ∈ [ta, ta + 2*(tc-ta)]` (bounded by available bars), then reports per-combo robust distribution stats (`median`, `Q25`, `Q75`, `MAD`) for `tm` ratio vs observed duration.
+- Integration rule (suggested): per combo, close when position age enters `[Q25,Q75]` around median `tm/(tc-ta)` and expected lift (`medianLift`) remains positive.
+
 Outbox publisher worker (Phase 1 scaffold):
 - Build/run: `cd haskell && cabal run outbox-publisher`
 - Background helper: `./haskell/scripts/start_outbox_publisher_bg.sh`
