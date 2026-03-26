@@ -3,7 +3,13 @@ import { test } from "node:test";
 import { buildSync } from "esbuild";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyComboToForm, buildDefaultOptimizerRunForm, invalidSymbolsForPlatform, sanitizeSymbolForPlatform } from "../.tmp/web-tests/appHelpers.js";
+import {
+  applyComboToForm,
+  buildDefaultOptimizerRunForm,
+  formApplySignature,
+  invalidSymbolsForPlatform,
+  sanitizeSymbolForPlatform,
+} from "../.tmp/web-tests/appHelpers.js";
 import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
 import { methodLabel } from "../.tmp/web-tests/utils.js";
 
@@ -421,6 +427,7 @@ test("applyComboToForm only accepts exact safe integers for integer-backed combo
     cooldownBars: 4,
     maxOrderErrors: 7,
     trendLookback: 40,
+    routerLookback: 30,
     volLookback: 55,
     rebalanceBars: 24,
     walkForwardFolds: 7,
@@ -436,6 +443,7 @@ test("applyComboToForm only accepts exact safe integers for integer-backed combo
     { field: "cooldownBars", valid: 6, expectedMissing: prev.cooldownBars, expectedInvalid: prev.cooldownBars },
     { field: "maxOrderErrors", valid: 5, expectedMissing: 0, expectedInvalid: prev.maxOrderErrors },
     { field: "trendLookback", valid: 31, expectedMissing: prev.trendLookback, expectedInvalid: prev.trendLookback },
+    { field: "routerLookback", valid: 72, expectedMissing: prev.routerLookback, expectedInvalid: prev.routerLookback },
     { field: "volLookback", valid: 34, expectedMissing: prev.volLookback, expectedInvalid: prev.volLookback },
     { field: "rebalanceBars", valid: 14, expectedMissing: prev.rebalanceBars, expectedInvalid: prev.rebalanceBars },
     { field: "walkForwardFolds", valid: 9, expectedMissing: prev.walkForwardFolds, expectedInvalid: prev.walkForwardFolds },
@@ -477,6 +485,30 @@ test("applyComboToForm only accepts exact safe integers for integer-backed combo
       `${field}: unsafe combo integers should be inert`,
     );
   }
+});
+
+test("router combo params apply exactly and participate in combo signatures", () => {
+  const prev = {
+    ...defaultForm,
+    method: "router",
+    routerLookback: 30,
+    routerMinScore: 0.25,
+  };
+  const combo = buildComboFromForm(prev, {
+    method: "router",
+    routerLookback: 72,
+    routerMinScore: 0.6,
+  });
+
+  const next = applyComboToForm(prev, combo, null);
+
+  assert.equal(next.routerLookback, 72);
+  assert.equal(next.routerMinScore, 0.6);
+  assert.notEqual(
+    formApplySignature(prev),
+    formApplySignature(next),
+    "router params change the emitted request, so the combo signature must change too",
+  );
 });
 
 test("normalizeFormState keeps representative whole-number restores aligned with emitted request bounds", () => {

@@ -2332,6 +2332,8 @@ export function applyComboToForm(
   const fundingBySide = combo.params.fundingBySide ?? prev.fundingBySide;
   const fundingOnOpen = combo.params.fundingOnOpen ?? prev.fundingOnOpen;
   const blendWeight = clamp(coerceNumber(combo.params.blendWeight ?? prev.blendWeight, prev.blendWeight), 0, 1);
+  const routerLookback = clamp(coerceExactSafeInteger(combo.params.routerLookback, prev.routerLookback), 2, 1_000_000);
+  const routerMinScore = clamp(coerceNumber(combo.params.routerMinScore, prev.routerMinScore), 0, 1);
   const tuneStressVolMult = Math.max(0, coerceNumber(combo.params.tuneStressVolMult ?? prev.tuneStressVolMult, prev.tuneStressVolMult));
   const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
   const tuneStressWeight = Math.max(0, coerceNumber(combo.params.tuneStressWeight ?? prev.tuneStressWeight, prev.tuneStressWeight));
@@ -2481,6 +2483,8 @@ export function applyComboToForm(
     fundingBySide,
     fundingOnOpen,
     blendWeight,
+    routerLookback,
+    routerMinScore,
     kalmanZMin,
     kalmanZMax,
     maxHighVolProb,
@@ -2599,6 +2603,8 @@ export function formApplySignature(form: FormState): string {
     sigBool(form.fundingBySide),
     sigBool(form.fundingOnOpen),
     sigNumber(form.blendWeight),
+    sigNumber(form.routerLookback),
+    sigNumber(form.routerMinScore),
     sigNumber(form.kalmanZMin),
     sigNumber(form.kalmanZMax),
     sigNumber(form.maxHighVolProb),
