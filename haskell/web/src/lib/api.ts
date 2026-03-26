@@ -236,11 +236,21 @@ export function withTenantHeader(
   return headers;
 }
 
-function shouldAttachTenantHeader(requestUrl: string): boolean {
+function requestHasAuthLikeContext(path: string, body: BodyInit | null | undefined, headersInit: HeadersInit | undefined): boolean {
+  const headers = new Headers(headersInit);
+  if (headers.has("Authorization") || headers.has("X-API-Key") || headers.has(TENANT_HEADER)) return true;
+  return Boolean(tenantKeyFromPath(path) ?? tenantKeyFromBody(body));
+}
+
+function shouldAttachTenantHeader(requestUrl: string, method: string): boolean {
+  const requestMethod = method.trim().toUpperCase() || "GET";
   if (typeof window === "undefined") return true;
   try {
     const resolved = new URL(requestUrl, window.location.origin);
-    return resolved.origin === window.location.origin;
+    if (resolved.origin === window.location.origin) return true;
+    // Keep cross-origin GET/HEAD requests header-free so tenant-scoped reads can
+    // stay on the backend's implicit read-only CORS path without preflight.
+    return requestMethod !== "GET" && requestMethod !== "HEAD";
   } catch {
     return true;
   }
@@ -473,11 +483,12 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
     const url = resolveUrl(baseUrl, path);
+    const method = String(init.method ?? "GET").toUpperCase();
     const headers = withTenantHeader(
       new Headers(mergeHeaders(init.headers, opts?.headers)),
       path,
       init.body,
-      shouldAttachTenantHeader(url),
+      shouldAttachTenantHeader(url, method),
     );
     const res = await fetch(url, {
       ...init,
@@ -521,10 +532,16 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
   const primaryBase = normalizeBaseUrl(baseUrl);
   const fallbackBase = resolveFallbackBase(primaryBase);
   const method = String(init.method ?? "GET").toUpperCase();
+  const mergedHeaders = mergeHeaders(init.headers, opts?.headers);
   const proxyToDirectCrossOrigin = Boolean(primaryBase.startsWith("/") && fallbackBase && isCrossOriginBase(fallbackBase));
-  // Keep inferred /api -> direct-host failover for reads, but avoid cross-origin
-  // POST/PUT/PATCH/DELETE preflight loops when the fallback host is not CORS-enabled.
-  const allowCrossOriginProxyFallbackForMethod = !proxyToDirectCrossOrigin || method === "GET" || method === "HEAD";
+  // Keep inferred /api -> direct-host failover for reads, and only allow
+  // cross-origin writes when the request already carries auth-like context
+  // that the backend's implicit CORS policy accepts.
+  const allowCrossOriginProxyFallbackForMethod =
+    !proxyToDirectCrossOrigin ||
+    method === "GET" ||
+    method === "HEAD" ||
+    requestHasAuthLikeContext(path, init.body, mergedHeaders);
   const allowAuthStatusFallback = Boolean(
     TRADER_UI_CONFIG.apiBaseUrlInferred &&
       fallbackBase &&
