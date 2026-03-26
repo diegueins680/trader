@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDatetimeLocal, parseDatetimeLocal, positionSideInfo, readExactSafeInteger } from "../.tmp/web-tests/appHelpers.js";
+import {
+  formatDatetimeLocal,
+  parseDatetimeLocal,
+  positionSideInfo,
+  readExactSafeInteger,
+  readNonNegativeExactSafeInteger,
+  sanitizeOptimizationComboOperation,
+} from "../.tmp/web-tests/appHelpers.js";
 
 function pad2(value) {
   return String(value).padStart(2, "0");
@@ -77,6 +84,63 @@ test("readExactSafeInteger accepts only exact safe integers from combo payloads"
       `expected ${String(raw)} to normalize to ${String(expected)}`,
     );
   }
+});
+
+test("readNonNegativeExactSafeInteger preserves zero and rejects negative or inexact discrete payloads", () => {
+  const unsafe = Number.MAX_SAFE_INTEGER + 1;
+  const cases = [
+    { raw: 0, expected: 0 },
+    { raw: 7, expected: 7 },
+    { raw: -1, expected: null },
+    { raw: 2.5, expected: null },
+    { raw: Number.NaN, expected: null },
+    { raw: unsafe, expected: null },
+  ];
+
+  for (const { raw, expected } of cases) {
+    assert.equal(
+      readNonNegativeExactSafeInteger(raw),
+      expected,
+      `expected ${String(raw)} to normalize to ${String(expected)}`,
+    );
+  }
+});
+
+test("sanitizeOptimizationComboOperation preserves only exact non-negative discrete operation coordinates", () => {
+  assert.deepEqual(
+    sanitizeOptimizationComboOperation({
+      entryIndex: 3,
+      exitIndex: 8,
+      entryEquity: 1000,
+      exitEquity: 1025,
+      return: 0.025,
+      holdingPeriods: 5,
+      exitReason: " target ",
+    }),
+    {
+      entryIndex: 3,
+      exitIndex: 8,
+      entryEquity: 1000,
+      exitEquity: 1025,
+      return: 0.025,
+      holdingPeriods: 5,
+      exitReason: "target",
+    },
+  );
+  assert.equal(sanitizeOptimizationComboOperation({ entryIndex: 1.5, exitIndex: 4 }), null);
+  assert.equal(sanitizeOptimizationComboOperation({ entryIndex: 4, exitIndex: 3 }), null);
+  assert.deepEqual(
+    sanitizeOptimizationComboOperation({ entryIndex: 1, exitIndex: 4, holdingPeriods: 2.5 }),
+    {
+      entryIndex: 1,
+      exitIndex: 4,
+      entryEquity: null,
+      exitEquity: null,
+      return: null,
+      holdingPeriods: null,
+      exitReason: null,
+    },
+  );
 });
 
 test("positionSideInfo treats zero/dust amounts as flat before stale side metadata", () => {

@@ -1954,6 +1954,11 @@ export function readExactSafeInteger(raw: unknown): number | null {
   return typeof raw === "number" && Number.isSafeInteger(raw) ? raw : null;
 }
 
+export function readNonNegativeExactSafeInteger(raw: unknown): number | null {
+  const n = readExactSafeInteger(raw);
+  return n != null && n >= 0 ? n : null;
+}
+
 export function coerceNumber(value: number | null | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -1975,6 +1980,31 @@ export function clampOptionalRange(value: number | null | undefined, min: number
 export function clampOptionalInt(value: number | null | undefined, fallback: number, min: number, max: number): number {
   const v = coerceExactSafeInteger(value, fallback);
   return v > 0 ? clamp(v, min, max) : 0;
+}
+
+export function sanitizeOptimizationComboOperation(raw: unknown): OptimizationComboOperation | null {
+  const opRec = (raw as Record<string, unknown> | null | undefined) ?? {};
+  const entryIndex = readNonNegativeExactSafeInteger(opRec.entryIndex);
+  const exitIndex = readNonNegativeExactSafeInteger(opRec.exitIndex);
+  if (entryIndex == null || exitIndex == null || exitIndex < entryIndex) return null;
+
+  const entryEquity =
+    typeof opRec.entryEquity === "number" && Number.isFinite(opRec.entryEquity) ? (opRec.entryEquity as number) : null;
+  const exitEquity =
+    typeof opRec.exitEquity === "number" && Number.isFinite(opRec.exitEquity) ? (opRec.exitEquity as number) : null;
+  const retValue = typeof opRec.return === "number" && Number.isFinite(opRec.return) ? (opRec.return as number) : null;
+  const holdingPeriods = readNonNegativeExactSafeInteger(opRec.holdingPeriods);
+  const exitReason = typeof opRec.exitReason === "string" && opRec.exitReason.trim() ? opRec.exitReason.trim() : null;
+
+  return {
+    entryIndex,
+    exitIndex,
+    entryEquity,
+    exitEquity,
+    return: retValue,
+    holdingPeriods,
+    exitReason,
+  };
 }
 
 export function sigText(value: string | null | undefined): string {

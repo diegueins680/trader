@@ -13239,12 +13239,12 @@ readTopCombosValueFromDb store =
     fmap normalizeTopCombosPayload <$> readTopCombosValueFromDbRaw store
 
 readTopCombosValueWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
-readTopCombosValueWithDbFallback mOps store =
-    readTopCombosValueWithDbFallbackUnlocked mOps store
+readTopCombosValueWithDbFallback =
+    readTopCombosValueWithDbFallbackUnlocked
 
 readTopCombosValueWithDbFallbackRaw :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
-readTopCombosValueWithDbFallbackRaw mOps store =
-    readTopCombosValueWithDbFallbackRawUnlocked mOps store
+readTopCombosValueWithDbFallbackRaw =
+    readTopCombosValueWithDbFallbackRawUnlocked
 
 readTopCombosValueWithDbFallbackUnlocked :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallbackUnlocked mOps store = do

@@ -600,20 +600,25 @@ Top-combo payload sanitization in `haskell/web/src/App.tsx` and combo applicatio
 
 Clauses:
 
-1. Only exact safe integers may cross from combo payloads into integer-backed form state.
+1. Only exact safe integers may cross from combo payloads into integer-backed form state or imported combo-operation coordinates.
 2. Fractional, non-finite, and unsafe integer-like combo values are rejected instead of being truncated or rounded into a different integer.
-3. Rejected combo integers are inert during combo application: carry-forward fields keep the previous form value, while truly absent opt-in fields keep their existing missing-field semantics.
-4. Accepted combo integers still flow through the existing per-field min/max clamps unchanged.
+3. `maxOrderErrors` preserves `0` as the disabled sentinel during combo import and combo application; positive exact integers preserve their count.
+4. Rejected combo integers are inert during combo application: carry-forward fields keep the previous form value, while truly absent opt-in fields keep their existing missing-field semantics.
+5. Imported combo operations are admitted only when `entryIndex` and `exitIndex` are exact non-negative safe integers with `entryIndex <= exitIndex`; optional `holdingPeriods` is preserved only when it is also an exact non-negative safe integer.
+6. Accepted combo integers still flow through the existing per-field min/max clamps unchanged.
 
 The verifier in `haskell/web/test/appHelpers.test.mjs`, `haskell/web/test/formSymbolBehavior.test.mjs`, and `haskell/web/test/repoConfig.test.mjs` checks:
 
-- the helper boundary over representative exact-safe, fractional, non-finite, unsafe, and non-numeric inputs
+- the helper boundary over representative exact-safe, non-negative, fractional, non-finite, unsafe, and non-numeric inputs
+- combo-operation sanitization over representative valid, fractional, reversed, and invalid-holding-period inputs
 - a bounded per-field apply matrix over `{bars, epochs, hiddenSize, patience, minHoldBars, maxHoldBars, cooldownBars, maxOrderErrors, trendLookback, volLookback, rebalanceBars, walkForwardFolds, walkForwardEmbargoBars}` crossed with `{missing, valid exact, fractional, unsafe}`
-- that representative top-combo integer imports in `sanitizeTopCombosPayload` route through the shared exact-safe-integer helper
+- that representative top-combo integer imports in `sanitizeTopCombosPayload` route through the shared exact-safe-integer helpers
 
 Proof sketch:
 
 - `readExactSafeInteger` returns a value iff JavaScript can represent that integer exactly, so malformed payload numerics are rejected before any clamp logic can change them.
+- `readNonNegativeExactSafeInteger` is the strengthened boundary for discrete counts/indices whose domain includes `0` but excludes negative values, so `maxOrderErrors=0` remains disabled while negative or fractional coordinates are rejected before import-time coercion.
+- `sanitizeOptimizationComboOperation` composes that boundary across `(entryIndex, exitIndex, holdingPeriods)` and rejects reversed intervals, so imported operation rows cannot be silently rewritten into different bar coordinates by `Math.trunc`.
 - `coerceExactSafeInteger`, `clampComboForLimits`, and `applyComboToForm` now validate combo integers before clamping, so a present-but-invalid combo field can no longer be silently rewritten into a different integer state.
 - Missing-field semantics remain explicit at each call site (`maxOrderErrors` still distinguishes absent from invalid), which keeps the existing opt-in/off behavior while strengthening the validation boundary.
 

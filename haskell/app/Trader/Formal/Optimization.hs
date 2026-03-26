@@ -51,6 +51,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrZeroRoundTripRewardInvariant :: !Bool
     , fvrActivityPenaltyOrdered :: !Bool
     , fvrExposurePenaltyOrdered :: !Bool
+    , fvrTieBreakTotalOrderAfterNormalization :: !Bool
     , fvrTieBreakSpecMatchesImplementation :: !Bool
     }
     deriving (Eq, Show)
@@ -121,17 +122,21 @@ roiSpecScore penaltyMaxDd penaltyTurnover m =
 
 tieBreakCandidateFromMetrics :: BacktestMetrics -> Double -> Double -> TieBreakCandidate
 tieBreakCandidateFromMetrics metrics openThr closeThr =
-    TieBreakCandidate
-        { tbcFinalEquity = bmFinalEquity metrics
-        , tbcTurnover = bmTurnover metrics
-        , tbcRoundTrips = bmRoundTrips metrics
-        , tbcOpenThreshold = openThr
-        , tbcCloseThreshold = closeThr
-        }
+    normalizeTieBreakCandidate
+        ( TieBreakCandidate
+            { tbcFinalEquity = bmFinalEquity metrics
+            , tbcTurnover = bmTurnover metrics
+            , tbcRoundTrips = bmRoundTrips metrics
+            , tbcOpenThreshold = openThr
+            , tbcCloseThreshold = closeThr
+            }
+        )
 
 preferTieBreakImplementation :: TieBreakCandidate -> TieBreakCandidate -> Bool
-preferTieBreakImplementation cand best =
-    let eqEps = 1e-12
+preferTieBreakImplementation cand0 best0 =
+    let eqEps = comparisonEps
+        cand = normalizeTieBreakCandidate cand0
+        best = normalizeTieBreakCandidate best0
         eq = tbcFinalEquity cand
         bestEq = tbcFinalEquity best
         turnover = tbcTurnover cand
@@ -142,8 +147,8 @@ preferTieBreakImplementation cand best =
         closeThr = tbcCloseThreshold cand
         bestOpen = tbcOpenThreshold best
         bestClose = tbcCloseThreshold best
-        inverted = closeThr > openThr + eqEps
-        bestInverted = bestClose > bestOpen + eqEps
+        inverted = isInvertedNormalized cand
+        bestInverted = isInvertedNormalized best
      in (eq > bestEq + eqEps)
             || ( abs (eq - bestEq) <= eqEps
                     && ( turnover < bestTurnover - eqEps
@@ -355,6 +360,8 @@ verifyFormalOptimization =
                     , roundTrips <- activityDomain
                     , tradeCount <- activityDomain
                     ]
+            , fvrTieBreakTotalOrderAfterNormalization =
+                all tieBreakTotalOrderAfterNormalizationFor tieBreakPairs
             , fvrTieBreakSpecMatchesImplementation =
                 all tieBreakMatchesImplementationFor tieBreakPairs
             }
@@ -405,27 +412,67 @@ exposurePenaltyFor exposure
     | exposure < 0.01 = 0.02
     | otherwise = 0
 
+comparisonEps :: Double
+comparisonEps = 1e-12
+
+tieBreakNonFiniteHighSentinel :: Double
+tieBreakNonFiniteHighSentinel = 1.0e308
+
+tieBreakNonFiniteLowSentinel :: Double
+tieBreakNonFiniteLowSentinel = -1.0e308
+
+-- Compare a finite canonical form so malformed NaN/Infinity rows cannot
+-- poison best-combo ordering and the proof model stays total.
+normalizeTieBreakCandidate :: TieBreakCandidate -> TieBreakCandidate
+normalizeTieBreakCandidate candidate =
+    let (openThr, closeThr) =
+            normalizeTieBreakThresholdPair
+                (tbcOpenThreshold candidate)
+                (tbcCloseThreshold candidate)
+     in TieBreakCandidate
+            { tbcFinalEquity =
+                sanitizeFiniteWith tieBreakNonFiniteLowSentinel (tbcFinalEquity candidate)
+            , tbcTurnover =
+                sanitizeFiniteWith tieBreakNonFiniteHighSentinel (tbcTurnover candidate)
+            , tbcRoundTrips = tbcRoundTrips candidate
+            , tbcOpenThreshold = openThr
+            , tbcCloseThreshold = closeThr
+            }
+
+normalizeTieBreakThresholdPair :: Double -> Double -> (Double, Double)
+normalizeTieBreakThresholdPair openThr closeThr
+    | isFinite openThr && isFinite closeThr = (openThr, closeThr)
+    | otherwise = (tieBreakNonFiniteLowSentinel, tieBreakNonFiniteLowSentinel)
+
 tieBreakKey :: TieBreakCandidate -> (Double, Down Double, Int, Int, Double, Double)
 tieBreakKey candidate =
-    ( tbcFinalEquity candidate
-    , Down (tbcTurnover candidate)
-    , tbcRoundTrips candidate
-    , if isInverted candidate then 0 else 1
-    , tbcOpenThreshold candidate
-    , tbcCloseThreshold candidate
-    )
+    let normalized = normalizeTieBreakCandidate candidate
+     in ( tbcFinalEquity normalized
+        , Down (tbcTurnover normalized)
+        , tbcRoundTrips normalized
+        , if isInvertedNormalized normalized then 0 else 1
+        , tbcOpenThreshold normalized
+        , tbcCloseThreshold normalized
+        )
 
-isInverted :: TieBreakCandidate -> Bool
-isInverted candidate = tbcCloseThreshold candidate > tbcOpenThreshold candidate
+isInvertedNormalized :: TieBreakCandidate -> Bool
+isInvertedNormalized candidate =
+    tbcCloseThreshold candidate > tbcOpenThreshold candidate + comparisonEps
+
+isFinite :: Double -> Bool
+isFinite x = not (isNaN x || isInfinite x)
+
+sanitizeFiniteWith :: Double -> Double -> Double
+sanitizeFiniteWith fallback x =
+    if isFinite x
+        then x
+        else fallback
 
 sanitizeFinite0 :: Double -> Double
-sanitizeFinite0 x =
-    if isNaN x || isInfinite x
-        then 0
-        else x
+sanitizeFinite0 = sanitizeFiniteWith 0
 
 approxEq :: Double -> Double -> Bool
-approxEq x y = abs (x - y) <= 1e-12
+approxEq x y = abs (x - y) <= comparisonEps
 
 scoreInput :: (Double -> Double -> BacktestMetrics -> Double) -> (Double, Double, RoiState) -> Double
 scoreInput scorer (penaltyMaxDd, penaltyTurnover, state) =
@@ -444,6 +491,17 @@ roiSpecMatchesImplementationFor input =
 tieBreakMatchesImplementationFor :: (TieBreakCandidate, TieBreakCandidate) -> Bool
 tieBreakMatchesImplementationFor (cand, best) =
     preferTieBreakSpec cand best == preferTieBreakImplementation cand best
+
+tieBreakTotalOrderAfterNormalizationFor :: (TieBreakCandidate, TieBreakCandidate) -> Bool
+tieBreakTotalOrderAfterNormalizationFor (cand, best) =
+    let candKey = tieBreakKey cand
+        bestKey = tieBreakKey best
+        candPreferred = preferTieBreakImplementation cand best
+        bestPreferred = preferTieBreakImplementation best cand
+     in candPreferred == (candKey > bestKey)
+            && bestPreferred == (bestKey > candKey)
+            && (candPreferred || bestPreferred || candKey == bestKey)
+            && not (candPreferred && bestPreferred)
 
 zeroRoundTripRewardInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Int -> Double -> Bool
 zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover tradeCount exposure =
@@ -531,7 +589,10 @@ allRoiStates =
     ]
 
 tieBreakDomain :: [TieBreakCandidate]
-tieBreakDomain =
+tieBreakDomain = tieBreakFiniteDomain ++ tieBreakMalformedDomain
+
+tieBreakFiniteDomain :: [TieBreakCandidate]
+tieBreakFiniteDomain =
     [ TieBreakCandidate finalEquity turnover roundTrips openThr closeThr
     | finalEquity <- [1.0, 1.05, 1.1]
     , turnover <- [0.0, 0.1, 0.2]
@@ -539,6 +600,33 @@ tieBreakDomain =
     , openThr <- [0.01, 0.02]
     , closeThr <- [0.01, 0.03]
     ]
+
+tieBreakMalformedDomain :: [TieBreakCandidate]
+tieBreakMalformedDomain =
+    [ TieBreakCandidate finalEquity 0.1 2 0.01 0.01
+    | finalEquity <- nonFiniteDomain
+    ]
+        ++ [ TieBreakCandidate 1.05 turnover 2 0.01 0.01
+           | turnover <- nonFiniteDomain
+           ]
+        ++ [ TieBreakCandidate 1.05 0.1 2 openThr 0.01
+           | openThr <- nonFiniteDomain
+           ]
+        ++ [ TieBreakCandidate 1.05 0.1 2 0.01 closeThr
+           | closeThr <- nonFiniteDomain
+           ]
+
+nonFiniteDomain :: [Double]
+nonFiniteDomain = [nanValue, positiveInfinity, negativeInfinity]
+
+nanValue :: Double
+nanValue = 0 / 0
+
+positiveInfinity :: Double
+positiveInfinity = 1 / 0
+
+negativeInfinity :: Double
+negativeInfinity = -1 / 0
 
 penaltyMaxDrawdownDomain :: [Double]
 penaltyMaxDrawdownDomain = [0.0, 1.5]

@@ -147,6 +147,16 @@ test("repo contract routes top-combo integer imports through the exact safe-inte
       `${field} combo imports must use readExactSafeInteger`,
     );
   }
+  assert.match(
+    appSource,
+    /readNonNegativeExactSafeInteger\(params\.maxOrderErrors\)/,
+    "maxOrderErrors combo imports must preserve the zero-disable sentinel via the non-negative exact-safe boundary",
+  );
+  assert.match(
+    appSource,
+    /sanitizeOptimizationComboOperation\(rawOp\)/,
+    "combo operation imports must share the exact-safe discrete sanitizer",
+  );
 });
 
 test("repo contract routes lookback and live-bot validation targets to their config pages", () => {

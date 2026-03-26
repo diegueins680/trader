@@ -263,8 +263,10 @@ import {
   roundRatioDown,
   roundRatioUp,
   readExactSafeInteger,
+  readNonNegativeExactSafeInteger,
   safeJsonParse,
   sanitizeSymbolForPlatform,
+  sanitizeOptimizationComboOperation,
   sanitizeFilenameSegment,
   sigBool,
   sigNumber,
@@ -925,35 +927,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
         : null;
     const operationsRaw = Array.isArray(rawRec.operations) ? rawRec.operations : [];
     const operations = operationsRaw
-      .map((rawOp) => {
-        const opRec = (rawOp as Record<string, unknown> | null | undefined) ?? {};
-        const entryIndex =
-          typeof opRec.entryIndex === "number" && Number.isFinite(opRec.entryIndex) ? Math.trunc(opRec.entryIndex) : null;
-        const exitIndex =
-          typeof opRec.exitIndex === "number" && Number.isFinite(opRec.exitIndex) ? Math.trunc(opRec.exitIndex) : null;
-        if (entryIndex == null || exitIndex == null) return null;
-        const entryEquity =
-          typeof opRec.entryEquity === "number" && Number.isFinite(opRec.entryEquity) ? (opRec.entryEquity as number) : null;
-        const exitEquity =
-          typeof opRec.exitEquity === "number" && Number.isFinite(opRec.exitEquity) ? (opRec.exitEquity as number) : null;
-        const retValue = typeof opRec.return === "number" && Number.isFinite(opRec.return) ? (opRec.return as number) : null;
-        const holdingPeriods =
-          typeof opRec.holdingPeriods === "number" && Number.isFinite(opRec.holdingPeriods)
-            ? Math.trunc(opRec.holdingPeriods as number)
-            : null;
-        const exitReason =
-          typeof opRec.exitReason === "string" && opRec.exitReason.trim() ? opRec.exitReason.trim() : null;
-        const op: OptimizationComboOperation = {
-          entryIndex,
-          exitIndex,
-          entryEquity,
-          exitEquity,
-          return: retValue,
-          holdingPeriods,
-          exitReason,
-        };
-        return op;
-      })
+      .map((rawOp) => sanitizeOptimizationComboOperation(rawOp))
       .filter((op): op is OptimizationComboOperation => op !== null);
     const operationsOut = operations.length > 0 ? operations : null;
     return {
@@ -1039,8 +1013,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
             : null,
         maxDrawdown: typeof params.maxDrawdown === "number" && Number.isFinite(params.maxDrawdown) ? params.maxDrawdown : null,
         maxDailyLoss: typeof params.maxDailyLoss === "number" && Number.isFinite(params.maxDailyLoss) ? params.maxDailyLoss : null,
-        maxOrderErrors:
-          typeof params.maxOrderErrors === "number" && Number.isFinite(params.maxOrderErrors) ? Math.max(1, Math.trunc(params.maxOrderErrors)) : null,
+        maxOrderErrors: readNonNegativeExactSafeInteger(params.maxOrderErrors),
         orderQuote,
         orderQuantity,
         orderQuoteFraction,
