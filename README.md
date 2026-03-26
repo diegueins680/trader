@@ -643,7 +643,7 @@ Endpoints:
   - DEX combo platform metadata and token-pair symbols are preserved during merge normalization (for example, `platform=uniswap` + `symbol=0xabc/0xdef` stay DEX-formatted instead of being compacted as Binance symbols).
   - Combos can include sizing params (`orderQuote`, `orderQuantity`, `orderQuoteFraction`, `maxOrderQuote`); applying combos will honor them so orders have a usable size.
   - `top-combos.json` also includes `bestOptimizationTechniques`, a curated list of optimization best practices with short explanations for downstream consumers, plus `optimizationTechniquesApplied`/`ensemble` sections that summarize the Sobol seeding, successive halving, Bayesian-inspired exploitation, walk-forward validation, and ensemble construction applied during a run.
-- `GET /state/sync` → exports bot snapshots and optimizer `top-combos.json` for syncing between deployments
+- `GET /state/sync` → exports bot snapshots and a sync-safe optimizer `top-combos.json` payload for syncing between deployments (per-combo `operations` are omitted to keep the response bounded)
 - `POST /state/sync` → imports state from another deployment (bot snapshots keep the latest `snapshotAtMs`; `top-combos.json` merges when the incoming `generatedAtMs` is newer or when backfilling to meet `TRADER_TOP_COMBOS_MIN_PERSIST`, de-duplicating by full combo identity and keeping the best metrics)
 - `GET /request-progress/:requestId` → returns short-lived phase diagnostics for tracked in-flight requests (used by the web UI to explain stalled Binance key/positions calls after the browser-side timeout fires)
 - `/bot/*`, `/state/sync`, and `/binance/listenKey/*` require `tenantKey` (header/query for GET, JSON for POST).
@@ -799,7 +799,7 @@ Optional state sync push (keep a central Fly deployment updated):
 - Set `TRADER_STATE_SYNC_TENANT_KEY` to the tenant key expected by the target; when unset, the server derives it from `BINANCE_API_KEY`/`BINANCE_API_SECRET` (or Coinbase keys).
 - If the target requires auth, set `TRADER_STATE_SYNC_API_TOKEN` (Authorization: Bearer) or `TRADER_STATE_SYNC_API_KEY` (X-API-Key).
 - The API POSTs updated `top-combos.json` to the target whenever combos are written.
-- If the target rejects the full combo payload with `413`, background sync retries automatically with a compact payload that drops per-combo `operations`; `/state/sync` pulls also surface non-JSON responses as content-type errors so misrouted frontend/proxy URLs are easier to spot.
+- `GET /state/sync` exports the compact top-combos form (drops per-combo `operations`) to keep cross-deployment sync responses bounded; if the target rejects a full combo push with `413`, background sync also retries automatically with the same compact form. `/state/sync` pulls surface non-JSON responses as content-type errors so misrouted frontend/proxy URLs are easier to spot.
 - Optimizer merges now also pull `top-combos` from the sync target on-the-fly (via `GET /state/sync`) before merging local runs; this provides non-S3 continuity across deployments.
 - To avoid sync loops, configure this only on non-target instances (leave it unset on the target/central instance).
 

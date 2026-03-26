@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- API/State sync: compact `GET /state/sync` top-combos exports by default (drop per-combo `operations`) so cross-deployment sync pulls stay bounded and no longer risk OOMing the Fly API machine while serializing huge combo histories.
 - Dev/CI: make the local autoloop contract explicit that every direct-pushed SHA is polled against GitHub `CI`, and red runs feed `gh run view --log-failed` output back into the next Codex repair iteration instead of treating the push as done.
 - API/CORS: allow `X-Trader-Request-Id` in preflight responses so split-host cross-origin fallback for Binance key/positions/bot flows can keep request-progress tracking enabled without browser CORS failures.
 - Web UI: applying router or bandit-router optimizer combos now restores `routerLookback` and `routerMinScore`, and combo identity now distinguishes those fields so applied-router replays match the selected combo.

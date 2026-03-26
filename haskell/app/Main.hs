@@ -13691,7 +13691,7 @@ handleStateSyncExport mOps mBotStateDir topCombosStore req respond =
                         , sspBotSnapshots = if null snaps then Nothing else Just snaps
                         , sspTopCombos =
                             case topVal of
-                                Right val -> Just val
+                                Right val -> Just (compactTopCombosPayloadForSync val)
                                 Left _ -> Nothing
                         }
             respond (jsonValue status200 payload)
