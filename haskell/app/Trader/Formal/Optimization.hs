@@ -24,8 +24,8 @@ roiRequirementClauses =
     [ "Prefer higher annualized return as the repo's daily-ROI proxy."
     , "Penalize drawdown and tail loss."
     , "Penalize turnover."
-    , "Reward positive expectancy."
-    , "Reward faster payback."
+    , "Reward positive expectancy only after a completed round trip."
+    , "Reward faster payback only after a completed round trip."
     , "Penalize low completed round-trip activity and idle capital."
     ]
 
@@ -48,6 +48,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrTurnoverMonotone :: !Bool
     , fvrExpectancyMonotone :: !Bool
     , fvrPaybackMonotone :: !Bool
+    , fvrZeroRoundTripRewardInvariant :: !Bool
     , fvrActivityPenaltyOrdered :: !Bool
     , fvrExposurePenaltyOrdered :: !Bool
     , fvrTieBreakSpecMatchesImplementation :: !Bool
@@ -88,30 +89,33 @@ roiImplementationScore penaltyMaxDd penaltyTurnover m =
         expectancy = sanitizeFinite0 (bmAvgTradeReturn m)
         avgHold = max 0 (sanitizeFinite0 (bmAvgHoldingPeriods m))
         exposure = max 0 (sanitizeFinite0 (bmExposure m))
-        activityPenalty = activityPenaltyFor (activityCountFromMetrics m)
+        activityCount = activityCountFromMetrics m
+        activityPenalty = activityPenaltyFor activityCount
         exposurePenalty = exposurePenaltyFor exposure
-        paybackBonus = paybackBonusFor avgHold
+        expectancyReward = expectancyRewardFor activityCount expectancy
+        paybackReward = paybackRewardFor activityCount avgHold
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
      in annRet
             - pDd * (maxDd + tailLoss)
             - pTurn * turnover
-            + 0.5 * expectancy
-            + paybackBonus
+            + expectancyReward
+            + paybackReward
             - activityPenalty
             - exposurePenalty
 
 roiSpecScore :: Double -> Double -> BacktestMetrics -> Double
 roiSpecScore penaltyMaxDd penaltyTurnover m =
     let view = roiViewFromMetrics m
+        activityCount = rvActivityCount view
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
         returnReward = rvAnnualizedReturn view
-        expectancyReward = 0.5 * rvExpectancy view
-        paybackReward = paybackBonusFor (rvAvgHold view)
+        expectancyReward = expectancyRewardFor activityCount (rvExpectancy view)
+        paybackReward = paybackRewardFor activityCount (rvAvgHold view)
         riskPenalty = pDd * (rvMaxDrawdown view + rvTailLoss view)
         turnoverPenalty = pTurn * rvTurnover view
-        sparseActivityPenalty = activityPenaltyFor (rvActivityCount view)
+        sparseActivityPenalty = activityPenaltyFor activityCount
         idleCapitalPenalty = exposurePenaltyFor (rvExposure view)
      in returnReward + expectancyReward + paybackReward - riskPenalty - turnoverPenalty - sparseActivityPenalty - idleCapitalPenalty
 
@@ -287,6 +291,26 @@ verifyFormalOptimization =
                     , tradeCount <- activityDomain
                     , exposure <- exposureDomain
                     ]
+            , fvrZeroRoundTripRewardInvariant =
+                and
+                    [ zeroRoundTripRewardInvariantFor
+                        penaltyMaxDd
+                        penaltyTurnover
+                        annualizedReturn
+                        maxDrawdown
+                        tailLoss
+                        turnover
+                        tradeCount
+                        exposure
+                    | penaltyMaxDd <- penaltyMaxDrawdownDomain
+                    , penaltyTurnover <- penaltyTurnoverDomain
+                    , annualizedReturn <- annualizedReturnDomain
+                    , maxDrawdown <- maxDrawdownDomain
+                    , tailLoss <- tailLossDomain
+                    , turnover <- turnoverDomain
+                    , tradeCount <- activityDomain
+                    , exposure <- exposureDomain
+                    ]
             , fvrActivityPenaltyOrdered =
                 and
                     [ activityPenaltyOrderedFor
@@ -351,6 +375,18 @@ roiViewFromMetrics m =
 activityCountFromMetrics :: BacktestMetrics -> Int
 activityCountFromMetrics metrics = max 0 (bmRoundTrips metrics)
 
+expectancyRewardFor :: Int -> Double -> Double
+expectancyRewardFor activityCount expectancy =
+    if activityCount <= 0
+        then 0
+        else 0.5 * expectancy
+
+paybackRewardFor :: Int -> Double -> Double
+paybackRewardFor activityCount avgHold =
+    if activityCount <= 0
+        then 0
+        else paybackBonusFor avgHold
+
 paybackBonusFor :: Double -> Double
 paybackBonusFor avgHold =
     if avgHold <= 0
@@ -408,6 +444,24 @@ roiSpecMatchesImplementationFor input =
 tieBreakMatchesImplementationFor :: (TieBreakCandidate, TieBreakCandidate) -> Bool
 tieBreakMatchesImplementationFor (cand, best) =
     preferTieBreakSpec cand best == preferTieBreakImplementation cand best
+
+zeroRoundTripRewardInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Int -> Double -> Bool
+zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover tradeCount exposure =
+    let baseline =
+            scoreWith
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover 0 0 0 tradeCount exposure)
+                penaltyMaxDd
+                penaltyTurnover
+        scoreFor expectancy avgHold =
+            scoreWith
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold 0 tradeCount exposure)
+                penaltyMaxDd
+                penaltyTurnover
+     in and
+            [ approxEq baseline (scoreFor expectancy avgHold)
+            | expectancy <- expectancyDomain
+            , avgHold <- avgHoldDomain
+            ]
 
 activityPenaltyOrderedFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Double -> Bool
 activityPenaltyOrderedFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold tradeCount exposure =
