@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  buildDefaultOptimizerRunForm,
+  buildOptimizerRunRequest,
+  findOptionalWholeNumberFieldError,
   formatDatetimeLocal,
   parseDatetimeLocal,
   positionSideInfo,
@@ -104,6 +107,52 @@ test("readNonNegativeExactSafeInteger preserves zero and rejects negative or ine
       `expected ${String(raw)} to normalize to ${String(expected)}`,
     );
   }
+});
+
+test("findOptionalWholeNumberFieldError accepts exact string overrides and rejects fractional string overrides", () => {
+  assert.equal(
+    findOptionalWholeNumberFieldError([{ label: "Trials", raw: "", override: " 12 " }]),
+    null,
+  );
+  assert.equal(
+    findOptionalWholeNumberFieldError([{ label: "Trials", raw: "", override: "12.5" }]),
+    "Trials must be a whole number.",
+  );
+});
+
+test("buildOptimizerRunRequest normalizes known integer extra overrides before merging", () => {
+  const form = {
+    ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),
+    trials: "",
+    barsMin: "",
+  };
+  const request = buildOptimizerRunRequest(form, {
+    trials: "12",
+    barsMin: "250",
+    objective: "roi",
+  });
+
+  assert.equal(request.trials, 12);
+  assert.equal(request.barsMin, 250);
+  assert.equal(request.objective, "roi");
+  assert.equal(typeof request.trials, "number");
+  assert.equal(typeof request.barsMin, "number");
+});
+
+test("buildOptimizerRunRequest drops invalid known integer extra overrides instead of emitting stringly payloads", () => {
+  const unsafe = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
+  const form = {
+    ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),
+    trials: "",
+    trendLookbackMin: "",
+  };
+  const request = buildOptimizerRunRequest(form, {
+    trials: "12.5",
+    trendLookbackMin: unsafe,
+  });
+
+  assert.equal("trials" in request, false);
+  assert.equal("trendLookbackMin" in request, false);
 });
 
 test("sanitizeOptimizationComboOperation preserves only exact non-negative discrete operation coordinates", () => {

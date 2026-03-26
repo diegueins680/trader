@@ -1198,10 +1198,52 @@ export type OptionalWholeNumberField = {
   override?: unknown;
 };
 
+const OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS = [
+  "barsMin",
+  "barsMax",
+  "trials",
+  "seed",
+  "seedTrials",
+  "perturbScaleInt",
+  "earlyStopNoImprove",
+  "epochsMin",
+  "epochsMax",
+  "hiddenSizeMin",
+  "hiddenSizeMax",
+  "patienceMax",
+  "minRoundTrips",
+  "walkForwardFoldsMin",
+  "walkForwardFoldsMax",
+  "walkForwardEmbargoBarsMin",
+  "walkForwardEmbargoBarsMax",
+  "minHoldBarsMin",
+  "minHoldBarsMax",
+  "cooldownBarsMin",
+  "cooldownBarsMax",
+  "maxHoldBarsMin",
+  "maxHoldBarsMax",
+  "trendLookbackMin",
+  "trendLookbackMax",
+] as const;
+
+function readOptionalWholeNumberOverride(raw: unknown): { provided: boolean; value: number | null } {
+  if (raw == null) return { provided: false, value: null };
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return { provided: false, value: null };
+    return { provided: true, value: parseOptionalInt(trimmed) ?? null };
+  }
+  if (typeof raw === "number") {
+    return { provided: true, value: Number.isSafeInteger(raw) ? raw : null };
+  }
+  return { provided: true, value: null };
+}
+
 export function findOptionalWholeNumberFieldError(fields: OptionalWholeNumberField[]): string | null {
   for (const field of fields) {
-    if (typeof field.override === "number") {
-      if (!Number.isSafeInteger(field.override)) {
+    const override = readOptionalWholeNumberOverride(field.override);
+    if (override.provided) {
+      if (override.value == null) {
         return `${field.label} must be a whole number.`;
       }
       continue;
@@ -1911,7 +1953,18 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (form.noSweepThreshold) req.noSweepThreshold = true;
 
   if (extras) {
-    Object.assign(req, extras);
+    const normalizedExtras: Record<string, unknown> = { ...extras };
+    for (const key of OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS) {
+      const override = readOptionalWholeNumberOverride(normalizedExtras[key]);
+      if (!override.provided || override.value == null) {
+        delete normalizedExtras[key];
+        continue;
+      }
+      normalizedExtras[key] = override.value;
+    }
+    // Keep extra JSON forward-compatible, but never let known integer request
+    // keys drift into stringly or fractional payloads.
+    Object.assign(req, normalizedExtras);
   }
 
   return req;

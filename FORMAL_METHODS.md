@@ -339,6 +339,25 @@ Proof sketch:
 - Because accepted values are forwarded unchanged after the safe-integer check, exact integers keep their prior wire format and only the rounded-invalid states disappear.
 - `haskell/web/test/apiFallback.test.mjs` pins both sides of the contract with representative safe integers and with fractional/unsafe cases that previously truncated into different URLs.
 
+## Formal optimizer extra integer-override contract
+
+`findOptionalWholeNumberFieldError` and `buildOptimizerRunRequest` in `haskell/web/src/app/appHelpers.ts` treat the optimizer form's advanced JSON integer overrides as exact whole-number inputs rather than raw passthrough JSON.
+
+Clauses:
+
+1. Known integer override keys are admissible only when the override is an exact JavaScript safe integer, whether supplied as a JSON number or a numeric string.
+2. Blank, `null`, and `undefined` overrides are inert: they do not block validation and do not overwrite the typed request.
+3. Fractional, non-finite, and unsafe integer-like overrides are rejected by validation and are stripped before request emission, so the web client never overwrites a typed integer request field with a stringly or inexact value.
+4. Valid integer-string overrides normalize to numbers before request emission, preserving the backend `ApiOptimizerRunRequest` integer schema.
+
+Proof sketch:
+
+- `readOptionalWholeNumberOverride` is now the shared gate for optimizer whole-number overrides: it treats blank/nullish values as absent, accepts only `Number.isSafeInteger` numbers, and runs string overrides through the same `parseOptionalInt` exact-integer parser already used for the visible form fields.
+- `findOptionalWholeNumberFieldError` consults that gate before falling back to the raw form field, so a present override either proves exact whole-number admissibility or produces the field-specific validation error.
+- `buildOptimizerRunRequest` normalizes the known integer override keys through that same gate before merging extras, deleting absent/invalid overrides and rewriting valid string overrides to numbers.
+- Therefore the final request cannot contain a known integer optimizer field as `"12"`, `"12.5"`, or `"9007199254740993"` after extra-JSON merging; it can only be absent or an exact numeric integer compatible with the backend `Maybe Int` decoder.
+- `haskell/web/test/appHelpers.test.mjs` pins this boundary with valid string overrides, fractional string overrides, and unsafe integer-like string overrides.
+
 ## Formal deploy-time timeout contract
 
 The web deploy-config timeout loader now treats `timeoutsMs.*` as exact whole-millisecond inputs instead of "any finite number that can be rounded later."

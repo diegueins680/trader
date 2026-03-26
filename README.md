@@ -629,6 +629,7 @@ Endpoints:
 - Outbox events: when ops DB is enabled, API writes `trader.v1.*` records into `outbox_events` for signal/trade/backtest/job workflows. Run the publisher worker to drain them.
 - `POST /optimizer/run` → runs the optimizer executable, merges the run into `top-combos.json`, and returns the last JSONL record
   - The Web UI applies guardrails for trials/timeout/bars to avoid runaway optimizer runs (see UI constants).
+  - Advanced JSON whole-number overrides use the same exact-integer contract as the visible form fields: quoted integers such as `"trials":"12"` normalize to numbers, while fractional or unsafe integer-like overrides are rejected before the request is sent.
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
   - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), then score (`score` or `metrics.score`), then final equity.
   - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist; when a combo omits `source`, merge inherits the payload-level `source` before de-duplication.
