@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: project optimizer advanced-JSON source overrides through the effective data source, so CSV-only known keys (`data`/OHLC columns) are dropped on exchange runs and exchange-only known keys (`binanceSymbol`/`platforms`) are dropped on CSV runs instead of slipping into `/optimizer/run` payloads.
 - Web UI: preserve whitespace-padded symbol delimiters when parsing comma/space-separated symbol lists, so inputs such as `BTC / USD, ETH / USD` stay as two symbols instead of being split into phantom `BTC`/`/`/`USD` tokens.
 - Web UI: treat non-finite Binance position amounts as non-directional in the Open positions panel, so stale hedge-side metadata cannot surface phantom LONG/SHORT rows from malformed exchange payloads.
 - Web UI: normalize known optimizer advanced-JSON `source` / `binanceSymbol` / `data` / `timeoutSec` / split-ratio overrides before validation and request emission, so guardrails and client timeout selection can no longer disagree with the payload sent to `/optimizer/run`.

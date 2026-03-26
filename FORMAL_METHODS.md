@@ -369,16 +369,18 @@ Clauses:
 1. Known override keys that shadow typed optimizer fields normalize before both validation and request emission.
 2. `source` is canonicalized to the finite optimizer-source domain (`binance | coinbase | kraken | poloniex | csv`); invalid values are inert and cannot overwrite the typed form source.
 3. `binanceSymbol` and `data` are trimmed through the same non-blank contract the visible form uses, and `binanceSymbol` is uppercased before request emission.
-4. `timeoutSec`, `backtestRatio`, and `tuneRatio` are admissible only when they parse to finite numbers through the shared visible-form numeric parser; valid numeric strings normalize to numbers, and invalid overrides are inert.
-5. The client-side optimizer timeout is derived from the same normalized `timeoutSec` that is emitted in the request payload.
-6. Therefore validation, timeout selection, and request emission cannot disagree about the effective value of these known override keys.
+4. Known source-specific overrides preserve the visible-form data-source invariant after projection: effective CSV requests omit exchange-only known fields (`binanceSymbol`, `platforms`), and effective exchange requests omit CSV-only known fields (`data`, `priceColumn`, `highColumn`, `lowColumn`).
+5. `timeoutSec`, `backtestRatio`, and `tuneRatio` are admissible only when they parse to finite numbers through the shared visible-form numeric parser; valid numeric strings normalize to numbers, and invalid overrides are inert.
+6. The client-side optimizer timeout is derived from the same normalized `timeoutSec` that is emitted in the request payload.
+7. Therefore validation, timeout selection, and request emission cannot disagree about the effective value of these known override keys.
 
 Proof sketch:
 
 - `buildOptimizerRunRequest` now routes known advanced overrides through `normalizeKnownOptimizerRunExtras`, which canonicalizes `source`, trims known string overrides, uppercases `binanceSymbol`, and parses the known finite-number overrides before the final `Object.assign`.
+- `enforceOptimizerRequestSourceCompatibility` runs after that merge, so the final request is projected through its effective `source` instead of keeping stale CSV-only or exchange-only known keys from the prior form branch or from conflicting advanced JSON.
 - `App.tsx` now derives optimizer validation and timeout guardrails from a `buildOptimizerRunRequest(...)` preview after the whole-number override check, so the UI inspects the same normalized request shape it later sends.
 - Invalid `source` / `timeoutSec` / ratio overrides are deleted from the normalized extras map before merge, leaving the typed form value in place instead of overwriting it with an invalid raw string.
-- `haskell/web/test/appHelpers.test.mjs` pins representative valid and invalid rows for canonicalized `source`, trimmed `binanceSymbol` / `data`, and numeric-string `timeoutSec` / `backtestRatio` / `tuneRatio` overrides.
+- `haskell/web/test/appHelpers.test.mjs` pins representative valid and invalid rows for canonicalized `source`, trimmed `binanceSymbol` / `data`, source-compatible CSV/exchange override projection, and numeric-string `timeoutSec` / `backtestRatio` / `tuneRatio` overrides.
 
 ## Formal deploy-time timeout contract
 

@@ -139,7 +139,7 @@ test("buildOptimizerRunRequest normalizes known integer extra overrides before m
   assert.equal(typeof request.barsMin, "number");
 });
 
-test("buildOptimizerRunRequest canonicalizes known source, symbol, path, and finite numeric extra overrides", () => {
+test("buildOptimizerRunRequest canonicalizes known source, symbol, and finite numeric extra overrides while enforcing source compatibility", () => {
   const form = {
     ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),
     timeoutSec: "",
@@ -157,7 +157,7 @@ test("buildOptimizerRunRequest canonicalizes known source, symbol, path, and fin
 
   assert.equal(request.source, "coinbase");
   assert.equal(request.binanceSymbol, "BTC-USD");
-  assert.equal(request.data, "../data/sample_prices.csv");
+  assert.equal("data" in request, false);
   assert.equal(request.timeoutSec, 12);
   assert.equal(request.backtestRatio, 0.2);
   assert.equal(request.tuneRatio, 0.25);
@@ -204,6 +204,62 @@ test("buildOptimizerRunRequest keeps invalid known source and finite-number extr
   assert.equal("timeoutSec" in request, false);
   assert.equal("backtestRatio" in request, false);
   assert.equal("tuneRatio" in request, false);
+});
+
+test("buildOptimizerRunRequest drops CSV-only known overrides when the effective source is exchange data", () => {
+  const form = {
+    ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),
+    source: "csv",
+    dataPath: "../data/form.csv",
+    priceColumn: "close",
+    highColumn: "high",
+    lowColumn: "low",
+    symbol: "ignored-csv-symbol",
+    platforms: "coinbase",
+  };
+  const request = buildOptimizerRunRequest(form, {
+    source: " coinbase ",
+    binanceSymbol: " eth-usd ",
+    data: " ../data/override.csv ",
+    priceColumn: " adjusted_close ",
+    highColumn: " high_override ",
+    lowColumn: " low_override ",
+    platforms: " coinbase,kraken ",
+  });
+
+  assert.equal(request.source, "coinbase");
+  assert.equal(request.binanceSymbol, "ETH-USD");
+  assert.equal(request.platforms, "coinbase,kraken");
+  assert.equal("data" in request, false);
+  assert.equal("priceColumn" in request, false);
+  assert.equal("highColumn" in request, false);
+  assert.equal("lowColumn" in request, false);
+});
+
+test("buildOptimizerRunRequest drops exchange-only known overrides when the effective source is csv", () => {
+  const form = {
+    ...buildDefaultOptimizerRunForm("BTCUSDT", "binance"),
+    source: "coinbase",
+    symbol: "BTC-USD",
+    platforms: "coinbase,kraken",
+  };
+  const request = buildOptimizerRunRequest(form, {
+    source: " csv ",
+    data: " ../data/override.csv ",
+    priceColumn: " adjusted_close ",
+    highColumn: " high_override ",
+    lowColumn: " low_override ",
+    binanceSymbol: " eth-usd ",
+    platforms: " coinbase,kraken ",
+  });
+
+  assert.equal(request.source, "csv");
+  assert.equal(request.data, "../data/override.csv");
+  assert.equal(request.priceColumn, "adjusted_close");
+  assert.equal(request.highColumn, "high_override");
+  assert.equal(request.lowColumn, "low_override");
+  assert.equal("binanceSymbol" in request, false);
+  assert.equal("platforms" in request, false);
 });
 
 test("sanitizeOptimizationComboOperation preserves only exact non-negative discrete operation coordinates", () => {

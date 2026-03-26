@@ -1329,6 +1329,17 @@ function normalizeKnownOptimizerRunExtras(extras: Record<string, unknown>): Reco
   return normalized;
 }
 
+const CSV_ONLY_OPTIMIZER_REQUEST_KEYS = ["data", "priceColumn", "highColumn", "lowColumn"] as const;
+const EXCHANGE_ONLY_OPTIMIZER_REQUEST_KEYS = ["binanceSymbol", "platforms"] as const;
+
+function enforceOptimizerRequestSourceCompatibility(req: OptimizerRunRequest): void {
+  if (req.source === "csv") {
+    for (const key of EXCHANGE_ONLY_OPTIMIZER_REQUEST_KEYS) delete req[key];
+    return;
+  }
+  for (const key of CSV_ONLY_OPTIMIZER_REQUEST_KEYS) delete req[key];
+}
+
 export function findOptionalWholeNumberFieldError(fields: OptionalWholeNumberField[]): string | null {
   for (const field of fields) {
     const override = readOptionalWholeNumberOverride(field.override);
@@ -2048,6 +2059,7 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
     // override keys before merging so validation and request emission agree.
     Object.assign(req, normalizedExtras);
   }
+  enforceOptimizerRequestSourceCompatibility(req);
 
   return req;
 }
