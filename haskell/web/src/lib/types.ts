@@ -206,6 +206,19 @@ export type BinanceKeysStatus = {
   tradeTest?: BinanceProbe;
 };
 
+export type ApiRequestProgressStatus = {
+  requestId: string;
+  kind: string;
+  currentPhase: string;
+  lastCompletedPhase?: string | null;
+  detail?: string | null;
+  startedAtMs: number;
+  updatedAtMs: number;
+  completedAtMs?: number | null;
+  completedOk?: boolean | null;
+  error?: string | null;
+};
+
 export type CoinbaseKeysStatus = {
   hasApiKey: boolean;
   hasApiSecret: boolean;

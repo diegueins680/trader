@@ -3,6 +3,7 @@ import type {
   ApiBinanceClosePositionRequest,
   ApiBinancePositionsRequest,
   ApiBinancePositionsResponse,
+  ApiRequestProgressStatus,
   ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
   ApiParams,
@@ -36,6 +37,7 @@ import type {
 } from "./lib/types";
 import {
   HttpError,
+  REQUEST_PROGRESS_HEADER,
   UnexpectedResponseError,
   backtest,
   binanceClosePosition,
@@ -56,6 +58,7 @@ import {
   opsPerformance,
   optimizerCombos,
   optimizerRun,
+  requestProgressStatus,
   stateSyncExport,
   stateSyncImport,
   signal,
@@ -406,6 +409,32 @@ function paginateTableRows<T>(rows: T[], page: number, rowsPerPage: number): Tab
     to: totalCount === 0 ? 0 : offset + pageRows.length,
     totalCount,
   };
+}
+
+function formatRequestProgressPhase(progress: ApiRequestProgressStatus): string {
+  const phase = progress.currentPhase?.trim() || "unknown phase";
+  const detail = progress.detail?.trim();
+  return detail ? `${phase} (${detail})` : phase;
+}
+
+function formatRequestProgressTimeoutMessage(prefix: string, progress: ApiRequestProgressStatus | null): string {
+  if (!progress) return prefix;
+  const lines = [prefix, `Likely stalled in: ${formatRequestProgressPhase(progress)}.`];
+  const lastCompleted = progress.lastCompletedPhase?.trim();
+  if (lastCompleted) lines.push(`Last completed phase: ${lastCompleted}.`);
+
+  const elapsedMs =
+    typeof progress.updatedAtMs === "number" && typeof progress.startedAtMs === "number"
+      ? Math.max(0, progress.updatedAtMs - progress.startedAtMs)
+      : null;
+  if (typeof elapsedMs === "number" && elapsedMs > 0) {
+    lines.push(`Server reached this phase after ${fmtDurationMs(elapsedMs)}.`);
+  }
+  if (typeof progress.completedAtMs === "number") {
+    lines.push(progress.completedOk === false ? "The server later marked the request as failed." : "The server later completed the request.");
+  }
+  if (progress.error?.trim()) lines.push(`Server error: ${progress.error.trim()}`);
+  return lines.join("\n");
 }
 
 type BacktestTablePagerProps = {
@@ -2724,6 +2753,20 @@ export function App() {
     return apiBase;
   }, [apiBase]);
 
+  const fetchTimedRequestProgressMessage = useCallback(
+    async (requestId: string | null | undefined, prefix: string) => {
+      const trimmed = requestId?.trim();
+      if (!trimmed) return prefix;
+      try {
+        const progress = await requestProgressStatus(apiBase, trimmed, { headers: authHeaders, timeoutMs: 2_500 });
+        return formatRequestProgressTimeoutMessage(prefix, progress);
+      } catch {
+        return prefix;
+      }
+    },
+    [apiBase, authHeaders],
+  );
+
   const apiFallbackBase = useMemo(
     () => normalizeApiBaseUrlInput(TRADER_UI_CONFIG.apiFallbackUrl?.trim() ?? ""),
     [],
@@ -4951,15 +4994,20 @@ export function App() {
       keysAbortRef.current?.abort();
       const controller = new AbortController();
       keysAbortRef.current = controller;
+      const progressRequestId = isBinancePlatform ? `binance-keys-${generateIdempotencyKey()}` : null;
 
       setKeys((s) => ({ ...s, loading: true, error: opts?.silent ? s.error : null, platform }));
 
       try {
         const p = keysParams;
         if (!p.binanceSymbol) throw new Error("Symbol is required.");
+        const requestHeaders =
+          isBinancePlatform && progressRequestId
+            ? { ...(authHeaders ?? {}), [REQUEST_PROGRESS_HEADER]: progressRequestId }
+            : authHeaders;
 
         const out = isBinancePlatform
-          ? await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 })
+          ? await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: requestHeaders, timeoutMs: 30_000 })
           : await coinbaseKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
         if (requestId !== keysRequestSeqRef.current) return;
         setKeys({ loading: false, error: null, status: out, platform, checkedAtMs: Date.now() });
@@ -4971,7 +5019,11 @@ export function App() {
         if (isAbortError(e)) return;
 
         let msg = e instanceof Error ? e.message : String(e);
-        if (isTimeoutError(e)) msg = isBinancePlatform ? "Key check timed out. Try again, or switch testnet off." : "Key check timed out. Try again.";
+        if (isTimeoutError(e)) {
+          msg = isBinancePlatform
+            ? await fetchTimedRequestProgressMessage(progressRequestId, "Key check timed out. Try again, or switch testnet off.")
+            : "Key check timed out. Try again.";
+        }
         if (e instanceof HttpError && typeof e.payload === "string") {
           const payload = e.payload;
           if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
@@ -5001,7 +5053,7 @@ export function App() {
         if (requestId === keysRequestSeqRef.current) keysAbortRef.current = null;
       }
     },
-    [apiBase, appendDataLog, authHeaders, buildDataLogError, isBinancePlatform, isCoinbasePlatform, keysParams, platform, showToast],
+    [apiBase, appendDataLog, authHeaders, buildDataLogError, fetchTimedRequestProgressMessage, isBinancePlatform, isCoinbasePlatform, keysParams, platform, showToast],
   );
 
   useEffect(() => {
@@ -6304,6 +6356,7 @@ export function App() {
       if (binancePositionsAbortRef.current === controller) binancePositionsAbortRef.current = null;
       return;
     }
+    const progressRequestId = `binance-positions-${generateIdempotencyKey()}`;
     try {
       const params: ApiBinancePositionsRequest = {
         market: form.market,
@@ -6312,7 +6365,7 @@ export function App() {
         limit: binancePositionsLimitSafe,
       };
       const out = await binancePositions(apiBase, withBinanceKeys(params), {
-        headers: authHeaders,
+        headers: { ...(authHeaders ?? {}), [REQUEST_PROGRESS_HEADER]: progressRequestId },
         timeoutMs: 30_000,
         signal: controller.signal,
       });
@@ -6335,7 +6388,9 @@ export function App() {
       }
       const finalMsg = isTimestampError
         ? "Binance timestamp out of sync (code -1021). Ensure system time is synced and the Binance time endpoint is reachable, then retry."
-        : msg;
+        : isTimeoutError(e)
+          ? await fetchTimedRequestProgressMessage(progressRequestId, "Open positions request timed out. Try again.")
+          : msg;
       setBinancePositionsUi((s) => ({ ...s, loading: false, error: finalMsg }));
     } finally {
       if (binancePositionsAbortRef.current === controller) binancePositionsAbortRef.current = null;
@@ -6346,6 +6401,7 @@ export function App() {
     binancePositionsInputError,
     binancePositionsLimitSafe,
     fetchBinancePositionTrades,
+    fetchTimedRequestProgressMessage,
     form.binanceTestnet,
     form.interval,
     form.market,
