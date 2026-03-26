@@ -235,6 +235,7 @@ main = do
               , run "signal gate prioritizes MAX_VOLATILITY over trend filter" testSignalGateMaxVolatilityPrecedesTrendFilter
               , run "signal gate emits VOL_TARGET_WARMUP reason" testSignalGateVolTargetWarmup
               , run "signal gate prioritizes VOL_TARGET_WARMUP over trend filter" testSignalGateVolTargetWarmupPrecedesTrendFilter
+              , run "signal gate prioritizes VOL_TARGET_WARMUP over kalman cloud" testSignalGateVolTargetWarmupPrecedesKalmanCloud
               , run "signal gate repeat blocked state stays hold" testSignalGateRepeatedBlockStaysHold
               , run "signal gate normalizes pathological thresholds" testSignalThresholdNormalization
               , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
@@ -256,8 +257,8 @@ main = do
               , run "top combos merge preserves newest payload metadata" testMergeTopCombosPreservesNewestPayloadMetadata
               , run "top combos identity keys keep distinct sources separate" testComboIdentityKeyKeepsDistinctSources
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
-              , run "top combos sync compaction drops operations only" testCompactTopCombosPayloadForSync
               , run "top combos payload equivalence ignores root sync metadata" testTopCombosPayloadEquivalentIgnoresRootSyncMetadata
+              , run "top combos sync compaction drops operations only" testCompactTopCombosPayloadForSync
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
               , run "optimizer merge preserves distinct payload sources from top-json inputs" testRunMergePreservesDistinctPayloadSources
@@ -2808,6 +2809,25 @@ testSignalGateVolTargetWarmupPrecedesTrendFilter = do
                 (const True)
                 (const (True, 1))
     assert "VOL_TARGET_WARMUP takes precedence over TREND_FILTER when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
+testSignalGateVolTargetWarmupPrecedesKalmanCloud :: IO ()
+testSignalGateVolTargetWarmupPrecedesKalmanCloud = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const False)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "VOL_TARGET_WARMUP takes precedence over KALMAN_CLOUD when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
 
 testSignalGateRepeatedBlockStaysHold :: IO ()
 testSignalGateRepeatedBlockStaysHold = do
