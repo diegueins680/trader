@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: reorient bounded autoloop cycles around backend Haskell trading-algorithm work by requiring an `haskell/app/*` algorithm review plus a formal-methods review (`FORMAL_METHODS.md`, `haskell/app/Trader/Formal/*`, or backend tests), renaming the lifecycle phases to `algorithm-review` / `formal-methods-review`, and prioritizing backend/formal files in planner context before web UI files.
 - Web UI: treat zero/dust-sized Binance positions as flat before trusting stale `positionSide` metadata, so the Open positions and orphaned-operations panels no longer show phantom LONG/SHORT rows for effectively closed positions.
 - Web UI: canonicalize supported exchange platform aliases when restoring saved settings and when filtering/applying imported combos, so `coinbase-advanced`, `poloniex-v2`, and `binanceusdm` keep the correct platform, symbol formatting, source fallback, and live-order toggles instead of degrading into Binance/default behavior.
 - Web UI: make Live bot datetime filters reject impossible local calendar timestamps and suppress invalid-date formatting, so month-end typos no longer roll into neighboring days and out-of-range metadata no longer renders as `NaN-NaN-NaNTNaN:NaN`.

@@ -84,6 +84,23 @@ const SAFE_VERIFICATION_COMMANDS = new Set([
   "node --test test/autoloop.test.mjs",
 ]);
 
+const ALGORITHM_REVIEW_PREFIXES = ["haskell/app/"];
+const FORMAL_METHODS_REVIEW_PREFIXES = ["FORMAL_METHODS.md", "haskell/app/Trader/Formal/", "test/", "haskell/test/"];
+const EDITABLE_FILE_PRIORITY_PREFIXES = [
+  "haskell/app/Trader/Formal/",
+  "FORMAL_METHODS.md",
+  "haskell/test/",
+  "haskell/app/Main.hs",
+  "haskell/app/OptimizeEquityMain.hs",
+  "haskell/app/Trader/",
+  "README.md",
+  "CHANGELOG.md",
+  "test/",
+  "haskell/web/test/",
+  "haskell/web/src/",
+  "haskell/scripts/",
+];
+
 let statusState = {
   mode: RUN_MODE,
   runId: RUN_ID,
@@ -125,8 +142,8 @@ async function main() {
     const idea = failureContext
       ? await requestFixIdea(repoContext, failureContext)
       : await requestIdeaSelection(repoContext);
-    await updateStatus({ phase: "ui-ux-review", iteration, idea: summarizeIdea(idea) });
-    await updateStatus({ phase: "correctness-review", iteration, idea: summarizeIdea(idea) });
+    await updateStatus({ phase: "algorithm-review", iteration, idea: summarizeIdea(idea) });
+    await updateStatus({ phase: "formal-methods-review", iteration, idea: summarizeIdea(idea) });
 
     if (idea.noChange) {
       await updateStatus({
@@ -360,10 +377,10 @@ function summarizeIdea(idea) {
   return {
     title: idea.title,
     rationale: idea.rationale,
-    uiReviewPath: idea.uiReviewPath,
-    uiReviewFocus: idea.uiReviewFocus,
-    correctnessPath: idea.correctnessPath,
-    correctnessFocus: idea.correctnessFocus,
+    algorithmReviewPath: idea.algorithmReviewPath,
+    algorithmReviewFocus: idea.algorithmReviewFocus,
+    formalMethodsPath: idea.formalMethodsPath,
+    formalMethodsFocus: idea.formalMethodsFocus,
     filesNeeded: idea.filesNeeded,
     verificationCommands: idea.verificationCommands,
   };
@@ -381,8 +398,8 @@ function summarizePlan(plan) {
     title: plan.title,
     summary: plan.summary,
     commitMessage: plan.commitMessage,
-    uiReviewSummary: plan.uiReviewSummary,
-    correctnessSummary: plan.correctnessSummary,
+    algorithmReviewSummary: plan.algorithmReviewSummary,
+    formalMethodsSummary: plan.formalMethodsSummary,
     verificationCommands: plan.verificationCommands,
     changes: plan.changes.map((change) => ({
       path: change.path,
@@ -438,6 +455,12 @@ function allowedEditPath(filePath) {
   return ALLOWED_EDIT_PREFIXES.some((prefix) => rel === prefix || rel.startsWith(prefix));
 }
 
+function editableFilePriority(filePath) {
+  const rel = sanitizeRelativePath(filePath);
+  const index = EDITABLE_FILE_PRIORITY_PREFIXES.findIndex((prefix) => rel === prefix || rel.startsWith(prefix));
+  return index === -1 ? EDITABLE_FILE_PRIORITY_PREFIXES.length : index;
+}
+
 async function listEditableFiles() {
   const files = runGit(["ls-files"]).split(/\r?\n/).filter(Boolean);
   const result = [];
@@ -448,9 +471,23 @@ async function listEditableFiles() {
     if (!stat.isFile()) continue;
     if (stat.size > MAX_EDITABLE_FILE_BYTES) continue;
     result.push({ path: rel, size: stat.size });
-    if (result.length >= MAX_EDITABLE_FILES) break;
   }
-  return result;
+  result.sort((left, right) => {
+    const priorityDelta = editableFilePriority(left.path) - editableFilePriority(right.path);
+    if (priorityDelta !== 0) return priorityDelta;
+    return left.path.localeCompare(right.path);
+  });
+  return result.slice(0, MAX_EDITABLE_FILES);
+}
+
+async function readOptionalText(relativePath, maxChars) {
+  try {
+    const content = await fs.readFile(path.join(ROOT, relativePath), "utf8");
+    return typeof maxChars === "number" ? clampText(content, maxChars) : content;
+  } catch (err) {
+    if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") return "";
+    throw err;
+  }
 }
 
 async function buildRepoContext() {
@@ -460,6 +497,7 @@ async function buildRepoContext() {
   const readme = clampText(await fs.readFile(path.join(ROOT, "README.md"), "utf8"), 14000);
   const changelog = clampText(await fs.readFile(path.join(ROOT, "CHANGELOG.md"), "utf8"), 10000);
   const formal = clampText(await fs.readFile(path.join(ROOT, "FORMAL_METHODS.md"), "utf8"), 8000);
+  const objectives = await readOptionalText("objectives/trader.md", 10000);
   const packageJson = await fs.readFile(path.join(ROOT, "package.json"), "utf8");
   const webPackageJson = await fs.readFile(path.join(ROOT, "haskell/web/package.json"), "utf8");
   const editableList = editableFiles.map((file) => `${file.path} (${file.size} bytes)`).join("\n");
@@ -471,6 +509,7 @@ async function buildRepoContext() {
     readme,
     changelog,
     formal,
+    objectives,
     packageJson,
     webPackageJson,
     editableList,
@@ -504,6 +543,9 @@ function repoContextText(repoContext) {
     "FORMAL_METHODS excerpt:",
     repoContext.formal,
     "",
+    repoContext.objectives ? "Trader objectives excerpt:" : "",
+    repoContext.objectives || "",
+    repoContext.objectives ? "" : "",
     `Editable files (limited to ${MAX_EDITABLE_FILE_BYTES} bytes each):`,
     repoContext.editableList,
   ].join("\n");
@@ -578,19 +620,22 @@ async function callModelJsonViaCodex({ prompt, maxOutputTokens }) {
 async function requestIdeaSelection(repoContext) {
   const prompt = [
     "You are selecting exactly one safe autonomous improvement for this repository.",
-    "Respond in JSON with keys: noChange, title, rationale, uiReviewPath, uiReviewFocus, correctnessPath, correctnessFocus, filesNeeded, verificationCommands.",
+    "Bias strongly toward backend Haskell trading-algorithm improvements and formal-methods-backed changes over UI polish or general maintenance.",
+    "Respond in JSON with keys: noChange, title, rationale, algorithmReviewPath, algorithmReviewFocus, formalMethodsPath, formalMethodsFocus, filesNeeded, verificationCommands.",
     "Constraints:",
-    "- Choose one small, high-confidence change with measurable value.",
-    "- Every cycle must explicitly cover these phases: choose one valuable change, review one local web UI source file for safe UI/UX fixes, review one correctness/formal artifact with an explicit invariant/property/test or proof-sketch update, then commit/push and wait for GitHub CI.",
+    "- Choose one small, high-confidence backend Haskell trading-algorithm change with measurable value.",
+    "- Every cycle must explicitly cover these phases: choose one valuable backend trading improvement, review one local Haskell algorithm file, review one formal-methods artifact with an explicit invariant/property/proof obligation, then commit/push and wait for GitHub CI.",
     "- Touch only files from the editable file list.",
     "- Do not propose dependency updates, workflow changes, deploy changes, or secrets.",
-    "- Prefer changes that can be verified by local tests/build commands.",
-    "- uiReviewPath must be a file under haskell/web/src/ and filesNeeded must include it.",
-    "- correctnessPath must be FORMAL_METHODS.md or a file under test/, haskell/test/, or haskell/web/test/, and filesNeeded must include it.",
+    "- Prefer changes that can be verified by local Haskell build/test commands.",
+    `- algorithmReviewPath must be within ${ALGORITHM_REVIEW_PREFIXES.join(" or ")} and filesNeeded must include it.`,
+    `- formalMethodsPath must be within ${FORMAL_METHODS_REVIEW_PREFIXES.join(" or ")} and filesNeeded must include it.`,
+    "- Prefer algorithmReviewPath values under haskell/app/Trader/ or the optimize-equity/trader entrypoints when possible.",
+    "- Prefer trading logic, signal gates, predictors, optimizer behavior, position/risk management, or market-state inference over web UI changes.",
+    "- Prefer ideas where the formal-methods review updates FORMAL_METHODS.md, haskell/app/Trader/Formal/*, or Haskell tests with a concrete invariant/property/proof sketch.",
     "- If the change is user-visible, include README.md and CHANGELOG.md in filesNeeded.",
-    "- Prefer ideas where the correctness review can update a test or FORMAL_METHODS.md when behavior changes.",
     `- Verification commands must be chosen from this allowlist: ${Array.from(SAFE_VERIFICATION_COMMANDS).join(" | ")}`,
-    "- If no safe change is apparent, return {\"noChange\":true,...}.",
+    "- If no safe backend trading improvement with formal-methods coverage is apparent, return {\"noChange\":true,...}.",
     "",
     repoContextText(repoContext),
   ].join("\n");
@@ -601,13 +646,16 @@ async function requestIdeaSelection(repoContext) {
 async function requestFixIdea(repoContext, failureContext) {
   const prompt = [
     "You are selecting a repair for a failed autonomous CI run on the repository branch.",
-    "Respond in JSON with keys: noChange, title, rationale, uiReviewPath, uiReviewFocus, correctnessPath, correctnessFocus, filesNeeded, verificationCommands.",
+    "Bias strongly toward backend Haskell trading-algorithm fixes with formal-methods-backed coverage unless the failure clearly requires another file to be touched.",
+    "Respond in JSON with keys: noChange, title, rationale, algorithmReviewPath, algorithmReviewFocus, formalMethodsPath, formalMethodsFocus, filesNeeded, verificationCommands.",
     "Constraints:",
     "- Focus on fixing the reported failure with the smallest safe change.",
-    "- Still explicitly cover the cycle phases: choose the repair, review one local web UI source file for a low-risk UX fix if present, review one correctness/formal artifact with an explicit invariant/property/test or proof-sketch update, then commit/push and wait for GitHub CI.",
+    "- Still explicitly cover the cycle phases: choose the repair, review one local Haskell algorithm file, review one formal-methods artifact with an explicit invariant/property/proof obligation, then commit/push and wait for GitHub CI.",
     "- Touch only files from the editable file list.",
-    "- uiReviewPath must be a file under haskell/web/src/ and filesNeeded must include it.",
-    "- correctnessPath must be FORMAL_METHODS.md or a file under test/, haskell/test/, or haskell/web/test/, and filesNeeded must include it.",
+    `- algorithmReviewPath must be within ${ALGORITHM_REVIEW_PREFIXES.join(" or ")} and filesNeeded must include it.`,
+    `- formalMethodsPath must be within ${FORMAL_METHODS_REVIEW_PREFIXES.join(" or ")} and filesNeeded must include it.`,
+    "- Prefer trading logic, signal gates, predictors, optimizer behavior, position/risk management, or market-state inference over UI-only repairs.",
+    "- Prefer repairs that also strengthen FORMAL_METHODS.md, haskell/app/Trader/Formal/*, or Haskell tests with a concrete invariant/property/proof sketch.",
     `- Verification commands must be chosen from this allowlist: ${Array.from(SAFE_VERIFICATION_COMMANDS).join(" | ")}`,
     "",
     `Failed branch: ${failureContext.branchName}`,
@@ -642,7 +690,8 @@ async function requestPatchPlan(repoContext, idea, editableFiles, failureContext
 
   const prompt = [
     "You are implementing a single repository change.",
-    "Respond in JSON with keys: noChange, title, summary, commitMessage, uiReviewSummary, correctnessSummary, verificationCommands, changes.",
+    "Keep the change centered on a backend Haskell trading improvement and its formal-methods coverage.",
+    "Respond in JSON with keys: noChange, title, summary, commitMessage, algorithmReviewSummary, formalMethodsSummary, verificationCommands, changes.",
     "Each entry in changes must be an object with path, content, and optional reason.",
     "The content field must contain the complete replacement file content for that path.",
     "Do not include markdown fences or prose outside JSON.",
@@ -650,18 +699,19 @@ async function requestPatchPlan(repoContext, idea, editableFiles, failureContext
     "- Only modify the provided files.",
     "- Preserve unrelated content.",
     "- Keep the change minimal and focused.",
-    "- Explicitly complete the required phases inside this plan: the chosen change, a safe UI/UX review of the selected local web UI file, and a correctness/formal review with an invariant/property/test or proof-sketch update.",
-    "- uiReviewSummary must say what was reviewed and whether a safe UI fix was applied.",
-    "- correctnessSummary must name the invariant/property/test or FORMAL_METHODS proof sketch that now covers the change.",
-    "- If behavior changes, prefer updating a test or FORMAL_METHODS.md within the selected files.",
+    "- Explicitly complete the required phases inside this plan: the chosen backend algorithm change, a review of the selected Haskell algorithm file, and a formal-methods review with an invariant/property/proof-sketch update.",
+    "- algorithmReviewSummary must say what backend algorithm file was reviewed and what algorithmic change or no-change decision followed.",
+    "- formalMethodsSummary must name the invariant/property/test or FORMAL_METHODS / Trader.Formal proof sketch that now covers the change.",
+    "- If behavior changes, prefer updating FORMAL_METHODS.md, haskell/app/Trader/Formal/*, or Haskell tests within the selected files.",
+    "- Prefer verification commands that exercise Haskell build/test coverage for the touched trading logic.",
     "- Use ASCII unless the file already requires Unicode.",
     `- Verification commands must be chosen from this allowlist: ${Array.from(SAFE_VERIFICATION_COMMANDS).join(" | ")}`,
     idea.title ? `Selected idea: ${idea.title}` : "",
     idea.rationale ? `Rationale: ${idea.rationale}` : "",
-    idea.uiReviewPath ? `UI review file: ${idea.uiReviewPath}` : "",
-    idea.uiReviewFocus ? `UI review focus: ${idea.uiReviewFocus}` : "",
-    idea.correctnessPath ? `Correctness review file: ${idea.correctnessPath}` : "",
-    idea.correctnessFocus ? `Correctness review focus: ${idea.correctnessFocus}` : "",
+    idea.algorithmReviewPath ? `Algorithm review file: ${idea.algorithmReviewPath}` : "",
+    idea.algorithmReviewFocus ? `Algorithm review focus: ${idea.algorithmReviewFocus}` : "",
+    idea.formalMethodsPath ? `Formal methods review file: ${idea.formalMethodsPath}` : "",
+    idea.formalMethodsFocus ? `Formal methods review focus: ${idea.formalMethodsFocus}` : "",
     failureContext ? `Failed CI log excerpt:\n${clampText(failureContext.failedLog, 18000)}` : "",
     "",
     "Repository context:",
