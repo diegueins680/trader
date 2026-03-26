@@ -172,22 +172,24 @@ Proof sketch:
 Clauses:
 
 1. Finite position amounts with `abs(amount) <= 1e-12` are flat, regardless of stale `positionSide` metadata.
-2. Directional side inference only starts once the amount is outside that flat epsilon.
-3. For directional amounts, explicit hedge-side metadata (`LONG` / `SHORT`) still outranks raw sign inference.
-4. Flat positions must not render as orphan candidates and must not appear in the Open positions panel.
-5. Open-time inference is only defined for directional positions, so flat amounts return `null`.
+2. Non-finite position amounts are non-directional for `positionSideInfo` / Open-positions rendering and collapse to `FLAT` instead of trusting stale hedge-side metadata.
+3. Directional side inference only starts once the amount is finite and outside that flat epsilon.
+4. For directional amounts, explicit hedge-side metadata (`LONG` / `SHORT`) still outranks raw sign inference.
+5. Flat positions must not render as orphan candidates and must not appear in the Open positions panel.
+6. Open-time inference is only defined for directional positions, so flat amounts return `null`.
 
 The verifier in `haskell/web/test/utils.test.mjs` and `haskell/web/test/appHelpers.test.mjs` checks representative zero/dust and directional states:
 
 - `positionSideFromAmount(0)` and `positionSideFromAmount(±1e-13)` collapse to `null`
 - `positionSideInfo(0, "LONG")` and `positionSideInfo(1e-13, "SHORT")` collapse to `{ dir: 0, label: "FLAT", key: "FLAT" }`
+- `positionSideInfo(NaN, "LONG")` and `positionSideInfo(Infinity, "SHORT")` also collapse to `{ dir: 0, label: "FLAT", key: "FLAT" }`
 - `buildOrphanedPositions` drops zero/dust positions even when stale explicit sides are present
 - `positionSideInfo(2, "SHORT")` preserves the directional hedge side
 
 Proof sketch:
 
 - `isEffectivelyFlatPositionAmount` is now the shared gate for flatness, so side inference, orphan classification, and open-time inference no longer disagree on whether a zero/dust amount is directional.
-- `positionSideInfo` checks flatness before consulting `positionSide`, which prevents stale hedge-side metadata from manufacturing a `LONG` / `SHORT` label for an effectively closed position.
+- `positionSideInfo` now rejects non-finite amounts before consulting `positionSide` and still checks flatness before hedge-side metadata, so stale or malformed exchange rows cannot manufacture a directional `LONG` / `SHORT` label in the Open positions panel.
 - `buildOrphanedPositions` exits early on flat amounts, so the orphan panel cannot surface phantom rows for positions that the rest of the UI already treats as flat.
 - `App.tsx` filters the raw `/binance/positions` list through `positionSideInfo(...).dir !== 0`, making the Open positions panel a direct consumer of the same flatness contract instead of duplicating ad hoc zero checks.
 

@@ -1116,7 +1116,9 @@ export function buildEquityCurve(prices: number[], side: number): number[] {
 }
 
 export function positionSideInfo(positionAmt: number, positionSide?: string | null): { dir: number; label: string; key: string } {
-  if (isEffectivelyFlatPositionAmount(positionAmt)) return { dir: 0, label: "FLAT", key: "FLAT" };
+  if (!Number.isFinite(positionAmt) || isEffectivelyFlatPositionAmount(positionAmt)) {
+    return { dir: 0, label: "FLAT", key: "FLAT" };
+  }
   const raw = positionSide?.trim().toUpperCase();
   const side = raw && raw !== "BOTH" ? raw : null;
   const dir = side === "SHORT" ? -1 : side === "LONG" ? 1 : positionAmt > 0 ? 1 : positionAmt < 0 ? -1 : 0;

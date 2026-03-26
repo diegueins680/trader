@@ -197,3 +197,8 @@ test("positionSideInfo treats zero/dust amounts as flat before stale side metada
   assert.deepEqual(positionSideInfo(1e-13, "SHORT"), { dir: 0, label: "FLAT", key: "FLAT" });
   assert.deepEqual(positionSideInfo(2, "SHORT"), { dir: -1, label: "SHORT", key: "SHORT" });
 });
+
+test("positionSideInfo suppresses non-finite amounts before stale side metadata", () => {
+  assert.deepEqual(positionSideInfo(Number.NaN, "LONG"), { dir: 0, label: "FLAT", key: "FLAT" });
+  assert.deepEqual(positionSideInfo(Number.POSITIVE_INFINITY, "SHORT"), { dir: 0, label: "FLAT", key: "FLAT" });
+});

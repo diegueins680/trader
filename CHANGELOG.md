@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: treat non-finite Binance position amounts as non-directional in the Open positions panel, so stale hedge-side metadata cannot surface phantom LONG/SHORT rows from malformed exchange payloads.
 - Web UI: normalize optimizer advanced-JSON whole-number overrides through the same exact-integer contract as the visible form, so quoted integers like `"trials":"12"` now reach `/optimizer/run` as numbers while fractional/unsafe overrides are rejected locally instead of being sent as stringly typed request fields.
 - API/State sync: compact `GET /state/sync` top-combos exports by default (drop per-combo `operations`) so cross-deployment sync pulls stay bounded and no longer risk OOMing the Fly API machine while serializing huge combo histories.
 - Dev/CI: make the local autoloop contract explicit that every direct-pushed SHA is polled against GitHub `CI`, and red runs feed `gh run view --log-failed` output back into the next Codex repair iteration instead of treating the push as done.
