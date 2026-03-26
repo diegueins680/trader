@@ -318,6 +318,24 @@ test("autoloop script targets the base branch directly without PR helpers", asyn
   assert.doesNotMatch(script, /function mergePullRequest\(/);
 });
 
+test("autoloop script polls GitHub CI for each pushed sha before completing", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const pushedHeadSha = runGit\(\["rev-parse", "HEAD"\]\);/);
+  assert.match(script, /phase: "ci-wait",\s*[\s\S]*headSha: pushedHeadSha/);
+  assert.match(script, /const ci = waitForBranchCi\(pushedHeadSha, LOOP_BRANCH\);/);
+  assert.match(script, /const runs = listWorkflowRunsForHead\(headSha, branchName\);/);
+  assert.match(script, /run\.head_sha === headSha && run\.name === CI_WORKFLOW_NAME/);
+});
+
+test("autoloop script feeds failed CI logs back into codex repair prompts", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /failureContext = \{\s*[\s\S]*failedLog: ci\.failedLog,/);
+  assert.match(script, /const idea = failureContext\s*\?\s*await requestFixIdea\(repoContext, failureContext\)/);
+  assert.match(script, /"Failed log excerpt:",\s*clampText\(failureContext\.failedLog, 20000\)/);
+  assert.match(script, /failureContext \? `Failed CI log excerpt:\\n\$\{clampText\(failureContext\.failedLog, 18000\)\}` : ""/);
+  assert.match(script, /const failedLog = runGh\(\["run", "view", String\(runId\), "--log-failed"\]\);/);
+});
+
 test("bounded autoloop reports the required lifecycle phases in order", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   const phases = extractAutoloopPhases(script);
@@ -331,6 +349,11 @@ test("bounded autoloop reports the required lifecycle phases in order", async ()
     phases,
     ["formal-methods-review", "plan-patch", "apply-patch", "verify"],
     "autoloop review-to-verification bridge phases",
+  );
+  assertOrderedSubsequence(
+    phases,
+    ["commit-push", "ci-wait", "repair-needed"],
+    "autoloop push-to-repair bridge phases",
   );
 });
 

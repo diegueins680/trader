@@ -268,6 +268,8 @@ async function main() {
       return;
     }
 
+    // A red CI run stays inside the same bounded cycle: capture the failed-job
+    // logs and feed them back into the next Codex repair prompts.
     failureContext = {
       iteration,
       branchName: LOOP_BRANCH,
@@ -818,6 +820,8 @@ function waitForBranchCi(headSha, branchName) {
   let runId = null;
   let runUrl = null;
 
+  // Poll GitHub Actions for the exact pushed SHA so every direct push is
+  // gated on a green CI run instead of a later branch-level workflow.
   const maxAttempts = Math.max(1, Math.ceil(CI_DISCOVERY_TIMEOUT_SECONDS / CI_DISCOVERY_POLL_SECONDS));
   for (let i = 0; i < maxAttempts; i += 1) {
     const runs = listWorkflowRunsForHead(headSha, branchName);
