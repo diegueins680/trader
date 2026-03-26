@@ -109,6 +109,7 @@ executable optimize-equity
   other-modules:       Trader.BinanceIntervals
                      , Trader.Duration
                      , Trader.Formal.Optimization
+                     , Trader.KalmanFusion
                      , Trader.Kalman3
                      , Trader.Method
                      , Trader.Metrics
