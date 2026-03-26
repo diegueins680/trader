@@ -236,6 +236,7 @@ main = do
               , run "signal gate emits VOL_TARGET_WARMUP reason" testSignalGateVolTargetWarmup
               , run "signal gate prioritizes VOL_TARGET_WARMUP over trend filter" testSignalGateVolTargetWarmupPrecedesTrendFilter
               , run "signal gate prioritizes VOL_TARGET_WARMUP over kalman cloud" testSignalGateVolTargetWarmupPrecedesKalmanCloud
+              , run "signal gate prioritizes VOL_TARGET_WARMUP over price action" testSignalGateVolTargetWarmupPrecedesPriceAction
               , run "signal gate repeat blocked state stays hold" testSignalGateRepeatedBlockStaysHold
               , run "signal gate normalizes pathological thresholds" testSignalThresholdNormalization
               , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
@@ -2828,6 +2829,25 @@ testSignalGateVolTargetWarmupPrecedesKalmanCloud = do
                 (const True)
                 (const (True, 1))
     assert "VOL_TARGET_WARMUP takes precedence over KALMAN_CLOUD when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
+testSignalGateVolTargetWarmupPrecedesPriceAction :: IO ()
+testSignalGateVolTargetWarmupPrecedesPriceAction = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const True)
+                (const False)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "VOL_TARGET_WARMUP takes precedence over PRICE_ACTION when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
 
 testSignalGateRepeatedBlockStaysHold :: IO ()
 testSignalGateRepeatedBlockStaysHold = do
