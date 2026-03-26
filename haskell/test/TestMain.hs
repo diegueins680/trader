@@ -3260,9 +3260,9 @@ testCompactTopCombosPayloadForSync = do
         combo = requireHead "expected compacted combo" (requireCombosArray "compacted combos" compacted)
     case combo of
         Aeson.Object o -> do
-            assert "sync compaction should drop operations" (KM.lookup "operations" o == Nothing)
-            assert "sync compaction should keep params" (KM.lookup "params" o /= Nothing)
-            assert "sync compaction should keep metrics" (KM.lookup "metrics" o /= Nothing)
+            assert "sync compaction should drop operations" (isNothing (KM.lookup "operations" o))
+            assert "sync compaction should keep params" (isJust (KM.lookup "params" o))
+            assert "sync compaction should keep metrics" (isJust (KM.lookup "metrics" o))
         _ -> error "expected compacted combo object"
 
 runMergeAndReadFirstCombo :: String -> Aeson.Value -> IO Aeson.Value

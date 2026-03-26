@@ -1,6 +1,7 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Main where
 
@@ -10237,8 +10238,8 @@ lookupHeaderNormalized wanted hs =
     let wantedNorm = normalizeKey wanted
      in snd <$> find (\(h, _) -> normalizeKey (BS.unpack (CI.original h)) == wantedNorm) hs
 
-data RequestProgressStore = RequestProgressStore
-    { rpsEntries :: !(MVar (HM.HashMap String ApiRequestProgress))
+newtype RequestProgressStore = RequestProgressStore
+    { rpsEntries :: MVar (HM.HashMap String ApiRequestProgress)
     }
 
 requestProgressHeaderName :: String
@@ -10259,10 +10260,8 @@ normalizeRequestProgressId raw =
 
 requestProgressIdFromRequest :: Wai.Request -> Maybe String
 requestProgressIdFromRequest req =
-    normalizeRequestProgressId
-        =<< ( BS.unpack
-                <$> lookupHeaderNormalized requestProgressHeaderName (Wai.requestHeaders req)
-            )
+    normalizeRequestProgressId . BS.unpack
+        =<< lookupHeaderNormalized requestProgressHeaderName (Wai.requestHeaders req)
 
 pruneRequestProgressEntries :: Int64 -> HM.HashMap String ApiRequestProgress -> HM.HashMap String ApiRequestProgress
 pruneRequestProgressEntries now =
@@ -10273,7 +10272,7 @@ pruneRequestProgressEntries now =
          in now - cutoff <= requestProgressTtlMs
 
 requestProgressTracker :: RequestProgressStore -> Wai.Request -> Maybe (RequestProgressStore, String)
-requestProgressTracker store req = (\requestId -> (store, requestId)) <$> requestProgressIdFromRequest req
+requestProgressTracker store req = (store,) <$> requestProgressIdFromRequest req
 
 startRequestProgress :: RequestProgressStore -> String -> String -> String -> Maybe String -> IO ()
 startRequestProgress store requestId kind phase detail = do

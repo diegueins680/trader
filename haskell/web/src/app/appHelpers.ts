@@ -1959,7 +1959,7 @@ export function coerceNumber(value: number | null | undefined, fallback: number)
 }
 
 export function coerceExactSafeInteger(value: number | null | undefined, fallback: number): number {
-  return Number.isSafeInteger(value) ? value : fallback;
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : fallback;
 }
 
 export function clampOptionalRatio(value: number | null | undefined): number {
