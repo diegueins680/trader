@@ -89,9 +89,17 @@ function readStringArray(raw, field, maxItems = 12) {
   return raw.map((item, idx) => readString(item, `${field}[${idx}]`));
 }
 
+function matchesScopedPathPrefix(value, prefix) {
+  const normalizedPrefix = sanitizeRelativePath(prefix);
+  // Exact file scopes must not match sibling lookalikes such as
+  // `FORMAL_METHODS.md.bak`; directory scopes end with `/`.
+  if (!normalizedPrefix.endsWith("/")) return value === normalizedPrefix;
+  return value.startsWith(normalizedPrefix);
+}
+
 function readScopedPath(raw, field, allowedPrefixes) {
   const value = sanitizeRelativePath(readString(raw, field));
-  if (!allowedPrefixes.some((prefix) => value === prefix || value.startsWith(prefix))) {
+  if (!allowedPrefixes.some((prefix) => matchesScopedPathPrefix(value, prefix))) {
     throw new Error(`${field} must be within: ${allowedPrefixes.join(", ")}`);
   }
   return value;

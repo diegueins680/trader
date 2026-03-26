@@ -146,6 +146,20 @@ test("normalizeIdeaSelection validates required fields", () => {
       }),
     /algorithmReviewPath must be within/,
   );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad formal sibling path",
+        rationale: "An exact file scope must not accept sibling lookalikes.",
+        algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+        algorithmReviewFocus: "Review the trading logic.",
+        formalMethodsPath: "FORMAL_METHODS.md.bak",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["haskell/app/Trader/Trading.hs", "FORMAL_METHODS.md.bak"],
+      }),
+    /formalMethodsPath must be within/,
+  );
 });
 
 test("normalizePatchPlan validates change entries", () => {
