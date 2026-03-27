@@ -83,6 +83,170 @@ async function withApiModuleNoWindow(fetchImpl, run) {
   }
 }
 
+test("api client preserves relative base pathname and query for health requests", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api/base?tenantKey=demo&mode=proxy",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { status: "ok" });
+    },
+    async (api) => {
+      const out = await api.health("/api/base?tenantKey=demo&mode=proxy", { timeoutMs: 5_000 });
+      assert.equal(out.status, "ok");
+    },
+  );
+  assert.deepEqual(calls, ["/api/base/health?tenantKey=demo&mode=proxy"]);
+});
+
+test("api client keeps base and request query params for relative bot URLs", async () => {
+  const calls = [];
+  let tenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "/api/base?tenantKey=demo&mode=proxy",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      calls.push(String(url));
+      tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+      return jsonResponse(200, { running: false });
+    },
+    async (api) => {
+      const out = await api.botStatus(
+        "/api/base?tenantKey=demo&mode=proxy",
+        { timeoutMs: 5_000 },
+        100,
+        undefined,
+        "tenant-request",
+      );
+      assert.equal(out.running, false);
+    },
+  );
+  assert.equal(tenantHeader, "tenant-request");
+  assert.deepEqual(calls, ["/api/base/bot/status?mode=proxy&tail=100&tenantKey=tenant-request"]);
+});
+
+test("api client preserves exact safe integer query params for bot status, ops, and ops performance", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { ok: true, running: false });
+    },
+    async (api) => {
+      const status = await api.botStatus("/api", { timeoutMs: 5_000 }, 25, undefined, "tenant-status");
+      assert.equal(status.running, false);
+      await api.ops(
+        "/api",
+        {
+          limit: 10,
+          since: 20,
+          fromMs: 30,
+          toMs: 40,
+          bot: true,
+          tenantKey: "tenant-ops",
+        },
+        { timeoutMs: 5_000 },
+      );
+      await api.opsPerformance(
+        "/api",
+        { commitLimit: 7, comboLimit: 9, tenantKey: "tenant-perf" },
+        { timeoutMs: 5_000 },
+      );
+    },
+  );
+  assert.deepEqual(calls, [
+    "/api/bot/status?tail=25&tenantKey=tenant-status",
+    "/api/ops?limit=10&since=20&fromMs=30&toMs=40&bot=1&tenantKey=tenant-ops",
+    "/api/ops/performance?commitLimit=7&comboLimit=9&tenantKey=tenant-perf",
+  ]);
+});
+
+test("api client omits fractional and unsafe integer query params instead of truncating them", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { ok: true, running: false });
+    },
+    async (api) => {
+      await api.botStatus("/api", { timeoutMs: 5_000 }, 12.5, undefined, "tenant-fractional");
+      await api.botStatus("/api", { timeoutMs: 5_000 }, Number.MAX_SAFE_INTEGER + 1, undefined, "tenant-unsafe");
+      await api.ops(
+        "/api",
+        {
+          limit: 10.5,
+          since: Number.MAX_SAFE_INTEGER + 1,
+          fromMs: 30.5,
+          toMs: Number.MAX_SAFE_INTEGER + 1,
+          bot: true,
+          tenantKey: "tenant-ops",
+        },
+        { timeoutMs: 5_000 },
+      );
+      await api.opsPerformance(
+        "/api",
+        {
+          commitLimit: 7.5,
+          comboLimit: Number.MAX_SAFE_INTEGER + 1,
+          tenantKey: "tenant-perf",
+        },
+        { timeoutMs: 5_000 },
+      );
+    },
+  );
+  assert.deepEqual(calls, [
+    "/api/bot/status?tenantKey=tenant-fractional",
+    "/api/bot/status?tenantKey=tenant-unsafe",
+    "/api/ops?bot=1&tenantKey=tenant-ops",
+    "/api/ops/performance?tenantKey=tenant-perf",
+  ]);
+});
+
+test("api client preserves absolute base path and merges base query with state sync query", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com/base?tenantKey=demo&mode=direct",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, {});
+    },
+    async (api) => {
+      const out = await api.stateSyncExport(
+        "https://api.example.com/base?tenantKey=demo&mode=direct",
+        { timeoutMs: 5_000, tenantKey: "tenant-request" },
+      );
+      assert.deepEqual(out, {});
+    },
+  );
+  assert.deepEqual(calls, ["https://api.example.com/base/state/sync?mode=direct&tenantKey=tenant-request"]);
+});
+
 test("api fallback does not use 401 for explicit direct hosts", async () => {
   const calls = [];
   await withApiModule(
@@ -404,6 +568,97 @@ test("api fallback allows inferred /api primary to fail over to cross-origin fal
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
 });
 
+test("api fallback keeps root-path bases same-origin in explicit configs", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "https://api.example.com",
+      apiToken: "",
+    },
+    async (url) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "/health") {
+        return jsonResponse(502, { error: "Bad Gateway" });
+      }
+      if (href === "https://api.example.com/health") {
+        return jsonResponse(200, { status: "ok" });
+      }
+      throw new Error(`unexpected request: ${href}`);
+    },
+    async (api) => {
+      await assert.rejects(
+        () => api.health("/", { timeoutMs: 5_000 }),
+        (err) => err?.name === "HttpError" && err.status === 502,
+      );
+    },
+  );
+  assert.deepEqual(calls, ["/health"]);
+});
+
+test("api fallback only enables inferred /api cross-origin failover for normalized boolean-like encodings", async () => {
+  const cases = [
+    { label: "boolean true", value: true, expectFallback: true },
+    { label: "string \\\"true\\\"", value: "true", expectFallback: true },
+    { label: "string \\\" TrUe \\\"", value: " TrUe ", expectFallback: true },
+    { label: "number 1", value: 1, expectFallback: true },
+    { label: "string \\\"1\\\"", value: "1", expectFallback: true },
+    { label: "string \\\" 1 \\\"", value: " 1 ", expectFallback: true },
+    { label: "boolean false", value: false, expectFallback: false },
+    { label: "string \\\"false\\\"", value: "false", expectFallback: false },
+    { label: "string \\\" FaLsE \\\"", value: " FaLsE ", expectFallback: false },
+    { label: "number 0", value: 0, expectFallback: false },
+    { label: "string \\\"0\\\"", value: "0", expectFallback: false },
+    { label: "string \\\" 0 \\\"", value: " 0 ", expectFallback: false },
+    { label: "string \\\"yes\\\"", value: "yes", expectFallback: false },
+    { label: "number 2", value: 2, expectFallback: false },
+    { label: "string \\\"01\\\"", value: "01", expectFallback: false },
+    { label: "null", value: null, expectFallback: false },
+  ];
+
+  for (const testCase of cases) {
+    const calls = [];
+    await withApiModule(
+      {
+        apiBaseUrl: "/api",
+        apiBaseUrlInferred: testCase.value,
+        apiFallbackUrl: "https://api.example.com",
+        apiToken: "",
+      },
+      async (url) => {
+        const href = String(url);
+        calls.push(href);
+        if (href === "/api/health") {
+          return jsonResponse(502, { error: "Bad Gateway" });
+        }
+        if (href === "https://api.example.com/health") {
+          return jsonResponse(200, { status: "ok" });
+        }
+        throw new Error(`unexpected request: ${href}`);
+      },
+      async (api) => {
+        if (testCase.expectFallback) {
+          const out = await api.health("/api", { timeoutMs: 5_000 });
+          assert.equal(out.status, "ok", `${testCase.label} should preserve inferred failover`);
+          return;
+        }
+        await assert.rejects(
+          () => api.health("/api", { timeoutMs: 5_000 }),
+          (err) => err?.name === "HttpError" && err.status === 502,
+          `${testCase.label} should not trigger inferred failover`,
+        );
+      },
+    );
+    assert.deepEqual(
+      calls,
+      testCase.expectFallback ? ["/api/health", "https://api.example.com/health"] : ["/api/health"],
+      testCase.label,
+    );
+  }
+});
+
 test("api fallback allows inferred /api primary timeout failover to cross-origin fallback", async () => {
   const calls = [];
   await withApiModule(
@@ -432,7 +687,44 @@ test("api fallback allows inferred /api primary timeout failover to cross-origin
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
 });
 
-test("api fallback skips inferred /api cross-origin failover for non-GET requests", async () => {
+test("api fallback allows inferred /api cross-origin failover for tenant-scoped non-GET requests", async () => {
+  const calls = [];
+  let directTenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: true,
+      apiFallbackUrl: "https://api.example.com",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "/api/binance/listenKey") {
+        return jsonResponse(502, { error: "Bad Gateway" });
+      }
+      if (href === "https://api.example.com/binance/listenKey") {
+        directTenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+        return jsonResponse(200, {
+          listenKey: "listen-key-1",
+          market: "spot",
+          testnet: false,
+          wsUrl: "wss://stream.example.com/ws/listen-key-1",
+          keepAliveMs: 60_000,
+        });
+      }
+      throw new Error(`unexpected request: ${href}`);
+    },
+    async (api) => {
+      const out = await api.binanceListenKey("/api", { tenantKey: "tenant" }, { timeoutMs: 5_000 });
+      assert.equal(out.listenKey, "listen-key-1");
+    },
+  );
+  assert.deepEqual(calls, ["/api/binance/listenKey", "https://api.example.com/binance/listenKey"]);
+  assert.equal(directTenantHeader, "tenant");
+});
+
+test("api fallback still skips inferred /api cross-origin failover for unauthenticated non-GET requests", async () => {
   const calls = [];
   await withApiModule(
     {
@@ -444,19 +736,19 @@ test("api fallback skips inferred /api cross-origin failover for non-GET request
     async (url) => {
       const href = String(url);
       calls.push(href);
-      if (href === "/api/binance/listenKey") {
+      if (href === "/api/cache/clear") {
         return jsonResponse(502, { error: "Bad Gateway" });
       }
       throw new Error(`unexpected request: ${href}`);
     },
     async (api) => {
       await assert.rejects(
-        () => api.binanceListenKey("/api", { tenantKey: "tenant" }, { timeoutMs: 5_000 }),
+        () => api.cacheClear("/api", { timeoutMs: 5_000 }),
         (err) => err?.name === "HttpError" && err.status === 502,
       );
     },
   );
-  assert.deepEqual(calls, ["/api/binance/listenKey"]);
+  assert.deepEqual(calls, ["/api/cache/clear"]);
 });
 
 test("api client forwards tenant key as X-Tenant-Key from JSON body params", async () => {
@@ -484,6 +776,43 @@ test("api client forwards tenant key as X-Tenant-Key from JSON body params", asy
     },
   );
   assert.equal(tenantHeader, "tenant-body");
+});
+
+test("api client forwards X-Tenant-Key from FormData body with string tenantKey", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => jsonResponse(200, {}),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", "tenant-form");
+      fd.append("someFile", new Blob(["data"]), "file.txt");
+      const headers = api.withTenantHeader(new Headers(), "/bot/start", fd);
+      assert.equal(headers.get("X-Tenant-Key"), "tenant-form");
+    },
+  );
+});
+
+test("api client does not forward X-Tenant-Key for non-string (Blob/File) tenantKey in FormData", async () => {
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async () => jsonResponse(200, {}),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", new Blob(["secret"]), "key.bin");
+      const headers = api.withTenantHeader(new Headers(), "/bot/start", fd);
+      assert.equal(headers.get("X-Tenant-Key"), null);
+    },
+  );
 });
 
 test("api client forwards tenant key as X-Tenant-Key from query params", async () => {
@@ -532,6 +861,33 @@ test("api client skips X-Tenant-Key header for cross-origin direct hosts", async
   assert.equal(tenantHeader, null);
 });
 
+test("api client forwards X-Tenant-Key for cross-origin direct-host writes", async () => {
+  let tenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const href = String(url);
+      if (href !== "https://api.example.com/bot/start") throw new Error(`unexpected request: ${href}`);
+      tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+      return jsonResponse(202, { starting: true, symbol: "BTCUSDT" });
+    },
+    async (api) => {
+      const out = await api.botStart(
+        "https://api.example.com",
+        { tenantKey: "tenant-body", binanceSymbol: "BTCUSDT" },
+        { timeoutMs: 5_000 },
+      );
+      assert.equal(out.starting, true);
+    },
+  );
+  assert.equal(tenantHeader, "tenant-body");
+});
+
 test("health preserves version and commit metadata", async () => {
   await withApiModule(
     {
@@ -553,6 +909,72 @@ test("health preserves version and commit metadata", async () => {
       const out = await api.health("https://api.example.com", { timeoutMs: 5_000 });
       assert.equal(out.version, "1.2.3");
       assert.equal(out.commit, "abcdef123456");
+    },
+  );
+});
+
+test("tenantKeyFromBody extracts tenant key from FormData string entry", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", "form-tenant");
+      assert.equal(api.tenantKeyFromBody(fd), "form-tenant");
+    },
+  );
+});
+
+test("tenantKeyFromBody returns null for FormData with File entry", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", new Blob(["data"], { type: "text/plain" }), "key.txt");
+      assert.equal(api.tenantKeyFromBody(fd), null);
+    },
+  );
+});
+
+test("tenantKeyFromBody returns null for FormData without tenantKey", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("otherField", "value");
+      assert.equal(api.tenantKeyFromBody(fd), null);
+    },
+  );
+});
+
+test("api client forwards X-Tenant-Key header from FormData body containing tenantKey", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", "form-tenant");
+      const key = api.tenantKeyFromBody(fd);
+      const headers = new Headers();
+      if (key) headers.set("X-Tenant-Key", key);
+      assert.equal(headers.get("X-Tenant-Key"), "form-tenant");
+    },
+  );
+});
+
+test("api client does not set X-Tenant-Key header when FormData tenantKey is a File", async () => {
+  await withApiModule(
+    { apiBaseUrl: "https://api.example.com", apiBaseUrlInferred: false, apiFallbackUrl: "", apiToken: "" },
+    async () => jsonResponse(200, { status: "ok" }),
+    async (api) => {
+      const fd = new FormData();
+      fd.append("tenantKey", new Blob(["data"], { type: "text/plain" }), "key.txt");
+      const key = api.tenantKeyFromBody(fd);
+      const headers = new Headers();
+      if (key) headers.set("X-Tenant-Key", key);
+      assert.equal(headers.get("X-Tenant-Key"), null);
     },
   );
 });

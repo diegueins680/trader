@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+STATE_DIR="${ROOT_DIR}/.tmp/autoloop"
+PID_FILE="${STATE_DIR}/runner.pid"
+STOP_FILE="${STATE_DIR}/stop"
+STATUS_FILE="${STATE_DIR}/status.json"
+LAUNCHER_LOG="${STATE_DIR}/launcher.log"
+
+load_repo_env() {
+  if [[ -f "${ROOT_DIR}/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${ROOT_DIR}/.env"
+    set +a
+  fi
+}
+
+runner_pid() {
+  if [[ -f "${PID_FILE}" ]]; then
+    tr -d '[:space:]' < "${PID_FILE}"
+  fi
+}
+
+runner_alive() {
+  local pid
+  pid="$(runner_pid || true)"
+  [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
+}
+
+start_runner() {
+  mkdir -p "${STATE_DIR}"
+  if runner_alive; then
+    printf 'Autoloop runner already active (PID %s).\n' "$(runner_pid)"
+    exit 1
+  fi
+  load_repo_env
+  (
+    cd "${ROOT_DIR}"
+    nohup node scripts/autoloop-forever.mjs "$@" >> "${LAUNCHER_LOG}" 2>&1 < /dev/null &
+  )
+  sleep 1
+  if runner_alive; then
+    printf 'Started autoloop runner (PID %s). Status: %s\n' "$(runner_pid)" "${STATUS_FILE}"
+    exit 0
+  fi
+  printf 'Autoloop runner did not stay up. Check %s or %s.\n' "${LAUNCHER_LOG}" "${STATUS_FILE}" >&2
+  exit 1
+}
+
+run_foreground() {
+  load_repo_env
+  cd "${ROOT_DIR}"
+  exec node scripts/autoloop-forever.mjs "$@"
+}
+
+stop_runner() {
+  mkdir -p "${STATE_DIR}"
+  printf '%s stop requested by operator\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "${STOP_FILE}"
+  if runner_alive; then
+    kill -TERM "$(runner_pid)" 2>/dev/null || true
+    printf 'Stop requested for autoloop runner (PID %s).\n' "$(runner_pid)"
+    exit 0
+  fi
+  printf 'Stop file written at %s.\n' "${STOP_FILE}"
+}
+
+show_status() {
+  if [[ -f "${STATUS_FILE}" ]]; then
+    cat "${STATUS_FILE}"
+    exit 0
+  fi
+  printf 'No autoloop status file found at %s.\n' "${STATUS_FILE}" >&2
+  exit 1
+}
+
+command="${1:-run}"
+if [[ "${command}" == "start" || "${command}" == "run" || "${command}" == "stop" || "${command}" == "status" ]]; then
+  shift || true
+else
+  command="run"
+fi
+
+case "${command}" in
+  start)
+    start_runner "$@"
+    ;;
+  run)
+    run_foreground "$@"
+    ;;
+  stop)
+    stop_runner
+    ;;
+  status)
+    show_status
+    ;;
+esac

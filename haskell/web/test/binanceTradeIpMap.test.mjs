@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { binanceTradeKey, buildBinanceTradeIpMap } from "../.tmp/web-tests/appHelpers.js";
+import {
+  binanceTradeKey,
+  buildBinanceTradeIpMap,
+  findOptionalWholeNumberFieldError,
+  parseMaybeInt,
+  parseOptionalInt,
+  parseTimeInputMs,
+} from "../.tmp/web-tests/appHelpers.js";
 
 function mkTrade({
   symbol = "FILUSDT",
@@ -81,3 +88,53 @@ test("buildBinanceTradeIpMap aggregates entry IPs when multiple opening lots are
   assert.deepEqual(meta.get(closeKey), { entryIp: "1.1.1.1 • 4.4.4.4", exitIp: "9.9.9.9", entryTime: t0, exitTime: t2 });
 });
 
+test("parseOptionalInt accepts whole numbers and rejects fractional values", () => {
+  assert.equal(parseOptionalInt("123"), 123);
+  assert.equal(parseOptionalInt("1,234"), undefined);
+  assert.equal(parseOptionalInt("12.5"), undefined);
+  assert.equal(parseOptionalInt("0,5"), undefined);
+});
+
+test("parseMaybeInt preserves the non-negative whole-number contract", () => {
+  assert.equal(parseMaybeInt("123"), 123);
+  assert.equal(parseMaybeInt("12.0"), 12);
+  assert.equal(parseMaybeInt("12.5"), null);
+  assert.equal(parseMaybeInt("-0.5"), null);
+  assert.equal(parseMaybeInt("-1"), null);
+});
+
+test("whole-number parsers reject unsafe integers instead of rounding them", () => {
+  const unsafe = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
+  assert.equal(parseOptionalInt(unsafe), undefined);
+  assert.equal(parseMaybeInt(unsafe), null);
+  assert.equal(parseTimeInputMs(unsafe), null);
+});
+
+test("parseTimeInputMs rejects impossible ISO calendar dates instead of rolling them forward", () => {
+  assert.equal(parseTimeInputMs("2024-02-29"), Date.parse("2024-02-29T00:00:00Z"));
+  assert.equal(parseTimeInputMs("2025-02-30"), null);
+  assert.equal(parseTimeInputMs("2025-02-30T00:00:00Z"), null);
+  assert.equal(parseTimeInputMs("2025-01-01T24:01"), null);
+  assert.equal(parseTimeInputMs("2025-01-01T23:59:59+02:30"), Date.parse("2025-01-01T23:59:59+02:30"));
+});
+
+test("findOptionalWholeNumberFieldError reports invalid form and override values", () => {
+  assert.equal(
+    findOptionalWholeNumberFieldError([{ label: "Trials", raw: "12.5" }]),
+    "Trials must be a whole number.",
+  );
+  assert.equal(
+    findOptionalWholeNumberFieldError([
+      { label: "Seed", raw: (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString() },
+    ]),
+    "Seed must be a whole number.",
+  );
+  assert.equal(
+    findOptionalWholeNumberFieldError([{ label: "Bars min", raw: "", override: 10.25 }]),
+    "Bars min must be a whole number.",
+  );
+  assert.equal(
+    findOptionalWholeNumberFieldError([{ label: "Seed", raw: "100" }, { label: "Bars max", raw: "", override: 500 }]),
+    null,
+  );
+});

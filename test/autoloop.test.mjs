@@ -1,0 +1,403 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import {
+  buildActionsRunsApiPath,
+  buildForceWithLeaseFlag,
+  buildRemoteTrackingRefspec,
+  buildOpenAiApiError,
+  clampText,
+  extractResponseText,
+  normalizeIdeaSelection,
+  normalizePatchPlan,
+  parseLsRemoteBranchHead,
+  parseJsonResponse,
+  prepareShellCommand,
+  resolveAutoloopBackend,
+  sanitizeRelativePath,
+  stripMarkdownFences,
+  uniqueStrings,
+  writeJsonFileAtomic,
+} from "../scripts/autoloop-lib.mjs";
+
+function extractAutoloopPhases(script) {
+  return Array.from(script.matchAll(/phase:\s*"([^"]+)"/g), (match) => match[1]);
+}
+
+function assertOrderedSubsequence(values, expected, label) {
+  let cursor = -1;
+  for (const value of expected) {
+    const next = values.indexOf(value, cursor + 1);
+    assert.notEqual(next, -1, `${label} is missing ${value}`);
+    cursor = next;
+  }
+}
+
+test("stripMarkdownFences unwraps fenced JSON", () => {
+  assert.equal(stripMarkdownFences("```json\n{\"ok\":true}\n```"), "{\"ok\":true}");
+  assert.equal(stripMarkdownFences("{\"ok\":true}"), "{\"ok\":true}");
+});
+
+test("extractResponseText concatenates output_text parts", () => {
+  const response = {
+    output: [
+      {
+        type: "message",
+        content: [
+          { type: "output_text", text: "one" },
+          { type: "ignored", text: "skip" },
+          { type: "output_text", text: "two" },
+        ],
+      },
+    ],
+  };
+  assert.equal(extractResponseText(response), "one\ntwo");
+});
+
+test("parseJsonResponse rejects invalid JSON", () => {
+  assert.throws(() => parseJsonResponse("not-json"), /invalid JSON/);
+});
+
+test("sanitizeRelativePath rejects absolute and traversal paths", () => {
+  assert.equal(sanitizeRelativePath("./haskell/web/src/App.tsx"), "haskell/web/src/App.tsx");
+  assert.equal(sanitizeRelativePath("haskell/web/src/./App.tsx"), "haskell/web/src/App.tsx");
+  assert.equal(sanitizeRelativePath("docs//guide.md"), "docs/guide.md");
+  assert.throws(() => sanitizeRelativePath("./"), /resolves to empty/);
+  assert.throws(() => sanitizeRelativePath("/tmp/nope"), /Absolute path/);
+  assert.throws(() => sanitizeRelativePath("C:/tmp/nope"), /Absolute path/);
+  assert.throws(() => sanitizeRelativePath("../nope"), /Path traversal/);
+});
+
+test("normalizeIdeaSelection validates required fields", () => {
+  const idea = normalizeIdeaSelection({
+    noChange: false,
+    title: "Clamp pathological thresholds",
+    rationale: "Bias toward backend trading invariants",
+    algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+    algorithmReviewFocus: "Review threshold and signal-decision invariants.",
+    formalMethodsPath: "FORMAL_METHODS.md",
+    formalMethodsFocus: "Keep the threshold invariant and proof sketch aligned.",
+    filesNeeded: ["README.md", "CHANGELOG.md", "haskell/app/Trader/Trading.hs", "FORMAL_METHODS.md"],
+    verificationCommands: ["cd haskell && cabal build"],
+  });
+  assert.equal(idea.algorithmReviewPath, "haskell/app/Trader/Trading.hs");
+  assert.equal(idea.formalMethodsPath, "FORMAL_METHODS.md");
+  assert.deepEqual(idea.filesNeeded, [
+    "README.md",
+    "CHANGELOG.md",
+    "haskell/app/Trader/Trading.hs",
+    "FORMAL_METHODS.md",
+  ]);
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "",
+        rationale: "missing title",
+        algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+        algorithmReviewFocus: "Review the trading logic.",
+        formalMethodsPath: "FORMAL_METHODS.md",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["README.md", "haskell/app/Trader/Trading.hs", "FORMAL_METHODS.md"],
+      }),
+    /title must not be empty/,
+  );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad review coverage",
+        rationale: "Algorithm review path is missing from filesNeeded",
+        algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+        algorithmReviewFocus: "Review the trading logic.",
+        formalMethodsPath: "FORMAL_METHODS.md",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["FORMAL_METHODS.md"],
+      }),
+    /filesNeeded must include algorithmReviewPath/,
+  );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad formal coverage",
+        rationale: "Formal methods path is missing from filesNeeded",
+        algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+        algorithmReviewFocus: "Review the trading logic.",
+        formalMethodsPath: "FORMAL_METHODS.md",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["haskell/app/Trader/Trading.hs"],
+      }),
+    /filesNeeded must include formalMethodsPath/,
+  );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad algorithm path",
+        rationale: "UI files must not satisfy the backend review slot",
+        algorithmReviewPath: "haskell/web/src/App.tsx",
+        algorithmReviewFocus: "Review the main UI.",
+        formalMethodsPath: "FORMAL_METHODS.md",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["haskell/web/src/App.tsx", "FORMAL_METHODS.md"],
+      }),
+    /algorithmReviewPath must be within/,
+  );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad formal sibling path",
+        rationale: "An exact file scope must not accept sibling lookalikes.",
+        algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+        algorithmReviewFocus: "Review the trading logic.",
+        formalMethodsPath: "FORMAL_METHODS.md.bak",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["haskell/app/Trader/Trading.hs", "FORMAL_METHODS.md.bak"],
+      }),
+    /formalMethodsPath must be within/,
+  );
+});
+
+test("normalizePatchPlan validates change entries", () => {
+  const plan = normalizePatchPlan({
+    noChange: false,
+    title: "Patch docs",
+    summary: "Explain setup",
+    commitMessage: "Explain setup",
+    algorithmReviewSummary: "Reviewed the backend trading file and applied the threshold fix there.",
+    formalMethodsSummary: "The tests keep the autoloop path contract intact.",
+    changes: [{ path: "README.md", content: "# hi" }],
+    verificationCommands: [],
+  });
+  assert.equal(plan.changes[0]?.path, "README.md");
+  assert.equal(plan.algorithmReviewSummary, "Reviewed the backend trading file and applied the threshold fix there.");
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Bad patch",
+        summary: "Bad patch",
+        commitMessage: "Bad patch",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
+        changes: [{ path: "../oops", content: "x" }],
+      }),
+    /Path traversal/,
+  );
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Duplicate patch",
+        summary: "Duplicate patch",
+        commitMessage: "Duplicate patch",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
+        changes: [
+          { path: "README.md", content: "# one" },
+          { path: "README.md", content: "# two" },
+        ],
+      }),
+    /duplicate path/,
+  );
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Canonical duplicate patch",
+        summary: "Canonical duplicate patch",
+        commitMessage: "Canonical duplicate patch",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
+        changes: [
+          { path: "haskell/app/Trader/Trading.hs", content: "# one" },
+          { path: "haskell/app/Trader/./Trading.hs", content: "# two" },
+        ],
+      }),
+    /duplicate path/,
+  );
+});
+
+test("clampText preserves short text and truncates long text", () => {
+  assert.equal(clampText("short", 20), "short");
+  const clamped = clampText("abcdefghijklmnopqrstuvwxyz", 12);
+  assert.ok(clamped.length <= 12, `expected clampText to respect maxChars, got ${clamped.length}`);
+  assert.notEqual(clamped, "abcdefghijklmnopqrstuvwxyz");
+});
+
+test("prepareShellCommand bootstraps ghcup for Haskell verification commands", () => {
+  assert.equal(prepareShellCommand("cd haskell && cabal build"), 'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build');
+  assert.equal(
+    prepareShellCommand('source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build'),
+    'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && cabal build',
+  );
+  assert.equal(
+    prepareShellCommand("cd haskell && bash scripts/ci_smoke.sh"),
+    'source "$HOME/.ghcup/env" 2>/dev/null || true; cd haskell && bash scripts/ci_smoke.sh',
+  );
+  assert.equal(prepareShellCommand("cd haskell/web && npm --workspaces=false run test"), "cd haskell/web && npm --workspaces=false run test");
+});
+
+test("uniqueStrings preserves first occurrence order", () => {
+  assert.deepEqual(uniqueStrings(["a", "b", "a", "c"]), ["a", "b", "c"]);
+});
+
+test("buildOpenAiApiError marks quota and auth failures as skippable", () => {
+  const quotaErr = buildOpenAiApiError(429, {
+    error: { code: "insufficient_quota", type: "insufficient_quota" },
+  });
+  const authErr = buildOpenAiApiError(401, {
+    error: { code: "invalid_api_key", type: "invalid_request_error" },
+  });
+  const forbiddenErr = buildOpenAiApiError(403, {
+    error: { code: "insufficient_permissions", type: "permission_error" },
+  });
+  const serverErr = buildOpenAiApiError(500, {
+    error: { code: "server_error", type: "server_error" },
+  });
+  assert.equal(quotaErr.skipAutoloop, true);
+  assert.equal(authErr.skipAutoloop, true);
+  assert.equal(forbiddenErr.skipAutoloop, true);
+  assert.equal(serverErr.skipAutoloop, false);
+});
+
+test("resolveAutoloopBackend prefers OpenAI then Codex in auto mode", () => {
+  assert.equal(resolveAutoloopBackend("auto", { hasOpenAiKey: true, hasCodex: true }), "openai");
+  assert.equal(resolveAutoloopBackend("", { hasOpenAiKey: false, hasCodex: true }), "codex");
+  assert.equal(resolveAutoloopBackend("", { hasOpenAiKey: false, hasCodex: false }), "");
+});
+
+test("resolveAutoloopBackend respects explicit backend requests", () => {
+  assert.equal(resolveAutoloopBackend("openai", { hasOpenAiKey: true, hasCodex: true }), "openai");
+  assert.equal(resolveAutoloopBackend("codex", { hasOpenAiKey: true, hasCodex: true }), "codex");
+  assert.equal(resolveAutoloopBackend("codex", { hasOpenAiKey: true, hasCodex: false }), "");
+  assert.throws(
+    () => resolveAutoloopBackend("mystery", { hasOpenAiKey: true, hasCodex: true }),
+    /Unknown autoloop backend/,
+  );
+});
+
+test("parseLsRemoteBranchHead extracts the requested remote branch head", () => {
+  const raw = [
+    `${"a".repeat(40)}\trefs/heads/main`,
+    `${"b".repeat(40)}\trefs/heads/autoloop/main`,
+  ].join("\n");
+  assert.equal(parseLsRemoteBranchHead(raw, "autoloop/main"), "b".repeat(40));
+  assert.equal(parseLsRemoteBranchHead(raw, "missing"), "");
+  assert.equal(parseLsRemoteBranchHead("", "main"), "");
+});
+
+test("buildForceWithLeaseFlag uses explicit branch heads and validates object ids", () => {
+  assert.equal(
+    buildForceWithLeaseFlag("autoloop/main", "a".repeat(40)),
+    `--force-with-lease=refs/heads/autoloop/main:${"a".repeat(40)}`,
+  );
+  assert.equal(
+    buildForceWithLeaseFlag("refs/heads/main", "b".repeat(40)),
+    `--force-with-lease=refs/heads/main:${"b".repeat(40)}`,
+  );
+  assert.equal(buildForceWithLeaseFlag("autoloop/main", ""), "--force-with-lease=refs/heads/autoloop/main:");
+  assert.throws(() => buildForceWithLeaseFlag("autoloop/main", "not-a-sha"), /expectedOid must be a 40-character hex object id/);
+});
+
+test("buildRemoteTrackingRefspec targets refs/remotes/origin for branch heads", () => {
+  assert.equal(
+    buildRemoteTrackingRefspec("autoloop/main"),
+    "refs/heads/autoloop/main:refs/remotes/origin/autoloop/main",
+  );
+  assert.equal(buildRemoteTrackingRefspec("refs/heads/main"), "refs/heads/main:refs/remotes/origin/main");
+});
+
+test("buildActionsRunsApiPath scopes workflow run lookup to a head sha and branch", () => {
+  assert.equal(
+    buildActionsRunsApiPath("a".repeat(40), "autoloop/main", 30),
+    `repos/:owner/:repo/actions/runs?head_sha=${"a".repeat(40)}&per_page=30&branch=autoloop%2Fmain`,
+  );
+  assert.equal(
+    buildActionsRunsApiPath("b".repeat(40), "refs/heads/main", 200),
+    `repos/:owner/:repo/actions/runs?head_sha=${"b".repeat(40)}&per_page=100&branch=main`,
+  );
+});
+
+test("autoloop script targets the base branch directly without PR helpers", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const LOOP_BRANCH = BASE_BRANCH;/);
+  assert.match(script, /const SKIP_CI_WAIT = readBooleanEnv\(process\.env\.AUTOLOOP_SKIP_CI_WAIT\);/);
+  assert.match(script, /function waitForBranchCi\(headSha, branchName\)/);
+  assert.doesNotMatch(script, /function ensurePullRequest\(/);
+  assert.doesNotMatch(script, /function mergePullRequest\(/);
+});
+
+test("autoloop script polls GitHub CI for each pushed sha before completing", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const pushedHeadSha = runGit\(\["rev-parse", "HEAD"\]\);/);
+  assert.match(script, /phase: "ci-wait",\s*[\s\S]*headSha: pushedHeadSha/);
+  assert.match(script, /const ci = waitForBranchCi\(pushedHeadSha, LOOP_BRANCH\);/);
+  assert.match(script, /const runs = listWorkflowRunsForHead\(headSha, branchName\);/);
+  assert.match(script, /run\.head_sha === headSha && run\.name === CI_WORKFLOW_NAME/);
+});
+
+test("autoloop script feeds failed CI logs back into codex repair prompts", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /failureContext = \{\s*[\s\S]*failedLog: ci\.failedLog,/);
+  assert.match(script, /const idea = failureContext\s*\?\s*await requestFixIdea\(repoContext, failureContext\)/);
+  assert.match(script, /"Failed log excerpt:",\s*clampText\(failureContext\.failedLog, 20000\)/);
+  assert.match(script, /failureContext \? `Failed CI log excerpt:\\n\$\{clampText\(failureContext\.failedLog, 18000\)\}` : ""/);
+  assert.match(script, /const failedLog = runGh\(\["run", "view", String\(runId\), "--log-failed"\]\);/);
+});
+
+test("bounded autoloop reports the required lifecycle phases in order", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  const phases = extractAutoloopPhases(script);
+
+  assertOrderedSubsequence(
+    phases,
+    ["choose-change", "algorithm-review", "formal-methods-review", "verify", "commit-push", "ci-wait"],
+    "required autoloop lifecycle phases",
+  );
+  assertOrderedSubsequence(
+    phases,
+    ["formal-methods-review", "plan-patch", "apply-patch", "verify"],
+    "autoloop review-to-verification bridge phases",
+  );
+  assertOrderedSubsequence(
+    phases,
+    ["commit-push", "ci-wait", "repair-needed"],
+    "autoloop push-to-repair bridge phases",
+  );
+});
+
+test("autoloop workflow uses an optional dedicated push token and no PR permission", async () => {
+  const workflow = await fs.readFile(new URL("../.github/workflows/autoloop.yml", import.meta.url), "utf8");
+  assert.match(workflow, /contents:\s+write/);
+  assert.doesNotMatch(workflow, /pull-requests:\s+write/);
+  assert.match(workflow, /token:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN \|\| github\.token\s*\}\}/);
+  assert.match(workflow, /AUTOLOOP_SKIP_CI_WAIT:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN == '' && '1' \|\| ''\s*\}\}/);
+});
+
+test("repo root package exposes the autoloop verifier script", async () => {
+  const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
+  const pkg = JSON.parse(pkgRaw);
+  const testScript = pkg?.scripts?.["test:autoloop"];
+  assert.equal(typeof testScript, "string");
+  assert.match(testScript, /\bnode --test test\/autoloop\.test\.mjs\b/);
+});
+
+test("repo root test command includes the autoloop verifier", async () => {
+  const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
+  const pkg = JSON.parse(pkgRaw);
+  const testScript = pkg?.scripts?.test;
+  assert.equal(typeof testScript, "string");
+  assert.match(testScript, /\bnpm run test:autoloop\b/);
+});
+test("writeJsonFileAtomic creates parent directories and writes formatted JSON", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-test-"));
+  const filePath = path.join(dir, "nested", "status.json");
+  await writeJsonFileAtomic(filePath, { phase: "verify", ok: true });
+  const out = await fs.readFile(filePath, "utf8");
+  assert.deepEqual(JSON.parse(out), { phase: "verify", ok: true });
+});

@@ -31,29 +31,35 @@ predict k = k{kVar = kVar k + kProcessVar k}
 {- | Multi-sensor measurement update.
 Each measurement is (y_i, r_i) where r_i is the measurement variance.
 Assumes H is a column of 1s and R is diagonal (independent sensors).
+Malformed observations are ignored; if none survive validation, the prior is returned unchanged.
 -}
 updateMulti :: [(Double, Double)] -> Kalman1 -> Kalman1
 updateMulti meas k =
-    case meas of
-        [] -> k
-        _ ->
-            let eps = 1e-12
-                p0 = max eps (kVar k)
+    case foldr accumulateMeasurement (False, 0, 0) meas of
+        (False, _, _) -> k
+        (True, precSum, meanPrecSum) ->
+            let p0 = max eps (kVar k)
                 m0 = kMean k
                 priorPrec = 1 / p0
-                (precSum, meanPrecSum) =
-                    foldr
-                        ( \(y, rRaw) (ps, ms) ->
-                            let r = max eps rRaw
-                                pr = 1 / r
-                             in (ps + pr, ms + y * pr)
-                        )
-                        (0, 0)
-                        meas
                 postPrec = priorPrec + precSum
                 postVar = 1 / postPrec
                 postMean = postVar * (m0 * priorPrec + meanPrecSum)
              in k{kMean = postMean, kVar = postVar}
+  where
+    eps = 1e-12
+
+    accumulateMeasurement :: (Double, Double) -> (Bool, Double, Double) -> (Bool, Double, Double)
+    accumulateMeasurement (y, rRaw) (hasValid, precSum, meanPrecSum)
+        | not (isFinite y) = (hasValid, precSum, meanPrecSum)
+        | not (isFinite rRaw) = (hasValid, precSum, meanPrecSum)
+        | rRaw <= 0 = (hasValid, precSum, meanPrecSum)
+        | otherwise =
+            let r = max eps rRaw
+                pr = 1 / r
+             in (True, precSum + pr, meanPrecSum + y * pr)
+
+isFinite :: Double -> Bool
+isFinite x = not (isNaN x || isInfinite x)
 
 stepMulti :: [(Double, Double)] -> Kalman1 -> Kalman1
 stepMulti meas = updateMulti meas . predict

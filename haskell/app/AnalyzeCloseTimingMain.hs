@@ -2,7 +2,7 @@
 
 module Main where
 
-import Data.Aeson ((.:), (.:?), (.=))
+import Data.Aeson ((.!=), (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Lazy as BL
 import Data.List (sortOn)
@@ -23,11 +23,53 @@ data ComboInput = ComboInput
 
 instance Aeson.FromJSON ComboInput where
     parseJSON = Aeson.withObject "ComboInput" $ \o -> do
-        mComboId <- o .:? "comboId"
-        let comboId = maybe "unknown" T.unpack mComboId
+        comboId <- fmap (maybe "unknown" T.unpack) (o .:? "comboId")
         prices <- o .: "prices"
         trades <- o .: "trades"
         pure ComboInput{ciComboId = comboId, ciPrices = prices, ciTrades = trades}
+
+instance Aeson.FromJSON ComboTrade where
+    parseJSON = Aeson.withObject "ComboTrade" $ \o -> do
+        comboId <- fmap T.unpack (o .:? "comboId" .!= "unknown")
+        entryIndex <- o .: "entryIndex"
+        exitIndex <- o .: "exitIndex"
+        entryPrice <- o .:? "entryPrice" .!= 0
+        side <- o .:? "side" .!= (1 :: Double)
+        pure
+            ComboTrade
+                { ctComboId = comboId
+                , ctEntryIndex = entryIndex
+                , ctExitIndex = exitIndex
+                , ctEntryPrice = entryPrice
+                , ctSide = side
+                }
+
+instance Aeson.ToJSON TradeTimingSample where
+    toJSON sample =
+        Aeson.object
+            [ "comboId" .= ttsComboId sample
+            , "entryIndex" .= ttsEntryIndex sample
+            , "exitIndex" .= ttsExitIndex sample
+            , "optimalIndex" .= ttsOptimalIndex sample
+            , "observedDuration" .= ttsObservedDuration sample
+            , "optimalDuration" .= ttsOptimalDuration sample
+            , "observedReturn" .= ttsObservedReturn sample
+            , "optimalReturn" .= ttsOptimalReturn sample
+            , "returnLift" .= ttsReturnLift sample
+            ]
+
+instance Aeson.ToJSON ComboTimingStats where
+    toJSON stats =
+        Aeson.object
+            [ "comboId" .= ctsComboId stats
+            , "sampleCount" .= ctsSampleCount stats
+            , "medianRatio" .= ctsMedianRatio stats
+            , "q25Ratio" .= ctsQ25Ratio stats
+            , "q75Ratio" .= ctsQ75Ratio stats
+            , "madRatio" .= ctsMadRatio stats
+            , "meanLift" .= ctsMeanLift stats
+            , "medianLift" .= ctsMedianLift stats
+            ]
 
 argsParser :: Parser Args
 argsParser =
@@ -36,29 +78,32 @@ argsParser =
         <*> optional (strOption (long "output" <> metavar "FILE" <> help "Write report JSON to file"))
 
 reportForCombo :: ComboInput -> [TradeTimingSample]
-reportForCombo ci =
-    let baseId = ciComboId ci
-        prices = ciPrices ci
-        trades = map (ensureCombo prices) (ciTrades ci)
+reportForCombo comboInput =
+    let comboId = ciComboId comboInput
+        prices = ciPrices comboInput
+        trades = map (normalizeTrade comboId prices) (ciTrades comboInput)
      in timingSamples prices trades
-  where
-    ensureCombo prices tr =
-        let comboFixed = if ctComboId tr == "unknown" then tr{ctComboId = baseId} else tr
-            entryPx = ctEntryPrice comboFixed
-            pxFixed =
-                if entryPx > 0
-                    then entryPx
-                    else case safeAt prices (ctEntryIndex comboFixed) of
-                        Just px -> px
-                        Nothing ->
-                            error
-                                ( "Trade in combo '"
-                                    ++ ctComboId comboFixed
-                                    ++ "' at entryIndex="
-                                    ++ show (ctEntryIndex comboFixed)
-                                    ++ " has no valid entryPrice and index is out of range"
-                                )
-         in comboFixed{ctEntryPrice = pxFixed}
+
+normalizeTrade :: String -> [Double] -> ComboTrade -> ComboTrade
+normalizeTrade comboId prices trade =
+    let comboFixed =
+            if ctComboId trade == "unknown"
+                then trade{ctComboId = comboId}
+                else trade
+        entryPrice =
+            if ctEntryPrice comboFixed > 0
+                then ctEntryPrice comboFixed
+                else case safeAt prices (ctEntryIndex comboFixed) of
+                    Just px -> px
+                    Nothing ->
+                        error
+                            ( "Trade in combo '"
+                                ++ ctComboId comboFixed
+                                ++ "' at entryIndex="
+                                ++ show (ctEntryIndex comboFixed)
+                                ++ " has no valid entryPrice and index is out of range"
+                            )
+     in comboFixed{ctEntryPrice = entryPrice}
 
 safeAt :: [a] -> Int -> Maybe a
 safeAt xs i
@@ -78,17 +123,17 @@ main = do
         Left err -> fail ("Invalid input JSON: " ++ err)
         Right combos -> do
             let samples = concatMap reportForCombo (combos :: [ComboInput])
-                stats = sortOn ctsComboId (summarizeAllCombos samples)
+                comboStats = sortOn ctsComboId (summarizeAllCombos samples)
                 payload =
                     Aeson.object
                         [ "samples" .= samples
-                        , "comboStats" .= stats
-                        , "decisionIntegration" .=
-                            Aeson.object
+                        , "comboStats" .= comboStats
+                        , "decisionIntegration"
+                            .= Aeson.object
                                 [ "rule" .= ("Close when the position age reaches the 50th-75th percentile of the tm/td ratio per combo, using a robust band [Q25, Q75] and an expected lift threshold > 0." :: String)
                                 ]
                         ]
                 encoded = Aeson.encode payload
             case argOutput args of
-                Just out -> BL.writeFile out encoded
+                Just outputPath -> BL.writeFile outputPath encoded
                 Nothing -> BL.putStr encoded

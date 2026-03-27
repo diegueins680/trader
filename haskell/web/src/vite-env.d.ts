@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 declare const __TRADER_API_TARGET__: string;
+declare const __TRADER_UI_VERSION__: string;
 declare const __TRADER_UI_COMMIT__: string;
 
 declare module "/trader-config.js";

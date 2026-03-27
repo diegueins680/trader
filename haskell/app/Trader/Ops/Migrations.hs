@@ -113,6 +113,7 @@ migrations =
                 <> "symbol TEXT,"
                 <> "interval TEXT,"
                 <> "objective TEXT,"
+                <> "source TEXT,"
                 <> "final_equity DOUBLE PRECISION,"
                 <> "annualized_return DOUBLE PRECISION,"
                 <> "score DOUBLE PRECISION,"
@@ -225,6 +226,14 @@ migrations =
             , "CREATE INDEX IF NOT EXISTS combos_operation_count_idx ON combos(operation_count)"
             , "CREATE INDEX IF NOT EXISTS combos_annualized_return_idx ON combos(annualized_return)"
             , "CREATE INDEX IF NOT EXISTS combo_parameters_name_idx ON combo_parameters(name)"
+            ]
+        }
+    , Migration
+        { migVersion = 2
+        , migDescription = "combos_store_source_metadata"
+        , migStatements =
+            [ "ALTER TABLE combos ADD COLUMN IF NOT EXISTS source TEXT"
+            , "CREATE INDEX IF NOT EXISTS combos_source_idx ON combos(source)"
             ]
         }
     ]

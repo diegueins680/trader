@@ -238,6 +238,11 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               : `Showing ${displayCount} combo${displayCount === 1 ? "" : "s"}`;
         const totalLabel =
           activeFilters.length > 0 && totalCount > filteredCount ? ` • ${totalCount} total` : "";
+        const statsParts: string[] = [];
+        if (topCombosMeta.rawCount != null) statsParts.push(`raw ${topCombosMeta.rawCount}`);
+        if (topCombosMeta.droppedCount != null) statsParts.push(`dropped ${topCombosMeta.droppedCount}`);
+        if (topCombosMeta.dedupedCount != null) statsParts.push(`deduped ${topCombosMeta.dedupedCount}`);
+        const statsLabel = statsParts.length > 0 ? ` • ${statsParts.join(" • ")}` : "";
         return (
           <div style={{ marginBottom: 8 }}>
             <div className="hint">
@@ -250,6 +255,7 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               {" • "}
               {countLabel}
               {totalLabel}
+              {statsLabel}
             </div>
           </div>
         );

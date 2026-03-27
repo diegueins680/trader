@@ -5,6 +5,7 @@ module Trader.Poloniex (
     poloniexBaseUrl,
     fetchPoloniexCandles,
     decodePoloniexCandles,
+    poloniexCandlesCacheStats,
     normalizePoloniexCandles,
 ) where
 
@@ -27,7 +28,7 @@ import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
-import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
+import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
 import Trader.Text (dedupeStable, trim)
 
@@ -47,13 +48,19 @@ poloniexTimeoutMicros = 15 * 1000000
 
 {-# NOINLINE poloniexCandlesCache #-}
 poloniexCandlesCache :: TtlCache String [PoloniexCandle]
-poloniexCandlesCache = unsafePerformIO newTtlCache
+poloniexCandlesCache = unsafePerformIO (newTtlCacheWithMaxEntries poloniexCandlesMaxEntries)
+
+poloniexCandlesMaxEntries :: Int
+poloniexCandlesMaxEntries = 64
 
 poloniexCandlesFreshTtl :: NominalDiffTime
 poloniexCandlesFreshTtl = 30
 
 poloniexCandlesStaleTtl :: NominalDiffTime
 poloniexCandlesStaleTtl = 300
+
+poloniexCandlesCacheStats :: IO TtlCacheStats
+poloniexCandlesCacheStats = cacheStats poloniexCandlesCache poloniexCandlesStaleTtl
 
 fetchPoloniexCandles :: String -> String -> Int -> Int -> IO [PoloniexCandle]
 fetchPoloniexCandles pair intervalLabel periodSec bars = do

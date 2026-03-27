@@ -8,9 +8,11 @@ module Trader.Coinbase (
     newCoinbaseEnv,
     fetchCoinbaseAccounts,
     fetchCoinbaseAvailableBalance,
+    fetchCoinbaseBaseMinSize,
     fetchCoinbaseCandles,
     decodeCoinbaseCandles,
     buildRanges,
+    coinbaseCandlesCacheStats,
     normalizeCoinbaseCandles,
     placeCoinbaseMarketOrder,
 ) where
@@ -19,7 +21,7 @@ import Control.Exception (throwIO)
 import qualified Control.Monad
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
-import Data.Aeson (FromJSON (..), Value (..), eitherDecode, encode, object, withArray, withObject, (.:), (.=))
+import Data.Aeson (FromJSON (..), Value (..), eitherDecode, encode, object, withArray, withObject, (.:), (.:?), (.=))
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteArray as BA
 import qualified Data.ByteArray.Encoding as BAE
@@ -41,7 +43,7 @@ import Network.HTTP.Types.Status (statusCode)
 import Numeric (showFFloat)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
-import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
+import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
 import Trader.Text (trim)
 
@@ -78,13 +80,19 @@ coinbaseMaxBarsPerRequest = 300
 
 {-# NOINLINE coinbaseCandlesCache #-}
 coinbaseCandlesCache :: TtlCache String [CoinbaseCandle]
-coinbaseCandlesCache = unsafePerformIO newTtlCache
+coinbaseCandlesCache = unsafePerformIO (newTtlCacheWithMaxEntries coinbaseCandlesMaxEntries)
+
+coinbaseCandlesMaxEntries :: Int
+coinbaseCandlesMaxEntries = 64
 
 coinbaseCandlesFreshTtl :: NominalDiffTime
 coinbaseCandlesFreshTtl = 30
 
 coinbaseCandlesStaleTtl :: NominalDiffTime
 coinbaseCandlesStaleTtl = 300
+
+coinbaseCandlesCacheStats :: IO TtlCacheStats
+coinbaseCandlesCacheStats = cacheStats coinbaseCandlesCache coinbaseCandlesStaleTtl
 
 data CoinbaseEnv = CoinbaseEnv
     { ceManager :: !Manager
@@ -120,6 +128,28 @@ fetchCoinbaseAvailableBalance env currency = do
     let target = map toUpperAscii (trim currency)
         match = find (\acct -> map toUpperAscii (caCurrency acct) == target) accounts
     pure (maybe 0 caAvailable match)
+
+fetchCoinbaseBaseMinSize :: CoinbaseEnv -> String -> IO (Maybe Double)
+fetchCoinbaseBaseMinSize env product = do
+    let cleanedProduct = map toUpperAscii (trim product)
+    req0 <- parseRequest (ceBaseUrl env ++ "/products/" ++ cleanedProduct)
+    let req =
+            req0
+                { requestHeaders =
+                    ("User-Agent", BS8.pack "trader-hs/0.1")
+                        : ("Accept", BS8.pack "application/json")
+                        : requestHeaders req0
+                , responseTimeout = responseTimeoutMicro coinbaseTimeoutMicros
+                }
+    resp <- coinbaseHttp env "coinbase.product" req
+    ensure2xx "Coinbase product" resp
+    payload <-
+        case eitherDecode (responseBody resp) of
+            Left err -> throwIO (userError ("Failed to decode Coinbase product: " ++ err))
+            Right ok -> pure ok
+    case AT.parseEither parseCoinbaseBaseMinSize payload of
+        Left err -> throwIO (userError ("Failed to parse Coinbase product: " ++ err))
+        Right minQty -> pure minQty
 
 placeCoinbaseMarketOrder :: CoinbaseEnv -> String -> String -> Maybe Double -> Maybe Double -> Maybe String -> IO BL.ByteString
 placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId = do
@@ -257,6 +287,19 @@ parseIndexDouble i arr =
     case arr V.!? i of
         Nothing -> fail "Missing index"
         Just v -> parseDoubleValue v
+
+parseCoinbaseBaseMinSize :: Value -> AT.Parser (Maybe Double)
+parseCoinbaseBaseMinSize =
+    withObject "CoinbaseProduct" $ \o -> do
+        mRaw <- o .:? "base_min_size"
+        case mRaw of
+            Nothing -> pure Nothing
+            Just v -> do
+                qty <- parseDoubleValue v
+                pure $
+                    if qty > 0
+                        then Just qty
+                        else Nothing
 
 parseInt64Value :: Value -> AT.Parser Int64
 parseInt64Value v =

@@ -220,6 +220,13 @@ export const METHOD_UI_META = [
     tip: "10 uses Kalman-only predictions.",
   },
   {
+    id: "kalman_physics_error",
+    optionTitle: "Kalman physics error",
+    label: "Kalman physics error",
+    configHint: "uses the Kalman state plus physics-error model.",
+    tip: "kalman_physics_error uses the Kalman state plus a physics-error model over the latest 1000 bars.",
+  },
+  {
     id: "01",
     optionTitle: "LSTM only",
     label: "LSTM only",

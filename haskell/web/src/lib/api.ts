@@ -3,6 +3,7 @@ import type {
   ApiBinanceClosePositionRequest,
   ApiBinancePositionsRequest,
   ApiBinancePositionsResponse,
+  ApiRequestProgressStatus,
   ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
   ApiOrderResult,
@@ -99,6 +100,7 @@ export type CacheStatsResponse = {
   maxEntries: number;
   signals: { entries: number; hits: number; misses: number };
   backtests: { entries: number; hits: number; misses: number };
+  marketData?: Record<string, { entries: number; maxEntries: number | null }>;
   atMs: number;
 };
 
@@ -109,38 +111,74 @@ type AsyncJobOptions = FetchJsonOptions & {
   maxStartRetries?: number;
 };
 
-function resolveUrl(baseUrl: string, path: string): string {
-  const base = baseUrl.trim().replace(/\/+$/, "");
+type ResolvedPath = {
+  pathname: string;
+  searchParams: URLSearchParams;
+  hash: string;
+};
+
+function parseResolvedPath(path: string): ResolvedPath {
   const raw = path.startsWith("/") ? path : `/${path}`;
   const hashIndex = raw.indexOf("#");
   const rawNoHash = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
   const hash = hashIndex >= 0 ? raw.slice(hashIndex) : "";
   const queryIndex = rawNoHash.indexOf("?");
   const pathname = queryIndex >= 0 ? rawNoHash.slice(0, queryIndex) : rawNoHash;
-  const search = queryIndex >= 0 ? rawNoHash.slice(queryIndex) : "";
+  const search = queryIndex >= 0 ? rawNoHash.slice(queryIndex + 1) : "";
+  return { pathname, searchParams: new URLSearchParams(search), hash };
+}
+
+function mergeSearchParams(baseSearch: string, pathSearchParams: URLSearchParams): string {
+  const merged = new URLSearchParams(baseSearch);
+  const overriddenKeys = new Set<string>();
+  for (const key of pathSearchParams.keys()) overriddenKeys.add(key);
+  for (const key of overriddenKeys) merged.delete(key);
+  for (const [key, value] of pathSearchParams.entries()) merged.append(key, value);
+  const search = merged.toString();
+  return search ? `?${search}` : "";
+}
+
+function resolveUrl(baseUrl: string, path: string): string {
+  const base = baseUrl.trim();
+  const { pathname, searchParams, hash } = parseResolvedPath(path);
+  const search = searchParams.toString();
 
   if (!base || base === "/") {
-    return `${pathname}${search}${hash}`;
+    return `${pathname}${search ? `?${search}` : ""}${hash}`;
   }
 
-  if (/^https?:\/\//.test(base)) {
-    const url = new URL(base);
-    const basePath = url.pathname.replace(/\/+$/, "");
-    url.pathname = `${basePath}${pathname}`.replace(/\/{2,}/g, "/") || "/";
-    url.search = search;
+  const normalizedBase = /^https?:\/\//.test(base) || base.startsWith("/") ? base : `/${base}`;
+  const url = new URL(normalizedBase, "https://trader.invalid");
+  const basePath = url.pathname.replace(/\/+$/, "");
+  const resolvedPath = `${basePath}${pathname}`.replace(/\/{2,}/g, "/") || "/";
+  const mergedSearch = mergeSearchParams(url.search, searchParams);
+
+  if (/^https?:\/\//.test(normalizedBase)) {
+    url.pathname = resolvedPath;
+    url.search = mergedSearch;
     url.hash = hash;
     return url.toString();
   }
 
-  const rel = base.startsWith("/") ? base : `/${base}`;
-  return `${rel}${pathname}${search}${hash}`;
+  return `${resolvedPath}${mergedSearch}${hash}`;
 }
 
 function normalizeBaseUrl(raw: string): string {
-  return raw.trim().replace(/\/+$/, "");
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const withoutTrailingSlashes = trimmed.replace(/\/+$/, "");
+  // Preserve same-origin root-path identity so fallback policy can still
+  // distinguish "/" from a direct-host base.
+  return withoutTrailingSlashes || (trimmed.startsWith("/") ? "/" : "");
 }
 
 const TENANT_HEADER = "X-Tenant-Key";
+export const REQUEST_PROGRESS_HEADER = "X-Trader-Request-Id";
+
+function normalizeExactIntegerQueryParam(raw: unknown): number | null {
+  if (typeof raw !== "number" || !Number.isSafeInteger(raw)) return null;
+  return Object.is(raw, -0) ? 0 : raw;
+}
 
 function normalizeTenantKeyValue(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -162,7 +200,7 @@ function tenantKeyFromPath(path: string): string | null {
   }
 }
 
-function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
+export function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
   if (!body) return null;
   if (typeof body === "string") {
     const trimmed = body.trim();
@@ -178,14 +216,18 @@ function tenantKeyFromBody(body: BodyInit | null | undefined): string | null {
   if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) {
     return normalizeTenantKeyValue(body.get("tenantKey"));
   }
+  if (typeof FormData !== "undefined" && body instanceof FormData) {
+    const tenantKey = body.get("tenantKey");
+    return typeof tenantKey === "string" ? normalizeTenantKeyValue(tenantKey) : null;
+  }
   return null;
 }
 
-function withTenantHeader(
+export function withTenantHeader(
   headers: Headers,
   path: string,
   body: BodyInit | null | undefined,
-  allowTenantHeader: boolean,
+  allowTenantHeader = true,
 ): Headers {
   if (!allowTenantHeader) return headers;
   if (headers.has(TENANT_HEADER)) return headers;
@@ -194,11 +236,21 @@ function withTenantHeader(
   return headers;
 }
 
-function shouldAttachTenantHeader(requestUrl: string): boolean {
+function requestHasAuthLikeContext(path: string, body: BodyInit | null | undefined, headersInit: HeadersInit | undefined): boolean {
+  const headers = new Headers(headersInit);
+  if (headers.has("Authorization") || headers.has("X-API-Key") || headers.has(TENANT_HEADER)) return true;
+  return Boolean(tenantKeyFromPath(path) ?? tenantKeyFromBody(body));
+}
+
+function shouldAttachTenantHeader(requestUrl: string, method: string): boolean {
+  const requestMethod = method.trim().toUpperCase() || "GET";
   if (typeof window === "undefined") return true;
   try {
     const resolved = new URL(requestUrl, window.location.origin);
-    return resolved.origin === window.location.origin;
+    if (resolved.origin === window.location.origin) return true;
+    // Keep cross-origin GET/HEAD requests header-free so tenant-scoped reads can
+    // stay on the backend's implicit read-only CORS path without preflight.
+    return requestMethod !== "GET" && requestMethod !== "HEAD";
   } catch {
     return true;
   }
@@ -431,11 +483,12 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
     const url = resolveUrl(baseUrl, path);
+    const method = String(init.method ?? "GET").toUpperCase();
     const headers = withTenantHeader(
       new Headers(mergeHeaders(init.headers, opts?.headers)),
       path,
       init.body,
-      shouldAttachTenantHeader(url),
+      shouldAttachTenantHeader(url, method),
     );
     const res = await fetch(url, {
       ...init,
@@ -479,10 +532,16 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
   const primaryBase = normalizeBaseUrl(baseUrl);
   const fallbackBase = resolveFallbackBase(primaryBase);
   const method = String(init.method ?? "GET").toUpperCase();
+  const mergedHeaders = mergeHeaders(init.headers, opts?.headers);
   const proxyToDirectCrossOrigin = Boolean(primaryBase.startsWith("/") && fallbackBase && isCrossOriginBase(fallbackBase));
-  // Keep inferred /api -> direct-host failover for reads, but avoid cross-origin
-  // POST/PUT/PATCH/DELETE preflight loops when the fallback host is not CORS-enabled.
-  const allowCrossOriginProxyFallbackForMethod = !proxyToDirectCrossOrigin || method === "GET" || method === "HEAD";
+  // Keep inferred /api -> direct-host failover for reads, and only allow
+  // cross-origin writes when the request already carries auth-like context
+  // that the backend's implicit CORS policy accepts.
+  const allowCrossOriginProxyFallbackForMethod =
+    !proxyToDirectCrossOrigin ||
+    method === "GET" ||
+    method === "HEAD" ||
+    requestHasAuthLikeContext(path, init.body, mergedHeaders);
   const allowAuthStatusFallback = Boolean(
     TRADER_UI_CONFIG.apiBaseUrlInferred &&
       fallbackBase &&
@@ -978,6 +1037,14 @@ export async function coinbaseKeysStatus(
   );
 }
 
+export async function requestProgressStatus(
+  baseUrl: string,
+  requestId: string,
+  opts?: FetchJsonOptions,
+): Promise<ApiRequestProgressStatus> {
+  return fetchJson<ApiRequestProgressStatus>(baseUrl, `/request-progress/${encodeURIComponent(requestId)}`, { method: "GET" }, opts);
+}
+
 type BinanceListenKeyStartParams = Pick<ApiParams, "market" | "binanceTestnet" | "binanceApiKey" | "binanceApiSecret" | "tenantKey">;
 type BinanceListenKeyActionParams = BinanceListenKeyStartParams & { listenKey: string };
 
@@ -1122,7 +1189,7 @@ export async function botStatus(
   symbol?: string,
   tenantKey?: string,
 ): Promise<BotStatus> {
-  const tailSafe = typeof tail === "number" && Number.isFinite(tail) ? Math.trunc(tail) : 0;
+  const tailSafe = normalizeExactIntegerQueryParam(tail) ?? 0;
   const query = new URLSearchParams();
   if (tailSafe > 0) query.set("tail", String(tailSafe));
   if (symbol) query.set("symbol", symbol);
@@ -1147,11 +1214,15 @@ export async function ops(
 ): Promise<OpsResponse> {
   const query = new URLSearchParams();
   if (params?.kind) query.set("kind", params.kind);
-  if (typeof params?.limit === "number" && Number.isFinite(params.limit)) query.set("limit", String(Math.trunc(params.limit)));
-  if (typeof params?.since === "number" && Number.isFinite(params.since)) query.set("since", String(Math.trunc(params.since)));
+  const limit = normalizeExactIntegerQueryParam(params?.limit);
+  if (limit != null) query.set("limit", String(limit));
+  const since = normalizeExactIntegerQueryParam(params?.since);
+  if (since != null) query.set("since", String(since));
   if (params?.symbol) query.set("symbol", params.symbol);
-  if (typeof params?.fromMs === "number" && Number.isFinite(params.fromMs)) query.set("fromMs", String(Math.trunc(params.fromMs)));
-  if (typeof params?.toMs === "number" && Number.isFinite(params.toMs)) query.set("toMs", String(Math.trunc(params.toMs)));
+  const fromMs = normalizeExactIntegerQueryParam(params?.fromMs);
+  if (fromMs != null) query.set("fromMs", String(fromMs));
+  const toMs = normalizeExactIntegerQueryParam(params?.toMs);
+  if (toMs != null) query.set("toMs", String(toMs));
   if (typeof params?.bot === "boolean") query.set("bot", params.bot ? "1" : "0");
   if (params?.tenantKey) query.set("tenantKey", params.tenantKey);
   const path = query.size > 0 ? `/ops?${query.toString()}` : "/ops";
@@ -1164,12 +1235,10 @@ export async function opsPerformance(
   opts?: FetchJsonOptions,
 ): Promise<OpsPerformanceResponse> {
   const query = new URLSearchParams();
-  if (typeof params?.commitLimit === "number" && Number.isFinite(params.commitLimit)) {
-    query.set("commitLimit", String(Math.trunc(params.commitLimit)));
-  }
-  if (typeof params?.comboLimit === "number" && Number.isFinite(params.comboLimit)) {
-    query.set("comboLimit", String(Math.trunc(params.comboLimit)));
-  }
+  const commitLimit = normalizeExactIntegerQueryParam(params?.commitLimit);
+  if (commitLimit != null) query.set("commitLimit", String(commitLimit));
+  const comboLimit = normalizeExactIntegerQueryParam(params?.comboLimit);
+  if (comboLimit != null) query.set("comboLimit", String(comboLimit));
   if (params?.comboScope) query.set("comboScope", params.comboScope);
   if (params?.comboOrder) query.set("comboOrder", params.comboOrder);
   if (params?.tenantKey) query.set("tenantKey", params.tenantKey);

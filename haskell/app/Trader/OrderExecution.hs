@@ -2,9 +2,9 @@ module Trader.OrderExecution (
     OrderExecutionEvidence (..),
     orderAppliedQuantity,
     applyExecutedQuantity,
+    applyReduceOnlyExecutedQuantity,
 ) where
 
-import Data.Maybe (fromMaybe)
 import Trader.Text (normalizeKey, trim)
 
 data OrderExecutionEvidence = OrderExecutionEvidence
@@ -38,13 +38,8 @@ orderAppliedQuantity ev fallbackQty =
 applyExecutedQuantity :: Int -> Double -> Bool -> Double -> (Int, Double, Double, Double)
 applyExecutedQuantity prevPos prevSize isBuy qtyRaw =
     let eps = 1e-9
-        qty0 = fromMaybe 0 (positiveFinite qtyRaw)
-        qty =
-            if qty0 <= eps
-                then 0
-                else qty0
-        prevSign = signum prevPos
-        currentSigned = fromIntegral prevSign * max 0 prevSize
+        qty = sanitizeExecutedQuantity eps qtyRaw
+        currentSigned = sanitizeSignedExposure prevPos prevSize
         deltaSigned = if isBuy then qty else negate qty
         newSigned = currentSigned + deltaSigned
         posNew
@@ -69,6 +64,62 @@ applyExecutedQuantity prevPos prevSize isBuy qtyRaw =
                 then 0
                 else openQtyRaw
      in (posNew, sizeNew, closeQty, openQty)
+
+applyReduceOnlyExecutedQuantity :: Int -> Double -> Double -> (Int, Double, Double, Double)
+applyReduceOnlyExecutedQuantity prevPos prevSize qtyRaw =
+    let eps = 1e-9
+        qty = sanitizeExecutedQuantity eps qtyRaw
+        prevSign = sanitizePosition prevPos
+        currentSize =
+            if prevSign == 0
+                then 0
+                else sanitizeMagnitude prevSize
+        closeQtyRaw =
+            if qty <= 0 || currentSize <= eps
+                then 0
+                else min currentSize qty
+        closeQty =
+            if closeQtyRaw <= eps
+                then 0
+                else closeQtyRaw
+        sizeNewRaw = max 0 (currentSize - closeQty)
+        sizeNew =
+            if sizeNewRaw <= eps
+                then 0
+                else sizeNewRaw
+        posNew
+            | sizeNew <= 0 = 0
+            | otherwise = prevSign
+     in (posNew, sizeNew, closeQty, 0)
+
+sanitizeSignedExposure :: Int -> Double -> Double
+sanitizeSignedExposure prevPos prevSize =
+    let prevSign = sanitizePosition prevPos
+        size = sanitizeMagnitude prevSize
+     in if prevSign == 0
+            then 0
+            else fromIntegral prevSign * size
+
+sanitizePosition :: Int -> Int
+sanitizePosition = signum
+
+sanitizeExecutedQuantity :: Double -> Double -> Double
+sanitizeExecutedQuantity eps qtyRaw =
+    let qty = sanitizeMagnitude qtyRaw
+     in if qty <= eps
+            then 0
+            else qty
+
+sanitizeMagnitude :: Double -> Double
+sanitizeMagnitude x =
+    case positiveFinite x of
+        Just y -> min maxSanitizedMagnitude y
+        Nothing -> 0
+
+maxSanitizedMagnitude :: Double
+-- Keep each operand comfortably below maxBound so signed exposure updates
+-- stay finite even when one sanitized position and one sanitized fill combine.
+maxSanitizedMagnitude = 1.7976931348623157e308 / 4
 
 normalizedStatus :: Maybe String -> Maybe String
 normalizedStatus mRaw =

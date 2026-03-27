@@ -381,12 +381,16 @@ comboToValue rank combo =
 
 comboIdentityValue :: Combo -> Value
 comboIdentityValue combo =
-    object
-        [ "params" .= Object (comboParams combo)
-        , "openThreshold" .= comboOpenThreshold combo
-        , "closeThreshold" .= comboCloseThreshold combo
-        , "objective" .= comboObjective combo
-        ]
+    let baseIdentity =
+            object
+                [ "params" .= Object (comboParams combo)
+                , "openThreshold" .= comboOpenThreshold combo
+                , "closeThreshold" .= comboCloseThreshold combo
+                , "objective" .= comboObjective combo
+                ]
+     in case comboSource combo of
+            Just source | not (null source) -> addField "source" (toJSON source) baseIdentity
+            _ -> baseIdentity
 
 comboUuid :: Combo -> String
 comboUuid combo =

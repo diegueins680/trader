@@ -25,7 +25,7 @@ repository hackage.haskell.org
 -- store-dir:
 -- active-repositories:
 -- local-no-index-repo:
-remote-repo-cache: /Users/diegosaa/GitHub/trader/.cabal/packages
+-- remote-repo-cache:
 -- logs-dir: /Users/diegosaa/GitHub/trader/.cabal/logs
 -- default-user-config:
 -- verbose: 1
@@ -105,7 +105,7 @@ remote-repo-cache: /Users/diegosaa/GitHub/trader/.cabal/packages
 -- index-state:
 -- root-cmd:
 -- symlink-bindir:
-build-summary: /Users/diegosaa/GitHub/trader/.cabal/logs/build.log
+-- build-summary:
 -- build-log:
 remote-build-reporting: none
 -- report-planning-failure: False
@@ -119,7 +119,7 @@ jobs: $ncpus
 -- package-env:
 -- overwrite-policy:
 -- install-method:
-installdir: /Users/diegosaa/GitHub/trader/.cabal/bin
+-- installdir:
 -- token:
 -- username:
 -- password:

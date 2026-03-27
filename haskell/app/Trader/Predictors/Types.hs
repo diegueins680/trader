@@ -20,6 +20,8 @@ import qualified Data.Set as Set
 
 data SensorId
     = SensorGBT
+    | SensorKNN
+    | SensorDecisionTree
     | SensorTCN
     | SensorTransformer
     | SensorHMM
@@ -36,6 +38,8 @@ predictorCode :: SensorId -> String
 predictorCode sid =
     case sid of
         SensorGBT -> "gbdt"
+        SensorKNN -> "knn"
+        SensorDecisionTree -> "decision_tree"
         SensorTCN -> "tcn"
         SensorTransformer -> "transformer"
         SensorHMM -> "hmm"
@@ -65,6 +69,14 @@ predictorSetFromString raw =
             case tok of
                 "gbdt" -> Right SensorGBT
                 "gbt" -> Right SensorGBT
+                "knn" -> Right SensorKNN
+                "knearestneighbors" -> Right SensorKNN
+                "nearestneighbors" -> Right SensorKNN
+                "decisiontree" -> Right SensorDecisionTree
+                "decisiontrees" -> Right SensorDecisionTree
+                "tree" -> Right SensorDecisionTree
+                "trees" -> Right SensorDecisionTree
+                "dt" -> Right SensorDecisionTree
                 "tcn" -> Right SensorTCN
                 "transformer" -> Right SensorTransformer
                 "hmm" -> Right SensorHMM
@@ -81,14 +93,14 @@ predictorSetFromString raw =
                 Right _ -> False
             ]
      in if null lowered
-            then Left "Predictors list is empty (expected gbdt,tcn,transformer,hmm,quantile,conformal, all, none)."
+            then Left "Predictors list is empty (expected gbdt,knn,decision_tree,tcn,transformer,hmm,quantile,conformal, all, none)."
             else
                 if not (null bad)
                     then
                         Left
                             ( "Invalid predictors: "
                                 ++ intercalate ", " bad
-                                ++ " (expected gbdt,tcn,transformer,hmm,quantile,conformal, all, none)."
+                                ++ " (expected gbdt,knn,decision_tree,tcn,transformer,hmm,quantile,conformal, all, none)."
                             )
                     else
                         if hasAll && hasNone

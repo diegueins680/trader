@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.test.json --noEmit && esbuild src/app/utils.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/utils.js && esbuild src/app/formState.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/formState.js && esbuild src/app/appHelpers.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/appHelpers.js && esbuild src/lib/api.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/api.js && node --test test/*.test.mjs"
+    "test": "tsc -p tsconfig.test.json --noEmit && esbuild src/app/utils.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/utils.js && esbuild src/app/formState.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/formState.js && esbuild src/app/appHelpers.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/appHelpers.js && esbuild src/lib/api.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/api.js && esbuild src/lib/deployConfig.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/deployConfig.js && node --test test/*.test.mjs"
   },
   "dependencies": {
     "react": "^19.2.4",
@@ -17,10 +17,10 @@
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.4",
-    "esbuild": "^0.27.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "esbuild": "^0.27.4",
     "typescript": "^5.6.3",
-    "vite": "^7.3.1"
+    "vite": "^8.0.1"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

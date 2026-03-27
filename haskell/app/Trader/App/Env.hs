@@ -14,8 +14,10 @@ import Data.Version (showVersion)
 import qualified Paths_trader as Paths
 import System.Directory (doesFileExist, findExecutable, getCurrentDirectory)
 import System.Environment (lookupEnv, setEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath (isAbsolute, takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
+import System.Process (proc, readCreateProcessWithExitCode)
 
 import Trader.Text (trim)
 
@@ -24,11 +26,66 @@ traderVersion = showVersion Paths.version
 
 getBuildCommit :: IO (Maybe String)
 getBuildCommit = do
-    let keys = ["TRADER_GIT_COMMIT", "TRADER_COMMIT", "GIT_COMMIT", "COMMIT_SHA"]
-    m <- firstJust <$> mapM lookupEnv keys
-    case fmap trim m of
-        Just s | not (null s) -> pure (Just s)
-        _ -> pure Nothing
+    envCommit <- resolveEnvBuildCommit
+    case envCommit of
+        Just commit -> pure (Just commit)
+        Nothing -> do
+            fileCommit <- resolveBuildCommitFile
+            case fileCommit of
+                Just commit -> pure (Just commit)
+                Nothing -> resolveGitBuildCommit
+
+resolveEnvBuildCommit :: IO (Maybe String)
+resolveEnvBuildCommit = do
+    let keys =
+            [ "TRADER_GIT_COMMIT"
+            , "TRADER_COMMIT"
+            , "GIT_COMMIT"
+            , "COMMIT_SHA"
+            , "SOURCE_COMMIT"
+            , "SOURCE_VERSION"
+            , "GITHUB_SHA"
+            ]
+    firstNonEmpty <$> mapM lookupEnv keys
+
+resolveBuildCommitFile :: IO (Maybe String)
+resolveBuildCommitFile = do
+    cwd <- getCurrentDirectory
+    let candidates =
+            [ cwd </> ".build-commit"
+            , cwd </> "haskell" </> ".build-commit"
+            , takeDirectory cwd </> ".build-commit"
+            , takeDirectory cwd </> "haskell" </> ".build-commit"
+            ]
+    readFirstBuildCommitFile candidates
+
+readFirstBuildCommitFile :: [FilePath] -> IO (Maybe String)
+readFirstBuildCommitFile paths =
+    case paths of
+        [] -> pure Nothing
+        path : rest -> do
+            exists <- doesFileExist path
+            if not exists
+                then readFirstBuildCommitFile rest
+                else do
+                    contentsResult <- try (readFile path) :: IO (Either IOException String)
+                    case contentsResult of
+                        Left _ -> readFirstBuildCommitFile rest
+                        Right contents ->
+                            case nonEmptyTrimmed contents of
+                                Just commit -> pure (Just commit)
+                                Nothing -> readFirstBuildCommitFile rest
+
+resolveGitBuildCommit :: IO (Maybe String)
+resolveGitBuildCommit = do
+    gitExe <- findExecutable "git"
+    case gitExe of
+        Nothing -> pure Nothing
+        Just _ -> do
+            (code, out, err) <- readCreateProcessWithExitCode (proc "git" ["rev-parse", "HEAD"]) ""
+            case code of
+                ExitSuccess -> pure (nonEmptyTrimmed out)
+                ExitFailure _ -> pure Nothing
 
 loadEnvFile :: IO (Either String FilePath) -> IO ()
 loadEnvFile resolveRepoRoot = do
@@ -155,11 +212,16 @@ unescapeDoubleQuoted = go
     go ('\\' : c : rest) = c : go rest
     go (c : rest) = c : go rest
 
-firstJust :: [Maybe a] -> Maybe a
-firstJust xs =
+firstNonEmpty :: [Maybe String] -> Maybe String
+firstNonEmpty xs =
     case xs of
         [] -> Nothing
         y : ys ->
-            case y of
-                Just _ -> y
-                Nothing -> firstJust ys
+            case y >>= nonEmptyTrimmed of
+                Just value -> Just value
+                Nothing -> firstNonEmpty ys
+
+nonEmptyTrimmed :: String -> Maybe String
+nonEmptyTrimmed raw =
+    let cleaned = trim raw
+     in if null cleaned then Nothing else Just cleaned

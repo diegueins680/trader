@@ -32,6 +32,13 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Trader.Duration (TimeWindow, minuteOfDayFromMs, timeWindowContains)
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
+import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk)
+import Trader.VolConfGate (
+    VolConfGateCell (..),
+    VolConfGatePreset (..),
+    applyVolConfGateBehavior,
+    volConfGateCell,
+ )
 
 data Positioning
     = LongFlat
@@ -110,6 +117,7 @@ data EnsembleConfig = EnsembleConfig
     , ecVolFloor :: !Double -- annualized volatility floor
     , ecVolScaleMax :: !Double -- caps volatility scaling
     , ecMaxVolatility :: !(Maybe Double) -- if set, block trades above this annualized vol
+    , ecVolConfGate :: !VolConfGatePreset -- frozen volatility/confidence gate preset
     , ecRebalanceBars :: !Int -- bars; 0 disables size rebalancing
     , ecRebalanceThreshold :: !Double -- min abs size delta required to rebalance
     , ecRebalanceGlobal :: !Bool -- when True, rebalance cadence anchors to global bars
@@ -624,14 +632,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             case ecLstmTrainingHealth cfg of
                                 Just v | not (isBad v) -> clamp01 v
                                 _ -> 0.5
-                        openThr0 = max openThrRawBase minEdgeBase
+                        openThr0 = normalizeSignalThreshold (max openThrRawBase minEdgeBase)
                         priceActionBodyMin = max 0 (ecTriLayerPriceActionBody cfg)
                         bodyMinFracBase = max 1e-6 (0.25 * openThr0)
                         bodyMinFrac =
                             if priceActionBodyMin > 0
                                 then priceActionBodyMin
                                 else bodyMinFracBase
-                        closeThrBase = max 0 (ecCloseThreshold cfg)
+                        closeThrBase = normalizeSignalThreshold (max 0 (ecCloseThreshold cfg))
                         minHoldBars = max 0 (ecMinHoldBars cfg)
                         cooldownBars = max 0 (ecCooldownBars cfg)
                         maxHoldBars =
@@ -757,6 +765,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         volLookback = max 0 (ecVolLookback cfg)
                         volFloor = max 0 (ecVolFloor cfg)
                         volScaleMax = max 0 (ecVolScaleMax cfg)
+                        volConfGatePreset = ecVolConfGate cfg
+                        volConfGateEnabled = volConfGatePreset /= VolConfGateDisabled
+                        confidenceSizingEnabled = ecConfidenceSizing cfg && not volConfGateEnabled
                         volAlpha =
                             case ecVolEwmaAlpha cfg of
                                 Just a | a > 0 && not (isNaN a || isInfinite a) -> Just (max 0 (min 1 a))
@@ -1625,7 +1636,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         kalmanZMinAdd = strictness * adaptiveKalmanZMinMax
                                         trendLookbackAdd = round (strictness * fromIntegral adaptiveTrendLookbackMax)
                                         minEdgeStep = minEdgeBase + edgeAdd
-                                        openThrBase = max openThrRawBase minEdgeStep
+                                        openThrBase = normalizeSignalThreshold (max openThrRawBase minEdgeStep)
                                         minSignalToNoiseStep = minSignalToNoiseBase + minSnrAdd
                                         kalmanZMinStep = kalmanZMinBase + kalmanZMinAdd
                                         trendLookbackStep = trendLookbackBase + trendLookbackAdd
@@ -1646,8 +1657,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 then clampRange factorMin factorMax factorCloseBase0
                                                 else 1
                                         minEdgeAdj = max factorFloor (minEdgeStep * factorOpenBase)
-                                        openThrAdj = max minEdgeAdj (max factorFloor (openThrBase * factorOpenBase))
-                                        closeThrAdj = max factorFloor (closeThrBase * factorCloseBase)
+                                        openThrAdj =
+                                            normalizeSignalThreshold
+                                                (max minEdgeAdj (max factorFloor (openThrBase * factorOpenBase)))
+                                        closeThrAdj =
+                                            normalizeSignalThreshold
+                                                (max factorFloor (closeThrBase * factorCloseBase))
                                         minSignalToNoiseAdj = max factorFloor (minSignalToNoiseStep * factorOpenBase)
                                         openTrade0 =
                                             case posSide of
@@ -1686,7 +1701,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                     )
                                                                 Just m ->
                                                                     let confScore = confidenceScoreKalman kalmanZMinStep m
-                                                                        (openDir, openSize) = gateKalmanDir kalmanZMinStep (ecConfidenceSizing cfg) m openThrAdj confScore kalOpenDirRaw
+                                                                        (openDir, openSize) = gateKalmanDir kalmanZMinStep confidenceSizingEnabled m openThrAdj confScore kalOpenDirRaw
                                                                         (closeDir, _) = gateKalmanDir kalmanZMinStep False m closeThrAdj confScore kalCloseDirRaw
                                                                      in (openDir, closeDir, openSize)
                                                         lstmOpenDir = direction openThrAdj prev lp
@@ -1843,7 +1858,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             if desiredSize0 <= 0 then Nothing else desiredSideRaw
 
                                         needsEntry = Data.Maybe.isJust desiredSide0 && desiredSide0 /= posSide
-                                        lstmEntryScale = if needsEntry then lstmEntryScaleRaw else 1
+                                        lstmEntryScale =
+                                            if needsEntry && not volConfGateEnabled
+                                                then lstmEntryScaleRaw
+                                                else 1
 
                                         trendOk =
                                             case desiredSide0 of
@@ -1879,6 +1897,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             case (needsEntry, desiredSide0) of
                                                 (True, Just side) -> cloudOkAt t side && priceActionOkAt t side
                                                 _ -> True
+
+                                        edgeSpikeOk =
+                                            not needsEntry || signalEntryEdgeSpikeOk openThrAdj (Just (max 0 edgeRaw))
 
                                         slowCrossExit =
                                             case posSide of
@@ -1925,7 +1946,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         kalmanExit = slowCrossExit || kalmanBandExit
 
                                         desiredSide1 =
-                                            if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk
+                                            if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk || not edgeSpikeOk
                                                 then Nothing
                                                 else desiredSide0
 
@@ -1933,6 +1954,20 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             if lstmFlipExit || kalmanExit
                                                 then Nothing
                                                 else desiredSide1
+
+                                        volConfCell =
+                                            volConfGateCell
+                                                volConfGatePreset
+                                                (volEstimateAt t)
+                                                ( case metaNow of
+                                                    Just m -> Just (confidenceScoreKalman kalmanZMinStep m)
+                                                    Nothing -> lstmConfScoreMaybe
+                                                )
+                                        volConfBehavior = vcgBehavior volConfCell
+                                        volConfSizeMult =
+                                            if Data.Maybe.isJust desiredSide2
+                                                then vcgSizeMult volConfCell
+                                                else 1
 
                                         baseSizeTarget =
                                             case desiredSide2 of
@@ -1950,7 +1985,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             if isNothing desiredSide2
                                                 then 1
                                                 else volScaleAt t * riskScaleAt t * snrScaleWeighted
-                                        sizeScaled = baseSizeTarget * entryScale * sizeScale
+                                        sizeScaled = baseSizeTarget * entryScale * volConfSizeMult * sizeScale
                                         sizeCapped = min maxPositionSize (max 0 sizeScaled)
                                         sizeFinal0 =
                                             if sizeCapped < minPositionSize && desiredSide2 /= posSide
@@ -1962,17 +1997,25 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                         desiredSize = sizeFinal0
 
+                                        (desiredSideVolConf, desiredSizeVolConf) =
+                                            applyVolConfGateBehavior
+                                                volConfBehavior
+                                                posSide
+                                                posSize
+                                                desiredSide
+                                                desiredSize
+
                                         holdForced = Data.Maybe.isJust posSide && desiredSide /= posSide && holdBars < minHoldBars
 
                                         desiredSideHoldAdjusted =
                                             if holdForced
                                                 then posSide
-                                                else desiredSide
+                                                else desiredSideVolConf
 
                                         desiredSizeHoldAdjusted =
                                             if holdForced
                                                 then posSize
-                                                else desiredSize
+                                                else desiredSizeVolConf
 
                                         noTradeActive =
                                             case noTradeWindows' of

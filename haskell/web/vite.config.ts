@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 function parseTimeoutMs(raw: unknown, fallback: number): number {
   const n =
@@ -34,17 +35,33 @@ function resolveUiCommit(env: Record<string, string | undefined>): string {
   }
 }
 
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+function resolveUiVersion(env: Record<string, string | undefined>): string {
+  const fromEnv = (env.VITE_UI_VERSION ?? env.TRADER_UI_VERSION ?? env.npm_package_version ?? "").trim();
+  return fromEnv || readPackageVersion();
+}
+
 export default defineConfig(({ mode }) => {
   const env: Record<string, string | undefined> = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
   const apiTarget = env.TRADER_API_TARGET || "http://127.0.0.1:8080";
   const apiToken = (env.TRADER_API_TOKEN || "").trim();
   const proxyTimeoutMs = parseTimeoutMs(env.TRADER_UI_PROXY_TIMEOUT_MS, 30 * 60 * 1000);
+  const uiVersion = resolveUiVersion(env);
   const uiCommit = resolveUiCommit(env);
 
   return {
     plugins: [react()],
     define: {
       __TRADER_API_TARGET__: JSON.stringify(apiTarget),
+      __TRADER_UI_VERSION__: JSON.stringify(uiVersion),
       __TRADER_UI_COMMIT__: JSON.stringify(uiCommit),
     },
     build: {
