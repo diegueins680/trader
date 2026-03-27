@@ -17,14 +17,16 @@ executable trader-hs
                      , Trader.App.Runtime
                      , Trader.Cache
                      , Trader.Coinbase
+                     , Trader.ComboTracking
                      , Trader.Config
+                     , Trader.Cors
                      , Trader.Dex
                      , Trader.App.Args
                      , Trader.BinanceIntervals
                      , Trader.BotStartSemantics
                      , Trader.Duration
-                     , Trader.Formal.Optimization
                      , Trader.Formal.CloseTiming
+                     , Trader.Formal.Optimization
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
@@ -37,6 +39,8 @@ executable trader-hs
                      , Trader.MarketContext
                      , Trader.Normalization
                      , Trader.Optimization
+                     , Trader.Optimizer.Optimize
+                     , Trader.Optimizer.Random
                      , Trader.OrderExecution
                      , Trader.Ops.Migrations
                      , Trader.Optimizer.Json
@@ -45,6 +49,8 @@ executable trader-hs
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
+                     , Trader.Predictors.KNN
+                     , Trader.Predictors.DecisionTree
                      , Trader.Predictors.GBDT
                      , Trader.Predictors.TCN
                      , Trader.Predictors.Transformer
@@ -60,6 +66,7 @@ executable trader-hs
                      , Trader.S3
                      , Trader.Text
                      , Trader.Trading
+                     , Trader.VolConfGate
                      , Paths_trader
   default-language:    Haskell2010
   build-depends:       base >=4.14 && <4.20
@@ -101,11 +108,20 @@ executable optimize-equity
   main-is:             OptimizeEquityMain.hs
   other-modules:       Trader.BinanceIntervals
                      , Trader.Duration
+                     , Trader.Formal.Optimization
+                     , Trader.KalmanFusion
+                     , Trader.Kalman3
+                     , Trader.Method
+                     , Trader.Metrics
                      , Trader.Platform
                      , Trader.Optimizer.Json
                      , Trader.Optimizer.Optimize
                      , Trader.Optimizer.Random
+                     , Trader.Optimization
+                     , Trader.SignalGates
                      , Trader.Symbol
+                     , Trader.Trading
+                     , Trader.VolConfGate
   default-language:    Haskell2010
   build-depends:       base >=4.14 && <4.20
                      , aeson >=1.5
@@ -161,7 +177,6 @@ executable analyze-close-timing
                      , text
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
 
-
 executable outbox-publisher
   hs-source-dirs:      app
   main-is:             OutboxPublisherMain.hs
@@ -184,16 +199,20 @@ test-suite trader-tests
   other-modules:       Trader.Binance
                      , Trader.Api.Routes
                      , Trader.App.BinanceProbe
+                     , Trader.App.Env
                      , Trader.Cache
                      , Trader.Coinbase
+                     , Trader.ComboTracking
                      , Trader.Config
+                     , Trader.Cors
                      , Trader.Dex
                      , Trader.App.Args
+                     , Trader.App.Runtime
                      , Trader.BinanceIntervals
                      , Trader.BotStartSemantics
                      , Trader.Duration
-                     , Trader.Formal.Optimization
                      , Trader.Formal.CloseTiming
+                     , Trader.Formal.Optimization
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
@@ -216,6 +235,8 @@ test-suite trader-tests
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
+                     , Trader.Predictors.KNN
+                     , Trader.Predictors.DecisionTree
                      , Trader.Predictors.GBDT
                      , Trader.Predictors.TCN
                      , Trader.Predictors.Transformer
@@ -228,10 +249,12 @@ test-suite trader-tests
                      , Trader.Split
                      , Trader.Symbol
                      , Trader.Test.BinanceProbe
+                     , Trader.Test.Cors
                      , Trader.TopCombosStore
                      , Trader.Test.ApiRoutes
                      , Trader.Text
                      , Trader.Trading
+                     , Trader.VolConfGate
                      , Paths_trader
   default-language:    Haskell2010
   build-depends:       base >=4.14 && <4.20
@@ -239,6 +262,7 @@ test-suite trader-tests
                      , bytestring >=0.10
                      , base16-bytestring
                      , cassava >=0.5
+                     , case-insensitive
                      , cryptonite
                      , directory
                      , filepath
@@ -248,6 +272,7 @@ test-suite trader-tests
                      , http-types
                      , network-uri
                      , containers
+                     , wai
                      , unordered-containers
                      , optparse-applicative >=0.17
                      , random >=1.2
@@ -269,8 +294,8 @@ benchmark trader-bench
                      , Trader.App.Args
                      , Trader.BinanceIntervals
                      , Trader.Duration
-                     , Trader.Formal.Optimization
                      , Trader.Formal.CloseTiming
+                     , Trader.Formal.Optimization
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
@@ -303,6 +328,7 @@ benchmark trader-bench
                      , Trader.TopCombosStore
                      , Trader.Text
                      , Trader.Trading
+                     , Trader.VolConfGate
                      , Paths_trader
   default-language:    Haskell2010
   build-depends:       base >=4.14 && <4.20

@@ -9,7 +9,8 @@ import System.Environment (getArgs, getProgName)
 import System.Exit (ExitCode (..), exitSuccess, exitWith)
 import System.IO (hPutStrLn, stderr)
 
-import Trader.Optimizer.Optimize (OptimizerArgs (..), runOptimizer)
+import Trader.Optimization (TuneObjective (..), tuneObjectiveCode)
+import Trader.Optimizer.Optimize (OptimizerArgs (..), normalizeObjectiveCode, runOptimizer)
 
 main :: IO ()
 main = do
@@ -449,11 +450,16 @@ validateArgs args = do
     let dataVal = normalizeMaybe (oaData args)
         symbolVal = normalizeMaybe (oaBinanceSymbol args)
         intervalVal = normalizeMaybe (oaInterval args)
-        intervalsVal = oaIntervals args
+        intervalsVal = normalizeMaybe (oaIntervals args)
         platformVal = normalizeMaybe (oaPlatform args)
         platformsVal = normalizeMaybe (oaPlatforms args)
-        intervalsFinal = Just (fromMaybe defaultIntervals intervalsVal)
-        args' =
+        intervalsFinal =
+            case intervalVal of
+                Just _ -> Nothing
+                Nothing -> Just (fromMaybe defaultIntervals intervalsVal)
+    objectiveCode <- normalizeCliObjective "objective" (oaObjective args)
+    tuneObjective <- normalizeCliObjective "tune objective" (oaTuneObjective args)
+    let args' =
             args
                 { oaData = dataVal
                 , oaBinanceSymbol = symbolVal
@@ -461,6 +467,8 @@ validateArgs args = do
                 , oaIntervals = intervalsFinal
                 , oaPlatform = platformVal
                 , oaPlatforms = platformsVal
+                , oaObjective = objectiveCode
+                , oaTuneObjective = tuneObjective
                 }
     when (isJust dataVal == isJust symbolVal) $
         Left "Provide exactly one of --data or --symbol/--binance-symbol."
@@ -470,10 +478,6 @@ validateArgs args = do
         Left "Provide only one of --platform or --platforms."
     when (oaBinanceFutures args' && maybe False (\p -> map toLower (trim p) /= "binance") platformVal) $
         Left "--futures requires --platform binance (or omit --platform to use the default)."
-    unless (oaObjective args `elem` objectiveChoices) $
-        Left ("Invalid objective: " ++ show (oaObjective args) ++ " (expected one of: " ++ intercalate ", " objectiveChoices ++ ")")
-    unless (oaTuneObjective args `elem` objectiveChoices) $
-        Left ("Invalid tune objective: " ++ show (oaTuneObjective args) ++ " (expected one of: " ++ intercalate ", " objectiveChoices ++ ")")
     when (maybe False (< 0) (oaSeedTrials args)) $
         Left "--seed-trials must be >= 0."
     when (maybe False (\r -> r < 0 || r > 1) (oaSeedRatio args)) $
@@ -661,14 +665,7 @@ validateArgs args = do
 
 objectiveChoices :: [String]
 objectiveChoices =
-    [ "annualized-equity"
-    , "roi"
-    , "final-equity"
-    , "sharpe"
-    , "calmar"
-    , "equity-dd"
-    , "equity-dd-turnover"
-    ]
+    map tuneObjectiveCode [TuneAnnualizedEquity, TuneRoi, TuneFinalEquity, TuneSharpe, TuneCalmar, TuneEquityDd, TuneEquityDdTurnover]
 
 barsDistributionChoices :: [String]
 barsDistributionChoices = ["uniform", "log"]
@@ -683,6 +680,21 @@ normalizeMaybe value =
         Just raw ->
             let trimmed = trim raw
              in if null trimmed then Nothing else Just trimmed
+
+normalizeCliObjective :: String -> String -> Either String String
+normalizeCliObjective label raw =
+    case normalizeObjectiveCode raw of
+        Right objectiveCode -> Right objectiveCode
+        Left _ ->
+            Left
+                ( "Invalid "
+                    ++ label
+                    ++ ": "
+                    ++ show raw
+                    ++ " (expected one of: "
+                    ++ intercalate ", " objectiveChoices
+                    ++ ")"
+                )
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace

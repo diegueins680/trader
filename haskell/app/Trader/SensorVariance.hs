@@ -39,6 +39,10 @@ varianceEwma ev =
 data SensorVar = SensorVar
     { svGBT :: !Welford
     , svGBTEwma :: !EwmaVar
+    , svKNN :: !Welford
+    , svKNNEwma :: !EwmaVar
+    , svDecisionTree :: !Welford
+    , svDecisionTreeEwma :: !EwmaVar
     , svTCN :: !Welford
     , svTCNEwma :: !EwmaVar
     , svTransformer :: !Welford
@@ -57,6 +61,10 @@ emptySensorVar =
     SensorVar
         { svGBT = emptyWelford
         , svGBTEwma = emptyEwmaVar
+        , svKNN = emptyWelford
+        , svKNNEwma = emptyEwmaVar
+        , svDecisionTree = emptyWelford
+        , svDecisionTreeEwma = emptyEwmaVar
         , svTCN = emptyWelford
         , svTCNEwma = emptyEwmaVar
         , svTransformer = emptyWelford
@@ -78,6 +86,16 @@ updateResidual sid resid sv =
                 sv
                     { svGBT = updateWelford resid (svGBT sv)
                     , svGBTEwma = updateEwmaVar resid (svGBTEwma sv)
+                    }
+            SensorKNN ->
+                sv
+                    { svKNN = updateWelford resid (svKNN sv)
+                    , svKNNEwma = updateEwmaVar resid (svKNNEwma sv)
+                    }
+            SensorDecisionTree ->
+                sv
+                    { svDecisionTree = updateWelford resid (svDecisionTree sv)
+                    , svDecisionTreeEwma = updateEwmaVar resid (svDecisionTreeEwma sv)
                     }
             SensorTCN ->
                 sv
@@ -113,6 +131,8 @@ varianceFor sid sv =
                 Nothing -> varianceWelford welford >>= finiteNonNegative
      in case sid of
             SensorGBT -> preferEwma (svGBTEwma sv) (svGBT sv)
+            SensorKNN -> preferEwma (svKNNEwma sv) (svKNN sv)
+            SensorDecisionTree -> preferEwma (svDecisionTreeEwma sv) (svDecisionTree sv)
             SensorTCN -> preferEwma (svTCNEwma sv) (svTCN sv)
             SensorTransformer -> preferEwma (svTransformerEwma sv) (svTransformer sv)
             SensorHMM -> preferEwma (svHMMEwma sv) (svHMM sv)

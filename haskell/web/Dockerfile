@@ -1,6 +1,9 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 
+ARG TRADER_GIT_COMMIT=""
+ENV TRADER_GIT_COMMIT=${TRADER_GIT_COMMIT}
+
 COPY package.json package-lock.json ./
 RUN npm ci
 

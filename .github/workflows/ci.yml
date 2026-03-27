@@ -14,9 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: haskell-actions/setup@v2
+      - uses: haskell/ghcup-setup@v1
         with:
-          ghc-version: "9.4.8"
+          ghc: "9.4.8"
+          cabal: latest
 
       - name: Cache Cabal artifacts
         uses: actions/cache@v5
@@ -62,10 +63,10 @@ jobs:
           cache: npm
           cache-dependency-path: haskell/web/package-lock.json
 
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      - run: npm --workspaces=false ci
+      - run: npm --workspaces=false run typecheck
+      - run: npm --workspaces=false run test
+      - run: npm --workspaces=false run build
 
   deploy:
     name: Deploy (Fly.io)
@@ -77,16 +78,68 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: superfly/flyctl-actions/setup-flyctl@v1
+      - name: Inject build commit metadata
+        run: printf '%s\n' "${GITHUB_SHA}" > haskell/.build-commit
 
-      - name: Deploy (Fly.io)
+      - name: Install flyctl
+        id: setup_flyctl
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-          FLY_APP: ${{ secrets.FLY_APP }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${FLY_API_TOKEN:-}" ]]; then
+            echo "::notice::FLY_API_TOKEN is not set; skipping flyctl install because deploy will be skipped."
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          install_log="$(mktemp)"
+          install_script="$(mktemp)"
+          trap 'rm -f "$install_log" "$install_script"' EXIT
+
+          installed=false
+          for attempt in 1 2 3; do
+            : > "$install_log"
+            if curl --fail --silent --show-error --location \
+              https://fly.io/install.sh >"$install_script" 2>"$install_log"; then
+              if FLYCTL_INSTALL="$HOME/.fly" bash "$install_script" >>"$install_log" 2>&1; then
+                installed=true
+                break
+              fi
+            fi
+
+            if grep -qiE "503 Service Unavailable|502 Bad Gateway|504 Gateway Timeout|timed out|temporary failure|connection reset|TLS" "$install_log"; then
+              echo "::warning::Transient flyctl install failure on attempt ${attempt}; retrying."
+              sleep "$((attempt * 10))"
+              continue
+            fi
+
+            echo "::error::Failed to install flyctl."
+            cat "$install_log"
+            exit 1
+          done
+
+          if [[ "$installed" != true || ! -x "$HOME/.fly/bin/flyctl" ]]; then
+            echo "::warning::Unable to install flyctl after 3 attempts; skipping Fly deploy for this run."
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy (Fly.io)
+        if: steps.setup_flyctl.outputs.installed == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          BACKEND_FLY_APP: ${{ secrets.FLY_APP }}
+          FRONTEND_FLY_APP: ${{ secrets.FLY_FRONTEND_APP }}
         run: |
           set -euo pipefail
           auth_err_file="$(mktemp)"
-          trap 'rm -f "$auth_err_file"' EXIT
+          deploy_log="$(mktemp)"
+          trap 'rm -f "$auth_err_file" "$deploy_log"' EXIT
 
           if [[ -z "${FLY_API_TOKEN:-}" ]]; then
             echo "::warning::FLY_API_TOKEN is not set; skipping Fly deploy."
@@ -103,10 +156,52 @@ jobs:
             exit 1
           fi
 
-          if [[ -n "${FLY_APP:-}" ]]; then
-            flyctl deploy --remote-only --app "${FLY_APP}"
-          elif [[ -f fly.toml ]]; then
-            flyctl deploy --remote-only
-          else
-            echo "::warning::No FLY_APP secret and no fly.toml found; skipping Fly deploy."
-          fi
+          deploy_with_retries() {
+            local label="$1"
+            local workdir="$2"
+            local config_path="$3"
+            local app_name="$4"
+            local config_basename
+
+            if [[ ! -f "$config_path" ]]; then
+              echo "::notice::No ${label} Fly config at ${config_path}; skipping ${label} deploy."
+              return 0
+            fi
+
+            config_basename="$(basename "$config_path")"
+            pushd "$workdir" >/dev/null
+
+            local deploy_args=(deploy . --config "$config_basename" --remote-only --build-arg "TRADER_GIT_COMMIT=${GITHUB_SHA}")
+            if [[ -n "$app_name" ]]; then
+              deploy_args+=(--app "$app_name")
+            fi
+
+            for attempt in 1 2 3; do
+              : > "$deploy_log"
+              if env -u FLY_APP flyctl "${deploy_args[@]}" 2>&1 | tee "$deploy_log"; then
+                popd >/dev/null
+                return 0
+              fi
+
+              if grep -qiE "503 Service Unavailable|502 Bad Gateway|504 Gateway Timeout|failed to set release status|temporary failure|temporarily unavailable|timeout" "$deploy_log"; then
+                if [[ "$attempt" -lt 3 ]]; then
+                  echo "::warning::Transient ${label} Fly deploy failure on attempt ${attempt}; retrying."
+                  sleep "$((attempt * 20))"
+                  continue
+                fi
+                echo "::warning::${label} Fly deploy hit repeated transient upstream failures after ${attempt} attempts; skipping ${label} deploy for this run."
+                popd >/dev/null
+                return 0
+              fi
+
+              echo "::error::${label} Fly deploy failed."
+              cat "$deploy_log"
+              popd >/dev/null
+              return 1
+            done
+
+            popd >/dev/null
+          }
+
+          deploy_with_retries "backend" "." "fly.toml" "${BACKEND_FLY_APP:-}"
+          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FRONTEND_FLY_APP:-}"

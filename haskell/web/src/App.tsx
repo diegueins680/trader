@@ -3,6 +3,7 @@ import type {
   ApiBinanceClosePositionRequest,
   ApiBinancePositionsRequest,
   ApiBinancePositionsResponse,
+  ApiRequestProgressStatus,
   ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
   ApiParams,
@@ -28,7 +29,6 @@ import type {
   OpsOperation,
   OptimizerRunRequest,
   OptimizerRunResponse,
-  OptimizerSource,
   Platform,
   Positioning,
   StateSyncImportResponse,
@@ -36,6 +36,7 @@ import type {
 } from "./lib/types";
 import {
   HttpError,
+  REQUEST_PROGRESS_HEADER,
   UnexpectedResponseError,
   backtest,
   binanceClosePosition,
@@ -56,6 +57,7 @@ import {
   opsPerformance,
   optimizerCombos,
   optimizerRun,
+  requestProgressStatus,
   stateSyncExport,
   stateSyncImport,
   signal,
@@ -83,6 +85,7 @@ import {
   normalizeConfigPanelOrder,
   resolveConfigPageForTarget,
 } from "./app/configLayout";
+import { METHOD_IDS, canonicalComboSource, canonicalExchangePlatform, preferredExchangePlatform } from "./app/contracts";
 import { comboMarketValue, type ComboMarketFilter, type ComboMarketValue } from "./app/comboMarket";
 import {
   BACKTEST_TIMEOUT_MS,
@@ -168,6 +171,7 @@ import {
   normalizeApiBaseUrlInput,
   normalizeSymbolKey,
   numFromInput,
+  summarizeOrderSizing,
 } from "./app/utils";
 import {
   BINANCE_SYMBOL_PATTERN,
@@ -219,6 +223,7 @@ import {
   downloadTextFile,
   emptyBotRtState,
   emptyBotRtTracker,
+  findOptionalWholeNumberFieldError,
   formApplySignature,
   formatDatetimeLocal,
   formatDirectionLabel,
@@ -246,8 +251,6 @@ import {
   parseDatetimeLocal,
   parseMaybeInt,
   parseOptimizerExtras,
-  parseOptionalInt,
-  parseOptionalNumber,
   parseOptionalString,
   parseSymbolsInput,
   parseTimeInputMs,
@@ -256,7 +259,11 @@ import {
   ratioForTrainEnd,
   roundRatioDown,
   roundRatioUp,
+  readExactSafeInteger,
+  readNonNegativeExactSafeInteger,
   safeJsonParse,
+  sanitizeSymbolForPlatform,
+  sanitizeOptimizationComboOperation,
   sanitizeFilenameSegment,
   sigBool,
   sigNumber,
@@ -402,6 +409,32 @@ function paginateTableRows<T>(rows: T[], page: number, rowsPerPage: number): Tab
     to: totalCount === 0 ? 0 : offset + pageRows.length,
     totalCount,
   };
+}
+
+function formatRequestProgressPhase(progress: ApiRequestProgressStatus): string {
+  const phase = progress.currentPhase?.trim() || "unknown phase";
+  const detail = progress.detail?.trim();
+  return detail ? `${phase} (${detail})` : phase;
+}
+
+function formatRequestProgressTimeoutMessage(prefix: string, progress: ApiRequestProgressStatus | null): string {
+  if (!progress) return prefix;
+  const lines = [prefix, `Likely stalled in: ${formatRequestProgressPhase(progress)}.`];
+  const lastCompleted = progress.lastCompletedPhase?.trim();
+  if (lastCompleted) lines.push(`Last completed phase: ${lastCompleted}.`);
+
+  const elapsedMs =
+    typeof progress.updatedAtMs === "number" && typeof progress.startedAtMs === "number"
+      ? Math.max(0, progress.updatedAtMs - progress.startedAtMs)
+      : null;
+  if (typeof elapsedMs === "number" && elapsedMs > 0) {
+    lines.push(`Server reached this phase after ${fmtDurationMs(elapsedMs)}.`);
+  }
+  if (typeof progress.completedAtMs === "number") {
+    lines.push(progress.completedOk === false ? "The server later marked the request as failed." : "The server later completed the request.");
+  }
+  if (progress.error?.trim()) lines.push(`Server error: ${progress.error.trim()}`);
+  return lines.join("\n");
 }
 
 type BacktestTablePagerProps = {
@@ -683,6 +716,9 @@ type SanitizedTopCombosPayload = {
   generatedAtMs: number | null;
   payloadSource: string | null;
   payloadSources: string[] | null;
+  rawCount: number | null;
+  droppedCount: number | null;
+  dedupedCount: number | null;
 };
 
 const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload | null => {
@@ -692,41 +728,10 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
   const payloadRec = payloadObj;
   const rawCombos: unknown[] = payloadObj.combos as unknown[];
   const generatedAtMsRaw = payloadRec.generatedAtMs;
-  const generatedAtMs =
-    typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
-  const methods: Method[] = [
-    "11",
-    "10",
-    "01",
-    "blend",
-    "conf_blend",
-    "conf_pick",
-    "conformal_clip",
-    "cost_pick",
-    "harmonic_blend",
-    "disagreement_guard",
-    "median_blend",
-    "neutral_guard",
-    "risk_parity_blend",
-    "consensus_boost",
-    "anchor_blend",
-    "tension_gate",
-    "entropy_blend",
-    "coherence_gate",
-    "divergence_gate",
-    "fractal_blend",
-    "phase_cancel",
-    "softmax_blend",
-    "smooth_softmax_blend",
-    "hedge_blend",
-    "net_softmax_blend",
-    "edge_blend",
-    "edge_pick",
-    "geo_blend",
-    "regime_switch",
-    "router",
-    "bandit_router",
-  ];
+  const generatedAtMs = readExactSafeInteger(generatedAtMsRaw);
+  // Invariant: top-combo imports must accept every shared method contract id so
+  // combo preview/apply preserves the backend-selected strategy exactly.
+  const methods: Method[] = [...METHOD_IDS];
   const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
   const positionings: Positioning[] = ["long-flat", "long-short"];
   const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
@@ -741,13 +746,9 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
       typeof params.normalization === "string" && normalizations.includes(params.normalization as Normalization)
         ? (params.normalization as Normalization)
         : defaultForm.normalization;
-    const rawPlatform = typeof params.platform === "string" ? params.platform : null;
-    const platform =
-      rawPlatform && PLATFORMS.includes(rawPlatform as Platform)
-        ? (rawPlatform as Platform)
-        : null;
+    const platform = canonicalExchangePlatform(params.platform);
     const interval = typeof params.interval === "string" && params.interval ? params.interval : defaultForm.interval;
-    const bars = typeof params.bars === "number" && Number.isFinite(params.bars) ? Math.trunc(params.bars) : Math.trunc(defaultForm.bars);
+    const bars = readExactSafeInteger(params.bars) ?? Math.trunc(defaultForm.bars);
     const positioning =
       typeof params.positioning === "string" && positionings.includes(params.positioning as Positioning)
         ? (params.positioning as Positioning)
@@ -758,13 +759,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
         : typeof params.symbol === "string"
           ? params.symbol
           : "";
-    const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
-    const source: OptimizationCombo["source"] =
-      rawSource === "binance" || rawSource === "coinbase" || rawSource === "kraken" || rawSource === "poloniex" || rawSource === "csv"
-        ? rawSource
-        : null;
-    const resolvedPlatform =
-      platform ?? (source && source !== "csv" ? (source as Platform) : null);
+    const source = canonicalComboSource(rawRec.source) as OptimizationCombo["source"];
+    const resolvedPlatform = preferredExchangePlatform(params.platform, rawRec.source);
     const binanceSymbol = normalizeComboSymbol(rawSymbol, resolvedPlatform);
     const baseOpenThreshold =
       typeof params.baseOpenThreshold === "number" && Number.isFinite(params.baseOpenThreshold)
@@ -775,56 +771,47 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
         ? Math.max(0, params.baseCloseThreshold)
         : null;
     const fee = typeof params.fee === "number" && Number.isFinite(params.fee) ? Math.max(0, params.fee) : defaultForm.fee;
-    const hiddenSize =
-      typeof params.hiddenSize === "number" && Number.isFinite(params.hiddenSize) ? Math.max(1, Math.trunc(params.hiddenSize)) : Math.trunc(defaultForm.hiddenSize);
+    const hiddenSizeRaw = readExactSafeInteger(params.hiddenSize);
+    const hiddenSize = hiddenSizeRaw != null ? Math.max(1, hiddenSizeRaw) : Math.trunc(defaultForm.hiddenSize);
     const learningRate =
       typeof params.learningRate === "number" && Number.isFinite(params.learningRate) ? params.learningRate : 0.001;
     const valRatio =
       typeof params.valRatio === "number" && Number.isFinite(params.valRatio)
-        ? clamp(params.valRatio, 0, 1)
+        ? clamp(params.valRatio, 0, 0.999999)
         : defaultForm.valRatio;
-    const patience =
-      typeof params.patience === "number" && Number.isFinite(params.patience) ? Math.max(0, Math.trunc(params.patience)) : Math.trunc(defaultForm.patience);
+    const patienceRaw = readExactSafeInteger(params.patience);
+    const patience = patienceRaw != null ? Math.max(0, patienceRaw) : Math.trunc(defaultForm.patience);
     const gradClip =
       typeof params.gradClip === "number" && Number.isFinite(params.gradClip) ? Math.max(0, params.gradClip) : null;
-    const epochs = typeof params.epochs === "number" && Number.isFinite(params.epochs) ? Math.max(0, Math.trunc(params.epochs)) : Math.trunc(defaultForm.epochs);
+    const epochsRaw = readExactSafeInteger(params.epochs);
+    const epochs = epochsRaw != null ? Math.max(0, epochsRaw) : Math.trunc(defaultForm.epochs);
     const slippage = typeof params.slippage === "number" && Number.isFinite(params.slippage) ? params.slippage : defaultForm.slippage;
     const spread = typeof params.spread === "number" && Number.isFinite(params.spread) ? params.spread : defaultForm.spread;
     const intrabarFill =
       typeof params.intrabarFill === "string" && intrabarFills.includes(params.intrabarFill as IntrabarFill)
         ? (params.intrabarFill as IntrabarFill)
         : defaultForm.intrabarFill;
-    const minHoldBars =
-      typeof params.minHoldBars === "number" && Number.isFinite(params.minHoldBars)
-        ? Math.max(0, Math.trunc(params.minHoldBars))
-        : null;
-    const maxHoldBars =
-      typeof params.maxHoldBars === "number" && Number.isFinite(params.maxHoldBars)
-        ? Math.max(0, Math.trunc(params.maxHoldBars))
-        : null;
-    const cooldownBars =
-      typeof params.cooldownBars === "number" && Number.isFinite(params.cooldownBars)
-        ? Math.max(0, Math.trunc(params.cooldownBars))
-        : null;
+    const minHoldBarsRaw = readExactSafeInteger(params.minHoldBars);
+    const minHoldBars = minHoldBarsRaw != null ? Math.max(0, minHoldBarsRaw) : null;
+    const maxHoldBarsRaw = readExactSafeInteger(params.maxHoldBars);
+    const maxHoldBars = maxHoldBarsRaw != null ? Math.max(0, maxHoldBarsRaw) : null;
+    const cooldownBarsRaw = readExactSafeInteger(params.cooldownBars);
+    const cooldownBars = cooldownBarsRaw != null ? Math.max(0, cooldownBarsRaw) : null;
     const minEdge =
       typeof params.minEdge === "number" && Number.isFinite(params.minEdge) ? Math.max(0, params.minEdge) : null;
     const costAwareEdge = typeof params.costAwareEdge === "boolean" ? params.costAwareEdge : null;
     const edgeBuffer =
       typeof params.edgeBuffer === "number" && Number.isFinite(params.edgeBuffer) ? Math.max(0, params.edgeBuffer) : null;
-    const trendLookback =
-      typeof params.trendLookback === "number" && Number.isFinite(params.trendLookback)
-        ? Math.max(0, Math.trunc(params.trendLookback))
-        : null;
+    const trendLookbackRaw = readExactSafeInteger(params.trendLookback);
+    const trendLookback = trendLookbackRaw != null ? Math.max(0, trendLookbackRaw) : null;
     const maxPositionSize =
       typeof params.maxPositionSize === "number" && Number.isFinite(params.maxPositionSize)
         ? Math.max(0, params.maxPositionSize)
         : null;
     const volTarget =
       typeof params.volTarget === "number" && Number.isFinite(params.volTarget) ? Math.max(0, params.volTarget) : null;
-    const volLookback =
-      typeof params.volLookback === "number" && Number.isFinite(params.volLookback)
-        ? Math.max(0, Math.trunc(params.volLookback))
-        : null;
+    const volLookbackRaw = readExactSafeInteger(params.volLookback);
+    const volLookback = volLookbackRaw != null ? Math.max(0, volLookbackRaw) : null;
     const volEwmaAlphaRaw =
       typeof params.volEwmaAlpha === "number" && Number.isFinite(params.volEwmaAlpha) ? params.volEwmaAlpha : null;
     const volEwmaAlpha = volEwmaAlphaRaw != null && volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : null;
@@ -836,10 +823,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
       typeof params.maxVolatility === "number" && Number.isFinite(params.maxVolatility)
         ? Math.max(0, params.maxVolatility)
         : null;
-    const rebalanceBars =
-      typeof params.rebalanceBars === "number" && Number.isFinite(params.rebalanceBars)
-        ? Math.max(0, Math.trunc(params.rebalanceBars))
-        : null;
+    const rebalanceBarsRaw = readExactSafeInteger(params.rebalanceBars);
+    const rebalanceBars = rebalanceBarsRaw != null ? Math.max(0, rebalanceBarsRaw) : null;
     const rebalanceThreshold =
       typeof params.rebalanceThreshold === "number" && Number.isFinite(params.rebalanceThreshold)
         ? Math.max(0, params.rebalanceThreshold)
@@ -858,18 +843,12 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
       typeof params.periodsPerYear === "number" && Number.isFinite(params.periodsPerYear)
         ? Math.max(0, params.periodsPerYear)
         : null;
-    const kalmanMarketTopN =
-      typeof params.kalmanMarketTopN === "number" && Number.isFinite(params.kalmanMarketTopN)
-        ? Math.max(0, Math.trunc(params.kalmanMarketTopN))
-        : null;
-    const walkForwardFolds =
-      typeof params.walkForwardFolds === "number" && Number.isFinite(params.walkForwardFolds)
-        ? Math.max(1, Math.trunc(params.walkForwardFolds))
-        : null;
-    const walkForwardEmbargoBars =
-      typeof params.walkForwardEmbargoBars === "number" && Number.isFinite(params.walkForwardEmbargoBars)
-        ? Math.max(0, Math.trunc(params.walkForwardEmbargoBars))
-        : null;
+    const kalmanMarketTopNRaw = readExactSafeInteger(params.kalmanMarketTopN);
+    const kalmanMarketTopN = kalmanMarketTopNRaw != null ? Math.max(0, kalmanMarketTopNRaw) : null;
+    const walkForwardFoldsRaw = readExactSafeInteger(params.walkForwardFolds);
+    const walkForwardFolds = walkForwardFoldsRaw != null ? Math.max(1, walkForwardFoldsRaw) : null;
+    const walkForwardEmbargoBarsRaw = readExactSafeInteger(params.walkForwardEmbargoBars);
+    const walkForwardEmbargoBars = walkForwardEmbargoBarsRaw != null ? Math.max(0, walkForwardEmbargoBarsRaw) : null;
     const blendWeightRaw =
       typeof params.blendWeight === "number" && Number.isFinite(params.blendWeight) ? params.blendWeight : null;
     const blendWeight = blendWeightRaw != null ? clamp(blendWeightRaw, 0, 1) : null;
@@ -918,11 +897,9 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     const maxOrderQuoteRaw =
       typeof params.maxOrderQuote === "number" && Number.isFinite(params.maxOrderQuote) ? params.maxOrderQuote : null;
     const maxOrderQuote = maxOrderQuoteRaw != null && maxOrderQuoteRaw > 0 ? Math.max(0, maxOrderQuoteRaw) : null;
-    const createdAtMsRaw = rawRec.createdAtMs;
-    const createdAtMs =
-      typeof createdAtMsRaw === "number" && Number.isFinite(createdAtMsRaw) ? Math.trunc(createdAtMsRaw) : null;
+    const createdAtMs = readExactSafeInteger(rawRec.createdAtMs);
     const createdAtMsFinal = createdAtMs ?? generatedAtMs;
-    const rankRaw = typeof rawRec.rank === "number" && Number.isFinite(rawRec.rank) ? Math.trunc(rawRec.rank) : null;
+    const rankRaw = readExactSafeInteger(rawRec.rank);
     const rank = rankRaw != null && rankRaw >= 1 ? rankRaw : null;
     const objective = typeof rawRec.objective === "string" && rawRec.objective ? rawRec.objective : null;
     const score = typeof rawRec.score === "number" && Number.isFinite(rawRec.score) ? rawRec.score : null;
@@ -935,10 +912,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
         : null;
     const turnover =
       typeof metricsRec["turnover"] === "number" && Number.isFinite(metricsRec["turnover"]) ? (metricsRec["turnover"] as number) : null;
-    const roundTrips =
-      typeof metricsRec["roundTrips"] === "number" && Number.isFinite(metricsRec["roundTrips"])
-        ? Math.trunc(metricsRec["roundTrips"] as number)
-        : null;
+    const roundTripsRaw = readExactSafeInteger(metricsRec["roundTrips"]);
+    const roundTrips = roundTripsRaw != null ? roundTripsRaw : null;
     const annualizedReturn =
       typeof metricsRec["annualizedReturn"] === "number" && Number.isFinite(metricsRec["annualizedReturn"])
         ? (metricsRec["annualizedReturn"] as number)
@@ -949,35 +924,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
         : null;
     const operationsRaw = Array.isArray(rawRec.operations) ? rawRec.operations : [];
     const operations = operationsRaw
-      .map((rawOp) => {
-        const opRec = (rawOp as Record<string, unknown> | null | undefined) ?? {};
-        const entryIndex =
-          typeof opRec.entryIndex === "number" && Number.isFinite(opRec.entryIndex) ? Math.trunc(opRec.entryIndex) : null;
-        const exitIndex =
-          typeof opRec.exitIndex === "number" && Number.isFinite(opRec.exitIndex) ? Math.trunc(opRec.exitIndex) : null;
-        if (entryIndex == null || exitIndex == null) return null;
-        const entryEquity =
-          typeof opRec.entryEquity === "number" && Number.isFinite(opRec.entryEquity) ? (opRec.entryEquity as number) : null;
-        const exitEquity =
-          typeof opRec.exitEquity === "number" && Number.isFinite(opRec.exitEquity) ? (opRec.exitEquity as number) : null;
-        const retValue = typeof opRec.return === "number" && Number.isFinite(opRec.return) ? (opRec.return as number) : null;
-        const holdingPeriods =
-          typeof opRec.holdingPeriods === "number" && Number.isFinite(opRec.holdingPeriods)
-            ? Math.trunc(opRec.holdingPeriods as number)
-            : null;
-        const exitReason =
-          typeof opRec.exitReason === "string" && opRec.exitReason.trim() ? opRec.exitReason.trim() : null;
-        const op: OptimizationComboOperation = {
-          entryIndex,
-          exitIndex,
-          entryEquity,
-          exitEquity,
-          return: retValue,
-          holdingPeriods,
-          exitReason,
-        };
-        return op;
-      })
+      .map((rawOp) => sanitizeOptimizationComboOperation(rawOp))
       .filter((op): op is OptimizationComboOperation => op !== null);
     const operationsOut = operations.length > 0 ? operations : null;
     return {
@@ -1063,8 +1010,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
             : null,
         maxDrawdown: typeof params.maxDrawdown === "number" && Number.isFinite(params.maxDrawdown) ? params.maxDrawdown : null,
         maxDailyLoss: typeof params.maxDailyLoss === "number" && Number.isFinite(params.maxDailyLoss) ? params.maxDailyLoss : null,
-        maxOrderErrors:
-          typeof params.maxOrderErrors === "number" && Number.isFinite(params.maxOrderErrors) ? Math.max(1, Math.trunc(params.maxOrderErrors)) : null,
+        maxOrderErrors: readNonNegativeExactSafeInteger(params.maxOrderErrors),
         orderQuote,
         orderQuantity,
         orderQuoteFraction,
@@ -1119,6 +1065,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     .map((src) => (typeof src === "string" ? src.trim() : ""))
     .filter((src) => src.length > 0);
   const payloadSourcesFinal = payloadSources.length > 0 ? payloadSources : payloadSourceRaw ? [payloadSourceRaw] : null;
+  const parseCount = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : null;
   return {
     combos: sanitized,
     payload: payloadObj,
@@ -1126,6 +1074,9 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     generatedAtMs,
     payloadSource: payloadSourceRaw,
     payloadSources: payloadSourcesFinal,
+    rawCount: parseCount(payloadRec.rawCount),
+    droppedCount: parseCount(payloadRec.droppedCount),
+    dedupedCount: parseCount(payloadRec.dedupedCount),
   };
 };
 
@@ -1448,7 +1399,7 @@ export function App() {
   const normalizedSymbol = form.binanceSymbol.trim().toUpperCase();
   const symbolFormatError = useMemo(() => {
     if (!normalizedSymbol) return null;
-    return symbolFormatPattern(platform).test(normalizedSymbol)
+    return sanitizeSymbolForPlatform(platform, normalizedSymbol)
       ? null
       : `Symbol must match ${platformLabel} format (e.g., ${symbolFormatExample(platform)}).`;
   }, [normalizedSymbol, platform, platformLabel]);
@@ -1713,38 +1664,61 @@ export function App() {
   const optimizerRunValidationError = useMemo(() => {
     if (optimizerRunExtras.error) return optimizerRunExtras.error;
     const extras = optimizerRunExtras.value ?? {};
-    const extraSourceRaw = typeof extras.source === "string" ? extras.source.trim().toLowerCase() : "";
-    const source =
-      extraSourceRaw === "binance" ||
-      extraSourceRaw === "coinbase" ||
-      extraSourceRaw === "kraken" ||
-      extraSourceRaw === "poloniex" ||
-      extraSourceRaw === "csv"
-        ? (extraSourceRaw as OptimizerSource)
-        : optimizerRunForm.source;
-    const dataPath = optimizerRunForm.dataPath.trim();
-    const extraData = typeof extras.data === "string" ? extras.data.trim() : "";
-    const symbol = optimizerRunForm.symbol.trim();
-    const extraSymbol = typeof extras.binanceSymbol === "string" ? extras.binanceSymbol.trim() : "";
-    const high = optimizerRunForm.highColumn.trim() || (typeof extras.highColumn === "string" ? extras.highColumn.trim() : "");
-    const low = optimizerRunForm.lowColumn.trim() || (typeof extras.lowColumn === "string" ? extras.lowColumn.trim() : "");
-    const intervals =
-      typeof extras.intervals === "string" ? extras.intervals.trim() : optimizerRunForm.intervals.trim();
-    const lookbackWindow =
-      typeof extras.lookbackWindow === "string" ? extras.lookbackWindow.trim() : optimizerRunForm.lookbackWindow.trim();
-    const trials = typeof extras.trials === "number" ? extras.trials : parseOptionalInt(optimizerRunForm.trials);
-    const timeoutSec =
-      typeof extras.timeoutSec === "number" ? extras.timeoutSec : parseOptionalNumber(optimizerRunForm.timeoutSec);
-    const barsMin = typeof extras.barsMin === "number" ? extras.barsMin : parseOptionalInt(optimizerRunForm.barsMin);
-    const barsMax = typeof extras.barsMax === "number" ? extras.barsMax : parseOptionalInt(optimizerRunForm.barsMax);
-    const backtestRatio =
-      typeof extras.backtestRatio === "number" ? extras.backtestRatio : parseOptionalNumber(optimizerRunForm.backtestRatio);
-    const tuneRatio = typeof extras.tuneRatio === "number" ? extras.tuneRatio : parseOptionalNumber(optimizerRunForm.tuneRatio);
+    const wholeNumberError = findOptionalWholeNumberFieldError([
+      { label: "Bars min", raw: optimizerRunForm.barsMin, override: extras.barsMin },
+      { label: "Bars max", raw: optimizerRunForm.barsMax, override: extras.barsMax },
+      { label: "Trials", raw: optimizerRunForm.trials, override: extras.trials },
+      { label: "Seed", raw: optimizerRunForm.seed, override: extras.seed },
+      { label: "Seed trials", raw: optimizerRunForm.seedTrials, override: extras.seedTrials },
+      { label: "Perturb scale int", raw: optimizerRunForm.perturbScaleInt, override: extras.perturbScaleInt },
+      { label: "Early stop no improve", raw: optimizerRunForm.earlyStopNoImprove, override: extras.earlyStopNoImprove },
+      { label: "Epochs min", raw: optimizerRunForm.epochsMin, override: extras.epochsMin },
+      { label: "Epochs max", raw: optimizerRunForm.epochsMax, override: extras.epochsMax },
+      { label: "Hidden size min", raw: optimizerRunForm.hiddenSizeMin, override: extras.hiddenSizeMin },
+      { label: "Hidden size max", raw: optimizerRunForm.hiddenSizeMax, override: extras.hiddenSizeMax },
+      { label: "Patience max", raw: optimizerRunForm.patienceMax, override: extras.patienceMax },
+      { label: "Min round trips", raw: optimizerRunForm.minRoundTrips, override: extras.minRoundTrips },
+      { label: "Walk-forward folds min", raw: optimizerRunForm.walkForwardFoldsMin, override: extras.walkForwardFoldsMin },
+      { label: "Walk-forward folds max", raw: optimizerRunForm.walkForwardFoldsMax, override: extras.walkForwardFoldsMax },
+      {
+        label: "Walk-forward embargo bars min",
+        raw: optimizerRunForm.walkForwardEmbargoBarsMin,
+        override: extras.walkForwardEmbargoBarsMin,
+      },
+      {
+        label: "Walk-forward embargo bars max",
+        raw: optimizerRunForm.walkForwardEmbargoBarsMax,
+        override: extras.walkForwardEmbargoBarsMax,
+      },
+      { label: "Min hold bars min", raw: optimizerRunForm.minHoldBarsMin, override: extras.minHoldBarsMin },
+      { label: "Min hold bars max", raw: optimizerRunForm.minHoldBarsMax, override: extras.minHoldBarsMax },
+      { label: "Cooldown bars min", raw: optimizerRunForm.cooldownBarsMin, override: extras.cooldownBarsMin },
+      { label: "Cooldown bars max", raw: optimizerRunForm.cooldownBarsMax, override: extras.cooldownBarsMax },
+      { label: "Max hold bars min", raw: optimizerRunForm.maxHoldBarsMin, override: extras.maxHoldBarsMin },
+      { label: "Max hold bars max", raw: optimizerRunForm.maxHoldBarsMax, override: extras.maxHoldBarsMax },
+      { label: "Trend lookback min", raw: optimizerRunForm.trendLookbackMin, override: extras.trendLookbackMin },
+      { label: "Trend lookback max", raw: optimizerRunForm.trendLookbackMax, override: extras.trendLookbackMax },
+    ]);
+    if (wholeNumberError) return wholeNumberError;
+    const requestPreview = buildOptimizerRunRequest(optimizerRunForm, extras);
+    const source = requestPreview.source ?? optimizerRunForm.source;
+    const dataPath = requestPreview.data ?? "";
+    const symbol = requestPreview.binanceSymbol ?? "";
+    const high = requestPreview.highColumn ?? "";
+    const low = requestPreview.lowColumn ?? "";
+    const intervals = requestPreview.intervals ?? "";
+    const lookbackWindow = requestPreview.lookbackWindow ?? "";
+    const trials = typeof requestPreview.trials === "number" ? requestPreview.trials : null;
+    const timeoutSec = typeof requestPreview.timeoutSec === "number" ? requestPreview.timeoutSec : null;
+    const barsMin = typeof requestPreview.barsMin === "number" ? requestPreview.barsMin : null;
+    const barsMax = typeof requestPreview.barsMax === "number" ? requestPreview.barsMax : null;
+    const backtestRatio = typeof requestPreview.backtestRatio === "number" ? requestPreview.backtestRatio : null;
+    const tuneRatio = typeof requestPreview.tuneRatio === "number" ? requestPreview.tuneRatio : null;
 
     if (source === "csv") {
-      if (!dataPath && !extraData) return "CSV source requires a data path.";
+      if (!dataPath) return "CSV source requires a data path.";
       if ((high && !low) || (!high && low)) return "Provide both High/Low columns or leave both empty.";
-    } else if (!symbol && !extraSymbol) {
+    } else if (!symbol) {
       return "Symbol is required for exchange sources.";
     }
     if (backtestRatio != null && (backtestRatio < 0 || backtestRatio >= 1)) {
@@ -1941,6 +1915,9 @@ export function App() {
     payloadSources: null,
     fallbackReason: null,
     comboCount: null,
+    rawCount: null,
+    droppedCount: null,
+    dedupedCount: null,
   });
   const [topCombosPayload, setTopCombosPayload] = useState<Record<string, unknown> | null>(null);
   const [comboImportUi, setComboImportUi] = useState<ComboImportUiState>(() => ({
@@ -2712,6 +2689,20 @@ export function App() {
     return apiBase;
   }, [apiBase]);
 
+  const fetchTimedRequestProgressMessage = useCallback(
+    async (requestId: string | null | undefined, prefix: string) => {
+      const trimmed = requestId?.trim();
+      if (!trimmed) return prefix;
+      try {
+        const progress = await requestProgressStatus(apiBase, trimmed, { headers: authHeaders, timeoutMs: 2_500 });
+        return formatRequestProgressTimeoutMessage(prefix, progress);
+      } catch {
+        return prefix;
+      }
+    },
+    [apiBase, authHeaders],
+  );
+
   const apiFallbackBase = useMemo(
     () => normalizeApiBaseUrlInput(TRADER_UI_CONFIG.apiFallbackUrl?.trim() ?? ""),
     [],
@@ -3243,21 +3234,9 @@ export function App() {
     setOptimizerRunUi((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const extraTimeoutSec = (() => {
-        const raw = optimizerRunExtras.value?.timeoutSec;
-        if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-        if (typeof raw === "string") {
-          const parsed = Number(raw);
-          return Number.isFinite(parsed) ? parsed : null;
-        }
-        return null;
-      })();
-      const timeoutSec = extraTimeoutSec ?? parseOptionalNumber(optimizerRunForm.timeoutSec);
-      const timeoutMs =
-        typeof timeoutSec === "number" && Number.isFinite(timeoutSec) && timeoutSec > 0
-          ? Math.max(1000, Math.round(timeoutSec * 1000))
-          : BACKTEST_TIMEOUT_MS;
       const payload = buildOptimizerRunRequest(optimizerRunForm, optimizerRunExtras.value);
+      const timeoutSec = typeof payload.timeoutSec === "number" && Number.isFinite(payload.timeoutSec) ? payload.timeoutSec : null;
+      const timeoutMs = timeoutSec != null && timeoutSec > 0 ? Math.max(1000, Math.round(timeoutSec * 1000)) : BACKTEST_TIMEOUT_MS;
       const out = await optimizerRun(apiBase, payload, {
         signal: controller.signal,
         headers: authHeaders,
@@ -3766,7 +3745,7 @@ export function App() {
       epochs: clamp(Math.trunc(form.epochs), 0, 5000),
       hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
       lr: Math.max(1e-9, form.learningRate),
-      valRatio: clamp(form.valRatio, 0, 1),
+      valRatio: clamp(form.valRatio, 0, 0.999999),
       patience: clamp(Math.trunc(form.patience), 0, 1000),
       ...(form.gradClip > 0 ? { gradClip: clamp(form.gradClip, 0, 100) } : {}),
       kalmanZMin: Math.max(0, form.kalmanZMin),
@@ -3821,7 +3800,7 @@ export function App() {
 
   const tradeParams: ApiParams = useMemo(() => {
     const base: ApiParams = { ...commonParams };
-    if (form.platform === "binance" && form.binanceLive) base.binanceLive = true;
+    if ((form.platform === "binance" || form.platform === "coinbase") && form.binanceLive) base.binanceLive = true;
     const k = form.idempotencyKey.trim();
     const idOk = !k || (k.length <= 36 && /^[A-Za-z0-9_-]+$/.test(k));
     if (k && idOk) base.idempotencyKey = k;
@@ -4939,15 +4918,20 @@ export function App() {
       keysAbortRef.current?.abort();
       const controller = new AbortController();
       keysAbortRef.current = controller;
+      const progressRequestId = isBinancePlatform ? `binance-keys-${generateIdempotencyKey()}` : null;
 
       setKeys((s) => ({ ...s, loading: true, error: opts?.silent ? s.error : null, platform }));
 
       try {
         const p = keysParams;
         if (!p.binanceSymbol) throw new Error("Symbol is required.");
+        const requestHeaders =
+          isBinancePlatform && progressRequestId
+            ? { ...(authHeaders ?? {}), [REQUEST_PROGRESS_HEADER]: progressRequestId }
+            : authHeaders;
 
         const out = isBinancePlatform
-          ? await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 })
+          ? await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: requestHeaders, timeoutMs: 30_000 })
           : await coinbaseKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
         if (requestId !== keysRequestSeqRef.current) return;
         setKeys({ loading: false, error: null, status: out, platform, checkedAtMs: Date.now() });
@@ -4959,7 +4943,11 @@ export function App() {
         if (isAbortError(e)) return;
 
         let msg = e instanceof Error ? e.message : String(e);
-        if (isTimeoutError(e)) msg = isBinancePlatform ? "Key check timed out. Try again, or switch testnet off." : "Key check timed out. Try again.";
+        if (isTimeoutError(e)) {
+          msg = isBinancePlatform
+            ? await fetchTimedRequestProgressMessage(progressRequestId, "Key check timed out. Try again, or switch testnet off.")
+            : "Key check timed out. Try again.";
+        }
         if (e instanceof HttpError && typeof e.payload === "string") {
           const payload = e.payload;
           if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
@@ -4989,7 +4977,7 @@ export function App() {
         if (requestId === keysRequestSeqRef.current) keysAbortRef.current = null;
       }
     },
-    [apiBase, appendDataLog, authHeaders, buildDataLogError, isBinancePlatform, isCoinbasePlatform, keysParams, platform, showToast],
+    [apiBase, appendDataLog, authHeaders, buildDataLogError, fetchTimedRequestProgressMessage, isBinancePlatform, isCoinbasePlatform, keysParams, platform, showToast],
   );
 
   useEffect(() => {
@@ -6292,6 +6280,7 @@ export function App() {
       if (binancePositionsAbortRef.current === controller) binancePositionsAbortRef.current = null;
       return;
     }
+    const progressRequestId = `binance-positions-${generateIdempotencyKey()}`;
     try {
       const params: ApiBinancePositionsRequest = {
         market: form.market,
@@ -6300,7 +6289,7 @@ export function App() {
         limit: binancePositionsLimitSafe,
       };
       const out = await binancePositions(apiBase, withBinanceKeys(params), {
-        headers: authHeaders,
+        headers: { ...(authHeaders ?? {}), [REQUEST_PROGRESS_HEADER]: progressRequestId },
         timeoutMs: 30_000,
         signal: controller.signal,
       });
@@ -6323,7 +6312,9 @@ export function App() {
       }
       const finalMsg = isTimestampError
         ? "Binance timestamp out of sync (code -1021). Ensure system time is synced and the Binance time endpoint is reachable, then retry."
-        : msg;
+        : isTimeoutError(e)
+          ? await fetchTimedRequestProgressMessage(progressRequestId, "Open positions request timed out. Try again.")
+          : msg;
       setBinancePositionsUi((s) => ({ ...s, loading: false, error: finalMsg }));
     } finally {
       if (binancePositionsAbortRef.current === controller) binancePositionsAbortRef.current = null;
@@ -6334,6 +6325,7 @@ export function App() {
     binancePositionsInputError,
     binancePositionsLimitSafe,
     fetchBinancePositionTrades,
+    fetchTimedRequestProgressMessage,
     form.binanceTestnet,
     form.interval,
     form.market,
@@ -6408,7 +6400,9 @@ export function App() {
 
   const binancePositionsList = useMemo(() => {
     const raw = binancePositionsUi.response?.positions ?? [];
-    return [...raw].sort((a, b) => a.symbol.localeCompare(b.symbol));
+    return raw
+      .filter((pos) => positionSideInfo(pos.positionAmt, pos.positionSide).dir !== 0)
+      .sort((a, b) => a.symbol.localeCompare(b.symbol));
   }, [binancePositionsUi.response?.positions]);
   const binancePositionsCharts = useMemo(() => {
     const charts = binancePositionsUi.response?.charts ?? [];
@@ -6532,6 +6526,9 @@ export function App() {
           payloadSources: parsed.payloadSources,
           fallbackReason,
           comboCount: parsed.comboCount,
+          rawCount: parsed.rawCount,
+          droppedCount: parsed.droppedCount,
+          dedupedCount: parsed.dedupedCount,
         });
         if (parsed.comboCount > 0) {
           writeJson(STORAGE_TOP_COMBOS_KEY, parsed.payload);
@@ -7486,17 +7483,17 @@ export function App() {
     }
     void startLiveBot({ symbolsOverride: pendingComboStart.symbols });
   }, [comboStartBlockedReason, form, pendingComboStart, showToast, startLiveBot]);
-  const orderQuoteFractionError = useMemo(() => {
-    const f = form.orderQuoteFraction;
-    if (!Number.isFinite(f)) return "Order quote fraction must be a number.";
-    if (f <= 0) return null;
-    if (f > 1) return "Order quote fraction must be <= 1 (use 0 to disable).";
-    return null;
-  }, [form.orderQuoteFraction]);
-  const tradeOrderSizingError = useMemo(() => {
-    if (form.orderQuantity > 0 || form.orderQuote > 0) return null;
-    return orderQuoteFractionError;
-  }, [form.orderQuantity, form.orderQuote, orderQuoteFractionError]);
+  const orderSizing = useMemo(
+    () =>
+      summarizeOrderSizing({
+        orderQuantity: form.orderQuantity,
+        orderQuote: form.orderQuote,
+        orderQuoteFraction: form.orderQuoteFraction,
+        maxOrderQuote: form.maxOrderQuote,
+      }),
+    [form.maxOrderQuote, form.orderQuantity, form.orderQuote, form.orderQuoteFraction],
+  );
+  const orderQuoteFractionError = orderSizing.fractionError;
   const tradeDisabledDetail = useMemo(() => {
     if (requestDisabledReason) {
       return { message: requestDisabledReason, targetId: requestIssueDetails[0]?.targetId };
@@ -7504,59 +7501,31 @@ export function App() {
     if (!isBinancePlatform && !isCoinbasePlatform) {
       return { message: "Trading is supported on Binance and Coinbase only.", targetId: "platform" };
     }
+    if (isCoinbasePlatform && !form.binanceLive) {
+      return { message: "Coinbase does not support test orders. Enable Live orders.", targetId: "section-trade" };
+    }
     if (isCoinbasePlatform && form.positioning === "long-short") {
       return { message: "Coinbase supports spot only (positioning=long-flat).", targetId: "positioning" };
     }
-    if (tradeOrderSizingError) {
-      return { message: tradeOrderSizingError, targetId: "orderQuoteFraction" };
+    if (orderSizing.blockingError) {
+      return { message: orderSizing.blockingError, targetId: orderSizing.blockingTargetId };
     }
     if (isBinancePlatform && form.positioning === "long-short" && form.market !== "futures") {
       return { message: "Long/Short trading requires Futures market.", targetId: "market" };
     }
     return null;
   }, [
+    form.binanceLive,
     form.market,
     form.positioning,
     isBinancePlatform,
     isCoinbasePlatform,
+    orderSizing.blockingError,
+    orderSizing.blockingTargetId,
     requestDisabledReason,
     requestIssueDetails,
-    tradeOrderSizingError,
   ]);
   const tradeDisabledReason = tradeDisabledDetail?.message ?? null;
-
-  const orderSizing = useMemo(() => {
-    const enabled = {
-      orderQuantity: form.orderQuantity > 0,
-      orderQuote: form.orderQuote > 0,
-      orderQuoteFraction: form.orderQuoteFraction > 0,
-    };
-    const active = Object.entries(enabled)
-      .filter(([, on]) => on)
-      .map(([k]) => k) as Array<keyof typeof enabled>;
-    const conflicts = active.length > 1;
-
-    let effective: keyof typeof enabled | "none" = "none";
-    if (enabled.orderQuantity) effective = "orderQuantity";
-    else if (enabled.orderQuote) effective = "orderQuote";
-    else if (enabled.orderQuoteFraction) effective = "orderQuoteFraction";
-
-    const label =
-      effective === "orderQuantity"
-        ? `orderQuantity = ${fmtNum(form.orderQuantity, 8)} (base units)`
-        : effective === "orderQuote"
-          ? `orderQuote = ${fmtMoney(form.orderQuote, 2)} (quote units)`
-          : effective === "orderQuoteFraction"
-            ? `orderQuoteFraction = ${fmtPct(form.orderQuoteFraction, 2)}${form.maxOrderQuote > 0 ? ` (cap ${fmtMoney(form.maxOrderQuote, 2)})` : ""}`
-            : "none";
-
-    const hint =
-      effective === "none"
-        ? "Set one sizing input. Precedence: orderQuantity → orderQuote → orderQuoteFraction."
-        : `Effective sizing: ${label}. Precedence: orderQuantity → orderQuote → orderQuoteFraction (fraction applies to BUYs).`;
-
-    return { active, conflicts, effective, hint };
-  }, [form.maxOrderQuote, form.orderQuantity, form.orderQuote, form.orderQuoteFraction]);
 
   const idempotencyKeyError = useMemo(() => {
     const k = form.idempotencyKey.trim();
@@ -8415,12 +8384,36 @@ export function App() {
     return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
   };
 
-  const systemVersionRaw = healthInfo?.version?.trim() ?? "";
-  const systemCommitRaw = healthInfo?.commit?.trim() || __TRADER_UI_COMMIT__.trim();
-  const systemVersionTag = systemVersionRaw ? (systemVersionRaw.toLowerCase().startsWith("v") ? systemVersionRaw : `v${systemVersionRaw}`) : null;
-  const systemCommitShort = systemCommitRaw ? shortCommitHash(systemCommitRaw, 12) : null;
-  const systemBuildLabel = systemVersionTag && systemCommitShort ? `${systemVersionTag} (${systemCommitShort})` : systemVersionTag ?? (systemCommitShort ? `commit ${systemCommitShort}` : "build unknown");
-  const systemBuildTitle = systemVersionRaw && systemCommitRaw ? `System build ${systemVersionRaw} (${systemCommitRaw})` : systemVersionRaw ? `System build ${systemVersionRaw}` : systemCommitRaw ? `System commit ${systemCommitRaw}` : "System build unknown";
+  const formatVersionTag = (version?: string | null): string | null => {
+    if (!version) return null;
+    const trimmed = version.trim();
+    if (!trimmed) return null;
+    return trimmed.toLowerCase().startsWith("v") ? trimmed : `v${trimmed}`;
+  };
+
+  const buildLabel = (kind: "UI" | "API", versionRaw: string, commitRaw: string, missingLabel = "build unknown"): string => {
+    const versionTag = formatVersionTag(versionRaw);
+    const commitShort = commitRaw ? shortCommitHash(commitRaw, 12) : null;
+    const details = versionTag && commitShort ? `${versionTag} (${commitShort})` : versionTag ?? (commitShort ? `commit ${commitShort}` : missingLabel);
+    return `${kind} ${details}`;
+  };
+
+  const buildTitle = (kind: "UI" | "API", versionRaw: string, commitRaw: string, missingLabel = "build unknown"): string => {
+    if (versionRaw && commitRaw) return `${kind} build ${versionRaw} (${commitRaw})`;
+    if (versionRaw) return `${kind} build ${versionRaw}`;
+    if (commitRaw) return `${kind} commit ${commitRaw}`;
+    return `${kind} ${missingLabel}`;
+  };
+
+  const uiVersionRaw = __TRADER_UI_VERSION__.trim();
+  const uiCommitRaw = __TRADER_UI_COMMIT__.trim();
+  const apiVersionRaw = healthInfo?.version?.trim() ?? "";
+  const apiCommitRaw = healthInfo?.commit?.trim() ?? "";
+  const apiBuildMissingLabel = apiOk === "unknown" ? "checking…" : apiOk === "down" ? "unavailable" : apiOk === "auth" ? "auth required" : "build unknown";
+  const uiBuildLabel = buildLabel("UI", uiVersionRaw, uiCommitRaw);
+  const uiBuildTitle = buildTitle("UI", uiVersionRaw, uiCommitRaw);
+  const apiBuildLabel = buildLabel("API", apiVersionRaw, apiCommitRaw, apiBuildMissingLabel);
+  const apiBuildTitle = buildTitle("API", apiVersionRaw, apiCommitRaw, apiBuildMissingLabel);
 
   const shortComboUuid = (uuid?: string | null, size = 6): string => {
     if (!uuid) return "—";
@@ -8450,8 +8443,13 @@ export function App() {
                 <div className="title">
                   <h1>
                     <span>Trader UI</span>
-                    <span className="titleBuild" title={systemBuildTitle}>
-                      {systemBuildLabel}
+                    <span className="titleBuilds">
+                      <span className="titleBuild" title={uiBuildTitle}>
+                        {uiBuildLabel}
+                      </span>
+                      <span className="titleBuild" title={apiBuildTitle}>
+                        {apiBuildLabel}
+                      </span>
                     </span>
                   </h1>
                   <p>Configure, backtest, optimize, and trade via the local REST API.</p>
@@ -8814,10 +8812,29 @@ export function App() {
                       </>
                     ) : (
                       <>
-                        <span className="summaryEmpty">No trade yet</span>
+                        <span className={tradeDisabledReason ? "badge badgeBad" : "badge badgeOk"}>
+                          {tradeDisabledReason ? "Trade blocked" : form.binanceLive ? "Live ready" : "Test ready"}
+                        </span>
+                        <span
+                          className={
+                            orderSizing.tone === "bad"
+                              ? "badge badgeBad"
+                              : orderSizing.tone === "warn"
+                                ? "badge badgeWarn"
+                                : "badge badgeOk"
+                          }
+                        >
+                          {orderSizing.statusLabel}
+                        </span>
+                        {orderSizing.effective !== "none" ? <span className="badge">{orderSizing.effectiveLabel}</span> : null}
                         <button className="btnSmall" type="button" onClick={() => scrollToSection("section-trade")}>
                           Open trade settings
                         </button>
+                        {tradeDisabledReason ? (
+                          <span className="summaryMeta" title={tradeDisabledReason}>
+                            {tradeDisabledReason}
+                          </span>
+                        ) : null}
                       </>
                     )}
                   </div>

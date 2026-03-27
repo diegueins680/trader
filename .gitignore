@@ -33,6 +33,10 @@ haskell/.stack-root/
 haskell/stack.yaml.lock
 haskell/.cabal-config
 haskell/.cabal/
+.cabal/bin/
+.cabal/logs/
+.cabal/packages/
+.cabal/store/
 .cabal-sandbox/
 cabal.sandbox.config
 .ghc.environment.*
@@ -55,6 +59,12 @@ Long.csv
 Short.csv
 .tmp/
 tmp/
+.openclaw/
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
 AWS_DEPLOYMENT_SUMMARY.txt
 config.yaml
 directory_tree.txt

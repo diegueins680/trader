@@ -407,7 +407,16 @@ textarea {
   flex-wrap: wrap;
 }
 
+.titleBuilds {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .titleBuild {
+  display: inline-flex;
+  align-items: center;
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 500;
@@ -418,6 +427,7 @@ textarea {
   border-radius: 999px;
   padding: 2px 8px;
   background: var(--surface-subtle);
+  white-space: nowrap;
 }
 
 .title p {
@@ -1027,6 +1037,43 @@ body.panelMaximized .cardMaximized {
 
 .stickyActions .actions {
   margin-top: 0;
+}
+
+.orderSizingSummary {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+}
+
+.orderSizingSummaryOk {
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.orderSizingSummaryWarn {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.orderSizingSummaryBad {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.orderSizingSummaryRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.orderSizingSummaryText {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .jumpRow {

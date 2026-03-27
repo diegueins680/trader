@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { downsampleArray, downsampleIndices } from "../app/utils";
+import { downsampleArray, downsampleIndices, fmtTimeMs } from "../app/utils";
 
 export type TelemetryPoint = {
   atMs: number;
@@ -62,15 +62,6 @@ function niceTicks(min: number, max: number, ticks = 5): { ticks: number[]; min:
   const out: number[] = [];
   for (let v = lo; v <= hi + step / 2; v += step) out.push(v);
   return { ticks: out, min: lo, max: hi, step };
-}
-
-function fmtTimeMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "—";
-  try {
-    return new Date(ms).toLocaleString();
-  } catch {
-    return String(ms);
-  }
 }
 
 function fmtMs(ms: number | null): string {

@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import type { OpsPerformanceUiState } from "../app/appHelpers";
 import { csvEscape, downloadTextFile, pnlBadgeClass } from "../app/appHelpers";
-import { clamp, fmtTimeMs, marketLabel, numFromInput, shortComboUuid, shortCommitHash } from "../app/utils";
+import { clamp, fmtTimeMs, formatIsoUtc, marketLabel, numFromInput, shortComboUuid, shortCommitHash } from "../app/utils";
 import { fmtPct } from "../lib/format";
 import type { Market } from "../lib/types";
 
@@ -50,8 +50,7 @@ export function PerformancePanel({
     ];
     const rows = opsPerformanceUi.commits.map((row) => {
       const committedAtMs = row.committedAtMs;
-      const committedAtIso =
-        typeof committedAtMs === "number" && Number.isFinite(committedAtMs) ? new Date(committedAtMs).toISOString() : "";
+      const committedAtIso = formatIsoUtc(committedAtMs);
       return [
         row.commitHash ?? "",
         committedAtMs ?? "",
@@ -87,8 +86,7 @@ export function PerformancePanel({
     ];
     const rows = opsPerformanceUi.combos.map((row) => {
       const committedAtMs = row.committedAtMs;
-      const committedAtIso =
-        typeof committedAtMs === "number" && Number.isFinite(committedAtMs) ? new Date(committedAtMs).toISOString() : "";
+      const committedAtIso = formatIsoUtc(committedAtMs);
       return [
         row.symbol ?? "",
         row.market ?? "",

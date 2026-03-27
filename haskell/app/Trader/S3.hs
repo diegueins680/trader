@@ -326,6 +326,5 @@ nonEmpty s =
 firstNonEmpty :: [Maybe String] -> Maybe String
 firstNonEmpty =
     foldr
-        ( \v acc -> (v >>= nonEmpty) <|> acc
-        )
+        (\v acc -> (v >>= nonEmpty) <|> acc)
         Nothing

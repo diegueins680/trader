@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import type { DataLogEntry } from "../app/dataLog";
 import { DATA_LOG_COLLAPSED_MAX_LINES } from "../app/constants";
-import { indexTopLevelPrimitiveArrays } from "../app/utils";
+import { formatIsoUtc, fmtTimeOfDayMs, indexTopLevelPrimitiveArrays } from "../app/utils";
 
 export type DataLogPanelProps = {
   dataLog: DataLogEntry[];
@@ -102,7 +102,7 @@ export function DataLogPanel({
                 disabled={dataLogShown.length === 0}
 	              onClick={() => {
 	                const logText = dataLogShown
-	                  .map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
+	                  .map((entry) => `[${formatIsoUtc(entry.timestamp) || String(entry.timestamp)}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
 	                  .join("\n\n");
 	                copyText(logText);
 	                showToast("Copied log to clipboard");
@@ -190,7 +190,7 @@ export function DataLogPanel({
               dataLogShownDeferred.map((entry, idx) => (
                 <div key={idx} className="dataLogEntry">
                   <div className="dataLogEntryHeader">
-                    [{new Date(entry.timestamp).toLocaleTimeString()}] <span className="dataLogEntryLabel">{entry.label}</span>
+                    [{fmtTimeOfDayMs(entry.timestamp)}] <span className="dataLogEntryLabel">{entry.label}</span>
                   </div>
                   <div className="dataLogEntryBody">
                       {(() => {

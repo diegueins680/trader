@@ -5,6 +5,7 @@ module Trader.Kraken (
     krakenBaseUrl,
     fetchKrakenCandles,
     decodeKrakenCandles,
+    krakenCandlesCacheStats,
 ) where
 
 import Control.Exception (throwIO)
@@ -24,7 +25,7 @@ import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
-import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
+import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
 import Trader.Text (trim)
 
@@ -41,13 +42,19 @@ krakenBaseUrl = "https://api.kraken.com"
 
 {-# NOINLINE krakenCandlesCache #-}
 krakenCandlesCache :: TtlCache String [KrakenCandle]
-krakenCandlesCache = unsafePerformIO newTtlCache
+krakenCandlesCache = unsafePerformIO (newTtlCacheWithMaxEntries krakenCandlesMaxEntries)
+
+krakenCandlesMaxEntries :: Int
+krakenCandlesMaxEntries = 64
 
 krakenCandlesFreshTtl :: NominalDiffTime
 krakenCandlesFreshTtl = 30
 
 krakenCandlesStaleTtl :: NominalDiffTime
 krakenCandlesStaleTtl = 300
+
+krakenCandlesCacheStats :: IO TtlCacheStats
+krakenCandlesCacheStats = cacheStats krakenCandlesCache krakenCandlesStaleTtl
 
 fetchKrakenCandles :: String -> Int -> IO [KrakenCandle]
 fetchKrakenCandles pair intervalMin = do

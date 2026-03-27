@@ -62,7 +62,7 @@ computeMetrics periodsPerYear br =
         maxDd = abs (min 0 (minDrawdown eq))
         calmar =
             if maxDd <= 0
-                then 0
+                then annRet
                 else annRet / maxDd
         (var95, cvar95) = varCvar 0.95 rets
 

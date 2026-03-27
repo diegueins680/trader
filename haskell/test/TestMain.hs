@@ -1,4 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Main where
 
@@ -14,107 +16,76 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, sort, sortOn)
-import Data.Maybe (isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Maybe
+import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
-import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
+import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive, withCurrentDirectory)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 
-import Trader.App.Args (Args (..), argBinanceMarket, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parseTimestampMs, validateArgs)
-import Trader.Binance (
-    BinanceMarket (..),
-    BinanceOrderMode (..),
-    BinanceTrade (..),
-    Kline (..),
-    OrderSide (..),
-    binanceBaseUrl,
-    newBinanceEnv,
-    placeMarketOrder,
-    signQuery,
- )
-import Trader.BinanceIntervals (isBinanceInterval)
-import Trader.BotStartSemantics (
-    botTradeEnabledFromApi,
-    shouldClearPositionOriginOnStart,
-    shouldPersistPositionOriginOnSwitch,
-    shouldPreserveProvidedComboOnActiveAdopt,
-    shouldResolveOriginComboOnAutoStart,
- )
-import Trader.Cache (fetchWithCache, insertCache, newTtlCache)
+import Trader.App.Args (Args (..), argBinanceMarket, argBinanceSymbol, argIdempotencyKey, argInterval, argLookback, opts, parsePositioning, parseTimestampMs, validateArgs)
+import Trader.App.Env (getBuildCommit)
+import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
+import Trader.Binance (BinanceMarket (..), BinanceOrderMode (..), BinanceTrade (..), Kline (..), OrderSide (..), binanceBaseUrl, newBinanceEnv, placeMarketOrder, signQuery)
+import Trader.BinanceIntervals (binanceIntervalsCsv, isBinanceInterval)
+import Trader.BotStartSemantics (botTradeEnabledFromApi, shouldClearPositionOriginOnStart, shouldPersistPositionOriginOnSwitch, shouldPreserveProvidedComboOnActiveAdopt, shouldResolveOriginComboOnAutoStart)
+import Trader.Cache (TtlCacheStats (..), cacheSize, cacheStats, fetchWithCache, insertCache, newTtlCache, newTtlCacheWithMaxEntries)
 import Trader.Coinbase (CoinbaseCandle (..), buildRanges, decodeCoinbaseCandles, normalizeCoinbaseCandles)
+import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), extractTxHash, resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
-import Trader.Formal.CloseTiming (ComboTimingStats (..), ComboTrade (..), TradeTimingSample (..), summarizeAllCombos, timingSamples)
-import Trader.Formal.Optimization (
-    FormalVerificationReport (..),
-    roiRequirementClauses,
-    roiRequirementSummary,
-    verifyFormalOptimization,
+import Trader.Formal.CloseTiming (
+    CloseTimingDecision (..),
+    CloseTimingObservation (..),
+    CloseTimingStats (..),
+    ComboTimingStats (..),
+    ComboTrade (..),
+    TradeTimingSample (..),
+    buildCloseTimingStats,
+    closeTimingDecision,
+    optimalCloseObservation,
+    summarizeAllCombos,
+    timingSamples,
  )
+import Trader.Formal.Optimization (FormalVerificationReport (..), roiRequirementClauses, roiRequirementSummary, verifyFormalOptimization)
 import Trader.Http (boundedBackoffMs, jitteredDelayMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Kraken (KrakenCandle (..), decodeKrakenCandles)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, trainLSTM)
 import Trader.LstmPersistence (lstmModelKey)
-import Trader.MarketContext (fitLinearRange)
+import Trader.MarketContext (MarketModel (..), fitLinearRange)
 import Trader.Method (Method (..), parseMethod, selectPredictions)
-import Trader.Metrics (bmAvgTradeReturn, bmExposure, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
+import Trader.Metrics (bmAnnualizedReturn, bmAvgTradeReturn, bmCalmar, bmExposure, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (TuneObjective (..), bestFinalEquity, optimizeOperations, parseTuneObjective, sweepThreshold)
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
-import Trader.Optimizer.Optimize (normalizeOptionalPositiveFraction, sampleTakeProfitPartial)
+import Trader.Optimizer.Optimize (normalizeObjectiveCode, normalizeOptionalPositiveFraction, objectiveScore, qualityPresetIntervalFields, sampleTakeProfitPartial)
 import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
-import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, orderAppliedQuantity)
-import Trader.Platform (
-    Platform (..),
-    coinbaseIntervalSeconds,
-    isPlatformInterval,
-    krakenIntervalMinutes,
-    parsePlatform,
-    poloniexIntervalLabel,
-    poloniexIntervalSeconds,
- )
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedQuantity)
+import Trader.Platform (Platform (..), coinbaseIntervalSeconds, isPlatformInterval, krakenIntervalMinutes, parsePlatform, poloniexIntervalLabel, poloniexIntervalSeconds)
 import Trader.Poloniex (PoloniexCandle (..), decodePoloniexCandles, normalizePoloniexCandles)
-import Trader.Predictors (
-    Interval (..),
-    Quantiles (..),
-    RegimeProbs (..),
-    SensorId (..),
-    SensorOutput (..),
-    initHMMFilter,
-    predictSensors,
-    trainPredictors,
- )
-import Trader.Predictors.Features (buildDatasetWithIndex, featuresAt, forwardReturnAt, mkFeatureSpec)
+import Trader.Predictors (Interval (..), Quantiles (..), RegimeProbs (..), SensorId (..), SensorOutput (..), initHMMFilter, predictSensors, trainPredictors)
+import Trader.Predictors.DecisionTree (predictDecisionTree, trainDecisionTree)
+import Trader.Predictors.Features (buildDatasetWithIndex, featuresAt, featuresAtWithInputs, featuresAtWithMarket, forwardReturnAt, mkFeatureInputs, mkFeatureSpec)
+import Trader.Predictors.KNN (predictKNN, trainKNN)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
-import Trader.Predictors.Types (allPredictors)
+import Trader.Predictors.Types (allPredictors, predictorSetFromString)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
-import Trader.SignalGates (
-    signalCrossAssetCheck,
-    signalFundingOiCheck,
-    signalMetaLabelOk,
-    signalMtfConsensusCheck,
-    signalRegimeEdgeOk,
-    signalRunPostDirectionGates,
- )
+import Trader.SignalGates (normalizeSignalThreshold, signalCrossAssetCheck, signalEntryEdgeSpikeOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
 import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
-import Trader.TopCombosStore (
-    comboPerformanceKey,
-    mergeTopCombosPayloads,
-    recalculateComboPerformanceFromOperation,
-    resolveComboSymbol,
-    sanitizeComboSymbolForPlatform,
-    sanitizeTopCombosValue,
- )
+import Trader.Test.Cors (corsSuite)
+import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, compactTopCombosPayloadForSync, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue, topCombosPayloadEquivalent)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
+import Trader.VolConfGate (VolConfGatePreset (..))
 
 main :: IO ()
 main = do
@@ -131,9 +102,14 @@ main = do
               , run "kalman fusion multi-sensor" testKalmanFusionMulti
               , run "market linear fit" testMarketLinearFit
               , run "predictors output shape" testPredictorsOutputs
+              , run "predictor parser accepts knn and decision tree" testPredictorParserSupportsKnnAndDecisionTree
               , run "predictor features reject non-finite price inputs" testPredictorFeaturesRejectNonFinitePrices
+              , run "predictor market features stay finite" testPredictorMarketFeaturesStayFinite
+              , run "predictor kline features use OHLCV context" testPredictorFeaturesUseOhlcvContext
               , run "predictor dataset skips non-finite rows" testBuildDatasetSkipsNonFiniteRows
               , run "predictor dataset skips overflowed finite feature rows" testBuildDatasetSkipsOverflowedFiniteRows
+              , run "knn predictor yields finite output" testKnnPredictorFinite
+              , run "decision tree predictor yields finite output" testDecisionTreePredictorFinite
               , run "transformer training skips invalid rows" testTransformerTrainingSanitizesDataset
               , run "transformer prediction rejects non-finite query" testTransformerPredictionRejectsNonFiniteQuery
               , run "transformer training normalizes invalid temperature" testTransformerInvalidTemperatureFallback
@@ -146,6 +122,7 @@ main = do
               , run "lstm key uses platform" testLstmModelKeyPlatform
               , run "ensemble agreement gate" testAgreementGate
               , run "hold on close agreement" testHoldOnCloseAgree
+              , run "vol-conf gate still honors explicit max-volatility" testVolConfGateKeepsMaxVolatility
               , run "min-hold blocks exit" testMinHoldBars
               , run "max-hold forces exit" testMaxHoldBars
               , run "cooldown blocks re-entry" testCooldownBars
@@ -157,6 +134,7 @@ main = do
               , run "long-short down move" testLongShortDownMove
               , run "liquidation clamps equity" testLiquidationClamp
               , run "metrics max drawdown" testMetricsMaxDrawdown
+              , run "metrics calmar falls back to annualized return at zero drawdown" testMetricsCalmarFallback
               , run "metrics profit factor pnl" testMetricsProfitFactorPnL
               , run "metrics sanitize non-finite trade payloads" testMetricsSanitizeNonFiniteInputs
               , run "formal ROI requirements stay concise" testFormalRoiRequirementsSummary
@@ -164,6 +142,8 @@ main = do
               , run "formal ROI monotonicity holds" testFormalRoiMonotonicity
               , run "formal ROI penalties stay ordered" testFormalRoiPenaltyOrdering
               , run "formal tune tie-break matches spec" testFormalTieBreakMatchesSpec
+              , run "formal close timing window identifies tm" testFormalCloseTimingWindow
+              , run "formal close timing policy closes past target quantile" testFormalCloseTimingDecision
               , run "close timing selects in-window optimum" testCloseTimingSelectsWindowOptimum
               , run "close timing summarizes combo ratios" testCloseTimingSummaryRatios
               , run "binance signature length" testBinanceSignatureLength
@@ -183,8 +163,12 @@ main = do
               , run "exchange candle parsers accept whitespace-padded numeric strings" testExchangeNumericStringWhitespaceAcceptance
               , run "method parsing" testMethodParsing
               , run "tune objective parsing" testTuneObjectiveParsing
+              , run "optimizer objective aliases canonicalize" testOptimizerObjectiveNormalization
               , run "platform parsing" testPlatformParsing
               , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+              , run "exchange data backtests allow long-short without futures" testExchangeDataLongShortBacktestAllowed
+              , run "positioning rejects short alias" testPositioningShortAliasRejected
+              , run "tenant resolution scopes mixed API keys by platform" testTenantResolutionScopesMixedApiKeys
               , run "binance market helper prioritizes futures on conflicting flags" testBinanceMarketConflictingFlagsPreferFutures
               , run "binance args normalize slash symbols" testBinanceSlashSymbolNormalization
               , run "coinbase args normalize slash symbols" testCoinbaseSlashSymbolNormalization
@@ -227,6 +211,10 @@ main = do
               , run "bars rejects non-decimal integer" testBarsNonDecimalValidation
               , run "cli numeric args reject non-finite values" testNumericArgsFiniteValidation
               , run "trade sizing args reject zero values" testTradeSizingPositiveValidation
+              , run "max-drawdown rejects upper bound" testMaxDrawdownUpperBoundValidation
+              , run "max-daily-loss rejects upper bound" testMaxDailyLossUpperBoundValidation
+              , run "max-weekly-loss rejects upper bound" testMaxWeeklyLossUpperBoundValidation
+              , run "risk-per-trade requires stop definition" testRiskPerTradeRequiresStopDefinition
               , run "retry-after date parsing" testRetryAfterDateParsing
               , run "retry-after header lookup is case-insensitive" testRetryAfterHeaderLookupCaseInsensitive
               , run "retry-after uses first parseable duplicate header value" testRetryAfterDuplicateHeaderFallback
@@ -234,15 +222,38 @@ main = do
               , run "retry jitter respects configured max delay" testRetryJitterMaxDelayClamp
               , run "cache returns stale value on quick upstream failure" testCacheQuickFailureUsesStale
               , run "cache rejects stale value after slow upstream failure" testCacheSlowFailureRejectsExpiredStale
+              , run "cache prunes expired entries on access" testCachePrunesExpiredEntriesOnAccess
+              , run "cache evicts the oldest entry when max entries is exceeded" testCacheCapEvictsOldestEntry
+              , run "cache enforces max entries after pruning expired keys" testCacheCapPrunesExpiredBeforeEviction
+              , run "cache stats prune expired entries and report configured cap" testCacheStatsPruneExpiredEntries
+              , run "build commit prefers env over file" testGetBuildCommitPrefersEnv
+              , run "build commit falls back to .build-commit file" testGetBuildCommitFallsBackToFile
               , run "initial balance must be positive" testInitialBalanceValidation
               , run "bot/start defaults botTrade to true" testBotTradeDefaultTrue
               , run "bot/auto-start resolves origin combo for active adoption" testAutoStartResolvesOriginComboForActiveAdopt
               , run "bot/start preserves provided combo for active adoption" testBotStartPreservesProvidedComboForActiveAdopt
               , run "bot/start clears origin only when adoptable and flat" testBotStartClearOriginGate
               , run "position origin persists only for live sent switches" testPersistPositionOriginGate
+              , run "active combo prefers open trade combo" testActiveComboUuid
+              , run "order combo keeps origin combo while position is open" testOrderComboUuid
               , run "order execution uses fill evidence for live orders" testOrderAppliedQuantity
+              , run "startup order execution keeps position until fills arrive" testStartupOrderExecutionRequiresFillEvidence
               , run "order execution updates position by executed qty" testApplyExecutedQuantity
+              , run "reduce-only order execution clamps oversize fills at flat" testApplyReduceOnlyExecutedQuantity
+              , run "order execution transition invariants hold across grid" testApplyExecutedQuantityInvariantGrid
+              , run "reduce-only order execution invariants hold across grid" testApplyReduceOnlyExecutedQuantityInvariantGrid
+              , run "order execution preserves invariants on corrupted inputs" testApplyExecutedQuantityInvariants
               , run "signal gate emits MTF_WARMUP reason" testSignalGateMtfWarmup
+              , run "signal gate emits MAX_VOLATILITY reason" testSignalGateMaxVolatility
+              , run "signal gate prioritizes MAX_VOLATILITY over warmup" testSignalGateMaxVolatilityPrecedesWarmup
+              , run "signal gate prioritizes MAX_VOLATILITY over trend filter" testSignalGateMaxVolatilityPrecedesTrendFilter
+              , run "signal gate emits VOL_TARGET_WARMUP reason" testSignalGateVolTargetWarmup
+              , run "signal gate prioritizes VOL_TARGET_WARMUP over trend filter" testSignalGateVolTargetWarmupPrecedesTrendFilter
+              , run "signal gate prioritizes VOL_TARGET_WARMUP over kalman cloud" testSignalGateVolTargetWarmupPrecedesKalmanCloud
+              , run "signal gate prioritizes VOL_TARGET_WARMUP over price action" testSignalGateVolTargetWarmupPrecedesPriceAction
+              , run "signal gate repeat blocked state stays hold" testSignalGateRepeatedBlockStaysHold
+              , run "signal gate normalizes pathological thresholds" testSignalThresholdNormalization
+              , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
               , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
               , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
               , run "signal gate emits META_LABEL reason" testSignalGateMetaLabel
@@ -257,7 +268,12 @@ main = do
               , run "top combos merge ignores non-numeric boolean scores" testMergeTopCombosIgnoresBooleanScore
               , run "top combos merge dedupe prefers nested metrics score" testMergeTopCombosDedupPrefersNestedScore
               , run "top combos merge keeps same params across distinct sources" testMergeTopCombosKeepsDistinctSources
+              , run "top combos merge stats report dropped and deduped combos" testMergeTopCombosWithStats
+              , run "top combos merge preserves newest payload metadata" testMergeTopCombosPreservesNewestPayloadMetadata
+              , run "top combos identity keys keep distinct sources separate" testComboIdentityKeyKeepsDistinctSources
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
+              , run "top combos payload equivalence ignores root sync metadata" testTopCombosPayloadEquivalentIgnoresRootSyncMetadata
+              , run "top combos sync compaction drops operations only" testCompactTopCombosPayloadForSync
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
               , run "optimizer merge preserves distinct payload sources from top-json inputs" testRunMergePreservesDistinctPayloadSources
@@ -309,6 +325,8 @@ main = do
               , run "threshold sweep regime-switch stays neutral with non-finite inputs" testSweepThresholdRegimeSwitchNonFiniteStaysNeutral
               , run "operations optimization" testOptimizeOperations
               , run "optimizer partial take-profit zero-range sampler" testOptimizerPartialTakeProfitZeroRange
+              , run "optimizer quality preset preserves explicit interval constraints" testOptimizerQualityPresetIntervals
+              , run "optimizer calmar falls back to annualized return at zero drawdown" testOptimizerCalmarFallback
               , run "optimizer normalizes optional positive fractions" testOptimizerNormalizeOptionalPositiveFraction
               , run "optimizer int range keeps rng for fixed range" testOptimizerIntRangeFixedRange
               , run "optimizer int range handles full Int span" testOptimizerIntRangeFullSpan
@@ -316,6 +334,7 @@ main = do
               ]
                 ++ map (uncurry run) apiRouteSuite
                 ++ map (uncurry run) binanceProbeSuite
+                ++ map (uncurry run) corsSuite
             )
     if and results then exitSuccess else exitFailure
 
@@ -419,6 +438,15 @@ requireComboSource label val =
                 Nothing -> error (label ++ ": missing source")
         _ -> error (label ++ ": combo is not an object")
 
+requireComboUuid :: String -> Aeson.Value -> String
+requireComboUuid label val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup "uuid" o >>= AT.parseMaybe Aeson.parseJSON of
+                Just uuid -> uuid
+                Nothing -> error (label ++ ": missing uuid")
+        _ -> error (label ++ ": combo is not an object")
+
 requireComboBars :: String -> Aeson.Value -> Int
 requireComboBars label val =
     case val of
@@ -461,6 +489,25 @@ withTempTestDir prefix action = do
     cleanup dir = do
         _ <- try (removeDirectoryRecursive dir) :: IO (Either SomeException ())
         pure ()
+
+withBuildCommitEnv :: [(String, Maybe String)] -> IO a -> IO a
+withBuildCommitEnv entries action = do
+    original <- mapM (\(key, _) -> fmap (key,) (lookupEnv key)) entries
+    let restore = mapM_ restoreEntry original
+    applyEntries entries
+    action `finally` restore
+  where
+    applyEntries = mapM_ setEntry
+
+    setEntry (key, mValue) =
+        case mValue of
+            Just value -> setEnv key value
+            Nothing -> unsetEnv key
+
+    restoreEntry (key, mValue) =
+        case mValue of
+            Just value -> setEnv key value
+            Nothing -> unsetEnv key
 
 parseArgs :: [String] -> IO Args
 parseArgs argv = do
@@ -551,6 +598,7 @@ baseEnsembleConfig =
         , ecVolFloor = 0
         , ecVolScaleMax = 1
         , ecMaxVolatility = Nothing
+        , ecVolConfGate = VolConfGateDisabled
         , ecRebalanceBars = 0
         , ecRebalanceThreshold = 0
         , ecRebalanceGlobal = False
@@ -688,6 +736,8 @@ testPredictorsOutputs = do
         ids = map fst outs
 
     assert "has GBDT" (SensorGBT `elem` ids)
+    assert "has kNN" (SensorKNN `elem` ids)
+    assert "has decision tree" (SensorDecisionTree `elem` ids)
     assert "has TCN" (SensorTCN `elem` ids)
     assert "has Transformer" (SensorTransformer `elem` ids)
     assert "has HMM" (SensorHMM `elem` ids)
@@ -715,6 +765,19 @@ testPredictorsOutputs = do
                 Nothing -> error "missing interval"
                 Just (Interval lo hi) -> assert "interval ordered" (lo <= hi)
 
+testPredictorParserSupportsKnnAndDecisionTree :: IO ()
+testPredictorParserSupportsKnnAndDecisionTree = do
+    let parsed = predictorSetFromString "knn,decision_tree,tcn"
+        parsedAlias = predictorSetFromString "tree,gbdt"
+    case parsed of
+        Left err -> error ("expected predictor parser success: " ++ err)
+        Right preds -> do
+            assert "knn parsed" (SensorKNN `elem` preds)
+            assert "decision tree parsed" (SensorDecisionTree `elem` preds)
+    case parsedAlias of
+        Left err -> error ("expected predictor alias parser success: " ++ err)
+        Right preds -> assert "tree alias parsed" (SensorDecisionTree `elem` preds)
+
 testPredictorFeaturesRejectNonFinitePrices :: IO ()
 testPredictorFeaturesRejectNonFinitePrices = do
     let nan = 0 / 0
@@ -722,6 +785,48 @@ testPredictorFeaturesRejectNonFinitePrices = do
         prices = V.fromList [100.0, 101.0, nan, 103.0, 104.0]
     assert "forwardReturnAt rejects non-finite prices" (isNothing (forwardReturnAt prices 1))
     assert "featuresAt rejects windows containing non-finite prices" (isNothing (featuresAt fs prices 2))
+
+testPredictorMarketFeaturesStayFinite :: IO ()
+testPredictorMarketFeaturesStayFinite = do
+    let fs = mkFeatureSpec 4
+        prices = V.fromList [100.0, 101.0, 102.0, 101.5, 103.0, 104.0]
+        mm =
+            MarketModel
+                { mmSymbols = ["BTCUSDT", "ETHUSDT"]
+                , mmIntercept = 2e-4
+                , mmBeta = 0.6
+                , mmVar = 1e-4
+                , mmLag = V.fromList [0.0, 0.008, 0.006, -0.003, 0.009, 0.007]
+                }
+    case featuresAtWithMarket fs (Just mm) prices 4 of
+        Nothing -> error "missing market-aware features"
+        Just feats -> do
+            assert "market-aware vector length expands with context features" (length feats == 53)
+            assert "market-aware feature rows remain finite" (all isFiniteDouble feats)
+            let marketSlice = take 8 (drop 33 feats)
+            assert "market-aware slice carries non-zero signal" (any (\x -> abs x > 1e-12) marketSlice)
+
+testPredictorFeaturesUseOhlcvContext :: IO ()
+testPredictorFeaturesUseOhlcvContext = do
+    let fs = mkFeatureSpec 4
+        closes = V.fromList [100.0, 101.0, 102.0, 101.5, 103.0, 104.0]
+        opens = V.fromList [99.5, 100.5, 101.0, 102.5, 101.8, 103.2]
+        highs = V.fromList [100.8, 101.9, 102.8, 103.1, 103.8, 104.7]
+        lows = V.fromList [99.1, 100.1, 100.7, 101.1, 101.2, 102.8]
+        volumes = V.fromList [12.0, 11.5, 18.0, 8.0, 22.0, 25.0]
+        richInputs = mkFeatureInputs closes (Just opens) (Just highs) (Just lows) (Just volumes)
+        flatInputs = mkFeatureInputs closes Nothing Nothing Nothing Nothing
+    case (featuresAt fs closes 4, featuresAtWithMarket fs Nothing closes 4) of
+        (Just closeOnly, Just marketWrapped) ->
+            assert "legacy close-only wrappers stay aligned" (closeOnly == marketWrapped)
+        _ -> error "expected legacy features from close-only wrappers"
+    case (featuresAtWithInputs fs richInputs 4, featuresAtWithInputs fs flatInputs 4) of
+        (Nothing, _) -> error "missing OHLCV-aware features"
+        (_, Nothing) -> error "missing fallback features"
+        (Just rich, Just flat) -> do
+            assert "OHLCV-aware features keep stable dimension" (length rich == length flat && length rich == 53)
+            assert "OHLCV-aware features remain finite" (all isFiniteDouble rich)
+            assert "OHLCV context changes the feature vector" (rich /= flat)
 
 testBuildDatasetSkipsNonFiniteRows :: IO ()
 testBuildDatasetSkipsNonFiniteRows = do
@@ -745,6 +850,28 @@ testBuildDatasetSkipsOverflowedFiniteRows = do
     assert "featuresAt rejects overflowed variance window with non-finite stats" (isNothing (featuresAt fs prices 2))
     assert "dataset keeps only stable rows after overflowed-return window" (indices == [3])
     assert "dataset rows remain finite after overflow guard" allFiniteRows
+
+testKnnPredictorFinite :: IO ()
+testKnnPredictorFinite = do
+    let dataset =
+            [ ([x, x * x], 0.5 * x - 0.1)
+            | x <- [-1.0, -0.5, 0.0, 0.5, 1.0, 1.5]
+            ]
+        model = trainKNN 32 3 dataset
+        (mu, mSigma) = predictKNN model [0.25, 0.0625]
+    assert "knn mean stays finite" (isFiniteDouble mu)
+    assert "knn sigma stays finite" (maybe False isFiniteDouble mSigma)
+
+testDecisionTreePredictorFinite :: IO ()
+testDecisionTreePredictorFinite = do
+    let dataset =
+            [ ([x, x * x], if x >= 0 then 0.02 + x else -0.02 + x)
+            | x <- [-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0]
+            ]
+        model = trainDecisionTree 4 2 dataset
+        (mu, mSigma) = predictDecisionTree model [0.75, 0.5625]
+    assert "decision tree mean stays finite" (isFiniteDouble mu)
+    assert "decision tree sigma stays finite" (maybe False isFiniteDouble mSigma)
 
 testTransformerTrainingSanitizesDataset :: IO ()
 testTransformerTrainingSanitizesDataset = do
@@ -912,6 +1039,30 @@ testHoldOnCloseAgree = do
         btExit = requireRight "simulateEnsemble exit" (simulateEnsemble cfgExit lookback prices kalPred lstmPred Nothing)
     assert "holds when close signal still agrees" (brPositions btHold == [1, 1])
     assert "exits when open signal neutral and close signal does not agree" (brPositions btExit == [1, 0])
+
+testVolConfGateKeepsMaxVolatility :: IO ()
+testVolConfGateKeepsMaxVolatility = do
+    let prices = [100, 200, 100, 200]
+        lookback = 1
+        -- Keep the confidence strong while staying below the 4x EDGE_SPIKE cap.
+        preds = [106, 212, 106]
+        gateCfg =
+            baseEnsembleConfig
+                { ecOpenThreshold = 0.02
+                , ecCloseThreshold = 0.02
+                , ecVolEwmaAlpha = Just 0.5
+                , ecVolConfGate = VolConfGateV1Default
+                }
+        btGate =
+            requireRight
+                "simulateEnsemble vol-conf gate"
+                (simulateEnsemble gateCfg lookback prices preds preds Nothing)
+        btGateMaxVol =
+            requireRight
+                "simulateEnsemble vol-conf gate + max-vol"
+                (simulateEnsemble (gateCfg{ecMaxVolatility = Just 1}) lookback prices preds preds Nothing)
+    assert "vol-conf gate alone can still enter on strong non-spike confidence" (any (> 0) (brPositions btGate))
+    assert "explicit max-volatility still blocks entries under vol-conf gate" (all (== 0) (brPositions btGateMaxVol))
 
 testMinHoldBars :: IO ()
 testMinHoldBars = do
@@ -1096,6 +1247,21 @@ testMetricsMaxDrawdown = do
         m = computeMetrics 365 br
     assertApprox "total return" 1e-12 (bmTotalReturn m) 0.0
     assertApprox "max drawdown" 1e-6 (bmMaxDrawdown m) (0.1 / 1.1)
+
+testMetricsCalmarFallback :: IO ()
+testMetricsCalmarFallback = do
+    let br =
+            BacktestResult
+                { brEquityCurve = [1.0, 1.1, 1.2]
+                , brPositions = [1.0, 1.0]
+                , brAgreementOk = [True, True]
+                , brAgreementValid = [True, True]
+                , brPositionChanges = 1
+                , brTrades = []
+                }
+        m = computeMetrics 365 br
+    assertApprox "zero drawdown should stay zero" 1e-12 (bmMaxDrawdown m) 0.0
+    assertApprox "calmar should fall back to annualized return when max drawdown is zero" 1e-12 (bmCalmar m) (bmAnnualizedReturn m)
 
 testMetricsProfitFactorPnL :: IO ()
 testMetricsProfitFactorPnL = do
@@ -1431,6 +1597,18 @@ testTuneObjectiveParsing = do
         Left _ -> pure ()
         Right _ -> error "expected parseTuneObjective to reject unknown objective"
 
+testOptimizerObjectiveNormalization :: IO ()
+testOptimizerObjectiveNormalization = do
+    assert
+        "optimizer objective underscore alias canonicalizes to annualized-equity"
+        (normalizeObjectiveCode "annualized_return" == Right "annualized-equity")
+    assert
+        "optimizer objective risk-adjusted ROI alias canonicalizes to roi"
+        (normalizeObjectiveCode "\trisk_adjusted_roi\n" == Right "roi")
+    case normalizeObjectiveCode "invalid-objective" of
+        Left _ -> pure ()
+        Right v -> error ("expected normalizeObjectiveCode to reject unknown objective, got " ++ show v)
+
 testPlatformParsing :: IO ()
 testPlatformParsing = do
     assert "parse platform binance" (parsePlatform "binance" == Right PlatformBinance)
@@ -1464,6 +1642,52 @@ testNonBinanceArgsLiveDefault = do
     case parseArgsResult (krakenBaseArgs ++ ["--binance-live"]) of
         Left err -> assert "explicit --binance-live rejected on kraken" ("--binance-live is only supported on Binance/Coinbase" `isInfixOf` err)
         Right _ -> error "expected explicit --binance-live to be rejected on kraken"
+
+testExchangeDataLongShortBacktestAllowed :: IO ()
+testExchangeDataLongShortBacktestAllowed = do
+    case parseArgsResult ["--platform", "coinbase", "--symbol", "btc/usd", "--positioning", "long-short"] of
+        Left err -> error ("expected Coinbase exchange backtest to allow long-short: " ++ err)
+        Right args -> assert "coinbase exchange backtest keeps long-short" (argPositioning args == LongShort)
+    case parseArgsResult ["--platform", "binance", "--symbol", "BTCUSDT", "--positioning", "long-short"] of
+        Left err -> error ("expected Binance exchange backtest to allow long-short: " ++ err)
+        Right args -> assert "binance exchange backtest keeps long-short" (argPositioning args == LongShort)
+    case parseArgsResult ["--platform", "binance", "--symbol", "BTCUSDT", "--positioning", "long-short", "--binance-trade"] of
+        Left err -> assert "trading still requires futures for long-short" ("--positioning long-short requires --futures when trading" `isInfixOf` err)
+        Right _ -> error "expected long-short trading on spot market to fail validation"
+
+testPositioningShortAliasRejected :: IO ()
+testPositioningShortAliasRejected = do
+    case parsePositioning "short" of
+        Left _ -> pure ()
+        Right v -> error ("expected parsePositioning short to fail, got " ++ show v)
+    case parseArgsResult ["--data", "sample.csv", "--positioning", "short"] of
+        Left err -> assert "cli positioning short is rejected" ("Invalid positioning" `isInfixOf` err)
+        Right _ -> error "expected --positioning short to be rejected"
+
+testTenantResolutionScopesMixedApiKeys :: IO ()
+testTenantResolutionScopesMixedApiKeys = do
+    let bKey = Just "binance-key"
+        bSecret = Just "binance-secret"
+        cKey = Just "coinbase-key"
+        cSecret = Just "coinbase-secret"
+        cPass = Just "coinbase-pass"
+        mBinanceTenant = tenantKeyFromBinanceKeys bKey bSecret
+        mCoinbaseTenant = tenantKeyFromCoinbaseKeys cKey cSecret cPass
+    case (mBinanceTenant, mCoinbaseTenant) of
+        (Just binanceTenant, Just coinbaseTenant) -> do
+            case resolveTenantKeyFromParams Nothing bKey bSecret cKey cSecret cPass of
+                Left _ -> pure ()
+                Right v -> error ("expected unscoped mixed credentials to fail, got " ++ show v)
+            assert
+                "coinbase scope selects coinbase tenant"
+                (resolveTenantKeyFromPlatformParams PlatformCoinbase Nothing bKey bSecret cKey cSecret cPass == Right (Just coinbaseTenant))
+            assert
+                "binance scope selects binance tenant"
+                (resolveTenantKeyFromPlatformParams PlatformBinance Nothing bKey bSecret cKey cSecret cPass == Right (Just binanceTenant))
+            assert
+                "explicit coinbase tenant matches mixed credentials when unscoped"
+                (resolveTenantKeyFromParams (Just (T.unpack coinbaseTenant)) bKey bSecret cKey cSecret cPass == Right (Just coinbaseTenant))
+        _ -> error "expected tenant key derivation for test credentials to succeed"
 
 testBinanceMarketConflictingFlagsPreferFutures :: IO ()
 testBinanceMarketConflictingFlagsPreferFutures = do
@@ -1946,6 +2170,48 @@ testTradeSizingPositiveValidation = do
         Left err -> assert "max-order-quote rejects zero" ("--max-order-quote must be > 0" `isInfixOf` err)
         Right _ -> error "expected --max-order-quote=0 to fail validation"
 
+testMaxDrawdownUpperBoundValidation :: IO ()
+testMaxDrawdownUpperBoundValidation =
+    case parseArgsResult ["--data", "sample.csv", "--max-drawdown", "1"] of
+        Left err ->
+            assert
+                "max-drawdown rejects upper bound"
+                ("--max-drawdown must be > 0 and < 1" `isInfixOf` err)
+        Right _ -> error "expected --max-drawdown=1 to fail validation"
+
+testMaxDailyLossUpperBoundValidation :: IO ()
+testMaxDailyLossUpperBoundValidation =
+    case parseArgsResult ["--data", "sample.csv", "--max-daily-loss", "1"] of
+        Left err ->
+            assert
+                "max-daily-loss rejects upper bound"
+                ("--max-daily-loss must be > 0 and < 1" `isInfixOf` err)
+        Right _ -> error "expected --max-daily-loss=1 to fail validation"
+
+testMaxWeeklyLossUpperBoundValidation :: IO ()
+testMaxWeeklyLossUpperBoundValidation =
+    case parseArgsResult ["--data", "sample.csv", "--max-weekly-loss", "1"] of
+        Left err ->
+            assert
+                "max-weekly-loss rejects upper bound"
+                ("--max-weekly-loss must be > 0 and < 1" `isInfixOf` err)
+        Right _ -> error "expected --max-weekly-loss=1 to fail validation"
+
+testRiskPerTradeRequiresStopDefinition :: IO ()
+testRiskPerTradeRequiresStopDefinition = do
+    case parseArgsResult ["--data", "sample.csv", "--risk-per-trade", "0.01"] of
+        Left err ->
+            assert
+                "risk-per-trade without stop definition is rejected"
+                ("--risk-per-trade requires --stop-loss or --stop-loss-vol-mult" `isInfixOf` err)
+        Right _ -> error "expected --risk-per-trade without stop definition to fail validation"
+    case parseArgsResult ["--data", "sample.csv", "--risk-per-trade", "0.01", "--stop-loss", "0.02"] of
+        Left err -> error ("expected --risk-per-trade with --stop-loss to pass: " ++ err)
+        Right args -> assert "risk-per-trade with stop-loss is accepted" (argRiskPerTrade args == Just 0.01)
+    case parseArgsResult ["--data", "sample.csv", "--risk-per-trade", "0.01", "--stop-loss-vol-mult", "1.5"] of
+        Left err -> error ("expected --risk-per-trade with --stop-loss-vol-mult to pass: " ++ err)
+        Right args -> assert "risk-per-trade with stop-loss-vol-mult is accepted" (argRiskPerTrade args == Just 0.01)
+
 testRetryAfterDateParsing :: IO ()
 testRetryAfterDateParsing = do
     let nowMs = 1735689600000 -- 2025-01-01T00:00:00Z
@@ -2000,7 +2266,7 @@ testRetryJitterMaxDelayClamp = do
 testCacheQuickFailureUsesStale :: IO ()
 testCacheQuickFailureUsesStale = do
     cache <- newTtlCache
-    insertCache cache ("btc-usdt" :: String) (42 :: Int)
+    insertCache cache 0.2 ("btc-usdt" :: String) (42 :: Int)
     threadDelay 20000
     result <- try (fetchWithCache cache 0 0.2 "btc-usdt" (fail "upstream failed")) :: IO (Either SomeException Int)
     case result of
@@ -2010,12 +2276,87 @@ testCacheQuickFailureUsesStale = do
 testCacheSlowFailureRejectsExpiredStale :: IO ()
 testCacheSlowFailureRejectsExpiredStale = do
     cache <- newTtlCache
-    insertCache cache ("btc-usdt" :: String) (42 :: Int)
+    insertCache cache 0.1 ("btc-usdt" :: String) (42 :: Int)
     threadDelay 20000
     result <- try (fetchWithCache cache 0 0.1 "btc-usdt" (threadDelay 150000 >> fail "upstream failed")) :: IO (Either SomeException Int)
     case result of
         Left _ -> pure ()
         Right _ -> error "expected expired stale cache entry to be rejected after slow failure"
+
+testCachePrunesExpiredEntriesOnAccess :: IO ()
+testCachePrunesExpiredEntriesOnAccess = do
+    cache <- newTtlCache
+    insertCache cache 0.05 ("btc-usdt" :: String) (42 :: Int)
+    threadDelay 120000
+    fetched <- fetchWithCache cache 0 0.05 "eth-usdt" (pure (7 :: Int))
+    assert "cache keeps fresh fetch result after pruning expired entries" (fetched == 7)
+    size <- cacheSize cache
+    assert "cache prunes expired entries while serving a new key" (size == 1)
+    result <- try (fetchWithCache cache 0 0.05 "btc-usdt" (fail "upstream failed")) :: IO (Either SomeException Int)
+    case result of
+        Left _ -> pure ()
+        Right _ -> error "expected pruned expired cache entry to be unavailable"
+
+testCacheCapEvictsOldestEntry :: IO ()
+testCacheCapEvictsOldestEntry = do
+    cache <- newTtlCacheWithMaxEntries 2
+    insertCache cache 1 ("oldest" :: String) (1 :: Int)
+    threadDelay 20000
+    insertCache cache 1 "middle" 2
+    threadDelay 20000
+    insertCache cache 1 "newest" 3
+    size <- cacheSize cache
+    assert "cache size is capped after insert" (size == 2)
+    oldestResult <- try (fetchWithCache cache 1 1 "oldest" (fail "upstream failed")) :: IO (Either SomeException Int)
+    case oldestResult of
+        Left _ -> pure ()
+        Right _ -> error "expected oldest cache entry to be evicted"
+    middleValue <- fetchWithCache cache 1 1 "middle" (fail "unexpected miss for middle")
+    newestValue <- fetchWithCache cache 1 1 "newest" (fail "unexpected miss for newest")
+    assert "cache preserves more recent entries after eviction" (middleValue == 2 && newestValue == 3)
+
+testCacheCapPrunesExpiredBeforeEviction :: IO ()
+testCacheCapPrunesExpiredBeforeEviction = do
+    cache <- newTtlCacheWithMaxEntries 2
+    insertCache cache 0.2 ("stale" :: String) (1 :: Int)
+    threadDelay 300000
+    insertCache cache 0.2 "fresh-a" 2
+    threadDelay 20000
+    insertCache cache 0.2 "fresh-b" 3
+    size <- cacheSize cache
+    assert "cache prunes expired entries before enforcing cap" (size == 2)
+    result <- try (fetchWithCache cache 0 0.2 "stale" (fail "upstream failed")) :: IO (Either SomeException Int)
+    case result of
+        Left _ -> pure ()
+        Right _ -> error "expected expired entry to be removed before cap enforcement"
+
+testCacheStatsPruneExpiredEntries :: IO ()
+testCacheStatsPruneExpiredEntries = do
+    cache <- newTtlCacheWithMaxEntries 3
+    insertCache cache 0.05 ("btc-usdt" :: String) (42 :: Int)
+    threadDelay 70000
+    insertCache cache 0.05 "eth-usdt" 7
+    stats <- cacheStats cache 0.05
+    assert "cache stats prune expired entries" (tcsEntries stats == 1)
+    assert "cache stats expose configured cap" (tcsMaxEntries stats == Just 3)
+
+testGetBuildCommitPrefersEnv :: IO ()
+testGetBuildCommitPrefersEnv =
+    withTempTestDir "build-commit-env" $ \dir -> do
+        writeFile (dir </> ".build-commit") "file-commit\n"
+        withCurrentDirectory dir $
+            withBuildCommitEnv [("TRADER_GIT_COMMIT", Just "env-commit"), ("TRADER_COMMIT", Nothing), ("GIT_COMMIT", Nothing), ("COMMIT_SHA", Nothing), ("SOURCE_COMMIT", Nothing), ("SOURCE_VERSION", Nothing), ("GITHUB_SHA", Nothing)] $ do
+                actual <- getBuildCommit
+                assert "build commit prefers runtime env" (actual == Just "env-commit")
+
+testGetBuildCommitFallsBackToFile :: IO ()
+testGetBuildCommitFallsBackToFile =
+    withTempTestDir "build-commit-file" $ \dir -> do
+        writeFile (dir </> ".build-commit") "file-commit\n"
+        withCurrentDirectory dir $
+            withBuildCommitEnv [("TRADER_GIT_COMMIT", Nothing), ("TRADER_COMMIT", Nothing), ("GIT_COMMIT", Nothing), ("COMMIT_SHA", Nothing), ("SOURCE_COMMIT", Nothing), ("SOURCE_VERSION", Nothing), ("GITHUB_SHA", Nothing)] $ do
+                actual <- getBuildCommit
+                assert "build commit falls back to build metadata file" (actual == Just "file-commit")
 
 testInitialBalanceValidation :: IO ()
 testInitialBalanceValidation =
@@ -2056,6 +2397,21 @@ testPersistPositionOriginGate = do
     assert "no persist when switch not applied" (not (shouldPersist True True False True))
     assert "no persist when order not sent" (not (shouldPersist True True True False))
 
+testActiveComboUuid :: IO ()
+testActiveComboUuid = do
+    let selectedCombo = Just ("combo-selected" :: String)
+        openCombo = Just ("combo-open" :: String)
+    assert "open trade combo wins over selected combo" (activeComboUuid openCombo selectedCombo == openCombo)
+    assert "selected combo is used when flat" (activeComboUuid Nothing selectedCombo == selectedCombo)
+
+testOrderComboUuid :: IO ()
+testOrderComboUuid = do
+    let selectedCombo = Just ("combo-selected" :: String)
+        openCombo = Just ("combo-open" :: String)
+    assert "entry from flat uses selected combo" (orderComboUuid False openCombo selectedCombo == selectedCombo)
+    assert "close while open keeps originating combo" (orderComboUuid True openCombo selectedCombo == openCombo)
+    assert "open-position fallback uses selected combo when origin missing" (orderComboUuid True Nothing selectedCombo == selectedCombo)
+
 testOrderAppliedQuantity :: IO ()
 testOrderAppliedQuantity = do
     let mk sent live status execQty =
@@ -2072,6 +2428,43 @@ testOrderAppliedQuantity = do
     assert "live canceled status still applies executed qty when present" (orderAppliedQuantity (mk True True (Just "CANCELED") (Just 0.4)) 2.5 == Just 0.4)
     assert "live expired status still applies executed qty when present" (orderAppliedQuantity (mk True True (Just "EXPIRED") (Just 0.2)) 2.5 == Just 0.2)
     assert "live filled status falls back when executed qty missing" (orderAppliedQuantity (mk True True (Just "FILLED") Nothing) 2.5 == Just 2.5)
+    assert "live explicit fill is not capped by requested qty" (orderAppliedQuantity (mk True True (Just "PARTIALLY_FILLED") (Just 0.8)) 0.5 == Just 0.8)
+    assert "live explicit fill still applies when requested qty is unavailable" (orderAppliedQuantity (mk True True (Just "PARTIALLY_FILLED") (Just 0.8)) 0 == Just 0.8)
+
+testStartupOrderExecutionRequiresFillEvidence :: IO ()
+testStartupOrderExecutionRequiresFillEvidence = do
+    let newAck =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "NEW"
+                , oeeExecutedQty = Nothing
+                }
+        partialFill =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "PARTIALLY_FILLED"
+                , oeeExecutedQty = Just 4.0
+                }
+        closeQtyNew = Data.Maybe.fromMaybe 0 (orderAppliedQuantity newAck 11.978)
+        (posCloseNew, sizeCloseNew, closeOnlyNew, openOnlyNew) = applyReduceOnlyExecutedQuantity 1 11.978 closeQtyNew
+        flipQtyNew = Data.Maybe.fromMaybe 0 (orderAppliedQuantity newAck 13.978)
+        (posFlipNew, sizeFlipNew, closeFlipNew, openFlipNew) = applyExecutedQuantity 1 11.978 False flipQtyNew
+        closeQtyPartial = Data.Maybe.fromMaybe 0 (orderAppliedQuantity partialFill 11.978)
+        (posClosePartial, sizeClosePartial, closeOnlyPartial, openOnlyPartial) = applyReduceOnlyExecutedQuantity 1 11.978 closeQtyPartial
+    assert "startup close NEW without fills keeps prior long" (posCloseNew == 1)
+    assertApprox "startup close NEW keeps full size" 1e-12 sizeCloseNew 11.978
+    assertApprox "startup close NEW records no executed close qty" 1e-12 closeOnlyNew 0
+    assertApprox "startup close NEW records no executed open qty" 1e-12 openOnlyNew 0
+    assert "startup flip NEW without fills keeps prior long" (posFlipNew == 1)
+    assertApprox "startup flip NEW keeps full size" 1e-12 sizeFlipNew 11.978
+    assertApprox "startup flip NEW records no executed close qty" 1e-12 closeFlipNew 0
+    assertApprox "startup flip NEW records no executed open qty" 1e-12 openFlipNew 0
+    assert "startup partial close keeps long side until fully filled" (posClosePartial == 1)
+    assertApprox "startup partial close shrinks size by executed qty only" 1e-12 sizeClosePartial 7.978
+    assertApprox "startup partial close tracks executed close qty" 1e-12 closeOnlyPartial 4.0
+    assertApprox "startup partial close does not open opposite side" 1e-12 openOnlyPartial 0
 
 testApplyExecutedQuantity :: IO ()
 testApplyExecutedQuantity = do
@@ -2105,6 +2498,208 @@ testApplyExecutedQuantity = do
     assertApprox "dust over-close still closes prior size" 1e-9 close5 1
     assertApprox "dust over-close does not open opposite side" 1e-12 open5 0
 
+testApplyReduceOnlyExecutedQuantity :: IO ()
+testApplyReduceOnlyExecutedQuantity = do
+    let (pos1, size1, close1, open1) = applyReduceOnlyExecutedQuantity 1 2 0.5
+    assert "reduce-only partial close keeps long side" (pos1 == 1)
+    assertApprox "reduce-only partial close size" 1e-12 size1 1.5
+    assertApprox "reduce-only partial close qty tracked" 1e-12 close1 0.5
+    assertApprox "reduce-only partial close never opens opposite side" 1e-12 open1 0
+
+    let (pos2, size2, close2, open2) = applyReduceOnlyExecutedQuantity 1 2 3
+    assert "oversize reduce-only sell stays flat" (pos2 == 0)
+    assertApprox "oversize reduce-only sell keeps zero size" 1e-12 size2 0
+    assertApprox "oversize reduce-only sell closes full prior size" 1e-12 close2 2
+    assertApprox "oversize reduce-only sell opens no opposite size" 1e-12 open2 0
+
+    let (pos3, size3, close3, open3) = applyReduceOnlyExecutedQuantity (-1) 1.25 5
+    assert "oversize reduce-only buy-to-close stays flat" (pos3 == 0)
+    assertApprox "oversize reduce-only buy-to-close keeps zero size" 1e-12 size3 0
+    assertApprox "oversize reduce-only buy-to-close closes full prior size" 1e-12 close3 1.25
+    assertApprox "oversize reduce-only buy-to-close opens no opposite size" 1e-12 open3 0
+
+    let (pos4, size4, close4, open4) = applyReduceOnlyExecutedQuantity 1 1 1.0000000005
+    assert "dust oversize reduce-only fill stays flat" (pos4 == 0)
+    assertApprox "dust oversize reduce-only fill keeps zero size" 1e-12 size4 0
+    assertApprox "dust oversize reduce-only fill still closes prior size" 1e-9 close4 1
+    assertApprox "dust oversize reduce-only fill opens no opposite size" 1e-12 open4 0
+
+testApplyExecutedQuantityInvariantGrid :: IO ()
+testApplyExecutedQuantityInvariantGrid = do
+    let eps = 1e-9
+        nan = 0 / 0
+        inf = 1 / 0
+        qtyCases = [-1, 0, 5e-10, 0.25, 1, 3, nan, inf]
+        stateCases =
+            [ (-1, 0)
+            , (-1, 0.75)
+            , (0, 0)
+            , (0, 1.5)
+            , (1, 0)
+            , (1, 0.75)
+            , (1, 2)
+            ]
+        sanitizeQty qtyRaw
+            | not (isFiniteDouble qtyRaw) = 0
+            | qtyRaw <= eps = 0
+            | otherwise = qtyRaw
+        previousSigned prevPos prevSize = fromIntegral (signum prevPos) * max 0 prevSize
+        assertCase label msg = assert (label ++ " " ++ msg)
+    Control.Monad.forM_ stateCases $ \(prevPos, prevSize) ->
+        Control.Monad.forM_ [False, True] $ \isBuy ->
+            Control.Monad.forM_ qtyCases $ \qtyRaw -> do
+                let qty = sanitizeQty qtyRaw
+                    deltaSigned = if isBuy then qty else negate qty
+                    expectedSigned = previousSigned prevPos prevSize + deltaSigned
+                    (posNew, sizeNew, closeQty, openQty) =
+                        applyExecutedQuantity prevPos prevSize isBuy qtyRaw
+                    actualSigned = fromIntegral posNew * sizeNew
+                    label =
+                        "applyExecutedQuantity case "
+                            ++ show (prevPos, prevSize, isBuy, qtyRaw)
+                assertCase label "keeps position sign normalized" (posNew `elem` [-1, 0, 1])
+                assertCase label "keeps outputs finite" (all isFiniteDouble [sizeNew, closeQty, openQty])
+                assertCase label "keeps outputs non-negative" (all (>= 0) [sizeNew, closeQty, openQty])
+                assertCase label "keeps flat size at zero" (posNew /= 0 || sizeNew == 0)
+                assertCase label "bounds close qty by prior size" (closeQty <= max 0 prevSize + eps)
+                assertCase label "bounds applied qty by sanitized fill" (closeQty + openQty <= qty + eps)
+                assertApprox (label ++ " preserves signed exposure delta") eps actualSigned expectedSigned
+
+testApplyReduceOnlyExecutedQuantityInvariantGrid :: IO ()
+testApplyReduceOnlyExecutedQuantityInvariantGrid = do
+    let eps = 1e-9
+        qtyCases = [-1, 0, 5e-10, 0.25, 1, 3, 0 / 0, 1 / 0]
+        stateCases =
+            [ (-1, 0)
+            , (-1, 0.75)
+            , (-1, 2)
+            , (0, 0)
+            , (0, 1.5)
+            , (1, 0)
+            , (1, 0.75)
+            , (1, 2)
+            ]
+        sanitizeQty qtyRaw
+            | not (isFiniteDouble qtyRaw) = 0
+            | qtyRaw <= eps = 0
+            | otherwise = qtyRaw
+        priorSigned prevPos prevSize =
+            fromIntegral (signum prevPos)
+                * if prevPos == 0
+                    then 0
+                    else max 0 prevSize
+        assertCase label msg = assert (label ++ " " ++ msg)
+    Control.Monad.forM_ stateCases $ \(prevPos, prevSize) ->
+        Control.Monad.forM_ qtyCases $ \qtyRaw -> do
+            let qty = sanitizeQty qtyRaw
+                currentSigned = priorSigned prevPos prevSize
+                currentSize = abs currentSigned
+                expectedClose = min currentSize qty
+                expectedSize = max 0 (currentSize - expectedClose)
+                expectedPos
+                    | expectedSize <= eps = 0
+                    | otherwise = signum prevPos
+                expectedSigned = fromIntegral expectedPos * expectedSize
+                (posNew, sizeNew, closeQty, openQty) =
+                    applyReduceOnlyExecutedQuantity prevPos prevSize qtyRaw
+                actualSigned = fromIntegral posNew * sizeNew
+                label =
+                    "applyReduceOnlyExecutedQuantity case "
+                        ++ show (prevPos, prevSize, qtyRaw)
+            assertCase label "keeps position sign normalized" (posNew `elem` [-1, 0, 1])
+            assertCase label "keeps outputs finite" (all isFiniteDouble [sizeNew, closeQty, openQty])
+            assertCase label "keeps outputs non-negative" (all (>= 0) [sizeNew, closeQty, openQty])
+            assertCase label "never opens a new leg" (openQty == 0)
+            assertCase label "never flips the side" (posNew == 0 || posNew == signum prevPos)
+            assertCase label "keeps flat size at zero" (posNew /= 0 || sizeNew == 0)
+            assertCase label "bounds close qty by prior size" (closeQty <= currentSize + eps)
+            assertCase label "bounds close qty by sanitized fill" (closeQty <= qty + eps)
+            assertApprox (label ++ " preserves reduce-only size") eps sizeNew expectedSize
+            assertApprox (label ++ " preserves reduce-only close qty") eps closeQty expectedClose
+            assertApprox (label ++ " preserves reduce-only signed exposure") eps actualSigned expectedSigned
+
+testApplyExecutedQuantityInvariants :: IO ()
+testApplyExecutedQuantityInvariants = do
+    let eps = 1e-9
+        maxSanitizedMagnitude = 1.7976931348623157e308 / 4
+        prevPositions = [-2, -1, 0, 1, 2, minBound, maxBound]
+        prevSizes =
+            [ negate (1 / 0)
+            , -1e308
+            , -1
+            , -5e-10
+            , 0 / 0
+            , 0
+            , 5e-10
+            , 1e-9
+            , 1e-8
+            , 0.5
+            , 2
+            , 1e307
+            , 1e308
+            , 1 / 0
+            ]
+        executedQtys =
+            [ negate (1 / 0)
+            , -1e308
+            , -1
+            , -5e-10
+            , 0 / 0
+            , 0
+            , 5e-10
+            , 1e-9
+            , 1e-8
+            , 0.5
+            , 3
+            , 1e307
+            , 1e308
+            , 1 / 0
+            ]
+        sanitizeMagnitude x
+            | not (isFiniteDouble x) || x <= 0 = 0
+            | otherwise = min maxSanitizedMagnitude x
+        sanitizeExecutedQty x =
+            let qty = sanitizeMagnitude x
+             in if qty <= eps
+                    then 0
+                    else qty
+        sanitizePrevSigned prevPos prevSize =
+            let prevSign = signum prevPos
+                prevSize' = sanitizeMagnitude prevSize
+             in if prevSign == 0
+                    then 0
+                    else fromIntegral prevSign * prevSize'
+        deltaSigned isBuy qty = if isBuy then qty else negate qty
+        finiteNonNegative x = isFiniteDouble x && x >= 0
+        signedExposure pos size = fromIntegral pos * size
+        caseLabel prevPos prevSize isBuy qtyRaw =
+            "prevPos="
+                ++ show prevPos
+                ++ " prevSize="
+                ++ show prevSize
+                ++ " isBuy="
+                ++ show isBuy
+                ++ " qtyRaw="
+                ++ show qtyRaw
+    Control.Monad.forM_ prevPositions $ \prevPos ->
+        Control.Monad.forM_ prevSizes $ \prevSize ->
+            Control.Monad.forM_ [False, True] $ \isBuy ->
+                Control.Monad.forM_ executedQtys $ \qtyRaw -> do
+                    let label = caseLabel prevPos prevSize isBuy qtyRaw
+                        (posNew, sizeNew, closeQty, openQty) = applyExecutedQuantity prevPos prevSize isBuy qtyRaw
+                        prevSigned = sanitizePrevSigned prevPos prevSize
+                        prevSize' = abs prevSigned
+                        qty = sanitizeExecutedQty qtyRaw
+                        expectedSigned = prevSigned + deltaSigned isBuy qty
+                        actualSigned = signedExposure posNew sizeNew
+                    assert (label ++ " size stays finite and non-negative") (finiteNonNegative sizeNew)
+                    assert (label ++ " closeQty stays finite and non-negative") (finiteNonNegative closeQty)
+                    assert (label ++ " openQty stays finite and non-negative") (finiteNonNegative openQty)
+                    assert (label ++ " pos stays normalized") (posNew `elem` [-1, 0, 1])
+                    assert (label ++ " closeQty is bounded by sanitized prior size") (closeQty <= prevSize' + eps)
+                    assert (label ++ " openQty is bounded by sanitized executed qty") (openQty <= qty + eps)
+                    assertApprox (label ++ " signed exposure is conserved after sanitization") eps actualSigned expectedSigned
+
 runSignalPostGate ::
     Bool ->
     (Int -> (Bool, Maybe String)) ->
@@ -2134,6 +2729,188 @@ testSignalGateMtfWarmup = do
                 (const True)
                 (const (True, 1))
     assert "insufficient MTF directions returns MTF_WARMUP" (result == (Nothing, Just "MTF_WARMUP"))
+
+testSignalGateMaxVolatility :: IO ()
+testSignalGateMaxVolatility = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                False
+                True
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "realized volatility above cap returns MAX_VOLATILITY" (result == (Nothing, Just "MAX_VOLATILITY"))
+
+testSignalGateMaxVolatilityPrecedesWarmup :: IO ()
+testSignalGateMaxVolatilityPrecedesWarmup = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                False
+                False
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "MAX_VOLATILITY takes precedence over VOL_TARGET_WARMUP when both block" (result == (Nothing, Just "MAX_VOLATILITY"))
+
+testSignalGateMaxVolatilityPrecedesTrendFilter :: IO ()
+testSignalGateMaxVolatilityPrecedesTrendFilter = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                False
+                True
+                (const False)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "MAX_VOLATILITY takes precedence over TREND_FILTER when both would block" (result == (Nothing, Just "MAX_VOLATILITY"))
+
+testSignalGateVolTargetWarmup :: IO ()
+testSignalGateVolTargetWarmup = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "missing realized-volatility state returns VOL_TARGET_WARMUP" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
+testSignalGateVolTargetWarmupPrecedesTrendFilter :: IO ()
+testSignalGateVolTargetWarmupPrecedesTrendFilter = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const False)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "VOL_TARGET_WARMUP takes precedence over TREND_FILTER when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
+testSignalGateVolTargetWarmupPrecedesKalmanCloud :: IO ()
+testSignalGateVolTargetWarmupPrecedesKalmanCloud = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const False)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "VOL_TARGET_WARMUP takes precedence over KALMAN_CLOUD when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
+testSignalGateVolTargetWarmupPrecedesPriceAction :: IO ()
+testSignalGateVolTargetWarmupPrecedesPriceAction = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const True)
+                (const False)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "VOL_TARGET_WARMUP takes precedence over PRICE_ACTION when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
+testSignalGateRepeatedBlockStaysHold :: IO ()
+testSignalGateRepeatedBlockStaysHold = do
+    let blockedResult =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+        repeatedResult =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const True)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+        expected = (Nothing, Just "VOL_TARGET_WARMUP")
+    assert "repeated blocked gate stays hold/no-intent" (blockedResult == expected && repeatedResult == expected && repeatedResult == blockedResult)
+
+testSignalThresholdNormalization :: IO ()
+testSignalThresholdNormalization = do
+    assert "threshold normalization leaves sane fractions unchanged" (normalizeSignalThreshold 0.05 == 0.05)
+    assert "threshold normalization clamps pathological values below 100%" (normalizeSignalThreshold 9.605316615448567 < 1)
+    assert "threshold normalization disables negative thresholds" (normalizeSignalThreshold (-0.1) == 0)
+
+testSignalGateEntryEdgeSpike :: IO ()
+testSignalGateEntryEdgeSpike = do
+    assert "edge spike gate accepts edges at the configured 4x limit" (signalEntryEdgeSpikeOk 0.01 (Just 0.04))
+    assert "edge spike gate rejects edges above the configured 4x limit" (not (signalEntryEdgeSpikeOk 0.01 (Just 0.040001)))
+    assert "edge spike gate rejects missing edge when open threshold is active" (not (signalEntryEdgeSpikeOk 0.01 Nothing))
+    assert "edge spike gate bypasses when open threshold is disabled" (signalEntryEdgeSpikeOk 0 Nothing)
+    assert "edge spike gate still rejects DOGE-style spikes when the incoming threshold is pathological" (not (signalEntryEdgeSpikeOk 9.605316615448567 (Just 9.757279245379696)))
 
 testSignalGateMtfConsensus :: IO ()
 testSignalGateMtfConsensus = do
@@ -2363,6 +3140,97 @@ testMergeTopCombosKeepsDistinctSources = do
     assert "same params should be kept when payload sources differ" (length combos == 2)
     assert "merged combos preserve distinct payload sources" (sources == ["unit-source-a", "unit-source-b"])
 
+testMergeTopCombosWithStats :: IO ()
+testMergeTopCombosWithStats = do
+    let mkCombo sym finalEq score =
+            object
+                [ "params" .= object ["symbol" .= sym]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= finalEq, "score" .= score]
+                ]
+        payloadA =
+            object
+                [ "source" .= ("unit-source" :: String)
+                , "generatedAtMs" .= (1 :: Int64)
+                , "combos"
+                    .= [ mkCombo ("BTCUSDT" :: String) (1.1 :: Double) (0.3 :: Double)
+                       , mkCombo ("BTCUSDT" :: String) (1.4 :: Double) (0.9 :: Double)
+                       , mkCombo ("ETHUSDT" :: String) (0.8 :: Double) (0.7 :: Double)
+                       ]
+                ]
+        payloadB =
+            object
+                [ "source" .= ("unit-source" :: String)
+                , "generatedAtMs" .= (2 :: Int64)
+                , "combos" .= [mkCombo ("SOLUSDT" :: String) (1.2 :: Double) (0.6 :: Double)]
+                ]
+        (merged, TopCombosMergeStats{tcmsRawCount = rawCount, tcmsDroppedCount = droppedCount, tcmsDedupedCount = dedupedCount}) =
+            mergeTopCombosPayloadsWithStats 10 3 [payloadA, payloadB]
+        combos = requireCombosArray "merged payload with stats" merged
+    assert "merge stats should count raw combos before sanitize" (rawCount == 4)
+    assert "merge stats should count combos dropped by sanitize" (droppedCount == 1)
+    assert "merge stats should count combos removed by dedupe" (dedupedCount == 1)
+    assert "merged payload should keep the remaining unique combos" (length combos == 2)
+
+testMergeTopCombosPreservesNewestPayloadMetadata :: IO ()
+testMergeTopCombosPreservesNewestPayloadMetadata = do
+    let mkCombo sym finalEq =
+            object
+                [ "params" .= object ["symbol" .= sym]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= finalEq, "score" .= (0.7 :: Double)]
+                ]
+        olderPayload =
+            object
+                [ "source" .= ("older-source" :: String)
+                , "generatedAtMs" .= (1 :: Int64)
+                , "bestOptimizationTechniques" .= ["older-technique" :: String]
+                , "combos" .= [mkCombo ("BTCUSDT" :: String) (1.2 :: Double)]
+                ]
+        newerPayload =
+            object
+                [ "source" .= ("newer-source" :: String)
+                , "generatedAtMs" .= (2 :: Int64)
+                , "bestOptimizationTechniques" .= ["newer-technique" :: String]
+                , "ensemble" .= object ["name" .= ("fresh-ensemble" :: String)]
+                , "combos" .= [mkCombo ("ETHUSDT" :: String) (1.3 :: Double)]
+                ]
+        merged = mergeTopCombosPayloads 10 3 [olderPayload, newerPayload]
+        combos = requireCombosArray "merged payload combos" merged
+    assert "merged payload should preserve both combos" (length combos == 2)
+    case merged of
+        Aeson.Object o -> do
+            let techniques =
+                    fromMaybe
+                        ([] :: [String])
+                        (KM.lookup "bestOptimizationTechniques" o >>= AT.parseMaybe Aeson.parseJSON)
+                ensembleName =
+                    KM.lookup "ensemble" o >>= \case
+                        Aeson.Object ensemble -> KM.lookup "name" ensemble >>= AT.parseMaybe Aeson.parseJSON
+                        _ -> Nothing
+            assert "merged payload should prefer newest metadata for overlapping keys" (techniques == ["newer-technique"])
+            assert "merged payload should keep newest auxiliary metadata fields" (ensembleName == Just ("fresh-ensemble" :: String))
+        _ -> error "merged payload root is not an object"
+
+testComboIdentityKeyKeepsDistinctSources :: IO ()
+testComboIdentityKeyKeepsDistinctSources = do
+    let mkCombo source =
+            object
+                [ "source" .= source
+                , "params" .= object ["symbol" .= ("BTCUSDT" :: String)]
+                , "openThreshold" .= (0.1 :: Double)
+                , "closeThreshold" .= (0.05 :: Double)
+                , "objective" .= ("score" :: String)
+                ]
+        keyA = comboIdentityKey (mkCombo ("unit-source-a" :: String))
+        keyB = comboIdentityKey (mkCombo ("unit-source-b" :: String))
+    assert "combo identity key should exist for valid combos" (isJust keyA && isJust keyB)
+    assert "combo identity keys should differ when source differs" (keyA /= keyB)
+
 testComboPerformanceKeyRanksScoreBeforeEquity :: IO ()
 testComboPerformanceKeyRanksScoreBeforeEquity = do
     let mkCombo sym score eq =
@@ -2378,6 +3246,58 @@ testComboPerformanceKeyRanksScoreBeforeEquity = do
                 ]
         first = requireHead "expected ranked combos" ranked
     assert "higher score should outrank higher equity when annualized return ties" (requireComboSymbol "performance key first combo" first == "BBBUSDT")
+
+testTopCombosPayloadEquivalentIgnoresRootSyncMetadata :: IO ()
+testTopCombosPayloadEquivalentIgnoresRootSyncMetadata = do
+    let mkPayload generatedAt source techniques =
+            object
+                [ "generatedAtMs" .= generatedAt
+                , "source" .= source
+                , "bestOptimizationTechniques" .= techniques
+                , "combos"
+                    .= [ object
+                            [ "params" .= object ["symbol" .= ("BTCUSDT" :: String)]
+                            , "openThreshold" .= (0.1 :: Double)
+                            , "closeThreshold" .= (0.05 :: Double)
+                            , "objective" .= ("score" :: String)
+                            , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double), "finalEquity" .= (1.4 :: Double), "score" .= (0.8 :: Double)]
+                            ]
+                       ]
+                ]
+        payloadA = mkPayload (1 :: Int64) ("db" :: String) ["sobol" :: String]
+        payloadB = mkPayload (2 :: Int64) ("top-combos-store" :: String) ["sobol" :: String]
+        payloadC = mkPayload (2 :: Int64) ("top-combos-store" :: String) ["bayes" :: String]
+    assert "payload equivalence should ignore generatedAt/source churn" (topCombosPayloadEquivalent payloadA payloadB)
+    assert "payload equivalence should still detect meaningful metadata changes" (not (topCombosPayloadEquivalent payloadA payloadC))
+
+testCompactTopCombosPayloadForSync :: IO ()
+testCompactTopCombosPayloadForSync = do
+    let payload =
+            object
+                [ "generatedAtMs" .= (1 :: Int64)
+                , "combos"
+                    .= [ object
+                            [ "uuid" .= ("combo-1" :: String)
+                            , "finalEquity" .= (1.4 :: Double)
+                            , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double)]
+                            , "params" .= object ["symbol" .= ("BTCUSDT" :: String)]
+                            , "operations"
+                                .= [ object
+                                        [ "side" .= ("BUY" :: String)
+                                        , "price" .= (100.0 :: Double)
+                                        ]
+                                   ]
+                            ]
+                       ]
+                ]
+        compacted = compactTopCombosPayloadForSync payload
+        combo = requireHead "expected compacted combo" (requireCombosArray "compacted combos" compacted)
+    case combo of
+        Aeson.Object o -> do
+            assert "sync compaction should drop operations" (isNothing (KM.lookup "operations" o))
+            assert "sync compaction should keep params" (isJust (KM.lookup "params" o))
+            assert "sync compaction should keep metrics" (isJust (KM.lookup "metrics" o))
+        _ -> error "expected compacted combo object"
 
 runMergeAndReadFirstCombo :: String -> Aeson.Value -> IO Aeson.Value
 runMergeAndReadFirstCombo label barsValue =
@@ -2516,8 +3436,10 @@ testRunMergePreservesDistinctPayloadSources =
                 [mkPayload ("unit-source-b" :: String) (2 :: Int) (1.3 :: Double)]
         let combos = requireCombosArray "merge distinct payload source combos" outValue
             sources = sort (map (requireComboSource "merge distinct payload source combo") combos)
+            uuids = sort (map (requireComboUuid "merge distinct payload source combo") combos)
         assert "runMerge should keep combos distinct when only payload source differs" (length combos == 2)
         assert "runMerge should propagate payload-level source metadata into merged combos" (sources == ["unit-source-a", "unit-source-b"])
+        assert "runMerge should assign distinct uuids per source" (length uuids == 2 && head uuids /= last uuids)
 
 testRunMergePreservesDexPlatformSymbolSemantics :: IO ()
 testRunMergePreservesDexPlatformSymbolSemantics =
@@ -2914,9 +3836,16 @@ testMethodSelection = do
     assert "edge_blend falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgeBlend w kal lstm == (blend, blend))
     assert "edge_pick falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgePick w kal lstm == (blend, blend))
     assert "geo_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodGeoBlend w kal lstm == (blend, blend))
-    let (regimeLeft, regimeRight) = selectPredictions MethodRegimeSwitch w kal lstm
-    assertApproxList "regime_switch falls back to weighted average when context is unavailable (left stream)" 1e-9 blend regimeLeft
-    assertApproxList "regime_switch falls back to weighted average when context is unavailable (right stream)" 1e-9 blend regimeRight
+    let (regimeFallbackLeft, regimeFallbackRight) = selectPredictions MethodRegimeSwitch w [1.0] [10.0]
+    assertApproxList "regime_switch falls back to weighted average without prior momentum context (left stream)" 1e-9 (take 1 blend) regimeFallbackLeft
+    assertApproxList "regime_switch falls back to weighted average without prior momentum context (right stream)" 1e-9 (take 1 blend) regimeFallbackRight
+    let regimeKal = [100.0, 106.0, 107.0, 101.0]
+        regimeLstm = [100.0, 104.0, 98.0, 99.0]
+        regimeBlendWeight = 0.25
+        regimeExpected = [100.0, 105.2, 102.5, 99.5]
+        (regimeLeft, regimeRight) = selectPredictions MethodRegimeSwitch regimeBlendWeight regimeKal regimeLstm
+    assertApproxList "regime_switch applies momentum/divergence routing (left stream)" 1e-9 regimeExpected regimeLeft
+    assertApproxList "regime_switch applies momentum/divergence routing (right stream)" 1e-9 regimeExpected regimeRight
     let (safeBlendLeft, safeBlendRight) = selectPredictions MethodBlend badWeight badKal badLstm
     assert "blend with non-finite weight/preds keeps output finite (left stream)" (all finite safeBlendLeft)
     assert "blend with non-finite weight/preds keeps output finite (right stream)" (all finite safeBlendRight)
@@ -3069,6 +3998,40 @@ testOptimizerPartialTakeProfitZeroRange = do
             assert "zero-range partial take-profit is disabled" (isNothing mPartial)
             assertApprox "zero-range partial take-profit keeps RNG unchanged" 1e-15 probe expectedProbe
 
+testOptimizerQualityPresetIntervals :: IO ()
+testOptimizerQualityPresetIntervals = do
+    let explicitInterval = qualityPresetIntervalFields (Just " 1H ") Nothing
+        explicitIntervals = qualityPresetIntervalFields Nothing (Just "15m, 1h")
+        defaultIntervals = qualityPresetIntervalFields Nothing Nothing
+    assert
+        "quality preset keeps explicit singleton interval instead of widening to defaults"
+        (explicitInterval == (Just "1H", Nothing))
+    assert
+        "quality preset keeps explicit interval list instead of replacing it"
+        (explicitIntervals == (Nothing, Just "15m, 1h"))
+    assert
+        "quality preset supplies default search intervals only when the user provided none"
+        (defaultIntervals == (Nothing, Just binanceIntervalsCsv))
+
+testOptimizerCalmarFallback :: IO ()
+testOptimizerCalmarFallback = do
+    let metrics =
+            KM.fromList
+                [ (AK.fromString "finalEquity", Aeson.toJSON (1.25 :: Double))
+                , (AK.fromString "annualizedReturn", Aeson.toJSON (0.42 :: Double))
+                , (AK.fromString "maxDrawdown", Aeson.toJSON (0.0 :: Double))
+                , (AK.fromString "turnover", Aeson.toJSON (0.0 :: Double))
+                , (AK.fromString "roundTrips", Aeson.toJSON (3 :: Int))
+                , (AK.fromString "tradeCount", Aeson.toJSON (3 :: Int))
+                , (AK.fromString "exposure", Aeson.toJSON (0.2 :: Double))
+                ]
+        score = objectiveScore metrics "calmar" 1.5 0.2
+    assertApprox
+        "calmar should fall back to annualized return when max drawdown is zero"
+        1e-12
+        score
+        0.42
+
 testOptimizerNormalizeOptionalPositiveFraction :: IO ()
 testOptimizerNormalizeOptionalPositiveFraction = do
     assert "negative fraction is disabled" (isNothing (normalizeOptionalPositiveFraction (Just (-0.2))))
@@ -3102,6 +4065,73 @@ testOptimizerIntRangeFullSpan = do
     assert "full-span sample stays in bounds (second)" (v2 >= minBound && v2 <= maxBound)
     assert "full-span range advances RNG state" (probe /= expectedProbe)
 
+testFormalCloseTimingWindow :: IO ()
+testFormalCloseTimingWindow = do
+    let sample =
+            optimalCloseObservation
+                "combo-a"
+                1000
+                2000
+                [ (900, -1)
+                , (1200, 0.1)
+                , (1500, 0.4)
+                , (2600, 0.7)
+                , (2900, 0.6)
+                ]
+    case sample of
+        Nothing -> error "expected optimal close sample"
+        Just obs -> do
+            assert "tm stays within [ta, 2tc-ta]" (ctoOptimalCloseAtMs obs == 2600)
+            let stats = buildCloseTimingStats [obs]
+            assert "one combo stat emitted" (length stats == 1)
+            case stats of
+                [CloseTimingStats _ _ medianRatio _ _ _] ->
+                    assert "single-sample median ratio is 1.6" (abs (medianRatio - 1.6) < 1e-9)
+                _ -> pure ()
+
+testFormalCloseTimingDecision :: IO ()
+testFormalCloseTimingDecision = do
+    let observations =
+            [ CloseTimingObservation "combo-a" 0 100 120
+            , CloseTimingObservation "combo-a" 0 100 140
+            , CloseTimingObservation "combo-a" 0 100 160
+            ]
+        stats = buildCloseTimingStats observations
+    case stats of
+        [st] -> do
+            let holdDecision = closeTimingDecision 0.0 st 0 100 120
+                closeDecision = closeTimingDecision 1.0 st 0 100 180
+            assert "policy holds before target quantile" (not (ctdShouldClose holdDecision))
+            assert "policy closes after risk-budget target" (ctdShouldClose closeDecision)
+        _ -> error "expected one combo stat"
+
+testCloseTimingSelectsWindowOptimum :: IO ()
+testCloseTimingSelectsWindowOptimum = do
+    let prices = [100, 101, 103, 102, 105, 104, 103]
+        trades = [ComboTrade "combo-a" 1 3 101 1]
+        samples = timingSamples prices trades
+    case samples of
+        [sample] -> do
+            assert "tm chooses maximum return in [ta, ta+2*(tc-ta)]" (ttsOptimalIndex sample == 4)
+            assert "optimal duration is measured from ta" (ttsOptimalDuration sample == 3)
+        _ -> error "expected exactly one timing sample"
+
+testCloseTimingSummaryRatios :: IO ()
+testCloseTimingSummaryRatios = do
+    let prices = [100, 102, 104, 103, 106, 108, 107]
+        trades =
+            [ ComboTrade "combo-a" 0 2 100 1
+            , ComboTrade "combo-a" 1 3 102 1
+            ]
+        samples = timingSamples prices trades
+        stats = summarizeAllCombos samples
+    case stats of
+        [ComboTimingStats comboId sampleCount medianRatio _ _ _ _ _] -> do
+            assert "summary keeps combo id" (comboId == "combo-a")
+            assert "summary counts samples" (sampleCount == 2)
+            assert "median ratio is >= 1 for profitable extensions" (medianRatio >= 1)
+        _ -> error "expected one combo summary"
+
 formalVerificationReport :: FormalVerificationReport
 formalVerificationReport = verifyFormalOptimization
 
@@ -3134,30 +4164,3 @@ forwardReturns ps =
     [ if p0 == 0 then 0 else p1 / p0 - 1
     | (p0, p1) <- zip ps (drop 1 ps)
     ]
-
-testCloseTimingSelectsWindowOptimum :: IO ()
-testCloseTimingSelectsWindowOptimum = do
-    let prices = [100, 101, 103, 102, 105, 104, 103]
-        trades = [ComboTrade "c1" 1 3 101 1]
-        samples = timingSamples prices trades
-    case samples of
-        [s] -> do
-            assert "tm chooses maximum return in [ta, ta+2*(tc-ta)]" (ttsOptimalIndex s == 4)
-            assert "optimal duration measured from ta" (ttsOptimalDuration s == 3)
-        _ -> error "expected exactly one timing sample"
-
-testCloseTimingSummaryRatios :: IO ()
-testCloseTimingSummaryRatios = do
-    let prices = [100, 102, 104, 103, 106, 108, 107]
-        trades =
-            [ ComboTrade "combo-a" 0 2 100 1
-            , ComboTrade "combo-a" 1 3 102 1
-            ]
-        samples = timingSamples prices trades
-        stats = summarizeAllCombos samples
-    case stats of
-        [st] -> do
-            assert "summary keeps combo id" (ctsComboId st == "combo-a")
-            assert "summary counts samples" (ctsSampleCount st == 2)
-            assert "median ratio is >= 1 for profitable extension" (ctsMedianRatio st >= 1)
-        _ -> error "expected one combo summary"

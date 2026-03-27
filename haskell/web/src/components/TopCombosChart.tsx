@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import type { IntrabarFill, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { fmtPct, fmtRatio } from "../lib/format";
-import { PLATFORM_LABELS } from "../app/constants";
+import { comboMarketLabel, comboMarketValue } from "../app/comboMarket";
 import { fmtTimeMs } from "../app/utils";
 
 export type OptimizationComboParams = {
@@ -71,6 +71,8 @@ export type OptimizationComboParams = {
   fundingRate?: number | null;
   fundingBySide?: boolean | null;
   fundingOnOpen?: boolean | null;
+  routerLookback?: number | null;
+  routerMinScore?: number | null;
   periodsPerYear?: number | null;
   walkForwardFolds?: number | null;
   walkForwardEmbargoBars?: number | null;
@@ -121,6 +123,20 @@ type Props = {
 };
 
 export const TopCombosChart = React.memo(function TopCombosChart({ combos, loading, error, selectedId, onSelect, onApply }: Props) {
+  const annualizedEquityValue = (combo: OptimizationCombo): number | null => {
+    const annReturn = combo.metrics?.annualizedReturn;
+    if (typeof annReturn !== "number" || !Number.isFinite(annReturn)) return null;
+    const annEq = annReturn + 1;
+    return Number.isFinite(annEq) ? annEq : null;
+  };
+  // Hooks must stay above prop-dependent early returns so empty/loading renders
+  // and populated renders execute the same hook sequence.
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
+  const maxRating = useMemo(
+    () => combos.reduce((acc, combo) => Math.max(acc, annualizedEquityValue(combo) ?? combo.finalEquity), 0.0) || 1.0,
+    [combos],
+  );
+
   if (loading && combos.length === 0) {
     return <div className="hint">Looking for optimizer combos…</div>;
   }
@@ -139,17 +155,6 @@ export const TopCombosChart = React.memo(function TopCombosChart({ combos, loadi
     );
   }
 
-  const annualizedEquityValue = (combo: OptimizationCombo): number | null => {
-    const annReturn = combo.metrics?.annualizedReturn;
-    if (typeof annReturn !== "number" || !Number.isFinite(annReturn)) return null;
-    const annEq = annReturn + 1;
-    return Number.isFinite(annEq) ? annEq : null;
-  };
-  const [hoveredId, setHoveredId] = useState<number | null>(null);
-  const maxRating = useMemo(
-    () => combos.reduce((acc, combo) => Math.max(acc, annualizedEquityValue(combo) ?? combo.finalEquity), 0.0) || 1.0,
-    [combos],
-  );
   const fmtOptRatio = (v: number | null | undefined, digits = 4): string =>
     typeof v === "number" && Number.isFinite(v) ? fmtRatio(v, digits) : "—";
   const fmtOptPct = (v: number | null | undefined, digits = 2): string =>
@@ -184,8 +189,7 @@ export const TopCombosChart = React.memo(function TopCombosChart({ combos, loadi
       ) : null}
       {combos.map((combo) => {
         const barsLabel = combo.params.bars <= 0 ? "auto" : combo.params.bars.toString();
-        const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
-        const sourceLabel = platform ? PLATFORM_LABELS[platform] : combo.source === "csv" ? "CSV" : "Unknown";
+        const marketLabel = comboMarketLabel(comboMarketValue(combo));
         const symbolLabel = combo.params.binanceSymbol ? combo.params.binanceSymbol : null;
         const annualizedEquity = annualizedEquityValue(combo);
         const annualizedEquityLabel = annualizedEquity != null ? fmtRatio(annualizedEquity, 4) : null;
@@ -252,7 +256,7 @@ export const TopCombosChart = React.memo(function TopCombosChart({ combos, loadi
             <div className="comboRowHeader">
               <div>
                 <div className="comboTitle">
-                  #{combo.rank ?? combo.id} · {sourceLabel}
+                  #{combo.rank ?? combo.id} · {marketLabel}
                   {symbolLabel ? ` · ${symbolLabel}` : ""}
                   {" · "}
                   {combo.params.interval} · bars={barsLabel}
