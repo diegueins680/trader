@@ -254,6 +254,7 @@ data Args = Args
     , argJson :: Bool
     , argServe :: Bool
     , argOpsBackfillCommits :: Bool
+    , argTopCombosBackfillCloseTiming :: Bool
     , argPort :: Int
     , -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
       argKalmanZMin :: Double
@@ -938,6 +939,11 @@ opts = do
     argJson <- switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
     argServe <- switch (long "serve" <> help "Run REST API server on localhost instead of running the CLI workflow")
     argOpsBackfillCommits <- switch (long "ops-backfill-commits" <> help "Backfill git_commits from repo history and link ops by commit time (requires TRADER_DB_URL)")
+    argTopCombosBackfillCloseTiming <-
+        switch
+            ( long "top-combos-backfill-close-timing"
+                <> help "Rerun persisted top combos through the close-timing analyzer, store metrics.closeTiming, and retune params.maxHoldBars when recommended."
+            )
     argPort <- option auto (long "port" <> value 8080 <> help "REST API port (when --serve)")
     argKalmanZMin <- option auto (long "kalman-z-min" <> value 0.5 <> help "Min |Kalman mean|/std (z-score) required to treat Kalman as directional (0 disables)")
     argKalmanZMax <- option auto (long "kalman-z-max" <> value 3 <> help "Z-score mapped to position size=1 when --confidence-sizing is enabled")
@@ -1096,10 +1102,13 @@ validateArgs args0 = do
         "Provide only one of --data or --binance-symbol (unless using a DEX platform with --data)"
         (not (present (argData args) && present (argBinanceSymbol args) && not isDex))
     ensure
-        "Provide a data source: --data or --binance-symbol (unless using --serve or --ops-backfill-commits)"
-        (argServe args || argOpsBackfillCommits args || present (argData args) || present (argBinanceSymbol args))
-    ensure "--json cannot be used with --serve or --ops-backfill-commits" (not (argJson args && (argServe args || argOpsBackfillCommits args)))
+        "Provide a data source: --data or --binance-symbol (unless using --serve, --ops-backfill-commits, or --top-combos-backfill-close-timing)"
+        (argServe args || argOpsBackfillCommits args || argTopCombosBackfillCloseTiming args || present (argData args) || present (argBinanceSymbol args))
+    ensure
+        "--json cannot be used with --serve, --ops-backfill-commits, or --top-combos-backfill-close-timing"
+        (not (argJson args && (argServe args || argOpsBackfillCommits args || argTopCombosBackfillCloseTiming args)))
     ensure "--ops-backfill-commits cannot be used with --serve" (not (argOpsBackfillCommits args && argServe args))
+    ensure "--top-combos-backfill-close-timing cannot be used with --serve" (not (argTopCombosBackfillCloseTiming args && argServe args))
     ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
     ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)
     let isBinance = argPlatform args == PlatformBinance

@@ -44,9 +44,11 @@ import Trader.Formal.CloseTiming (
     CloseTimingDecision (..),
     CloseTimingObservation (..),
     CloseTimingStats (..),
+    ComboCloseTimingReport (..),
     ComboTimingStats (..),
     ComboTrade (..),
     TradeTimingSample (..),
+    analyzeComboCloseTiming,
     buildCloseTimingStats,
     closeTimingDecision,
     optimalCloseObservation,
@@ -65,7 +67,15 @@ import Trader.Method (Method (..), parseMethod, selectPredictions)
 import Trader.Metrics (bmAnnualizedReturn, bmAvgTradeReturn, bmCalmar, bmExposure, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn, computeMetrics)
 import Trader.Optimization (TuneObjective (..), bestFinalEquity, optimizeOperations, parseTuneObjective, sweepThreshold)
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
-import Trader.Optimizer.Optimize (normalizeObjectiveCode, normalizeOptionalPositiveFraction, objectiveScore, qualityPresetIntervalFields, sampleTakeProfitPartial)
+import Trader.Optimizer.Optimize (
+    appliedCloseTimingMaxHoldBars,
+    closeTimingReportFromBacktest,
+    normalizeObjectiveCode,
+    normalizeOptionalPositiveFraction,
+    objectiveScore,
+    qualityPresetIntervalFields,
+    sampleTakeProfitPartial,
+ )
 import Trader.Optimizer.Random (nextDouble, nextIntRange, seedRng)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (Platform (..), coinbaseIntervalSeconds, isPlatformInterval, krakenIntervalMinutes, parsePlatform, poloniexIntervalLabel, poloniexIntervalSeconds)
@@ -149,6 +159,9 @@ main = do
               , run "close timing short side picks window minimum price" testCloseTimingShortSide
               , run "close timing out-of-range exit yields no sample" testCloseTimingOutOfRangeExit
               , run "close timing summarizes combo ratios" testCloseTimingSummaryRatios
+              , run "close timing recommends max hold on positive lift" testCloseTimingRecommendsMaxHoldBars
+              , run "close timing skips max hold retune without lift" testCloseTimingSkipsMaxHoldBarsWithoutLift
+              , run "close timing backtest helper reuses analyzer recommendation" testCloseTimingBacktestReportHelper
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
               , run "binance trade parser accepts numeric and whitespace fields" testBinanceTradeParserAcceptsNumericAndWhitespace
@@ -4174,6 +4187,44 @@ testCloseTimingSummaryRatios = do
             assert "summary counts samples" (sampleCount == 2)
             assert "median ratio is >= 1 for profitable extensions" (medianRatio >= 1)
         _ -> error "expected one combo summary"
+
+testCloseTimingRecommendsMaxHoldBars :: IO ()
+testCloseTimingRecommendsMaxHoldBars = do
+    let prices = [100, 102, 104, 103, 106, 108, 107]
+        trades =
+            [ ComboTrade "combo-a" 0 2 100 1
+            , ComboTrade "combo-a" 1 3 102 1
+            ]
+        report = analyzeComboCloseTiming "combo-a" prices trades
+    assert "report keeps sample count" (cctrSampleCount report == 2)
+    assert "positive lift yields a max-hold recommendation" (cctrRecommendedMaxHoldBars report == Just 4)
+    assert "median lift stays positive" (maybe False (> 0) (cctrMedianLift report))
+
+testCloseTimingSkipsMaxHoldBarsWithoutLift :: IO ()
+testCloseTimingSkipsMaxHoldBarsWithoutLift = do
+    let prices = [100, 101, 102, 101]
+        trades = [ComboTrade "combo-a" 0 2 100 1]
+        report = analyzeComboCloseTiming "combo-a" prices trades
+    assert "zero-lift sample still reports count" (cctrSampleCount report == 1)
+    assert "no positive lift means no max-hold retune" (isNothing (cctrRecommendedMaxHoldBars report))
+
+testCloseTimingBacktestReportHelper :: IO ()
+testCloseTimingBacktestReportHelper = do
+    let payload =
+            object
+                [ "backtest"
+                    .= object
+                        [ "prices" .= ([100, 102, 104, 103, 106, 108, 107] :: [Double])
+                        , "positions" .= ([1, 1, 1, 1, 1, 0, 0] :: [Double])
+                        , "trades"
+                            .= [ object ["entryIndex" .= (0 :: Int), "exitIndex" .= (2 :: Int)]
+                               , object ["entryIndex" .= (1 :: Int), "exitIndex" .= (3 :: Int)]
+                               ]
+                        ]
+                ]
+        report = closeTimingReportFromBacktest "combo-a" (Just payload)
+    assert "helper extracts close-timing samples from backtest payloads" (cctrSampleCount report == 2)
+    assert "helper preserves the analyzer recommendation" (appliedCloseTimingMaxHoldBars (Just 2) report == Just 4)
 
 formalVerificationReport :: FormalVerificationReport
 formalVerificationReport = verifyFormalOptimization
