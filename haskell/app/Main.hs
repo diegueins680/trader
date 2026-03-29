@@ -290,6 +290,8 @@ import Trader.S3 (
  )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.SignalGates (
+    SignalThresholdBoundary (..),
+    mkSignalThresholdBoundary,
     normalizeSignalThreshold,
     signalCrossAssetCheck,
     signalEntryEdgeSpikeOk,
@@ -4982,6 +4984,27 @@ botStatusJson st =
                         , "trendLookbackAdd" .= baTrendLookbackAdd adj
                         ]
                 ]
+        thresholdBoundary =
+            mkSignalThresholdBoundary
+                (argOpenThreshold argsBase)
+                (argCloseThreshold argsBase)
+                (lsOpenThreshold (botLatestSignal st))
+                (lsCloseThreshold (botLatestSignal st))
+        thresholdsJson =
+            object
+                [ "configured"
+                    .= object
+                        [ "threshold" .= stbConfiguredOpenThreshold thresholdBoundary
+                        , "openThreshold" .= stbConfiguredOpenThreshold thresholdBoundary
+                        , "closeThreshold" .= stbConfiguredCloseThreshold thresholdBoundary
+                        ]
+                , "effective"
+                    .= object
+                        [ "threshold" .= stbEffectiveOpenThreshold thresholdBoundary
+                        , "openThreshold" .= stbEffectiveOpenThreshold thresholdBoundary
+                        , "closeThreshold" .= stbEffectiveCloseThreshold thresholdBoundary
+                        ]
+                ]
 
         klineJson k =
             object
@@ -5002,6 +5025,7 @@ botStatusJson st =
             , "threshold" .= argOpenThreshold (botArgs st)
             , "openThreshold" .= argOpenThreshold (botArgs st)
             , "closeThreshold" .= argCloseThreshold (botArgs st)
+            , "thresholds" .= thresholdsJson
             , "settings"
                 .= object
                     [ "pollSeconds" .= bsPollSeconds (botSettings st)

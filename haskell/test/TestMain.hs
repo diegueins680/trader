@@ -77,7 +77,7 @@ import Trader.Predictors.KNN (predictKNN, trainKNN)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors, predictorSetFromString)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
-import Trader.SignalGates (normalizeSignalThreshold, signalCrossAssetCheck, signalEntryEdgeSpikeOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
+import Trader.SignalGates (SignalThresholdBoundary (..), mkSignalThresholdBoundary, normalizeSignalThreshold, signalCrossAssetCheck, signalEntryEdgeSpikeOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
 import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
@@ -256,6 +256,7 @@ main = do
               , run "signal gate prioritizes VOL_TARGET_WARMUP over price action" testSignalGateVolTargetWarmupPrecedesPriceAction
               , run "signal gate repeat blocked state stays hold" testSignalGateRepeatedBlockStaysHold
               , run "signal gate normalizes pathological thresholds" testSignalThresholdNormalization
+              , run "signal threshold boundary preserves configured values and clamps effective values" testSignalThresholdBoundary
               , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
               , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
               , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
@@ -2907,13 +2908,24 @@ testSignalThresholdNormalization = do
     assert "threshold normalization clamps pathological values below 100%" (normalizeSignalThreshold 9.605316615448567 < 1)
     assert "threshold normalization disables negative thresholds" (normalizeSignalThreshold (-0.1) == 0)
 
+testSignalThresholdBoundary :: IO ()
+testSignalThresholdBoundary = do
+    let boundary = mkSignalThresholdBoundary 1.603480733918799 1.603480733918799 1.603480733918799 1.603480733918799
+    assertApprox "threshold boundary keeps the configured raw open threshold for observability" 1e-12 (stbConfiguredOpenThreshold boundary) 1.603480733918799
+    assertApprox "threshold boundary keeps the configured raw close threshold for observability" 1e-12 (stbConfiguredCloseThreshold boundary) 1.603480733918799
+    assertApprox "threshold boundary clamps effective open threshold below 100%" 1e-12 (stbEffectiveOpenThreshold boundary) 0.999999
+    assertApprox "threshold boundary clamps effective close threshold below 100%" 1e-12 (stbEffectiveCloseThreshold boundary) 0.999999
+
 testSignalGateEntryEdgeSpike :: IO ()
 testSignalGateEntryEdgeSpike = do
     assert "edge spike gate accepts edges at the configured 4x limit" (signalEntryEdgeSpikeOk 0.01 (Just 0.04))
     assert "edge spike gate rejects edges above the configured 4x limit" (not (signalEntryEdgeSpikeOk 0.01 (Just 0.040001)))
+    assert "edge spike gate accepts the absolute 50% credibility cap at equality" (signalEntryEdgeSpikeOk 0.2 (Just 0.5))
+    assert "edge spike gate rejects edges above the absolute 50% credibility cap" (not (signalEntryEdgeSpikeOk 0.2 (Just 0.500001)))
     assert "edge spike gate rejects missing edge when open threshold is active" (not (signalEntryEdgeSpikeOk 0.01 Nothing))
     assert "edge spike gate bypasses when open threshold is disabled" (signalEntryEdgeSpikeOk 0 Nothing)
     assert "edge spike gate still rejects DOGE-style spikes when the incoming threshold is pathological" (not (signalEntryEdgeSpikeOk 9.605316615448567 (Just 9.757279245379696)))
+    assert "edge spike gate rejects ETC-style absolute edge blowouts even below the 4x threshold multiple" (not (signalEntryEdgeSpikeOk 0.4605182527985672 (Just 0.8874828812267511)))
 
 testSignalGateMtfConsensus :: IO ()
 testSignalGateMtfConsensus = do

@@ -1,5 +1,132 @@
 # Trader Reports
 
+## 2026-03-27
+
+### Findings
+- Primary local data source: `haskell/.tmp/bot/tenants/binance-dc286605a9946343b18aeb2670e23ce51f6d9e0e1b37f50205f1945c6c54016a/bot-state-*.json`.
+- Those artifacts were saved at `2026-03-28 01:09-01:10 America/Guayaquil`, so I truncated the review to the task cutoff `2026-03-27 23:44 America/Guayaquil` rather than counting post-midnight exits.
+- Three completed trades had exited by the cutoff and all three lost money:
+  - `ETCUSDT` short, `3m`, entered `2026-03-27 09:48 -05`, exited `2026-03-27 10:09 -05`, return `-0.02727%`, `TRAILING_STOP`
+  - `SOLUSDT` long, `4h`, entered `2026-03-27 07:00 -05`, exited `2026-03-27 15:00 -05`, return `-0.01803%`, `TRAILING_STOP`
+  - `BTCUSDT` short, `1d`, entered `2026-03-26 19:00 -05`, exited `2026-03-27 19:00 -05`, return `-0.08248%`, `STOP_LOSS`
+- Day-scoped aggregate metrics at the cutoff: win rate `0.0%`, average return `-0.04260%`, compounded return `-0.12774%`.
+- Same-day open exposure at the cutoff still concentrated in the already-familiar edge pathology:
+  - `ATOMUSDT` long, entry edge `9.217%`, raw `openThreshold=3.197%`
+  - `DOTUSDT` short, entry edge `106.66%`, raw `openThreshold=101.67%`
+  - `DOGEUSDT` short, entry edge `100.34%`, raw `openThreshold=160.35%`
+- The main decision problem remained implausible one-bar forecast magnitude. The `ETCUSDT` loser still matched the prior-day failure mode (`88.54%` edge against raw `46.05%` threshold), and the open `DOGEUSDT` / `DOTUSDT` positions were even less credible. But today’s new engineering issue was observability drift: saved bot-state continued surfacing raw threshold values above `1`, while the live decision logic had already been normalizing thresholds internally. That made it impossible to tell from the snapshot alone whether a large threshold was a configured value, an effective runtime value, or both.
+
+### Research Notes
+- The same literature from the 2026-03-26 review still fits today’s conditions: clipping or winsorizing extreme machine-learning forecasts improves robustness when raw model magnitudes become implausible. Source: Buncic, Caner, Matthies, “Pooling and Winsorizing Machine Learning Forecasts” (`https://www.sciencedirect.com/science/article/pii/S0169207024000640`).
+- Trend-following evidence supports keeping directional momentum logic, but only with disciplined implementation and sane signal scaling. Source: Hurst, Ooi, Pedersen, “A Century of Evidence on Trend-Following Investing” (`https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2993026`).
+- Volatility-managed trading work reinforces the same point: raw signal magnitude should not be trusted blindly when risk state changes or model scale drifts. Source: Moreira, Muir, “Volatility Managed Portfolios” (`https://ssrn.com/abstract=2773438`).
+- Inference for today: the trading fix remains forecast clipping via the in-flight `50%` cap, while the code change worth making tonight is an explicit configured-vs-effective threshold boundary in runtime state so future reviews can verify whether that guardrail is actually being fed sane inputs.
+
+### Hypotheses
+- Keep the dirty absolute `50%` `EDGE_SPIKE` cap as the primary decision fix; today did not justify inventing a second overlapping gate.
+- Add one narrow observability invariant at the bot-status boundary: every saved status/snapshot should expose both configured thresholds and normalized effective thresholds.
+- Preserve backward compatibility by adding a nested `thresholds` block instead of mutating the existing top-level fields in a cron-sized change.
+
+### Metrics
+- Before the new observability patch (cutoff-scoped):
+  - Completed trades: `3`
+  - Completed-trade compounded return: `-0.12774%`
+  - Open positions entered today at cutoff: `3`
+  - Same-day order events by cutoff: `9`
+- Counterfactual under the already-dirty `50%` edge cap using the same cutoff:
+  - Blocked completed trade: `ETCUSDT`
+  - Blocked open positions: `DOGEUSDT`, `DOTUSDT`
+  - Completed trades: `2`
+  - Completed-trade compounded return: `-0.10050%`
+  - Open positions entered today at cutoff: `1` (`ATOMUSDT`)
+- New explicit threshold-boundary examples after the code change:
+  - `DOGEUSDT`: configured `1.6034807339`, effective `0.999999`
+  - `DOTUSDT`: configured `1.0167245813`, effective `0.999999`
+
+### Changes Made
+- Added `SignalThresholdBoundary` and `mkSignalThresholdBoundary` to `haskell/app/Trader/SignalGates.hs`.
+- Updated `haskell/app/Main.hs` so `/bot/status` and persisted bot snapshots emit:
+  - `thresholds.configured.threshold/openThreshold/closeThreshold`
+  - `thresholds.effective.threshold/openThreshold/closeThreshold`
+- Added regression coverage in `haskell/test/TestMain.hs` to lock the configured-vs-effective threshold behavior.
+- Updated `README.md` and `CHANGELOG.md` for the new bot-status/snapshot field.
+
+### Validation Results
+- Artifact replay used `python3` over the saved bot-state JSON files with an explicit cutoff at `2026-03-27 23:44 America/Guayaquil`.
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal test`
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal build`
+- Result:
+  - `cabal test` passed.
+  - `cabal build` recompiled the changed path through `Trader.SignalGates`, `Main`, and the linked executables, but the final `trader-hs` link never returned in this sandbox after several minutes; no compiler error surfaced before the bounded run stopped waiting.
+  - The required completion ping (`openclaw system event ...`) was attempted exactly once from Codex and failed because the local gateway closed with `1006 abnormal closure`.
+
+### Remaining Risks
+- Today’s review still depends on snapshot reconstruction rather than a persisted day ledger, and the available artifacts required manual truncation to the task cutoff because they were saved after midnight.
+- The observability patch makes threshold normalization auditable, but it does not change PnL directly; actual trade improvement still depends on deploying the already-dirty `50%` entry-edge cap.
+- If tomorrow still shows losses after the cap is live and auditable, the next focused experiment should inspect exit behavior on BTC/SOL rather than tightening entry filters further.
+
+## 2026-03-26
+
+### Findings
+- Primary local data source: `haskell/.tmp/bot/tenants/binance-dc286605a9946343b18aeb2670e23ce51f6d9e0e1b37f50205f1945c6c54016a/bot-state-*.json`, saved at `2026-03-26 23:27-23:28 America/Guayaquil`.
+- Four completed trades touched local date `2026-03-26` after timezone normalization, and every one of them came from the same `ETCUSDT` `3m` bot:
+  - short, entered `2026-03-26 18:54 -05`, exited `2026-03-26 19:12 -05`, return `-0.0229%`, `TRAILING_STOP`
+  - short, entered `2026-03-26 19:18 -05`, exited `2026-03-26 20:15 -05`, return `+0.0138%`, `TRAILING_STOP`
+  - short, entered `2026-03-26 20:21 -05`, exited `2026-03-26 22:21 -05`, return `-0.1439%`, `TRAILING_STOP`
+  - short, entered `2026-03-26 22:27 -05`, exited `2026-03-26 23:21 -05`, return `+0.0993%`, `TRAILING_STOP`
+- Day-scoped aggregate metrics from those four trades: win rate `50.0%`, average return `-0.0134%`, compounded return `-0.05382%`.
+- Same-day order flow was concentrated in the same failure cluster: `21` order events touched the day, all from `ETCUSDT` (`16`), `DOGEUSDT` (`3`), or `DOTUSDT` (`2`).
+- Five positions were still open at save time and had entered on `2026-03-26`: `ATOMUSDT` long, `DOGEUSDT` short, `DOTUSDT` short, `ETCUSDT` short, and `SOLUSDT` short.
+- The main engineering failure mode was an absolute edge-credibility gap in the existing `EDGE_SPIKE` filter. The `ETCUSDT` churn loop repeatedly opened shorts on an implied one-bar LSTM edge of about `88.75%` with `openThreshold=46.05%`; the existing relative guard only saw `1.927x` threshold, so it allowed the trade even though an `88%` move on a `3m` bar is not a credible live forecast. Fresh same-day `DOGEUSDT` and `DOTUSDT` openings were even more extreme at `100.33%` and `106.47%`.
+- The measurable consequence was cost-dominated churn: two `ETCUSDT` winners were too small to offset two losers, and all four completed trades exited via the same trailing-stop path.
+
+### Research Notes
+- Forecast pooling work finds that clipping or winsorizing extreme machine-learning forecasts improves stability and guards against outlier magnitudes dominating decisions. Source: Buncic, Caner, Matthies, “Pooling and Winsorizing Machine Learning Forecasts” (`https://www.sciencedirect.com/science/article/pii/S0169207024000640`).
+- Trend-following has long-run evidence, but implementation discipline matters more than raw signal magnitude. Source: Hurst, Ooi, Pedersen, “A Century of Evidence on Trend-Following Investing” (`https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2993026`).
+- Volatility-managed signals improve when risk control reacts to changing volatility instead of trusting raw forecast amplitude. Source: Moreira, Muir, “Volatility Managed Portfolios” (`https://ssrn.com/abstract=2773438`).
+- Inference from those sources plus today’s artifacts: keep the directional momentum logic, but clip clearly non-credible one-bar forecast magnitudes before they can create high-turnover churn.
+
+### Hypotheses
+- Add one narrow invariant to the shared entry gate: when `openThreshold > 0`, require `edge <= min(4 * normalizedOpenThreshold, 0.5)`.
+- Reuse the existing `EDGE_SPIKE` mechanism instead of inventing a new ETC-specific rule or touching exit logic.
+- Leave today’s credible higher-timeframe entries alone: `ATOMUSDT` (`8.14%` edge), `SOLUSDT` (`6.56%`), and `BTCUSDT` (`5.63%`) stay under the new cap.
+
+### Metrics
+- Before the new absolute cap:
+  - Day-scoped completed trades: `4`
+  - Day-scoped compounded return: `-0.05382%`
+  - Day-scoped mean entry edge on completed trades: `88.75%`
+  - Day-scoped mean edge/open-threshold ratio on completed trades: `1.927x`
+  - Same-day fresh open positions: `5`
+- After replaying the same artifact with the absolute `50%` edge cap layered onto the existing `EDGE_SPIKE` rule:
+  - Blocked completed trades: `ETCUSDT x4`
+  - Blocked fresh openings: `DOGEUSDT`, `DOTUSDT`, `ETCUSDT`
+  - Day-scoped completed trades: `0`
+  - Day-scoped compounded return: `0.0%`
+  - Same-day fresh open positions: `2` (`ATOMUSDT`, `SOLUSDT`)
+- This before/after remains an inference from saved snapshot state, not a DB-backed fill replay.
+
+### Changes Made
+- Added `maxCredibleSignalEdge = 0.5` to `haskell/app/Trader/SignalGates.hs` and applied it inside `signalEntryEdgeSpikeOk`.
+- Added regression coverage in `haskell/test/TestMain.hs` for:
+  - equality at the new `50%` cap
+  - rejection above the cap
+  - rejection of the observed `ETCUSDT`-style `88.7%` edge even though it is below the existing `4x threshold` multiplier
+- Updated `README.md` and `CHANGELOG.md` for the new user-visible `EDGE_SPIKE` invariant.
+
+### Validation Results
+- Artifact replay used `python3` over the saved bot-state JSON files to enumerate same-day trades, open positions, order churn, entry edges, and the counterfactual blocked set under the new cap.
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal test`
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal build`
+- Result:
+  - `cabal test` passed.
+  - `cabal build` recompiled the changed path through `Trader.SignalGates`, `Trader.Trading`, and `Main`; this shell again stopped emitting output after the final `trader-hs` link-stage output, so the compile path is verified but the final exit line remained inconclusive here.
+
+### Remaining Risks
+- No persisted Postgres `ops` replay was available, so the review still depends on bot-state reconstruction.
+- The `50%` cap is intentionally conservative and evidence-backed for today’s liquid Binance symbols, but it is still a heuristic rather than a globally optimized calibration.
+- The change does not address unrelated exit-timing questions; if future days show losses with sane entry magnitudes, the next cycle should inspect close rules rather than tightening entry caps further.
+
 ## 2026-03-22
 
 ### Findings
