@@ -40,7 +40,19 @@ import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), extractTxHash, resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
-import Trader.Formal.CloseTiming (CloseTimingDecision (..), CloseTimingObservation (..), CloseTimingStats (..), buildCloseTimingStats, closeTimingDecision, optimalCloseObservation)
+import Trader.Formal.CloseTiming (
+    CloseTimingDecision (..),
+    CloseTimingObservation (..),
+    CloseTimingStats (..),
+    ComboTimingStats (..),
+    ComboTrade (..),
+    TradeTimingSample (..),
+    buildCloseTimingStats,
+    closeTimingDecision,
+    optimalCloseObservation,
+    summarizeAllCombos,
+    timingSamples,
+ )
 import Trader.Formal.Optimization (FormalVerificationReport (..), roiRequirementClauses, roiRequirementSummary, verifyFormalOptimization)
 import Trader.Http (boundedBackoffMs, jitteredDelayMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
@@ -132,6 +144,11 @@ main = do
               , run "formal tune tie-break matches spec" testFormalTieBreakMatchesSpec
               , run "formal close timing window identifies tm" testFormalCloseTimingWindow
               , run "formal close timing policy closes past target quantile" testFormalCloseTimingDecision
+              , run "close timing selects in-window optimum" testCloseTimingSelectsWindowOptimum
+              , run "close timing zero-duration forces tm to ta" testCloseTimingZeroDuration
+              , run "close timing short side picks window minimum price" testCloseTimingShortSide
+              , run "close timing out-of-range exit yields no sample" testCloseTimingOutOfRangeExit
+              , run "close timing summarizes combo ratios" testCloseTimingSummaryRatios
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
               , run "binance trade parser accepts numeric and whitespace fields" testBinanceTradeParserAcceptsNumericAndWhitespace
@@ -4071,7 +4088,8 @@ testFormalCloseTimingWindow = do
             let stats = buildCloseTimingStats [obs]
             assert "one combo stat emitted" (length stats == 1)
             case stats of
-                [st] -> assert "single-sample median ratio is 1.6" (abs (ctsMedianRatio st - 1.6) < 1e-9)
+                [CloseTimingStats _ _ medianRatio _ _ _] ->
+                    assert "single-sample median ratio is 1.6" (abs (medianRatio - 1.6) < 1e-9)
                 _ -> pure ()
 
 testFormalCloseTimingDecision :: IO ()
@@ -4089,6 +4107,61 @@ testFormalCloseTimingDecision = do
             assert "policy holds before target quantile" (not (ctdShouldClose holdDecision))
             assert "policy closes after risk-budget target" (ctdShouldClose closeDecision)
         _ -> error "expected one combo stat"
+
+testCloseTimingSelectsWindowOptimum :: IO ()
+testCloseTimingSelectsWindowOptimum = do
+    let prices = [100, 101, 103, 102, 105, 104, 103]
+        trades = [ComboTrade "combo-a" 1 3 101 1]
+        samples = timingSamples prices trades
+    case samples of
+        [sample] -> do
+            assert "tm chooses maximum return in [ta, ta+2*(tc-ta)]" (ttsOptimalIndex sample == 4)
+            assert "optimal duration is measured from ta" (ttsOptimalDuration sample == 3)
+        _ -> error "expected exactly one timing sample"
+
+testCloseTimingZeroDuration :: IO ()
+testCloseTimingZeroDuration = do
+    let prices = [100, 101, 102]
+        trades = [ComboTrade "combo-a" 1 1 101 1]
+        samples = timingSamples prices trades
+    case samples of
+        [sample] -> do
+            assert "zero-duration trade keeps tm at ta" (ttsOptimalIndex sample == 1)
+            assert "zero-duration trade keeps observed duration at zero" (ttsObservedDuration sample == 0)
+        _ -> error "expected exactly one timing sample"
+
+testCloseTimingShortSide :: IO ()
+testCloseTimingShortSide = do
+    let prices = [100, 99, 97, 98, 96, 95]
+        trades = [ComboTrade "combo-a" 1 3 99 (-1)]
+        samples = timingSamples prices trades
+    case samples of
+        [sample] -> do
+            assert "short-side tm chooses the lowest price in window" (ttsOptimalIndex sample == 5)
+            assert "short-side optimum improves observed return" (ttsOptimalReturn sample > ttsObservedReturn sample)
+        _ -> error "expected exactly one timing sample"
+
+testCloseTimingOutOfRangeExit :: IO ()
+testCloseTimingOutOfRangeExit = do
+    let prices = [100, 102, 104]
+        trades = [ComboTrade "combo-a" 0 5 100 1]
+    assert "out-of-range exit yields no sample" (null (timingSamples prices trades))
+
+testCloseTimingSummaryRatios :: IO ()
+testCloseTimingSummaryRatios = do
+    let prices = [100, 102, 104, 103, 106, 108, 107]
+        trades =
+            [ ComboTrade "combo-a" 0 2 100 1
+            , ComboTrade "combo-a" 1 3 102 1
+            ]
+        samples = timingSamples prices trades
+        stats = summarizeAllCombos samples
+    case stats of
+        [ComboTimingStats comboId sampleCount medianRatio _ _ _ _ _] -> do
+            assert "summary keeps combo id" (comboId == "combo-a")
+            assert "summary counts samples" (sampleCount == 2)
+            assert "median ratio is >= 1 for profitable extensions" (medianRatio >= 1)
+        _ -> error "expected one combo summary"
 
 formalVerificationReport :: FormalVerificationReport
 formalVerificationReport = verifyFormalOptimization
