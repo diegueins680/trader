@@ -134,6 +134,95 @@ test("api client keeps base and request query params for relative bot URLs", asy
   assert.deepEqual(calls, ["/api/base/bot/status?mode=proxy&tail=100&tenantKey=tenant-request"]);
 });
 
+test("api client preserves exact safe integer query params for bot status, ops, and ops performance", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { ok: true, running: false });
+    },
+    async (api) => {
+      const status = await api.botStatus("/api", { timeoutMs: 5_000 }, 25, undefined, "tenant-status");
+      assert.equal(status.running, false);
+      await api.ops(
+        "/api",
+        {
+          limit: 10,
+          since: 20,
+          fromMs: 30,
+          toMs: 40,
+          bot: true,
+          tenantKey: "tenant-ops",
+        },
+        { timeoutMs: 5_000 },
+      );
+      await api.opsPerformance(
+        "/api",
+        { commitLimit: 7, comboLimit: 9, tenantKey: "tenant-perf" },
+        { timeoutMs: 5_000 },
+      );
+    },
+  );
+  assert.deepEqual(calls, [
+    "/api/bot/status?tail=25&tenantKey=tenant-status",
+    "/api/ops?limit=10&since=20&fromMs=30&toMs=40&bot=1&tenantKey=tenant-ops",
+    "/api/ops/performance?commitLimit=7&comboLimit=9&tenantKey=tenant-perf",
+  ]);
+});
+
+test("api client omits fractional and unsafe integer query params instead of truncating them", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url) => {
+      calls.push(String(url));
+      return jsonResponse(200, { ok: true, running: false });
+    },
+    async (api) => {
+      await api.botStatus("/api", { timeoutMs: 5_000 }, 12.5, undefined, "tenant-fractional");
+      await api.botStatus("/api", { timeoutMs: 5_000 }, Number.MAX_SAFE_INTEGER + 1, undefined, "tenant-unsafe");
+      await api.ops(
+        "/api",
+        {
+          limit: 10.5,
+          since: Number.MAX_SAFE_INTEGER + 1,
+          fromMs: 30.5,
+          toMs: Number.MAX_SAFE_INTEGER + 1,
+          bot: true,
+          tenantKey: "tenant-ops",
+        },
+        { timeoutMs: 5_000 },
+      );
+      await api.opsPerformance(
+        "/api",
+        {
+          commitLimit: 7.5,
+          comboLimit: Number.MAX_SAFE_INTEGER + 1,
+          tenantKey: "tenant-perf",
+        },
+        { timeoutMs: 5_000 },
+      );
+    },
+  );
+  assert.deepEqual(calls, [
+    "/api/bot/status?tenantKey=tenant-fractional",
+    "/api/bot/status?tenantKey=tenant-unsafe",
+    "/api/ops?bot=1&tenantKey=tenant-ops",
+    "/api/ops/performance?tenantKey=tenant-perf",
+  ]);
+});
+
 test("api client preserves absolute base path and merges base query with state sync query", async () => {
   const calls = [];
   await withApiModule(
@@ -479,6 +568,36 @@ test("api fallback allows inferred /api primary to fail over to cross-origin fal
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
 });
 
+test("api fallback keeps root-path bases same-origin in explicit configs", async () => {
+  const calls = [];
+  await withApiModule(
+    {
+      apiBaseUrl: "/",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "https://api.example.com",
+      apiToken: "",
+    },
+    async (url) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "/health") {
+        return jsonResponse(502, { error: "Bad Gateway" });
+      }
+      if (href === "https://api.example.com/health") {
+        return jsonResponse(200, { status: "ok" });
+      }
+      throw new Error(`unexpected request: ${href}`);
+    },
+    async (api) => {
+      await assert.rejects(
+        () => api.health("/", { timeoutMs: 5_000 }),
+        (err) => err?.name === "HttpError" && err.status === 502,
+      );
+    },
+  );
+  assert.deepEqual(calls, ["/health"]);
+});
+
 test("api fallback only enables inferred /api cross-origin failover for normalized boolean-like encodings", async () => {
   const cases = [
     { label: "boolean true", value: true, expectFallback: true },
@@ -568,7 +687,44 @@ test("api fallback allows inferred /api primary timeout failover to cross-origin
   assert.deepEqual(calls, ["/api/health", "https://api.example.com/health"]);
 });
 
-test("api fallback skips inferred /api cross-origin failover for non-GET requests", async () => {
+test("api fallback allows inferred /api cross-origin failover for tenant-scoped non-GET requests", async () => {
+  const calls = [];
+  let directTenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "/api",
+      apiBaseUrlInferred: true,
+      apiFallbackUrl: "https://api.example.com",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const href = String(url);
+      calls.push(href);
+      if (href === "/api/binance/listenKey") {
+        return jsonResponse(502, { error: "Bad Gateway" });
+      }
+      if (href === "https://api.example.com/binance/listenKey") {
+        directTenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+        return jsonResponse(200, {
+          listenKey: "listen-key-1",
+          market: "spot",
+          testnet: false,
+          wsUrl: "wss://stream.example.com/ws/listen-key-1",
+          keepAliveMs: 60_000,
+        });
+      }
+      throw new Error(`unexpected request: ${href}`);
+    },
+    async (api) => {
+      const out = await api.binanceListenKey("/api", { tenantKey: "tenant" }, { timeoutMs: 5_000 });
+      assert.equal(out.listenKey, "listen-key-1");
+    },
+  );
+  assert.deepEqual(calls, ["/api/binance/listenKey", "https://api.example.com/binance/listenKey"]);
+  assert.equal(directTenantHeader, "tenant");
+});
+
+test("api fallback still skips inferred /api cross-origin failover for unauthenticated non-GET requests", async () => {
   const calls = [];
   await withApiModule(
     {
@@ -580,19 +736,19 @@ test("api fallback skips inferred /api cross-origin failover for non-GET request
     async (url) => {
       const href = String(url);
       calls.push(href);
-      if (href === "/api/binance/listenKey") {
+      if (href === "/api/cache/clear") {
         return jsonResponse(502, { error: "Bad Gateway" });
       }
       throw new Error(`unexpected request: ${href}`);
     },
     async (api) => {
       await assert.rejects(
-        () => api.binanceListenKey("/api", { tenantKey: "tenant" }, { timeoutMs: 5_000 }),
+        () => api.cacheClear("/api", { timeoutMs: 5_000 }),
         (err) => err?.name === "HttpError" && err.status === 502,
       );
     },
   );
-  assert.deepEqual(calls, ["/api/binance/listenKey"]);
+  assert.deepEqual(calls, ["/api/cache/clear"]);
 });
 
 test("api client forwards tenant key as X-Tenant-Key from JSON body params", async () => {
@@ -703,6 +859,33 @@ test("api client skips X-Tenant-Key header for cross-origin direct hosts", async
     },
   );
   assert.equal(tenantHeader, null);
+});
+
+test("api client forwards X-Tenant-Key for cross-origin direct-host writes", async () => {
+  let tenantHeader = null;
+  await withApiModule(
+    {
+      apiBaseUrl: "https://api.example.com",
+      apiBaseUrlInferred: false,
+      apiFallbackUrl: "",
+      apiToken: "",
+    },
+    async (url, init = {}) => {
+      const href = String(url);
+      if (href !== "https://api.example.com/bot/start") throw new Error(`unexpected request: ${href}`);
+      tenantHeader = new Headers(init.headers).get("X-Tenant-Key");
+      return jsonResponse(202, { starting: true, symbol: "BTCUSDT" });
+    },
+    async (api) => {
+      const out = await api.botStart(
+        "https://api.example.com",
+        { tenantKey: "tenant-body", binanceSymbol: "BTCUSDT" },
+        { timeoutMs: 5_000 },
+      );
+      assert.equal(out.starting, true);
+    },
+  );
+  assert.equal(tenantHeader, "tenant-body");
 });
 
 test("health preserves version and commit metadata", async () => {

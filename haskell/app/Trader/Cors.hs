@@ -109,7 +109,7 @@ corsHeadersFor :: CorsConfig -> Wai.Request -> ResponseHeaders
 corsHeadersFor cors req =
     let base =
             [ ("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-            , ("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key,X-Tenant-Key")
+            , ("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key,X-Tenant-Key,X-Trader-Request-Id")
             , ("Access-Control-Max-Age", "86400")
             ]
         mAllowed

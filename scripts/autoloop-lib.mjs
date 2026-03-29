@@ -61,11 +61,16 @@ export function clampText(raw, maxChars) {
 export function sanitizeRelativePath(raw) {
   const value = String(raw ?? "").trim().replace(/\\/g, "/");
   if (!value) throw new Error("Path is empty.");
+  if (value.includes("\0")) throw new Error(`Path contains NUL byte: ${value}`);
   if (value.startsWith("/")) throw new Error(`Absolute path is not allowed: ${value}`);
   if (/^[A-Za-z]:\//.test(value)) throw new Error(`Absolute path is not allowed: ${value}`);
   if (value.split("/").some((part) => part === "..")) throw new Error(`Path traversal is not allowed: ${value}`);
-  if (value.includes("\0")) throw new Error(`Path contains NUL byte: ${value}`);
-  const normalized = value.replace(/^\.\/+/, "");
+  const normalized = path.posix.normalize(value).replace(/^\.\/+/, "");
+  if (normalized.startsWith("/")) throw new Error(`Absolute path is not allowed: ${value}`);
+  if (/^[A-Za-z]:\//.test(normalized)) throw new Error(`Absolute path is not allowed: ${value}`);
+  if (normalized === ".." || normalized.startsWith("../") || normalized.split("/").some((part) => part === "..")) {
+    throw new Error(`Path traversal is not allowed: ${value}`);
+  }
   if (!normalized || normalized === ".") throw new Error(`Path resolves to empty: ${value}`);
   return normalized;
 }
@@ -84,13 +89,24 @@ function readStringArray(raw, field, maxItems = 12) {
   return raw.map((item, idx) => readString(item, `${field}[${idx}]`));
 }
 
+function matchesScopedPathPrefix(value, prefix) {
+  const normalizedPrefix = sanitizeRelativePath(prefix);
+  // Exact file scopes must not match sibling lookalikes such as
+  // `FORMAL_METHODS.md.bak`; directory scopes end with `/`.
+  if (!normalizedPrefix.endsWith("/")) return value === normalizedPrefix;
+  return value.startsWith(normalizedPrefix);
+}
+
 function readScopedPath(raw, field, allowedPrefixes) {
   const value = sanitizeRelativePath(readString(raw, field));
-  if (!allowedPrefixes.some((prefix) => value === prefix || value.startsWith(prefix))) {
+  if (!allowedPrefixes.some((prefix) => matchesScopedPathPrefix(value, prefix))) {
     throw new Error(`${field} must be within: ${allowedPrefixes.join(", ")}`);
   }
   return value;
 }
+
+const ALGORITHM_REVIEW_PREFIXES = ["haskell/app/"];
+const FORMAL_METHODS_REVIEW_PREFIXES = ["FORMAL_METHODS.md", "haskell/app/Trader/Formal/", "test/", "haskell/test/"];
 
 export function normalizeIdeaSelection(raw) {
   const obj = raw && typeof raw === "object" ? raw : {};
@@ -98,31 +114,28 @@ export function normalizeIdeaSelection(raw) {
   const filesNeeded = noChange
     ? []
     : readStringArray(obj.filesNeeded, "filesNeeded", 10).map(sanitizeRelativePath);
-  const uiReviewPath = noChange
-    ? String(obj.uiReviewPath ?? "").trim()
-    : readScopedPath(obj.uiReviewPath, "uiReviewPath", ["haskell/web/src/"]);
-  const correctnessPath = noChange
-    ? String(obj.correctnessPath ?? "").trim()
-    : readScopedPath(obj.correctnessPath, "correctnessPath", [
-        "FORMAL_METHODS.md",
-        "test/",
-        "haskell/test/",
-        "haskell/web/test/",
-      ]);
+  const algorithmReviewPath = noChange
+    ? String(obj.algorithmReviewPath ?? "").trim()
+    : readScopedPath(obj.algorithmReviewPath, "algorithmReviewPath", ALGORITHM_REVIEW_PREFIXES);
+  const formalMethodsPath = noChange
+    ? String(obj.formalMethodsPath ?? "").trim()
+    : readScopedPath(obj.formalMethodsPath, "formalMethodsPath", FORMAL_METHODS_REVIEW_PREFIXES);
   if (!noChange) {
-    if (!filesNeeded.includes(uiReviewPath)) throw new Error("filesNeeded must include uiReviewPath.");
-    if (!filesNeeded.includes(correctnessPath)) throw new Error("filesNeeded must include correctnessPath.");
+    if (!filesNeeded.includes(algorithmReviewPath)) throw new Error("filesNeeded must include algorithmReviewPath.");
+    if (!filesNeeded.includes(formalMethodsPath)) throw new Error("filesNeeded must include formalMethodsPath.");
   }
   return {
     noChange,
     title: noChange ? String(obj.title ?? "").trim() : readString(obj.title, "title"),
     rationale: noChange ? String(obj.rationale ?? "").trim() : readString(obj.rationale, "rationale"),
-    uiReviewPath,
-    uiReviewFocus: noChange ? String(obj.uiReviewFocus ?? "").trim() : readString(obj.uiReviewFocus, "uiReviewFocus"),
-    correctnessPath,
-    correctnessFocus: noChange
-      ? String(obj.correctnessFocus ?? "").trim()
-      : readString(obj.correctnessFocus, "correctnessFocus"),
+    algorithmReviewPath,
+    algorithmReviewFocus: noChange
+      ? String(obj.algorithmReviewFocus ?? "").trim()
+      : readString(obj.algorithmReviewFocus, "algorithmReviewFocus"),
+    formalMethodsPath,
+    formalMethodsFocus: noChange
+      ? String(obj.formalMethodsFocus ?? "").trim()
+      : readString(obj.formalMethodsFocus, "formalMethodsFocus"),
     filesNeeded,
     verificationCommands: Array.isArray(obj.verificationCommands)
       ? obj.verificationCommands.map((item, idx) => readString(item, `verificationCommands[${idx}]`))
@@ -159,12 +172,12 @@ export function normalizePatchPlan(raw) {
     title: noChange ? String(obj.title ?? "").trim() : readString(obj.title, "title"),
     summary: noChange ? String(obj.summary ?? "").trim() : readString(obj.summary, "summary"),
     commitMessage: noChange ? String(obj.commitMessage ?? "").trim() : readString(obj.commitMessage, "commitMessage"),
-    uiReviewSummary: noChange
-      ? String(obj.uiReviewSummary ?? "").trim()
-      : readString(obj.uiReviewSummary, "uiReviewSummary"),
-    correctnessSummary: noChange
-      ? String(obj.correctnessSummary ?? "").trim()
-      : readString(obj.correctnessSummary, "correctnessSummary"),
+    algorithmReviewSummary: noChange
+      ? String(obj.algorithmReviewSummary ?? "").trim()
+      : readString(obj.algorithmReviewSummary, "algorithmReviewSummary"),
+    formalMethodsSummary: noChange
+      ? String(obj.formalMethodsSummary ?? "").trim()
+      : readString(obj.formalMethodsSummary, "formalMethodsSummary"),
     changes,
     verificationCommands: Array.isArray(obj.verificationCommands)
       ? obj.verificationCommands.map((item, idx) => readString(item, `verificationCommands[${idx}]`))

@@ -26,6 +26,7 @@ import { defaultForm, parseDurationSeconds, platformIntervalSeconds } from "./fo
 import type { FormState } from "./formState";
 import type { cacheStats, health } from "../lib/api";
 import { PLATFORM_DEFAULT_SYMBOL } from "./constants";
+import { preferredExchangePlatform } from "./contracts";
 import { METHOD_TIPS } from "./methodMeta";
 import {
   BINANCE_SYMBOL_PATTERN,
@@ -37,7 +38,14 @@ import {
   symbolFormatPattern,
   trimBinanceComboSuffix,
 } from "./symbols";
-import { clamp, normalizePositionSide, normalizeSymbolKey, numFromInput, positionSideFromAmount } from "./utils";
+import {
+  clamp,
+  isEffectivelyFlatPositionAmount,
+  normalizePositionSide,
+  normalizeSymbolKey,
+  numFromInput,
+  positionSideFromAmount,
+} from "./utils";
 
 export type RequestKind = "signal" | "backtest" | "trade";
 
@@ -139,17 +147,48 @@ export function botStatusKeyFromSingle(status: BotStatusSingle): string | null {
   return botStatusKey({ market, symbol, interval });
 }
 
+const LOCAL_DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
+
+function localDateTimePartsMatch(parsedMs: number, match: RegExpExecArray): boolean {
+  const [
+    ,
+    yearRaw,
+    monthRaw,
+    dayRaw,
+    hourRaw,
+    minuteRaw,
+    secondRaw = "0",
+    millisecondRaw = "0",
+  ] = match;
+  const observed = new Date(parsedMs);
+  if (!Number.isFinite(observed.getTime())) return false;
+  return (
+    observed.getFullYear() === Number(yearRaw) &&
+    observed.getMonth() + 1 === Number(monthRaw) &&
+    observed.getDate() === Number(dayRaw) &&
+    observed.getHours() === Number(hourRaw) &&
+    observed.getMinutes() === Number(minuteRaw) &&
+    observed.getSeconds() === Number(secondRaw) &&
+    observed.getMilliseconds() === Number(millisecondRaw.padEnd(3, "0"))
+  );
+}
+
 export function formatDatetimeLocal(ms: number): string {
   if (!Number.isFinite(ms)) return "";
   const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return "";
   const pad = (v: number) => String(v).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export function parseDatetimeLocal(raw: string): number | null {
-  if (!raw.trim()) return null;
-  const parsed = Date.parse(raw);
-  return Number.isNaN(parsed) ? null : parsed;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const match = LOCAL_DATETIME_RE.exec(trimmed);
+  if (!match) return null;
+  const parsed = Date.parse(trimmed.replace(" ", "T"));
+  if (Number.isNaN(parsed)) return null;
+  return localDateTimePartsMatch(parsed, match) ? parsed : null;
 }
 
 export function parseBotStatusOp(op: OpsOperation): BotStatusOp | null {
@@ -197,9 +236,11 @@ export function parseBotOrderOp(op: OpsOperation): BotOrderOp | null {
 }
 
 export function parseSymbolsInput(raw: string): string[] {
+  // Whitespace around symbol delimiters is formatting noise, not a list split.
+  const normalized = raw.replace(/\s*([/_-])\s*/g, "$1");
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const part of raw.split(/[,\s]+/)) {
+  for (const part of normalized.split(/[,\s]+/)) {
     const sym = part.trim().toUpperCase();
     if (!sym) continue;
     if (seen.has(sym)) continue;
@@ -731,7 +772,7 @@ export function inferBinancePositionOpenTime(
   trades: BinanceTrade[],
 ): PositionOpenTimeEstimate | null {
   const posAmt = position.positionAmt;
-  if (!Number.isFinite(posAmt) || Math.abs(posAmt) <= 1e-12) return null;
+  if (!Number.isFinite(posAmt) || isEffectivelyFlatPositionAmount(posAmt)) return null;
   const sideRaw = normalizePositionSide(position.positionSide);
   const posSide = sideRaw && sideRaw !== "BOTH" ? sideRaw : positionSideFromAmount(posAmt);
   if (!posSide) return null;
@@ -1077,6 +1118,9 @@ export function buildEquityCurve(prices: number[], side: number): number[] {
 }
 
 export function positionSideInfo(positionAmt: number, positionSide?: string | null): { dir: number; label: string; key: string } {
+  if (!Number.isFinite(positionAmt) || isEffectivelyFlatPositionAmount(positionAmt)) {
+    return { dir: 0, label: "FLAT", key: "FLAT" };
+  }
   const raw = positionSide?.trim().toUpperCase();
   const side = raw && raw !== "BOTH" ? raw : null;
   const dir = side === "SHORT" ? -1 : side === "LONG" ? 1 : positionAmt > 0 ? 1 : positionAmt < 0 ? -1 : 0;
@@ -1158,10 +1202,149 @@ export type OptionalWholeNumberField = {
   override?: unknown;
 };
 
+const OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS = [
+  "barsMin",
+  "barsMax",
+  "trials",
+  "seed",
+  "seedTrials",
+  "perturbScaleInt",
+  "earlyStopNoImprove",
+  "epochsMin",
+  "epochsMax",
+  "hiddenSizeMin",
+  "hiddenSizeMax",
+  "patienceMax",
+  "minRoundTrips",
+  "walkForwardFoldsMin",
+  "walkForwardFoldsMax",
+  "walkForwardEmbargoBarsMin",
+  "walkForwardEmbargoBarsMax",
+  "minHoldBarsMin",
+  "minHoldBarsMax",
+  "cooldownBarsMin",
+  "cooldownBarsMax",
+  "maxHoldBarsMin",
+  "maxHoldBarsMax",
+  "trendLookbackMin",
+  "trendLookbackMax",
+] as const;
+
+const OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS = ["timeoutSec", "backtestRatio", "tuneRatio"] as const;
+
+const OPTIMIZER_EXTRA_TRIMMED_STRING_KEYS = [
+  "data",
+  "priceColumn",
+  "highColumn",
+  "lowColumn",
+  "intervals",
+  "platforms",
+  "lookbackWindow",
+  "objective",
+  "tuneObjective",
+  "normalizations",
+] as const;
+
+function readOptionalTrimmedStringOverride(raw: unknown): { provided: boolean; value: string | null } {
+  if (raw == null) return { provided: false, value: null };
+  if (typeof raw !== "string") return { provided: true, value: null };
+  const trimmed = raw.trim();
+  if (!trimmed) return { provided: false, value: null };
+  return { provided: true, value: trimmed };
+}
+
+function readOptionalFiniteNumberOverride(raw: unknown): { provided: boolean; value: number | null } {
+  if (raw == null) return { provided: false, value: null };
+  if (typeof raw === "number") {
+    return { provided: true, value: Number.isFinite(raw) ? raw : null };
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return { provided: false, value: null };
+    return { provided: true, value: parseOptionalNumber(trimmed) ?? null };
+  }
+  return { provided: true, value: null };
+}
+
+function readOptionalWholeNumberOverride(raw: unknown): { provided: boolean; value: number | null } {
+  if (raw == null) return { provided: false, value: null };
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return { provided: false, value: null };
+    return { provided: true, value: parseOptionalInt(trimmed) ?? null };
+  }
+  if (typeof raw === "number") {
+    return { provided: true, value: Number.isSafeInteger(raw) ? raw : null };
+  }
+  return { provided: true, value: null };
+}
+
+function normalizeOptimizerSourceOverride(raw: unknown): OptimizerSource | null {
+  const override = readOptionalTrimmedStringOverride(raw);
+  if (!override.provided || override.value == null) return null;
+  switch (override.value.toLowerCase()) {
+    case "binance":
+    case "coinbase":
+    case "kraken":
+    case "poloniex":
+    case "csv":
+      return override.value.toLowerCase() as OptimizerSource;
+    default:
+      return null;
+  }
+}
+
+function normalizeKnownOptimizerRunExtras(extras: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...extras };
+  for (const key of OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS) {
+    const override = readOptionalWholeNumberOverride(normalized[key]);
+    if (!override.provided || override.value == null) {
+      delete normalized[key];
+      continue;
+    }
+    normalized[key] = override.value;
+  }
+  for (const key of OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS) {
+    const override = readOptionalFiniteNumberOverride(normalized[key]);
+    if (!override.provided || override.value == null) {
+      delete normalized[key];
+      continue;
+    }
+    normalized[key] = override.value;
+  }
+  for (const key of OPTIMIZER_EXTRA_TRIMMED_STRING_KEYS) {
+    const override = readOptionalTrimmedStringOverride(normalized[key]);
+    if (!override.provided || override.value == null) {
+      delete normalized[key];
+      continue;
+    }
+    normalized[key] = override.value;
+  }
+  const source = normalizeOptimizerSourceOverride(normalized.source);
+  if (source == null) delete normalized.source;
+  else normalized.source = source;
+  const symbolOverride = readOptionalTrimmedStringOverride(normalized.binanceSymbol);
+  if (!symbolOverride.provided || symbolOverride.value == null) delete normalized.binanceSymbol;
+  else normalized.binanceSymbol = symbolOverride.value.toUpperCase();
+  return normalized;
+}
+
+const CSV_ONLY_OPTIMIZER_REQUEST_KEYS = ["data", "priceColumn", "highColumn", "lowColumn"] as const;
+const EXCHANGE_ONLY_OPTIMIZER_REQUEST_KEYS = ["binanceSymbol", "platforms"] as const;
+
+function enforceOptimizerRequestSourceCompatibility(req: OptimizerRunRequest): void {
+  if (req.source === "csv") {
+    for (const key of EXCHANGE_ONLY_OPTIMIZER_REQUEST_KEYS) delete req[key];
+    return;
+  }
+  for (const key of CSV_ONLY_OPTIMIZER_REQUEST_KEYS) delete req[key];
+}
+
 export function findOptionalWholeNumberFieldError(fields: OptionalWholeNumberField[]): string | null {
   for (const field of fields) {
-    if (typeof field.override === "number") {
-      if (!Number.isSafeInteger(field.override)) {
+    const override = readOptionalWholeNumberOverride(field.override);
+    if (override.provided) {
+      if (override.value == null) {
         return `${field.label} must be a whole number.`;
       }
       continue;
@@ -1871,8 +2054,12 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (form.noSweepThreshold) req.noSweepThreshold = true;
 
   if (extras) {
-    Object.assign(req, extras);
+    const normalizedExtras = normalizeKnownOptimizerRunExtras(extras);
+    // Keep extra JSON forward-compatible, but normalize the known typed
+    // override keys before merging so validation and request emission agree.
+    Object.assign(req, normalizedExtras);
   }
+  enforceOptimizerRequestSourceCompatibility(req);
 
   return req;
 }
@@ -1910,8 +2097,21 @@ export function sigNumber(value: number | null | undefined): string {
   return String(rounded);
 }
 
+export function readExactSafeInteger(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isSafeInteger(raw) ? raw : null;
+}
+
+export function readNonNegativeExactSafeInteger(raw: unknown): number | null {
+  const n = readExactSafeInteger(raw);
+  return n != null && n >= 0 ? n : null;
+}
+
 export function coerceNumber(value: number | null | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+export function coerceExactSafeInteger(value: number | null | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : fallback;
 }
 
 export function clampOptionalRatio(value: number | null | undefined): number {
@@ -1924,9 +2124,34 @@ export function clampOptionalRange(value: number | null | undefined, min: number
   return v > 0 ? clamp(v, min, max) : 0;
 }
 
-export function clampOptionalInt(value: number | null | undefined, min: number, max: number): number {
-  const v = coerceNumber(value, 0);
-  return v > 0 ? clamp(Math.trunc(v), min, max) : 0;
+export function clampOptionalInt(value: number | null | undefined, fallback: number, min: number, max: number): number {
+  const v = coerceExactSafeInteger(value, fallback);
+  return v > 0 ? clamp(v, min, max) : 0;
+}
+
+export function sanitizeOptimizationComboOperation(raw: unknown): OptimizationComboOperation | null {
+  const opRec = (raw as Record<string, unknown> | null | undefined) ?? {};
+  const entryIndex = readNonNegativeExactSafeInteger(opRec.entryIndex);
+  const exitIndex = readNonNegativeExactSafeInteger(opRec.exitIndex);
+  if (entryIndex == null || exitIndex == null || exitIndex < entryIndex) return null;
+
+  const entryEquity =
+    typeof opRec.entryEquity === "number" && Number.isFinite(opRec.entryEquity) ? (opRec.entryEquity as number) : null;
+  const exitEquity =
+    typeof opRec.exitEquity === "number" && Number.isFinite(opRec.exitEquity) ? (opRec.exitEquity as number) : null;
+  const retValue = typeof opRec.return === "number" && Number.isFinite(opRec.return) ? (opRec.return as number) : null;
+  const holdingPeriods = readNonNegativeExactSafeInteger(opRec.holdingPeriods);
+  const exitReason = typeof opRec.exitReason === "string" && opRec.exitReason.trim() ? opRec.exitReason.trim() : null;
+
+  return {
+    entryIndex,
+    exitIndex,
+    entryEquity,
+    exitEquity,
+    return: retValue,
+    holdingPeriods,
+    exitReason,
+  };
 }
 
 export function sigText(value: string | null | undefined): string {
@@ -2155,13 +2380,18 @@ export function ratioForTrainEnd(bars: number, trainEnd: number): number {
   return clamp(raw, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
 }
 
-export function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits | null, platform: Platform): {
+export function clampComboForLimits(
+  combo: OptimizationCombo,
+  apiLimits: ComputeLimits | null,
+  platform: Platform,
+  fallback: { bars: number; epochs: number; hiddenSize: number },
+): {
   bars: number;
   epochs: number;
   hiddenSize: number;
 } {
   const lstmEnabled = combo.params.method !== "10";
-  let bars = Math.trunc(combo.params.bars);
+  let bars = coerceExactSafeInteger(combo.params.bars, fallback.bars);
   if (!Number.isFinite(bars) || bars < 0) bars = 0;
   if (bars > 0) {
     bars = Math.max(MIN_LOOKBACK_BARS, bars);
@@ -2171,8 +2401,8 @@ export function clampComboForLimits(combo: OptimizationCombo, apiLimits: Compute
     }
   }
 
-  let epochs = clamp(Math.trunc(combo.params.epochs), 0, 5000);
-  let hiddenSize = clamp(Math.trunc(combo.params.hiddenSize), 1, 512);
+  let epochs = clamp(coerceExactSafeInteger(combo.params.epochs, fallback.epochs), 0, 5000);
+  let hiddenSize = clamp(coerceExactSafeInteger(combo.params.hiddenSize, fallback.hiddenSize), 1, 512);
 
   if (lstmEnabled && apiLimits) {
     epochs = Math.min(epochs, apiLimits.maxEpochs);
@@ -2189,7 +2419,7 @@ export function applyComboToForm(
   manualOverrides?: Set<ManualOverrideKey>,
   allowPositioning = true,
 ): FormState {
-  const nextPlatform = combo.params.platform ?? prev.platform;
+  const nextPlatform = preferredExchangePlatform(combo.params.platform, combo.source) ?? prev.platform;
   const comboSymbolRaw = combo.params.binanceSymbol?.trim() ?? "";
   const comboSymbol = comboSymbolRaw ? sanitizeSymbolForPlatform(nextPlatform, comboSymbolRaw) : null;
   const prevSymbol = sanitizeSymbolForPlatform(nextPlatform, prev.binanceSymbol);
@@ -2214,7 +2444,11 @@ export function applyComboToForm(
           ...combo,
           params: { ...combo.params, method },
         };
-  const { bars, epochs, hiddenSize } = clampComboForLimits(comboForLimits, apiLimits, nextPlatform);
+  const { bars, epochs, hiddenSize } = clampComboForLimits(comboForLimits, apiLimits, nextPlatform, {
+    bars: prev.bars,
+    epochs: prev.epochs,
+    hiddenSize: prev.hiddenSize,
+  });
   const openThrRaw = coerceNumber(combo.openThreshold, prev.openThreshold);
   const closeThrRaw =
     combo.closeThreshold == null ? openThrRaw : coerceNumber(combo.closeThreshold, prev.closeThreshold);
@@ -2222,8 +2456,8 @@ export function applyComboToForm(
   const closeThreshold = manualOverrides?.has("closeThreshold") ? prev.closeThreshold : Math.max(0, closeThrRaw);
   const fee = Math.max(0, coerceNumber(combo.params.fee, prev.fee));
   const learningRate = Math.max(1e-9, coerceNumber(combo.params.learningRate, prev.learningRate));
-  const valRatio = clamp(coerceNumber(combo.params.valRatio, prev.valRatio), 0, 1);
-  const patience = clamp(Math.trunc(coerceNumber(combo.params.patience, prev.patience)), 0, 1000);
+  const valRatio = clamp(coerceNumber(combo.params.valRatio, prev.valRatio), 0, 0.999999);
+  const patience = clamp(coerceExactSafeInteger(combo.params.patience, prev.patience), 0, 1000);
   const gradClipRaw = coerceNumber(combo.params.gradClip, 0);
   const gradClip = gradClipRaw > 0 ? clamp(gradClipRaw, 0, 100) : 0;
 
@@ -2238,26 +2472,29 @@ export function applyComboToForm(
     0,
     coerceNumber(combo.params.trailingStopVolMult ?? prev.trailingStopVolMult, prev.trailingStopVolMult),
   );
-  const minHoldBars = clampOptionalInt(combo.params.minHoldBars ?? prev.minHoldBars, 0, 1_000_000);
-  const maxHoldBars = clampOptionalInt(combo.params.maxHoldBars ?? prev.maxHoldBars, 0, 1_000_000);
-  const cooldownBars = clampOptionalInt(combo.params.cooldownBars ?? prev.cooldownBars, 0, 1_000_000);
+  const minHoldBars = clampOptionalInt(combo.params.minHoldBars, prev.minHoldBars, 0, 1_000_000);
+  const maxHoldBars = clampOptionalInt(combo.params.maxHoldBars, prev.maxHoldBars, 0, 1_000_000);
+  const cooldownBars = clampOptionalInt(combo.params.cooldownBars, prev.cooldownBars, 0, 1_000_000);
   const maxDrawdown = clampOptionalRatio(combo.params.maxDrawdown);
   const maxDailyLoss = clampOptionalRatio(combo.params.maxDailyLoss);
-  const maxOrderErrors = clampOptionalInt(combo.params.maxOrderErrors, 1, 1_000_000);
+  const maxOrderErrors =
+    combo.params.maxOrderErrors == null
+      ? 0
+      : clampOptionalInt(combo.params.maxOrderErrors, prev.maxOrderErrors, 1, 1_000_000);
   const minEdge = Math.max(0, coerceNumber(combo.params.minEdge ?? prev.minEdge, prev.minEdge));
   const minSignalToNoise = Math.max(0, coerceNumber(combo.params.minSignalToNoise ?? prev.minSignalToNoise, prev.minSignalToNoise));
   const costAwareEdge = combo.params.costAwareEdge ?? prev.costAwareEdge;
   const edgeBuffer = Math.max(0, coerceNumber(combo.params.edgeBuffer ?? prev.edgeBuffer, prev.edgeBuffer));
-  const trendLookback = clampOptionalInt(combo.params.trendLookback ?? prev.trendLookback, 0, 1_000_000);
+  const trendLookback = clampOptionalInt(combo.params.trendLookback, prev.trendLookback, 0, 1_000_000);
   const maxPositionSize = Math.max(0, coerceNumber(combo.params.maxPositionSize ?? prev.maxPositionSize, prev.maxPositionSize));
   const volTarget = Math.max(0, coerceNumber(combo.params.volTarget ?? prev.volTarget, prev.volTarget));
-  const volLookback = Math.max(0, Math.trunc(coerceNumber(combo.params.volLookback ?? prev.volLookback, prev.volLookback)));
+  const volLookback = Math.max(0, coerceExactSafeInteger(combo.params.volLookback, prev.volLookback));
   const volEwmaAlphaRaw = coerceNumber(combo.params.volEwmaAlpha ?? prev.volEwmaAlpha, prev.volEwmaAlpha);
   const volEwmaAlpha = volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : 0;
   const volFloor = Math.max(0, coerceNumber(combo.params.volFloor ?? prev.volFloor, prev.volFloor));
   const volScaleMax = Math.max(0, coerceNumber(combo.params.volScaleMax ?? prev.volScaleMax, prev.volScaleMax));
   const maxVolatility = Math.max(0, coerceNumber(combo.params.maxVolatility ?? prev.maxVolatility, prev.maxVolatility));
-  const rebalanceBars = clampOptionalInt(combo.params.rebalanceBars ?? prev.rebalanceBars, 0, 1_000_000);
+  const rebalanceBars = clampOptionalInt(combo.params.rebalanceBars, prev.rebalanceBars, 0, 1_000_000);
   const rebalanceThreshold = Math.max(
     0,
     coerceNumber(combo.params.rebalanceThreshold ?? prev.rebalanceThreshold, prev.rebalanceThreshold),
@@ -2272,12 +2509,15 @@ export function applyComboToForm(
   const fundingBySide = combo.params.fundingBySide ?? prev.fundingBySide;
   const fundingOnOpen = combo.params.fundingOnOpen ?? prev.fundingOnOpen;
   const blendWeight = clamp(coerceNumber(combo.params.blendWeight ?? prev.blendWeight, prev.blendWeight), 0, 1);
+  const routerLookback = clamp(coerceExactSafeInteger(combo.params.routerLookback, prev.routerLookback), 2, 1_000_000);
+  const routerMinScore = clamp(coerceNumber(combo.params.routerMinScore, prev.routerMinScore), 0, 1);
   const tuneStressVolMult = Math.max(0, coerceNumber(combo.params.tuneStressVolMult ?? prev.tuneStressVolMult, prev.tuneStressVolMult));
   const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
   const tuneStressWeight = Math.max(0, coerceNumber(combo.params.tuneStressWeight ?? prev.tuneStressWeight, prev.tuneStressWeight));
-  const walkForwardFolds = clampOptionalInt(combo.params.walkForwardFolds ?? prev.walkForwardFolds, 1, 1000);
+  const walkForwardFolds = clampOptionalInt(combo.params.walkForwardFolds, prev.walkForwardFolds, 1, 1000);
   const walkForwardEmbargoBars = clampOptionalInt(
-    combo.params.walkForwardEmbargoBars ?? prev.walkForwardEmbargoBars,
+    combo.params.walkForwardEmbargoBars,
+    prev.walkForwardEmbargoBars,
     0,
     1_000_000,
   );
@@ -2365,6 +2605,8 @@ export function applyComboToForm(
     }
   }
 
+  const liveOrdersSupported = nextPlatform === "binance" || nextPlatform === "coinbase";
+
   return {
     ...prev,
     binanceSymbol: symbol,
@@ -2418,6 +2660,8 @@ export function applyComboToForm(
     fundingBySide,
     fundingOnOpen,
     blendWeight,
+    routerLookback,
+    routerMinScore,
     kalmanZMin,
     kalmanZMax,
     maxHighVolProb,
@@ -2428,8 +2672,10 @@ export function applyComboToForm(
     confidenceSizing,
     minPositionSize,
     binanceTestnet: nextPlatform === "binance" ? prev.binanceTestnet : false,
-    binanceLive: nextPlatform === "binance" ? prev.binanceLive : false,
-    tradeArmed: nextPlatform === "binance" ? prev.tradeArmed : false,
+    // Applying a combo should preserve manual trade readiness on supported live-order
+    // platforms while still clearing those toggles for read-only exchanges.
+    binanceLive: liveOrdersSupported ? prev.binanceLive : false,
+    tradeArmed: liveOrdersSupported ? prev.tradeArmed : false,
     orderQuantity,
     orderQuote,
     orderQuoteFraction,
@@ -2534,6 +2780,8 @@ export function formApplySignature(form: FormState): string {
     sigBool(form.fundingBySide),
     sigBool(form.fundingOnOpen),
     sigNumber(form.blendWeight),
+    sigNumber(form.routerLookback),
+    sigNumber(form.routerMinScore),
     sigNumber(form.kalmanZMin),
     sigNumber(form.kalmanZMax),
     sigNumber(form.maxHighVolProb),

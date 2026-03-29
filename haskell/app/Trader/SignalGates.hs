@@ -1,4 +1,6 @@
 module Trader.SignalGates (
+    SignalThresholdBoundary (..),
+    mkSignalThresholdBoundary,
     normalizeSignalThreshold,
     signalEntryEdgeSpikeOk,
     signalMetaLabelOk,
@@ -11,6 +13,14 @@ module Trader.SignalGates (
 
 import Data.Maybe (catMaybes)
 
+data SignalThresholdBoundary = SignalThresholdBoundary
+    { stbConfiguredOpenThreshold :: !Double
+    , stbConfiguredCloseThreshold :: !Double
+    , stbEffectiveOpenThreshold :: !Double
+    , stbEffectiveCloseThreshold :: !Double
+    }
+    deriving (Eq, Show)
+
 maxSignalThreshold :: Double
 maxSignalThreshold = 0.999999
 
@@ -22,8 +32,26 @@ normalizeSignalThreshold raw =
   where
     finite x = not (isNaN x || isInfinite x)
 
+mkSignalThresholdBoundary :: Double -> Double -> Double -> Double -> SignalThresholdBoundary
+mkSignalThresholdBoundary configuredOpen configuredClose effectiveOpen effectiveClose =
+    SignalThresholdBoundary
+        { stbConfiguredOpenThreshold = normalizeConfigured configuredOpen
+        , stbConfiguredCloseThreshold = normalizeConfigured configuredClose
+        , stbEffectiveOpenThreshold = normalizeSignalThreshold effectiveOpen
+        , stbEffectiveCloseThreshold = normalizeSignalThreshold effectiveClose
+        }
+  where
+    normalizeConfigured raw =
+        if finite raw && raw >= 0
+            then raw
+            else 0
+    finite x = not (isNaN x || isInfinite x)
+
 entryEdgeSpikeLimit :: Double
 entryEdgeSpikeLimit = 4.0
+
+maxCredibleSignalEdge :: Double
+maxCredibleSignalEdge = 0.5
 
 signalEntryEdgeSpikeOk :: Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeOk openThreshold edgeForMethod =
@@ -34,6 +62,7 @@ signalEntryEdgeSpikeOk openThreshold edgeForMethod =
                 Just edge ->
                     finite edge
                         && edge >= 0
+                        && edge <= maxCredibleSignalEdge
                         && edge <= entryEdgeSpikeLimit * openThreshold'
                 Nothing -> False
 

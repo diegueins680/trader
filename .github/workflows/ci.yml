@@ -133,8 +133,8 @@ jobs:
         if: steps.setup_flyctl.outputs.installed == 'true'
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-          FLY_APP: ${{ secrets.FLY_APP }}
-          FLY_FRONTEND_APP: ${{ secrets.FLY_FRONTEND_APP }}
+          BACKEND_FLY_APP: ${{ secrets.FLY_APP }}
+          FRONTEND_FLY_APP: ${{ secrets.FLY_FRONTEND_APP }}
         run: |
           set -euo pipefail
           auth_err_file="$(mktemp)"
@@ -178,7 +178,7 @@ jobs:
 
             for attempt in 1 2 3; do
               : > "$deploy_log"
-              if flyctl "${deploy_args[@]}" 2>&1 | tee "$deploy_log"; then
+              if env -u FLY_APP flyctl "${deploy_args[@]}" 2>&1 | tee "$deploy_log"; then
                 popd >/dev/null
                 return 0
               fi
@@ -203,5 +203,5 @@ jobs:
             popd >/dev/null
           }
 
-          deploy_with_retries "backend" "." "fly.toml" "${FLY_APP:-}"
-          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FLY_FRONTEND_APP:-}"
+          deploy_with_retries "backend" "." "fly.toml" "${BACKEND_FLY_APP:-}"
+          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FRONTEND_FLY_APP:-}"

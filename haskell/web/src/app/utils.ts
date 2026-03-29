@@ -6,9 +6,10 @@ import { methodLabelFromMeta } from "./methodMeta";
 export function normalizeApiBaseUrlInput(raw: string): string {
   const v = raw.trim();
   if (!v) return "";
-  const protocolRelative = /^\/\/[^/?#]/.test(v);
-  const source = protocolRelative ? v.slice(2) : v;
-  if (!protocolRelative && (v.startsWith("/") || /^https?:\/\//i.test(v))) return v;
+  const leadingSlashMatch = v.match(/^\/+/);
+  const leadingSlashes = leadingSlashMatch ? leadingSlashMatch[0].length : 0;
+  const source = leadingSlashes >= 2 ? v.slice(leadingSlashes) : v;
+  if (leadingSlashes === 1) return v;
   if (source.includes("://")) return source;
 
   const suffixIdx = [source.indexOf("/"), source.indexOf("?"), source.indexOf("#")]
@@ -18,7 +19,6 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   const rest = suffixIdx === source.length ? "" : source.slice(suffixIdx);
   const lowerAuthority = authority.toLowerCase();
   const looksLikeHost =
-    protocolRelative ||
     lowerAuthority === "localhost" ||
     lowerAuthority.startsWith("localhost:") ||
     authority.includes(".") ||
@@ -66,7 +66,13 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   };
 
   const scheme = isLocal ? "http" : port && port !== "443" ? "http" : "https";
-  return `${scheme}://${normalizeAuthority()}${rest}`;
+  const candidate = `${scheme}://${normalizeAuthority()}${rest}`;
+  try {
+    new URL(candidate);
+    return candidate;
+  } catch {
+    return `/${source}`;
+  }
 }
 
 export function inferFlyApiAppName(appNameRaw: string): string {
@@ -104,8 +110,14 @@ export function normalizePositionSide(raw: string | null | undefined): "LONG" | 
   return null;
 }
 
+export const POSITION_AMOUNT_EPS = 1e-12;
+
+export function isEffectivelyFlatPositionAmount(amount: number): boolean {
+  return Number.isFinite(amount) && Math.abs(amount) <= POSITION_AMOUNT_EPS;
+}
+
 export function positionSideFromAmount(amount: number): "LONG" | "SHORT" | null {
-  if (!Number.isFinite(amount) || amount === 0) return null;
+  if (!Number.isFinite(amount) || isEffectivelyFlatPositionAmount(amount)) return null;
   return amount > 0 ? "LONG" : "SHORT";
 }
 
@@ -113,7 +125,7 @@ export function botPositionSide(status: BotStatusSingle): "LONG" | "SHORT" | nul
   const positions = status.running ? status.positions : status.snapshot?.positions;
   if (!positions || positions.length === 0) return null;
   const last = positions[positions.length - 1];
-  if (typeof last !== "number" || !Number.isFinite(last) || Math.abs(last) <= 1e-12) return null;
+  if (typeof last !== "number" || !Number.isFinite(last) || isEffectivelyFlatPositionAmount(last)) return null;
   return last > 0 ? "LONG" : "SHORT";
 }
 
@@ -137,9 +149,11 @@ export function botTradeEnabled(status: BotStatusSingle): boolean | null {
 }
 
 export function downsampleIndices(total: number, maxPoints: number): number[] {
-  const n = Math.max(0, Math.trunc(total));
-  const max = Math.max(1, Math.trunc(maxPoints));
+  const n = Number.isFinite(total) ? Math.max(0, Math.trunc(total)) : 0;
   if (n === 0) return [];
+  // Non-finite budgets have no meaningful lossy projection, so preserve the
+  // full finite series instead of inventing a smaller sampled view.
+  const max = Number.isFinite(maxPoints) ? Math.max(1, Math.trunc(maxPoints)) : n;
   if (n <= max) return Array.from({ length: n }, (_, i) => i);
   if (max === 1) return [0];
   const step = (n - 1) / (max - 1);
@@ -217,6 +231,7 @@ export function buildOrphanedPositions<T extends { symbol: string; positionAmt: 
 
   return positions
     .map((pos): OrphanedPosition<T> | null => {
+      if (isEffectivelyFlatPositionAmount(pos.positionAmt)) return null;
       const statuses = statusesBySymbol.get(normalizeSymbolKey(pos.symbol)) ?? [];
       const activeStatuses = statuses.filter((status) => status.running || status.starting === true);
       const activeTradingStatuses = activeStatuses.filter((status) => botTradeEnabled(status) !== false);
@@ -431,26 +446,48 @@ export function isLocalHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "::1" || hostname === "[::1]";
 }
 
+function validDateFromMs(ms: number): Date | null {
+  const d = new Date(ms);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function formatLocalTimestamp(ms: number, render: (date: Date) => string, fallback: string): string {
+  if (!Number.isFinite(ms)) return fallback;
+  const d = validDateFromMs(ms);
+  if (!d) return String(ms);
+  return render(d);
+}
+
 export function fmtTimeMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "—";
-  try {
-    return new Date(ms).toLocaleString();
-  } catch {
-    return String(ms);
-  }
+  return formatLocalTimestamp(ms, (d) => d.toLocaleString(), "—");
+}
+
+export function fmtTimeMsShort(ms: number): string {
+  return formatLocalTimestamp(
+    ms,
+    (d) => d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+    "--",
+  );
+}
+
+export function fmtTimeOfDayMs(ms: number): string {
+  return formatLocalTimestamp(ms, (d) => d.toLocaleTimeString(), "—");
+}
+
+export function formatIsoUtc(ms: number | null | undefined): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return "";
+  return d.toISOString();
 }
 
 export function fmtTimeMsWithMs(ms: number): string {
   if (!Number.isFinite(ms)) return "—";
-  try {
-    const d = new Date(ms);
-    if (!Number.isFinite(d.getTime())) return String(ms);
-    const pad2 = (v: number) => String(v).padStart(2, "0");
-    const pad3 = (v: number) => String(v).padStart(3, "0");
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
-  } catch {
-    return String(ms);
-  }
+  const d = validDateFromMs(ms);
+  if (!d) return String(ms);
+  const pad2 = (v: number) => String(v).padStart(2, "0");
+  const pad3 = (v: number) => String(v).padStart(3, "0");
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
 }
 
 export function fmtDurationMs(ms: number | null | undefined): string {
@@ -523,10 +560,19 @@ export function isTimeoutError(err: unknown): boolean {
   return errorName(err) === "TimeoutError";
 }
 
+export type LatestSignalTone = "bullish" | "bearish" | "neutral";
+
+export function latestSignalTone(action: string): LatestSignalTone {
+  const head = action.trim().split(/\s+/)[0]?.toUpperCase() ?? "";
+  if (head === "LONG") return "bullish";
+  if (head === "SHORT" || head === "FLAT") return "bearish";
+  return "neutral";
+}
+
 export function actionBadgeClass(action: string): string {
-  const a = action.toUpperCase();
-  if (a.includes("LONG")) return "badge badgeStrong badgeLong";
-  if (a.includes("FLAT")) return "badge badgeStrong badgeFlat";
+  const tone = latestSignalTone(action);
+  if (tone === "bullish") return "badge badgeStrong badgeLong";
+  if (tone === "bearish") return "badge badgeStrong badgeFlat";
   return "badge badgeStrong badgeHold";
 }
 

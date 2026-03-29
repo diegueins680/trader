@@ -40,7 +40,19 @@ import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Dex (DexEnv (..), DexToken (..), extractTxHash, resolveDexTokens, tokenAmountToInteger)
 import Trader.Duration (TimeWindow (..), inferPeriodsPerYear, lookbackBarsFrom, minuteOfDayFromMs, parseDurationSeconds, parseTimeWindow)
-import Trader.Formal.CloseTiming (CloseTimingDecision (..), CloseTimingObservation (..), CloseTimingStats (..), buildCloseTimingStats, closeTimingDecision, optimalCloseObservation)
+import Trader.Formal.CloseTiming (
+    CloseTimingDecision (..),
+    CloseTimingObservation (..),
+    CloseTimingStats (..),
+    ComboTimingStats (..),
+    ComboTrade (..),
+    TradeTimingSample (..),
+    buildCloseTimingStats,
+    closeTimingDecision,
+    optimalCloseObservation,
+    summarizeAllCombos,
+    timingSamples,
+ )
 import Trader.Formal.Optimization (FormalVerificationReport (..), roiRequirementClauses, roiRequirementSummary, verifyFormalOptimization)
 import Trader.Http (boundedBackoffMs, jitteredDelayMs, parseRetryAfterFromHeadersAt, parseRetryAfterMsAt)
 import Trader.Kalman3 (Kalman3 (..), KalmanRun (..), Vec3 (..), constantAcceleration1D, forecastNextConstantAcceleration1D, runConstantAcceleration1D, step)
@@ -65,13 +77,13 @@ import Trader.Predictors.KNN (predictKNN, trainKNN)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors, predictorSetFromString)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
-import Trader.SignalGates (normalizeSignalThreshold, signalCrossAssetCheck, signalEntryEdgeSpikeOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
+import Trader.SignalGates (SignalThresholdBoundary (..), mkSignalThresholdBoundary, normalizeSignalThreshold, signalCrossAssetCheck, signalEntryEdgeSpikeOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
 import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.Cors (corsSuite)
-import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue, topCombosPayloadEquivalent)
+import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, compactTopCombosPayloadForSync, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue, topCombosPayloadEquivalent)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 import Trader.VolConfGate (VolConfGatePreset (..))
 
@@ -132,6 +144,11 @@ main = do
               , run "formal tune tie-break matches spec" testFormalTieBreakMatchesSpec
               , run "formal close timing window identifies tm" testFormalCloseTimingWindow
               , run "formal close timing policy closes past target quantile" testFormalCloseTimingDecision
+              , run "close timing selects in-window optimum" testCloseTimingSelectsWindowOptimum
+              , run "close timing zero-duration forces tm to ta" testCloseTimingZeroDuration
+              , run "close timing short side picks window minimum price" testCloseTimingShortSide
+              , run "close timing out-of-range exit yields no sample" testCloseTimingOutOfRangeExit
+              , run "close timing summarizes combo ratios" testCloseTimingSummaryRatios
               , run "binance signature length" testBinanceSignatureLength
               , run "binance kline json parsing" testBinanceKlineParsing
               , run "binance trade parser accepts numeric and whitespace fields" testBinanceTradeParserAcceptsNumericAndWhitespace
@@ -235,8 +252,11 @@ main = do
               , run "signal gate prioritizes MAX_VOLATILITY over trend filter" testSignalGateMaxVolatilityPrecedesTrendFilter
               , run "signal gate emits VOL_TARGET_WARMUP reason" testSignalGateVolTargetWarmup
               , run "signal gate prioritizes VOL_TARGET_WARMUP over trend filter" testSignalGateVolTargetWarmupPrecedesTrendFilter
+              , run "signal gate prioritizes VOL_TARGET_WARMUP over kalman cloud" testSignalGateVolTargetWarmupPrecedesKalmanCloud
+              , run "signal gate prioritizes VOL_TARGET_WARMUP over price action" testSignalGateVolTargetWarmupPrecedesPriceAction
               , run "signal gate repeat blocked state stays hold" testSignalGateRepeatedBlockStaysHold
               , run "signal gate normalizes pathological thresholds" testSignalThresholdNormalization
+              , run "signal threshold boundary preserves configured values and clamps effective values" testSignalThresholdBoundary
               , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
               , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
               , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
@@ -257,6 +277,7 @@ main = do
               , run "top combos identity keys keep distinct sources separate" testComboIdentityKeyKeepsDistinctSources
               , run "top combos performance key ranks score before equity on ties" testComboPerformanceKeyRanksScoreBeforeEquity
               , run "top combos payload equivalence ignores root sync metadata" testTopCombosPayloadEquivalentIgnoresRootSyncMetadata
+              , run "top combos sync compaction drops operations only" testCompactTopCombosPayloadForSync
               , run "optimizer merge ignores overflow scientific integer strings" testRunMergeIgnoresOverflowScientificIntegerString
               , run "optimizer merge rejects fractional integer-like strings" testRunMergeRejectsFractionalIntegerString
               , run "optimizer merge preserves distinct payload sources from top-json inputs" testRunMergePreservesDistinctPayloadSources
@@ -2808,6 +2829,44 @@ testSignalGateVolTargetWarmupPrecedesTrendFilter = do
                 (const (True, 1))
     assert "VOL_TARGET_WARMUP takes precedence over TREND_FILTER when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
 
+testSignalGateVolTargetWarmupPrecedesKalmanCloud :: IO ()
+testSignalGateVolTargetWarmupPrecedesKalmanCloud = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const False)
+                (const True)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "VOL_TARGET_WARMUP takes precedence over KALMAN_CLOUD when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
+testSignalGateVolTargetWarmupPrecedesPriceAction :: IO ()
+testSignalGateVolTargetWarmupPrecedesPriceAction = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const True)
+                (const False)
+                True
+                True
+                (const (True, Nothing))
+                (const (True, Nothing))
+                (const True)
+                (const (True, 1))
+    assert "VOL_TARGET_WARMUP takes precedence over PRICE_ACTION when both would block" (result == (Nothing, Just "VOL_TARGET_WARMUP"))
+
 testSignalGateRepeatedBlockStaysHold :: IO ()
 testSignalGateRepeatedBlockStaysHold = do
     let blockedResult =
@@ -2849,13 +2908,24 @@ testSignalThresholdNormalization = do
     assert "threshold normalization clamps pathological values below 100%" (normalizeSignalThreshold 9.605316615448567 < 1)
     assert "threshold normalization disables negative thresholds" (normalizeSignalThreshold (-0.1) == 0)
 
+testSignalThresholdBoundary :: IO ()
+testSignalThresholdBoundary = do
+    let boundary = mkSignalThresholdBoundary 1.603480733918799 1.603480733918799 1.603480733918799 1.603480733918799
+    assertApprox "threshold boundary keeps the configured raw open threshold for observability" 1e-12 (stbConfiguredOpenThreshold boundary) 1.603480733918799
+    assertApprox "threshold boundary keeps the configured raw close threshold for observability" 1e-12 (stbConfiguredCloseThreshold boundary) 1.603480733918799
+    assertApprox "threshold boundary clamps effective open threshold below 100%" 1e-12 (stbEffectiveOpenThreshold boundary) 0.999999
+    assertApprox "threshold boundary clamps effective close threshold below 100%" 1e-12 (stbEffectiveCloseThreshold boundary) 0.999999
+
 testSignalGateEntryEdgeSpike :: IO ()
 testSignalGateEntryEdgeSpike = do
     assert "edge spike gate accepts edges at the configured 4x limit" (signalEntryEdgeSpikeOk 0.01 (Just 0.04))
     assert "edge spike gate rejects edges above the configured 4x limit" (not (signalEntryEdgeSpikeOk 0.01 (Just 0.040001)))
+    assert "edge spike gate accepts the absolute 50% credibility cap at equality" (signalEntryEdgeSpikeOk 0.2 (Just 0.5))
+    assert "edge spike gate rejects edges above the absolute 50% credibility cap" (not (signalEntryEdgeSpikeOk 0.2 (Just 0.500001)))
     assert "edge spike gate rejects missing edge when open threshold is active" (not (signalEntryEdgeSpikeOk 0.01 Nothing))
     assert "edge spike gate bypasses when open threshold is disabled" (signalEntryEdgeSpikeOk 0 Nothing)
     assert "edge spike gate still rejects DOGE-style spikes when the incoming threshold is pathological" (not (signalEntryEdgeSpikeOk 9.605316615448567 (Just 9.757279245379696)))
+    assert "edge spike gate rejects ETC-style absolute edge blowouts even below the 4x threshold multiple" (not (signalEntryEdgeSpikeOk 0.4605182527985672 (Just 0.8874828812267511)))
 
 testSignalGateMtfConsensus :: IO ()
 testSignalGateMtfConsensus = do
@@ -3214,6 +3284,35 @@ testTopCombosPayloadEquivalentIgnoresRootSyncMetadata = do
         payloadC = mkPayload (2 :: Int64) ("top-combos-store" :: String) ["bayes" :: String]
     assert "payload equivalence should ignore generatedAt/source churn" (topCombosPayloadEquivalent payloadA payloadB)
     assert "payload equivalence should still detect meaningful metadata changes" (not (topCombosPayloadEquivalent payloadA payloadC))
+
+testCompactTopCombosPayloadForSync :: IO ()
+testCompactTopCombosPayloadForSync = do
+    let payload =
+            object
+                [ "generatedAtMs" .= (1 :: Int64)
+                , "combos"
+                    .= [ object
+                            [ "uuid" .= ("combo-1" :: String)
+                            , "finalEquity" .= (1.4 :: Double)
+                            , "metrics" .= object ["annualizedReturn" .= (0.2 :: Double)]
+                            , "params" .= object ["symbol" .= ("BTCUSDT" :: String)]
+                            , "operations"
+                                .= [ object
+                                        [ "side" .= ("BUY" :: String)
+                                        , "price" .= (100.0 :: Double)
+                                        ]
+                                   ]
+                            ]
+                       ]
+                ]
+        compacted = compactTopCombosPayloadForSync payload
+        combo = requireHead "expected compacted combo" (requireCombosArray "compacted combos" compacted)
+    case combo of
+        Aeson.Object o -> do
+            assert "sync compaction should drop operations" (isNothing (KM.lookup "operations" o))
+            assert "sync compaction should keep params" (isJust (KM.lookup "params" o))
+            assert "sync compaction should keep metrics" (isJust (KM.lookup "metrics" o))
+        _ -> error "expected compacted combo object"
 
 runMergeAndReadFirstCombo :: String -> Aeson.Value -> IO Aeson.Value
 runMergeAndReadFirstCombo label barsValue =
@@ -4001,7 +4100,8 @@ testFormalCloseTimingWindow = do
             let stats = buildCloseTimingStats [obs]
             assert "one combo stat emitted" (length stats == 1)
             case stats of
-                [st] -> assert "single-sample median ratio is 1.6" (abs (ctsMedianRatio st - 1.6) < 1e-9)
+                [CloseTimingStats _ _ medianRatio _ _ _] ->
+                    assert "single-sample median ratio is 1.6" (abs (medianRatio - 1.6) < 1e-9)
                 _ -> pure ()
 
 testFormalCloseTimingDecision :: IO ()
@@ -4019,6 +4119,61 @@ testFormalCloseTimingDecision = do
             assert "policy holds before target quantile" (not (ctdShouldClose holdDecision))
             assert "policy closes after risk-budget target" (ctdShouldClose closeDecision)
         _ -> error "expected one combo stat"
+
+testCloseTimingSelectsWindowOptimum :: IO ()
+testCloseTimingSelectsWindowOptimum = do
+    let prices = [100, 101, 103, 102, 105, 104, 103]
+        trades = [ComboTrade "combo-a" 1 3 101 1]
+        samples = timingSamples prices trades
+    case samples of
+        [sample] -> do
+            assert "tm chooses maximum return in [ta, ta+2*(tc-ta)]" (ttsOptimalIndex sample == 4)
+            assert "optimal duration is measured from ta" (ttsOptimalDuration sample == 3)
+        _ -> error "expected exactly one timing sample"
+
+testCloseTimingZeroDuration :: IO ()
+testCloseTimingZeroDuration = do
+    let prices = [100, 101, 102]
+        trades = [ComboTrade "combo-a" 1 1 101 1]
+        samples = timingSamples prices trades
+    case samples of
+        [sample] -> do
+            assert "zero-duration trade keeps tm at ta" (ttsOptimalIndex sample == 1)
+            assert "zero-duration trade keeps observed duration at zero" (ttsObservedDuration sample == 0)
+        _ -> error "expected exactly one timing sample"
+
+testCloseTimingShortSide :: IO ()
+testCloseTimingShortSide = do
+    let prices = [100, 99, 97, 98, 96, 95]
+        trades = [ComboTrade "combo-a" 1 3 99 (-1)]
+        samples = timingSamples prices trades
+    case samples of
+        [sample] -> do
+            assert "short-side tm chooses the lowest price in window" (ttsOptimalIndex sample == 5)
+            assert "short-side optimum improves observed return" (ttsOptimalReturn sample > ttsObservedReturn sample)
+        _ -> error "expected exactly one timing sample"
+
+testCloseTimingOutOfRangeExit :: IO ()
+testCloseTimingOutOfRangeExit = do
+    let prices = [100, 102, 104]
+        trades = [ComboTrade "combo-a" 0 5 100 1]
+    assert "out-of-range exit yields no sample" (null (timingSamples prices trades))
+
+testCloseTimingSummaryRatios :: IO ()
+testCloseTimingSummaryRatios = do
+    let prices = [100, 102, 104, 103, 106, 108, 107]
+        trades =
+            [ ComboTrade "combo-a" 0 2 100 1
+            , ComboTrade "combo-a" 1 3 102 1
+            ]
+        samples = timingSamples prices trades
+        stats = summarizeAllCombos samples
+    case stats of
+        [ComboTimingStats comboId sampleCount medianRatio _ _ _ _ _] -> do
+            assert "summary keeps combo id" (comboId == "combo-a")
+            assert "summary counts samples" (sampleCount == 2)
+            assert "median ratio is >= 1 for profitable extensions" (medianRatio >= 1)
+        _ -> error "expected one combo summary"
 
 formalVerificationReport :: FormalVerificationReport
 formalVerificationReport = verifyFormalOptimization

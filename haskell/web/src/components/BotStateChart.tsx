@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { downsampleArray, downsampleIndices } from "../app/utils";
+import { downsampleArray, downsampleIndices, fmtTimeMs, fmtTimeMsShort } from "../app/utils";
 
 export type BotStatePoint = {
   atMs: number;
@@ -22,24 +22,6 @@ type Props = {
 
 const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
 const MAX_BOT_STATE_POINTS = 2000;
-
-function fmtTimeShort(ms: number): string {
-  if (!Number.isFinite(ms)) return "--";
-  try {
-    return new Date(ms).toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return String(ms);
-  }
-}
-
-function fmtTimeMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "—";
-  try {
-    return new Date(ms).toLocaleString();
-  } catch {
-    return String(ms);
-  }
-}
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
@@ -197,10 +179,10 @@ export const BotStateChart = React.memo(function BotStateChart({
           ) : null}
           <g>
             <text x={pad.l} y={h - 8} textAnchor="start" className="stateChartAxis">
-              {fmtTimeShort(startMs)}
+              {fmtTimeMsShort(startMs)}
             </text>
             <text x={w - pad.r} y={h - 8} textAnchor="end" className="stateChartAxis">
-              {fmtTimeShort(endMs)}
+              {fmtTimeMsShort(endMs)}
             </text>
           </g>
         </svg>

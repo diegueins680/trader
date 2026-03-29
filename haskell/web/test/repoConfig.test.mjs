@@ -6,9 +6,11 @@ import { transformSync } from "esbuild";
 
 const cabalConfig = readFileSync(new URL("../../../.cabal/config", import.meta.url), "utf8");
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+const contractsSource = readFileSync(new URL("../src/app/contracts.ts", import.meta.url), "utf8");
 const frontendConstantsSource = readFileSync(new URL("../src/app/constants.ts", import.meta.url), "utf8");
 const frontendUtilsSource = readFileSync(new URL("../src/app/utils.ts", import.meta.url), "utf8");
 const configLayoutSource = readFileSync(new URL("../src/app/configLayout.ts", import.meta.url), "utf8");
+const topCombosChartSource = readFileSync(new URL("../src/components/TopCombosChart.tsx", import.meta.url), "utf8");
 const backendBinanceIntervalsSource = readFileSync(new URL("../../app/Trader/BinanceIntervals.hs", import.meta.url), "utf8");
 
 function parseStringLiterals(source) {
@@ -125,6 +127,59 @@ test("repo contract keeps frontend Binance intervals aligned with backend valida
   assert.deepEqual(frontendBinanceIntervalSecondsKeys, frontendBinanceIntervals);
 });
 
+test("repo contract keeps top-combo method sanitization aligned with shared method ids", () => {
+  const contractMethods = parseTsConstStringArray(contractsSource, "METHOD_IDS");
+  assert.ok(contractMethods.includes("kalman_physics_error"), "shared method contract must include kalman_physics_error");
+
+  const usesSharedMethodIds = /const methods:\s*Method\[\]\s*=\s*\[\.\.\.METHOD_IDS\];/.test(appSource);
+  if (usesSharedMethodIds) return;
+
+  const appMethodsMatch = appSource.match(/const methods:\s*Method\[\]\s*=\s*\[(.*?)\];/s);
+  assert.ok(appMethodsMatch, "expected sanitizeTopCombosPayload method allowlist in App.tsx");
+  const appMethods = parseStringLiterals(appMethodsMatch[1]);
+  assert.deepEqual(appMethods, contractMethods);
+});
+
+test("repo contract keeps TopCombosChart hooks ahead of empty-state early returns", () => {
+  const loadingGuard = topCombosChartSource.indexOf("if (loading && combos.length === 0)");
+  const emptyGuard = topCombosChartSource.indexOf("if (combos.length === 0)");
+  const hoverStateHook = topCombosChartSource.indexOf("const [hoveredId, setHoveredId] = useState");
+  const maxRatingHook = topCombosChartSource.indexOf("const maxRating = useMemo(");
+
+  assert.ok(loadingGuard >= 0, "expected loading guard in TopCombosChart");
+  assert.ok(emptyGuard >= 0, "expected empty guard in TopCombosChart");
+  assert.ok(hoverStateHook >= 0, "expected hover state hook in TopCombosChart");
+  assert.ok(maxRatingHook >= 0, "expected maxRating hook in TopCombosChart");
+  assert.ok(
+    hoverStateHook < loadingGuard && hoverStateHook < emptyGuard,
+    "TopCombosChart must establish hook state before prop-dependent early returns.",
+  );
+  assert.ok(
+    maxRatingHook < loadingGuard && maxRatingHook < emptyGuard,
+    "TopCombosChart must establish memoized hook state before prop-dependent early returns.",
+  );
+});
+
+test("repo contract routes top-combo integer imports through the exact safe-integer boundary", () => {
+  for (const field of ["bars", "epochs", "hiddenSize", "patience", "volLookback", "walkForwardFolds"]) {
+    assert.match(
+      appSource,
+      new RegExp(`readExactSafeInteger\\(params\\.${field}\\)`),
+      `${field} combo imports must use readExactSafeInteger`,
+    );
+  }
+  assert.match(
+    appSource,
+    /readNonNegativeExactSafeInteger\(params\.maxOrderErrors\)/,
+    "maxOrderErrors combo imports must preserve the zero-disable sentinel via the non-negative exact-safe boundary",
+  );
+  assert.match(
+    appSource,
+    /sanitizeOptimizationComboOperation\(rawOp\)/,
+    "combo operation imports must share the exact-safe discrete sanitizer",
+  );
+});
+
 test("repo contract routes lookback and live-bot validation targets to their config pages", () => {
   const targetPageMapBody = parseTsConstObjectBody(configLayoutSource, "CONFIG_TARGET_PAGE_MAP");
 
@@ -162,6 +217,19 @@ test("repo contract routes trade sizing validation targets to trade config page"
     targetPageMapBody,
     /orderQuoteFraction:\s*"section-trade"/,
     "orderQuoteFraction sizing issues must route to the Trade config page",
+  );
+});
+
+test("repo contract keeps frontend valRatio strictly below the backend upper bound", () => {
+  assert.match(
+    appSource,
+    /clamp\(params\.valRatio,\s*0,\s*0\.999999\)/,
+    "top-combo sanitization must keep valRatio below 1 before combo apply",
+  );
+  assert.match(
+    appSource,
+    /valRatio:\s*clamp\(form\.valRatio,\s*0,\s*0\.999999\)/,
+    "request emission must keep valRatio below 1 to satisfy backend validation",
   );
 });
 

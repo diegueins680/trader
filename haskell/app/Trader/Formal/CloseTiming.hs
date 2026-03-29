@@ -1,14 +1,22 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+
 module Trader.Formal.CloseTiming (
     CloseTimingDecision (..),
     CloseTimingObservation (..),
     CloseTimingStats (..),
+    ComboTimingStats (..),
+    ComboTrade (..),
+    TradeTimingSample (..),
     buildCloseTimingStats,
     closeTimingDecision,
     optimalCloseObservation,
+    summarizeAllCombos,
+    summarizeComboTiming,
+    timingSamples,
 ) where
 
 import Data.Function (on)
-import Data.List (groupBy, sortOn)
+import Data.List (foldl', groupBy, sort, sortOn)
 import Data.Maybe (mapMaybe)
 
 -- | Historical position sample grouped by combo.
@@ -38,6 +46,43 @@ data CloseTimingDecision = CloseTimingDecision
     { ctdShouldClose :: !Bool
     , ctdAgeRatio :: !Double
     , ctdTargetRatio :: !Double
+    }
+    deriving (Eq, Show)
+
+-- | Trade tagged with combo identity and price-series indices.
+data ComboTrade = ComboTrade
+    { ctComboId :: !String
+    , ctEntryIndex :: !Int
+    , ctExitIndex :: !Int
+    , ctEntryPrice :: !Double
+    , ctSide :: !Double
+    }
+    deriving (Eq, Show)
+
+-- | Per-trade sample with the optimal close index tm in [ta, ta + 2 * (tc - ta)].
+data TradeTimingSample = TradeTimingSample
+    { ttsComboId :: !String
+    , ttsEntryIndex :: !Int
+    , ttsExitIndex :: !Int
+    , ttsOptimalIndex :: !Int
+    , ttsObservedDuration :: !Int
+    , ttsOptimalDuration :: !Int
+    , ttsObservedReturn :: !Double
+    , ttsOptimalReturn :: !Double
+    , ttsReturnLift :: !Double
+    }
+    deriving (Eq, Show)
+
+-- | Robust tm-distribution summary per combo.
+data ComboTimingStats = ComboTimingStats
+    { ctsComboId :: !String
+    , ctsSampleCount :: !Int
+    , ctsMedianRatio :: !Double
+    , ctsQ25Ratio :: !Double
+    , ctsQ75Ratio :: !Double
+    , ctsMadRatio :: !Double
+    , ctsMeanLift :: !Double
+    , ctsMedianLift :: !Double
     }
     deriving (Eq, Show)
 
@@ -123,6 +168,108 @@ closeTimingDecision riskBudget stats ta expectedDurationMs now =
             , ctdTargetRatio = target
             }
 
+timingSamples :: [Double] -> [ComboTrade] -> [TradeTimingSample]
+timingSamples prices = mapMaybe (sampleForTrade prices)
+
+sampleForTrade :: [Double] -> ComboTrade -> Maybe TradeTimingSample
+sampleForTrade prices tr = do
+    observed <- returnAt prices tr (ctExitIndex tr)
+    let ta = ctEntryIndex tr
+        tc = ctExitIndex tr
+        tm = optimalIndexInWindow prices tr
+    optimal <- returnAt prices tr tm
+    pure
+        TradeTimingSample
+            { ttsComboId = ctComboId tr
+            , ttsEntryIndex = ta
+            , ttsExitIndex = tc
+            , ttsOptimalIndex = tm
+            , ttsObservedDuration = max 0 (tc - ta)
+            , ttsOptimalDuration = max 0 (tm - ta)
+            , ttsObservedReturn = observed
+            , ttsOptimalReturn = optimal
+            , ttsReturnLift = optimal - observed
+            }
+
+returnAt :: [Double] -> ComboTrade -> Int -> Maybe Double
+returnAt prices tr i
+    | not (validComboTrade tr) = Nothing
+    | otherwise = do
+        px <- safeAt prices i
+        if isFinite px
+            then pure (ctSide tr * (px / ctEntryPrice tr - 1))
+            else Nothing
+
+validComboTrade :: ComboTrade -> Bool
+validComboTrade tr =
+    ctEntryPrice tr > 0
+        && isFinite (ctEntryPrice tr)
+        && isFinite (ctSide tr)
+        && ctSide tr /= 0
+
+optimalIndexInWindow :: [Double] -> ComboTrade -> Int
+optimalIndexInWindow prices tr =
+    let ta = ctEntryIndex tr
+        tc = ctExitIndex tr
+     in if tc <= ta
+            then ta
+            else
+                let observedDuration = tc - ta
+                    maxIndex = min (length prices - 1) (ta + 2 * observedDuration)
+                    candidates = [ta .. maxIndex]
+                    scored = mapMaybe scoreAt candidates
+                 in case scored of
+                        [] -> tc
+                        xs -> fst (foldl1 chooseBetterClose xs)
+  where
+    scoreAt i = do
+        ret <- returnAt prices tr i
+        pure (i, ret)
+
+summarizeComboTiming :: [TradeTimingSample] -> Maybe ComboTimingStats
+summarizeComboTiming [] = Nothing
+summarizeComboTiming samples@(sample0 : _) =
+    let ratios = map timingRatio samples
+        lifts = map ttsReturnLift samples
+     in Just
+            ComboTimingStats
+                { ctsComboId = ttsComboId sample0
+                , ctsSampleCount = length samples
+                , ctsMedianRatio = boundedPercentile 0.5 ratios
+                , ctsQ25Ratio = boundedPercentile 0.25 ratios
+                , ctsQ75Ratio = boundedPercentile 0.75 ratios
+                , ctsMadRatio = mad ratios
+                , ctsMeanLift = mean lifts
+                , ctsMedianLift = percentile 0.5 lifts
+                }
+
+summarizeAllCombos :: [TradeTimingSample] -> [ComboTimingStats]
+summarizeAllCombos samples =
+    mapMaybe summarizeComboTiming grouped
+  where
+    grouped =
+        groupBy ((==) `on` ttsComboId) (sortOn ttsComboId samples)
+
+timingRatio :: TradeTimingSample -> Double
+timingRatio sample
+    | ttsObservedDuration sample <= 0 = 0
+    | otherwise =
+        clampRatio
+            ( fromIntegral (ttsOptimalDuration sample)
+                / fromIntegral (ttsObservedDuration sample)
+            )
+
+mean :: [Double] -> Double
+mean [] = 0
+mean xs = sum xs / fromIntegral (length xs)
+
+mad :: [Double] -> Double
+mad [] = 0
+mad xs =
+    let med = boundedPercentile 0.5 xs
+        deviations = map (abs . subtract med) xs
+     in boundedPercentile 0.5 deviations
+
 validObservation :: CloseTimingObservation -> Bool
 validObservation x =
     case observationRatioParts x of
@@ -151,9 +298,9 @@ nonNegativeIntegerDelta :: Int -> Int -> Integer
 nonNegativeIntegerDelta start end = max 0 (integerDelta start end)
 
 decisionTargetBand :: CloseTimingStats -> (Double, Double)
-decisionTargetBand stats =
-    let medianRatio = clampRatio (ctsMedianRatio stats)
-        q75Ratio = max medianRatio (clampRatio (ctsQ75Ratio stats))
+decisionTargetBand CloseTimingStats{ctsMedianRatio = medianRatio0, ctsQ75Ratio = q75Ratio0} =
+    let medianRatio = clampRatio medianRatio0
+        q75Ratio = max medianRatio (clampRatio q75Ratio0)
      in (medianRatio, q75Ratio)
 
 boundedPercentile :: Double -> [Double] -> Double
@@ -161,7 +308,7 @@ boundedPercentile p = clampRatio . percentile p
 
 orderQuartiles :: Double -> Double -> Double -> (Double, Double, Double)
 orderQuartiles q25 q50 q75 =
-    case sortOn id (map clampRatio [q25, q50, q75]) of
+    case sort (map clampRatio [q25, q50, q75]) of
         [a, b, c] -> (a, b, c)
         _ -> (0, 0, 0)
 
@@ -177,7 +324,7 @@ mix w a b = (1 - w) * a + w * b
 percentile :: Double -> [Double] -> Double
 percentile _ [] = 1
 percentile p xs =
-    let ys = sortOn id xs
+    let ys = sort xs
         n = length ys
         idx = floor (clamp 0 1 p * fromIntegral (n - 1))
      in ys !! idx
@@ -187,6 +334,16 @@ clampRatio = clamp 0 2
 
 clamp :: Double -> Double -> Double -> Double
 clamp lo hi = max lo . min hi
+
+safeAt :: [a] -> Int -> Maybe a
+safeAt xs i
+    | i < 0 = Nothing
+    | otherwise = go xs i
+  where
+    go [] _ = Nothing
+    go (y : ys) k
+        | k == 0 = Just y
+        | otherwise = go ys (k - 1)
 
 isFinite :: Double -> Bool
 isFinite x = not (isNaN x || isInfinite x)

@@ -1,6 +1,7 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Main where
 
@@ -33,6 +34,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix)
+import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Ord
 import Data.Scientific (FPFormat (Fixed), formatScientific, toBoundedInteger)
@@ -52,10 +54,10 @@ import Database.PostgreSQL.Simple.Types (PGArray (..))
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
-import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus, responseTimeout, responseTimeoutMicro)
+import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status413, status429, status500, status502, status504, statusCode)
-import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
+import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hContentType, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -288,6 +290,8 @@ import Trader.S3 (
  )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.SignalGates (
+    SignalThresholdBoundary (..),
+    mkSignalThresholdBoundary,
     normalizeSignalThreshold,
     signalCrossAssetCheck,
     signalEntryEdgeSpikeOk,
@@ -308,6 +312,7 @@ import Trader.TopCombosStore (
     comboIdentityKey,
     comboMetricDouble,
     comboPerformanceKey,
+    compactTopCombosPayloadForSync,
     isTopCombosPayload,
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStats,
@@ -1405,6 +1410,23 @@ data ApiBinancePositionsResponse = ApiBinancePositionsResponse
 instance ToJSON ApiBinancePositionsResponse where
     toJSON = Aeson.genericToJSON (jsonOptions 4)
 
+data ApiRequestProgress = ApiRequestProgress
+    { arpRequestId :: !String
+    , arpKind :: !String
+    , arpCurrentPhase :: !String
+    , arpLastCompletedPhase :: !(Maybe String)
+    , arpDetail :: !(Maybe String)
+    , arpStartedAtMs :: !Int64
+    , arpUpdatedAtMs :: !Int64
+    , arpCompletedAtMs :: !(Maybe Int64)
+    , arpCompletedOk :: !(Maybe Bool)
+    , arpError :: !(Maybe String)
+    }
+    deriving (Eq, Show, Generic)
+
+instance ToJSON ApiRequestProgress where
+    toJSON = Aeson.genericToJSON (jsonOptions 3)
+
 jsonOptions :: Int -> Aeson.Options
 jsonOptions prefixLen =
     Aeson.defaultOptions
@@ -1520,21 +1542,39 @@ syncTopCombosMaybe mTarget contents =
                     if not (isTopCombosPayload val)
                         then recordStateSyncError target "Invalid top-combos.json payload (missing combos array)."
                         else do
-                            let payload =
-                                    StateSyncPayload
-                                        { sspGeneratedAtMs = topCombosGeneratedAtMs val
-                                        , sspBotSnapshots = Nothing
-                                        , sspTopCombos = Just val
-                                        }
-                                req = (sstRequest target){requestBody = RequestBodyLBS (encode payload)}
-                            respOrErr <- try (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
-                            case respOrErr of
-                                Left ex -> recordStateSyncError target (show ex)
-                                Right resp -> do
-                                    let code = statusCode (responseStatus resp)
-                                    if code >= 200 && code < 300
-                                        then clearStateSyncError target
-                                        else recordStateSyncError target ("HTTP " ++ show code)
+                            let payload = mkStateSyncTopCombosPayload val
+                                compactPayload = mkStateSyncTopCombosPayload (compactTopCombosPayloadForSync val)
+                            outcome <- sendStateSyncPayload target payload
+                            case outcome of
+                                Right _ -> clearStateSyncError target
+                                Left "HTTP 413"
+                                    | payload /= compactPayload -> do
+                                        compactOutcome <- sendStateSyncPayload target compactPayload
+                                        case compactOutcome of
+                                            Right _ -> clearStateSyncError target
+                                            Left err -> recordStateSyncError target err
+                                Left err -> recordStateSyncError target err
+
+mkStateSyncTopCombosPayload :: Aeson.Value -> StateSyncPayload
+mkStateSyncTopCombosPayload val =
+    StateSyncPayload
+        { sspGeneratedAtMs = topCombosGeneratedAtMs val
+        , sspBotSnapshots = Nothing
+        , sspTopCombos = Just val
+        }
+
+sendStateSyncPayload :: StateSyncTarget -> StateSyncPayload -> IO (Either String ())
+sendStateSyncPayload target payload = do
+    let req = (sstRequest target){requestBody = RequestBodyLBS (encode payload)}
+    respOrErr <- try (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
+    pure $
+        case respOrErr of
+            Left ex -> Left (show ex)
+            Right resp ->
+                let code = statusCode (responseStatus resp)
+                 in if code >= 200 && code < 300
+                        then Right ()
+                        else Left ("HTTP " ++ show code)
 
 fetchStateSyncPayload :: StateSyncTarget -> IO (Either String StateSyncPayload)
 fetchStateSyncPayload target = do
@@ -1556,14 +1596,48 @@ fetchStateSyncPayload target = do
                     let err = "HTTP " ++ show code
                     recordStateSyncError target err
                     pure (Left err)
-                else case Aeson.eitherDecode' (responseBody resp) of
-                    Left err -> do
-                        let msg = "Invalid /state/sync payload: " ++ err
+                else case nonJsonStateSyncResponseError resp of
+                    Just msg -> do
                         recordStateSyncError target msg
                         pure (Left msg)
-                    Right payload -> do
-                        clearStateSyncError target
-                        pure (Right payload)
+                    Nothing ->
+                        case Aeson.eitherDecode' (responseBody resp) of
+                            Left err -> do
+                                let msg = "Invalid /state/sync payload: " ++ err
+                                recordStateSyncError target msg
+                                pure (Left msg)
+                            Right payload -> do
+                                clearStateSyncError target
+                                pure (Right payload)
+
+nonJsonStateSyncResponseError :: Response BL.ByteString -> Maybe String
+nonJsonStateSyncResponseError resp =
+    case lookup hContentType (responseHeaders resp) of
+        Just rawType
+            | not (responseContentTypeIsJson rawType) ->
+                Just
+                    ( "Unexpected /state/sync content type "
+                        ++ BS.unpack rawType
+                        ++ previewSuffix (responseBodyPreview (responseBody resp))
+                    )
+        _ -> Nothing
+  where
+    previewSuffix preview =
+        if null preview
+            then ""
+            else " (body starts with " ++ show preview ++ ")"
+
+responseContentTypeIsJson :: BS.ByteString -> Bool
+responseContentTypeIsJson rawType =
+    "json" `BS.isInfixOf` BS.map toLower rawType
+
+responseBodyPreview :: BL.ByteString -> String
+responseBodyPreview =
+    take 120
+        . filter (\c -> c /= '\r' && c /= '\n')
+        . BS.unpack
+        . BL.toStrict
+        . BL.take 120
 
 recordStateSyncError :: StateSyncTarget -> String -> IO ()
 recordStateSyncError target msg = do
@@ -1585,9 +1659,9 @@ data TopCombosReplicaFetch = TopCombosReplicaFetch
     }
 
 data TopCombosSyncPlan = TopCombosSyncPlan
-    { tcspRepairDb :: !Bool
-    , tcspRepairRemote :: !Bool
-    , tcspRepairedTargets :: ![String]
+    { tcspRepairLocal :: !Bool
+    , tcspRepairDb :: !Bool
+    , tcspRemoteTargets :: ![String]
     , tcspComboCount :: !Int
     }
 
@@ -1753,10 +1827,16 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                         dbNeedsWrite =
                                             maybe False (topCombosReplicaNeedsRepair merged) dbFetch
                                         remoteFetches = catMaybes [s3Fetch, stateSyncFetch]
-                                        remoteNeedsRepair = any (topCombosReplicaNeedsRepair merged) remoteFetches
+                                        remoteTargets =
+                                            if localNeedsWrite
+                                                then map tcrfName remoteFetches
+                                                else
+                                                    [ tcrfName fetch
+                                                    | fetch <- remoteFetches
+                                                    , topCombosReplicaNeedsRepair merged fetch
+                                                    ]
                                         localReadyBeforeWrite =
                                             topCombosReplicaRepairable localFetch && isJust (tcrfPayload localFetch)
-                                        repairRemoteRequested = not (null remoteFetches) && (localNeedsWrite || remoteNeedsRepair)
                                     localReady <-
                                         if localNeedsWrite
                                             then do
@@ -1770,12 +1850,12 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                                         pure True
                                             else pure localReadyBeforeWrite
                                     let repairDb = localReady && dbNeedsWrite
-                                        repairRemote = localReady && repairRemoteRequested
+                                        remoteTargetsReady = if localReady then remoteTargets else []
                                         repairedTargets =
                                             concat
                                                 [ ["local" | localNeedsWrite]
                                                 , ["db" | repairDb]
-                                                , ["remote" | repairRemote]
+                                                , remoteTargetsReady
                                                 ]
                                     if null repairedTargets
                                         then pure Nothing
@@ -1783,22 +1863,31 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                             pure
                                                 ( Just
                                                     TopCombosSyncPlan
-                                                        { tcspRepairDb = repairDb
-                                                        , tcspRepairRemote = repairRemote
-                                                        , tcspRepairedTargets = repairedTargets
+                                                        { tcspRepairLocal = localNeedsWrite
+                                                        , tcspRepairDb = repairDb
+                                                        , tcspRemoteTargets = remoteTargetsReady
                                                         , tcspComboCount = topCombosComboCount merged
                                                         }
                                                 )
                     case plan of
                         Nothing -> pure ()
-                        Just TopCombosSyncPlan{tcspRepairDb = repairDb, tcspRepairRemote = repairRemote, tcspRepairedTargets = repairedTargets, tcspComboCount = comboCount} -> do
+                        Just TopCombosSyncPlan{tcspRepairLocal = repairLocal, tcspRepairDb = repairDb, tcspRemoteTargets = remoteTargets, tcspComboCount = comboCount} -> do
                             when repairDb (persistTopCombosDbMaybe mOps topCombosStore)
-                            when repairRemote (persistTopCombosMaybe mStateSyncTarget topJsonPath)
-                            putStrLn
-                                ( printf
-                                    "Top combos sync reconciled %s (%d combos)."
-                                    (intercalate ", " repairedTargets)
-                                    comboCount
+                            remotePersisted <- persistTopCombosTargets remoteTargets mStateSyncTarget topJsonPath
+                            let repairedTargets =
+                                    concat
+                                        [ ["local" | repairLocal]
+                                        , ["db" | repairDb]
+                                        , remotePersisted
+                                        ]
+                            unless
+                                (null repairedTargets)
+                                ( putStrLn
+                                    ( printf
+                                        "Top combos sync reconciled %s (%d combos)."
+                                        (intercalate ", " repairedTargets)
+                                        comboCount
+                                    )
                                 )
                     sleepSec everySec
                     loop
@@ -4895,6 +4984,27 @@ botStatusJson st =
                         , "trendLookbackAdd" .= baTrendLookbackAdd adj
                         ]
                 ]
+        thresholdBoundary =
+            mkSignalThresholdBoundary
+                (argOpenThreshold argsBase)
+                (argCloseThreshold argsBase)
+                (lsOpenThreshold (botLatestSignal st))
+                (lsCloseThreshold (botLatestSignal st))
+        thresholdsJson =
+            object
+                [ "configured"
+                    .= object
+                        [ "threshold" .= stbConfiguredOpenThreshold thresholdBoundary
+                        , "openThreshold" .= stbConfiguredOpenThreshold thresholdBoundary
+                        , "closeThreshold" .= stbConfiguredCloseThreshold thresholdBoundary
+                        ]
+                , "effective"
+                    .= object
+                        [ "threshold" .= stbEffectiveOpenThreshold thresholdBoundary
+                        , "openThreshold" .= stbEffectiveOpenThreshold thresholdBoundary
+                        , "closeThreshold" .= stbEffectiveCloseThreshold thresholdBoundary
+                        ]
+                ]
 
         klineJson k =
             object
@@ -4915,6 +5025,7 @@ botStatusJson st =
             , "threshold" .= argOpenThreshold (botArgs st)
             , "openThreshold" .= argOpenThreshold (botArgs st)
             , "closeThreshold" .= argCloseThreshold (botArgs st)
+            , "thresholds" .= thresholdsJson
             , "settings"
                 .= object
                     [ "pollSeconds" .= bsPollSeconds (botSettings st)
@@ -8431,36 +8542,45 @@ backtestTopCombosOnce topNRaw ctx = do
                             if null updates
                                 then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String)]
                                 else do
-                                    withTopCombosLock store $ do
-                                        latestValOrErr <- readTopCombosValueWithDbFallbackUnlocked (tcbcOps ctx) store
-                                        case latestValOrErr of
-                                            Left err ->
-                                                recordError
-                                                    "optimizer.combos.backtest_failed"
-                                                    ("Failed to read latest top combos before applying updates: " ++ err)
-                                                    Nothing
-                                                    Nothing
-                                            Right latestVal -> do
-                                                now <- getTimestampMs
-                                                let updateMap = HM.fromList updates
-                                                case applyComboUpdates now updateMap latestVal of
-                                                    Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                                                    Right (updatedVal, updatedCount) ->
-                                                        if updatedCount <= 0
-                                                            then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
-                                                            else do
-                                                                writeResult <- writeTopCombosValue topJsonPath updatedVal
-                                                                case writeResult of
-                                                                    Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                                                                    Right _ -> do
-                                                                        persistTopCombosMaybe (tcbcStateSync ctx) topJsonPath
-                                                                        persistTopCombosDbMaybeUnlocked mOps store
-                                                                        recordEvent
-                                                                            "optimizer.combos.backtest_updated"
-                                                                            [ "updated" .= updatedCount
-                                                                            , "topN" .= topN
-                                                                            , "path" .= topJsonPath
-                                                                            ]
+                                    dbPersistNeeded <-
+                                        withTopCombosLock store $ do
+                                            latestValOrErr <- readTopCombosValueWithDbFallbackUnlocked (tcbcOps ctx) store
+                                            case latestValOrErr of
+                                                Left err -> do
+                                                    recordError
+                                                        "optimizer.combos.backtest_failed"
+                                                        ("Failed to read latest top combos before applying updates: " ++ err)
+                                                        Nothing
+                                                        Nothing
+                                                    pure False
+                                                Right latestVal -> do
+                                                    now <- getTimestampMs
+                                                    let updateMap = HM.fromList updates
+                                                    case applyComboUpdates now updateMap latestVal of
+                                                        Left err -> do
+                                                            recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                                                            pure False
+                                                        Right (updatedVal, updatedCount) ->
+                                                            if updatedCount <= 0
+                                                                then do
+                                                                    recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
+                                                                    pure False
+                                                                else do
+                                                                    writeResult <- writeTopCombosValue topJsonPath updatedVal
+                                                                    case writeResult of
+                                                                        Left err -> do
+                                                                            recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                                                                            pure False
+                                                                        Right _ -> do
+                                                                            persistTopCombosMaybe (tcbcStateSync ctx) topJsonPath
+                                                                            recordEvent
+                                                                                "optimizer.combos.backtest_updated"
+                                                                                [ "updated" .= updatedCount
+                                                                                , "topN" .= topN
+                                                                                , "path" .= topJsonPath
+                                                                                ]
+                                                                            pure True
+                                    when dbPersistNeeded (persistTopCombosDbMaybe mOps store)
                         _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON missing combos array." Nothing Nothing
                 _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON root must be an object." Nothing Nothing
 
@@ -10127,10 +10247,11 @@ runRestApi cliArgs mWebhook = do
     asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
     asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
     asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
+    requestProgressStore <- newRequestProgressStore
     hFlush stdout
     res <-
         ( try
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
+                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
                 IO (Either IOException ())
             )
     case res of
@@ -10150,6 +10271,152 @@ lookupHeaderNormalized :: String -> RequestHeaders -> Maybe BS.ByteString
 lookupHeaderNormalized wanted hs =
     let wantedNorm = normalizeKey wanted
      in snd <$> find (\(h, _) -> normalizeKey (BS.unpack (CI.original h)) == wantedNorm) hs
+
+newtype RequestProgressStore = RequestProgressStore
+    { rpsEntries :: MVar (HM.HashMap String ApiRequestProgress)
+    }
+
+requestProgressHeaderName :: String
+requestProgressHeaderName = "X-Trader-Request-Id"
+
+requestProgressTtlMs :: Int64
+requestProgressTtlMs = 15 * 60 * 1000
+
+newRequestProgressStore :: IO RequestProgressStore
+newRequestProgressStore = RequestProgressStore <$> newMVar HM.empty
+
+normalizeRequestProgressId :: String -> Maybe String
+normalizeRequestProgressId raw =
+    let trimmed = trim raw
+     in if null trimmed || length trimmed > 200
+            then Nothing
+            else Just trimmed
+
+requestProgressIdFromRequest :: Wai.Request -> Maybe String
+requestProgressIdFromRequest req =
+    normalizeRequestProgressId . BS.unpack
+        =<< lookupHeaderNormalized requestProgressHeaderName (Wai.requestHeaders req)
+
+pruneRequestProgressEntries :: Int64 -> HM.HashMap String ApiRequestProgress -> HM.HashMap String ApiRequestProgress
+pruneRequestProgressEntries now =
+    HM.filter keepEntry
+  where
+    keepEntry entry =
+        let cutoff = fromMaybe (arpUpdatedAtMs entry) (arpCompletedAtMs entry)
+         in now - cutoff <= requestProgressTtlMs
+
+requestProgressTracker :: RequestProgressStore -> Wai.Request -> Maybe (RequestProgressStore, String)
+requestProgressTracker store req = (store,) <$> requestProgressIdFromRequest req
+
+startRequestProgress :: RequestProgressStore -> String -> String -> String -> Maybe String -> IO ()
+startRequestProgress store requestId kind phase detail = do
+    now <- getTimestampMs
+    let entry =
+            ApiRequestProgress
+                { arpRequestId = requestId
+                , arpKind = kind
+                , arpCurrentPhase = phase
+                , arpLastCompletedPhase = Nothing
+                , arpDetail = detail
+                , arpStartedAtMs = now
+                , arpUpdatedAtMs = now
+                , arpCompletedAtMs = Nothing
+                , arpCompletedOk = Nothing
+                , arpError = Nothing
+                }
+    modifyMVar_ (rpsEntries store) $ \entries ->
+        pure (HM.insert requestId entry (pruneRequestProgressEntries now entries))
+
+advanceRequestProgress :: RequestProgressStore -> String -> String -> Maybe String -> IO ()
+advanceRequestProgress store requestId phase detail = do
+    now <- getTimestampMs
+    modifyMVar_ (rpsEntries store) $ \entries ->
+        let entries' = pruneRequestProgressEntries now entries
+            updated =
+                HM.adjust
+                    ( \entry ->
+                        let samePhase = arpCurrentPhase entry == phase
+                            lastCompleted =
+                                if samePhase
+                                    then arpLastCompletedPhase entry
+                                    else Just (arpCurrentPhase entry)
+                         in entry
+                                { arpCurrentPhase = phase
+                                , arpLastCompletedPhase = lastCompleted
+                                , arpDetail = detail
+                                , arpUpdatedAtMs = now
+                                , arpError = Nothing
+                                }
+                    )
+                    requestId
+                    entries'
+         in pure updated
+
+completeRequestProgress :: RequestProgressStore -> String -> Maybe String -> IO ()
+completeRequestProgress store requestId detail = do
+    now <- getTimestampMs
+    modifyMVar_ (rpsEntries store) $ \entries ->
+        let entries' = pruneRequestProgressEntries now entries
+            updated =
+                HM.adjust
+                    ( \entry ->
+                        entry
+                            { arpDetail = detail <|> arpDetail entry
+                            , arpUpdatedAtMs = now
+                            , arpCompletedAtMs = Just now
+                            , arpCompletedOk = Just True
+                            , arpError = Nothing
+                            }
+                    )
+                    requestId
+                    entries'
+         in pure updated
+
+failRequestProgress :: RequestProgressStore -> String -> String -> IO ()
+failRequestProgress store requestId errMsg = do
+    now <- getTimestampMs
+    modifyMVar_ (rpsEntries store) $ \entries ->
+        let entries' = pruneRequestProgressEntries now entries
+            updated =
+                HM.adjust
+                    ( \entry ->
+                        entry
+                            { arpUpdatedAtMs = now
+                            , arpCompletedAtMs = Just now
+                            , arpCompletedOk = Just False
+                            , arpError = Just errMsg
+                            }
+                    )
+                    requestId
+                    entries'
+         in pure updated
+
+lookupRequestProgress :: RequestProgressStore -> String -> IO (Maybe ApiRequestProgress)
+lookupRequestProgress store requestId = do
+    now <- getTimestampMs
+    modifyMVar (rpsEntries store) $ \entries ->
+        let entries' = pruneRequestProgressEntries now entries
+         in pure (entries', HM.lookup requestId entries')
+
+startRequestProgressMaybe :: Maybe (RequestProgressStore, String) -> String -> String -> Maybe String -> IO ()
+startRequestProgressMaybe Nothing _ _ _ = pure ()
+startRequestProgressMaybe (Just (store, requestId)) kind phase detail =
+    startRequestProgress store requestId kind phase detail
+
+advanceRequestProgressMaybe :: Maybe (RequestProgressStore, String) -> String -> Maybe String -> IO ()
+advanceRequestProgressMaybe Nothing _ _ = pure ()
+advanceRequestProgressMaybe (Just (store, requestId)) phase detail =
+    advanceRequestProgress store requestId phase detail
+
+completeRequestProgressMaybe :: Maybe (RequestProgressStore, String) -> Maybe String -> IO ()
+completeRequestProgressMaybe Nothing _ = pure ()
+completeRequestProgressMaybe (Just (store, requestId)) detail =
+    completeRequestProgress store requestId detail
+
+failRequestProgressMaybe :: Maybe (RequestProgressStore, String) -> String -> IO ()
+failRequestProgressMaybe Nothing _ = pure ()
+failRequestProgressMaybe (Just (store, requestId)) errMsg =
+    failRequestProgress store requestId errMsg
 
 noCacheHeaders :: ResponseHeaders
 noCacheHeaders =
@@ -11179,6 +11446,7 @@ apiApp ::
     Maybe OpsStore ->
     Maybe StateSyncTarget ->
     ListenKeyManager ->
+    RequestProgressStore ->
     Maybe FilePath ->
     ApiComputeLimits ->
     ApiRequestLimits ->
@@ -11190,7 +11458,7 @@ apiApp ::
     TopCombosStore ->
     FilePath ->
     Wai.Application
-apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot topCombosStore optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot topCombosStore optimizerTmp req respond = do
     startMs <- getTimestampMs
     let rawPath = Wai.pathInfo req
         path =
@@ -11363,14 +11631,18 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                 case Wai.requestMethod req of
                                     "POST" -> handleAsyncCancel mOps (asBacktest asyncStores) jobId respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
+                            ["request-progress", requestId] ->
+                                case Wai.requestMethod req of
+                                    "GET" -> handleRequestProgress requestProgressStore requestId respondCors
+                                    _ -> respondCors (jsonError status405 "Method not allowed")
                             ["binance", "keys"] ->
                                 case Wai.requestMethod req of
-                                    "POST" -> handleBinanceKeys reqLimits mOps baseArgs req respondCors
+                                    "POST" -> handleBinanceKeys requestProgressStore reqLimits mOps baseArgs req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["binance", "positions"] ->
                                 case Wai.requestMethod req of
-                                    "POST" -> handleBinancePositions reqLimits mOps baseArgs req respondCors
-                                    "GET" -> handleBinancePositionsGet reqLimits mOps baseArgs req respondCors
+                                    "POST" -> handleBinancePositions requestProgressStore reqLimits mOps baseArgs req respondCors
+                                    "GET" -> handleBinancePositionsGet requestProgressStore reqLimits mOps baseArgs req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["binance", "positions", "close"] ->
                                 case Wai.requestMethod req of
@@ -12767,6 +13039,41 @@ persistTopCombosMaybe mSync path = do
                             pure ()
                     syncTopCombosMaybe mSync contents
 
+persistTopCombosTargets :: [String] -> Maybe StateSyncTarget -> FilePath -> IO [String]
+persistTopCombosTargets targets mSync path =
+    if null targets
+        then pure []
+        else do
+            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+            case contentsOrErr of
+                Left _ -> pure []
+                Right contents -> do
+                    s3Persisted <-
+                        if "s3" `elem` targets
+                            then do
+                                mS3 <- resolveS3State
+                                case mS3 of
+                                    Nothing -> pure []
+                                    Just st -> do
+                                        result <- s3PutObject st (s3TopCombosKey st) contents
+                                        case result of
+                                            Left _ -> pure []
+                                            Right _ -> do
+                                                persistTopCombosHistoryMaybe path st contents
+                                                pure ["s3"]
+                            else pure []
+                    stateSyncPersisted <-
+                        if "state-sync" `elem` targets
+                            then do
+                                syncTopCombosMaybe mSync contents
+                                lastErr <-
+                                    case mSync of
+                                        Nothing -> pure (Just "missing state sync target")
+                                        Just target -> readIORef (sstLastError target)
+                                pure ["state-sync" | isNothing lastErr]
+                            else pure []
+                    pure (s3Persisted ++ stateSyncPersisted)
+
 strategyCodeFromMethod :: Maybe String -> Text
 strategyCodeFromMethod mMethod =
     let toStrategyCode method =
@@ -12790,26 +13097,50 @@ strategyCodeFromMethod mMethod =
                     <|> parseStrategyCodeNormalized raw
 
 persistTopCombosDbMaybe :: Maybe OpsStore -> TopCombosStore -> IO ()
-persistTopCombosDbMaybe mOps store =
-    withTopCombosLock store (persistTopCombosDbMaybeUnlocked mOps store)
+persistTopCombosDbMaybe mOps store = do
+    exportOrErr <- withTopCombosLock store (readTopCombosExport store)
+    persistTopCombosExportMaybe mOps exportOrErr
 
 persistTopCombosDbMaybeUnlocked :: Maybe OpsStore -> TopCombosStore -> IO ()
 persistTopCombosDbMaybeUnlocked mOps store =
+    readTopCombosExport store >>= persistTopCombosExportMaybe mOps
+
+persistTopCombosExportMaybe :: Maybe OpsStore -> Either String TopCombosExport -> IO ()
+persistTopCombosExportMaybe mOps exportOrErr =
     case mOps of
         Nothing -> pure ()
-        Just opsStore -> do
-            combosOrErr <- readTopCombosExport store
-            case combosOrErr of
+        Just opsStore ->
+            case exportOrErr of
                 Left err -> hPutStrLn stderr ("WARN: failed to persist top combos to DB (" ++ err ++ ")")
                 Right export -> do
                     _ <- try (withMVar (osLock opsStore) (\_ -> persistTopCombosToDb (osConn opsStore) export)) :: IO (Either SomeException ())
                     pure ()
+
+fetchTopComboOperationCounts :: Connection -> [TopCombo] -> IO (M.Map UUID.UUID Int)
+fetchTopComboOperationCounts conn combos =
+    let comboUuids =
+            dedupeStable
+                [ comboUuid
+                | combo <- combos
+                , Just comboUuid <- [uuidFromText (topComboUuid combo)]
+                ]
+     in if null comboUuids
+            then pure M.empty
+            else do
+                rows <-
+                    query
+                        conn
+                        "SELECT combo_uuid, COUNT(*) FROM ops WHERE combo_uuid = ANY(?) GROUP BY combo_uuid"
+                        (Only (PGArray comboUuids)) ::
+                        IO [(UUID.UUID, Int64)]
+                pure (M.fromList [(comboUuid, fromIntegral count) | (comboUuid, count) <- rows])
 
 persistTopCombosToDb :: Connection -> TopCombosExport -> IO ()
 persistTopCombosToDb conn export =
     withTransaction conn $ do
         strategyRows <- query_ conn "SELECT id, code FROM strategies" :: IO [(Int, Text)]
         let strategyMap = HM.fromList [(code, sid) | (sid, code) <- strategyRows]
+        opCountMap <- fetchTopComboOperationCounts conn (tceCombos export)
         now <- getTimestampMs
         forM_ (tceCombos export) $ \combo -> do
             case uuidFromText (topComboUuid combo) of
@@ -12823,11 +13154,7 @@ persistTopCombosToDb conn export =
                         mAnnualized = topComboMetricDouble "annualizedReturn" combo
                         paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
                         metricsJson = encodeJsonTextMaybe (Aeson.Object <$> tcMetrics combo)
-                    opRows <- query conn "SELECT COUNT(*) FROM ops WHERE combo_uuid = ?" (Only comboUuid) :: IO [Only Int64]
-                    let opCount =
-                            case opRows of
-                                (Only v : _) -> fromIntegral v
-                                _ -> 0 :: Int
+                        opCount = fromMaybe 0 (M.lookup comboUuid opCountMap)
                     void $
                         execute
                             conn
@@ -12936,12 +13263,12 @@ readTopCombosValueFromDb store =
     fmap normalizeTopCombosPayload <$> readTopCombosValueFromDbRaw store
 
 readTopCombosValueWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
-readTopCombosValueWithDbFallback mOps store =
-    withTopCombosLock store (readTopCombosValueWithDbFallbackUnlocked mOps store)
+readTopCombosValueWithDbFallback =
+    readTopCombosValueWithDbFallbackUnlocked
 
 readTopCombosValueWithDbFallbackRaw :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
-readTopCombosValueWithDbFallbackRaw mOps store =
-    withTopCombosLock store (readTopCombosValueWithDbFallbackRawUnlocked mOps store)
+readTopCombosValueWithDbFallbackRaw =
+    readTopCombosValueWithDbFallbackRawUnlocked
 
 readTopCombosValueWithDbFallbackUnlocked :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallbackUnlocked mOps store = do
@@ -13226,19 +13553,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                     case recovered of
                         Just val -> Right val
                         Nothing -> Left err
-    topValBackfilled <-
-        case (mOps, topVal) of
-            (Just opsStore, Right val) -> do
-                dbVal <- readTopCombosValueFromDb opsStore
-                let currentCount = topCombosComboCount val
-                    dbCount =
-                        case dbVal of
-                            Right dbVal' -> topCombosComboCount dbVal'
-                            Left _ -> 0
-                when (currentCount > dbCount) $
-                    withTopCombosLock topCombosStore (persistTopCombosDbMaybeUnlocked mOps topCombosStore)
-                pure (Right val)
-            _ -> pure topVal
+    let topValBackfilled = topVal
     minPersist <- topCombosMinPersistFromEnv
     maxCombos <- optimizerMaxCombosFromEnv
     _ <-
@@ -13258,10 +13573,11 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                                 if mergedCount <= currentCount
                                     then pure (Right val)
                                     else do
-                                        withTopCombosLock topCombosStore $ do
+                                        dbPersistNeeded <- withTopCombosLock topCombosStore $ do
                                             _ <- writeTopCombosValue topJsonPath mergedVal
                                             persistTopCombosMaybe mStateSyncTarget topJsonPath
-                                            persistTopCombosDbMaybeUnlocked mOps topCombosStore
+                                            pure True
+                                        when dbPersistNeeded (persistTopCombosDbMaybe mOps topCombosStore)
                                         pure (Right mergedVal)
             _ -> pure topValBackfilled
     let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
@@ -13399,7 +13715,7 @@ handleStateSyncExport mOps mBotStateDir topCombosStore req respond =
                         , sspBotSnapshots = if null snaps then Nothing else Just snaps
                         , sspTopCombos =
                             case topVal of
-                                Right val -> Just val
+                                Right val -> Just (compactTopCombosPayloadForSync val)
                                 Left _ -> Nothing
                         }
             respond (jsonValue status200 payload)
@@ -13450,7 +13766,7 @@ handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStor
                                     ++ maybe [] (\v -> ["localGeneratedAtMs" .= v]) local
                                 )
 
-                    topStatsOrErr <-
+                    (topDbPersistNeeded, topStatsOrErr) <-
                         case sspTopCombos payload of
                             Nothing -> do
                                 localTopValResult <- readTopCombosValueWithDbFallback mOps topCombosStore
@@ -13458,10 +13774,10 @@ handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStor
                                         case localTopValResult of
                                             Right val -> topCombosGeneratedAtMs val
                                             Left _ -> Nothing
-                                pure (Right (mkTopStats "skipped" Nothing localGeneratedAt))
+                                pure (False, Right (mkTopStats "skipped" Nothing localGeneratedAt))
                             Just raw ->
                                 if not (isTopCombosPayload raw)
-                                    then pure (Left (jsonError status400 "Invalid topCombos payload (expected object with combos array)."))
+                                    then pure (False, Left (jsonError status400 "Invalid topCombos payload (expected object with combos array)."))
                                     else withTopCombosLock topCombosStore $ do
                                         localTopValResult <- readTopCombosValueWithDbFallbackUnlocked mOps topCombosStore
                                         minPersist <- topCombosMinPersistFromEnv
@@ -13496,13 +13812,13 @@ handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStor
                                                 writeResult <- writeTopCombosValue topJsonPath mergedVal
                                                 case writeResult of
                                                     Left err ->
-                                                        pure (Left (jsonError status500 ("Failed to write top combos: " ++ err)))
+                                                        pure (False, Left (jsonError status500 ("Failed to write top combos: " ++ err)))
                                                     Right _ -> do
                                                         persistTopCombosMaybe mStateSyncTarget topJsonPath
-                                                        persistTopCombosDbMaybeUnlocked mOps topCombosStore
-                                                        pure (Right (mkTopStats action incomingGeneratedAt localGeneratedAt))
-                                            else pure (Right (mkTopStats "kept" incomingGeneratedAt localGeneratedAt))
+                                                        pure (True, Right (mkTopStats action incomingGeneratedAt localGeneratedAt))
+                                            else pure (False, Right (mkTopStats "kept" incomingGeneratedAt localGeneratedAt))
 
+                    when topDbPersistNeeded (persistTopCombosDbMaybe mOps topCombosStore)
                     case topStatsOrErr of
                         Left resp -> respond resp
                         Right topStats ->
@@ -14318,8 +14634,19 @@ handleAsyncCancel mOps store jobId respond = do
                             (object ["status" .= ("canceled" :: String), "createdAtMs" .= jeCreatedAtMs entry, "canceledAtMs" .= canceledAt])
                         )
 
-handleBinanceKeys :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceKeys reqLimits mOps baseArgs req respond = do
+handleRequestProgress :: RequestProgressStore -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleRequestProgress store rawRequestId respond =
+    case normalizeRequestProgressId (T.unpack rawRequestId) of
+        Nothing -> respond (jsonError status400 "requestId is required")
+        Just requestId -> do
+            mProgress <- lookupRequestProgress store requestId
+            case mProgress of
+                Nothing -> respond (jsonError status404 "Request progress not found")
+                Just progress -> respond (jsonValue status200 progress)
+
+handleBinanceKeys :: RequestProgressStore -> ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceKeys requestProgressStore reqLimits mOps baseArgs req respond = do
+    let mTracker = requestProgressTracker requestProgressStore req
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
     case payloadOrErr of
         Left resp -> respond resp
@@ -14333,12 +14660,17 @@ handleBinanceKeys reqLimits mOps baseArgs req respond = do
                             if argPlatform args0 /= PlatformBinance
                                 then respond (jsonError status400 ("Binance keys require platform=binance (got " ++ platformCode (argPlatform args0) ++ ")."))
                                 else do
-                                    r <- try (computeBinanceKeysStatusFromArgs mOps args0) :: IO (Either SomeException ApiBinanceKeysStatus)
+                                    startRequestProgressMaybe mTracker "binance/keys" "egress IP" Nothing
+                                    r <- try (computeBinanceKeysStatusFromArgs mOps mTracker args0) :: IO (Either SomeException ApiBinanceKeysStatus)
                                     case r of
                                         Left ex ->
                                             let (st, msg) = exceptionToHttp ex
-                                             in respond (jsonError st msg)
-                                        Right out -> respond (jsonValue status200 out)
+                                             in do
+                                                    failRequestProgressMaybe mTracker msg
+                                                    respond (jsonError st msg)
+                                        Right out -> do
+                                            completeRequestProgressMaybe mTracker (Just "response ready")
+                                            respond (jsonValue status200 out)
 
 handleBinanceProxyHealth :: (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceProxyHealth respond = do
@@ -15021,8 +15353,75 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                         Right payload ->
                                                             respond (jsonValue status200 payload)
 
-handleBinancePositions :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinancePositions reqLimits mOps baseArgs req respond = do
+computeBinancePositionsResponse :: Maybe (RequestProgressStore, String) -> Maybe OpsStore -> Args -> BinanceMarket -> Bool -> ApiBinancePositionsRequest -> IO ApiBinancePositionsResponse
+computeBinancePositionsResponse mTracker mOps baseArgs market testnet params = do
+    apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
+    apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+    urls <- resolveBinanceBaseUrls
+    let baseUrl = selectBinanceBaseUrl urls testnet market
+    env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+    r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
+    advanceRequestProgressMaybe mTracker "account UID" Nothing
+    accountUidResult <- try (fetchFuturesAccountUid env) :: IO (Either SomeException (Maybe Int64))
+    let accountUid =
+            case accountUidResult of
+                Right v -> v
+                Left _ -> Nothing
+    case r of
+        Left ex -> throwIO ex
+        Right positions -> do
+            let interval = fromMaybe (argInterval baseArgs) (abpInterval params)
+                limitRaw = fromMaybe 120 (abpLimit params)
+                limitSafe = max 10 (min 1000 limitRaw)
+                openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
+                totalOpenPositions = length openPositions
+                toApiPosition p =
+                    ApiBinancePosition
+                        { abpSymbol = fprSymbol p
+                        , abpPositionAmt = fprPositionAmt p
+                        , abpEntryPrice = fprEntryPrice p
+                        , abpMarkPrice = fprMarkPrice p
+                        , abpUnrealizedPnl = fprUnrealizedProfit p
+                        , abpLiquidationPrice = fprLiquidationPrice p
+                        , abpBreakEvenPrice = fprBreakEvenPrice p
+                        , abpLeverage = fprLeverage p
+                        , abpMarginType = fprMarginType p
+                        , abpPositionSide = fprPositionSide p
+                        }
+                formatKlineDetail idx sym =
+                    sym ++ " (" ++ show idx ++ "/" ++ show totalOpenPositions ++ ")"
+            persistBinancePositionsMaybe mOps market openPositions
+            chartsRaw <-
+                forM (zip [1 ..] openPositions) $ \(idx, pos) -> do
+                    let sym = fprSymbol pos
+                    advanceRequestProgressMaybe mTracker "klines" (Just (formatKlineDetail idx sym))
+                    kr <- try (fetchKlines env sym interval limitSafe) :: IO (Either SomeException [Kline])
+                    pure $
+                        case kr of
+                            Left _ -> Nothing
+                            Right ks ->
+                                Just
+                                    ApiBinancePositionChart
+                                        { abpcSymbol = sym
+                                        , abpcOpenTimes = map kOpenTime ks
+                                        , abpcPrices = map kClose ks
+                                        }
+            now <- getTimestampMs
+            pure
+                ApiBinancePositionsResponse
+                    { abprMarket = marketCode market
+                    , abprTestnet = testnet
+                    , abprInterval = interval
+                    , abprLimit = limitSafe
+                    , abprPositions = map toApiPosition openPositions
+                    , abprCharts = catMaybes chartsRaw
+                    , abprFetchedAtMs = now
+                    , abprAccountUid = accountUid
+                    }
+
+handleBinancePositions :: RequestProgressStore -> ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinancePositions requestProgressStore reqLimits mOps baseArgs req respond = do
+    let mTracker = requestProgressTracker requestProgressStore req
     if argPlatform baseArgs /= PlatformBinance
         then respond (jsonError status400 ("Binance positions require platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
         else do
@@ -15040,71 +15439,21 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
                                     if market /= MarketFutures
                                         then respond (jsonError status400 "binance positions require market=futures")
                                         else do
-                                            apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
-                                            apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                                            urls <- resolveBinanceBaseUrls
-                                            let baseUrl = selectBinanceBaseUrl urls testnet market
-                                            env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                                            r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
-                                            accountUidResult <- try (fetchFuturesAccountUid env) :: IO (Either SomeException (Maybe Int64))
-                                            let accountUid =
-                                                    case accountUidResult of
-                                                        Right v -> v
-                                                        Left _ -> Nothing
-                                            case r of
+                                            startRequestProgressMaybe mTracker "binance/positions" "positions" Nothing
+                                            result <- try (computeBinancePositionsResponse mTracker mOps baseArgs market testnet params) :: IO (Either SomeException ApiBinancePositionsResponse)
+                                            case result of
                                                 Left ex ->
                                                     let (st, msg) = exceptionToHttp ex
-                                                     in respond (jsonError st msg)
-                                                Right positions -> do
-                                                    let interval = fromMaybe (argInterval baseArgs) (abpInterval params)
-                                                        limitRaw = fromMaybe 120 (abpLimit params)
-                                                        limitSafe = max 10 (min 1000 limitRaw)
-                                                        openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
-                                                        toApiPosition p =
-                                                            ApiBinancePosition
-                                                                { abpSymbol = fprSymbol p
-                                                                , abpPositionAmt = fprPositionAmt p
-                                                                , abpEntryPrice = fprEntryPrice p
-                                                                , abpMarkPrice = fprMarkPrice p
-                                                                , abpUnrealizedPnl = fprUnrealizedProfit p
-                                                                , abpLiquidationPrice = fprLiquidationPrice p
-                                                                , abpBreakEvenPrice = fprBreakEvenPrice p
-                                                                , abpLeverage = fprLeverage p
-                                                                , abpMarginType = fprMarginType p
-                                                                , abpPositionSide = fprPositionSide p
-                                                                }
-                                                    persistBinancePositionsMaybe mOps market openPositions
-                                                    chartsRaw <-
-                                                        forM openPositions $ \pos -> do
-                                                            let sym = fprSymbol pos
-                                                            kr <- try (fetchKlines env sym interval limitSafe) :: IO (Either SomeException [Kline])
-                                                            pure $
-                                                                case kr of
-                                                                    Left _ -> Nothing
-                                                                    Right ks ->
-                                                                        Just
-                                                                            ApiBinancePositionChart
-                                                                                { abpcSymbol = sym
-                                                                                , abpcOpenTimes = map kOpenTime ks
-                                                                                , abpcPrices = map kClose ks
-                                                                                }
-                                                    now <- getTimestampMs
-                                                    respond $
-                                                        jsonValue
-                                                            status200
-                                                            ApiBinancePositionsResponse
-                                                                { abprMarket = marketCode market
-                                                                , abprTestnet = testnet
-                                                                , abprInterval = interval
-                                                                , abprLimit = limitSafe
-                                                                , abprPositions = map toApiPosition openPositions
-                                                                , abprCharts = catMaybes chartsRaw
-                                                                , abprFetchedAtMs = now
-                                                                , abprAccountUid = accountUid
-                                                                }
+                                                     in do
+                                                            failRequestProgressMaybe mTracker msg
+                                                            respond (jsonError st msg)
+                                                Right out -> do
+                                                    completeRequestProgressMaybe mTracker (Just "response ready")
+                                                    respond (jsonValue status200 out)
 
-handleBinancePositionsGet :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinancePositionsGet _reqLimits mOps baseArgs _req respond = do
+handleBinancePositionsGet :: RequestProgressStore -> ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinancePositionsGet requestProgressStore _reqLimits mOps baseArgs req respond = do
+    let mTracker = requestProgressTracker requestProgressStore req
     -- Reuse POST handler with defaults derived from base args.
     let params =
             ApiBinancePositionsRequest
@@ -15130,68 +15479,18 @@ handleBinancePositionsGet _reqLimits mOps baseArgs _req respond = do
                             if market /= MarketFutures
                                 then respond (jsonError status400 "binance positions require market=futures")
                                 else do
-                                    apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
-                                    apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                                    urls <- resolveBinanceBaseUrls
-                                    let baseUrl = selectBinanceBaseUrl urls testnet market
-                                    env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                                    r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
-                                    accountUidResult <- try (fetchFuturesAccountUid env) :: IO (Either SomeException (Maybe Int64))
-                                    let accountUid =
-                                            case accountUidResult of
-                                                Right v -> v
-                                                Left _ -> Nothing
-                                    case r of
+                                    startRequestProgressMaybe mTracker "binance/positions" "positions" Nothing
+                                    result <- try (computeBinancePositionsResponse mTracker mOps baseArgs market testnet params) :: IO (Either SomeException ApiBinancePositionsResponse)
+                                    case result of
                                         Left ex ->
                                             let (st, msg) = exceptionToHttp ex
-                                             in respond (jsonError st msg)
-                                        Right positions -> do
-                                            let interval = fromMaybe (argInterval baseArgs) (abpInterval params)
-                                                limitRaw = fromMaybe 120 (abpLimit params)
-                                                limitSafe = max 10 (min 1000 limitRaw)
-                                                openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
-                                                toApiPosition p =
-                                                    ApiBinancePosition
-                                                        { abpSymbol = fprSymbol p
-                                                        , abpPositionAmt = fprPositionAmt p
-                                                        , abpEntryPrice = fprEntryPrice p
-                                                        , abpMarkPrice = fprMarkPrice p
-                                                        , abpUnrealizedPnl = fprUnrealizedProfit p
-                                                        , abpLiquidationPrice = fprLiquidationPrice p
-                                                        , abpBreakEvenPrice = fprBreakEvenPrice p
-                                                        , abpLeverage = fprLeverage p
-                                                        , abpMarginType = fprMarginType p
-                                                        , abpPositionSide = fprPositionSide p
-                                                        }
-                                            persistBinancePositionsMaybe mOps market openPositions
-                                            chartsRaw <-
-                                                forM openPositions $ \pos -> do
-                                                    let sym = fprSymbol pos
-                                                    kr <- try (fetchKlines env sym interval limitSafe) :: IO (Either SomeException [Kline])
-                                                    pure $
-                                                        case kr of
-                                                            Left _ -> Nothing
-                                                            Right ks ->
-                                                                Just
-                                                                    ApiBinancePositionChart
-                                                                        { abpcSymbol = sym
-                                                                        , abpcOpenTimes = map kOpenTime ks
-                                                                        , abpcPrices = map kClose ks
-                                                                        }
-                                            now <- getTimestampMs
-                                            respond $
-                                                jsonValue
-                                                    status200
-                                                    ApiBinancePositionsResponse
-                                                        { abprMarket = marketCode market
-                                                        , abprTestnet = testnet
-                                                        , abprInterval = interval
-                                                        , abprLimit = limitSafe
-                                                        , abprPositions = map toApiPosition openPositions
-                                                        , abprCharts = catMaybes chartsRaw
-                                                        , abprFetchedAtMs = now
-                                                        , abprAccountUid = accountUid
-                                                        }
+                                             in do
+                                                    failRequestProgressMaybe mTracker msg
+                                                    respond (jsonError st msg)
+                                        Right out -> do
+                                            completeRequestProgressMaybe mTracker (Just "response ready")
+                                            respond (jsonValue status200 out)
+
 handleBinanceClosePosition :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
     let originIp = requestOriginIp req
@@ -16364,8 +16663,8 @@ extractPublicIpCandidate raw = go (trimString raw)
             && any isDigit candidate
             && ('.' `elem` candidate || ':' `elem` candidate)
 
-computeBinanceKeysStatusFromArgs :: Maybe OpsStore -> Args -> IO ApiBinanceKeysStatus
-computeBinanceKeysStatusFromArgs mOps args = do
+computeBinanceKeysStatusFromArgs :: Maybe OpsStore -> Maybe (RequestProgressStore, String) -> Args -> IO ApiBinanceKeysStatus
+computeBinanceKeysStatusFromArgs mOps mTracker args = do
     apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
     apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
     egressIp <- resolveBinanceEgressIp
@@ -16393,6 +16692,16 @@ computeBinanceKeysStatusFromArgs mOps args = do
         then pure baseStatus
         else do
             env <- makeBinanceEnv mOps args
+            advanceRequestProgressMaybe
+                mTracker
+                "signed probe"
+                ( Just
+                    ( case market of
+                        MarketFutures -> "futures available balance"
+                        MarketSpot -> "spot free balance"
+                        MarketMargin -> "margin free balance"
+                    )
+                )
             signedProbe <-
                 probeBinance "signed" $ do
                     case market of
@@ -16409,7 +16718,8 @@ computeBinanceKeysStatusFromArgs mOps args = do
             tradeProbe <-
                 case market of
                     MarketMargin -> pure Nothing
-                    MarketSpot ->
+                    MarketSpot -> do
+                        advanceRequestProgressMaybe mTracker "order/test" (Just "order/test")
                         case mSym of
                             Nothing -> pure (Just (mkSkippedProbe "order/test" missingSymbolMsg))
                             Just sym'' -> do
@@ -16481,7 +16791,8 @@ computeBinanceKeysStatusFromArgs mOps args = do
                                                                             ]
                                                                 Just . appendProbeContext ctx
                                                                     <$> probeBinance "order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) qq Nothing (trim <$> argIdempotencyKey args)))
-                    MarketFutures ->
+                    MarketFutures -> do
+                        advanceRequestProgressMaybe mTracker "order/test" (Just "futures/order/test")
                         case mSym of
                             Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSymbolMsg))
                             Just sym'' -> do

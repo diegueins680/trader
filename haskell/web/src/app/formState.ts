@@ -1,5 +1,6 @@
 import type { IntrabarFill, Market, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { BINANCE_INTERVAL_SECONDS, PLATFORM_DEFAULT_SYMBOL, PLATFORM_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
+import { METHOD_IDS, canonicalExchangePlatform } from "./contracts";
 import { sanitizeSymbolForPlatform } from "./symbols";
 import { clamp } from "./utils";
 
@@ -208,6 +209,9 @@ export const defaultForm: FormState = {
   botAdoptExistingPosition: true,
 };
 
+const METHOD_SET = new Set<Method>(METHOD_IDS);
+const NORMALIZATION_SET = new Set<Normalization>(["none", "minmax", "standard", "log"]);
+
 export type FormStateJson = Partial<FormState> & {
   threshold?: unknown; // legacy field (maps to openThreshold/closeThreshold)
   platform?: unknown;
@@ -267,8 +271,7 @@ export function parseDurationSeconds(raw: string): number | null {
 }
 
 function normalizePlatformInterval(platform: Platform, raw: unknown, fallback: string): string {
-  if (typeof raw !== "string") return fallback;
-  const value = raw.trim();
+  const value = normalizeIntervalCode(raw);
   return PLATFORM_INTERVAL_SET[platform].has(value) ? value : fallback;
 }
 
@@ -279,11 +282,23 @@ function normalizeLookbackWindow(raw: unknown, fallback: string): string {
   return sec && sec > 0 ? value : fallback;
 }
 
+function normalizeIntervalCode(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const value = raw.trim();
+  const match = /^(\d+)([A-Za-z])$/.exec(value);
+  if (!match) return value;
+  const digits = match[1] ?? "";
+  const unit = match[2] ?? "";
+  return `${digits}${unit === "M" ? "M" : unit.toLowerCase()}`;
+}
+
 function parseFiniteInteger(raw: unknown): number | null {
   // Restored whole-number fields must remain exactly representable after JSON/string hydration.
   if (typeof raw === "number" && Number.isSafeInteger(raw)) return raw;
   if (typeof raw === "string") {
-    const n = Number(raw);
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
     if (Number.isSafeInteger(n)) return n;
   }
   return null;
@@ -314,7 +329,9 @@ function normalizeBool(raw: unknown, fallback: boolean): boolean {
 function normalizeFiniteNumber(raw: unknown, fallback: number, lo: number, hi: number): number {
   if (typeof raw === "number" && Number.isFinite(raw)) return clamp(raw, lo, hi);
   if (typeof raw === "string") {
-    const n = Number(raw);
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    const n = Number(trimmed);
     if (Number.isFinite(n)) return clamp(n, lo, hi);
   }
   return fallback;
@@ -327,7 +344,9 @@ type NumericFormKey = {
 function coerceFiniteNumber(raw: unknown, fallback: number): number {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw === "string") {
-    const n = Number(raw);
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    const n = Number(trimmed);
     if (Number.isFinite(n)) return n;
   }
   return fallback;
@@ -344,30 +363,82 @@ function normalizeRestoredNumericFields(raw: Record<string, unknown>): Pick<Form
 }
 
 function normalizePositioning(raw: unknown, fallback: Positioning): Positioning {
-  if (raw === "long-flat" || raw === "long-short") return raw;
+  const value =
+    typeof raw === "string"
+      ? raw
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "")
+      : "";
+  if (value === "longflat" || value === "lf" || value === "flat" || value === "longonly" || value === "long") return "long-flat";
+  if (value === "longshort" || value === "ls") return "long-short";
   return fallback;
 }
 
 function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFill {
-  if (raw === "stop-first" || raw === "take-profit-first") return raw;
+  const value =
+    typeof raw === "string"
+      ? raw
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "")
+      : "";
+  if (value === "stopfirst" || value === "slfirst" || value === "stop" || value === "worst") return "stop-first";
+  if (value === "takeprofitfirst" || value === "tpfirst" || value === "takeprofit" || value === "tp" || value === "best") {
+    return "take-profit-first";
+  }
   return fallback;
 }
 
 function normalizePlatform(raw: unknown, fallback: Platform): Platform {
-  if (raw === "binance" || raw === "coinbase" || raw === "kraken" || raw === "poloniex") return raw;
-  return fallback;
+  return canonicalExchangePlatform(raw) ?? fallback;
 }
 
 function normalizeMarket(raw: unknown, fallback: Market): Market {
-  if (raw === "spot" || raw === "margin" || raw === "futures") return raw;
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (value === "spot" || value === "margin" || value === "futures") return value;
   return fallback;
 }
 
 function normalizeTuneObjective(raw: unknown, fallback: string): string {
-  const s = typeof raw === "string" ? raw.trim() : "";
-  if (s && TUNE_OBJECTIVE_SET.has(s)) return s;
+  const s = typeof raw === "string" ? raw.trim().toLowerCase().replace(/\s+/g, "").replace(/_/g, "-") : "";
+  const canonical =
+    s === "finalequity" || s === "final-equity"
+      ? "final-equity"
+      : s === "annualizedequity" || s === "annualized-equity" || s === "annualizedreturn" || s === "annualized-return"
+        ? "annualized-equity"
+        : s === "roi" || s === "riskadjustedroi" || s === "risk-adjusted-roi"
+          ? "roi"
+          : s === "sharpe"
+            ? "sharpe"
+            : s === "calmar"
+              ? "calmar"
+              : s === "equitydd" || s === "equity-dd"
+                ? "equity-dd"
+                : s === "equityddturnover" || s === "equity-dd-turnover"
+                  ? "equity-dd-turnover"
+                  : "";
+  if (canonical && TUNE_OBJECTIVE_SET.has(canonical)) return canonical;
   if (TUNE_OBJECTIVE_SET.has(fallback)) return fallback;
   return "roi";
+}
+
+function normalizeMethod(raw: unknown, fallback: Method): Method {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (METHOD_SET.has(s as Method)) return s as Method;
+  if (METHOD_SET.has(fallback)) return fallback;
+  return defaultForm.method;
+}
+
+function normalizeNormalization(raw: unknown, fallback: Normalization): Normalization {
+  const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (NORMALIZATION_SET.has(s as Normalization)) return s as Normalization;
+  if (NORMALIZATION_SET.has(fallback)) return fallback;
+  return defaultForm.normalization;
+}
+
+function normalizeNonNegativeFiniteNumber(raw: unknown, fallback: number): number {
+  return normalizeFiniteNumber(raw, fallback, 0, Number.MAX_VALUE);
 }
 
 export function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
@@ -427,6 +498,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     1e9,
   );
   const maxOrderQuote = normalizeFiniteNumber(rawRec.maxOrderQuote ?? merged.maxOrderQuote, defaultForm.maxOrderQuote, 0, 1e9);
+  // Integer-backed request fields should restore as exact safe integers so the UI state
+  // cannot diverge from the values later emitted by the request builder.
+  const bars = normalizeWholeNumber(rawRec.bars ?? merged.bars, defaultForm.bars, 0, 1e9);
+  const epochs = normalizeWholeNumber(rawRec.epochs ?? merged.epochs, defaultForm.epochs, 0, 5000);
+  const hiddenSize = normalizeWholeNumber(rawRec.hiddenSize ?? merged.hiddenSize, defaultForm.hiddenSize, 1, 512);
+  const patience = normalizeWholeNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 1000);
   // Integer-only bar/count controls and live-bot poll cadence should not reopen with
   // fractional or over-cap values that the UI later clamps differently when building requests.
   const minHoldBars = normalizeWholeNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1_000_000);
@@ -457,15 +534,21 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     binanceLive,
     tradeArmed,
     binanceSymbol,
+    bars,
+    method: normalizeMethod(rawRec.method ?? merged.method, defaultForm.method),
     interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, defaultForm.interval),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
     lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
     openThreshold,
     closeThreshold,
+    fee: normalizeNonNegativeFiniteNumber(rawRec.fee ?? merged.fee, defaultForm.fee),
     slippage: normalizeFiniteNumber(rawRec.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
     spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
     intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
+    stopLoss: normalizeFiniteNumber(rawRec.stopLoss ?? merged.stopLoss, defaultForm.stopLoss, 0, 0.999999),
+    takeProfit: normalizeFiniteNumber(rawRec.takeProfit ?? merged.takeProfit, defaultForm.takeProfit, 0, 0.999999),
+    trailingStop: normalizeFiniteNumber(rawRec.trailingStop ?? merged.trailingStop, defaultForm.trailingStop, 0, 0.999999),
     stopLossVolMult: normalizeFiniteNumber(
       rawRec.stopLossVolMult ?? merged.stopLossVolMult,
       defaultForm.stopLossVolMult,
@@ -487,7 +570,10 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     minHoldBars,
     maxHoldBars,
     cooldownBars,
+    maxDrawdown: normalizeFiniteNumber(rawRec.maxDrawdown ?? merged.maxDrawdown, defaultForm.maxDrawdown, 0, 0.999999),
+    maxDailyLoss: normalizeFiniteNumber(rawRec.maxDailyLoss ?? merged.maxDailyLoss, defaultForm.maxDailyLoss, 0, 0.999999),
     maxOrderErrors,
+    backtestRatio: normalizeFiniteNumber(rawRec.backtestRatio ?? merged.backtestRatio, defaultForm.backtestRatio, 0.01, 0.99),
     tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
     tuneObjective: normalizeTuneObjective(rawRec.tuneObjective ?? merged.tuneObjective, defaultForm.tuneObjective),
     tunePenaltyMaxDrawdown: normalizeFiniteNumber(rawRec.tunePenaltyMaxDrawdown ?? merged.tunePenaltyMaxDrawdown, defaultForm.tunePenaltyMaxDrawdown, 0, 1e9),
@@ -503,6 +589,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
       0,
       1e9,
     ),
+    normalization: normalizeNormalization(rawRec.normalization ?? merged.normalization, defaultForm.normalization),
     kalmanZMin,
     kalmanZMax,
     minEdge: normalizeFiniteNumber(rawRec.minEdge ?? merged.minEdge, defaultForm.minEdge, 0, 1e9),
@@ -556,16 +643,23 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     sweepThreshold: normalizeBool(rawRec.sweepThreshold ?? merged.sweepThreshold, defaultForm.sweepThreshold),
     bypassCache: normalizeBool(rawRec.bypassCache ?? merged.bypassCache, defaultForm.bypassCache),
     autoRefresh: normalizeBool(rawRec.autoRefresh ?? merged.autoRefresh, defaultForm.autoRefresh),
+    autoRefreshSec: normalizeFiniteNumber(rawRec.autoRefreshSec ?? merged.autoRefreshSec, defaultForm.autoRefreshSec, 5, 600),
     positionsOpenTimeCacheSec: normalizeFiniteNumber(
       rawRec.positionsOpenTimeCacheSec ?? merged.positionsOpenTimeCacheSec,
       defaultForm.positionsOpenTimeCacheSec,
       0,
       86_400,
     ),
-    learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1),
-    valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
-    patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
-    gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
+    epochs,
+    // Persisted training hyperparameters must stay aligned with the values the
+    // UI can still emit after restore: larger positive learning rates remain
+    // representable, while validation-split ratios stay strictly below 1 to
+    // satisfy backend validation.
+    learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1e9),
+    valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 0.999999),
+    patience,
+    gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 100),
+    hiddenSize,
     minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, defaultForm.minPositionSize, 0, 1),
     orderQuote,
     orderQuantity,

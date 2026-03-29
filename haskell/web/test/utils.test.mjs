@@ -1,17 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  actionBadgeClass,
   buildOrphanedPositions,
   buildRequestIssueDetails,
   downsampleArray,
   downsampleIndices,
   downsampleOptionalArray,
+  formatIsoUtc,
+  fmtTimeMs,
+  fmtTimeMsShort,
+  fmtTimeOfDayMs,
   inferFlyApiAppName,
   inferFlyDirectApiBaseFromHostname,
   isLocalHostname,
+  latestSignalTone,
   methodLabel,
   normalizeApiBaseUrlInput,
   numFromInput,
+  positionSideFromAmount,
   remapIndexToSample,
   summarizeOrderSizing,
 } from "../.tmp/web-tests/utils.js";
@@ -169,7 +176,7 @@ function assertSizingStatusAndHintContract(state, context) {
 function orphanReasonTestPosition(posSideKnown) {
   return posSideKnown
     ? { symbol: "BTCUSDT", positionAmt: 1, positionSide: "LONG" }
-    : { symbol: "BTCUSDT", positionAmt: 0, positionSide: null };
+    : { symbol: "BTCUSDT", positionAmt: Number.NaN, positionSide: null };
 }
 
 function orphanReasonSidePositions(botSide) {
@@ -540,6 +547,14 @@ const bots = [{ symbol: "FILUSDT", status: { running: false, starting: true, mar
 const orphans = buildOrphanedPositions(positions, bots, { market: "futures" });
 assert.equal(orphans.length, 0);
 });
+test("buildOrphanedPositions ignores flat/dust positions even with stale explicit sides", () => {
+const positions = [
+{ symbol: "BTCUSDT", positionAmt: 0, positionSide: "LONG" },
+{ symbol: "ETHUSDT", positionAmt: 1e-13, positionSide: "SHORT" },
+];
+const orphans = buildOrphanedPositions(positions, [], { market: "futures" });
+assert.deepEqual(orphans, []);
+});
 test("buildOrphanedPositions flags market mismatch", () => {
 const positions = [{ symbol: "BTCUSDT", positionAmt: 1, positionSide: "LONG" }];
 const bots = [{ symbol: "BTCUSDT", status: { running: true, market: "spot", positions: [1] } }];
@@ -637,10 +652,30 @@ assert.equal(normalizeApiBaseUrlInput("//example.com/api"), "https://example.com
 assert.equal(normalizeApiBaseUrlInput(" //localhost:8080/api "), "http://localhost:8080/api");
 assert.equal(normalizeApiBaseUrlInput("//[::1]:8080/api"), "http://[::1]:8080/api");
 assert.equal(normalizeApiBaseUrlInput("//2001:db8::1/api"), "https://[2001:db8::1]/api");
+assert.equal(normalizeApiBaseUrlInput("///example.com/api"), "https://example.com/api");
+assert.equal(normalizeApiBaseUrlInput("////localhost:8080/api"), "http://localhost:8080/api");
 });
 test("normalizeApiBaseUrlInput rewrites bare relative targets to same-origin paths", () => {
 assert.equal(normalizeApiBaseUrlInput("api"), "/api");
 assert.equal(normalizeApiBaseUrlInput(" api/v1 "), "/api/v1");
+assert.equal(normalizeApiBaseUrlInput("//api"), "/api");
+assert.equal(normalizeApiBaseUrlInput("///api"), "/api");
+assert.equal(normalizeApiBaseUrlInput("////api/v1?tenant=paper#mode=bot"), "/api/v1?tenant=paper#mode=bot");
+const origin = "https://ui.example.com/base";
+for (const raw of ["//api", "///api", "////api/v1?tenant=paper#mode=bot"]) {
+const normalized = normalizeApiBaseUrlInput(raw);
+assert.equal(
+new URL(normalized, origin).origin,
+new URL(origin).origin,
+`expected ${JSON.stringify(raw)} to stay same-origin after normalization`,
+);
+}
+});
+test("normalizeApiBaseUrlInput keeps non-authority colon paths same-origin while preserving numeric-port hosts", () => {
+assert.equal(normalizeApiBaseUrlInput("api:v1"), "/api:v1");
+assert.equal(normalizeApiBaseUrlInput("tenant:demo/path?mode=paper#bot"), "/tenant:demo/path?mode=paper#bot");
+assert.equal(normalizeApiBaseUrlInput("example.com:tenant/api"), "/example.com:tenant/api");
+assert.equal(normalizeApiBaseUrlInput("api:8443"), "http://api:8443");
 });
 test("normalizeApiBaseUrlInput preserves trailing query and fragment suffixes across conservative normalization branches", () => {
 const cases = [
@@ -754,6 +789,34 @@ test("isLocalHostname accepts the supported loopback hosts and rejects others", 
     assert.equal(isLocalHostname(hostname), false, `expected ${hostname} to be recognized as non-local`);
   }
 });
+test("actionBadgeClass follows the latest-signal action head token contract", () => {
+  const toneCases = [
+    ["LONG", "bullish"],
+    ["LONG (edge)", "bullish"],
+    ["SHORT", "bearish"],
+    ["SHORT (VOL_CONF_GATE_HOLD)", "bearish"],
+    ["FLAT", "bearish"],
+    ["HOLD (MAX_VOLATILITY)", "neutral"],
+    ["", "neutral"],
+  ];
+
+  for (const [action, expected] of toneCases) {
+    assert.equal(latestSignalTone(action), expected, `expected ${JSON.stringify(action)} to map to ${expected}`);
+  }
+
+  const cases = [
+    ["LONG", "badge badgeStrong badgeLong"],
+    ["LONG (edge)", "badge badgeStrong badgeLong"],
+    ["SHORT", "badge badgeStrong badgeFlat"],
+    ["SHORT (VOL_CONF_GATE_HOLD)", "badge badgeStrong badgeFlat"],
+    ["FLAT", "badge badgeStrong badgeFlat"],
+    ["HOLD (MAX_VOLATILITY)", "badge badgeStrong badgeHold"],
+  ];
+
+  for (const [action, expected] of cases) {
+    assert.equal(actionBadgeClass(action), expected, `expected ${JSON.stringify(action)} to map to ${expected}`);
+  }
+});
 test("numFromInput preserves the conservative comma-parsing contract for blank, signed, explicit, and ambiguous inputs", () => {
 const cases = [
 { raw: "", fallback: 42, expected: 42, label: "empty input keeps fallback" },
@@ -776,6 +839,13 @@ expected,
 );
 }
 });
+test("positionSideFromAmount treats zero and dust-sized amounts as flat", () => {
+  assert.equal(positionSideFromAmount(0), null);
+  assert.equal(positionSideFromAmount(1e-13), null);
+  assert.equal(positionSideFromAmount(-1e-13), null);
+  assert.equal(positionSideFromAmount(1e-9), "LONG");
+  assert.equal(positionSideFromAmount(-1e-9), "SHORT");
+});
 test("parseDurationSeconds keeps minute and month units distinct", () => {
   assert.equal(parseDurationSeconds("1m"), 60);
   assert.equal(parseDurationSeconds("1M"), 30 * 24 * 60 * 60);
@@ -793,6 +863,33 @@ test("parseDurationSeconds rejects unsafe integer magnitudes and overflowed unit
   const overflowMinutes = (BigInt(Number.MAX_SAFE_INTEGER) / 60n + 1n).toString();
   assert.equal(parseDurationSeconds(`${unsafeSeconds}s`), null);
   assert.equal(parseDurationSeconds(`${overflowMinutes}m`), null);
+});
+
+test("formatIsoUtc is total over nullish, non-finite, and out-of-range timestamps", () => {
+  assert.equal(formatIsoUtc(null), "");
+  assert.equal(formatIsoUtc(undefined), "");
+  assert.equal(formatIsoUtc(Number.NaN), "");
+  assert.equal(formatIsoUtc(1e20), "");
+  assert.equal(formatIsoUtc(-1e20), "");
+  assert.equal(formatIsoUtc(0), "1970-01-01T00:00:00.000Z");
+});
+test("local timestamp formatters stay total for finite timestamps outside the Date domain", () => {
+  const ms = 1e20;
+  assert.equal(fmtTimeMs(Number.NaN), "—");
+  assert.equal(fmtTimeOfDayMs(Number.NaN), "—");
+  assert.equal(fmtTimeMsShort(Number.NaN), "--");
+  assert.equal(fmtTimeMs(ms), String(ms));
+  assert.equal(fmtTimeOfDayMs(ms), String(ms));
+  assert.equal(fmtTimeMsShort(ms), String(ms));
+});
+test("local timestamp formatters preserve locale rendering inside the Date domain", () => {
+  const ms = 0;
+  assert.equal(fmtTimeMs(ms), new Date(ms).toLocaleString());
+  assert.equal(fmtTimeOfDayMs(ms), new Date(ms).toLocaleTimeString());
+  assert.equal(
+    fmtTimeMsShort(ms),
+    new Date(ms).toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+  );
 });
 test("downsampleIndices preserves bounded chart sampling invariants", () => {
 for (let total = 0; total <= 257; total += 1) {
@@ -825,6 +922,28 @@ assert.deepEqual(indices, Array.from({ length: total }, (_, i) => i));
 }
 }
 }
+});
+test("downsampleIndices normalizes fractional and non-finite numeric inputs before sampling", () => {
+  const cases = [
+    { total: 5.9, maxPoints: 2.9, expected: [0, 4], label: "finite inputs truncate before sampling" },
+    { total: Number.NaN, maxPoints: 8, expected: [], label: "NaN total falls back to empty series" },
+    { total: Number.POSITIVE_INFINITY, maxPoints: 8, expected: [], label: "infinite total falls back to empty series" },
+    { total: 5, maxPoints: Number.NaN, expected: [0, 1, 2, 3, 4], label: "NaN budget falls back to identity sampling" },
+    {
+      total: 5,
+      maxPoints: Number.POSITIVE_INFINITY,
+      expected: [0, 1, 2, 3, 4],
+      label: "infinite budget falls back to identity sampling",
+    },
+  ];
+
+  for (const { total, maxPoints, expected, label } of cases) {
+    assert.deepEqual(
+      downsampleIndices(total, maxPoints),
+      expected,
+      `${label}: expected ${JSON.stringify(expected)} for total=${String(total)}, maxPoints=${String(maxPoints)}`,
+    );
+  }
 });
 test("downsampleArray preserves sampled length and per-index alignment", () => {
   for (let total = 0; total <= 257; total += 1) {
@@ -1147,6 +1266,51 @@ routerLookback: 18,
 },
 );
 });
+test("normalizeFormState preserves restored integer-backed request fields as whole numbers", () => {
+const restored = normalizeFormState({
+bars: "720.0",
+epochs: "64.0",
+hiddenSize: "32",
+patience: "250.0",
+});
+assert.deepEqual(
+{
+bars: restored.bars,
+epochs: restored.epochs,
+hiddenSize: restored.hiddenSize,
+patience: restored.patience,
+},
+{
+bars: 720,
+epochs: 64,
+hiddenSize: 32,
+patience: 250,
+},
+);
+});
+test("normalizeFormState rejects fractional and unsafe restored integer-backed request fields", () => {
+const unsafe = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
+const restored = normalizeFormState({
+bars: "720.5",
+epochs: Number.POSITIVE_INFINITY,
+hiddenSize: unsafe,
+patience: "NaN",
+});
+assert.deepEqual(
+{
+bars: restored.bars,
+epochs: restored.epochs,
+hiddenSize: restored.hiddenSize,
+patience: restored.patience,
+},
+{
+bars: defaultForm.bars,
+epochs: defaultForm.epochs,
+hiddenSize: defaultForm.hiddenSize,
+patience: defaultForm.patience,
+},
+);
+});
 test("normalizeFormState falls back for fractional and non-finite restored Strategy bar-count settings", () => {
 const restored = normalizeFormState({
 trendLookback: "45.5",
@@ -1217,6 +1381,17 @@ Object.fromEntries(numericKeys.map((key) => [key, "not-a-number"])),
 );
 for (const key of numericKeys) {
 assert.equal(restored[key], defaultForm[key], `${key} should fall back to the default numeric value`);
+}
+});
+test("normalizeFormState treats blank restored numeric strings as absent across numeric fields", () => {
+const numericKeys = Object.entries(defaultForm)
+.filter(([, value]) => typeof value === "number")
+.map(([key]) => key);
+const restored = normalizeFormState(
+Object.fromEntries(numericKeys.map((key) => [key, "   "])),
+);
+for (const key of numericKeys) {
+assert.equal(restored[key], defaultForm[key], `${key} blank restore should fall back to the default numeric value`);
 }
 });
 test("normalizeFormState rehydrates manual sizing fields as finite numbers", () => {
@@ -1399,6 +1574,113 @@ test("defaultForm uses safe trade defaults", () => {
 assert.equal(defaultForm.binanceLive, false);
 assert.equal(defaultForm.tradeArmed, false);
 assert.equal(defaultForm.botAdoptExistingPosition, true);
+});
+test("normalizeFormState keeps restored enums and downstream-clamped fields inside their finite domains", () => {
+const methodIds = [
+"11",
+"10",
+"01",
+"blend",
+"conf_blend",
+"conf_pick",
+"conformal_clip",
+"cost_pick",
+"harmonic_blend",
+"disagreement_guard",
+"median_blend",
+"neutral_guard",
+"risk_parity_blend",
+"consensus_boost",
+"anchor_blend",
+"tension_gate",
+"entropy_blend",
+"coherence_gate",
+"divergence_gate",
+"fractal_blend",
+"phase_cancel",
+"softmax_blend",
+"smooth_softmax_blend",
+"hedge_blend",
+"net_softmax_blend",
+"edge_blend",
+"edge_pick",
+"geo_blend",
+"regime_switch",
+"router",
+"bandit_router",
+"kalman_physics_error",
+];
+const normalizationIds = ["none", "minmax", "standard", "log"];
+for (const method of methodIds) {
+assert.equal(normalizeFormState({ method }).method, method, `valid method ${method} should survive restore`);
+assert.equal(normalizeFormState({ method: ` ${method} ` }).method, method, `trimmed method ${method} should survive restore`);
+}
+for (const normalization of normalizationIds) {
+assert.equal(
+normalizeFormState({ normalization }).normalization,
+normalization,
+`valid normalization ${normalization} should survive restore`,
+);
+assert.equal(
+normalizeFormState({ normalization: ` ${normalization} ` }).normalization,
+normalization,
+`trimmed normalization ${normalization} should survive restore`,
+);
+}
+assert.equal(normalizeFormState({ method: "bogus" }).method, defaultForm.method);
+assert.equal(normalizeFormState({ normalization: "bogus" }).normalization, defaultForm.normalization);
+
+const boundedCases = [
+{ field: "fee", values: [-1, "-1", 0, 0.25], expect: (value) => Math.max(0, Number(value)) },
+{ field: "stopLoss", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "takeProfit", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "trailingStop", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "maxDrawdown", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "maxDailyLoss", values: [-1, "-1", 0, 0.25, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "backtestRatio", values: [-1, "0", 0.2, 2], expect: (value) => Math.min(0.99, Math.max(0.01, Number(value))) },
+{ field: "learningRate", values: [-1, "-1", 0.001, 2.5], expect: (value) => Math.min(1e9, Math.max(0, Number(value))) },
+{ field: "valRatio", values: [-1, "-1", 0.2, 1, 2], expect: (value) => Math.min(0.999999, Math.max(0, Number(value))) },
+{ field: "gradClip", values: [-1, "-1", 0, 5, 50, 200], expect: (value) => Math.min(100, Math.max(0, Number(value))) },
+{ field: "autoRefreshSec", values: [1, "1", 20, 999], expect: (value) => Math.min(600, Math.max(5, Number(value))) },
+];
+for (const { field, values, expect } of boundedCases) {
+for (const value of values) {
+const restored = normalizeFormState({ [field]: value });
+const expected = expect(value);
+assert.equal(restored[field], expected, `${field}=${String(value)} should normalize into the downstream-safe range`);
+assert.equal(
+normalizeFormState({ [field]: restored[field] })[field],
+restored[field],
+`${field}=${String(value)} should already be a restore fixed point`,
+);
+}
+}
+});
+test("normalizeFormState canonicalizes restored backend-compatible enum aliases and interval casing", () => {
+const canonicalBinance = normalizeFormState({
+platform: " Binance ",
+market: " FUTURES ",
+interval: " 1W ",
+});
+assert.equal(canonicalBinance.platform, "binance");
+assert.equal(canonicalBinance.market, "futures");
+assert.equal(canonicalBinance.interval, "1w");
+
+const monthInterval = normalizeFormState({ interval: " 1M " });
+assert.equal(monthInterval.interval, "1M", "Binance month intervals must preserve the uppercase M month code");
+
+const canonicalAliases = normalizeFormState({
+platform: " Coinbase ",
+positioning: " LONG ONLY ",
+intrabarFill: " TP ",
+tuneObjective: " annualized_return ",
+normalization: " Standard ",
+});
+assert.equal(canonicalAliases.platform, "coinbase");
+assert.equal(canonicalAliases.positioning, "long-flat");
+assert.equal(canonicalAliases.intrabarFill, "take-profit-first");
+assert.equal(canonicalAliases.tuneObjective, "annualized-equity");
+assert.equal(canonicalAliases.normalization, "standard");
 });
 test("normalizeFormState preserves persisted restore safety invariants for live trading and bot adoption", () => {
 const cases = [

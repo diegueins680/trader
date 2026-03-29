@@ -62,6 +62,8 @@ test("parseJsonResponse rejects invalid JSON", () => {
 
 test("sanitizeRelativePath rejects absolute and traversal paths", () => {
   assert.equal(sanitizeRelativePath("./haskell/web/src/App.tsx"), "haskell/web/src/App.tsx");
+  assert.equal(sanitizeRelativePath("haskell/web/src/./App.tsx"), "haskell/web/src/App.tsx");
+  assert.equal(sanitizeRelativePath("docs//guide.md"), "docs/guide.md");
   assert.throws(() => sanitizeRelativePath("./"), /resolves to empty/);
   assert.throws(() => sanitizeRelativePath("/tmp/nope"), /Absolute path/);
   assert.throws(() => sanitizeRelativePath("C:/tmp/nope"), /Absolute path/);
@@ -71,22 +73,22 @@ test("sanitizeRelativePath rejects absolute and traversal paths", () => {
 test("normalizeIdeaSelection validates required fields", () => {
   const idea = normalizeIdeaSelection({
     noChange: false,
-    title: "Improve docs",
-    rationale: "Tighten user guidance",
-    uiReviewPath: "haskell/web/src/App.tsx",
-    uiReviewFocus: "Check button copy and loading feedback.",
-    correctnessPath: "test/autoloop.test.mjs",
-    correctnessFocus: "Keep the autoloop contract covered by tests.",
-    filesNeeded: ["README.md", "CHANGELOG.md", "haskell/web/src/App.tsx", "test/autoloop.test.mjs"],
+    title: "Clamp pathological thresholds",
+    rationale: "Bias toward backend trading invariants",
+    algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+    algorithmReviewFocus: "Review threshold and signal-decision invariants.",
+    formalMethodsPath: "FORMAL_METHODS.md",
+    formalMethodsFocus: "Keep the threshold invariant and proof sketch aligned.",
+    filesNeeded: ["README.md", "CHANGELOG.md", "haskell/app/Trader/Trading.hs", "FORMAL_METHODS.md"],
     verificationCommands: ["cd haskell && cabal build"],
   });
-  assert.equal(idea.uiReviewPath, "haskell/web/src/App.tsx");
-  assert.equal(idea.correctnessPath, "test/autoloop.test.mjs");
+  assert.equal(idea.algorithmReviewPath, "haskell/app/Trader/Trading.hs");
+  assert.equal(idea.formalMethodsPath, "FORMAL_METHODS.md");
   assert.deepEqual(idea.filesNeeded, [
     "README.md",
     "CHANGELOG.md",
-    "haskell/web/src/App.tsx",
-    "test/autoloop.test.mjs",
+    "haskell/app/Trader/Trading.hs",
+    "FORMAL_METHODS.md",
   ]);
   assert.throws(
     () =>
@@ -94,11 +96,11 @@ test("normalizeIdeaSelection validates required fields", () => {
         noChange: false,
         title: "",
         rationale: "missing title",
-        uiReviewPath: "haskell/web/src/App.tsx",
-        uiReviewFocus: "Review the main UI.",
-        correctnessPath: "test/autoloop.test.mjs",
-        correctnessFocus: "Keep tests aligned.",
-        filesNeeded: ["README.md", "haskell/web/src/App.tsx", "test/autoloop.test.mjs"],
+        algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+        algorithmReviewFocus: "Review the trading logic.",
+        formalMethodsPath: "FORMAL_METHODS.md",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["README.md", "haskell/app/Trader/Trading.hs", "FORMAL_METHODS.md"],
       }),
     /title must not be empty/,
   );
@@ -107,28 +109,56 @@ test("normalizeIdeaSelection validates required fields", () => {
       normalizeIdeaSelection({
         noChange: false,
         title: "Bad review coverage",
-        rationale: "UI review path is missing from filesNeeded",
-        uiReviewPath: "haskell/web/src/App.tsx",
-        uiReviewFocus: "Review the main UI.",
-        correctnessPath: "test/autoloop.test.mjs",
-        correctnessFocus: "Keep tests aligned.",
-        filesNeeded: ["test/autoloop.test.mjs"],
+        rationale: "Algorithm review path is missing from filesNeeded",
+        algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+        algorithmReviewFocus: "Review the trading logic.",
+        formalMethodsPath: "FORMAL_METHODS.md",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["FORMAL_METHODS.md"],
       }),
-    /filesNeeded must include uiReviewPath/,
+    /filesNeeded must include algorithmReviewPath/,
   );
   assert.throws(
     () =>
       normalizeIdeaSelection({
         noChange: false,
-        title: "Bad correctness coverage",
-        rationale: "Correctness review path is missing from filesNeeded",
-        uiReviewPath: "haskell/web/src/App.tsx",
-        uiReviewFocus: "Review the main UI.",
-        correctnessPath: "test/autoloop.test.mjs",
-        correctnessFocus: "Keep tests aligned.",
-        filesNeeded: ["haskell/web/src/App.tsx"],
+        title: "Bad formal coverage",
+        rationale: "Formal methods path is missing from filesNeeded",
+        algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+        algorithmReviewFocus: "Review the trading logic.",
+        formalMethodsPath: "FORMAL_METHODS.md",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["haskell/app/Trader/Trading.hs"],
       }),
-    /filesNeeded must include correctnessPath/,
+    /filesNeeded must include formalMethodsPath/,
+  );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad algorithm path",
+        rationale: "UI files must not satisfy the backend review slot",
+        algorithmReviewPath: "haskell/web/src/App.tsx",
+        algorithmReviewFocus: "Review the main UI.",
+        formalMethodsPath: "FORMAL_METHODS.md",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["haskell/web/src/App.tsx", "FORMAL_METHODS.md"],
+      }),
+    /algorithmReviewPath must be within/,
+  );
+  assert.throws(
+    () =>
+      normalizeIdeaSelection({
+        noChange: false,
+        title: "Bad formal sibling path",
+        rationale: "An exact file scope must not accept sibling lookalikes.",
+        algorithmReviewPath: "haskell/app/Trader/Trading.hs",
+        algorithmReviewFocus: "Review the trading logic.",
+        formalMethodsPath: "FORMAL_METHODS.md.bak",
+        formalMethodsFocus: "Keep tests aligned.",
+        filesNeeded: ["haskell/app/Trader/Trading.hs", "FORMAL_METHODS.md.bak"],
+      }),
+    /formalMethodsPath must be within/,
   );
 });
 
@@ -138,13 +168,13 @@ test("normalizePatchPlan validates change entries", () => {
     title: "Patch docs",
     summary: "Explain setup",
     commitMessage: "Explain setup",
-    uiReviewSummary: "Reviewed the UI file and found no safe change in scope.",
-    correctnessSummary: "The tests keep the autoloop path contract intact.",
+    algorithmReviewSummary: "Reviewed the backend trading file and applied the threshold fix there.",
+    formalMethodsSummary: "The tests keep the autoloop path contract intact.",
     changes: [{ path: "README.md", content: "# hi" }],
     verificationCommands: [],
   });
   assert.equal(plan.changes[0]?.path, "README.md");
-  assert.equal(plan.uiReviewSummary, "Reviewed the UI file and found no safe change in scope.");
+  assert.equal(plan.algorithmReviewSummary, "Reviewed the backend trading file and applied the threshold fix there.");
   assert.throws(
     () =>
       normalizePatchPlan({
@@ -152,8 +182,8 @@ test("normalizePatchPlan validates change entries", () => {
         title: "Bad patch",
         summary: "Bad patch",
         commitMessage: "Bad patch",
-        uiReviewSummary: "Reviewed the UI file.",
-        correctnessSummary: "The contract is unchanged.",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
         changes: [{ path: "../oops", content: "x" }],
       }),
     /Path traversal/,
@@ -165,11 +195,27 @@ test("normalizePatchPlan validates change entries", () => {
         title: "Duplicate patch",
         summary: "Duplicate patch",
         commitMessage: "Duplicate patch",
-        uiReviewSummary: "Reviewed the UI file.",
-        correctnessSummary: "The contract is unchanged.",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
         changes: [
           { path: "README.md", content: "# one" },
           { path: "README.md", content: "# two" },
+        ],
+      }),
+    /duplicate path/,
+  );
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Canonical duplicate patch",
+        summary: "Canonical duplicate patch",
+        commitMessage: "Canonical duplicate patch",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
+        changes: [
+          { path: "haskell/app/Trader/Trading.hs", content: "# one" },
+          { path: "haskell/app/Trader/./Trading.hs", content: "# two" },
         ],
       }),
     /duplicate path/,
@@ -286,19 +332,42 @@ test("autoloop script targets the base branch directly without PR helpers", asyn
   assert.doesNotMatch(script, /function mergePullRequest\(/);
 });
 
+test("autoloop script polls GitHub CI for each pushed sha before completing", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const pushedHeadSha = runGit\(\["rev-parse", "HEAD"\]\);/);
+  assert.match(script, /phase: "ci-wait",\s*[\s\S]*headSha: pushedHeadSha/);
+  assert.match(script, /const ci = waitForBranchCi\(pushedHeadSha, LOOP_BRANCH\);/);
+  assert.match(script, /const runs = listWorkflowRunsForHead\(headSha, branchName\);/);
+  assert.match(script, /run\.head_sha === headSha && run\.name === CI_WORKFLOW_NAME/);
+});
+
+test("autoloop script feeds failed CI logs back into codex repair prompts", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /failureContext = \{\s*[\s\S]*failedLog: ci\.failedLog,/);
+  assert.match(script, /const idea = failureContext\s*\?\s*await requestFixIdea\(repoContext, failureContext\)/);
+  assert.match(script, /"Failed log excerpt:",\s*clampText\(failureContext\.failedLog, 20000\)/);
+  assert.match(script, /failureContext \? `Failed CI log excerpt:\\n\$\{clampText\(failureContext\.failedLog, 18000\)\}` : ""/);
+  assert.match(script, /const failedLog = runGh\(\["run", "view", String\(runId\), "--log-failed"\]\);/);
+});
+
 test("bounded autoloop reports the required lifecycle phases in order", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   const phases = extractAutoloopPhases(script);
 
   assertOrderedSubsequence(
     phases,
-    ["choose-change", "ui-ux-review", "correctness-review", "verify", "commit-push", "ci-wait"],
+    ["choose-change", "algorithm-review", "formal-methods-review", "verify", "commit-push", "ci-wait"],
     "required autoloop lifecycle phases",
   );
   assertOrderedSubsequence(
     phases,
-    ["correctness-review", "plan-patch", "apply-patch", "verify"],
+    ["formal-methods-review", "plan-patch", "apply-patch", "verify"],
     "autoloop review-to-verification bridge phases",
+  );
+  assertOrderedSubsequence(
+    phases,
+    ["commit-push", "ci-wait", "repair-needed"],
+    "autoloop push-to-repair bridge phases",
   );
 });
 

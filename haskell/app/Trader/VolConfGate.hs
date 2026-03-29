@@ -89,10 +89,10 @@ volConfGateCell :: VolConfGatePreset -> Maybe Double -> Maybe Double -> VolConfG
 volConfGateCell preset mVolatility mConfidence =
     case preset of
         VolConfGateDisabled ->
-            VolConfGateCell VolConfGateAllowEntry 1.0
+            mkVolConfGateCell VolConfGateAllowEntry 1.0
         _ ->
             case volBucket preset mVolatility of
-                VolMissing -> VolConfGateCell VolConfGateAllowExitOnly 0.0
+                VolMissing -> mkVolConfGateCell VolConfGateAllowExitOnly 0.0
                 volB ->
                     let confB = confidenceBucket preset mConfidence
                      in gateCellFor preset volB confB
@@ -130,7 +130,7 @@ applyVolConfGateBehavior behavior currentSide currentSize desiredSide desiredSiz
 
 volBucket :: VolConfGatePreset -> Maybe Double -> VolBucket
 volBucket preset mVolatility =
-    case mVolatility of
+    case sanitizeFiniteMaybe mVolatility of
         Nothing -> VolMissing
         Just rawVol ->
             let vol = max 0 rawVol
@@ -154,10 +154,11 @@ confidenceBucket preset mConfidence =
                 _ -> 0.60
         strongThreshold = 0.80
         confidence =
-            case mConfidence of
-                -- Missing confidence is treated as weak to keep the gate conservative.
+            case sanitizeFiniteMaybe mConfidence of
+                -- Missing and malformed confidence are treated as weak to keep
+                -- the gate conservative.
                 Nothing -> 0.0
-                Just rawConfidence -> max 0 (min 1 rawConfidence)
+                Just rawConfidence -> clamp 0 1 rawConfidence
      in if confidence < weakThreshold
             then ConfidenceWeak
             else
@@ -168,19 +169,41 @@ confidenceBucket preset mConfidence =
 gateCellFor :: VolConfGatePreset -> VolBucket -> ConfidenceBucket -> VolConfGateCell
 gateCellFor preset volB confB =
     case (volB, confB) of
-        (VolLow, ConfidenceWeak) -> VolConfGateCell VolConfGateHold 0.0
-        (VolLow, ConfidenceMedium) -> VolConfGateCell VolConfGateAllowEntry 0.60
-        (VolLow, ConfidenceStrong) -> VolConfGateCell VolConfGateAllowEntry 1.00
-        (VolMedium, ConfidenceWeak) -> VolConfGateCell VolConfGateHold 0.0
-        (VolMedium, ConfidenceMedium) -> VolConfGateCell VolConfGateAllowEntry 0.45
-        (VolMedium, ConfidenceStrong) -> VolConfGateCell VolConfGateAllowEntry 0.75
-        (VolHigh, ConfidenceWeak) -> VolConfGateCell VolConfGateBlock 0.0
-        (VolHigh, ConfidenceMedium) -> VolConfGateCell VolConfGateAllowExitOnly 0.0
+        (VolLow, ConfidenceWeak) -> mkVolConfGateCell VolConfGateHold 0.0
+        (VolLow, ConfidenceMedium) -> mkVolConfGateCell VolConfGateAllowEntry 0.60
+        (VolLow, ConfidenceStrong) -> mkVolConfGateCell VolConfGateAllowEntry 1.00
+        (VolMedium, ConfidenceWeak) -> mkVolConfGateCell VolConfGateHold 0.0
+        (VolMedium, ConfidenceMedium) -> mkVolConfGateCell VolConfGateAllowEntry 0.45
+        (VolMedium, ConfidenceStrong) -> mkVolConfGateCell VolConfGateAllowEntry 0.75
+        (VolHigh, ConfidenceWeak) -> mkVolConfGateCell VolConfGateBlock 0.0
+        (VolHigh, ConfidenceMedium) -> mkVolConfGateCell VolConfGateAllowExitOnly 0.0
         (VolHigh, ConfidenceStrong) ->
             let highStrongSize =
                     case preset of
                         VolConfGateV1HighVolTighter -> 0.25
                         VolConfGateV1HighVolLooser -> 0.45
                         _ -> 0.35
-             in VolConfGateCell VolConfGateAllowEntry highStrongSize
-        (VolMissing, _) -> VolConfGateCell VolConfGateAllowExitOnly 0.0
+             in mkVolConfGateCell VolConfGateAllowEntry highStrongSize
+        (VolMissing, _) -> mkVolConfGateCell VolConfGateAllowExitOnly 0.0
+
+isFinite :: Double -> Bool
+isFinite x = not (isNaN x || isInfinite x)
+
+sanitizeFiniteMaybe :: Maybe Double -> Maybe Double
+sanitizeFiniteMaybe mValue =
+    case mValue of
+        Just x | isFinite x -> Just x
+        _ -> Nothing
+
+sanitizeFiniteWith :: Double -> Double -> Double
+sanitizeFiniteWith fallback x =
+    if isFinite x
+        then x
+        else fallback
+
+clamp :: Double -> Double -> Double -> Double
+clamp lo hi x = max lo (min hi x)
+
+mkVolConfGateCell :: VolConfGateBehavior -> Double -> VolConfGateCell
+mkVolConfGateCell behavior sizeMult =
+    VolConfGateCell behavior (clamp 0 1 (sanitizeFiniteWith 0 sizeMult))
