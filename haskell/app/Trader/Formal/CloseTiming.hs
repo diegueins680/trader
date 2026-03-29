@@ -1,12 +1,14 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
 module Trader.Formal.CloseTiming (
+    ComboCloseTimingReport (..),
     CloseTimingDecision (..),
     CloseTimingObservation (..),
     CloseTimingStats (..),
     ComboTimingStats (..),
     ComboTrade (..),
     TradeTimingSample (..),
+    analyzeComboCloseTiming,
     buildCloseTimingStats,
     closeTimingDecision,
     optimalCloseObservation,
@@ -18,6 +20,7 @@ module Trader.Formal.CloseTiming (
 import Data.Function (on)
 import Data.List (foldl', groupBy, sort, sortOn)
 import Data.Maybe (mapMaybe)
+import qualified Data.Vector as V
 
 -- | Historical position sample grouped by combo.
 data CloseTimingObservation = CloseTimingObservation
@@ -83,6 +86,23 @@ data ComboTimingStats = ComboTimingStats
     , ctsMadRatio :: !Double
     , ctsMeanLift :: !Double
     , ctsMedianLift :: !Double
+    }
+    deriving (Eq, Show)
+
+-- | Combo-level report used to retune timing-based exits from historical trades.
+data ComboCloseTimingReport = ComboCloseTimingReport
+    { cctrComboId :: !String
+    , cctrSampleCount :: !Int
+    , cctrMedianRatio :: !(Maybe Double)
+    , cctrQ25Ratio :: !(Maybe Double)
+    , cctrQ75Ratio :: !(Maybe Double)
+    , cctrMadRatio :: !(Maybe Double)
+    , cctrMeanLift :: !(Maybe Double)
+    , cctrMedianLift :: !(Maybe Double)
+    , cctrMedianObservedDuration :: !(Maybe Int)
+    , cctrMedianOptimalDuration :: !(Maybe Int)
+    , cctrQ75OptimalDuration :: !(Maybe Int)
+    , cctrRecommendedMaxHoldBars :: !(Maybe Int)
     }
     deriving (Eq, Show)
 
@@ -169,9 +189,11 @@ closeTimingDecision riskBudget stats ta expectedDurationMs now =
             }
 
 timingSamples :: [Double] -> [ComboTrade] -> [TradeTimingSample]
-timingSamples prices = mapMaybe (sampleForTrade prices)
+timingSamples prices =
+    let priceVec = V.fromList prices
+     in mapMaybe (sampleForTrade priceVec)
 
-sampleForTrade :: [Double] -> ComboTrade -> Maybe TradeTimingSample
+sampleForTrade :: V.Vector Double -> ComboTrade -> Maybe TradeTimingSample
 sampleForTrade prices tr = do
     observed <- returnAt prices tr (ctExitIndex tr)
     let ta = ctEntryIndex tr
@@ -191,7 +213,7 @@ sampleForTrade prices tr = do
             , ttsReturnLift = optimal - observed
             }
 
-returnAt :: [Double] -> ComboTrade -> Int -> Maybe Double
+returnAt :: V.Vector Double -> ComboTrade -> Int -> Maybe Double
 returnAt prices tr i
     | not (validComboTrade tr) = Nothing
     | otherwise = do
@@ -207,7 +229,7 @@ validComboTrade tr =
         && isFinite (ctSide tr)
         && ctSide tr /= 0
 
-optimalIndexInWindow :: [Double] -> ComboTrade -> Int
+optimalIndexInWindow :: V.Vector Double -> ComboTrade -> Int
 optimalIndexInWindow prices tr =
     let ta = ctEntryIndex tr
         tc = ctExitIndex tr
@@ -215,7 +237,7 @@ optimalIndexInWindow prices tr =
             then ta
             else
                 let observedDuration = tc - ta
-                    maxIndex = min (length prices - 1) (ta + 2 * observedDuration)
+                    maxIndex = min (V.length prices - 1) (ta + 2 * observedDuration)
                     candidates = [ta .. maxIndex]
                     scored = mapMaybe scoreAt candidates
                  in case scored of
@@ -249,6 +271,38 @@ summarizeAllCombos samples =
   where
     grouped =
         groupBy ((==) `on` ttsComboId) (sortOn ttsComboId samples)
+
+analyzeComboCloseTiming :: String -> [Double] -> [ComboTrade] -> ComboCloseTimingReport
+analyzeComboCloseTiming comboId prices trades =
+    let normalizedTrades = map normalizeTrade trades
+        samples = timingSamples prices normalizedTrades
+        stats = summarizeComboTiming samples
+        medianObservedDuration = percentileInt 0.5 (map ttsObservedDuration samples)
+        medianOptimalDuration = percentileInt 0.5 (map ttsOptimalDuration samples)
+        q75OptimalDuration = percentileInt 0.75 (map ttsOptimalDuration samples)
+        recommendedMaxHoldBars =
+            case (stats, q75OptimalDuration) of
+                (Just st, Just q75Bars)
+                    | ctsMedianLift st > 0 && q75Bars > 0 -> Just q75Bars
+                _ -> Nothing
+     in ComboCloseTimingReport
+            { cctrComboId = comboId
+            , cctrSampleCount = length samples
+            , cctrMedianRatio = fmap (\ComboTimingStats{ctsMedianRatio = v} -> v) stats
+            , cctrQ25Ratio = fmap (\ComboTimingStats{ctsQ25Ratio = v} -> v) stats
+            , cctrQ75Ratio = fmap (\ComboTimingStats{ctsQ75Ratio = v} -> v) stats
+            , cctrMadRatio = fmap (\ComboTimingStats{ctsMadRatio = v} -> v) stats
+            , cctrMeanLift = fmap (\ComboTimingStats{ctsMeanLift = v} -> v) stats
+            , cctrMedianLift = fmap (\ComboTimingStats{ctsMedianLift = v} -> v) stats
+            , cctrMedianObservedDuration = medianObservedDuration
+            , cctrMedianOptimalDuration = medianOptimalDuration
+            , cctrQ75OptimalDuration = q75OptimalDuration
+            , cctrRecommendedMaxHoldBars = recommendedMaxHoldBars
+            }
+  where
+    normalizeTrade trade
+        | ctComboId trade == "unknown" || null (ctComboId trade) = trade{ctComboId = comboId}
+        | otherwise = trade
 
 timingRatio :: TradeTimingSample -> Double
 timingRatio sample
@@ -329,21 +383,24 @@ percentile p xs =
         idx = floor (clamp 0 1 p * fromIntegral (n - 1))
      in ys !! idx
 
+percentileInt :: Double -> [Int] -> Maybe Int
+percentileInt _ [] = Nothing
+percentileInt p xs =
+    let ys = sort xs
+        n = length ys
+        idx = floor (clamp 0 1 p * fromIntegral (n - 1))
+     in Just (ys !! idx)
+
 clampRatio :: Double -> Double
 clampRatio = clamp 0 2
 
 clamp :: Double -> Double -> Double -> Double
 clamp lo hi = max lo . min hi
 
-safeAt :: [a] -> Int -> Maybe a
+safeAt :: V.Vector a -> Int -> Maybe a
 safeAt xs i
     | i < 0 = Nothing
-    | otherwise = go xs i
-  where
-    go [] _ = Nothing
-    go (y : ys) k
-        | k == 0 = Just y
-        | otherwise = go ys (k - 1)
+    | otherwise = xs V.!? i
 
 isFinite :: Double -> Bool
 isFinite x = not (isNaN x || isInfinite x)

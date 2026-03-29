@@ -2,6 +2,9 @@
 
 module Trader.Optimizer.Optimize (
     OptimizerArgs (..),
+    appliedCloseTimingMaxHoldBars,
+    applyCloseTimingMetrics,
+    closeTimingReportFromBacktest,
     applyQualityPreset,
     normalizeObjectiveCode,
     normalizeOptionalPositiveFraction,
@@ -11,6 +14,7 @@ module Trader.Optimizer.Optimize (
     sampleTakeProfitPartial,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, tryTakeMVar)
 import Control.Exception (SomeException, evaluate, try)
@@ -77,6 +81,7 @@ import Text.Read (readMaybe)
 
 import Trader.BinanceIntervals (binanceIntervalsCsv)
 import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom)
+import Trader.Formal.CloseTiming (ComboCloseTimingReport (..), ComboTrade (..), analyzeComboCloseTiming)
 import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Random (
@@ -535,6 +540,150 @@ extractOperations raw = do
                         ]
                     )
             _ -> Nothing
+
+coerceFloatArray :: Value -> Maybe [Double]
+coerceFloatArray value =
+    case value of
+        Array xs -> traverse coerceFloatValue (V.toList xs)
+        _ -> Nothing
+
+trialCloseTimingReport :: TrialParams -> Maybe String -> Maybe Value -> ComboCloseTimingReport
+trialCloseTimingReport params symbolLabel =
+    closeTimingReportFromBacktest (trialCloseTimingComboId params symbolLabel)
+
+trialCloseTimingComboId :: TrialParams -> Maybe String -> String
+trialCloseTimingComboId params symbolLabel =
+    intercalate
+        ":"
+        ( filter
+            (not . null)
+            [ fromMaybe "" (tpPlatform params)
+            , fromMaybe "" symbolLabel
+            , tpInterval params
+            , tpMethod params
+            ]
+        )
+
+extractCloseTimingInputs :: String -> Maybe Value -> Maybe ([Double], [ComboTrade])
+extractCloseTimingInputs comboId raw = do
+    v <- raw
+    bt <- valueObjectAt v "backtest"
+    pricesValue <- KM.lookup (Key.fromString "prices") bt
+    tradesValue <- KM.lookup (Key.fromString "trades") bt
+    prices <- coerceFloatArray pricesValue
+    let positions =
+            case KM.lookup (Key.fromString "positions") bt of
+                Just value -> fromMaybe [] (coerceFloatArray value)
+                Nothing -> []
+    trades <- coerceCloseTimingTrades comboId prices positions tradesValue
+    pure (prices, trades)
+
+coerceCloseTimingTrades :: String -> [Double] -> [Double] -> Value -> Maybe [ComboTrade]
+coerceCloseTimingTrades comboId prices positions value =
+    case value of
+        Array trades -> Just (mapMaybe (coerceCloseTimingTrade comboId prices positions) (V.toList trades))
+        _ -> Nothing
+
+coerceCloseTimingTrade :: String -> [Double] -> [Double] -> Value -> Maybe ComboTrade
+coerceCloseTimingTrade comboId prices positions value =
+    case value of
+        Object trade -> do
+            entryIdx <- KM.lookup (Key.fromString "entryIndex") trade >>= coerceIntValue
+            exitIdx <- KM.lookup (Key.fromString "exitIndex") trade >>= coerceIntValue
+            entryPrice <- safeAtList prices entryIdx
+            let side = resolveCloseTimingTradeSide trade entryIdx exitIdx prices positions
+            if entryPrice > 0 && side /= 0
+                then
+                    Just
+                        ComboTrade
+                            { ctComboId = comboId
+                            , ctEntryIndex = entryIdx
+                            , ctExitIndex = exitIdx
+                            , ctEntryPrice = entryPrice
+                            , ctSide = side
+                            }
+                else Nothing
+        _ -> Nothing
+
+resolveCloseTimingTradeSide :: KM.KeyMap Value -> Int -> Int -> [Double] -> [Double] -> Double
+resolveCloseTimingTradeSide trade entryIdx exitIdx prices positions =
+    fromMaybe 1 (sideFromPositions entryIdx positions <|> sideFromReturn trade entryIdx exitIdx prices)
+
+sideFromPositions :: Int -> [Double] -> Maybe Double
+sideFromPositions entryIdx positions = do
+    pos <- safeAtList positions entryIdx
+    let side = signum pos
+    if isNaN side || isInfinite side || side == 0
+        then Nothing
+        else Just side
+
+sideFromReturn :: KM.KeyMap Value -> Int -> Int -> [Double] -> Maybe Double
+sideFromReturn trade entryIdx exitIdx prices = do
+    retVal <- KM.lookup (Key.fromString "return") trade >>= coerceFloatValue
+    entryPrice <- safeAtList prices entryIdx
+    exitPrice <- safeAtList prices exitIdx
+    inferTradeSideFromReturn entryPrice exitPrice retVal
+
+inferTradeSideFromReturn :: Double -> Double -> Double -> Maybe Double
+inferTradeSideFromReturn entryPrice exitPrice retVal
+    | entryPrice <= 0 || exitPrice <= 0 = Nothing
+    | isNaN retVal || isInfinite retVal = Nothing
+    | otherwise =
+        let priceMove = signum (exitPrice - entryPrice)
+            retMove = signum retVal
+            side = retMove * priceMove
+         in if priceMove == 0 || retMove == 0 || side == 0 then Nothing else Just side
+
+safeAtList :: [a] -> Int -> Maybe a
+safeAtList xs idx
+    | idx < 0 = Nothing
+    | otherwise = go xs idx
+  where
+    go [] _ = Nothing
+    go (y : ys) n
+        | n == 0 = Just y
+        | otherwise = go ys (n - 1)
+
+closeTimingReportFromBacktest :: String -> Maybe Value -> ComboCloseTimingReport
+closeTimingReportFromBacktest comboId raw =
+    case extractCloseTimingInputs comboId raw of
+        Just (prices, trades) -> analyzeComboCloseTiming comboId prices trades
+        Nothing -> analyzeComboCloseTiming comboId [] []
+
+appliedCloseTimingMaxHoldBars :: Maybe Int -> ComboCloseTimingReport -> Maybe Int
+appliedCloseTimingMaxHoldBars currentMaxHoldBars report =
+    cctrRecommendedMaxHoldBars report <|> currentMaxHoldBars
+
+applyCloseTimingMetrics ::
+    Maybe (KM.KeyMap Value) ->
+    Maybe Int ->
+    Maybe Int ->
+    ComboCloseTimingReport ->
+    Maybe (KM.KeyMap Value)
+applyCloseTimingMetrics metrics currentMaxHoldBars appliedMaxHoldBars report =
+    let base = fromMaybe KM.empty metrics
+        reportValue = closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report
+     in Just (KM.insert (Key.fromString "closeTiming") reportValue base)
+
+closeTimingReportToValue :: Maybe Int -> Maybe Int -> ComboCloseTimingReport -> Value
+closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report =
+    object
+        [ "comboId" .= cctrComboId report
+        , "sampleCount" .= cctrSampleCount report
+        , "medianRatio" .= cctrMedianRatio report
+        , "q25Ratio" .= cctrQ25Ratio report
+        , "q75Ratio" .= cctrQ75Ratio report
+        , "madRatio" .= cctrMadRatio report
+        , "meanLift" .= cctrMeanLift report
+        , "medianLift" .= cctrMedianLift report
+        , "medianObservedDuration" .= cctrMedianObservedDuration report
+        , "medianOptimalDuration" .= cctrMedianOptimalDuration report
+        , "q75OptimalDuration" .= cctrQ75OptimalDuration report
+        , "recommendedMaxHoldBars" .= cctrRecommendedMaxHoldBars report
+        , "originalMaxHoldBars" .= currentMaxHoldBars
+        , "appliedMaxHoldBars" .= appliedMaxHoldBars
+        , "positiveLift" .= maybe False (> 0) (cctrMedianLift report)
+        ]
 
 parsePlatforms :: String -> Either String [String]
 parsePlatforms raw =
@@ -1998,7 +2147,10 @@ setEnv key val env =
 
 trialToRecord :: TrialResult -> Maybe String -> Value
 trialToRecord tr symbolLabel =
-    let paramsPairs =
+    let symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
+        currentMaxHoldBars = tpMaxHoldBars (trParams tr)
+        closeTimingReport = trialCloseTimingReport (trParams tr) symbol (trStdoutJson tr)
+        paramsPairs =
             [ "platform" .= tpPlatform (trParams tr)
             , "interval" .= tpInterval (trParams tr)
             , "bars" .= tpBars (trParams tr)
@@ -2011,7 +2163,7 @@ trialToRecord tr symbolLabel =
             , "baseCloseThreshold" .= tpBaseCloseThreshold (trParams tr)
             , "minHoldBars" .= tpMinHoldBars (trParams tr)
             , "cooldownBars" .= tpCooldownBars (trParams tr)
-            , "maxHoldBars" .= tpMaxHoldBars (trParams tr)
+            , "maxHoldBars" .= currentMaxHoldBars
             , "minEdge" .= tpMinEdge (trParams tr)
             , "minSignalToNoise" .= tpMinSignalToNoise (trParams tr)
             , "snrSizeWeight" .= tpSnrSizeWeight (trParams tr)
@@ -2165,11 +2317,16 @@ trialToRecord tr symbolLabel =
             , "fundingOiVolCap" .= tpFundingOiVolCap (trParams tr)
             , "fundingOiSizeMult" .= tpFundingOiSizeMult (trParams tr)
             ]
-        symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
         paramsPairs' =
             case symbol of
                 Just sym -> paramsPairs ++ ["binanceSymbol" .= sym]
                 Nothing -> paramsPairs
+        metricsWithCloseTiming =
+            applyCloseTimingMetrics
+                (trMetrics tr)
+                currentMaxHoldBars
+                currentMaxHoldBars
+                closeTimingReport
         baseFields =
             [ "ok" .= trOk tr
             , "eligible" .= trEligible tr
@@ -2184,7 +2341,7 @@ trialToRecord tr symbolLabel =
             , "params" .= object paramsPairs'
             ]
         metricsField =
-            case trMetrics tr of
+            case metricsWithCloseTiming of
                 Just m -> ["metrics" .= Object m]
                 Nothing -> []
         opsField =
@@ -5326,10 +5483,12 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
         params = trParams tr
         finalEq = fromMaybe 0 (trFinalEquity tr)
         periodsPerYear = fromMaybe (inferPeriodsPerYear (tpInterval params)) (tpPeriodsPerYear params)
-        metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear (tpBars params)
-        metricsVal =
-            maybe Null Object metrics
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform params)
+        currentMaxHoldBars = tpMaxHoldBars params
+        closeTimingReport = trialCloseTimingReport params symbol (trStdoutJson tr)
+        metrics0 = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear (tpBars params)
+        metrics = applyCloseTimingMetrics metrics0 currentMaxHoldBars currentMaxHoldBars closeTimingReport
+        metricsVal = maybe Null Object metrics
         source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
         paramsValue =
             object
@@ -5345,7 +5504,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "baseCloseThreshold" .= tpBaseCloseThreshold params
                 , "minHoldBars" .= tpMinHoldBars params
                 , "cooldownBars" .= tpCooldownBars params
-                , "maxHoldBars" .= tpMaxHoldBars params
+                , "maxHoldBars" .= currentMaxHoldBars
                 , "minEdge" .= tpMinEdge params
                 , "minSignalToNoise" .= tpMinSignalToNoise params
                 , "snrSizeWeight" .= tpSnrSizeWeight params

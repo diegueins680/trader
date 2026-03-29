@@ -222,6 +222,7 @@ import Trader.Duration (
     timeWindowCode,
     timeWindowContains,
  )
+import Trader.Formal.CloseTiming (ComboCloseTimingReport)
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, stepMulti)
 import Trader.KalmanPhysics (OhlcvBar (..), predictKalmanPhysicsError)
@@ -244,7 +245,13 @@ import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, i
 import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Json (encodePretty)
-import Trader.Optimizer.Optimize (normalizeObjectiveCode, objectiveScore)
+import Trader.Optimizer.Optimize (
+    appliedCloseTimingMaxHoldBars,
+    applyCloseTimingMetrics,
+    closeTimingReportFromBacktest,
+    normalizeObjectiveCode,
+    objectiveScore,
+ )
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
     Platform (..),
@@ -552,27 +559,30 @@ main = do
         Right () -> pure ()
     if argOpsBackfillCommits args'
         then runOpsBackfillCommits
-        else do
-            mWebhook <- newWebhookFromEnv
-            r <- try $ do
-                if argServe args'
-                    then runRestApi args' mWebhook
-                    else do
-                        (series, mBinanceEnv) <- loadPrices Nothing args'
-                        let prices = psClose series
-                        ensureMinPriceRows args' 2 prices
+        else
+            if argTopCombosBackfillCloseTiming args'
+                then runTopCombosBackfillCloseTiming args'
+                else do
+                    mWebhook <- newWebhookFromEnv
+                    r <- try $ do
+                        if argServe args'
+                            then runRestApi args' mWebhook
+                            else do
+                                (series, mBinanceEnv) <- loadPrices Nothing args'
+                                let prices = psClose series
+                                ensureMinPriceRows args' 2 prices
 
-                        let lookback = argLookback args'
-                        ensureLookbackRows args' lookback prices
-                        if argTradeOnly args'
-                            then runTradeOnly mWebhook args' lookback series mBinanceEnv
-                            else runBacktestPipeline mWebhook args' lookback series mBinanceEnv
-            case (r :: Either SomeException ()) of
-                Left ex -> do
-                    let (_, msg) = exceptionToHttp ex
-                    hPutStrLn stderr msg
-                    exitFailure
-                Right () -> pure ()
+                                let lookback = argLookback args'
+                                ensureLookbackRows args' lookback prices
+                                if argTradeOnly args'
+                                    then runTradeOnly mWebhook args' lookback series mBinanceEnv
+                                    else runBacktestPipeline mWebhook args' lookback series mBinanceEnv
+                    case (r :: Either SomeException ()) of
+                        Left ex -> do
+                            let (_, msg) = exceptionToHttp ex
+                            hPutStrLn stderr msg
+                            exitFailure
+                        Right () -> pure ()
 
 -- REST API (stateless; computes per request)
 
@@ -3321,6 +3331,360 @@ runOpsBackfillCommits = do
                                     putStrLn ("Git commits discovered: " ++ show totalCommits)
                                     putStrLn ("Git commits upserted: " ++ show commitsUpserted)
                                     putStrLn ("Ops rows updated: " ++ show opsUpdated)
+
+data TopCombosCloseTimingBackfillStats = TopCombosCloseTimingBackfillStats
+    { tccbTotalCombos :: !Int
+    , tccbAnalyzedCombos :: !Int
+    , tccbRetunedCombos :: !Int
+    , tccbFailedCombos :: !Int
+    }
+    deriving (Eq, Show)
+
+data TopCombosCloseTimingBackfillFailure = TopCombosCloseTimingBackfillFailure
+    { tccbfLabel :: !String
+    , tccbfReason :: !String
+    }
+    deriving (Eq, Show)
+
+data TopCombosCloseTimingComboResult = TopCombosCloseTimingComboResult
+    { tccrValue :: !Aeson.Value
+    , tccrAnalyzed :: !Bool
+    , tccrRetuned :: !Bool
+    , tccrFailure :: !(Maybe TopCombosCloseTimingBackfillFailure)
+    }
+
+data TopComboCloseTimingBacktest = TopComboCloseTimingBacktest
+    { tccbtValue :: !Aeson.Value
+    , tccbtArgs :: !Args
+    , tccbtMetrics :: !Aeson.Object
+    , tccbtFinalEquity :: !(Maybe Double)
+    , tccbtScore :: !(Maybe Double)
+    , tccbtOperations :: !(Maybe Aeson.Value)
+    }
+
+runTopCombosBackfillCloseTiming :: Args -> IO ()
+runTopCombosBackfillCloseTiming baseArgs = do
+    projectRoot <- getCurrentDirectory
+    mStateDir <- stateDirFromEnv
+    let tmpRoot = projectRoot </> ".tmp"
+    createDirectoryIfMissing True tmpRoot
+    let optimizerTmp = maybe (tmpRoot </> "optimizer") (</> "optimizer") mStateDir
+    createDirectoryIfMissing True optimizerTmp
+    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+    topCombosHistoryDir <- resolveOptimizerCombosHistoryDir topJsonPath
+    topCombosStore <- newTopCombosStore topJsonPath topCombosHistoryDir
+    mOps <- newOpsStoreFromEnv
+    mStateSyncTarget <- newStateSyncTargetFromEnv
+    outcome <-
+        withTopCombosLock topCombosStore $ do
+            valOrErr <- readTopCombosValueWithDbFallbackRawUnlocked mOps topCombosStore
+            case valOrErr of
+                Left err -> pure (Left err)
+                Right val -> do
+                    backfillResult <- backfillTopCombosCloseTimingValue mOps baseArgs val
+                    case backfillResult of
+                        Left err -> pure (Left err)
+                        Right (updatedVal0, stats, failures) ->
+                            if tccbAnalyzedCombos stats <= 0
+                                then pure (Right (stats, failures, False))
+                                else do
+                                    now <- getTimestampMs
+                                    let updatedVal = setTopCombosGeneratedAtMs now updatedVal0
+                                    writeResult <- writeTopCombosValue topJsonPath updatedVal
+                                    case writeResult of
+                                        Left err -> pure (Left err)
+                                        Right _ -> do
+                                            persistTopCombosMaybe mStateSyncTarget topJsonPath
+                                            pure (Right (stats, failures, True))
+    case outcome of
+        Left err -> die ("Top combos close-timing backfill failed (" ++ err ++ ")")
+        Right (stats, failures, wroteLocal) -> do
+            when wroteLocal (persistTopCombosDbMaybe mOps topCombosStore)
+            putStrLn ("Top combos path: " ++ topJsonPath)
+            putStrLn ("Combos discovered: " ++ show (tccbTotalCombos stats))
+            putStrLn ("Combos analyzed: " ++ show (tccbAnalyzedCombos stats))
+            putStrLn ("Combos retuned: " ++ show (tccbRetunedCombos stats))
+            putStrLn ("Combos failed: " ++ show (tccbFailedCombos stats))
+            unless wroteLocal $
+                putStrLn "No close-timing updates were written."
+            forM_
+                failures
+                (\failure -> hPutStrLn stderr ("WARN: " ++ tccbfLabel failure ++ " :: " ++ tccbfReason failure))
+            when (tccbFailedCombos stats > 0) exitFailure
+
+setTopCombosGeneratedAtMs :: Int64 -> Aeson.Value -> Aeson.Value
+setTopCombosGeneratedAtMs now val =
+    case val of
+        Aeson.Object obj -> Aeson.Object (KM.insert (AK.fromString "generatedAtMs") (toJSON now) obj)
+        _ -> val
+
+backfillTopCombosCloseTimingValue ::
+    Maybe OpsStore ->
+    Args ->
+    Aeson.Value ->
+    IO (Either String (Aeson.Value, TopCombosCloseTimingBackfillStats, [TopCombosCloseTimingBackfillFailure]))
+backfillTopCombosCloseTimingValue mOps baseArgs val =
+    case val of
+        Aeson.Object obj ->
+            case KM.lookup (AK.fromString "combos") obj of
+                Just (Aeson.Array combos) -> do
+                    results <- forM (V.toList combos) (backfillTopComboCloseTiming mOps baseArgs)
+                    let failures = mapMaybe tccrFailure results
+                        stats =
+                            TopCombosCloseTimingBackfillStats
+                                { tccbTotalCombos = length results
+                                , tccbAnalyzedCombos = length (filter tccrAnalyzed results)
+                                , tccbRetunedCombos = length (filter tccrRetuned results)
+                                , tccbFailedCombos = length failures
+                                }
+                        combos' = Aeson.Array (V.fromList (map tccrValue results))
+                        updatedVal = normalizeTopCombosPayload (Aeson.Object (KM.insert (AK.fromString "combos") combos' obj))
+                    pure (Right (updatedVal, stats, failures))
+                _ -> pure (Left "Top combos JSON missing combos array.")
+        _ -> pure (Left "Top combos JSON root must be an object.")
+
+backfillTopComboCloseTiming :: Maybe OpsStore -> Args -> Aeson.Value -> IO TopCombosCloseTimingComboResult
+backfillTopComboCloseTiming mOps baseArgs comboVal =
+    case comboVal of
+        Aeson.Object comboObj ->
+            case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
+                Aeson.Error err ->
+                    pure
+                        TopCombosCloseTimingComboResult
+                            { tccrValue = comboVal
+                            , tccrAnalyzed = False
+                            , tccrRetuned = False
+                            , tccrFailure = Just (TopCombosCloseTimingBackfillFailure "combo" ("Failed to parse combo: " ++ err))
+                            }
+                Aeson.Success combo -> do
+                    argsOrErr <- prepareTopComboCloseTimingArgs baseArgs combo
+                    case argsOrErr of
+                        Left err ->
+                            pure
+                                TopCombosCloseTimingComboResult
+                                    { tccrValue = comboVal
+                                    , tccrAnalyzed = False
+                                    , tccrRetuned = False
+                                    , tccrFailure = Just (TopCombosCloseTimingBackfillFailure (topComboBackfillLabel combo) err)
+                                    }
+                        Right comboArgs -> do
+                            initialBacktestResult <- runTopComboCloseTimingBacktest mOps combo comboArgs
+                            case initialBacktestResult of
+                                Left err ->
+                                    pure
+                                        TopCombosCloseTimingComboResult
+                                            { tccrValue = comboVal
+                                            , tccrAnalyzed = False
+                                            , tccrRetuned = False
+                                            , tccrFailure = Just (TopCombosCloseTimingBackfillFailure (topComboBackfillLabel combo) err)
+                                            }
+                                Right initialBacktest -> do
+                                    let comboId = topComboCloseTimingComboId combo
+                                        currentMaxHoldBars = topComboParamInt "maxHoldBars" combo
+                                        initialReport = closeTimingReportFromBacktest comboId (Just (tccbtValue initialBacktest))
+                                        recommendedMaxHoldBars = appliedCloseTimingMaxHoldBars currentMaxHoldBars initialReport
+                                        retuned = recommendedMaxHoldBars /= currentMaxHoldBars
+                                    finalBacktestResult <-
+                                        if not retuned
+                                            then pure (Right initialBacktest)
+                                            else do
+                                                let retunedArgs0 = comboArgs{argMaxHoldBars = recommendedMaxHoldBars}
+                                                validatedRetunedArgsOrErr <- validateTopComboCloseTimingArgs retunedArgs0
+                                                case validatedRetunedArgsOrErr of
+                                                    Left err ->
+                                                        pure (Left ("Close-timing retune invalid: " ++ err))
+                                                    Right retunedArgs ->
+                                                        runTopComboCloseTimingBacktest mOps combo retunedArgs
+                                    case finalBacktestResult of
+                                        Left err ->
+                                            pure
+                                                TopCombosCloseTimingComboResult
+                                                    { tccrValue = comboVal
+                                                    , tccrAnalyzed = False
+                                                    , tccrRetuned = False
+                                                    , tccrFailure = Just (TopCombosCloseTimingBackfillFailure (topComboBackfillLabel combo) err)
+                                                    }
+                                        Right finalBacktest -> do
+                                            let persistedMaxHoldBars = argMaxHoldBars (tccbtArgs finalBacktest)
+                                                persistedReport = closeTimingReportFromBacktest comboId (Just (tccbtValue finalBacktest))
+                                                comboVal' =
+                                                    updateTopComboCloseTimingBacktest
+                                                        combo
+                                                        comboObj
+                                                        finalBacktest
+                                                        persistedMaxHoldBars
+                                                        persistedReport
+                                            pure
+                                                TopCombosCloseTimingComboResult
+                                                    { tccrValue = comboVal'
+                                                    , tccrAnalyzed = True
+                                                    , tccrRetuned = retuned
+                                                    , tccrFailure = Nothing
+                                                    }
+        _ ->
+            pure
+                TopCombosCloseTimingComboResult
+                    { tccrValue = comboVal
+                    , tccrAnalyzed = False
+                    , tccrRetuned = False
+                    , tccrFailure = Just (TopCombosCloseTimingBackfillFailure "combo" "Combo entry must be an object.")
+                    }
+
+runTopComboCloseTimingBacktest :: Maybe OpsStore -> TopCombo -> Args -> IO (Either String TopComboCloseTimingBacktest)
+runTopComboCloseTimingBacktest mOps combo args = do
+    backtestResult <- try (computeBacktestFromArgs mOps args) :: IO (Either SomeException Aeson.Value)
+    pure $
+        case backtestResult of
+            Left err -> Left (displayException err)
+            Right backtestVal ->
+                case extractBacktestMetrics backtestVal of
+                    Nothing -> Left "Backtest missing metrics."
+                    Just (Aeson.Object metricsObj) ->
+                        let objective = fromMaybe "final-equity" (tcObjectiveLabel combo)
+                         in Right
+                                TopComboCloseTimingBacktest
+                                    { tccbtValue = backtestVal
+                                    , tccbtArgs = args
+                                    , tccbtMetrics = metricsObj
+                                    , tccbtFinalEquity = comboMetricDouble "finalEquity" (Aeson.Object metricsObj)
+                                    , tccbtScore = objectiveScoreFromMetrics args objective (Aeson.Object metricsObj)
+                                    , tccbtOperations = extractBacktestOperations backtestVal
+                                    }
+                    Just _ -> Left "Backtest metrics must be an object."
+
+updateTopComboCloseTimingBacktest ::
+    TopCombo ->
+    Aeson.Object ->
+    TopComboCloseTimingBacktest ->
+    Maybe Int ->
+    ComboCloseTimingReport ->
+    Aeson.Value
+updateTopComboCloseTimingBacktest combo comboObj backtest persistedMaxHoldBars closeTimingReport =
+    let params' = setTopComboParamInt "maxHoldBars" persistedMaxHoldBars (tcParams combo)
+        metrics' = applyCloseTimingMetrics (Just (tccbtMetrics backtest)) persistedMaxHoldBars persistedMaxHoldBars closeTimingReport
+        combo' =
+            combo
+                { tcParams = params'
+                , tcMetrics = metrics'
+                , tcFinalEquity = tccbtFinalEquity backtest
+                , tcScore = tccbtScore backtest
+                }
+        comboObj1 = setTopComboObjectField "params" (Just (Aeson.Object params')) comboObj
+        comboObj2 = setTopComboObjectField "metrics" (Aeson.Object <$> metrics') comboObj1
+        comboObj3 = setTopComboObjectField "finalEquity" (toJSON <$> tccbtFinalEquity backtest) comboObj2
+        comboObj4 = setTopComboObjectField "score" (toJSON <$> tccbtScore backtest) comboObj3
+        comboObj5 = setTopComboObjectField "operations" (tccbtOperations backtest) comboObj4
+        comboObj6 = setTopComboObjectField "uuid" (Just (toJSON (topComboUuid combo'))) comboObj5
+     in Aeson.Object comboObj6
+
+setTopComboObjectField :: String -> Maybe Aeson.Value -> Aeson.Object -> Aeson.Object
+setTopComboObjectField key mVal obj =
+    case mVal of
+        Nothing -> KM.delete (AK.fromString key) obj
+        Just val -> KM.insert (AK.fromString key) val obj
+
+setTopComboParamInt :: String -> Maybe Int -> Aeson.Object -> Aeson.Object
+setTopComboParamInt key mVal params =
+    case mVal of
+        Nothing -> KM.delete (AK.fromString key) params
+        Just val -> KM.insert (AK.fromString key) (toJSON val) params
+
+prepareTopComboCloseTimingArgs :: Args -> TopCombo -> IO (Either String Args)
+prepareTopComboCloseTimingArgs baseArgs combo =
+    case applyTopComboForStart baseArgs combo of
+        Left err -> pure (Left err)
+        Right args0 -> do
+            mDataPath <- resolveTopComboCloseTimingDataPath args0 combo
+            let mPlatformRaw = topComboParamString "platform" combo
+                platformOrErr =
+                    case mPlatformRaw of
+                        Just raw | normalizeKey raw /= "csv" -> parsePlatform raw
+                        _ -> Right (argPlatform args0)
+                prepareCommon args =
+                    args
+                        { argTradeOnly = False
+                        , argBinanceTrade = False
+                        , argOptimizeOperations = False
+                        , argSweepThreshold = False
+                        , argServe = False
+                        , argJson = False
+                        , argOpsBackfillCommits = False
+                        , argTopCombosBackfillCloseTiming = False
+                        }
+            case platformOrErr of
+                Left err -> pure (Left err)
+                Right platform ->
+                    case topComboSymbol combo of
+                        Just sym ->
+                            validateTopComboCloseTimingArgs
+                                ( prepareCommon
+                                    args0
+                                        { argBinanceSymbol = Just sym
+                                        , argPlatform = platform
+                                        , argData = Nothing
+                                        }
+                                )
+                        Nothing ->
+                            case mDataPath of
+                                Just path ->
+                                    validateTopComboCloseTimingArgs
+                                        ( prepareCommon
+                                            args0
+                                                { argBinanceSymbol = Nothing
+                                                , argPlatform = platform
+                                                , argData = Just path
+                                                }
+                                        )
+                                Nothing ->
+                                    pure (Left "Combo is missing a symbol and no CSV data source was provided; pass --data or store a file-backed combo source.")
+
+validateTopComboCloseTimingArgs :: Args -> IO (Either String Args)
+validateTopComboCloseTimingArgs prepared0 =
+    case validateArgs prepared0 of
+        Left err -> pure (Left err)
+        Right prepared -> do
+            runtimeValidation <- validateRuntimeConfig prepared
+            pure $
+                case runtimeValidation of
+                    Left err -> Left err
+                    Right () -> Right prepared
+
+resolveTopComboCloseTimingDataPath :: Args -> TopCombo -> IO (Maybe FilePath)
+resolveTopComboCloseTimingDataPath baseArgs combo =
+    case fmap trim (argData baseArgs) of
+        Just path | not (null path) -> pure (Just path)
+        _ ->
+            case normalizedTopComboSource (tcSource combo) of
+                Nothing -> pure Nothing
+                Just source -> do
+                    exists <- doesFileExist source
+                    pure (if exists then Just source else Nothing)
+
+topComboCloseTimingComboId :: TopCombo -> String
+topComboCloseTimingComboId combo =
+    let comboId =
+            intercalate
+                ":"
+                ( filter
+                    (not . null)
+                    [ fromMaybe "" (topComboParamString "platform" combo)
+                    , fromMaybe "" (topComboSymbol combo)
+                    , fromMaybe "" (topComboParamString "interval" combo)
+                    , fromMaybe "" (topComboParamString "method" combo)
+                    ]
+                )
+     in if null comboId then T.unpack (topComboUuid combo) else comboId
+
+topComboBackfillLabel :: TopCombo -> String
+topComboBackfillLabel combo =
+    unwords
+        ( filter
+            (not . null)
+            [ T.unpack (topComboUuid combo)
+            , fromMaybe "" (topComboSymbol combo)
+            , fromMaybe "" (topComboParamString "interval" combo)
+            ]
+        )
 
 comboCompletedOperationKind :: Text
 comboCompletedOperationKind = "bot.order"

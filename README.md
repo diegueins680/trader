@@ -1035,6 +1035,9 @@ Close timing analyzer (formal tm optimization):
 - Input schema: JSON array of combos: `{ "comboId": "...", "prices": [...], "trades": [{"entryIndex": ta, "exitIndex": tc, "entryPrice": p_ta, "side": 1|-1}] }`.
 - For each trade, the analyzer computes `tm = argmax PNL(t)` on `t ∈ [ta, ta + 2*(tc-ta)]` (bounded by available bars), then reports per-combo robust distribution stats (`median`, `Q25`, `Q75`, `MAD`) for `tm/(tc-ta)` and the observed return lift.
 - Suggested integration rule: per combo, close when position age reaches the robust median-to-upper-quartile `tm/(tc-ta)` band and `medianLift` remains positive.
+- New optimizer-generated combos run this analysis automatically from their backtest price/trade path; the emitted combo JSON stores the report under `metrics.closeTiming` while keeping the backtest-validated `params.maxHoldBars`, so the recommendation stays visible before any follow-up retune is validated.
+- Existing persisted top combos can be backfilled in place with `cd haskell && cabal run trader-hs -- --top-combos-backfill-close-timing [--data ../data/your_prices.csv]`; this reruns each combo's backtest, refreshes `score` / `finalEquity` / `operations` plus `metrics.closeTiming`, and only then applies any `maxHoldBars` retune that still validates under the rerun.
+- For CSV-backed legacy combos, run the backfill command with the same `--data` / backtest-window context that produced the combos, unless the combo `source` already points at a readable CSV path. Exchange-backed combos reuse the stored symbol/platform metadata.
 
 Outbox publisher worker (Phase 1 scaffold):
 - Build/run: `cd haskell && cabal run outbox-publisher`
