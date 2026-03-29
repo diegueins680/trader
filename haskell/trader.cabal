@@ -108,6 +108,7 @@ executable optimize-equity
   main-is:             OptimizeEquityMain.hs
   other-modules:       Trader.BinanceIntervals
                      , Trader.Duration
+                     , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
                      , Trader.KalmanFusion
                      , Trader.Kalman3
