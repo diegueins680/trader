@@ -374,6 +374,7 @@ test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", 
   assert.match(script, /const CODEX_EXEC_TIMEOUT_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000\);/);
   assert.match(script, /"exec",\s*"--json",\s*"--ephemeral",\s*"--sandbox",\s*"read-only"/);
   assert.match(script, /"--model",\s*OPENAI_MODEL,\s*"-"/);
+  assert.match(script, /Do not run shell commands, open files, inspect the repository, or use web search\./);
   assert.match(script, /timeoutMs:\s*CODEX_EXEC_TIMEOUT_MS/);
   assert.match(script, /parseJsonResponse\(extractCodexExecLastMessage\(rawEvents\)\)/);
   assert.doesNotMatch(script, /--output-last-message/);

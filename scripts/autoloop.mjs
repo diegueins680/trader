@@ -607,6 +607,8 @@ async function callModelJsonViaCodex({ prompt, maxOutputTokens }) {
     {
       input: [
         "Return JSON only. The final response must be a single valid JSON object with no markdown fences.",
+        "Use only the prompt contents below. Do not run shell commands, open files, inspect the repository, or use web search.",
+        "Do not narrate progress or emit intermediate messages. Reply with the final JSON object immediately.",
         `Treat this max_output_tokens hint as advisory: ${maxOutputTokens}.`,
         prompt,
       ].join("\n\n"),
