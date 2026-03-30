@@ -684,7 +684,7 @@ async function readEditableFiles(paths) {
   return out;
 }
 
-async function requestPatchPlan(repoContext, idea, editableFiles, failureContext) {
+async function requestPatchPlan(_repoContext, idea, editableFiles, failureContext) {
   const fileSections = editableFiles
     .map((file) => `FILE: ${file.path}\n<<<FILE\n${file.content}\nFILE;`)
     .join("\n\n");
@@ -692,6 +692,7 @@ async function requestPatchPlan(repoContext, idea, editableFiles, failureContext
   const prompt = [
     "You are implementing a single repository change.",
     "Keep the change centered on a backend Haskell trading improvement and its formal-methods coverage.",
+    "Use the selected file contents below as the complete source of truth for editing this patch-plan step.",
     "Respond in JSON with keys: noChange, title, summary, commitMessage, algorithmReviewSummary, formalMethodsSummary, verificationCommands, changes.",
     "Each entry in changes must be an object with path, content, and optional reason.",
     "The content field must contain the complete replacement file content for that path.",
@@ -714,9 +715,6 @@ async function requestPatchPlan(repoContext, idea, editableFiles, failureContext
     idea.formalMethodsPath ? `Formal methods review file: ${idea.formalMethodsPath}` : "",
     idea.formalMethodsFocus ? `Formal methods review focus: ${idea.formalMethodsFocus}` : "",
     failureContext ? `Failed CI log excerpt:\n${clampText(failureContext.failedLog, 18000)}` : "",
-    "",
-    "Repository context:",
-    clampText(repoContextText(repoContext), 30000),
     "",
     "Editable file contents:",
     fileSections,

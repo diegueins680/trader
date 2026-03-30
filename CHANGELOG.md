@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
-- Dev/CI: make the local autoloop Codex backend stream `codex exec --json` events from stdin, forbid shell/web self-inspection during planner calls, and enforce `AUTOLOOP_CODEX_TIMEOUT_MS`, so planner calls fail fast instead of hanging indefinitely while waiting for `--output-last-message` to flush.
+- Dev/CI: make the local autoloop Codex backend stream `codex exec --json` events from stdin, forbid shell/web self-inspection during planner calls, scope patch-plan prompts to the selected files, and enforce `AUTOLOOP_CODEX_TIMEOUT_MS`, so planner calls fail fast instead of hanging indefinitely while waiting for `--output-last-message` to flush.
 - Trading/Formal: treat malformed volatility-confidence gate inputs conservatively by routing finite negative volatility through the same missing-volatility fail-closed path as `NaN`/`Infinity`, and extend the formal verifier so malformed volatility remains no more permissive than missing data.
 - Trading: reject entry signals whose implied one-bar edge exceeds an absolute `50%` credibility cap, so mis-scaled LSTM magnitudes cannot churn live/backtest trades even when the existing `4x openThreshold` `EDGE_SPIKE` check still passes.
 - API/Bot state: include explicit `thresholds.configured` and normalized `thresholds.effective` blocks in `/bot/status` snapshots, so saved runtime state no longer leaves reviewers guessing which raw thresholds were configured versus which clamped thresholds the engine actually used.
