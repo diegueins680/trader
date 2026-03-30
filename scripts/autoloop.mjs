@@ -314,8 +314,8 @@ function readBooleanEnv(raw) {
 
 function resolveCodexReasoningEffort(raw) {
   const value = String(raw ?? "").trim().toLowerCase();
-  if (value === "medium" || value === "high" || value === "xhigh") return value;
-  return "low";
+  if (value === "low" || value === "medium" || value === "high" || value === "xhigh") return value;
+  return "xhigh";
 }
 
 function runCommand(command, args, opts = {}) {
