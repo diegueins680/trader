@@ -41,6 +41,12 @@ const CI_WORKFLOW_NAME = process.env.AUTOLOOP_CI_WORKFLOW_NAME || "CI";
 const CI_DISCOVERY_POLL_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_POLL_SECONDS, 30, 5, 300);
 const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_TIMEOUT_SECONDS, 900, 60, 7200);
 const CODEX_EXEC_TIMEOUT_MS = clampInt(process.env.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000);
+const CODEX_PATCH_TIMEOUT_MS = clampInt(
+  process.env.AUTOLOOP_CODEX_PATCH_TIMEOUT_MS,
+  900000,
+  CODEX_EXEC_TIMEOUT_MS,
+  1800000,
+);
 const CODEX_REASONING_EFFORT = resolveCodexReasoningEffort(process.env.AUTOLOOP_CODEX_REASONING_EFFORT);
 const SKIP_CI_WAIT = readBooleanEnv(process.env.AUTOLOOP_SKIP_CI_WAIT);
 const HAS_CODEX = commandExists("codex");
@@ -566,9 +572,9 @@ function repoContextText(repoContext) {
   ].join("\n");
 }
 
-async function callModelJson({ prompt, maxOutputTokens = 4000 }) {
+async function callModelJson({ prompt, maxOutputTokens = 4000, timeoutMs = CODEX_EXEC_TIMEOUT_MS }) {
   if (PLANNER_BACKEND === "codex") {
-    return callModelJsonViaCodex({ prompt, maxOutputTokens });
+    return callModelJsonViaCodex({ prompt, maxOutputTokens, timeoutMs });
   }
 
   const response = await fetch(`${OPENAI_BASE_URL}/responses`, {
@@ -596,7 +602,7 @@ async function callModelJson({ prompt, maxOutputTokens = 4000 }) {
   return parseJsonResponse(extractResponseText(json));
 }
 
-async function callModelJsonViaCodex({ prompt, maxOutputTokens }) {
+async function callModelJsonViaCodex({ prompt, maxOutputTokens, timeoutMs }) {
   const rawEvents = runCommand(
     "codex",
     [
@@ -621,7 +627,7 @@ async function callModelJsonViaCodex({ prompt, maxOutputTokens }) {
         `Treat this max_output_tokens hint as advisory: ${maxOutputTokens}.`,
         prompt,
       ].join("\n\n"),
-      timeoutMs: CODEX_EXEC_TIMEOUT_MS,
+      timeoutMs,
     },
   );
   return parseJsonResponse(extractCodexExecLastMessage(rawEvents));
@@ -731,7 +737,7 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     .filter(Boolean)
     .join("\n");
 
-  return normalizePatchPlan(await callModelJson({ prompt, maxOutputTokens: 12000 }));
+  return normalizePatchPlan(await callModelJson({ prompt, maxOutputTokens: 12000, timeoutMs: CODEX_PATCH_TIMEOUT_MS }));
 }
 
 function applyFileChanges(changes) {
