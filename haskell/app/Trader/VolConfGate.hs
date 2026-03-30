@@ -131,20 +131,23 @@ applyVolConfGateBehavior behavior currentSide currentSize desiredSide desiredSiz
 volBucket :: VolConfGatePreset -> Maybe Double -> VolBucket
 volBucket preset mVolatility =
     case sanitizeFiniteMaybe mVolatility of
-        Nothing -> VolMissing
-        Just rawVol ->
-            let vol = max 0 rawVol
-                highThreshold =
-                    case preset of
-                        VolConfGateV1HighVolTighter -> 1.0
-                        VolConfGateV1HighVolLooser -> 1.4
-                        _ -> 1.2
-             in if vol < 0.5
-                    then VolLow
-                    else
-                        if vol < highThreshold
-                            then VolMedium
-                            else VolHigh
+        Just vol
+            | vol >= 0 ->
+                let highThreshold =
+                        case preset of
+                            VolConfGateV1HighVolTighter -> 1.0
+                            VolConfGateV1HighVolLooser -> 1.4
+                            _ -> 1.2
+                 in if vol < 0.5
+                        then VolLow
+                        else
+                            if vol < highThreshold
+                                then VolMedium
+                                else VolHigh
+        _ ->
+            -- Negative and non-finite volatility are malformed risk inputs, so
+            -- fail closed instead of classifying them as low volatility.
+            VolMissing
 
 confidenceBucket :: VolConfGatePreset -> Maybe Double -> ConfidenceBucket
 confidenceBucket preset mConfidence =

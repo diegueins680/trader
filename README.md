@@ -479,6 +479,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Choices: `disabled`, `vol_conf_v1_default`, `vol_conf_v1_high_vol_tighter`, `vol_conf_v1_high_vol_looser`, `vol_conf_v1_conf_stricter`
     - The active preset is echoed in help, latest-signal output, backtest JSON, and the text backtest report as `vol_conf_gate`.
     - Explicit `--max-volatility` still applies when a preset is enabled.
+    - Malformed volatility inputs, including finite negative values, now fail closed as missing volatility instead of being normalized into the low-vol bucket.
   - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables rebalancing; backtests only; default: `24`, entry-anchored)
   - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables rebalancing; default: `0.05`)
   - `--rebalance-cost-mult F` optional: require size delta ≥ `F * perSideCost` to rebalance (`0` disables)
