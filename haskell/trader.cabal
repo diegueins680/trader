@@ -39,7 +39,7 @@ executable trader-hs
                      , Trader.MarketContext
                      , Trader.Normalization
                      , Trader.Optimization
-                     , Trader.Optimizer.Optimize
+                     , Trader.Optimizer.Common
                      , Trader.Optimizer.Random
                      , Trader.OrderExecution
                      , Trader.Ops.Migrations

@@ -244,14 +244,14 @@ import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Ops.Migrations (ensureOpsDbSchema)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
-import Trader.Optimizer.Json (encodePretty)
-import Trader.Optimizer.Optimize (
+import Trader.Optimizer.Common (
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
     closeTimingReportFromBacktest,
     normalizeObjectiveCode,
     objectiveScore,
  )
+import Trader.Optimizer.Json (encodePretty)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedQuantity)
 import Trader.Platform (
     Platform (..),
