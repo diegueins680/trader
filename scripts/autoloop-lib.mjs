@@ -30,6 +30,54 @@ export function parseJsonResponse(raw) {
   }
 }
 
+function extractCodexEventMessageText(item) {
+  if (!item || typeof item !== "object") return "";
+  if (typeof item.text === "string" && item.text.trim()) return item.text.trim();
+  const content = Array.isArray(item.content) ? item.content : [];
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      if (typeof part.text === "string") return part.text;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+export function extractCodexExecLastMessage(raw) {
+  const lines = String(raw ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  let lastMessage = "";
+  const seenEventTypes = [];
+
+  for (const line of lines) {
+    if (!line.startsWith("{")) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch (err) {
+      throw new Error(`Codex exec returned invalid JSONL: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (typeof event?.type === "string") seenEventTypes.push(event.type);
+    if (event?.type !== "item.completed") continue;
+    const itemType = typeof event?.item?.type === "string" ? event.item.type : "";
+    if (!["agent_message", "assistant_message", "message"].includes(itemType)) continue;
+    const text = extractCodexEventMessageText(event.item);
+    if (text) lastMessage = text;
+  }
+
+  if (!lastMessage) {
+    const eventSummary = uniqueStrings(seenEventTypes).join(", ");
+    throw new Error(
+      `Codex exec returned no completed agent message${eventSummary ? ` (events: ${eventSummary})` : ""}.`,
+    );
+  }
+  return lastMessage;
+}
+
 export function clampText(raw, maxChars) {
   const text = String(raw ?? "");
   const limit = Math.max(0, Math.trunc(maxChars));

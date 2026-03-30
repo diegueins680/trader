@@ -10,6 +10,7 @@ import {
   buildRemoteTrackingRefspec,
   buildOpenAiApiError,
   clampText,
+  extractCodexExecLastMessage,
   extractResponseText,
   normalizeIdeaSelection,
   normalizePatchPlan,
@@ -39,6 +40,7 @@ const REQUESTED_BACKEND = process.env.AUTOLOOP_BACKEND || "auto";
 const CI_WORKFLOW_NAME = process.env.AUTOLOOP_CI_WORKFLOW_NAME || "CI";
 const CI_DISCOVERY_POLL_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_POLL_SECONDS, 30, 5, 300);
 const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_TIMEOUT_SECONDS, 900, 60, 7200);
+const CODEX_EXEC_TIMEOUT_MS = clampInt(process.env.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000);
 const SKIP_CI_WAIT = readBooleanEnv(process.env.AUTOLOOP_SKIP_CI_WAIT);
 const HAS_CODEX = commandExists("codex");
 const PLANNER_BACKEND = resolveAutoloopBackend(REQUESTED_BACKEND, {
@@ -307,18 +309,22 @@ function runCommand(command, args, opts = {}) {
   const capture = opts.capture !== false;
   const cwd = opts.cwd || ROOT;
   const env = { ...process.env, ...(opts.env || {}) };
+  const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(0, Math.trunc(opts.timeoutMs)) : 0;
   try {
     const out = execFileSync(command, args, {
       cwd,
       env,
       encoding: "utf8",
-      stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+      input: opts.input,
+      timeout: timeoutMs || undefined,
+      stdio: capture ? ["pipe", "pipe", "pipe"] : "inherit",
     });
     return capture ? out.trim() : "";
   } catch (err) {
     const stdout = err?.stdout ? String(err.stdout) : "";
     const stderr = err?.stderr ? String(err.stderr) : "";
-    throw new Error(`${command} ${args.join(" ")} failed.\n${stdout}${stderr}`.trim());
+    const detail = err?.message ? `\n${err.message}` : "";
+    throw new Error(`${command} ${args.join(" ")} failed.${detail}\n${stdout}${stderr}`.trim());
   }
 }
 
@@ -584,39 +590,30 @@ async function callModelJson({ prompt, maxOutputTokens = 4000 }) {
 }
 
 async function callModelJsonViaCodex({ prompt, maxOutputTokens }) {
-  const stateDir = path.join(ROOT, ".tmp", "autoloop");
-  await fs.mkdir(stateDir, { recursive: true });
-  const outputFile = path.join(
-    stateDir,
-    `codex-last-message-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+  const rawEvents = runCommand(
+    "codex",
+    [
+      "exec",
+      "--json",
+      "--ephemeral",
+      "--sandbox",
+      "read-only",
+      "--color",
+      "never",
+      "--model",
+      OPENAI_MODEL,
+      "-",
+    ],
+    {
+      input: [
+        "Return JSON only. The final response must be a single valid JSON object with no markdown fences.",
+        `Treat this max_output_tokens hint as advisory: ${maxOutputTokens}.`,
+        prompt,
+      ].join("\n\n"),
+      timeoutMs: CODEX_EXEC_TIMEOUT_MS,
+    },
   );
-
-  try {
-    runCommand(
-      "codex",
-      [
-        "exec",
-        "--sandbox",
-        "read-only",
-        "--color",
-        "never",
-        "--model",
-        OPENAI_MODEL,
-        "--output-last-message",
-        outputFile,
-        [
-          "Return JSON only. The final response must be a single valid JSON object with no markdown fences.",
-          `Treat this max_output_tokens hint as advisory: ${maxOutputTokens}.`,
-          prompt,
-        ].join("\n\n"),
-      ],
-      { capture: false },
-    );
-    const raw = await fs.readFile(outputFile, "utf8");
-    return parseJsonResponse(raw);
-  } finally {
-    await fs.unlink(outputFile).catch(() => {});
-  }
+  return parseJsonResponse(extractCodexExecLastMessage(rawEvents));
 }
 
 async function requestIdeaSelection(repoContext) {

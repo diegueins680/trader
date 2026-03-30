@@ -9,6 +9,7 @@ import {
   buildRemoteTrackingRefspec,
   buildOpenAiApiError,
   clampText,
+  extractCodexExecLastMessage,
   extractResponseText,
   normalizeIdeaSelection,
   normalizePatchPlan,
@@ -54,6 +55,24 @@ test("extractResponseText concatenates output_text parts", () => {
     ],
   };
   assert.equal(extractResponseText(response), "one\ntwo");
+});
+
+test("extractCodexExecLastMessage reads the final completed agent message from JSONL", () => {
+  const jsonl = [
+    "OpenAI Codex v0.117.0",
+    '{"type":"thread.started","thread_id":"abc"}',
+    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"step\\":1}"}}',
+    '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"ok\\":true}"}}',
+    '{"type":"turn.completed","usage":{"output_tokens":40}}',
+  ].join("\n");
+  assert.equal(extractCodexExecLastMessage(jsonl), '{"ok":true}');
+});
+
+test("extractCodexExecLastMessage rejects streams without a completed agent message", () => {
+  assert.throws(
+    () => extractCodexExecLastMessage('{"type":"turn.started"}\n{"type":"turn.completed"}'),
+    /no completed agent message/i,
+  );
 });
 
 test("parseJsonResponse rejects invalid JSON", () => {
@@ -348,6 +367,16 @@ test("autoloop script feeds failed CI logs back into codex repair prompts", asyn
   assert.match(script, /"Failed log excerpt:",\s*clampText\(failureContext\.failedLog, 20000\)/);
   assert.match(script, /failureContext \? `Failed CI log excerpt:\\n\$\{clampText\(failureContext\.failedLog, 18000\)\}` : ""/);
   assert.match(script, /const failedLog = runGh\(\["run", "view", String\(runId\), "--log-failed"\]\);/);
+});
+
+test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const CODEX_EXEC_TIMEOUT_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000\);/);
+  assert.match(script, /"exec",\s*"--json",\s*"--ephemeral",\s*"--sandbox",\s*"read-only"/);
+  assert.match(script, /"--model",\s*OPENAI_MODEL,\s*"-"/);
+  assert.match(script, /timeoutMs:\s*CODEX_EXEC_TIMEOUT_MS/);
+  assert.match(script, /parseJsonResponse\(extractCodexExecLastMessage\(rawEvents\)\)/);
+  assert.doesNotMatch(script, /--output-last-message/);
 });
 
 test("bounded autoloop reports the required lifecycle phases in order", async () => {
