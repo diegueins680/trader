@@ -41,6 +41,7 @@ const CI_WORKFLOW_NAME = process.env.AUTOLOOP_CI_WORKFLOW_NAME || "CI";
 const CI_DISCOVERY_POLL_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_POLL_SECONDS, 30, 5, 300);
 const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_TIMEOUT_SECONDS, 900, 60, 7200);
 const CODEX_EXEC_TIMEOUT_MS = clampInt(process.env.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000);
+const CODEX_REASONING_EFFORT = resolveCodexReasoningEffort(process.env.AUTOLOOP_CODEX_REASONING_EFFORT);
 const SKIP_CI_WAIT = readBooleanEnv(process.env.AUTOLOOP_SKIP_CI_WAIT);
 const HAS_CODEX = commandExists("codex");
 const PLANNER_BACKEND = resolveAutoloopBackend(REQUESTED_BACKEND, {
@@ -303,6 +304,12 @@ function clampInt(raw, fallback, min, max) {
 
 function readBooleanEnv(raw) {
   return /^(1|true|yes|on)$/i.test(String(raw ?? "").trim());
+}
+
+function resolveCodexReasoningEffort(raw) {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (value === "medium" || value === "high" || value === "xhigh") return value;
+  return "low";
 }
 
 function runCommand(command, args, opts = {}) {
@@ -602,6 +609,8 @@ async function callModelJsonViaCodex({ prompt, maxOutputTokens }) {
       "never",
       "--model",
       OPENAI_MODEL,
+      "-c",
+      `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
       "-",
     ],
     {

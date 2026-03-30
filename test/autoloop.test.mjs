@@ -372,8 +372,9 @@ test("autoloop script feeds failed CI logs back into codex repair prompts", asyn
 test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /const CODEX_EXEC_TIMEOUT_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000\);/);
+  assert.match(script, /const CODEX_REASONING_EFFORT = resolveCodexReasoningEffort\(process\.env\.AUTOLOOP_CODEX_REASONING_EFFORT\);/);
   assert.match(script, /"exec",\s*"--json",\s*"--ephemeral",\s*"--sandbox",\s*"read-only"/);
-  assert.match(script, /"--model",\s*OPENAI_MODEL,\s*"-"/);
+  assert.match(script, /"--model",\s*OPENAI_MODEL,\s*"-c",\s*`model_reasoning_effort="\$\{CODEX_REASONING_EFFORT\}"`,\s*"-"/);
   assert.match(script, /Do not run shell commands, open files, inspect the repository, or use web search\./);
   assert.match(script, /timeoutMs:\s*CODEX_EXEC_TIMEOUT_MS/);
   assert.match(script, /parseJsonResponse\(extractCodexExecLastMessage\(rawEvents\)\)/);
