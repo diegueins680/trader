@@ -2,6 +2,8 @@ module Trader.SignalGates (
     SignalThresholdBoundary (..),
     mkSignalThresholdBoundary,
     normalizeSignalThreshold,
+    signalEntryHeadroomThresholdCap,
+    signalEntryHeadroomOk,
     signalEntryEdgeSpikeOk,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
@@ -50,8 +52,32 @@ mkSignalThresholdBoundary configuredOpen configuredClose effectiveOpen effective
 entryEdgeSpikeLimit :: Double
 entryEdgeSpikeLimit = 4.0
 
+entryEdgeHeadroomMultiple :: Double
+entryEdgeHeadroomMultiple = 1.5
+
 maxCredibleSignalEdge :: Double
 maxCredibleSignalEdge = 0.5
+
+signalEntryHeadroomThresholdCap :: Double -> Double
+signalEntryHeadroomThresholdCap edge =
+    let finite x = not (isNaN x || isInfinite x)
+        edge' =
+            if finite edge && edge > 0
+                then edge
+                else 0
+     in normalizeSignalThreshold (edge' / entryEdgeHeadroomMultiple)
+
+signalEntryHeadroomOk :: Double -> Maybe Double -> Bool
+signalEntryHeadroomOk openThreshold edgeForMethod =
+    let finite x = not (isNaN x || isInfinite x)
+        openThreshold' = normalizeSignalThreshold openThreshold
+        requiredEdge = entryEdgeHeadroomMultiple * openThreshold'
+     in openThreshold' <= 0
+            || case edgeForMethod of
+                Just edge ->
+                    finite edge
+                        && edge >= requiredEdge
+                Nothing -> False
 
 signalEntryEdgeSpikeOk :: Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeOk openThreshold edgeForMethod =

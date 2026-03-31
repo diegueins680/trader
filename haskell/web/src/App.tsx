@@ -1607,7 +1607,8 @@ export function App() {
   const listenKeyStreamRetryMsRef = useRef(0);
   const listenKeyInfoRef = useRef<BinanceListenKeyResponse | null>(null);
   const listenKeyStreamAutoRestartAtRef = useRef(0);
-  const startListenKeyStreamRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null);
+  const listenKeyStreamRestartingRef = useRef(false);
+  const startListenKeyStreamRef = useRef<((opts?: { silent?: boolean; skipStop?: boolean }) => Promise<void>) | null>(null);
 
   const [orderFilterText, setOrderFilterText] = useState(() => orderPrefsInit?.filterText ?? "");
   const [orderSentOnly, setOrderSentOnly] = useState(() => orderPrefsInit?.sentOnly ?? false);
@@ -5078,19 +5079,24 @@ export function App() {
         const triggerAutoRestart = (reason: string, cooldownMs = 60_000): boolean => {
           const restart = startListenKeyStreamRef.current;
           if (!restart) return false;
+          if (listenKeyStreamRestartingRef.current) return true;
           const now = Date.now();
           const lastRestartAt = listenKeyStreamAutoRestartAtRef.current;
           if (now - lastRestartAt < cooldownMs) return false;
           listenKeyStreamAutoRestartAtRef.current = now;
-          setListenKeyUi((s) => ({
-            ...s,
-            wsStatus: "connecting",
-            wsError: reason,
-          }));
-          void restart({ silent: true });
+          listenKeyStreamRestartingRef.current = true;
+          void (async () => {
+            try {
+              await stopListenKeyStream({ close: false, silent: true });
+              await restart({ silent: true, skipStop: true });
+            } finally {
+              listenKeyStreamRestartingRef.current = false;
+            }
+          })();
           return true;
         };
         scheduleRetry = (reason: string | null) => {
+          if (listenKeyStreamRestartingRef.current) return;
           if (listenKeyStreamRetryRef.current) return;
           if (!listenKeyInfoRef.current) return;
           const prevMs = listenKeyStreamRetryMsRef.current;
@@ -5124,7 +5130,7 @@ export function App() {
             const notRunning =
               normalized.includes("listen key stream not running") || normalized.includes("listenkey stream not running");
             if (notRunning) {
-              if (triggerAutoRestart("Listen key stream not running; restarting.", 60_000)) {
+              if (triggerAutoRestart("Listen key stream not running; restarting.", 5_000)) {
                 return;
               }
             }
@@ -5208,11 +5214,11 @@ export function App() {
         }
       }
     },
-    [authHeaders, binanceTenantKeyResolved, listenKeyStreamBase, showToast],
+    [authHeaders, binanceTenantKeyResolved, listenKeyStreamBase, showToast, stopListenKeyStream],
   );
 
   const startListenKeyStream = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; skipStop?: boolean }) => {
       const silent = Boolean(opts?.silent);
       if (!isBinancePlatform) {
         const msg = "Listen key streams are supported on Binance only.";
@@ -5221,7 +5227,9 @@ export function App() {
         return;
       }
       if (apiOk !== "ok") return;
-      await stopListenKeyStream({ close: false, silent: true });
+      if (!opts?.skipStop) {
+        await stopListenKeyStream({ close: false, silent: true });
+      }
       setListenKeyUi((s) => ({ ...s, loading: true, error: null, wsError: null, keepAliveError: null, wsStatus: "connecting" }));
       try {
         const base: ApiParams = { market: form.market, binanceTestnet: form.binanceTestnet };

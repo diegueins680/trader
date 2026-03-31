@@ -87,7 +87,7 @@ import Trader.Predictors.KNN (predictKNN, trainKNN)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors, predictorSetFromString)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
-import Trader.SignalGates (SignalThresholdBoundary (..), mkSignalThresholdBoundary, normalizeSignalThreshold, signalCrossAssetCheck, signalEntryEdgeSpikeOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
+import Trader.SignalGates (SignalThresholdBoundary (..), mkSignalThresholdBoundary, normalizeSignalThreshold, signalCrossAssetCheck, signalEntryEdgeSpikeOk, signalEntryHeadroomOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
 import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
@@ -270,6 +270,7 @@ main = do
               , run "signal gate repeat blocked state stays hold" testSignalGateRepeatedBlockStaysHold
               , run "signal gate normalizes pathological thresholds" testSignalThresholdNormalization
               , run "signal threshold boundary preserves configured values and clamps effective values" testSignalThresholdBoundary
+              , run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
               , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
               , run "signal gate emits MTF_CONSENSUS reason" testSignalGateMtfConsensus
               , run "signal gate emits CROSS_ASSET reason" testSignalGateCrossAsset
@@ -2929,6 +2930,14 @@ testSignalThresholdBoundary = do
     assertApprox "threshold boundary clamps effective open threshold below 100%" 1e-12 (stbEffectiveOpenThreshold boundary) 0.999999
     assertApprox "threshold boundary clamps effective close threshold below 100%" 1e-12 (stbEffectiveCloseThreshold boundary) 0.999999
 
+testSignalGateEntryHeadroom :: IO ()
+testSignalGateEntryHeadroom = do
+    assert "headroom gate accepts edges at the 1.5x threshold multiple" (signalEntryHeadroomOk 0.01 (Just 0.015))
+    assert "headroom gate rejects edges below the 1.5x threshold multiple" (not (signalEntryHeadroomOk 0.01 (Just 0.014999)))
+    assert "headroom gate rejects missing edge when open threshold is active" (not (signalEntryHeadroomOk 0.01 Nothing))
+    assert "headroom gate bypasses when open threshold is disabled" (signalEntryHeadroomOk 0 Nothing)
+    assert "headroom gate blocks the 2026-03-30 BNB weak-edge short" (not (signalEntryHeadroomOk 0.007026816640103524 (Just 0.009208973401304512)))
+
 testSignalGateEntryEdgeSpike :: IO ()
 testSignalGateEntryEdgeSpike = do
     assert "edge spike gate accepts edges at the configured 4x limit" (signalEntryEdgeSpikeOk 0.01 (Just 0.04))
@@ -3910,12 +3919,13 @@ testSweepThreshold = do
         kalPred = [110]
         lstmPred = [110]
         cfg = baseEnsembleConfig
+        expectedThreshold = 0.1 / 1.5
     (openThr, closeThr, bt) <-
         case sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred Nothing of
             Left e -> error e
             Right v -> pure v
-    assertApprox "open thr close to 10%" 1e-6 openThr 0.1
-    assertApprox "close thr close to 10%" 1e-6 closeThr 0.1
+    assertApprox "open thr close to the headroom-adjusted boundary" 1e-6 openThr expectedThreshold
+    assertApprox "close thr close to the headroom-adjusted boundary" 1e-6 closeThr expectedThreshold
     assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
 
 testSweepThresholdCostPickUsesLatestReturnVolatility :: IO ()
@@ -3995,6 +4005,7 @@ testOptimizeOperations = do
         kalPred = [110]
         lstmPred = [90]
         cfg = baseEnsembleConfig
+        expectedThreshold = 0.1 / 1.5
     (m, openThr, closeThr, bt) <-
         case optimizeOperations cfg prices kalPred lstmPred Nothing of
             Left e -> error e
@@ -4005,8 +4016,8 @@ testOptimizeOperations = do
             || m == MethodConfPick
             || m == MethodEdgePick
         )
-    assertApprox "open thr close to 10%" 1e-6 openThr 0.1
-    assertApprox "close thr close to 10%" 1e-6 closeThr 0.1
+    assertApprox "open thr close to the headroom-adjusted boundary" 1e-6 openThr expectedThreshold
+    assertApprox "close thr close to the headroom-adjusted boundary" 1e-6 closeThr expectedThreshold
     assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
 
 testOptimizerPartialTakeProfitZeroRange :: IO ()

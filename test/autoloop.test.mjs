@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   buildActionsRunsApiPath,
+  buildAutoloopRecoveryBranchName,
   buildForceWithLeaseFlag,
   buildRemoteTrackingRefspec,
   buildOpenAiApiError,
@@ -13,6 +14,7 @@ import {
   extractResponseText,
   normalizeIdeaSelection,
   normalizePatchPlan,
+  parseGitStatusPaths,
   parseLsRemoteBranchHead,
   parseJsonResponse,
   prepareShellCommand,
@@ -265,6 +267,20 @@ test("uniqueStrings preserves first occurrence order", () => {
   assert.deepEqual(uniqueStrings(["a", "b", "a", "c"]), ["a", "b", "c"]);
 });
 
+test("parseGitStatusPaths extracts tracked, untracked, and renamed paths", () => {
+  const raw = [' M haskell/app/Main.hs', '?? README.md', 'R  old.txt -> docs/new.txt'].join("\n");
+  assert.deepEqual(parseGitStatusPaths(raw), ["haskell/app/Main.hs", "README.md", "docs/new.txt"]);
+});
+
+test("buildAutoloopRecoveryBranchName scopes rescue branches under autoloop/wip", () => {
+  const branch = buildAutoloopRecoveryBranchName({
+    loopBranch: "main",
+    runId: "cycle-7",
+    timestamp: "2026-03-31T06:15:04.123Z",
+  });
+  assert.equal(branch, "autoloop/wip/main/cycle-7-2026-03-31t06-15-04-123z");
+});
+
 test("buildOpenAiApiError marks quota and auth failures as skippable", () => {
   const quotaErr = buildOpenAiApiError(429, {
     error: { code: "insufficient_quota", type: "insufficient_quota" },
@@ -405,6 +421,16 @@ test("bounded autoloop reports the required lifecycle phases in order", async ()
     ["commit-push", "ci-wait", "repair-needed"],
     "autoloop push-to-repair bridge phases",
   );
+});
+
+test("autoloop forever script auto-snapshots recoverable dirty cycles before blocking", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
+  assert.match(script, /const dirtyRecovery = await tryAutoSnapshotDirtyCycle\(\);/);
+  assert.match(script, /cycle [^`]*recovery=\$\{dirtyRecovery\?\.recovered \? dirtyRecovery\.branch : "none"\}/);
+  assert.match(script, /cycleStatus\?\.phase !== "error" \|\| changedPaths\.length === 0/);
+  assert.match(script, /dirty worktree does not exactly match the last failed cycle changedPaths/);
+  assert.match(script, /buildAutoloopRecoveryBranchName\(/);
+  assert.match(script, /auto-snapshotted failed dirty cycle to/);
 });
 
 test("autoloop workflow uses an optional dedicated push token and no PR permission", async () => {

@@ -30,6 +30,7 @@ import Trader.Formal.Optimization (
  )
 import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
+import Trader.SignalGates (signalEntryHeadroomThresholdCap)
 import Trader.Trading (BacktestResult (..), EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
 
 data TuneObjective
@@ -2559,9 +2560,12 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                     ( \acc' predsV ->
                                         let pred = predsV V.! t
                                             v = abs (pred / prev - 1)
+                                            headroomCap = signalEntryHeadroomThresholdCap v
                                          in if isNaN v || isInfinite v
                                                 then acc'
-                                                else Set.insert (max 0 (v - epsilonFor v)) acc'
+                                                else
+                                                    Set.insert (max 0 (headroomCap - epsilonFor headroomCap)) $
+                                                        Set.insert (max 0 (v - epsilonFor v)) acc'
                                     )
                                     acc
                                     predSources

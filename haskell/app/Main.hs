@@ -302,6 +302,7 @@ import Trader.SignalGates (
     normalizeSignalThreshold,
     signalCrossAssetCheck,
     signalEntryEdgeSpikeOk,
+    signalEntryHeadroomOk,
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
@@ -25102,15 +25103,19 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchDirGated
                     MethodRouter -> routerDirGated
                     MethodBanditRouter -> routerDirGated
+            entryEdgeHeadroomOk = signalEntryHeadroomOk openThrAdj edgeForMethod
+            entryEdgeSpikeOk = signalEntryEdgeSpikeOk openThrAdj edgeForMethod
             chosenDirBase1 =
                 case chosenDirBase of
                     Just dir
-                        | signalEntryEdgeSpikeOk openThrAdj edgeForMethod -> Just dir
+                        | entryEdgeHeadroomOk && entryEdgeSpikeOk -> Just dir
                     Just _ -> Nothing
                     Nothing -> Nothing
-            mEdgeSpikeReason =
-                case (chosenDirBase, chosenDirBase1) of
-                    (Just _, Nothing) -> Just "EDGE_SPIKE"
+            mEntryEdgeReason =
+                case chosenDirBase of
+                    Just _
+                        | not entryEdgeSpikeOk -> Just "EDGE_SPIKE"
+                        | not entryEdgeHeadroomOk -> Just "EDGE_HEADROOM"
                     _ -> Nothing
             (chosenDir0, pairsOverlayActive, mPairsOverlayReason) =
                 if not pairsStatArbEnabled
@@ -25140,7 +25145,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             (chosenDir1, mPostGateReason) =
                 case chosenDir1Base of
                     Just _ -> (chosenDir1Base, mPostGateReasonBase)
-                    Nothing -> (Nothing, mPostGateReasonBase <|> mEdgeSpikeReason)
+                    Nothing -> (Nothing, mPostGateReasonBase <|> mEntryEdgeReason)
 
             chosenDir2 =
                 case chosenDir1 of

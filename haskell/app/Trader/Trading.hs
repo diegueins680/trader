@@ -32,7 +32,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Trader.Duration (TimeWindow, minuteOfDayFromMs, timeWindowContains)
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
-import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk)
+import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk, signalEntryHeadroomOk)
 import Trader.VolConfGate (
     VolConfGateCell (..),
     VolConfGatePreset (..),
@@ -1900,6 +1900,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                         edgeSpikeOk =
                                             not needsEntry || signalEntryEdgeSpikeOk openThrAdj (Just (max 0 edgeRaw))
+                                        edgeHeadroomOk =
+                                            not needsEntry || signalEntryHeadroomOk openThrAdj (Just (max 0 edgeRaw))
 
                                         slowCrossExit =
                                             case posSide of
@@ -1946,7 +1948,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         kalmanExit = slowCrossExit || kalmanBandExit
 
                                         desiredSide1 =
-                                            if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk || not edgeSpikeOk
+                                            if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk || not edgeSpikeOk || not edgeHeadroomOk
                                                 then Nothing
                                                 else desiredSide0
 

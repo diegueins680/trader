@@ -5,7 +5,11 @@ import { createWriteStream } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { execFileSync, spawn } from "node:child_process";
-import { writeJsonFileAtomic } from "./autoloop-lib.mjs";
+import {
+  buildAutoloopRecoveryBranchName,
+  parseGitStatusPaths,
+  writeJsonFileAtomic,
+} from "./autoloop-lib.mjs";
 
 const ROOT = process.cwd();
 const STATE_DIR = path.join(ROOT, ".tmp", "autoloop");
@@ -53,7 +57,7 @@ async function main() {
     while (true) {
       if (await syncStopFileState()) break;
 
-      const block = detectPreflightBlock();
+      const block = await detectPreflightBlock();
       if (block) {
         await logRunner(`preflight blocked: ${block.reason}`);
         await updateRunnerStatus({
@@ -82,8 +86,9 @@ async function main() {
 
       const result = await runBoundedCycle(cycleIndex, cycleLogFile);
       const cycleStatus = await readJsonIfPresent(CURRENT_CYCLE_STATUS_FILE);
+      const dirtyRecovery = await tryAutoSnapshotDirtyCycle();
       await logRunner(
-        `cycle ${cycleIndex} finished code=${result.exitCode ?? "null"} signal=${result.signal ?? "none"} outcome=${cycleStatus?.outcome ?? "unknown"}`,
+        `cycle ${cycleIndex} finished code=${result.exitCode ?? "null"} signal=${result.signal ?? "none"} outcome=${cycleStatus?.outcome ?? "unknown"} recovery=${dirtyRecovery?.recovered ? dirtyRecovery.branch : "none"}`,
       );
 
       await updateRunnerStatus({
@@ -100,6 +105,15 @@ async function main() {
           outcome: cycleStatus?.outcome ?? null,
           message: cycleStatus?.message ?? null,
         },
+        recovery: dirtyRecovery
+          ? {
+              recovered: dirtyRecovery.recovered,
+              branch: dirtyRecovery.branch ?? null,
+              commit: dirtyRecovery.commit ?? null,
+              reason: dirtyRecovery.reason ?? null,
+              paths: dirtyRecovery.paths ?? [],
+            }
+          : null,
         nextRunAt: shutdownRequest ? null : futureIso(LOOP_INTERVAL_SECONDS),
       });
 
@@ -172,7 +186,7 @@ async function logRunner(message) {
   await fs.appendFile(RUNNER_LOG_FILE, line, "utf8");
 }
 
-function detectPreflightBlock() {
+async function detectPreflightBlock() {
   const requestedBackend = String(process.env.AUTOLOOP_BACKEND || "auto").trim().toLowerCase();
   const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
   const hasCodex = commandExists("codex");
@@ -193,10 +207,14 @@ function detectPreflightBlock() {
     };
   }
 
+  const dirtyRecovery = await tryAutoSnapshotDirtyCycle();
   const status = runCommand("git", ["status", "--porcelain"]);
   if (status) {
     return {
-      reason: "dirty worktree; waiting for operator cleanup before bounded autoloop runs",
+      reason:
+        dirtyRecovery && dirtyRecovery.recovered
+          ? "dirty worktree persisted after auto-snapshot recovery; waiting for operator cleanup before bounded autoloop runs"
+          : "dirty worktree; waiting for operator cleanup before bounded autoloop runs",
       details: status.split(/\r?\n/).filter(Boolean).slice(0, 40),
     };
   }
@@ -204,17 +222,95 @@ function detectPreflightBlock() {
   return null;
 }
 
-function runCommand(command, args) {
+function runCommand(command, args, opts = {}) {
+  const capture = opts.capture !== false;
   try {
-    return execFileSync(command, args, {
+    const out = execFileSync(command, args, {
       cwd: ROOT,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+      stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+    });
+    return capture ? out.trim() : "";
   } catch (err) {
     const stdout = err?.stdout ? String(err.stdout) : "";
     const stderr = err?.stderr ? String(err.stderr) : "";
     throw new Error(`${command} ${args.join(" ")} failed.\n${stdout}${stderr}`.trim());
+  }
+}
+
+async function tryAutoSnapshotDirtyCycle() {
+  const dirtyStatus = runCommand("git", ["status", "--porcelain"]);
+  const dirtyPaths = parseGitStatusPaths(dirtyStatus);
+  if (dirtyPaths.length === 0) return null;
+
+  const cycleStatus = await readJsonIfPresent(CURRENT_CYCLE_STATUS_FILE);
+  const changedPaths = Array.isArray(cycleStatus?.changedPaths)
+    ? cycleStatus.changedPaths.map((value) => String(value))
+    : [];
+  if (cycleStatus?.phase !== "error" || changedPaths.length === 0) {
+    return {
+      recovered: false,
+      reason: "dirty worktree is not a recoverable failed autoloop cycle",
+      paths: dirtyPaths,
+    };
+  }
+
+  const expected = new Set(changedPaths);
+  const exactlyMatchesFailedCycle =
+    dirtyPaths.length === expected.size && dirtyPaths.every((item) => expected.has(item));
+  if (!exactlyMatchesFailedCycle) {
+    return {
+      recovered: false,
+      reason: "dirty worktree does not exactly match the last failed cycle changedPaths",
+      paths: dirtyPaths,
+    };
+  }
+
+  const currentBranch = runCommand("git", ["branch", "--show-current"]) || String(cycleStatus?.loopBranch || "main");
+  const recoveryBranch = buildAutoloopRecoveryBranchName({
+    loopBranch: cycleStatus?.loopBranch || currentBranch || "main",
+    runId: cycleStatus?.runId || `cycle-${runnerState.cycleCount || 0}`,
+    timestamp: new Date().toISOString(),
+  });
+  const commitMessage = `WIP: save failed autoloop cycle ${cycleStatus?.runId || "cycle"}`;
+
+  try {
+    runCommand("git", ["config", "user.name", "autoloop[bot]"], { capture: false });
+    runCommand("git", ["config", "user.email", "autoloop[bot]@users.noreply.github.com"], { capture: false });
+    runCommand("git", ["checkout", "-b", recoveryBranch], { capture: false });
+    runCommand("git", ["add", "--", ...dirtyPaths], { capture: false });
+    runCommand("git", ["commit", "-m", commitMessage], { capture: false });
+    runCommand("git", ["push", "-u", "origin", `${recoveryBranch}:refs/heads/${recoveryBranch}`], { capture: false });
+    const commit = runCommand("git", ["rev-parse", "HEAD"]);
+    runCommand("git", ["checkout", currentBranch], { capture: false });
+    await writeJsonFileAtomic(CURRENT_CYCLE_STATUS_FILE, {
+      ...(cycleStatus || {}),
+      recoveryBranch,
+      recoveryCommit: commit,
+      recoveredDirtyPaths: dirtyPaths,
+      recoveredAt: new Date().toISOString(),
+    });
+    await logRunner(`auto-snapshotted failed dirty cycle to ${recoveryBranch} (${commit})`);
+    return {
+      recovered: true,
+      branch: recoveryBranch,
+      commit,
+      paths: dirtyPaths,
+    };
+  } catch (err) {
+    try {
+      const branchAfterError = runCommand("git", ["branch", "--show-current"]);
+      if (branchAfterError && branchAfterError !== currentBranch) {
+        runCommand("git", ["checkout", currentBranch], { capture: false });
+      }
+    } catch {}
+    const message = err instanceof Error ? err.message : String(err);
+    await logRunner(`auto-snapshot recovery failed: ${message}`);
+    return {
+      recovered: false,
+      reason: message,
+      paths: dirtyPaths,
+    };
   }
 }
 

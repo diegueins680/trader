@@ -338,6 +338,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 
 - Strategy / costs
   - `--open-threshold 0.002` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
+    - Entries must also clear that deadband with at least `1.5x` edge headroom; forecasts that only barely cross the threshold are held as `HOLD (EDGE_HEADROOM)` instead of opening on a boundary-touching move.
     - Entries are also suppressed when the method-selected absolute edge exceeds `4x` the active open-threshold, which blocks stale/outlier prediction spikes before they turn into exhausted-move entries.
   - `--close-threshold 0.002` close-direction threshold (fractional deadband; defaults to open-threshold when omitted)
     - Live order placement and backtests hold a position while the close-threshold direction still agrees with it; exits when it does not (with `--min-hold-bars` still applied).
@@ -1028,7 +1029,8 @@ CI/CD (GitHub Actions):
 - When a local bounded cycle pushes directly to the default branch, it polls the GitHub Actions `CI` workflow for the exact pushed SHA and only treats the cycle as green after that commit's CI is green. If CI is red, the loop captures `gh run view --log-failed` output for that run and feeds the failed-log excerpt back into the next Codex repair iteration; if no CI run appears, the status/error includes the commit's visible check suites for diagnosis.
 - `./scripts/autoloop-forever.sh run` keeps the same supervisor in the foreground. The local runner stores PID, status, and logs only under the gitignored `.tmp/autoloop/` directory (`status.json`, `current-cycle.json`, `runner.log`, `launcher.log`, and per-cycle logs under `.tmp/autoloop/cycles/`).
 - Stop the local runner with `./scripts/autoloop-forever.sh stop`, `touch .tmp/autoloop/stop`, or `kill -TERM "$(cat .tmp/autoloop/runner.pid)"`. Inspect current state with `./scripts/autoloop-forever.sh status`.
-- The local supervisor sleeps `AUTOLOOP_FOREVER_INTERVAL_SECONDS` between cycles (default `300`, minimum `15`) and pauses instead of busy-looping when no supported planner backend is available or the worktree is dirty, so it will not discard unrelated local changes.
+- The local supervisor sleeps `AUTOLOOP_FOREVER_INTERVAL_SECONDS` between cycles (default `300`, minimum `15`) and pauses instead of busy-looping when no supported planner backend is available.
+- If a bounded cycle fails after editing files and the dirty paths exactly match that cycle’s tracked `changedPaths`, the local supervisor now snapshots those edits onto an `autoloop/wip/<base-branch>/...` rescue branch, pushes it, returns the worktree to the loop branch, and keeps going. Dirty trees that do not match the last failed cycle still block so unrelated local changes are never auto-committed.
 
 Note: `/bot/*` is stateful. Async endpoints persist job state to Postgres when ops DB is enabled (`TRADER_DB_URL`/`DATABASE_URL`), and also to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default. If DB persistence is disabled, deployments behind non-sticky load balancers (including CloudFront `/api/*`) should keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to shared writable storage.
 
@@ -1124,7 +1126,7 @@ The UI includes an “Open positions” panel that charts every open Binance fut
 When Binance key checks or open-position refreshes hit the UI’s 30s timeout, the error now includes the backend phase that was still in progress (for example egress IP lookup, signed probe, `order/test`, position snapshot, account UID, or per-symbol klines) instead of a bare `Timeout`.
 Zero/dust-sized Binance positions are treated as flat before stale `positionSide` metadata is trusted, so effectively closed hedge slots do not linger in the Open positions or orphaned-operations panels as phantom `LONG` / `SHORT` rows.
 Malformed non-finite Binance position amounts are also treated as non-directional in the Open positions panel, so stale hedge-side metadata cannot surface phantom `LONG` / `SHORT` rows from broken exchange payloads.
-The Binance listenKey stream auto-reconnects with backoff after transient disconnects and automatically restarts when the listenKey expires.
+The Binance listenKey stream auto-reconnects with backoff after transient disconnects and automatically stops/restarts with a fresh listenKey as soon as the backend reports the key expired or the stream is no longer running.
 The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off). Running trade-enabled bots with unknown internal side now count as adopted/reconciling for single-side futures exposure (adopt-first behavior).
 The UI includes a “State sync” panel to export bot snapshots and optimizer combos, import combos from state-sync/top-combos JSON files, and push payloads to another API via `/state/sync`, with controls to limit per-request payload size.
 The bot state timeline shows the hovered timestamp.
@@ -1258,6 +1260,7 @@ Troubleshooting: “No live operations yet”
 - The live bot only records an operation when it switches position (BUY/SELL). If the latest signal is `HOLD`/neutral, the operations list stays empty.
 - Each new candle still triggers a trade attempt based on the desired position, even if it resolves to a no-op (already in position or neutral signal).
 - A signal is neutral when the predicted next price is within the `openThreshold` deadband: it must be `> currentPrice*(1+openThreshold)` for UP or `< currentPrice*(1-openThreshold)` for DOWN.
+- Entries are also rejected as `HOLD (EDGE_HEADROOM)` when the implied one-bar move does not clear at least `1.5x openThreshold`, which keeps boundary-touching forecasts from opening positions on weak margin.
 - Entries are also rejected as `HOLD (EDGE_SPIKE)` when the implied one-bar move exceeds either `4x openThreshold` or an absolute `50%` edge, which guards against mis-scaled forecast magnitudes that would otherwise survive inflated thresholds.
 - With `positioning=long-flat` (required by `/bot/start`), a DOWN signal while already flat does nothing; you’ll only see a SELL after you previously bought.
 - If you want it to trade more often, lower `openThreshold` (or run “Optimize thresholds/operations”) and/or use a higher timeframe.

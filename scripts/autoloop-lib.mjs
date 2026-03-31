@@ -237,6 +237,40 @@ export function uniqueStrings(values) {
   return Array.from(new Set(values.map((value) => String(value))));
 }
 
+export function parseGitStatusPaths(rawStatus) {
+  const lines = String(rawStatus ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+  const paths = [];
+  for (const line of lines) {
+    const entry = line.length > 3 ? line.slice(3).trim() : "";
+    if (!entry) continue;
+    const nextPath = entry.includes(" -> ") ? entry.split(" -> ").pop() : entry;
+    if (!nextPath) continue;
+    paths.push(nextPath.replace(/^"(.*)"$/, "$1"));
+  }
+  return uniqueStrings(paths);
+}
+
+function sanitizeGitRefFragment(raw, fallback = "unknown") {
+  const text = String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._/-]+/g, "-")
+    .replace(/\/+/g, "/")
+    .replace(/^-+|-+$/g, "")
+    .replace(/^\/+|\/+$/g, "");
+  return text || fallback;
+}
+
+export function buildAutoloopRecoveryBranchName({ loopBranch, runId, timestamp }) {
+  const base = sanitizeGitRefFragment(loopBranch || "main", "main");
+  const run = sanitizeGitRefFragment(runId || "cycle", "cycle").replace(/\//g, "-");
+  const stamp = sanitizeGitRefFragment(String(timestamp ?? "").replace(/[:.]/g, "-"), "now").replace(/\//g, "-");
+  return `autoloop/wip/${base}/${run}-${stamp}`;
+}
+
 export function prepareShellCommand(command) {
   const normalized = String(command ?? "").trim();
   const needsGhcup =
