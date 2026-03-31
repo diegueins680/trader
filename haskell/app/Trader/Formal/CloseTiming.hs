@@ -106,6 +106,21 @@ data ComboCloseTimingReport = ComboCloseTimingReport
     }
     deriving (Eq, Show)
 
+-- | Modeled quality envelope for a candidate maxHoldBars retune.
+data MaxHoldBarsQuality = MaxHoldBarsQuality
+    { mhqFinalEquity :: !Double
+    , mhqExpectancy :: !Double
+    , mhqMeanDuration :: !Double
+    }
+    deriving (Eq, Show)
+
+-- | Exhaustively modeled candidate within the bounded maxHoldBars search space.
+data MaxHoldBarsCandidate = MaxHoldBarsCandidate
+    { mhbcHoldBars :: !Int
+    , mhbcQuality :: !MaxHoldBarsQuality
+    }
+    deriving (Eq, Show)
+
 optimalCloseObservation :: String -> Int -> Int -> [(Int, Double)] -> Maybe CloseTimingObservation
 optimalCloseObservation combo ta tc pnlPath
     | tc <= ta = Nothing
@@ -275,16 +290,14 @@ summarizeAllCombos samples =
 analyzeComboCloseTiming :: String -> [Double] -> [ComboTrade] -> ComboCloseTimingReport
 analyzeComboCloseTiming comboId prices trades =
     let normalizedTrades = map normalizeTrade trades
-        samples = timingSamples prices normalizedTrades
+        priceVec = V.fromList prices
+        sampledTrades = mapMaybe (sampledTrade priceVec) normalizedTrades
+        samples = map snd sampledTrades
         stats = summarizeComboTiming samples
         medianObservedDuration = percentileInt 0.5 (map ttsObservedDuration samples)
         medianOptimalDuration = percentileInt 0.5 (map ttsOptimalDuration samples)
         q75OptimalDuration = percentileInt 0.75 (map ttsOptimalDuration samples)
-        recommendedMaxHoldBars =
-            case (stats, q75OptimalDuration) of
-                (Just st, Just q75Bars)
-                    | ctsMedianLift st > 0 && q75Bars > 0 -> Just q75Bars
-                _ -> Nothing
+        recommendedMaxHoldBars = recommendedCloseTimingHold priceVec sampledTrades
      in ComboCloseTimingReport
             { cctrComboId = comboId
             , cctrSampleCount = length samples
@@ -303,6 +316,101 @@ analyzeComboCloseTiming comboId prices trades =
     normalizeTrade trade
         | ctComboId trade == "unknown" || null (ctComboId trade) = trade{ctComboId = comboId}
         | otherwise = trade
+
+sampledTrade :: V.Vector Double -> ComboTrade -> Maybe (ComboTrade, TradeTimingSample)
+sampledTrade prices trade = do
+    sample <- sampleForTrade prices trade
+    pure (trade, sample)
+
+{- | Proof sketch for the maxHoldBars retune contract:
+
+1. The modeled candidate space is the bounded exhaustive set [1 .. max observed duration].
+   Any larger hold window is observationally equivalent to the baseline because modeled exits use
+   min(observedExit, entry + holdBars).
+2. `preservesBaselineQuality` only accepts candidates whose modeled final equity and expectancy
+   are non-decreasing versus the observed baseline.
+3. Candidates are scanned in ascending hold-bar order; modeled durations are monotone in holdBars,
+   so the first accepted candidate is the smallest hold window and fastest-payback member of any
+   equal-quality preserving set.
+-}
+recommendedCloseTimingHold :: V.Vector Double -> [(ComboTrade, TradeTimingSample)] -> Maybe Int
+recommendedCloseTimingHold _ [] = Nothing
+recommendedCloseTimingHold prices sampledTrades =
+    case positiveDurationPairs sampledTrades of
+        [] -> Nothing
+        retunePairs ->
+            let baselineMaxHoldBars = maximum (map (ttsObservedDuration . snd) retunePairs)
+                baselineQuality = observedBaselineQuality (map snd retunePairs)
+                candidates = modeledMaxHoldBarsCandidates prices retunePairs baselineMaxHoldBars
+             in case earliestPreservingCandidate baselineQuality candidates of
+                    Just MaxHoldBarsCandidate{mhbcHoldBars = holdBars}
+                        | holdBars < baselineMaxHoldBars -> Just holdBars
+                    _ -> Nothing
+
+positiveDurationPairs :: [(ComboTrade, TradeTimingSample)] -> [(ComboTrade, TradeTimingSample)]
+positiveDurationPairs = filter (\(_, sample) -> ttsObservedDuration sample > 0)
+
+modeledMaxHoldBarsCandidates :: V.Vector Double -> [(ComboTrade, TradeTimingSample)] -> Int -> [MaxHoldBarsCandidate]
+modeledMaxHoldBarsCandidates prices sampledTrades baselineMaxHoldBars =
+    mapMaybe (modeledMaxHoldBarsCandidate prices sampledTrades) [1 .. baselineMaxHoldBars]
+
+modeledMaxHoldBarsCandidate :: V.Vector Double -> [(ComboTrade, TradeTimingSample)] -> Int -> Maybe MaxHoldBarsCandidate
+modeledMaxHoldBarsCandidate prices sampledTrades holdBars
+    | holdBars <= 0 = Nothing
+    | otherwise = do
+        modeledOutcomes <- mapM (modeledTradeOutcome prices holdBars) sampledTrades
+        let returns = map fst modeledOutcomes
+            durations = map snd modeledOutcomes
+        pure
+            MaxHoldBarsCandidate
+                { mhbcHoldBars = holdBars
+                , mhbcQuality = qualityFromReturns returns durations
+                }
+
+modeledTradeOutcome :: V.Vector Double -> Int -> (ComboTrade, TradeTimingSample) -> Maybe (Double, Int)
+modeledTradeOutcome prices holdBars (trade, _) = do
+    let entryIndex = ctEntryIndex trade
+        observedExitIndex = ctExitIndex trade
+        modeledExitIndex = min observedExitIndex (entryIndex + holdBars)
+    modeledReturn <- returnAt prices trade modeledExitIndex
+    pure (modeledReturn, max 0 (modeledExitIndex - entryIndex))
+
+observedBaselineQuality :: [TradeTimingSample] -> MaxHoldBarsQuality
+observedBaselineQuality samples =
+    qualityFromReturns
+        (map ttsObservedReturn samples)
+        (map ttsObservedDuration samples)
+
+qualityFromReturns :: [Double] -> [Int] -> MaxHoldBarsQuality
+qualityFromReturns returns durations =
+    MaxHoldBarsQuality
+        { mhqFinalEquity = foldl' (*) 1 (map equityFactor returns)
+        , mhqExpectancy = mean returns
+        , mhqMeanDuration = meanDurations durations
+        }
+
+meanDurations :: [Int] -> Double
+meanDurations [] = 0
+meanDurations xs = fromIntegral (sum xs) / fromIntegral (length xs)
+
+equityFactor :: Double -> Double
+equityFactor ret
+    | isFinite ret = max 0 (1 + ret)
+    | otherwise = 0
+
+preservesBaselineQuality :: MaxHoldBarsQuality -> MaxHoldBarsCandidate -> Bool
+preservesBaselineQuality baseline MaxHoldBarsCandidate{mhbcQuality = quality} =
+    mhqFinalEquity quality + qualityTolerance >= mhqFinalEquity baseline
+        && mhqExpectancy quality + qualityTolerance >= mhqExpectancy baseline
+
+earliestPreservingCandidate :: MaxHoldBarsQuality -> [MaxHoldBarsCandidate] -> Maybe MaxHoldBarsCandidate
+earliestPreservingCandidate _ [] = Nothing
+earliestPreservingCandidate baseline (candidate : rest)
+    | preservesBaselineQuality baseline candidate = Just candidate
+    | otherwise = earliestPreservingCandidate baseline rest
+
+qualityTolerance :: Double
+qualityTolerance = 1e-12
 
 timingRatio :: TradeTimingSample -> Double
 timingRatio sample
