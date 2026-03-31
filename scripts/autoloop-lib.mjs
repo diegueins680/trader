@@ -244,7 +244,8 @@ export function parseGitStatusPaths(rawStatus) {
     .filter(Boolean);
   const paths = [];
   for (const line of lines) {
-    const entry = line.length > 3 ? line.slice(3).trim() : "";
+    const match = line.match(/^[ A-Z?!]{1,2}\s+(.*)$/);
+    const entry = match?.[1]?.trim() ?? "";
     if (!entry) continue;
     const nextPath = entry.includes(" -> ") ? entry.split(" -> ").pop() : entry;
     if (!nextPath) continue;

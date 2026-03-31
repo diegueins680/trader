@@ -208,7 +208,7 @@ async function detectPreflightBlock() {
   }
 
   const dirtyRecovery = await tryAutoSnapshotDirtyCycle();
-  const status = runCommand("git", ["status", "--porcelain"]);
+  const status = runCommand("git", ["status", "--porcelain"], { trimOutput: false });
   if (status) {
     return {
       reason:
@@ -224,13 +224,14 @@ async function detectPreflightBlock() {
 
 function runCommand(command, args, opts = {}) {
   const capture = opts.capture !== false;
+  const trimOutput = opts.trimOutput !== false;
   try {
     const out = execFileSync(command, args, {
       cwd: ROOT,
       encoding: "utf8",
       stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
     });
-    return capture ? out.trim() : "";
+    return capture ? (trimOutput ? out.trim() : out) : "";
   } catch (err) {
     const stdout = err?.stdout ? String(err.stdout) : "";
     const stderr = err?.stderr ? String(err.stderr) : "";
@@ -239,7 +240,7 @@ function runCommand(command, args, opts = {}) {
 }
 
 async function tryAutoSnapshotDirtyCycle() {
-  const dirtyStatus = runCommand("git", ["status", "--porcelain"]);
+  const dirtyStatus = runCommand("git", ["status", "--porcelain"], { trimOutput: false });
   const dirtyPaths = parseGitStatusPaths(dirtyStatus);
   if (dirtyPaths.length === 0) return null;
 
