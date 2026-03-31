@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Dev/CI: teach the repo-local autoloop supervisor to auto-snapshot recoverable failed-cycle dirty worktrees onto pushed `autoloop/wip/<base-branch>/...` rescue branches, then return to the loop branch so later cycles do not stall on bot-generated dirt; unrelated local edits still block for operator review.
+- Dev/CI: fix the repo-local autoloop dirty-worktree recovery path so single-file failed-cycle edits from `git status --porcelain` still match `changedPaths` exactly and get snapshotted to rescue branches instead of staying blocked on `main`.
 - Web UI: make listenKey expiry recovery an explicit stop/start cycle, so expired or backend-stopped user-data streams are torn down immediately and restarted with a fresh listenKey instead of lingering in a stale `connecting` state.
 - Trading: reject live/backtest entries that do not clear at least `1.5x openThreshold` (`EDGE_HEADROOM`), so forecasts that only barely cross the deadband are held instead of opening weak-margin positions like the 2026-03-30 BNB 2h short.
 - Dev/CI: make the local autoloop Codex backend stream `codex exec --json` events from stdin, forbid shell/web self-inspection during planner calls, scope patch-plan prompts to the selected files, default Codex reasoning effort to `xhigh`, and split Codex timeouts between `AUTOLOOP_CODEX_TIMEOUT_MS` for idea/repair selection and `AUTOLOOP_CODEX_PATCH_TIMEOUT_MS` for `plan-patch`, so patch generation can run longer without slowing earlier planner steps.

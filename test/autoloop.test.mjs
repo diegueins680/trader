@@ -270,6 +270,9 @@ test("uniqueStrings preserves first occurrence order", () => {
 test("parseGitStatusPaths extracts tracked, untracked, and renamed paths", () => {
   const raw = [' M haskell/app/Main.hs', '?? README.md', 'R  old.txt -> docs/new.txt'].join("\n");
   assert.deepEqual(parseGitStatusPaths(raw), ["haskell/app/Main.hs", "README.md", "docs/new.txt"]);
+  assert.deepEqual(parseGitStatusPaths("M haskell/app/Trader/Formal/CloseTiming.hs"), [
+    "haskell/app/Trader/Formal/CloseTiming.hs",
+  ]);
 });
 
 test("buildAutoloopRecoveryBranchName scopes rescue branches under autoloop/wip", () => {
@@ -426,6 +429,7 @@ test("bounded autoloop reports the required lifecycle phases in order", async ()
 test("autoloop forever script auto-snapshots recoverable dirty cycles before blocking", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
   assert.match(script, /const dirtyRecovery = await tryAutoSnapshotDirtyCycle\(\);/);
+  assert.match(script, /runCommand\("git", \["status", "--porcelain"\], \{ trimOutput: false \}\)/);
   assert.match(script, /cycle [^`]*recovery=\$\{dirtyRecovery\?\.recovered \? dirtyRecovery\.branch : "none"\}/);
   assert.match(script, /cycleStatus\?\.phase !== "error" \|\| changedPaths\.length === 0/);
   assert.match(script, /dirty worktree does not exactly match the last failed cycle changedPaths/);
