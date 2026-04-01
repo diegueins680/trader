@@ -564,13 +564,35 @@ comboCloseTimingReport comboObj =
     closeTimingObject (Aeson.Object report) = Just report
     closeTimingObject _ = Nothing
 
+closeTimingRecommendationEvidenceFloor :: Int
+closeTimingRecommendationEvidenceFloor = 3
+
+closeTimingEvidenceSampleCount :: Aeson.Object -> Maybe Int
+closeTimingEvidenceSampleCount report =
+    KM.lookup (AK.fromString "positiveLiftSampleCount") report >>= coerceIntValue
+        <|> KM.lookup (AK.fromString "profitableSupportSampleCount") report >>= coerceIntValue
+        <|> KM.lookup (AK.fromString "positiveLiftSupportCount") report >>= coerceIntValue
+
+closeTimingEvidenceFloorMaybe :: Aeson.Object -> Maybe Int
+closeTimingEvidenceFloorMaybe report =
+    KM.lookup (AK.fromString "minimumPositiveLiftSampleCount") report >>= coerceIntValue
+        <|> KM.lookup (AK.fromString "minimumProfitableSupportSampleCount") report >>= coerceIntValue
+        <|> KM.lookup (AK.fromString "minimumEvidenceSampleCount") report >>= coerceIntValue
+
 validatedCloseTimingRecommendation :: Aeson.Object -> Maybe Int
 validatedCloseTimingRecommendation report = do
     recommended <- KM.lookup (AK.fromString "recommendedMaxHoldBars") report >>= coerceIntValue
     supportBound <- KM.lookup (AK.fromString "q75OptimalDuration") report >>= coerceIntValue
     sampleCount <- KM.lookup (AK.fromString "sampleCount") report >>= coerceIntValue
     medianLift <- KM.lookup (AK.fromString "medianLift") report >>= coerceDoubleValue
-    if recommended > 0 && supportBound > 0 && sampleCount > 1 && medianLift > 0 && recommended <= supportBound
+    let evidenceFloor =
+            fromMaybe closeTimingRecommendationEvidenceFloor (closeTimingEvidenceFloorMaybe report)
+        supportSamples =
+            fromMaybe evidenceFloor (closeTimingEvidenceSampleCount report)
+        evidenceBacked =
+            supportSamples >= evidenceFloor
+                && recommended == supportBound
+    if recommended > 0 && supportBound > 0 && sampleCount >= evidenceFloor && medianLift > 0 && evidenceBacked
         then Just recommended
         else Nothing
 
