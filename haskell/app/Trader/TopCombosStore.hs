@@ -227,7 +227,7 @@ sanitizeTopCombosValue val =
                             if not (comboEquityAboveOne comboVal)
                                 then (acc, count + 1)
                                 else
-                                    let (comboVal', updated) = sanitizeComboSymbolValue comboVal
+                                    let (comboVal', updated) = sanitizeComboValue comboVal
                                      in (comboVal' : acc, count + if updated then 1 else 0)
                         combosOut = Aeson.Array (V.fromList (reverse kept))
                         o' = KM.insert (AK.fromString "combos") combosOut o
@@ -306,6 +306,17 @@ coerceDoubleValue value =
                      in case readMaybe trimmed of
                             Just v | not (isNaN v || isInfinite v) -> Just v
                             _ -> Nothing
+                _ -> Nothing
+
+coerceIntValue :: Aeson.Value -> Maybe Int
+coerceIntValue value =
+    case AT.parseMaybe Aeson.parseJSON value of
+        Just v -> Just v
+        Nothing ->
+            case value of
+                Aeson.String s ->
+                    let trimmed = trim (T.unpack s)
+                     in readMaybe trimmed
                 _ -> Nothing
 
 comboMetricDouble :: String -> Aeson.Value -> Maybe Double
@@ -514,6 +525,54 @@ sanitizeComboSymbolValue val =
                      in (Aeson.Object comboObj', changed)
                 _ -> (val, False)
         _ -> (val, False)
+
+sanitizeComboValue :: Aeson.Value -> (Aeson.Value, Bool)
+sanitizeComboValue comboVal =
+    let (comboVal1, symbolUpdated) = sanitizeComboSymbolValue comboVal
+        (comboVal2, closeTimingUpdated) = applyCloseTimingRecommendationValue comboVal1
+     in (comboVal2, symbolUpdated || closeTimingUpdated)
+
+applyCloseTimingRecommendationValue :: Aeson.Value -> (Aeson.Value, Bool)
+applyCloseTimingRecommendationValue val =
+    case val of
+        Aeson.Object comboObj ->
+            case (KM.lookup (AK.fromString "params") comboObj, comboCloseTimingReport comboObj) of
+                (Just (Aeson.Object params), Just report) ->
+                    case validatedCloseTimingRecommendation report of
+                        Just maxHoldBars ->
+                            let params' = KM.insert (AK.fromString "maxHoldBars") (toJSON maxHoldBars) params
+                                changed = params' /= params
+                                comboObj' =
+                                    if changed
+                                        then KM.insert (AK.fromString "params") (Aeson.Object params') comboObj
+                                        else comboObj
+                             in (Aeson.Object comboObj', changed)
+                        Nothing -> (val, False)
+                _ -> (val, False)
+        _ -> (val, False)
+
+comboCloseTimingReport :: Aeson.Object -> Maybe Aeson.Object
+comboCloseTimingReport comboObj =
+    listToMaybe
+        ( Data.Maybe.mapMaybe
+            (\key -> KM.lookup key comboObj >>= closeTimingObject)
+            [ AK.fromString "closeTimingReport"
+            , AK.fromString "closeTiming"
+            ]
+        )
+  where
+    closeTimingObject (Aeson.Object report) = Just report
+    closeTimingObject _ = Nothing
+
+validatedCloseTimingRecommendation :: Aeson.Object -> Maybe Int
+validatedCloseTimingRecommendation report = do
+    recommended <- KM.lookup (AK.fromString "recommendedMaxHoldBars") report >>= coerceIntValue
+    supportBound <- KM.lookup (AK.fromString "q75OptimalDuration") report >>= coerceIntValue
+    sampleCount <- KM.lookup (AK.fromString "sampleCount") report >>= coerceIntValue
+    medianLift <- KM.lookup (AK.fromString "medianLift") report >>= coerceDoubleValue
+    if recommended > 0 && supportBound > 0 && sampleCount > 1 && medianLift > 0 && recommended <= supportBound
+        then Just recommended
+        else Nothing
 
 comboIdentityKey :: Aeson.Value -> Maybe BS.ByteString
 comboIdentityKey val = do
