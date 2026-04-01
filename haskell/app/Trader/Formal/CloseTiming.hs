@@ -90,6 +90,8 @@ data ComboTimingStats = ComboTimingStats
     deriving (Eq, Show)
 
 -- | Combo-level report used to retune timing-based exits from historical trades.
+-- Retunes fail closed unless the positive-lift q75 candidate is supported by
+-- enough analyzed trades.
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
     , cctrSampleCount :: !Int
@@ -300,9 +302,26 @@ analyzeComboCloseTiming comboId prices trades =
         | ctComboId trade == "unknown" || null (ctComboId trade) = trade{ctComboId = comboId}
         | otherwise = trade
 
+minimumCloseTimingSamples :: Int
+minimumCloseTimingSamples = 5
+
+legacyCloseTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
+legacyCloseTimingRecommendationEligible stats q75Bars =
+    ctsMedianLift stats > 0 && q75Bars > 0
+
+-- | Formal retune invariant:
+-- low-support reports must fail closed, and any surviving recommendation
+-- still satisfies the legacy positive-lift/q75 rule. Because the new gate is
+-- `sampleFloor && legacyRule`, it can suppress weak recommendations but can
+-- never create one that the legacy rule would reject.
+closeTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
+closeTimingRecommendationEligible stats q75Bars =
+    ctsSampleCount stats >= minimumCloseTimingSamples
+        && legacyCloseTimingRecommendationEligible stats q75Bars
+
 recommendedCloseTimingHold :: Maybe ComboTimingStats -> Maybe Int -> Maybe Int
 recommendedCloseTimingHold (Just stats) (Just q75Bars)
-    | ctsMedianLift stats > 0 && q75Bars > 0 = Just q75Bars
+    | closeTimingRecommendationEligible stats q75Bars = Just q75Bars
 recommendedCloseTimingHold _ _ = Nothing
 
 timingRatio :: TradeTimingSample -> Double
