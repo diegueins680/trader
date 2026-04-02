@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: make Binance "Check keys" and Open positions honor `timeoutsMs.requestMs` instead of a hardcoded `30s` cap, and raise the default deploy-time request timeout to `60s` so slower exchange diagnostics do not fail prematurely on Fly.
 - Trading/Formal: restore close-timing `recommendedMaxHoldBars` to the analyzer's positive-lift `Q75` optimal duration instead of suppressing upward retunes before the dedicated backfill rerun validates them.
 - Dev/CI: teach the repo-local autoloop supervisor to auto-snapshot recoverable failed-cycle dirty worktrees onto pushed `autoloop/wip/<base-branch>/...` rescue branches, then return to the loop branch so later cycles do not stall on bot-generated dirt; unrelated local edits still block for operator review.
 - Dev/CI: fix the repo-local autoloop dirty-worktree recovery path so single-file failed-cycle edits from `git status --porcelain` still match `changedPaths` exactly and get snapshotted to rescue branches instead of staying blocked on `main`.
