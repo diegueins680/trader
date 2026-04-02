@@ -1,5 +1,105 @@
 # Trader Objectives
 
+## 2026-04-02
+
+### Findings
+- Task cutoff was `2026-04-02 00:32 America/Guayaquil`. A cutoff-scoped replay over the latest tenant snapshots showed `completedTrades=0`, `openPositionsEnteredBeforeCutoff=0`, and `orderEventsBeforeCutoff=0`; there were no fill-backed same-day decisions to retune yet.
+- To avoid a null engineering review, I also replayed the just-finished local day `2026-04-01` with the patched review tool. That day had `completedTrades=0`, `openPositionsEnteredToday=0`, `openPositionsCarriedIn=1`, `sameDayOrderEvents=3`, `ackOnlyOrderEvents=2`, `fillEvidenceGaps=0`, and `ambiguousOpenPositionOrigins=0`.
+- The concrete defect was attribution drift: the persisted `BTCUSDT` `1d` short had been counted as a same-day open even though the same-day order message was `No order: already short.` and the nearest supporting sent order evidence was prior-day `2026-03-31 19:00 -05`. After the fix, it is classified as `openPositionsCarriedIn` with provenance `prior_day_order_evidence`.
+- The carried BTC short sat in a high-vol / no-direction regime (`efficiency=0.01346`, `realizedVolPct=2.04114`, `zScore=-0.05078`), while the only same-day intents on `2026-04-01` were ack-only `ADAUSDT` / `LINKUSDT` orders with no persisted fill evidence. That is too little confirmed signal to justify another live strategy change tonight.
+
+### Hypotheses
+- When the day contains zero fill-backed same-day entries/exits, the highest-leverage improvement is review correctness, not another live-rule tweak.
+- Treat “fresh entry” as an invariant requiring either same-day sent-order evidence or explicit carry/ambiguity classification; adoption messages like `already short` / `already long` must never inflate same-day entry counts.
+- If several future reviews show confirmed entries opening in high-vol + ultra-low-efficiency conditions, test a tighter regime-strength / volatility-managed gate for trend entries; do not fit that rule off today’s carry-only sample.
+
+### Metrics
+- Task-cutoff replay (`2026-04-02 00:00-00:32 -05`):
+  - `completedTrades=0`
+  - `openPositionsEnteredBeforeCutoff=0`
+  - `orderEventsBeforeCutoff=0`
+- Full-day `2026-04-01` replay after the attribution fix:
+  - `completedTrades=0`
+  - `openPositionsEnteredToday=0`
+  - `openPositionsCarriedIn=1`
+  - `sameDayOrderEvents=3`
+  - `ackOnlyOrderEvents=2`
+  - `fillEvidenceGaps=0`
+  - `ambiguousOpenPositionOrigins=0`
+- Carried-position diagnostic:
+  - `BTCUSDT 1d` short
+  - supporting prior order: `2026-03-31T19:00:36.514000-05:00`
+  - adoption event: `2026-04-01T19:00:47.094000-05:00`
+  - provenance: `prior_day_order_evidence`
+  - entry regime: `high-vol`, efficiency `0.01346`
+
+### Changes Made
+- Used Codex to update `haskell/scripts/review_bot_day.py` so open positions are split into `openPositionsEnteredToday`, `openPositionsCarriedIn`, and ambiguous-origin anomalies using saved order evidence plus same-day `already short` / `already long` adoption messages.
+- Added `haskell/scripts/test_review_bot_day.py` with deterministic synthetic coverage for both carried-in and ambiguous-adoption cases.
+- Updated `README.md` and `CHANGELOG.md` for the new daily-review provenance behavior.
+
+### Validation Results
+- `python3 -m py_compile haskell/scripts/review_bot_day.py` passed.
+- `python3 -m unittest haskell/scripts/test_review_bot_day.py` passed (`2` tests).
+- `python3 haskell/scripts/review_bot_day.py --date 2026-04-01 --timezone America/Guayaquil --format json` passed and now reports `openPositionsEnteredToday=0`, `openPositionsCarriedIn=1` for the BTC carry.
+- A one-off cutoff-scoped Python replay for `2026-04-02 00:00-00:32 America/Guayaquil` confirmed zero completed trades, zero same-day entries, and zero order events before the task timestamp.
+- No separate backtest was run because this change is an execution-attribution / diagnostics fix, not a live strategy-rule modification.
+
+### Remaining Risks
+- Carry/adoption provenance still depends on saved order history; a `NEW` ack without later fill evidence remains weaker than an exchange fill ledger.
+- The review tool now avoids a false positive on same-day entries, but it still cannot prove fills end-to-end when snapshots omit execution details.
+- Strategy research still points toward stronger trend-entry discrimination in high-vol / low-efficiency regimes, but today’s cutoff-scoped sample did not justify deploying that live-rule change.
+
+## 2026-03-31
+
+### Findings
+- Source of truth for this review was the latest active bot snapshot tenant under `haskell/.tmp/bot/tenants/binance-dc286605a9946343b18aeb2670e23ce51f6d9e0e1b37f50205f1945c6c54016a/`, replayed for local date `2026-03-31 America/Guayaquil`.
+- One completed trade exited on the target date: `ADAUSDT` `2h` long, entered `2026-03-31 13:00 -05`, exited `2026-03-31 23:00 -05`, realized return `+0.12177%`, exit reason `SIGNAL`.
+- Two positions were opened on the same local date and still open in the snapshot: `ATOMUSDT` `12h` long (`+0.03302%` mark-to-market on equity) and `LINKUSDT` `1h` long (`+0.03470%` mark-to-market on equity).
+- All three entries were made in explicitly low-directional `chop` conditions by a 24-bar regime replay. Entry efficiency was low (`ADA 0.0213`, `ATOM 0.2372`, `LINK 0.1208`), while the saved regime probabilities also leaned mean-reversion (`mr` high, `trend` low where available).
+- The concrete engineering problem exposed today was execution observability, not an obvious signal-rule blowup: same-day order events totaled `4`, of which `3` were ack-only (`status=NEW`, `executedQty=0`) and `2` still lacked direct fill evidence even though the replay also showed an active/completed trade (`ADAUSDT`, `ATOMUSDT`).
+- There was also a same-day `BTCUSDT` ack-only `SELL` order with no corresponding same-day completed/open trade, reinforcing that the persisted review artifacts are currently better at showing intent than proving exchange execution.
+
+### Hypotheses
+- Do not retune live entry/exit logic off this day alone. The realized sample is one mildly profitable completed trade in a low-efficiency chop regime, so strategy-level tuning would be mostly noise fitting.
+- The highest-leverage improvement for tomorrow is to close the measurement gap: every daily review should be able to deterministically reconstruct completed/open trades, same-day order intents, regime labels, and explicit fill-evidence gaps from persisted artifacts.
+- Once fill provenance is trustworthy, the most plausible strategy experiment for repeated days like this is an explicit chop/no-trend gate for momentum entries (for example: require higher directional efficiency or lower mean-reversion probability before opening new trend trades).
+- Treat `fillEvidenceGaps > 0` as a review-quality invariant violation: PnL attribution and trade-decision diagnosis are provisional until that count is driven to zero.
+
+### Metrics
+- Day-scoped replay summary:
+  - `completedTrades=1`
+  - `completedCompoundPct=+0.12177%`
+  - `completedAveragePct=+0.12177%`
+  - `openPositionsEnteredToday=2`
+  - `sameDayOrderEvents=4`
+  - `ackOnlyOrderEvents=3`
+  - `fillEvidenceGaps=2`
+- Entry-regime diagnostics:
+  - `ADAUSDT 2h`: `chop`, efficiency `0.0213`, net return over lookback `+0.4172%`, realized vol `0.9827%`
+  - `ATOMUSDT 12h`: `chop`, efficiency `0.2372`, net return over lookback `-6.2431%`, realized vol `1.4451%`
+  - `LINKUSDT 1h`: `chop`, efficiency `0.1208`, net return over lookback `+1.6299%`, realized vol `0.7690%`
+- Same-day open-position context at review time:
+  - `ATOMUSDT`: entry `1.697`, current `1.705`, MTM `+0.03302%`
+  - `LINKUSDT`: entry `8.792`, current `8.835`, MTM `+0.03470%`
+
+### Changes Made
+- Used Codex to add `haskell/scripts/review_bot_day.py`, a dependency-free daily replay tool for persisted `bot-state-*.json` snapshots.
+- The new script auto-selects the latest tenant (or accepts `--tenant-dir`), reconstructs completed trades and open positions for a local calendar day, classifies the recent regime with explicit 24-bar thresholds (`high-vol`, `trend-up`, `trend-down`, `chop`, `range-drift`), and flags ack-only same-day order events that still lack direct fill evidence.
+- Added both Markdown and JSON output modes so the review can become a stable input to future automation.
+- Updated `README.md` and `CHANGELOG.md` because this introduces a new user-facing review utility.
+
+### Validation Results
+- `python3 -m py_compile haskell/scripts/review_bot_day.py` passed.
+- `python3 haskell/scripts/review_bot_day.py --date 2026-03-31 --timezone America/Guayaquil` passed and reproduced the metrics above, including `ack_only=3` and `fill_gaps=2`.
+- Codex also ran `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal build` and `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal test trader-tests --test-show-details=direct`; both completed successfully in the agent log.
+- No separate backtest was required for this change because the implemented improvement is a deterministic post-trade replay/diagnostics tool rather than a live trading-rule change.
+
+### Remaining Risks
+- The new replay script still depends on bot-state snapshots; it cannot prove exchange fills unless direct fill provenance is persisted into the saved artifacts.
+- Today’s review therefore improves diagnosis quality more than realized PnL. It tells us that the day was dominated by chop and small returns, but it does not yet let us audit every fill path end-to-end.
+- If multiple future days continue to show low-efficiency chop entries after fill attribution is fixed, the next narrow experiment should be a replayed regime gate for trend entries instead of another broad threshold tweak.
+
 ## 2026-03-27
 
 ### Findings
