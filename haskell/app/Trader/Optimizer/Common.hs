@@ -24,6 +24,8 @@ import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     ComboTrade (..),
     analyzeComboCloseTiming,
+    minimumCloseTimingSamples,
+    minimumPositiveLiftSupportSamples,
  )
 import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 
@@ -260,6 +262,9 @@ closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report =
     object
         [ "comboId" .= cctrComboId report
         , "sampleCount" .= cctrSampleCount report
+        , "minimumSampleCount" .= minimumCloseTimingSamples
+        , "positiveLiftSampleCount" .= cctrPositiveLiftSampleCount report
+        , "minimumPositiveLiftSampleCount" .= minimumPositiveLiftSupportSamples
         , "medianRatio" .= cctrMedianRatio report
         , "q25Ratio" .= cctrQ25Ratio report
         , "q75Ratio" .= cctrQ75Ratio report

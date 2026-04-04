@@ -81,7 +81,13 @@ import Text.Read (readMaybe)
 
 import Trader.BinanceIntervals (binanceIntervalsCsv)
 import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom)
-import Trader.Formal.CloseTiming (ComboCloseTimingReport (..), ComboTrade (..), analyzeComboCloseTiming)
+import Trader.Formal.CloseTiming (
+    ComboCloseTimingReport (..),
+    ComboTrade (..),
+    analyzeComboCloseTiming,
+    minimumCloseTimingSamples,
+    minimumPositiveLiftSupportSamples,
+ )
 import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Random (
@@ -670,6 +676,9 @@ closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report =
     object
         [ "comboId" .= cctrComboId report
         , "sampleCount" .= cctrSampleCount report
+        , "minimumSampleCount" .= minimumCloseTimingSamples
+        , "positiveLiftSampleCount" .= cctrPositiveLiftSampleCount report
+        , "minimumPositiveLiftSampleCount" .= minimumPositiveLiftSupportSamples
         , "medianRatio" .= cctrMedianRatio report
         , "q25Ratio" .= cctrQ25Ratio report
         , "q75Ratio" .= cctrQ75Ratio report
