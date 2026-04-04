@@ -1,5 +1,72 @@
 # Trader Reports
 
+## 2026-04-03
+
+### Findings
+- Primary local data source: `haskell/.tmp/bot/tenants/binance-dc286605a9946343b18aeb2670e23ce51f6d9e0e1b37f50205f1945c6c54016a/bot-state-*.json`, replayed for local date `2026-04-03 America/Guayaquil` with task cutoff `2026-04-03 23:37 -05`.
+- Those live tenant snapshots continued updating after the task timestamp while this review ran, so the metrics below are anchored to the captured cutoff replay from the task window rather than to a later rerun after midnight.
+- One completed trade exited before the cutoff:
+  - `BNBUSDT` short, `2h`, entered `2026-04-03 17:00 -05`, exited `2026-04-03 21:00 -05`, return `-0.00730%`, `SIGNAL`
+- No same-day or carried-in positions were still open at the cutoff:
+  - `openPositionsEnteredToday=0`
+  - `openPositionsCarriedIn=0`
+- Same-day order activity was minimal and still lacked direct fill proof:
+  - ack-only `Order sent.` record at `2026-04-03 18:30:28 -05` with `status=NEW`, `executedQty=0`, `quantity=0.14`
+  - `No order: already flat.` record at `2026-04-03 21:00:53 -05`
+  - `fillEvidenceGaps=1`
+- The observed regime was weak-directional to choppy rather than strongly trending. The `BNBUSDT` entry replayed as `range-drift` (`efficiency=0.36259`, `realizedVolPct=0.65850`, `zScore=-1.18733`) and the exit replayed as `chop` (`efficiency=0.10368`, `realizedVolPct=0.47985`, `zScore=-0.33109`). Saved regime probabilities at review time leaned mean-reversion (`mr=0.82061`, `trend=0.08102`).
+- The main engineering failure mode was review leakage, not signal selection. The bounded replay at `23:37 -05` now reports `snapshotsUpdatedAfterWindow=8`, proving that several tenant snapshots were updated after the task cutoff and that an unbounded day review could silently incorporate post-cutoff state.
+
+### Research Notes
+- Long-run trend following remains a defensible core strategy, but the evidence argues for applying it conditionally rather than forcing it through every market texture. Hurst, Ooi, and Pedersen report positive average time-series-momentum returns across many macro environments, which supports keeping the trend engine but not retuning it from one tiny losing chop trade. Source: https://research.cbs.dk/en/publications/a-century-of-evidence-on-trend-following-investing
+- Volatility-management research supports using regime/risk controls as a separate layer over alpha logic. Moreira and Muir show that after volatility shocks, optimal exposure initially falls because volatility rises faster than expected return. That points toward control-layer improvements before heuristic micromanagement. Source: https://www.nber.org/papers/w22208
+- Recent crypto-specific regime work also points toward volatility-structure plus normalized-momentum classification as a robust control layer rather than a direct forecasting model. Banerjee’s 2025/2026 SSRN note frames regime detection as an input to downstream trading/risk systems, which matches today’s need for better bounded replay and regime-aware diagnostics. Source: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5920642
+- Inference for this run: the most relevant strategy method for today’s `range-drift -> chop` sample is stronger regime discrimination, potentially including an explicit flat/no-trade path when efficiency stays low. But the data quality problem was larger than the alpha problem today, so the implemented change stayed in replay correctness.
+
+### Hypotheses
+- The correct cron-sized improvement for today is a bounded-review correctness patch, not a live-rule change.
+- A daily engineering review should make two things explicit whenever it runs before midnight:
+  - whether any saved snapshots were updated after the requested review window
+  - what positions were actually open at the cutoff, even if they closed later in the terminal snapshot
+- If future confirmed-fill days continue to show low-efficiency `range-drift/chop` entries, the next strategy experiment should be a replayed regime gate or alternate-policy switch for low-direction states.
+
+### Metrics
+- Bounded replay summary (`2026-04-03 00:00-23:37 -05`):
+  - Completed trades: `1`
+  - Completed-trade compounded return: `-0.00730%`
+  - Completed-trade average return: `-0.00730%`
+  - Open positions entered today: `0`
+  - Open positions carried in: `0`
+  - Same-day order events: `2`
+  - Ack-only order events: `1`
+  - Active-trade fill-evidence gaps: `1`
+  - Snapshots updated after review window: `8`
+- Window-leakage details:
+  - symbols updated after `2026-04-03 23:37 -05`: `ADAUSDT`, `ARBUSDT`, `BTCUSDT`, `DOGEUSDT`, `ETCUSDT`, `FILUSDT`, `UNIUSDT`, `XRPUSDT`
+- Trade-level regime detail:
+  - `BNBUSDT`: `range-drift -> chop`, entry efficiency `0.36259`, exit efficiency `0.10368`
+
+### Changes Made
+- Extended `haskell/scripts/review_bot_day.py` with `--end-local` so bounded daily reviews no longer need ad hoc truncation logic outside the tool.
+- Reconstructed window-end open positions from the saved `positions` vector at the cutoff, which preserves same-day open exposure even when the terminal snapshot later shows the trade closed.
+- Added `entry_index_before_window` carry classification plus `snapshotsUpdatedAfterWindow` reporting, and withheld post-window latest-signal fields for those future-updated rows.
+- Added deterministic regression coverage in `haskell/scripts/test_review_bot_day.py` for the cutoff-open/later-close case.
+- Updated `README.md` and `CHANGELOG.md` for the new review-tool behavior.
+
+### Validation Results
+- `python3 -m py_compile haskell/scripts/review_bot_day.py haskell/scripts/test_review_bot_day.py` passed.
+- `python3 -m unittest haskell/scripts/test_review_bot_day.py` passed (`3` tests).
+- `python3 haskell/scripts/review_bot_day.py --date 2026-04-03 --timezone America/Guayaquil --format json` passed.
+- `python3 haskell/scripts/review_bot_day.py --date 2026-04-03 --timezone America/Guayaquil --end-local 2026-04-03T23:37:00-05:00 --format json` passed and exposed `snapshotsUpdatedAfterWindow=8`.
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal build` passed.
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal test` passed.
+- No separate backtest was run because the implemented change is a replay/observability fix rather than a trading-rule change.
+
+### Remaining Risks
+- The replay is still reconstructive: it can identify cutoff-open positions and future-updated snapshots, but it cannot prove fills when saved order history only shows ack-level `NEW` responses.
+- Intrabar state between the last saved bar open and the exact cutoff minute is still approximated by the snapshot data available at review time.
+- The next live strategy change should wait for repeated, fill-backed low-efficiency entries; today’s one tiny loss is not enough to justify that retune.
+
 ## 2026-03-31
 
 ### Findings

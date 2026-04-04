@@ -66,6 +66,13 @@ def parse_args() -> argparse.Namespace:
         help="IANA timezone used to define the local trading day.",
     )
     parser.add_argument(
+        "--end-local",
+        help=(
+            "Optional local cutoff inside the target day (ISO-8601 local time, "
+            "for example 2026-04-03T23:37). When omitted, the review runs through local midnight."
+        ),
+    )
+    parser.add_argument(
         "--tenant-dir",
         help=(
             "Explicit tenant snapshot directory. "
@@ -142,6 +149,16 @@ def infer_open_times(snapshot: BotSnapshot) -> list[int]:
 
 def local_iso(ms: int, tz: ZoneInfo) -> str:
     return datetime.fromtimestamp(ms / 1000, tz).isoformat()
+
+
+def parse_local_dt(value: str, tz: ZoneInfo) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"invalid --end-local value {value!r}: expected ISO-8601 local datetime") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=tz)
+    return parsed.astimezone(tz)
 
 
 def safe_pct(value: float | None) -> float | None:
@@ -233,6 +250,17 @@ def order_event_at_ms(order_event: dict[str, Any]) -> int | None:
     return int(at_ms) if isinstance(at_ms, (int, float)) else None
 
 
+def position_direction(value: Any) -> int:
+    numeric = float_or_none(value)
+    if numeric is None:
+        return 0
+    if numeric > 0:
+        return 1
+    if numeric < 0:
+        return -1
+    return 0
+
+
 def open_side_to_order_side(side: Any) -> str | None:
     side_text = str(side or "").strip().lower()
     if side_text == "long":
@@ -273,6 +301,7 @@ def build_open_position_provenance(
     snapshot: BotSnapshot,
     open_trade: dict[str, Any],
     entry_idx: int,
+    entry_ms: int | None,
     start_ms: int,
     end_ms: int,
     tz: ZoneInfo,
@@ -334,6 +363,16 @@ def build_open_position_provenance(
         )
         return details
 
+    if entry_ms is not None and entry_ms < start_ms:
+        details.update(
+            {
+                "kind": "carried_in",
+                "provenance": "entry_index_before_window",
+                "provenanceDetail": "Position was already open before the target review window began.",
+            }
+        )
+        return details
+
     if prior_sent:
         details.update(
             {
@@ -378,11 +417,109 @@ def snapshot_range_local(snapshots: list[BotSnapshot], tz: ZoneInfo) -> dict[str
     }
 
 
-def build_report(date_str: str, tz_name: str, tenant_dir: Path) -> dict[str, Any]:
+def last_open_index_before(open_times: list[int], end_ms: int) -> int | None:
+    for idx in range(len(open_times) - 1, -1, -1):
+        if open_times[idx] < end_ms:
+            return idx
+    return None
+
+
+def open_position_entry_index(positions: list[Any], cutoff_idx: int) -> int | None:
+    side = position_direction(positions[cutoff_idx])
+    if side == 0:
+        return None
+    entry_idx = cutoff_idx
+    while entry_idx > 0 and position_direction(positions[entry_idx - 1]) == side:
+        entry_idx -= 1
+    return entry_idx
+
+
+def build_open_position_at_window_end(
+    snapshot: BotSnapshot,
+    cutoff_idx: int,
+    start_ms: int,
+    end_ms: int,
+    tz: ZoneInfo,
+) -> tuple[str, dict[str, Any]] | None:
+    positions = snapshot.status.get("positions") or []
+    prices = snapshot.status.get("prices") or []
+    equity_curve = snapshot.status.get("equityCurve") or []
+    open_times = infer_open_times(snapshot)
+    if not open_times or cutoff_idx >= len(open_times) or cutoff_idx >= len(positions):
+        return None
+    side_direction = position_direction(positions[cutoff_idx])
+    if side_direction == 0:
+        return None
+    entry_idx = open_position_entry_index(positions, cutoff_idx)
+    if entry_idx is None or entry_idx >= len(open_times):
+        return None
+
+    side = "long" if side_direction > 0 else "short"
+    entry_ms = open_times[entry_idx]
+    matching_open_trade = snapshot.status.get("openTrade")
+    if not isinstance(matching_open_trade, dict):
+        matching_open_trade = None
+    if matching_open_trade is not None:
+        matching_entry = int(matching_open_trade.get("entryIndex", -1))
+        matching_side = str(matching_open_trade.get("side") or "").strip().lower()
+        if matching_entry != entry_idx or matching_side != side:
+            matching_open_trade = None
+
+    entry_equity = None
+    if matching_open_trade is not None:
+        entry_equity = float_or_none(matching_open_trade.get("entryEquity"))
+    if entry_equity is None and entry_idx < len(equity_curve):
+        entry_equity = float_or_none(equity_curve[entry_idx])
+
+    current_equity = float_or_none(equity_curve[cutoff_idx]) if cutoff_idx < len(equity_curve) else None
+    mtm_pct = None
+    if entry_equity and current_equity:
+        mtm_pct = (current_equity / entry_equity - 1.0) * 100.0
+
+    position_row = {
+        "symbol": snapshot.symbol,
+        "interval": snapshot.status.get("interval"),
+        "side": side,
+        "entryIndex": entry_idx,
+        "entryTimeLocal": local_iso(entry_ms, tz),
+        "entryPrice": matching_open_trade.get("entryPrice") if matching_open_trade is not None else prices[entry_idx],
+        "currentPrice": prices[cutoff_idx] if cutoff_idx < len(prices) else None,
+        "holdingBars": cutoff_idx - entry_idx,
+        "markToMarketPct": mtm_pct,
+        "trail": matching_open_trade.get("trail") if matching_open_trade is not None else None,
+        "size": matching_open_trade.get("size") if matching_open_trade is not None else None,
+        "entryRegime": classify_regime(prices, entry_idx),
+        "latestRegimes": snapshot.status.get("latestSignal", {}).get("regimes") if snapshot.updated_at_ms <= end_ms else None,
+        "latestVolatility": snapshot.status.get("latestSignal", {}).get("volatility") if snapshot.updated_at_ms <= end_ms else None,
+    }
+    provenance = build_open_position_provenance(
+        snapshot,
+        {"side": side},
+        entry_idx,
+        entry_ms,
+        start_ms,
+        end_ms,
+        tz,
+    )
+    kind = provenance.pop("kind")
+    position_row.update(provenance)
+    return kind, position_row
+
+
+def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: str | None = None) -> dict[str, Any]:
     tz = ZoneInfo(tz_name)
     target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     start_local = datetime.combine(target_date, datetime.min.time(), tz)
-    end_local = start_local + timedelta(days=1)
+    day_end_local = start_local + timedelta(days=1)
+    if end_local_text:
+        requested_end_local = parse_local_dt(end_local_text, tz)
+        if requested_end_local < start_local or requested_end_local > day_end_local:
+            raise ValueError(
+                f"--end-local must stay within {start_local.isoformat()} and {day_end_local.isoformat()}"
+            )
+        end_local = requested_end_local
+    else:
+        end_local = day_end_local
     start_ms = int(start_local.timestamp() * 1000)
     end_ms = int(end_local.timestamp() * 1000)
 
@@ -394,6 +531,11 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path) -> dict[str, Any
     if not snapshots:
         raise FileNotFoundError(f"no bot-state snapshots found in {tenant_dir}")
 
+    snapshots_updated_after_window = [
+        {"symbol": snap.symbol, "updatedAtLocal": local_iso(snap.updated_at_ms, tz)}
+        for snap in snapshots
+        if snap.updated_at_ms > end_ms
+    ]
     completed_trades: list[dict[str, Any]] = []
     open_positions: list[dict[str, Any]] = []
     carried_open_positions: list[dict[str, Any]] = []
@@ -406,6 +548,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path) -> dict[str, Any
         open_times = infer_open_times(snapshot)
         latest_signal = snapshot.status.get("latestSignal") or {}
         latest_regimes = latest_signal.get("regimes") or {}
+        cutoff_idx = last_open_index_before(open_times, end_ms) if open_times else None
 
         for trade in snapshot.status.get("trades") or []:
             entry_idx = int(trade.get("entryIndex", -1))
@@ -435,47 +578,21 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path) -> dict[str, Any
                     "entryHighVolProb": trade.get("entryHighVolProb"),
                     "entryRegime": classify_regime(prices, entry_idx),
                     "exitRegime": classify_regime(prices, exit_idx),
-                    "latestRegimes": latest_regimes,
-                    "latestVolatility": latest_signal.get("volatility"),
+                    "latestRegimes": latest_regimes if snapshot.updated_at_ms <= end_ms else None,
+                    "latestVolatility": latest_signal.get("volatility") if snapshot.updated_at_ms <= end_ms else None,
                 }
             )
 
-        open_trade = snapshot.status.get("openTrade") or None
-        if isinstance(open_trade, dict):
-            entry_idx = int(open_trade.get("entryIndex", -1))
-            if 0 <= entry_idx < len(open_times):
-                entry_ms = open_times[entry_idx]
-                if start_ms <= entry_ms < end_ms:
-                    entry_equity = float_or_none(open_trade.get("entryEquity"))
-                    current_equity = float_or_none(equity_curve[-1]) if equity_curve else None
-                    mtm_pct = None
-                    if entry_equity and current_equity:
-                        mtm_pct = (current_equity / entry_equity - 1.0) * 100.0
-                    position_row = {
-                        "symbol": snapshot.symbol,
-                        "interval": snapshot.status.get("interval"),
-                        "side": open_trade.get("side"),
-                        "entryIndex": entry_idx,
-                        "entryTimeLocal": local_iso(entry_ms, tz),
-                        "entryPrice": open_trade.get("entryPrice"),
-                        "currentPrice": prices[-1] if prices else None,
-                        "holdingBars": open_trade.get("holdingPeriods"),
-                        "markToMarketPct": mtm_pct,
-                        "trail": open_trade.get("trail"),
-                        "size": open_trade.get("size"),
-                        "entryRegime": classify_regime(prices, entry_idx),
-                        "latestRegimes": latest_regimes,
-                        "latestVolatility": latest_signal.get("volatility"),
-                    }
-                    provenance = build_open_position_provenance(snapshot, open_trade, entry_idx, start_ms, end_ms, tz)
-                    kind = provenance.pop("kind")
-                    position_row.update(provenance)
-                    if kind == "entered_today":
-                        open_positions.append(position_row)
-                    elif kind == "carried_in":
-                        carried_open_positions.append(position_row)
-                    else:
-                        ambiguous_open_positions.append(position_row)
+        if cutoff_idx is not None:
+            position_at_window_end = build_open_position_at_window_end(snapshot, cutoff_idx, start_ms, end_ms, tz)
+            if position_at_window_end is not None:
+                kind, position_row = position_at_window_end
+                if kind == "entered_today":
+                    open_positions.append(position_row)
+                elif kind == "carried_in":
+                    carried_open_positions.append(position_row)
+                else:
+                    ambiguous_open_positions.append(position_row)
 
         for order_event in snapshot.status.get("orders") or []:
             at_ms = order_event.get("atMs")
@@ -543,6 +660,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path) -> dict[str, Any
             "ackOnlyOrderEvents": sum(1 for row in order_events if row["ackOnly"]),
             "fillEvidenceGaps": len(fill_evidence_gaps),
             "ambiguousOpenPositionOrigins": len(ambiguous_open_positions),
+            "snapshotsUpdatedAfterWindow": len(snapshots_updated_after_window),
         },
         "completedTrades": completed_trades,
         "openPositionsEnteredToday": open_positions,
@@ -555,6 +673,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path) -> dict[str, Any
                 snap.symbol for snap in snapshots if not infer_open_times(snap) and (snap.status.get("trades") or snap.status.get("openTrade"))
             ],
             "ambiguousOpenPositionOrigins": ambiguous_open_positions,
+            "snapshotsUpdatedAfterWindow": snapshots_updated_after_window,
         },
     }
 
@@ -581,7 +700,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"`order_events={summary['sameDayOrderEvents']}` "
         f"`ack_only={summary['ackOnlyOrderEvents']}` "
         f"`fill_gaps={summary['fillEvidenceGaps']}` "
-        f"`ambiguous_open_origin={summary['ambiguousOpenPositionOrigins']}`"
+        f"`ambiguous_open_origin={summary['ambiguousOpenPositionOrigins']}` "
+        f"`snapshots_after_window={summary['snapshotsUpdatedAfterWindow']}`"
     )
     lines.append("")
 
@@ -683,13 +803,19 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"ambiguous provenance: `{trade.get('adoptionMessage')}`. "
                 "Review should not treat it as a confirmed same-day entry."
             )
+    if report["anomalies"]["snapshotsUpdatedAfterWindow"]:
+        lines.append(
+            "- "
+            f"`{len(report['anomalies']['snapshotsUpdatedAfterWindow'])}` snapshot(s) were updated after the review window end. "
+            "Open-position membership is reconstructed from the saved positions vector at the cutoff, and post-window latest-signal fields are omitted to reduce leakage."
+        )
     return "\n".join(lines)
 
 
 def main() -> int:
     args = parse_args()
     tenant_dir = Path(args.tenant_dir) if args.tenant_dir else choose_tenant_dir(Path(args.bot_root))
-    report = build_report(args.date, args.timezone, tenant_dir)
+    report = build_report(args.date, args.timezone, tenant_dir, args.end_local)
     if args.format == "json":
         json.dump(report, sys.stdout, indent=2, sort_keys=False)
         sys.stdout.write("\n")

@@ -1,5 +1,65 @@
 # Trader Objectives
 
+## 2026-04-03
+
+### Findings
+- Source of truth for this bounded review was `haskell/.tmp/bot/tenants/binance-dc286605a9946343b18aeb2670e23ce51f6d9e0e1b37f50205f1945c6c54016a/`, replayed for local date `2026-04-03` with task cutoff `2026-04-03 23:37 America/Guayaquil`.
+- The live tenant snapshots continued updating after the task timestamp while this review ran, so the metrics below are anchored to the captured cutoff replay taken during the task window rather than to a later rerun after midnight.
+- One completed trade exited before the cutoff: `BNBUSDT` `2h` short, entered `2026-04-03 17:00 -05`, exited `2026-04-03 21:00 -05`, return `-0.00730%`, exit reason `SIGNAL`.
+- No positions were still open at the cutoff: `openPositionsEnteredToday=0` and `openPositionsCarriedIn=0`.
+- Same-day order evidence was limited to two `BNBUSDT` records: an ack-only `Order sent.` event at `2026-04-03 18:30:28 -05` with `status=NEW` / `executedQty=0`, and a `No order: already flat.` event at `2026-04-03 21:00:53 -05`. That leaves `fillEvidenceGaps=1`, so the day still does not justify a live-rule retune.
+- The observed regime was weakly directional and increasingly choppy. The entry sat in `range-drift` (`efficiency=0.36259`, `realizedVolPct=0.65850`, `zScore=-1.18733`) and the exit sat in `chop` (`efficiency=0.10368`, `realizedVolPct=0.47985`). Saved latest regime probabilities also leaned strongly mean-reversion (`mr=0.82061`, `trend=0.08102`).
+- The most important engineering failure mode today was bounded-review leakage, not strategy logic. The prior day-review tool had no explicit cutoff mode, and the same replay now shows `snapshotsUpdatedAfterWindow=8`, meaning several symbols had persisted state after the task timestamp that could silently contaminate a before-midnight review.
+
+### Hypotheses
+- When the realized sample is one tiny losing trade with ack-only entry evidence and zero open exposure at the cutoff, the highest-value change is review correctness, not another live-trading heuristic.
+- A bounded daily review should satisfy two invariants:
+  - it must expose whether snapshots were updated after the requested review window
+  - it must reconstruct open-position membership from cutoff-state history instead of relying only on the final `openTrade` snapshot
+- If several future confirmed-fill days show the same low-efficiency `range-drift/chop` entries, the next strategy experiment should be a stricter no-trade or alternate-policy gate when directional efficiency stays low, not a threshold tweak fit to this one sample.
+
+### Metrics
+- Bounded replay summary (`2026-04-03 00:00-23:37 -05`):
+  - `completedTrades=1`
+  - `completedCompoundPct=-0.00730%`
+  - `completedAveragePct=-0.00730%`
+  - `openPositionsEnteredToday=0`
+  - `openPositionsCarriedIn=0`
+  - `sameDayOrderEvents=2`
+  - `ackOnlyOrderEvents=1`
+  - `fillEvidenceGaps=1`
+  - `ambiguousOpenPositionOrigins=0`
+  - `snapshotsUpdatedAfterWindow=8`
+- Trade-level diagnostic:
+  - `BNBUSDT 2h` short
+  - entry `2026-04-03T17:00:00-05:00` @ `587.77`
+  - exit `2026-04-03T21:00:00-05:00` @ `587.69`
+  - entry regime `range-drift`, exit regime `chop`
+- Measurable observability improvement:
+  - before: bounded reviews required ad hoc truncation and had no explicit leakage metric
+  - after: the replay emits `snapshotsUpdatedAfterWindow` and reconstructs cutoff-open positions from the saved `positions` vector even if they close later
+
+### Changes Made
+- Updated `haskell/scripts/review_bot_day.py` to accept `--end-local` for bounded local-day reviews.
+- Reworked open-position replay so window-end positions are reconstructed from the saved `positions` history at the cutoff instead of depending only on the terminal `openTrade` snapshot.
+- Added a carry classification for positions already open before the review window and a new `snapshotsUpdatedAfterWindow` anomaly/summary metric.
+- Extended `haskell/scripts/test_review_bot_day.py` with a deterministic cutoff regression where a same-day position is open at the cutoff but closes later in the saved snapshot.
+- Updated `README.md` and `CHANGELOG.md` for the new review-tool behavior.
+
+### Validation Results
+- `python3 -m py_compile haskell/scripts/review_bot_day.py haskell/scripts/test_review_bot_day.py` passed.
+- `python3 -m unittest haskell/scripts/test_review_bot_day.py` passed (`3` tests).
+- `python3 haskell/scripts/review_bot_day.py --date 2026-04-03 --timezone America/Guayaquil --format json` passed and reported the one completed `BNBUSDT` short with `snapshotsUpdatedAfterWindow=0` for the full-day window.
+- `python3 haskell/scripts/review_bot_day.py --date 2026-04-03 --timezone America/Guayaquil --end-local 2026-04-03T23:37:00-05:00 --format json` passed and reported the same trade set plus `snapshotsUpdatedAfterWindow=8` for the bounded review.
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal build` passed.
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal test` passed.
+- No separate backtest was run because this change improves replay/diagnostics correctness rather than live decision rules.
+
+### Remaining Risks
+- The review still depends on bot-state snapshots, so an ack-only order record remains weaker than a persisted exchange-fill ledger.
+- The cutoff replay now reports future-updated snapshots and reconstructs open-position membership from history, but it still cannot recreate intra-bar prices/signals at an arbitrary minute inside the current bar.
+- Strategy research still points toward stricter low-direction regime gating when confirmed fills accumulate, but today’s single tiny loss is not enough evidence to deploy that change.
+
 ## 2026-04-02
 
 ### Findings

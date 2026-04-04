@@ -140,6 +140,86 @@ class ReviewBotDayTest(unittest.TestCase):
         self.assertEqual(ambiguous["provenance"], "adoption_without_saved_entry_order")
         self.assertEqual(ambiguous["adoptionEventAtLocal"], "2026-04-01T19:00:47.094000-05:00")
 
+    def test_cutoff_reconstructs_open_position_before_later_close(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenant_dir = Path(tmpdir)
+            self.write_snapshot(
+                tenant_dir,
+                "BNBUSDT",
+                {
+                    "symbol": "BNBUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": 1775199000000,
+                    "prices": [100.0, 101.0, 102.0, 103.0],
+                    "positions": [0, -1, -1, 0],
+                    "openTimes": [1775188800000, 1775192400000, 1775196000000, 1775199600000],
+                    "equityCurve": [1.0, 1.0, 0.999, 0.998],
+                    "latestSignal": {"volatility": 0.4, "regimes": {"trend": 0.2, "mr": 0.8}},
+                    "trades": [
+                        {
+                            "entryEquity": 1.0,
+                            "entryHighVolProb": 0.1,
+                            "entryIndex": 1,
+                            "exitEquity": 0.998,
+                            "exitIndex": 3,
+                            "exitReason": "SIGNAL",
+                            "holdingPeriods": 2,
+                            "return": -0.002,
+                        }
+                    ],
+                    "openTrade": None,
+                    "orders": [
+                        {
+                            "atMs": 1775192460000,
+                            "index": 1,
+                            "opSide": "SELL",
+                            "openTime": 1775192400000,
+                            "order": {
+                                "executedQty": 0,
+                                "message": "Order sent.",
+                                "quantity": 1.0,
+                                "sent": True,
+                                "status": "NEW",
+                                "symbol": "BNBUSDT",
+                            },
+                            "price": 101.0,
+                        },
+                        {
+                            "atMs": 1775199660000,
+                            "index": 3,
+                            "opSide": "BUY",
+                            "openTime": 1775199600000,
+                            "order": {
+                                "message": "No order: already flat.",
+                                "sent": False,
+                                "symbol": "BNBUSDT",
+                            },
+                            "price": 103.0,
+                        },
+                    ],
+                },
+            )
+
+            report = review_bot_day.build_report(
+                "2026-04-03",
+                "America/Guayaquil",
+                tenant_dir,
+                end_local_text="2026-04-03T01:30:00-05:00",
+            )
+
+        self.assertEqual(report["summary"]["completedTrades"], 0)
+        self.assertEqual(report["summary"]["openPositionsEnteredToday"], 1)
+        self.assertEqual(report["summary"]["sameDayOrderEvents"], 1)
+        self.assertEqual(report["summary"]["ackOnlyOrderEvents"], 1)
+        self.assertEqual(report["summary"]["snapshotsUpdatedAfterWindow"], 1)
+        open_position = report["openPositionsEnteredToday"][0]
+        self.assertEqual(open_position["symbol"], "BNBUSDT")
+        self.assertEqual(open_position["entryTimeLocal"], "2026-04-03T00:00:00-05:00")
+        self.assertEqual(open_position["currentPrice"], 102.0)
+        self.assertAlmostEqual(open_position["markToMarketPct"], -0.1)
+        self.assertIsNone(open_position["latestRegimes"])
+        self.assertEqual(report["anomalies"]["snapshotsUpdatedAfterWindow"][0]["symbol"], "BNBUSDT")
+
 
 if __name__ == "__main__":
     unittest.main()
