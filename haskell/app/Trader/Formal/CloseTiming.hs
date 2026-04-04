@@ -279,7 +279,7 @@ analyzeComboCloseTiming comboId prices trades =
         stats = summarizeComboTiming samples
         medianObservedDuration = percentileInt 0.5 (map ttsObservedDuration samples)
         medianOptimalDuration = percentileInt 0.5 (map ttsOptimalDuration samples)
-        q75OptimalDuration = percentileInt 0.75 (map ttsOptimalDuration samples)
+        q75OptimalDuration = supportedPositiveLiftDuration samples
         recommendedMaxHoldBars = recommendedCloseTimingHold stats samples q75OptimalDuration
      in ComboCloseTimingReport
             { cctrComboId = comboId
@@ -304,6 +304,10 @@ analyzeComboCloseTiming comboId prices trades =
 minPositiveLiftSupport :: Int
 minPositiveLiftSupport = 3
 
+positiveLiftSamples :: [TradeTimingSample] -> [TradeTimingSample]
+positiveLiftSamples =
+    filter (\sample -> ttsReturnLift sample > 0 && ttsOptimalDuration sample > 0)
+
 positiveLiftSupportCount :: Int -> [TradeTimingSample] -> Int
 positiveLiftSupportCount q75Bars =
     length . filter supportsCandidateHold
@@ -312,16 +316,26 @@ positiveLiftSupportCount q75Bars =
         ttsReturnLift sample > 0
             && ttsOptimalDuration sample >= q75Bars
 
-{- | Formal invariant for upward hold retunes:
+supportedPositiveLiftDuration :: [TradeTimingSample] -> Maybe Int
+supportedPositiveLiftDuration samples =
+    let durations = map ttsOptimalDuration (positiveLiftSamples samples)
+     in case durations of
+            _ : _ : _ -> percentileInt 0.75 durations
+            _ -> Nothing
 
-A q75 candidate is admissible only when the combo still shows positive median
-lift and at least 'minPositiveLiftSupport' positive-lift samples whose optimal
-duration reaches the candidate hold. This fails closed on sparse profitable
-tail evidence.
+{- | Formal invariant / proof sketch for upward hold retunes:
 
-Proof sketch: 'positiveLiftSupportCount' is monotone in the supporting sample
-set. Lowering the support count below the threshold can preserve or remove a
-recommendation, but it cannot create a more permissive one.
+1. Empty or sparse positive-lift evidence has no supported q75 candidate, so
+   `supportedPositiveLiftDuration = Nothing` and `recommendedMaxHoldBars = Nothing`.
+2. A q75 candidate is admissible only when the combo still shows positive median
+   lift and at least 'minPositiveLiftSupport' positive-lift samples whose optimal
+   duration reaches the candidate hold. This fails closed on sparse profitable
+   tail evidence.
+3. Mixed win/loss evidence may still produce descriptive stats, but any non-positive
+   combo-level median lift keeps `recommendedMaxHoldBars = Nothing`.
+4. `positiveLiftSupportCount` is monotone in the supporting sample set. Lowering
+   the support count below the threshold can preserve or remove a recommendation,
+   but it cannot create a more permissive one.
 -}
 recommendedCloseTimingHold :: Maybe ComboTimingStats -> [TradeTimingSample] -> Maybe Int -> Maybe Int
 recommendedCloseTimingHold (Just stats) samples (Just q75Bars)

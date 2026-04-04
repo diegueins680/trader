@@ -1,5 +1,61 @@
 # Trader Reports
 
+## 2026-03-31
+
+### Findings
+- Primary local data source: `haskell/.tmp/bot/tenants/binance-dc286605a9946343b18aeb2670e23ce51f6d9e0e1b37f50205f1945c6c54016a/bot-state-*.json`, replayed for local date `2026-03-31 America/Guayaquil`.
+- One completed trade touched the target date after timezone normalization:
+  - `ADAUSDT` long, `2h`, entered `2026-03-31 13:00 -05`, exited `2026-03-31 23:00 -05`, return `+0.12177%`, `SIGNAL`
+- Two same-day entries were still open in the snapshot:
+  - `ATOMUSDT` long, `12h`, entry `2026-03-31 07:00 -05`, MTM `+0.03302%`
+  - `LINKUSDT` long, `1h`, entry `2026-03-31 13:00 -05`, MTM `+0.03470%`
+- All three entries were taken in low-directional `chop` conditions. The replayed 24-bar efficiency ratios were `0.0213` (`ADA`), `0.2372` (`ATOM`), and `0.1208` (`LINK`), and the saved latest regime probabilities were consistently low on `trend` and high on `mr` where present.
+- Same-day order-flow evidence was thin and partly ambiguous:
+  - `sameDayOrderEvents=4`
+  - `ackOnlyOrderEvents=3`
+  - `fillEvidenceGaps=2`
+- The most important engineering lesson from today is that the persisted artifacts still show intent more reliably than confirmed execution. `ADAUSDT` and `ATOMUSDT` both had ack-only same-day order records (`status=NEW`, `executedQty=0`) while the replay also showed an active/completed trade, so any strategy diagnosis from this day needs to be treated as provisional until fill provenance is first-class in the saved state.
+
+### Research Notes
+- In low-directional markets, trend systems usually improve more from regime discrimination than from threshold micro-tuning. Kaufman-style efficiency-ratio thinking points the same way as today’s replay: low directional efficiency is usually noise/chop, not strong trend continuation.
+- Choppiness-index / ADX-style filters are standard engineering tools for this exact condition: when directionality is weak and mean-reversion probability is high, either route to a mean-reversion policy or stay flat rather than forcing trend entries.
+- Volatility- and cost-aware trading research still matters here, but today’s realized edge was small enough that measurement error was the bigger risk than missing an obvious alpha opportunity.
+- Inference for this run: do not overfit live rules to one mildly positive chop day. First fix observability so future strategy changes are reacting to trustworthy fill-attributed evidence.
+
+### Hypotheses
+- The correct immediate change is a review/diagnostics improvement, not a live-trading rule change.
+- A daily engineering review should be able to answer four deterministic questions from persisted artifacts alone: what trades completed, what positions remain open, what regimes those entries/exits occurred in, and where order intent still lacks fill evidence.
+- Once that observability invariant is in place, repeated low-efficiency chop days should be evaluated with a replayed trend-entry gate rather than by manually eyeballing individual symbols.
+
+### Metrics
+- Day-scoped replay summary:
+  - Completed trades: `1`
+  - Completed-trade compounded return: `+0.12177%`
+  - Completed-trade average return: `+0.12177%`
+  - Open positions entered today: `2`
+  - Same-day order events: `4`
+  - Ack-only order events: `3`
+  - Active-trade fill-evidence gaps: `2`
+- Regime diagnostics at entry:
+  - `ADAUSDT`: `chop`, efficiency `0.0213`
+  - `ATOMUSDT`: `chop`, efficiency `0.2372`
+  - `LINKUSDT`: `chop`, efficiency `0.1208`
+
+### Changes Made
+- Used Codex to add `haskell/scripts/review_bot_day.py`.
+- The script reconstructs one local trading day from persisted `bot-state-*.json` snapshots, outputs completed/open trades plus same-day order events, classifies the latest regime with explicit 24-bar thresholds, and flags ack-only order events that still lack direct fill evidence for active same-day trades.
+- Updated `README.md` and `CHANGELOG.md` to document the new review utility and its output.
+
+### Validation Results
+- `python3 -m py_compile haskell/scripts/review_bot_day.py` passed.
+- `python3 haskell/scripts/review_bot_day.py --date 2026-03-31 --timezone America/Guayaquil` passed and reproduced the expected summary (`completed=1`, `open_entered_today=2`, `ack_only=3`, `fill_gaps=2`).
+- Codex also ran `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal build` and `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal test trader-tests --test-show-details=direct`; both completed successfully in the agent log.
+
+### Remaining Risks
+- The replay utility improves explainability, but it does not yet close the execution-attribution gap because the underlying snapshots still do not persist enough direct fill provenance.
+- Today’s sample is too small and too mildly positive to justify a live strategy retune by itself.
+- If several future reviews show the same low-efficiency chop pattern after fill provenance is fixed, the next justified code experiment should be a measured regime gate for trend entries rather than another broad signal-threshold adjustment.
+
 ## 2026-03-27
 
 ### Findings
