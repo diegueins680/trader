@@ -1265,6 +1265,7 @@ export function App() {
   const [persistSecrets, setPersistSecrets] = useState<boolean>(() => readJson<boolean>(STORAGE_PERSIST_SECRETS_KEY) ?? false);
   const deployApiBaseUrl = TRADER_UI_CONFIG.apiBaseUrl;
   const apiToken = TRADER_UI_CONFIG.apiToken;
+  const diagnosticsRequestTimeoutMs = TRADER_UI_CONFIG.timeoutsMs?.requestMs ?? 60_000;
   const [stateSyncTargetInput, setStateSyncTargetInput] = useState<string>(() => readLocalString(STORAGE_STATE_SYNC_TARGET_KEY) ?? "");
   const [stateSyncTargetToken, setStateSyncTargetToken] = useStoredSecret(STORAGE_STATE_SYNC_TOKEN_KEY, persistSecrets);
   const [stateSyncIncludeBots, setStateSyncIncludeBots] = useState(true);
@@ -4932,8 +4933,8 @@ export function App() {
             : authHeaders;
 
         const out = isBinancePlatform
-          ? await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: requestHeaders, timeoutMs: 30_000 })
-          : await coinbaseKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
+          ? await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: requestHeaders, timeoutMs: diagnosticsRequestTimeoutMs })
+          : await coinbaseKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: diagnosticsRequestTimeoutMs });
         if (requestId !== keysRequestSeqRef.current) return;
         setKeys({ loading: false, error: null, status: out, platform, checkedAtMs: Date.now() });
         appendDataLog(`Key Status${opts?.silent ? " (auto)" : ""}`, out, { background: Boolean(opts?.silent) });
@@ -4978,7 +4979,19 @@ export function App() {
         if (requestId === keysRequestSeqRef.current) keysAbortRef.current = null;
       }
     },
-    [apiBase, appendDataLog, authHeaders, buildDataLogError, fetchTimedRequestProgressMessage, isBinancePlatform, isCoinbasePlatform, keysParams, platform, showToast],
+    [
+      apiBase,
+      appendDataLog,
+      authHeaders,
+      buildDataLogError,
+      diagnosticsRequestTimeoutMs,
+      fetchTimedRequestProgressMessage,
+      isBinancePlatform,
+      isCoinbasePlatform,
+      keysParams,
+      platform,
+      showToast,
+    ],
   );
 
   useEffect(() => {
@@ -6298,7 +6311,7 @@ export function App() {
       };
       const out = await binancePositions(apiBase, withBinanceKeys(params), {
         headers: { ...(authHeaders ?? {}), [REQUEST_PROGRESS_HEADER]: progressRequestId },
-        timeoutMs: 30_000,
+        timeoutMs: diagnosticsRequestTimeoutMs,
         signal: controller.signal,
       });
       setBinancePositionsUi({ loading: false, error: null, response: out });
@@ -6332,6 +6345,7 @@ export function App() {
     authHeaders,
     binancePositionsInputError,
     binancePositionsLimitSafe,
+    diagnosticsRequestTimeoutMs,
     fetchBinancePositionTrades,
     fetchTimedRequestProgressMessage,
     form.binanceTestnet,

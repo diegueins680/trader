@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Web UI: make Binance "Check keys" and Open positions honor `timeoutsMs.requestMs` instead of a hardcoded `30s` cap, and raise the default deploy-time request timeout to `60s` so slower exchange diagnostics do not fail prematurely on Fly.
+- Ops/Diagnostics: add `haskell/scripts/review_bot_day.py` to replay one local trading day from persisted `bot-state-*.json` snapshots, enumerate completed/open trades and same-day order events, classify recent regimes with explicit 24-bar thresholds, distinguish confirmed same-day open entries from adopted/inherited carry positions using saved order evidence when available, surface ambiguous carry provenance instead of misreporting it as a fresh entry, and flag ack-only order events that still lack direct fill evidence in saved artifacts.
 - Trading/Formal: restore close-timing `recommendedMaxHoldBars` to the analyzer's positive-lift `Q75` optimal duration instead of suppressing upward retunes before the dedicated backfill rerun validates them.
 - Dev/CI: teach the repo-local autoloop supervisor to auto-snapshot recoverable failed-cycle dirty worktrees onto pushed `autoloop/wip/<base-branch>/...` rescue branches, then return to the loop branch so later cycles do not stall on bot-generated dirt; unrelated local edits still block for operator review.
 - Dev/CI: fix the repo-local autoloop dirty-worktree recovery path so single-file failed-cycle edits from `git status --porcelain` still match `changedPaths` exactly and get snapshotted to rescue branches instead of staying blocked on `main`.

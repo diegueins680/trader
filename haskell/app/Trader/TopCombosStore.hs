@@ -569,15 +569,15 @@ closeTimingRecommendationEvidenceFloor = 3
 
 closeTimingEvidenceSampleCount :: Aeson.Object -> Maybe Int
 closeTimingEvidenceSampleCount report =
-    KM.lookup (AK.fromString "positiveLiftSampleCount") report >>= coerceIntValue
-        <|> KM.lookup (AK.fromString "profitableSupportSampleCount") report >>= coerceIntValue
-        <|> KM.lookup (AK.fromString "positiveLiftSupportCount") report >>= coerceIntValue
+    (KM.lookup (AK.fromString "positiveLiftSampleCount") report >>= coerceIntValue)
+        <|> (KM.lookup (AK.fromString "profitableSupportSampleCount") report >>= coerceIntValue)
+        <|> (KM.lookup (AK.fromString "positiveLiftSupportCount") report >>= coerceIntValue)
 
 closeTimingEvidenceFloorMaybe :: Aeson.Object -> Maybe Int
 closeTimingEvidenceFloorMaybe report =
-    KM.lookup (AK.fromString "minimumPositiveLiftSampleCount") report >>= coerceIntValue
-        <|> KM.lookup (AK.fromString "minimumProfitableSupportSampleCount") report >>= coerceIntValue
-        <|> KM.lookup (AK.fromString "minimumEvidenceSampleCount") report >>= coerceIntValue
+    (KM.lookup (AK.fromString "minimumPositiveLiftSampleCount") report >>= coerceIntValue)
+        <|> (KM.lookup (AK.fromString "minimumProfitableSupportSampleCount") report >>= coerceIntValue)
+        <|> (KM.lookup (AK.fromString "minimumEvidenceSampleCount") report >>= coerceIntValue)
 
 validatedCloseTimingRecommendation :: Aeson.Object -> Maybe Int
 validatedCloseTimingRecommendation report = do

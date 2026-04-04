@@ -341,7 +341,8 @@ recommendedCloseTimingHold :: Maybe ComboTimingStats -> Int -> Maybe Int -> Mayb
 recommendedCloseTimingHold (Just stats) supportCount (Just q75Bars)
     | supportCount >= minimumPositiveLiftSupportSamples
     , ctsMedianLift stats > 0
-    , q75Bars > 0 = Just q75Bars
+    , q75Bars > 0 =
+        Just q75Bars
 recommendedCloseTimingHold _ _ _ = Nothing
 
 timingRatio :: TradeTimingSample -> Double
