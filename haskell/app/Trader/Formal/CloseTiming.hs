@@ -11,6 +11,8 @@ module Trader.Formal.CloseTiming (
     analyzeComboCloseTiming,
     buildCloseTimingStats,
     closeTimingDecision,
+    minimumCloseTimingSamples,
+    minimumPositiveLiftSupportSamples,
     optimalCloseObservation,
     summarizeAllCombos,
     summarizeComboTiming,
@@ -89,10 +91,14 @@ data ComboTimingStats = ComboTimingStats
     }
     deriving (Eq, Show)
 
--- | Combo-level report used to retune timing-based exits from historical trades.
+{- | Combo-level report used to retune timing-based exits from historical trades.
+Retunes fail closed unless the positive-lift q75 candidate is supported by
+enough analyzed trades.
+-}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
     , cctrSampleCount :: !Int
+    , cctrPositiveLiftSampleCount :: !Int
     , cctrMedianRatio :: !(Maybe Double)
     , cctrQ25Ratio :: !(Maybe Double)
     , cctrQ75Ratio :: !(Maybe Double)
@@ -277,14 +283,15 @@ analyzeComboCloseTiming comboId prices trades =
     let normalizedTrades = map normalizeTrade trades
         samples = timingSamples prices normalizedTrades
         stats = summarizeComboTiming samples
-        profitableSupportCount = positiveLiftSupportCount samples
+        positiveLiftSampleCount = positiveLiftSupportCount samples
         medianObservedDuration = percentileInt 0.5 (map ttsObservedDuration samples)
         medianOptimalDuration = percentileInt 0.5 (map ttsOptimalDuration samples)
         q75OptimalDuration = supportedPositiveLiftDuration samples
-        recommendedMaxHoldBars = recommendedCloseTimingHold stats profitableSupportCount q75OptimalDuration
+        recommendedMaxHoldBars = recommendedCloseTimingHold stats positiveLiftSampleCount q75OptimalDuration
      in ComboCloseTimingReport
             { cctrComboId = comboId
             , cctrSampleCount = length samples
+            , cctrPositiveLiftSampleCount = positiveLiftSampleCount
             , cctrMedianRatio = fmap (\ComboTimingStats{ctsMedianRatio = v} -> v) stats
             , cctrQ25Ratio = fmap (\ComboTimingStats{ctsQ25Ratio = v} -> v) stats
             , cctrQ75Ratio = fmap (\ComboTimingStats{ctsQ75Ratio = v} -> v) stats
@@ -300,6 +307,9 @@ analyzeComboCloseTiming comboId prices trades =
     normalizeTrade trade
         | ctComboId trade == "unknown" || null (ctComboId trade) = trade{ctComboId = comboId}
         | otherwise = trade
+
+minimumCloseTimingSamples :: Int
+minimumCloseTimingSamples = 5
 
 minimumPositiveLiftSupportSamples :: Int
 minimumPositiveLiftSupportSamples = 3
@@ -324,24 +334,32 @@ supportedPositiveLiftDuration samples
     | not (hasMinimumPositiveLiftSupport samples) = Nothing
     | otherwise = percentileInt 0.75 (positiveLiftSupportDurations samples)
 
+legacyCloseTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
+legacyCloseTimingRecommendationEligible stats q75Bars =
+    ctsMedianLift stats > 0 && q75Bars > 0
+
+closeTimingRecommendationEligible :: ComboTimingStats -> Int -> Int -> Bool
+closeTimingRecommendationEligible stats positiveLiftCount q75Bars =
+    ctsSampleCount stats >= minimumCloseTimingSamples
+        && positiveLiftCount >= minimumPositiveLiftSupportSamples
+        && legacyCloseTimingRecommendationEligible stats q75Bars
+
 {- | Formal invariant / proof sketch for close-timing retunes:
 
 1. Sparse profitable support fails closed: if the profitable-support sample is empty or has
    fewer than `minimumPositiveLiftSupportSamples` members, then
    `supportedPositiveLiftDuration = Nothing` and `recommendedMaxHoldBars = Nothing`.
-2. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
+2. Even when positive-lift support exists, low total sample count still fails closed:
+   `ctsSampleCount < minimumCloseTimingSamples` keeps `recommendedMaxHoldBars = Nothing`.
+3. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
    `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
-3. Any emitted recommendation is exact evidence-backed support: when a recommendation exists,
+4. Any emitted recommendation is exact evidence-backed support: when a recommendation exists,
    it is exactly the q75 profitable-support duration and therefore comes from the profitable
    support window rather than from unsupported or more permissive data.
-4. Downstream consumers can safely require `recommendedMaxHoldBars == q75OptimalDuration`
-   before rewriting `maxHoldBars`, because unsupported histories never emit a recommendation.
 -}
 recommendedCloseTimingHold :: Maybe ComboTimingStats -> Int -> Maybe Int -> Maybe Int
-recommendedCloseTimingHold (Just stats) supportCount (Just q75Bars)
-    | supportCount >= minimumPositiveLiftSupportSamples
-    , ctsMedianLift stats > 0
-    , q75Bars > 0 =
+recommendedCloseTimingHold (Just stats) positiveLiftCount (Just q75Bars)
+    | closeTimingRecommendationEligible stats positiveLiftCount q75Bars =
         Just q75Bars
 recommendedCloseTimingHold _ _ _ = Nothing
 
