@@ -828,6 +828,7 @@ Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 - Set `TRADER_BOT_STATE_DIR` to a writable directory (writes `bot-state-<symbol>.json`; set empty to disable)
 - When unset, defaults to `TRADER_STATE_DIR/bot` (if set) or `.tmp/bot` (local only).
 - When S3 persistence is enabled, the API serves local snapshots first and only falls back to S3 when local data is missing.
+- For day-scoped review of persisted bot snapshots, run `python3 haskell/scripts/review_bot_day.py --date 2026-03-31 --timezone America/Guayaquil`. The script auto-selects the latest tenant by default, reconstructs completed/open trades for the local calendar day, labels the recent price regime with explicit 24-bar thresholds, distinguishes confirmed same-day open entries from adopted/inherited carry positions using saved order evidence when available, surfaces ambiguous carry provenance instead of misreporting it as a fresh entry, and flags ack-only order events (`status=NEW`, zero executed quantity) that still lack direct fill evidence in the saved artifacts.
 - `TRADER_BOT_AUTOSTART` (default: `true`) enables auto-starting the live bot on API boot (set to `false` to disable).
 - `TRADER_BOT_TOP_COMBO_BOTS` (default: `50`, min: `0`) caps how many top-combo symbols auto-start targets; set `0` to disable top-combo expansion.
 - `TRADER_BOT_TOP_COMBO_BOTS_STARTUP` (default: steady-state value, min: `0`) sets startup-phase top-combo target count before switching to steady-state auto-start targets.
@@ -1213,6 +1214,7 @@ Timeouts:
 - Backend: set `TRADER_API_TIMEOUT_SEC` (default: `1800`) when starting `trader-hs`.
 - Frontend: set `timeoutsMs` in `haskell/web/public/trader-config.js` to increase UI request timeouts (e.g. long backtests).
 - Frontend: `timeoutsMs.*` accepts only exact safe-integer millisecond values; fractional or unsafe integer-like values are ignored instead of being rounded to a different timeout.
+- Frontend: `timeoutsMs.requestMs` now controls sync Binance diagnostics such as "Check keys" and Open positions; the repo default is `60000` ms so slower exchange probes do not trip the old fixed `30s` cap.
 - Frontend: `timeoutsMs.botStatusMs` controls live bot status polling timeouts (useful if `/bot/status` is slow).
 - Frontend: Binance listenKey start/keep-alive/close requests use a 90s UI timeout to tolerate backend retry/backoff under transient Binance/API network issues.
 - Frontend (dev proxy): set `TRADER_UI_PROXY_TIMEOUT_MS` to increase the Vite `/api` proxy timeout.

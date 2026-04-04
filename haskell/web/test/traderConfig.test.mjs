@@ -21,6 +21,8 @@ test("trader-config infers direct Fly API host for -web-hs naming", () => {
   assert.equal(config.apiBaseUrl, "/api");
   assert.equal(config.apiBaseUrlInferred, true);
   assert.equal(config.apiFallbackUrl, "https://trader-hs.fly.dev");
+  assert.equal(config.timeoutsMs?.requestMs, 60000);
+  assert.equal(config.timeoutsMs?.botStatusMs, 120000);
 });
 
 test("trader-config does not infer direct Fly API host for plain -web suffix naming", () => {

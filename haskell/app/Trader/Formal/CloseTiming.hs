@@ -89,9 +89,10 @@ data ComboTimingStats = ComboTimingStats
     }
     deriving (Eq, Show)
 
--- | Combo-level report used to retune timing-based exits from historical trades.
--- Retunes fail closed unless the positive-lift q75 candidate is supported by
--- enough analyzed trades.
+{- | Combo-level report used to retune timing-based exits from historical trades.
+Retunes fail closed unless the positive-lift q75 candidate is supported by
+enough analyzed trades.
+-}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
     , cctrSampleCount :: !Int
@@ -281,7 +282,7 @@ analyzeComboCloseTiming comboId prices trades =
         stats = summarizeComboTiming samples
         medianObservedDuration = percentileInt 0.5 (map ttsObservedDuration samples)
         medianOptimalDuration = percentileInt 0.5 (map ttsOptimalDuration samples)
-        q75OptimalDuration = percentileInt 0.75 (map ttsOptimalDuration samples)
+        q75OptimalDuration = supportedPositiveLiftDuration samples
         recommendedMaxHoldBars = recommendedCloseTimingHold stats q75OptimalDuration
      in ComboCloseTimingReport
             { cctrComboId = comboId
@@ -305,15 +306,33 @@ analyzeComboCloseTiming comboId prices trades =
 minimumCloseTimingSamples :: Int
 minimumCloseTimingSamples = 5
 
+positiveLiftSamples :: [TradeTimingSample] -> [TradeTimingSample]
+positiveLiftSamples =
+    filter (\sample -> ttsReturnLift sample > 0 && ttsOptimalDuration sample > 0)
+
+supportedPositiveLiftDuration :: [TradeTimingSample] -> Maybe Int
+supportedPositiveLiftDuration samples =
+    let durations = map ttsOptimalDuration (positiveLiftSamples samples)
+     in case durations of
+            _ : _ : _ -> percentileInt 0.75 durations
+            _ -> Nothing
+
 legacyCloseTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
 legacyCloseTimingRecommendationEligible stats q75Bars =
     ctsMedianLift stats > 0 && q75Bars > 0
 
--- | Formal retune invariant:
--- low-support reports must fail closed, and any surviving recommendation
--- still satisfies the legacy positive-lift/q75 rule. Because the new gate is
--- `sampleFloor && legacyRule`, it can suppress weak recommendations but can
--- never create one that the legacy rule would reject.
+{- | Formal invariant / proof sketch for close-timing retunes:
+
+1. Sparse positive-lift evidence has no positive-lift support, so
+   `supportedPositiveLiftDuration = Nothing` and `recommendedMaxHoldBars = Nothing`.
+2. Even when positive-lift support exists, low total sample count still fails closed:
+   `ctsSampleCount < minimumCloseTimingSamples` keeps `recommendedMaxHoldBars = Nothing`.
+3. Mixed win/loss evidence may still produce descriptive stats, but any non-positive
+   combo-level median lift keeps `recommendedMaxHoldBars = Nothing`.
+4. Any emitted recommendation must satisfy the legacy positive-lift/q75 rule and is
+   drawn from repeated positive-lift support, so retunes stay bounded by observed
+   profitable support.
+-}
 closeTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
 closeTimingRecommendationEligible stats q75Bars =
     ctsSampleCount stats >= minimumCloseTimingSamples
