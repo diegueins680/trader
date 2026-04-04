@@ -564,13 +564,54 @@ comboCloseTimingReport comboObj =
     closeTimingObject (Aeson.Object report) = Just report
     closeTimingObject _ = Nothing
 
+closeTimingRecommendationEvidenceFloor :: Int
+closeTimingRecommendationEvidenceFloor = 3
+
+closeTimingMinimumSampleCount :: Int
+closeTimingMinimumSampleCount = 5
+
+closeTimingEvidenceSampleCount :: Aeson.Object -> Maybe Int
+closeTimingEvidenceSampleCount report =
+    (KM.lookup (AK.fromString "positiveLiftSampleCount") report >>= coerceIntValue)
+        <|> (KM.lookup (AK.fromString "profitableSupportSampleCount") report >>= coerceIntValue)
+        <|> (KM.lookup (AK.fromString "positiveLiftSupportCount") report >>= coerceIntValue)
+
+closeTimingPositiveLiftFloorMaybe :: Aeson.Object -> Maybe Int
+closeTimingPositiveLiftFloorMaybe report =
+    (KM.lookup (AK.fromString "minimumPositiveLiftSampleCount") report >>= coerceIntValue)
+        <|> (KM.lookup (AK.fromString "minimumProfitableSupportSampleCount") report >>= coerceIntValue)
+        <|> (KM.lookup (AK.fromString "positiveLiftSupportFloor") report >>= coerceIntValue)
+
+closeTimingMinimumSampleCountMaybe :: Aeson.Object -> Maybe Int
+closeTimingMinimumSampleCountMaybe report =
+    (KM.lookup (AK.fromString "minimumSampleCount") report >>= coerceIntValue)
+        <|> (KM.lookup (AK.fromString "minimumEvidenceSampleCount") report >>= coerceIntValue)
+
+hasSufficientCloseTimingPositiveLiftSupport :: Int -> Int -> Int -> Bool
+hasSufficientCloseTimingPositiveLiftSupport sampleCount positiveLiftSampleCount positiveLiftFloor =
+    sampleCount >= positiveLiftSampleCount
+        && positiveLiftSampleCount >= positiveLiftFloor
+
 validatedCloseTimingRecommendation :: Aeson.Object -> Maybe Int
 validatedCloseTimingRecommendation report = do
     recommended <- KM.lookup (AK.fromString "recommendedMaxHoldBars") report >>= coerceIntValue
     supportBound <- KM.lookup (AK.fromString "q75OptimalDuration") report >>= coerceIntValue
     sampleCount <- KM.lookup (AK.fromString "sampleCount") report >>= coerceIntValue
     medianLift <- KM.lookup (AK.fromString "medianLift") report >>= coerceDoubleValue
-    if recommended > 0 && supportBound > 0 && sampleCount > 1 && medianLift > 0 && recommended <= supportBound
+    let positiveLiftFloor =
+            fromMaybe closeTimingRecommendationEvidenceFloor (closeTimingPositiveLiftFloorMaybe report)
+        minimumSampleCount =
+            fromMaybe closeTimingMinimumSampleCount (closeTimingMinimumSampleCountMaybe report)
+        supportSamples =
+            fromMaybe positiveLiftFloor (closeTimingEvidenceSampleCount report)
+        evidenceBacked =
+            hasSufficientCloseTimingPositiveLiftSupport sampleCount supportSamples positiveLiftFloor
+                && recommended == supportBound
+    if recommended > 0
+        && supportBound > 0
+        && sampleCount >= minimumSampleCount
+        && medianLift > 0
+        && evidenceBacked
         then Just recommended
         else Nothing
 

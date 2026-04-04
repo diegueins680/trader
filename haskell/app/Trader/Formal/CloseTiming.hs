@@ -11,6 +11,8 @@ module Trader.Formal.CloseTiming (
     analyzeComboCloseTiming,
     buildCloseTimingStats,
     closeTimingDecision,
+    minimumCloseTimingSamples,
+    minimumPositiveLiftSupportSamples,
     optimalCloseObservation,
     summarizeAllCombos,
     summarizeComboTiming,
@@ -89,10 +91,14 @@ data ComboTimingStats = ComboTimingStats
     }
     deriving (Eq, Show)
 
--- | Combo-level report used to retune timing-based exits from historical trades.
+{- | Combo-level report used to retune timing-based exits from historical trades.
+Retunes fail closed unless the positive-lift q75 candidate is supported by
+enough analyzed trades.
+-}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
     , cctrSampleCount :: !Int
+    , cctrPositiveLiftSampleCount :: !Int
     , cctrMedianRatio :: !(Maybe Double)
     , cctrQ25Ratio :: !(Maybe Double)
     , cctrQ75Ratio :: !(Maybe Double)
@@ -277,13 +283,15 @@ analyzeComboCloseTiming comboId prices trades =
     let normalizedTrades = map normalizeTrade trades
         samples = timingSamples prices normalizedTrades
         stats = summarizeComboTiming samples
+        positiveLiftSampleCount = positiveLiftSupportCount samples
         medianObservedDuration = percentileInt 0.5 (map ttsObservedDuration samples)
         medianOptimalDuration = percentileInt 0.5 (map ttsOptimalDuration samples)
         q75OptimalDuration = supportedPositiveLiftDuration samples
-        recommendedMaxHoldBars = recommendedCloseTimingHold stats samples q75OptimalDuration
+        recommendedMaxHoldBars = recommendedCloseTimingHold stats positiveLiftSampleCount q75OptimalDuration
      in ComboCloseTimingReport
             { cctrComboId = comboId
             , cctrSampleCount = length samples
+            , cctrPositiveLiftSampleCount = positiveLiftSampleCount
             , cctrMedianRatio = fmap (\ComboTimingStats{ctsMedianRatio = v} -> v) stats
             , cctrQ25Ratio = fmap (\ComboTimingStats{ctsQ25Ratio = v} -> v) stats
             , cctrQ75Ratio = fmap (\ComboTimingStats{ctsQ75Ratio = v} -> v) stats
@@ -300,48 +308,58 @@ analyzeComboCloseTiming comboId prices trades =
         | ctComboId trade == "unknown" || null (ctComboId trade) = trade{ctComboId = comboId}
         | otherwise = trade
 
--- | Minimum profitable tail support required before increasing max-hold bars.
-minPositiveLiftSupport :: Int
-minPositiveLiftSupport = 3
+minimumCloseTimingSamples :: Int
+minimumCloseTimingSamples = 5
+
+minimumPositiveLiftSupportSamples :: Int
+minimumPositiveLiftSupportSamples = 3
 
 positiveLiftSamples :: [TradeTimingSample] -> [TradeTimingSample]
 positiveLiftSamples =
     filter (\sample -> ttsReturnLift sample > 0 && ttsOptimalDuration sample > 0)
 
-positiveLiftSupportCount :: Int -> [TradeTimingSample] -> Int
-positiveLiftSupportCount q75Bars =
-    length . filter supportsCandidateHold
-  where
-    supportsCandidateHold sample =
-        ttsReturnLift sample > 0
-            && ttsOptimalDuration sample >= q75Bars
+positiveLiftSupportDurations :: [TradeTimingSample] -> [Int]
+positiveLiftSupportDurations =
+    map ttsOptimalDuration . positiveLiftSamples
+
+positiveLiftSupportCount :: [TradeTimingSample] -> Int
+positiveLiftSupportCount = length . positiveLiftSupportDurations
+
+hasMinimumPositiveLiftSupport :: [TradeTimingSample] -> Bool
+hasMinimumPositiveLiftSupport samples =
+    positiveLiftSupportCount samples >= minimumPositiveLiftSupportSamples
 
 supportedPositiveLiftDuration :: [TradeTimingSample] -> Maybe Int
-supportedPositiveLiftDuration samples =
-    let durations = map ttsOptimalDuration (positiveLiftSamples samples)
-     in case durations of
-            _ : _ : _ -> percentileInt 0.75 durations
-            _ -> Nothing
+supportedPositiveLiftDuration samples
+    | not (hasMinimumPositiveLiftSupport samples) = Nothing
+    | otherwise = percentileInt 0.75 (positiveLiftSupportDurations samples)
+
+legacyCloseTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
+legacyCloseTimingRecommendationEligible stats q75Bars =
+    ctsMedianLift stats > 0 && q75Bars > 0
+
+closeTimingRecommendationEligible :: ComboTimingStats -> Int -> Int -> Bool
+closeTimingRecommendationEligible stats positiveLiftCount q75Bars =
+    ctsSampleCount stats >= minimumCloseTimingSamples
+        && positiveLiftCount >= minimumPositiveLiftSupportSamples
+        && legacyCloseTimingRecommendationEligible stats q75Bars
 
 {- | Formal invariant / proof sketch for upward hold retunes:
 
-1. Empty or sparse positive-lift evidence has no supported q75 candidate, so
+1. Sparse profitable support fails closed: if the profitable-support sample is empty or has
+   fewer than `minimumPositiveLiftSupportSamples` members, then
    `supportedPositiveLiftDuration = Nothing` and `recommendedMaxHoldBars = Nothing`.
-2. A q75 candidate is admissible only when the combo still shows positive median
-   lift and at least 'minPositiveLiftSupport' positive-lift samples whose optimal
-   duration reaches the candidate hold. This fails closed on sparse profitable
-   tail evidence.
-3. Mixed win/loss evidence may still produce descriptive stats, but any non-positive
-   combo-level median lift keeps `recommendedMaxHoldBars = Nothing`.
-4. `positiveLiftSupportCount` is monotone in the supporting sample set. Lowering
-   the support count below the threshold can preserve or remove a recommendation,
-   but it cannot create a more permissive one.
+2. Even when positive-lift support exists, low total sample count still fails closed:
+   `ctsSampleCount < minimumCloseTimingSamples` keeps `recommendedMaxHoldBars = Nothing`.
+3. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
+   `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
+4. Any emitted recommendation is exact evidence-backed support: when a recommendation exists,
+   it is exactly the q75 profitable-support duration and therefore comes from the profitable
+   support window rather than from unsupported or more permissive data.
 -}
-recommendedCloseTimingHold :: Maybe ComboTimingStats -> [TradeTimingSample] -> Maybe Int -> Maybe Int
-recommendedCloseTimingHold (Just stats) samples (Just q75Bars)
-    | ctsMedianLift stats > 0
-    , q75Bars > 0
-    , positiveLiftSupportCount q75Bars samples >= minPositiveLiftSupport =
+recommendedCloseTimingHold :: Maybe ComboTimingStats -> Int -> Maybe Int -> Maybe Int
+recommendedCloseTimingHold (Just stats) positiveLiftCount (Just q75Bars)
+    | closeTimingRecommendationEligible stats positiveLiftCount q75Bars =
         Just q75Bars
 recommendedCloseTimingHold _ _ _ = Nothing
 
