@@ -348,7 +348,7 @@ legacyCloseTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
 legacyCloseTimingRecommendationEligible stats q75Bars =
     ctsMedianLift stats > 0 && q75Bars > 0
 
-{- | Formal invariant / proof sketch for close-timing retunes:
+{- | Formal invariant / proof sketch for upward hold retunes:
 
 1. Sparse profitable support fails closed: if the profitable-support sample is empty or has
    fewer than `minimumPositiveLiftSupportSamples` members, then
