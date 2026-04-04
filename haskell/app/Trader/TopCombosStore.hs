@@ -564,13 +564,26 @@ comboCloseTimingReport comboObj =
     closeTimingObject (Aeson.Object report) = Just report
     closeTimingObject _ = Nothing
 
+closeTimingPositiveLiftSupportFloor :: Int
+closeTimingPositiveLiftSupportFloor = 3
+
+hasSufficientCloseTimingPositiveLiftSupport :: Int -> Int -> Bool
+hasSufficientCloseTimingPositiveLiftSupport sampleCount positiveLiftSampleCount =
+    sampleCount >= positiveLiftSampleCount
+        && positiveLiftSampleCount >= closeTimingPositiveLiftSupportFloor
+
 validatedCloseTimingRecommendation :: Aeson.Object -> Maybe Int
 validatedCloseTimingRecommendation report = do
     recommended <- KM.lookup (AK.fromString "recommendedMaxHoldBars") report >>= coerceIntValue
     supportBound <- KM.lookup (AK.fromString "q75OptimalDuration") report >>= coerceIntValue
     sampleCount <- KM.lookup (AK.fromString "sampleCount") report >>= coerceIntValue
+    positiveLiftSampleCount <- KM.lookup (AK.fromString "positiveLiftSampleCount") report >>= coerceIntValue
     medianLift <- KM.lookup (AK.fromString "medianLift") report >>= coerceDoubleValue
-    if recommended > 0 && supportBound > 0 && sampleCount > 1 && medianLift > 0 && recommended <= supportBound
+    if recommended > 0
+        && supportBound > 0
+        && hasSufficientCloseTimingPositiveLiftSupport sampleCount positiveLiftSampleCount
+        && medianLift > 0
+        && recommended <= supportBound
         then Just recommended
         else Nothing
 
