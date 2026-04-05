@@ -4199,15 +4199,25 @@ testCloseTimingSummaryRatios = do
             assert "median ratio is >= 1 for profitable extensions" (medianRatio >= 1)
         _ -> error "expected one combo summary"
 
+closeTimingRecommendationPrices :: [Double]
+closeTimingRecommendationPrices = [100, 102, 104, 103, 106, 108, 107, 110, 109]
+
+closeTimingRecommendationTrades :: [ComboTrade]
+closeTimingRecommendationTrades =
+    [ ComboTrade "combo-a" 0 2 100 1
+    , ComboTrade "combo-a" 1 3 102 1
+    , ComboTrade "combo-a" 2 4 104 1
+    , ComboTrade "combo-a" 3 5 103 1
+    , ComboTrade "combo-a" 4 6 106 1
+    ]
+
 testCloseTimingRecommendsMaxHoldBars :: IO ()
 testCloseTimingRecommendsMaxHoldBars = do
-    let prices = [100, 102, 104, 103, 106, 108, 107]
-        trades =
-            [ ComboTrade "combo-a" 0 2 100 1
-            , ComboTrade "combo-a" 1 3 102 1
-            ]
+    let prices = closeTimingRecommendationPrices
+        trades = closeTimingRecommendationTrades
         report = analyzeComboCloseTiming "combo-a" prices trades
-    assert "report keeps sample count" (cctrSampleCount report == 2)
+    assert "report keeps sample count" (cctrSampleCount report == 5)
+    assert "report keeps positive-lift support count" (cctrPositiveLiftSampleCount report == 5)
     assert "positive lift yields a max-hold recommendation" (cctrRecommendedMaxHoldBars report == Just 4)
     assert "median lift stays positive" (maybe False (> 0) (cctrMedianLift report))
 
@@ -4225,16 +4235,13 @@ testCloseTimingBacktestReportHelper = do
             object
                 [ "backtest"
                     .= object
-                        [ "prices" .= ([100, 102, 104, 103, 106, 108, 107] :: [Double])
-                        , "positions" .= ([1, 1, 1, 1, 1, 0, 0] :: [Double])
-                        , "trades"
-                            .= [ object ["entryIndex" .= (0 :: Int), "exitIndex" .= (2 :: Int)]
-                               , object ["entryIndex" .= (1 :: Int), "exitIndex" .= (3 :: Int)]
-                               ]
+                        [ "prices" .= closeTimingRecommendationPrices
+                        , "positions" .= ([1, 1, 1, 1, 1, 1, 1, 0, 0] :: [Double])
+                        , "trades" .= map (\trade -> object ["entryIndex" .= ctEntryIndex trade, "exitIndex" .= ctExitIndex trade]) closeTimingRecommendationTrades
                         ]
                 ]
         report = closeTimingReportFromBacktest "combo-a" (Just payload)
-    assert "helper extracts close-timing samples from backtest payloads" (cctrSampleCount report == 2)
+    assert "helper extracts close-timing samples from backtest payloads" (cctrSampleCount report == 5)
     assert "helper preserves the analyzer recommendation" (appliedCloseTimingMaxHoldBars (Just 2) report == Just 4)
 
 formalVerificationReport :: FormalVerificationReport
