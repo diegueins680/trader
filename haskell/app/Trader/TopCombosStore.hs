@@ -592,26 +592,69 @@ hasSufficientCloseTimingPositiveLiftSupport sampleCount positiveLiftSampleCount 
     sampleCount >= positiveLiftSampleCount
         && positiveLiftSampleCount >= positiveLiftFloor
 
+closeTimingRatioValue :: String -> Aeson.Object -> Maybe Double
+closeTimingRatioValue key report =
+    KM.lookup (AK.fromString key) report >>= coerceDoubleValue
+
+closeTimingRatiosWithinAnalyzedBounds :: Aeson.Object -> Bool
+closeTimingRatiosWithinAnalyzedBounds report =
+    fromMaybe False $ do
+        q25 <- closeTimingRatioValue "q25Ratio" report
+        median <- closeTimingRatioValue "medianRatio" report
+        q75 <- closeTimingRatioValue "q75Ratio" report
+        pure
+            ( q25 >= 0
+                && q25 <= median
+                && median <= q75
+                && q75 <= 2
+            )
+
+closeTimingDurationSummaryConsistent :: Aeson.Object -> Int -> Bool
+closeTimingDurationSummaryConsistent report supportBound =
+    fromMaybe False $ do
+        medianObservedDuration <- KM.lookup (AK.fromString "medianObservedDuration") report >>= coerceIntValue
+        medianOptimalDuration <- KM.lookup (AK.fromString "medianOptimalDuration") report >>= coerceIntValue
+        pure
+            ( medianObservedDuration > 0
+                && medianOptimalDuration > 0
+                && medianOptimalDuration <= supportBound
+            )
+
+closeTimingRecommendationContractHolds :: Aeson.Object -> Int -> Int -> Int -> Int -> Double -> Int -> Int -> Bool
+closeTimingRecommendationContractHolds report recommended supportBound sampleCount positiveLiftSampleCount medianLift positiveLiftFloor minimumSampleCount =
+    recommended > 0
+        && supportBound > 0
+        && recommended == supportBound
+        && sampleCount >= minimumSampleCount
+        && medianLift > 0
+        && hasSufficientCloseTimingPositiveLiftSupport sampleCount positiveLiftSampleCount positiveLiftFloor
+        && closeTimingRatiosWithinAnalyzedBounds report
+        && closeTimingDurationSummaryConsistent report supportBound
+
 validatedCloseTimingRecommendation :: Aeson.Object -> Maybe Int
 validatedCloseTimingRecommendation report = do
     recommended <- KM.lookup (AK.fromString "recommendedMaxHoldBars") report >>= coerceIntValue
     supportBound <- KM.lookup (AK.fromString "q75OptimalDuration") report >>= coerceIntValue
     sampleCount <- KM.lookup (AK.fromString "sampleCount") report >>= coerceIntValue
+    positiveLiftSampleCount <- closeTimingEvidenceSampleCount report
     medianLift <- KM.lookup (AK.fromString "medianLift") report >>= coerceDoubleValue
     let positiveLiftFloor =
-            fromMaybe closeTimingRecommendationEvidenceFloor (closeTimingPositiveLiftFloorMaybe report)
+            max
+                closeTimingRecommendationEvidenceFloor
+                (fromMaybe closeTimingRecommendationEvidenceFloor (closeTimingPositiveLiftFloorMaybe report))
         minimumSampleCount =
-            fromMaybe closeTimingMinimumSampleCount (closeTimingMinimumSampleCountMaybe report)
-        supportSamples =
-            fromMaybe positiveLiftFloor (closeTimingEvidenceSampleCount report)
-        evidenceBacked =
-            hasSufficientCloseTimingPositiveLiftSupport sampleCount supportSamples positiveLiftFloor
-                && recommended == supportBound
-    if recommended > 0
-        && supportBound > 0
-        && sampleCount >= minimumSampleCount
-        && medianLift > 0
-        && evidenceBacked
+            max
+                closeTimingMinimumSampleCount
+                (fromMaybe closeTimingMinimumSampleCount (closeTimingMinimumSampleCountMaybe report))
+    if closeTimingRecommendationContractHolds
+        report
+        recommended
+        supportBound
+        sampleCount
+        positiveLiftSampleCount
+        medianLift
+        positiveLiftFloor
+        minimumSampleCount
         then Just recommended
         else Nothing
 

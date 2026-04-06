@@ -93,7 +93,7 @@ data ComboTimingStats = ComboTimingStats
 
 {- | Combo-level report used to retune timing-based exits from historical trades.
 Retunes fail closed unless the positive-lift q75 candidate is supported by
-enough analyzed trades.
+enough analyzed trades and stays within the analyzed hold window.
 -}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
@@ -287,7 +287,8 @@ analyzeComboCloseTiming comboId prices trades =
         medianObservedDuration = percentileInt 0.5 (map ttsObservedDuration samples)
         medianOptimalDuration = percentileInt 0.5 (map ttsOptimalDuration samples)
         q75OptimalDuration = supportedPositiveLiftDuration samples
-        recommendedMaxHoldBars = recommendedCloseTimingHold stats positiveLiftSampleCount q75OptimalDuration
+        analyzedUpperBound = analyzedHoldWindowUpperBound samples
+        recommendedMaxHoldBars = recommendedCloseTimingHold stats positiveLiftSampleCount q75OptimalDuration analyzedUpperBound
      in ComboCloseTimingReport
             { cctrComboId = comboId
             , cctrSampleCount = length samples
@@ -338,10 +339,29 @@ legacyCloseTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
 legacyCloseTimingRecommendationEligible stats q75Bars =
     ctsMedianLift stats > 0 && q75Bars > 0
 
-closeTimingRecommendationEligible :: ComboTimingStats -> Int -> Int -> Bool
-closeTimingRecommendationEligible stats positiveLiftCount q75Bars =
+positiveLiftSupportEvidenceOrdered :: ComboTimingStats -> Int -> Bool
+positiveLiftSupportEvidenceOrdered stats positiveLiftCount =
+    positiveLiftCount >= minimumPositiveLiftSupportSamples
+        && positiveLiftCount <= ctsSampleCount stats
+
+sampleHoldWindowUpperBound :: TradeTimingSample -> Int
+sampleHoldWindowUpperBound sample =
+    max 0 (2 * ttsObservedDuration sample)
+
+analyzedHoldWindowUpperBound :: [TradeTimingSample] -> Maybe Int
+analyzedHoldWindowUpperBound [] = Nothing
+analyzedHoldWindowUpperBound samples =
+    Just (maximum (map sampleHoldWindowUpperBound samples))
+
+closeTimingRecommendationWithinAnalyzedBounds :: Int -> Int -> Bool
+closeTimingRecommendationWithinAnalyzedBounds q75Bars analyzedUpperBound =
+    q75Bars > 0 && q75Bars <= analyzedUpperBound
+
+closeTimingRecommendationEligible :: ComboTimingStats -> Int -> Int -> Int -> Bool
+closeTimingRecommendationEligible stats positiveLiftCount q75Bars analyzedUpperBound =
     ctsSampleCount stats >= minimumCloseTimingSamples
-        && positiveLiftCount >= minimumPositiveLiftSupportSamples
+        && positiveLiftSupportEvidenceOrdered stats positiveLiftCount
+        && closeTimingRecommendationWithinAnalyzedBounds q75Bars analyzedUpperBound
         && legacyCloseTimingRecommendationEligible stats q75Bars
 
 {- | Formal invariant / proof sketch for upward hold retunes:
@@ -351,17 +371,21 @@ closeTimingRecommendationEligible stats positiveLiftCount q75Bars =
    `supportedPositiveLiftDuration = Nothing` and `recommendedMaxHoldBars = Nothing`.
 2. Even when positive-lift support exists, low total sample count still fails closed:
    `ctsSampleCount < minimumCloseTimingSamples` keeps `recommendedMaxHoldBars = Nothing`.
-3. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
+3. Evidence counters stay ordered: `positiveLiftCount <= ctsSampleCount` is required before
+   a recommendation can exist, so malformed or inflated support counts fail closed.
+4. Any emitted recommendation stays inside the analyzed window: `q75Bars > 0` and
+   `q75Bars <= analyzedHoldWindowUpperBound` are both required before emitting `Just q75Bars`.
+5. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
    `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
-4. Any emitted recommendation is exact evidence-backed support: when a recommendation exists,
+6. Any emitted recommendation is exact evidence-backed support: when a recommendation exists,
    it is exactly the q75 profitable-support duration and therefore comes from the profitable
    support window rather than from unsupported or more permissive data.
 -}
-recommendedCloseTimingHold :: Maybe ComboTimingStats -> Int -> Maybe Int -> Maybe Int
-recommendedCloseTimingHold (Just stats) positiveLiftCount (Just q75Bars)
-    | closeTimingRecommendationEligible stats positiveLiftCount q75Bars =
+recommendedCloseTimingHold :: Maybe ComboTimingStats -> Int -> Maybe Int -> Maybe Int -> Maybe Int
+recommendedCloseTimingHold (Just stats) positiveLiftCount (Just q75Bars) (Just analyzedUpperBound)
+    | closeTimingRecommendationEligible stats positiveLiftCount q75Bars analyzedUpperBound =
         Just q75Bars
-recommendedCloseTimingHold _ _ _ = Nothing
+recommendedCloseTimingHold _ _ _ _ = Nothing
 
 timingRatio :: TradeTimingSample -> Double
 timingRatio sample
