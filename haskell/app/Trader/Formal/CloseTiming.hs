@@ -366,11 +366,10 @@ closeTimingRecommendationClearsDeadband (Just currentMaxHoldBars) recommendedMax
 
 closeTimingRecommendationHasExactBucketEvidence :: Int -> ComboCloseTimingReport -> Bool
 closeTimingRecommendationHasExactBucketEvidence recommended report =
-    case
-        ( cctrRecommendedMaxHoldBarsEvidenceDuration report
-        , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount report
-        , cctrRecommendedMaxHoldBarsMeanLift report
-        ) of
+    case ( cctrRecommendedMaxHoldBarsEvidenceDuration report
+         , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount report
+         , cctrRecommendedMaxHoldBarsMeanLift report
+         ) of
         (Just evidenceDuration, Just supportCount, Just meanLift) ->
             evidenceDuration == recommended
                 && supportCount >= minimumPositiveLiftSupportSamples
