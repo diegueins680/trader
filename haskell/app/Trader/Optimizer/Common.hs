@@ -101,6 +101,30 @@ coerceIntValue value =
                         _ -> Nothing
         _ -> Nothing
 
+expectancyRewardFor :: Int -> Double -> Double
+expectancyRewardFor roundTrips avgTradeReturn
+    | roundTrips <= 0 = 0
+    | otherwise = 0.5 * avgTradeReturn
+
+paybackBonusFor :: Int -> Double -> Double
+paybackBonusFor roundTrips avgHoldingPeriods
+    | roundTrips <= 0 = 0
+    | avgHoldingPeriods <= 0 = 0
+    | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
+
+activityPenaltyFor :: Int -> Double
+activityPenaltyFor roundTrips
+    | roundTrips <= 0 = 0.35
+    | roundTrips == 1 = 0.18
+    | roundTrips == 2 = 0.08
+    | otherwise = 0
+
+exposurePenaltyFor :: Double -> Double
+exposurePenaltyFor exposure
+    | exposure <= 0 = 0.08
+    | exposure < 0.01 = 0.04
+    | otherwise = 0
+
 objectiveScore :: KM.KeyMap Value -> String -> Double -> Double -> Double
 objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
     let finalEq = metricFloat (Just metrics) "finalEquity" 0
@@ -117,26 +141,17 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         avgTradeReturn = metricFloat (Just metrics) "avgTradeReturn" 0
         avgHoldingPeriods = metricFloat (Just metrics) "avgHoldingPeriods" 0
         exposure = metricFloat (Just metrics) "exposure" 0
-        roundTrips = metricInt (Just metrics) "roundTrips" 0
-        tradeCount = metricInt (Just metrics) "tradeCount" 0
-        activityCount = max roundTrips tradeCount
-        activityPenalty
-            | activityCount <= 0 = 0.25
-            | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
-            | otherwise = 0
-        exposurePenalty
-            | exposure <= 0 = 0.05
-            | exposure < 0.01 = 0.02
-            | otherwise = 0
-        paybackBonus
-            | avgHoldingPeriods <= 0 = 0
-            | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
+        roundTrips = max 0 (metricInt (Just metrics) "roundTrips" 0)
+        expectancyReward = expectancyRewardFor roundTrips avgTradeReturn
+        paybackBonus = paybackBonusFor roundTrips avgHoldingPeriods
+        activityPenalty = activityPenaltyFor roundTrips
+        exposurePenalty = exposurePenaltyFor exposure
         baseScore =
             case parseTuneObjective objective of
                 Right TuneFinalEquity -> finalEq
                 Right TuneAnnualizedEquity -> annRet
                 Right TuneRoi ->
-                    annRet - pDd * (maxDdN + cvar95N) - pTurn * turnoverN + 0.5 * avgTradeReturn + paybackBonus
+                    annRet - pDd * (maxDdN + cvar95N) - pTurn * turnoverN + expectancyReward + paybackBonus
                 Right TuneSharpe -> sharpe
                 Right TuneCalmar ->
                     if maxDdN <= 0

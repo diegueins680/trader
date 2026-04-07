@@ -34,6 +34,7 @@ roiRequirementClauses =
     , "Reward positive expectancy only after a completed round trip."
     , "Reward faster payback only after a completed round trip."
     , "Penalize low completed round-trip activity and idle capital."
+    , "Never let fewer completed round trips or more idle capital outrank an otherwise comparable active candidate."
     ]
 
 data TieBreakCandidate = TieBreakCandidate
@@ -60,6 +61,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrZeroRoundTripRewardInvariant :: !Bool
     , fvrActivityPenaltyOrdered :: !Bool
     , fvrExposurePenaltyOrdered :: !Bool
+    , fvrActivityExposureDominanceInvariant :: !Bool
     , fvrTieBreakTotalOrderAfterNormalization :: !Bool
     , fvrTieBreakSpecMatchesImplementation :: !Bool
     , fvrVolConfCanonicalizationInvariant :: !Bool
@@ -382,6 +384,38 @@ verifyFormalOptimization =
                     , roundTrips <- activityDomain
                     , tradeCount <- activityDomain
                     ]
+            , fvrActivityExposureDominanceInvariant =
+                and
+                    [ activityExposureDominanceInvariantFor
+                        penaltyMaxDd
+                        penaltyTurnover
+                        annualizedReturn
+                        maxDrawdown
+                        tailLoss
+                        turnover
+                        expectancy
+                        avgHold
+                        tradeCount
+                        lowerRoundTrips
+                        higherRoundTrips
+                        lowerExposure
+                        higherExposure
+                    | penaltyMaxDd <- penaltyMaxDrawdownDomain
+                    , penaltyTurnover <- penaltyTurnoverDomain
+                    , annualizedReturn <- annualizedReturnDomain
+                    , maxDrawdown <- maxDrawdownDomain
+                    , tailLoss <- tailLossDomain
+                    , turnover <- turnoverDomain
+                    , expectancy <- expectancyDomain
+                    , avgHold <- avgHoldDomain
+                    , tradeCount <- activityDomain
+                    , lowerRoundTrips <- activityDomain
+                    , higherRoundTrips <- activityDomain
+                    , lowerExposure <- exposureDomain
+                    , higherExposure <- exposureDomain
+                    , lowerRoundTrips <= higherRoundTrips
+                    , lowerExposure <= higherExposure
+                    ]
             , fvrTieBreakTotalOrderAfterNormalization =
                 all tieBreakTotalOrderAfterNormalizationFor tieBreakPairs
             , fvrTieBreakSpecMatchesImplementation =
@@ -455,14 +489,15 @@ paybackBonusFor avgHold =
 
 activityPenaltyFor :: Int -> Double
 activityPenaltyFor activityCount
-    | activityCount <= 0 = 0.25
-    | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
+    | activityCount <= 0 = 0.35
+    | activityCount == 1 = 0.18
+    | activityCount == 2 = 0.08
     | otherwise = 0
 
 exposurePenaltyFor :: Double -> Double
 exposurePenaltyFor exposure
-    | exposure <= 0 = 0.05
-    | exposure < 0.01 = 0.02
+    | exposure <= 0 = 0.08
+    | exposure < 0.01 = 0.04
     | otherwise = 0
 
 comparisonEps :: Double
@@ -722,6 +757,29 @@ activityPenaltyOrderedFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawd
                 penaltyTurnover
      in nonDecreasing [scoreFor roundTrips | roundTrips <- activityDomain]
             && and [scoreFor 0 <= scoreFor roundTrips | roundTrips <- positiveActivityDomain]
+
+activityExposureDominanceInvariantFor ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Int ->
+    Int ->
+    Int ->
+    Double ->
+    Double ->
+    Bool
+activityExposureDominanceInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold tradeCount lowerRoundTrips higherRoundTrips lowerExposure higherExposure =
+    let scoreFor roundTrips exposure =
+            scoreWith
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
+                penaltyMaxDd
+                penaltyTurnover
+     in scoreFor lowerRoundTrips lowerExposure <= scoreFor higherRoundTrips higherExposure + comparisonEps
 
 metricsFromState :: RoiState -> BacktestMetrics
 metricsFromState state =
