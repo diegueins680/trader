@@ -93,8 +93,9 @@ data ComboTimingStats = ComboTimingStats
 
 {- | Combo-level report used to retune timing-based exits from historical trades.
 Retunes fail closed unless the positive-lift q75 candidate is supported by
-enough analyzed trades, matches an analyzed hold bucket with positive estimated
-lift, and stays within the analyzed hold window.
+enough analyzed trades, the exact recommended duration bucket itself has
+enough profitable-support samples and positive estimated lift, matches an
+analyzed hold bucket, and stays within the analyzed hold window.
 -}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
@@ -110,6 +111,9 @@ data ComboCloseTimingReport = ComboCloseTimingReport
     , cctrMedianOptimalDuration :: !(Maybe Int)
     , cctrQ75OptimalDuration :: !(Maybe Int)
     , cctrRecommendedMaxHoldBars :: !(Maybe Int)
+    , cctrRecommendedMaxHoldBarsEvidenceDuration :: !(Maybe Int)
+    , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount :: !(Maybe Int)
+    , cctrRecommendedMaxHoldBarsMeanLift :: !(Maybe Double)
     }
     deriving (Eq, Show)
 
@@ -298,6 +302,8 @@ analyzeComboCloseTiming comboId prices trades =
                 analyzedUpperBound
                 analyzedHoldBars
                 samples
+        (recommendedEvidenceDuration, recommendedPositiveLiftSampleCount, recommendedMeanLift) =
+            recommendedCloseTimingEvidence recommendedMaxHoldBars samples
      in ComboCloseTimingReport
             { cctrComboId = comboId
             , cctrSampleCount = length samples
@@ -312,6 +318,9 @@ analyzeComboCloseTiming comboId prices trades =
             , cctrMedianOptimalDuration = medianOptimalDuration
             , cctrQ75OptimalDuration = q75OptimalDuration
             , cctrRecommendedMaxHoldBars = recommendedMaxHoldBars
+            , cctrRecommendedMaxHoldBarsEvidenceDuration = recommendedEvidenceDuration
+            , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = recommendedPositiveLiftSampleCount
+            , cctrRecommendedMaxHoldBarsMeanLift = recommendedMeanLift
             }
   where
     normalizeTrade trade
@@ -343,6 +352,18 @@ supportedPositiveLiftDuration :: [TradeTimingSample] -> Maybe Int
 supportedPositiveLiftDuration samples
     | not (hasMinimumPositiveLiftSupport samples) = Nothing
     | otherwise = percentileInt 0.75 (positiveLiftSupportDurations samples)
+
+holdDurationPositiveLiftSupportSamples :: Int -> [TradeTimingSample] -> [TradeTimingSample]
+holdDurationPositiveLiftSupportSamples holdBars =
+    filter (\sample -> ttsOptimalDuration sample == holdBars) . positiveLiftSamples
+
+holdDurationPositiveLiftSupportCount :: Int -> [TradeTimingSample] -> Int
+holdDurationPositiveLiftSupportCount holdBars =
+    length . holdDurationPositiveLiftSupportSamples holdBars
+
+closeTimingRecommendationHasMinimumBucketSupport :: Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasMinimumBucketSupport holdBars samples =
+    holdDurationPositiveLiftSupportCount holdBars samples >= minimumPositiveLiftSupportSamples
 
 legacyCloseTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
 legacyCloseTimingRecommendationEligible stats q75Bars =
@@ -403,6 +424,7 @@ closeTimingRecommendationEligible stats positiveLiftCount q75Bars analyzedUpperB
         && positiveLiftSupportEvidenceOrdered stats positiveLiftCount
         && closeTimingRecommendationWithinAnalyzedBounds q75Bars analyzedUpperBound
         && closeTimingRecommendationWithinAnalyzedDomain q75Bars analyzedHoldBars
+        && closeTimingRecommendationHasMinimumBucketSupport q75Bars samples
         && closeTimingRecommendationHasPositiveEstimatedLift q75Bars samples
         && legacyCloseTimingRecommendationEligible stats q75Bars
 
@@ -417,22 +439,38 @@ closeTimingRecommendationEligible stats positiveLiftCount q75Bars analyzedUpperB
    a recommendation can exist, so malformed or inflated support counts fail closed.
 4. Any emitted recommendation must match an analyzed hold bucket: `q75Bars > 0` and
    `q75Bars `elem` analyzedHoldBarDomain samples` are both required before emitting a retune.
-5. The selected hold bucket must still have positive estimated lift across analyzed samples:
+5. The exact recommended hold bucket must itself carry enough profitable support:
+   `holdDurationPositiveLiftSupportCount q75Bars samples >= minimumPositiveLiftSupportSamples`
+   is required before emitting a retune, so aggregate support alone can never justify
+   a more permissive hold.
+6. The selected hold bucket must still have positive estimated lift across analyzed samples:
    `mean [ttsReturnLift s | s <- samples, ttsOptimalDuration s == q75Bars] > 0` is required,
    so unsupported or net-negative buckets fail closed even if the profitable-support q75 exists.
-6. Any emitted recommendation stays inside the analyzed window: `q75Bars <= analyzedHoldWindowUpperBound`
+7. Any emitted recommendation stays inside the analyzed window: `q75Bars <= analyzedHoldWindowUpperBound`
    is required before emitting `Just q75Bars`.
-7. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
+8. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
    `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
-8. Any emitted recommendation is exact evidence-backed support: when a recommendation exists,
-   it is exactly the q75 profitable-support duration and therefore comes from the profitable
-   support window rather than from unsupported or more permissive data.
+9. Any emitted recommendation serializes exact-bucket evidence:
+   `cctrRecommendedMaxHoldBarsEvidenceDuration == Just q75Bars`,
+   `cctrRecommendedMaxHoldBarsPositiveLiftSampleCount == Just (holdDurationPositiveLiftSupportCount q75Bars samples)`,
+   and `cctrRecommendedMaxHoldBarsMeanLift == holdDurationEstimatedLift q75Bars samples`.
+10. Consumer-side application can therefore reject missing or bucket-inconsistent evidence
+    before any upward retune, so malformed evidence can never yield a more permissive hold
+    than keeping the current setting.
 -}
 recommendedCloseTimingHold :: Maybe ComboTimingStats -> Int -> Maybe Int -> Maybe Int -> [Int] -> [TradeTimingSample] -> Maybe Int
 recommendedCloseTimingHold (Just stats) positiveLiftCount (Just q75Bars) (Just analyzedUpperBound) analyzedHoldBars samples
     | closeTimingRecommendationEligible stats positiveLiftCount q75Bars analyzedUpperBound analyzedHoldBars samples =
         Just q75Bars
 recommendedCloseTimingHold _ _ _ _ _ _ = Nothing
+
+recommendedCloseTimingEvidence :: Maybe Int -> [TradeTimingSample] -> (Maybe Int, Maybe Int, Maybe Double)
+recommendedCloseTimingEvidence Nothing _ = (Nothing, Nothing, Nothing)
+recommendedCloseTimingEvidence (Just holdBars) samples =
+    ( Just holdBars
+    , Just (holdDurationPositiveLiftSupportCount holdBars samples)
+    , holdDurationEstimatedLift holdBars samples
+    )
 
 timingRatio :: TradeTimingSample -> Double
 timingRatio sample

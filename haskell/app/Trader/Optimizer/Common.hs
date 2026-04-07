@@ -244,7 +244,30 @@ closeTimingReportFromBacktest comboId raw =
 
 appliedCloseTimingMaxHoldBars :: Maybe Int -> ComboCloseTimingReport -> Maybe Int
 appliedCloseTimingMaxHoldBars currentMaxHoldBars report =
-    cctrRecommendedMaxHoldBars report <|> currentMaxHoldBars
+    case cctrRecommendedMaxHoldBars report of
+        Just recommended
+            | closeTimingRecommendationAccepted currentMaxHoldBars recommended report -> Just recommended
+        _ -> currentMaxHoldBars
+
+closeTimingRecommendationAccepted :: Maybe Int -> Int -> ComboCloseTimingReport -> Bool
+closeTimingRecommendationAccepted currentMaxHoldBars recommended report
+    | not (isMorePermissiveMaxHoldBars currentMaxHoldBars recommended) = True
+    | otherwise =
+        case
+            ( cctrRecommendedMaxHoldBarsEvidenceDuration report
+            , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount report
+            , cctrRecommendedMaxHoldBarsMeanLift report
+            ) of
+            (Just evidenceDuration, Just supportCount, Just meanLift) ->
+                evidenceDuration == recommended
+                    && supportCount >= minimumPositiveLiftSupportSamples
+                    && meanLift > 0
+            _ -> False
+
+isMorePermissiveMaxHoldBars :: Maybe Int -> Int -> Bool
+isMorePermissiveMaxHoldBars Nothing _ = False
+isMorePermissiveMaxHoldBars (Just currentMaxHoldBars) recommendedMaxHoldBars =
+    recommendedMaxHoldBars > currentMaxHoldBars
 
 applyCloseTimingMetrics ::
     Maybe (KM.KeyMap Value) ->
@@ -259,23 +282,32 @@ applyCloseTimingMetrics metrics currentMaxHoldBars appliedMaxHoldBars report =
 
 closeTimingReportToValue :: Maybe Int -> Maybe Int -> ComboCloseTimingReport -> Value
 closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report =
-    object
-        [ "comboId" .= cctrComboId report
-        , "sampleCount" .= cctrSampleCount report
-        , "minimumSampleCount" .= minimumCloseTimingSamples
-        , "positiveLiftSampleCount" .= cctrPositiveLiftSampleCount report
-        , "minimumPositiveLiftSampleCount" .= minimumPositiveLiftSupportSamples
-        , "medianRatio" .= cctrMedianRatio report
-        , "q25Ratio" .= cctrQ25Ratio report
-        , "q75Ratio" .= cctrQ75Ratio report
-        , "madRatio" .= cctrMadRatio report
-        , "meanLift" .= cctrMeanLift report
-        , "medianLift" .= cctrMedianLift report
-        , "medianObservedDuration" .= cctrMedianObservedDuration report
-        , "medianOptimalDuration" .= cctrMedianOptimalDuration report
-        , "q75OptimalDuration" .= cctrQ75OptimalDuration report
-        , "recommendedMaxHoldBars" .= cctrRecommendedMaxHoldBars report
-        , "originalMaxHoldBars" .= currentMaxHoldBars
-        , "appliedMaxHoldBars" .= appliedMaxHoldBars
-        , "positiveLift" .= maybe False (> 0) (cctrMedianLift report)
-        ]
+    let recommendationAccepted =
+            case cctrRecommendedMaxHoldBars report of
+                Just recommended ->
+                    closeTimingRecommendationAccepted currentMaxHoldBars recommended report
+                Nothing -> False
+     in object
+            [ "comboId" .= cctrComboId report
+            , "sampleCount" .= cctrSampleCount report
+            , "minimumSampleCount" .= minimumCloseTimingSamples
+            , "positiveLiftSampleCount" .= cctrPositiveLiftSampleCount report
+            , "minimumPositiveLiftSampleCount" .= minimumPositiveLiftSupportSamples
+            , "medianRatio" .= cctrMedianRatio report
+            , "q25Ratio" .= cctrQ25Ratio report
+            , "q75Ratio" .= cctrQ75Ratio report
+            , "madRatio" .= cctrMadRatio report
+            , "meanLift" .= cctrMeanLift report
+            , "medianLift" .= cctrMedianLift report
+            , "medianObservedDuration" .= cctrMedianObservedDuration report
+            , "medianOptimalDuration" .= cctrMedianOptimalDuration report
+            , "q75OptimalDuration" .= cctrQ75OptimalDuration report
+            , "recommendedMaxHoldBars" .= cctrRecommendedMaxHoldBars report
+            , "recommendedMaxHoldBarsAccepted" .= recommendationAccepted
+            , "recommendedMaxHoldBarsEvidenceDuration" .= cctrRecommendedMaxHoldBarsEvidenceDuration report
+            , "recommendedMaxHoldBarsPositiveLiftSampleCount" .= cctrRecommendedMaxHoldBarsPositiveLiftSampleCount report
+            , "recommendedMaxHoldBarsMeanLift" .= cctrRecommendedMaxHoldBarsMeanLift report
+            , "originalMaxHoldBars" .= currentMaxHoldBars
+            , "appliedMaxHoldBars" .= appliedMaxHoldBars
+            , "positiveLift" .= maybe False (> 0) (cctrMedianLift report)
+            ]
