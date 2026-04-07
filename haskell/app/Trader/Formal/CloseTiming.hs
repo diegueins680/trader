@@ -98,10 +98,12 @@ Retunes fail closed unless the positive-lift q75 candidate is supported by
 enough analyzed trades, is conservatively capped to the last hold bucket with
 enough profitable-support evidence, the exact recommended duration bucket itself
 has enough profitable-support samples and positive estimated lift, matches an
-analyzed hold bucket, stays within the analyzed hold window, and any shorter
-retune is backed by consistent exact-bucket downward evidence against the
-observed q75 hold horizon. Accepted applications also add a one-bar deadband so
-adjacent recommendations collapse to the current hold horizon.
+analyzed hold bucket, stays within the analyzed hold window, any longer retune
+is backed by consistent exact-bucket upward evidence against the observed q75
+hold horizon and clears the one-bar deadband, and any shorter retune is backed
+by consistent exact-bucket downward evidence against the observed q75 hold
+horizon. Accepted applications also add a one-bar deadband so adjacent
+recommendations collapse to the current hold horizon.
 -}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
@@ -426,6 +428,14 @@ holdDurationDownwardPositiveLiftSupportCount :: Int -> [TradeTimingSample] -> In
 holdDurationDownwardPositiveLiftSupportCount holdBars =
     length . holdDurationDownwardPositiveLiftSupportSamples holdBars
 
+holdDurationUpwardPositiveLiftSupportSamples :: Int -> Int -> [TradeTimingSample] -> [TradeTimingSample]
+holdDurationUpwardPositiveLiftSupportSamples currentHoldHorizon holdBars =
+    filter (\sample -> ttsObservedDuration sample <= currentHoldHorizon) . holdDurationPositiveLiftSupportSamples holdBars
+
+holdDurationUpwardPositiveLiftSupportCount :: Int -> Int -> [TradeTimingSample] -> Int
+holdDurationUpwardPositiveLiftSupportCount currentHoldHorizon holdBars =
+    length . holdDurationUpwardPositiveLiftSupportSamples currentHoldHorizon holdBars
+
 closeTimingRecommendationHasMinimumBucketSupport :: Int -> [TradeTimingSample] -> Bool
 closeTimingRecommendationHasMinimumBucketSupport holdBars samples =
     holdDurationPositiveLiftSupportCount holdBars samples >= minimumPositiveLiftSupportSamples
@@ -433,6 +443,10 @@ closeTimingRecommendationHasMinimumBucketSupport holdBars samples =
 closeTimingRecommendationHasMinimumDownwardBucketSupport :: Int -> [TradeTimingSample] -> Bool
 closeTimingRecommendationHasMinimumDownwardBucketSupport holdBars samples =
     holdDurationDownwardPositiveLiftSupportCount holdBars samples >= minimumPositiveLiftSupportSamples
+
+closeTimingRecommendationHasMinimumUpwardBucketSupport :: Int -> Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasMinimumUpwardBucketSupport currentHoldHorizon holdBars samples =
+    holdDurationUpwardPositiveLiftSupportCount currentHoldHorizon holdBars samples >= minimumPositiveLiftSupportSamples
 
 legacyCloseTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
 legacyCloseTimingRecommendationEligible stats q75Bars =
@@ -499,6 +513,18 @@ holdDurationDownwardEstimatedLift holdBars samples =
             | all isFinite lifts -> Just (mean lifts)
             | otherwise -> Nothing
 
+holdDurationUpwardLiftSamples :: Int -> Int -> [TradeTimingSample] -> [Double]
+holdDurationUpwardLiftSamples currentHoldHorizon holdBars =
+    map ttsReturnLift . holdDurationUpwardPositiveLiftSupportSamples currentHoldHorizon holdBars
+
+holdDurationUpwardEstimatedLift :: Int -> Int -> [TradeTimingSample] -> Maybe Double
+holdDurationUpwardEstimatedLift currentHoldHorizon holdBars samples =
+    case holdDurationUpwardLiftSamples currentHoldHorizon holdBars samples of
+        [] -> Nothing
+        lifts
+            | all isFinite lifts -> Just (mean lifts)
+            | otherwise -> Nothing
+
 closeTimingRecommendationHasPositiveEstimatedLift :: Int -> [TradeTimingSample] -> Bool
 closeTimingRecommendationHasPositiveEstimatedLift holdBars samples =
     case holdDurationEstimatedLift holdBars samples of
@@ -517,6 +543,30 @@ closeTimingRecommendationHasPositiveDownwardEstimatedLift holdBars samples =
         Just liftEstimate -> isFinite liftEstimate && liftEstimate > 0
         Nothing -> False
 
+closeTimingRecommendationClearsUpwardDeadband :: Int -> Int -> Bool
+closeTimingRecommendationClearsUpwardDeadband currentHoldHorizon recommendedHoldBars =
+    recommendedHoldBars > currentHoldHorizon
+        && recommendedHoldBars - currentHoldHorizon > closeTimingRecommendationDeadbandBars
+
+closeTimingRecommendationUpwardEvidenceConsistent :: Int -> Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationUpwardEvidenceConsistent currentHoldHorizon holdBars samples =
+    let totalSupport = holdDurationPositiveLiftSupportCount holdBars samples
+        upwardSupport = holdDurationUpwardPositiveLiftSupportCount currentHoldHorizon holdBars samples
+     in upwardSupport > 0 && totalSupport == upwardSupport
+
+closeTimingRecommendationHasPositiveUpwardEstimatedLift :: Int -> Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasPositiveUpwardEstimatedLift currentHoldHorizon holdBars samples =
+    case holdDurationUpwardEstimatedLift currentHoldHorizon holdBars samples of
+        Just liftEstimate -> isFinite liftEstimate && liftEstimate > 0
+        Nothing -> False
+
+closeTimingRecommendationHasConsistentUpwardEvidence :: Int -> Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasConsistentUpwardEvidence currentHoldHorizon holdBars samples =
+    closeTimingRecommendationClearsUpwardDeadband currentHoldHorizon holdBars
+        && closeTimingRecommendationHasMinimumUpwardBucketSupport currentHoldHorizon holdBars samples
+        && closeTimingRecommendationUpwardEvidenceConsistent currentHoldHorizon holdBars samples
+        && closeTimingRecommendationHasPositiveUpwardEstimatedLift currentHoldHorizon holdBars samples
+
 closeTimingRecommendationHasConsistentDownwardEvidence :: Int -> [TradeTimingSample] -> Bool
 closeTimingRecommendationHasConsistentDownwardEvidence holdBars samples =
     closeTimingRecommendationHasMinimumDownwardBucketSupport holdBars samples
@@ -527,6 +577,8 @@ closeTimingRecommendationRetuneDirectionAllowed :: Int -> Int -> [TradeTimingSam
 closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples
     | recommendedHoldBars < currentHoldHorizon =
         closeTimingRecommendationHasConsistentDownwardEvidence recommendedHoldBars samples
+    | recommendedHoldBars > currentHoldHorizon =
+        closeTimingRecommendationHasConsistentUpwardEvidence currentHoldHorizon recommendedHoldBars samples
     | otherwise = True
 
 closeTimingRecommendationEligible :: ComboTimingStats -> Int -> Int -> Int -> Int -> [Int] -> [TradeTimingSample] -> Bool
@@ -568,42 +620,53 @@ closeTimingRecommendationEligible stats positiveLiftCount currentHoldHorizon rec
    `holdDurationPositiveLiftSupportCount recommendedHoldBars samples >= minimumPositiveLiftSupportSamples`
    and `mean [ttsReturnLift s | s <- samples, ttsOptimalDuration s == recommendedHoldBars] > 0`
    are both required before emitting a retune.
-8. Downward retunes are identified against the observed q75 hold horizon
-   `observedHoldHorizon samples`. If `recommendedHoldBars < currentHoldHorizon`, then
+8. Upward retunes are identified against the observed q75 hold horizon
+   `observedHoldHorizon samples`. If `recommendedHoldBars > currentHoldHorizon`, then
    `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
-   requires `closeTimingRecommendationHasConsistentDownwardEvidence recommendedHoldBars samples`.
-9. Consistent downward evidence means every profitable-support sample for the recommended
-   bucket comes from a trade whose observed duration was strictly longer than that bucket,
-   the exact-bucket downward support count meets `minimumPositiveLiftSupportSamples`, and
-   the downward-only mean lift is finite and positive.
-10. Therefore malformed, mixed-direction, or insufficient exact-bucket downward evidence is
-    no more permissive than missing data: all such cases force
-    `recommendedMaxHoldBars = Nothing`.
-11. Any emitted recommendation stays inside the analyzed window:
+   requires `closeTimingRecommendationHasConsistentUpwardEvidence currentHoldHorizon recommendedHoldBars samples`.
+9. Consistent upward evidence means `recommendedHoldBars - currentHoldHorizon > closeTimingRecommendationDeadbandBars`,
+   every profitable-support sample for the recommended bucket comes from a trade whose observed
+   duration was at or below `currentHoldHorizon`, the exact-bucket upward support count meets
+   `minimumPositiveLiftSupportSamples`, and the upward-only mean lift is finite and positive.
+10. Therefore weak, mixed-direction, sub-deadband, or insufficient exact-bucket upward evidence is
+    no more permissive than missing data: all such cases force `recommendedMaxHoldBars = Nothing`.
+11. Weakening or thinning upward evidence can only shrink or remove the upward support set used in
+    step 9, so the recommendation can stay unchanged or disappear, never become more permissive.
+12. Downward retunes are identified against the observed q75 hold horizon
+    `observedHoldHorizon samples`. If `recommendedHoldBars < currentHoldHorizon`, then
+    `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
+    requires `closeTimingRecommendationHasConsistentDownwardEvidence recommendedHoldBars samples`.
+13. Consistent downward evidence means every profitable-support sample for the recommended
+    bucket comes from a trade whose observed duration was strictly longer than that bucket,
+    the exact-bucket downward support count meets `minimumPositiveLiftSupportSamples`, and
+    the downward-only mean lift is finite and positive.
+14. Therefore malformed, mixed-direction, or insufficient exact-bucket downward evidence is
+    no more permissive than missing data: all such cases force `recommendedMaxHoldBars = Nothing`.
+15. Any emitted recommendation stays inside the analyzed window:
     `recommendedHoldBars <= analyzedHoldWindowUpperBound` is required before emitting
     `Just recommendedHoldBars`.
-12. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
+16. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
     `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
-13. Accepted applications add a one-bar deadband around the current hold horizon:
+17. Accepted applications add a one-bar deadband around the current hold horizon:
     if `cctrRecommendedMaxHoldBars = Just recommendedHoldBars`,
     `currentMaxHoldBars = Just currentHoldHorizon`, and
     `abs (recommendedHoldBars - currentHoldHorizon) <= closeTimingRecommendationDeadbandBars`,
     then `closeTimingRecommendationAccepted (Just currentHoldHorizon) recommendedHoldBars report = False`
     and `acceptedCloseTimingMaxHoldBars (Just currentHoldHorizon) report = Just currentHoldHorizon`.
-14. Any non-identity accepted retune still requires exact-bucket evidence:
+18. Any non-identity accepted retune still requires exact-bucket evidence:
     `cctrRecommendedMaxHoldBarsEvidenceDuration == Just recommendedHoldBars`,
     `cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just supportCount` with
     `supportCount >= minimumPositiveLiftSupportSamples`, and
     `cctrRecommendedMaxHoldBarsMeanLift = Just meanLift` with finite `meanLift > 0`.
-15. Because `recommendedMaxHoldBars` is only emitted when
+19. Because `recommendedMaxHoldBars` is only emitted when
     `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
-    holds, accepted downward retunes inherit the existing fail-closed directionality proof;
+    holds, accepted upward and downward retunes inherit the fail-closed directionality proof;
     the deadband can only shrink the set of applied retunes, never widen it.
-16. When `currentMaxHoldBars = Nothing`, the distance comparison is unavailable, so acceptance
+20. When `currentMaxHoldBars = Nothing`, the distance comparison is unavailable, so acceptance
     still requires the exact-bucket evidence above and otherwise preserves the existing
     fail-closed recommendation contract.
-17. Therefore any non-identity accepted retune both clears the one-bar deadband and satisfies
-    the existing profitable-support, positive-lift, analyzed-domain, and directionality
+21. Therefore any non-identity accepted retune both clears the one-bar deadband and satisfies
+    the profitable-support, positive-lift, analyzed-domain, supported-horizon, and directional
     obligations before persistence/backfill can rewrite `maxHoldBars`.
 -}
 capRecommendationToSupportedPositiveLiftHorizon :: Int -> Int -> Int
