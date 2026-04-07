@@ -129,6 +129,7 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
             | exposure < 0.01 = 0.02
             | otherwise = 0
         paybackBonus
+            | avgTradeReturn <= 0 = 0
             | avgHoldingPeriods <= 0 = 0
             | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
         baseScore =

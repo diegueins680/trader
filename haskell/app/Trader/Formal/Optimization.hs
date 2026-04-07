@@ -32,7 +32,7 @@ roiRequirementClauses =
     , "Penalize drawdown and tail loss."
     , "Penalize turnover."
     , "Reward positive expectancy only after a completed round trip."
-    , "Reward faster payback only after a completed round trip."
+    , "Reward faster payback only after a completed round trip with positive expectancy."
     , "Penalize low completed round-trip activity and idle capital."
     ]
 
@@ -112,7 +112,7 @@ roiImplementationScore penaltyMaxDd penaltyTurnover m =
         activityPenalty = activityPenaltyFor activityCount
         exposurePenalty = exposurePenaltyFor exposure
         expectancyReward = expectancyRewardFor activityCount expectancy
-        paybackReward = paybackRewardFor activityCount avgHold
+        paybackReward = paybackRewardFor activityCount expectancy avgHold
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
      in annRet
@@ -131,7 +131,7 @@ roiSpecScore penaltyMaxDd penaltyTurnover m =
         pTurn = max 0 penaltyTurnover
         returnReward = rvAnnualizedReturn view
         expectancyReward = expectancyRewardFor activityCount (rvExpectancy view)
-        paybackReward = paybackRewardFor activityCount (rvAvgHold view)
+        paybackReward = paybackRewardFor activityCount (rvExpectancy view) (rvAvgHold view)
         riskPenalty = pDd * (rvMaxDrawdown view + rvTailLoss view)
         turnoverPenalty = pTurn * rvTurnover view
         sparseActivityPenalty = activityPenaltyFor activityCount
@@ -300,13 +300,17 @@ verifyFormalOptimization =
                     ]
             , fvrPaybackMonotone =
                 and
-                    [ nonIncreasing
-                        [ scoreWith
-                            (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
-                            penaltyMaxDd
-                            penaltyTurnover
-                        | avgHold <- positiveAvgHoldDomain
-                        ]
+                    [ paybackExpectancyInvariantFor
+                        penaltyMaxDd
+                        penaltyTurnover
+                        annualizedReturn
+                        maxDrawdown
+                        tailLoss
+                        turnover
+                        expectancy
+                        roundTrips
+                        tradeCount
+                        exposure
                     | penaltyMaxDd <- penaltyMaxDrawdownDomain
                     , penaltyTurnover <- penaltyTurnoverDomain
                     , annualizedReturn <- annualizedReturnDomain
@@ -441,9 +445,9 @@ expectancyRewardFor activityCount expectancy =
         then 0
         else 0.5 * expectancy
 
-paybackRewardFor :: Int -> Double -> Double
-paybackRewardFor activityCount avgHold =
-    if activityCount <= 0
+paybackRewardFor :: Int -> Double -> Double -> Double
+paybackRewardFor activityCount expectancy avgHold =
+    if activityCount <= 0 || expectancy <= 0
         then 0
         else paybackBonusFor avgHold
 
@@ -713,6 +717,18 @@ zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn ma
             , avgHold <- avgHoldDomain
             ]
 
+paybackExpectancyInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Int -> Double -> Bool
+paybackExpectancyInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy roundTrips tradeCount exposure =
+    let scoreFor avgHold =
+            scoreWith
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
+                penaltyMaxDd
+                penaltyTurnover
+        paybackScores = [scoreFor avgHold | avgHold <- positiveAvgHoldDomain]
+     in if expectancy <= 0
+            then allApproxEq paybackScores
+            else nonIncreasing paybackScores
+
 activityPenaltyOrderedFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Double -> Bool
 activityPenaltyOrderedFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold tradeCount exposure =
     let scoreFor roundTrips =
@@ -751,6 +767,10 @@ metricsFromState state =
         , bmAgreementRate = 0
         , bmTurnover = rsTurnover state
         }
+
+allApproxEq :: [Double] -> Bool
+allApproxEq [] = True
+allApproxEq (x : xs) = all (approxEq x) xs
 
 nonDecreasing :: [Double] -> Bool
 nonDecreasing xs = and (zipWith (<=) xs (drop 1 xs))
