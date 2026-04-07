@@ -23,7 +23,9 @@ import Text.Read (readMaybe)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     ComboTrade (..),
+    acceptedCloseTimingMaxHoldBars,
     analyzeComboCloseTiming,
+    closeTimingRecommendationAccepted,
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
  )
@@ -244,31 +246,7 @@ closeTimingReportFromBacktest comboId raw =
         Nothing -> analyzeComboCloseTiming comboId [] []
 
 appliedCloseTimingMaxHoldBars :: Maybe Int -> ComboCloseTimingReport -> Maybe Int
-appliedCloseTimingMaxHoldBars currentMaxHoldBars report =
-    case cctrRecommendedMaxHoldBars report of
-        Just recommended
-            | closeTimingRecommendationAccepted currentMaxHoldBars recommended report -> Just recommended
-        _ -> currentMaxHoldBars
-
-closeTimingRecommendationAccepted :: Maybe Int -> Int -> ComboCloseTimingReport -> Bool
-closeTimingRecommendationAccepted currentMaxHoldBars recommended report
-    | not (isMorePermissiveMaxHoldBars currentMaxHoldBars recommended) = True
-    | otherwise =
-        case
-            ( cctrRecommendedMaxHoldBarsEvidenceDuration report
-            , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount report
-            , cctrRecommendedMaxHoldBarsMeanLift report
-            ) of
-            (Just evidenceDuration, Just supportCount, Just meanLift) ->
-                evidenceDuration == recommended
-                    && supportCount >= minimumPositiveLiftSupportSamples
-                    && meanLift > 0
-            _ -> False
-
-isMorePermissiveMaxHoldBars :: Maybe Int -> Int -> Bool
-isMorePermissiveMaxHoldBars Nothing _ = False
-isMorePermissiveMaxHoldBars (Just currentMaxHoldBars) recommendedMaxHoldBars =
-    recommendedMaxHoldBars > currentMaxHoldBars
+appliedCloseTimingMaxHoldBars = acceptedCloseTimingMaxHoldBars
 
 applyCloseTimingMetrics ::
     Maybe (KM.KeyMap Value) ->

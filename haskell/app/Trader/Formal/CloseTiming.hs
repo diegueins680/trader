@@ -8,9 +8,11 @@ module Trader.Formal.CloseTiming (
     ComboTimingStats (..),
     ComboTrade (..),
     TradeTimingSample (..),
+    acceptedCloseTimingMaxHoldBars,
     analyzeComboCloseTiming,
     buildCloseTimingStats,
     closeTimingDecision,
+    closeTimingRecommendationAccepted,
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
     optimalCloseObservation,
@@ -98,7 +100,8 @@ enough profitable-support evidence, the exact recommended duration bucket itself
 has enough profitable-support samples and positive estimated lift, matches an
 analyzed hold bucket, stays within the analyzed hold window, and any shorter
 retune is backed by consistent exact-bucket downward evidence against the
-observed q75 hold horizon.
+observed q75 hold horizon. Accepted applications also add a one-bar deadband so
+adjacent recommendations collapse to the current hold horizon.
 -}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
@@ -340,6 +343,41 @@ minimumCloseTimingSamples = 5
 minimumPositiveLiftSupportSamples :: Int
 minimumPositiveLiftSupportSamples = 3
 
+closeTimingRecommendationDeadbandBars :: Int
+closeTimingRecommendationDeadbandBars = 1
+
+acceptedCloseTimingMaxHoldBars :: Maybe Int -> ComboCloseTimingReport -> Maybe Int
+acceptedCloseTimingMaxHoldBars currentMaxHoldBars report =
+    case cctrRecommendedMaxHoldBars report of
+        Just recommended
+            | closeTimingRecommendationAccepted currentMaxHoldBars recommended report -> Just recommended
+        _ -> currentMaxHoldBars
+
+closeTimingRecommendationAccepted :: Maybe Int -> Int -> ComboCloseTimingReport -> Bool
+closeTimingRecommendationAccepted currentMaxHoldBars recommended report =
+    cctrRecommendedMaxHoldBars report == Just recommended
+        && closeTimingRecommendationClearsDeadband currentMaxHoldBars recommended
+        && closeTimingRecommendationHasExactBucketEvidence recommended report
+
+closeTimingRecommendationClearsDeadband :: Maybe Int -> Int -> Bool
+closeTimingRecommendationClearsDeadband Nothing _ = True
+closeTimingRecommendationClearsDeadband (Just currentMaxHoldBars) recommendedMaxHoldBars =
+    abs (recommendedMaxHoldBars - currentMaxHoldBars) > closeTimingRecommendationDeadbandBars
+
+closeTimingRecommendationHasExactBucketEvidence :: Int -> ComboCloseTimingReport -> Bool
+closeTimingRecommendationHasExactBucketEvidence recommended report =
+    case
+        ( cctrRecommendedMaxHoldBarsEvidenceDuration report
+        , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount report
+        , cctrRecommendedMaxHoldBarsMeanLift report
+        ) of
+        (Just evidenceDuration, Just supportCount, Just meanLift) ->
+            evidenceDuration == recommended
+                && supportCount >= minimumPositiveLiftSupportSamples
+                && isFinite meanLift
+                && meanLift > 0
+        _ -> False
+
 positiveLiftSamples :: [TradeTimingSample] -> [TradeTimingSample]
 positiveLiftSamples =
     filter (\sample -> isFinite (ttsReturnLift sample) && ttsReturnLift sample > 0 && ttsOptimalDuration sample > 0)
@@ -503,7 +541,7 @@ closeTimingRecommendationEligible stats positiveLiftCount currentHoldHorizon rec
         && closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples
         && legacyCloseTimingRecommendationEligible stats recommendedHoldBars
 
-{- | Formal invariant / proof sketch for hold retunes:
+{- | Formal invariant / proof sketch for hold retunes and accepted applications:
 
 1. Sparse profitable support fails closed: if the profitable-support sample is empty or has
    fewer than `minimumPositiveLiftSupportSamples` members, then
@@ -547,10 +585,27 @@ closeTimingRecommendationEligible stats positiveLiftCount currentHoldHorizon rec
     `Just recommendedHoldBars`.
 12. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
     `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
-13. Any emitted recommendation serializes exact-bucket evidence:
+13. Accepted applications add a one-bar deadband around the current hold horizon:
+    if `cctrRecommendedMaxHoldBars = Just recommendedHoldBars`,
+    `currentMaxHoldBars = Just currentHoldHorizon`, and
+    `abs (recommendedHoldBars - currentHoldHorizon) <= closeTimingRecommendationDeadbandBars`,
+    then `closeTimingRecommendationAccepted (Just currentHoldHorizon) recommendedHoldBars report = False`
+    and `acceptedCloseTimingMaxHoldBars (Just currentHoldHorizon) report = Just currentHoldHorizon`.
+14. Any non-identity accepted retune still requires exact-bucket evidence:
     `cctrRecommendedMaxHoldBarsEvidenceDuration == Just recommendedHoldBars`,
-    `cctrRecommendedMaxHoldBarsPositiveLiftSampleCount == Just (holdDurationPositiveLiftSupportCount recommendedHoldBars samples)`,
-    and `cctrRecommendedMaxHoldBarsMeanLift == holdDurationEstimatedLift recommendedHoldBars samples`.
+    `cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just supportCount` with
+    `supportCount >= minimumPositiveLiftSupportSamples`, and
+    `cctrRecommendedMaxHoldBarsMeanLift = Just meanLift` with finite `meanLift > 0`.
+15. Because `recommendedMaxHoldBars` is only emitted when
+    `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
+    holds, accepted downward retunes inherit the existing fail-closed directionality proof;
+    the deadband can only shrink the set of applied retunes, never widen it.
+16. When `currentMaxHoldBars = Nothing`, the distance comparison is unavailable, so acceptance
+    still requires the exact-bucket evidence above and otherwise preserves the existing
+    fail-closed recommendation contract.
+17. Therefore any non-identity accepted retune both clears the one-bar deadband and satisfies
+    the existing profitable-support, positive-lift, analyzed-domain, and directionality
+    obligations before persistence/backfill can rewrite `maxHoldBars`.
 -}
 capRecommendationToSupportedPositiveLiftHorizon :: Int -> Int -> Int
 capRecommendationToSupportedPositiveLiftHorizon q75Bars supportedHorizon =
