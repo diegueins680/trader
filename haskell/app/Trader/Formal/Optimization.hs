@@ -13,6 +13,7 @@ module Trader.Formal.Optimization (
 
 import Data.Ord (Down (..))
 
+import Trader.Duration (positiveFiniteDuration)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
 import Trader.VolConfGate (
@@ -32,7 +33,8 @@ roiRequirementClauses =
     , "Penalize drawdown and tail loss."
     , "Penalize turnover."
     , "Use average trade return as a supporting signal once the candidate shows trade activity."
-    , "Reward faster payback only after the candidate clears the minimum activity and idle-capital floors with positive expectancy."
+    , "Reward faster payback only for finite strictly positive payback durations after the candidate clears the minimum activity and idle-capital floors with positive expectancy."
+    , "Treat zero, negative, and non-finite payback durations exactly like missing payback data."
     , "Penalize low activity and idle capital."
     ]
 
@@ -57,6 +59,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrTurnoverMonotone :: !Bool
     , fvrExpectancyMonotone :: !Bool
     , fvrPaybackMonotone :: !Bool
+    , fvrInvalidPaybackMatchesMissing :: !Bool
     , fvrZeroRoundTripRewardInvariant :: !Bool
     , fvrActivityPenaltyOrdered :: !Bool
     , fvrExposurePenaltyOrdered :: !Bool
@@ -106,13 +109,13 @@ roiImplementationScore penaltyMaxDd penaltyTurnover m =
         tailLoss = max 0 (sanitizeFinite0 (bmCVaR95 m))
         turnover = max 0 (sanitizeFinite0 (bmTurnover m))
         expectancy = sanitizeFinite0 (bmAvgTradeReturn m)
-        avgHold = max 0 (sanitizeFinite0 (bmAvgHoldingPeriods m))
+        paybackDuration = positiveFiniteDuration (bmAvgHoldingPeriods m)
         exposure = max 0 (sanitizeFinite0 (bmExposure m))
         activityCount = activityCountFromMetrics m
         activityPenalty = activityPenaltyFor activityCount
         exposurePenalty = exposurePenaltyFor exposure
         expectancyReward = expectancyRewardFor activityCount expectancy
-        paybackReward = paybackRewardFor activityCount expectancy exposure avgHold
+        paybackReward = paybackRewardFor activityCount expectancy exposure paybackDuration
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
      in annRet
@@ -131,7 +134,7 @@ roiSpecScore penaltyMaxDd penaltyTurnover m =
         pTurn = max 0 penaltyTurnover
         returnReward = rvAnnualizedReturn view
         expectancyReward = expectancyRewardFor activityCount (rvExpectancy view)
-        paybackReward = paybackRewardFor activityCount (rvExpectancy view) (rvExposure view) (rvAvgHold view)
+        paybackReward = paybackRewardFor activityCount (rvExpectancy view) (rvExposure view) (positiveFiniteDuration (rvAvgHold view))
         riskPenalty = pDd * (rvMaxDrawdown view + rvTailLoss view)
         turnoverPenalty = pTurn * rvTurnover view
         sparseActivityPenalty = activityPenaltyFor activityCount
@@ -322,6 +325,30 @@ verifyFormalOptimization =
                     , tradeCount <- activityDomain
                     , exposure <- exposureDomain
                     ]
+            , fvrInvalidPaybackMatchesMissing =
+                and
+                    [ invalidPaybackMatchesMissingFor
+                        penaltyMaxDd
+                        penaltyTurnover
+                        annualizedReturn
+                        maxDrawdown
+                        tailLoss
+                        turnover
+                        expectancy
+                        roundTrips
+                        tradeCount
+                        exposure
+                    | penaltyMaxDd <- penaltyMaxDrawdownDomain
+                    , penaltyTurnover <- penaltyTurnoverDomain
+                    , annualizedReturn <- annualizedReturnDomain
+                    , maxDrawdown <- maxDrawdownDomain
+                    , tailLoss <- tailLossDomain
+                    , turnover <- turnoverDomain
+                    , expectancy <- expectancyDomain
+                    , roundTrips <- activityDomain
+                    , tradeCount <- activityDomain
+                    , exposure <- exposureDomain
+                    ]
             , fvrZeroRoundTripRewardInvariant =
                 and
                     [ zeroRoundTripRewardInvariantFor
@@ -431,7 +458,7 @@ roiViewFromMetrics m =
         , rvTailLoss = max 0 (sanitizeFinite0 (bmCVaR95 m))
         , rvTurnover = max 0 (sanitizeFinite0 (bmTurnover m))
         , rvExpectancy = sanitizeFinite0 (bmAvgTradeReturn m)
-        , rvAvgHold = max 0 (sanitizeFinite0 (bmAvgHoldingPeriods m))
+        , rvAvgHold = bmAvgHoldingPeriods m
         , rvActivityCount = activityCountFromMetrics m
         , rvExposure = max 0 (sanitizeFinite0 (bmExposure m))
         }
@@ -445,17 +472,17 @@ expectancyRewardFor activityCount expectancy =
         then 0
         else 0.5 * expectancy
 
-paybackRewardFor :: Int -> Double -> Double -> Double -> Double
-paybackRewardFor activityCount expectancy exposure avgHold =
+paybackRewardFor :: Int -> Double -> Double -> Maybe Double -> Double
+paybackRewardFor activityCount expectancy exposure mAvgHold =
     if not (meetsRoiPaybackFloor activityCount exposure) || expectancy <= 0
         then 0
-        else paybackBonusFor avgHold
+        else maybe 0 paybackBonusFor mAvgHold
 
 paybackBonusFor :: Double -> Double
 paybackBonusFor avgHold =
-    if avgHold <= 0
-        then 0
-        else min 0.05 (1 / (1 + avgHold))
+    case positiveFiniteDuration avgHold of
+        Just validAvgHold -> min 0.05 (1 / (1 + validAvgHold))
+        Nothing -> 0
 
 minimumRoiActivityFloor :: Int
 minimumRoiActivityFloor = 3
@@ -740,6 +767,25 @@ paybackExpectancyInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxD
             then allApproxEq paybackScores
             else nonIncreasing paybackScores
 
+-- Missing payback reaches the scorer as `Nothing`; zero is the proof-model
+-- stand-in because the shared duration guard rejects it the same way.
+invalidPaybackMatchesMissingFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Int -> Double -> Bool
+invalidPaybackMatchesMissingFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy roundTrips tradeCount exposure =
+    let missingScore =
+            scoreWith
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy 0 roundTrips tradeCount exposure)
+                penaltyMaxDd
+                penaltyTurnover
+        scoreFor avgHold =
+            scoreWith
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
+                penaltyMaxDd
+                penaltyTurnover
+     in and
+            [ approxEq missingScore (scoreFor avgHold)
+            | avgHold <- invalidAvgHoldDomain
+            ]
+
 activityPenaltyOrderedFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Double -> Bool
 activityPenaltyOrderedFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold tradeCount exposure =
     let scoreFor roundTrips =
@@ -959,6 +1005,9 @@ avgHoldDomain = [0.0, 1.0, 39.0]
 
 positiveAvgHoldDomain :: [Double]
 positiveAvgHoldDomain = [1.0, 39.0]
+
+invalidAvgHoldDomain :: [Double]
+invalidAvgHoldDomain = [0.0, -39.0, -1.0] ++ nonFiniteDomain
 
 activityDomain :: [Int]
 activityDomain = [0, 1, 2, 3]

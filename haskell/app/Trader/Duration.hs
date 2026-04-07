@@ -6,6 +6,7 @@ module Trader.Duration (
     timeWindowCode,
     timeWindowContains,
     minuteOfDayFromMs,
+    positiveFiniteDuration,
     inferPeriodsPerYear,
     lookbackBarsFrom,
 ) where
@@ -54,6 +55,12 @@ minuteOfDayFromMs :: Int64 -> Int
 minuteOfDayFromMs ts =
     let minutes = toInteger ts `div` 60000
      in fromInteger (minutes `mod` 1440)
+
+positiveFiniteDuration :: Double -> Maybe Double
+positiveFiniteDuration duration
+    | isNaN duration || isInfinite duration = Nothing
+    | duration <= 0 = Nothing
+    | otherwise = Just duration
 
 {- | Parse a human duration like \"24h\", \"15m\", \"1d\" into seconds.
 Supports units: s, m, h, d, w, M (month ~= 30d).

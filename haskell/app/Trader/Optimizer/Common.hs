@@ -20,6 +20,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Text.Read (readMaybe)
 
+import Trader.Duration (positiveFiniteDuration)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     ComboTrade (..),
@@ -45,6 +46,20 @@ metricFloat m key def =
             case KM.lookup (Key.fromString key) metrics of
                 Just (Number n) -> fromMaybe def (scientificToDouble n)
                 _ -> def
+
+metricPositiveDurationMaybe :: Maybe (KM.KeyMap Value) -> String -> Maybe Double
+metricPositiveDurationMaybe m key =
+    case m of
+        Nothing -> Nothing
+        Just metrics ->
+            case KM.lookup (Key.fromString key) metrics of
+                Just (Number n) -> scientificToDouble n >>= positiveFiniteDuration
+                Just (String s) ->
+                    let trimmed = trim (T.unpack s)
+                     in if null trimmed
+                            then Nothing
+                            else readMaybe trimmed >>= positiveFiniteDuration
+                _ -> Nothing
 
 metricInt :: Maybe (KM.KeyMap Value) -> String -> Int -> Int
 metricInt m key def =
@@ -117,7 +132,7 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
         avgTradeReturn = metricFloat (Just metrics) "avgTradeReturn" 0
-        avgHoldingPeriods = metricFloat (Just metrics) "avgHoldingPeriods" 0
+        paybackDuration = metricPositiveDurationMaybe (Just metrics) "avgHoldingPeriods"
         exposure = metricFloat (Just metrics) "exposure" 0
         roundTrips = metricInt (Just metrics) "roundTrips" 0
         tradeCount = metricInt (Just metrics) "tradeCount" 0
@@ -133,13 +148,13 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
             | exposure < paybackExposureFloor = 0.02
             | otherwise = 0
         -- Fast payback should only break ties once the candidate clears the
-        -- same activity and deployment floors used to penalize brittle runs.
+        -- same activity and deployment floors used to penalize brittle runs,
+        -- and only when the observed duration is finite and strictly positive.
         paybackBonus
             | avgTradeReturn <= 0 = 0
-            | avgHoldingPeriods <= 0 = 0
             | activityCount < paybackActivityFloor = 0
             | exposure < paybackExposureFloor = 0
-            | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
+            | otherwise = maybe 0 paybackBonusFromDuration paybackDuration
         baseScore =
             case parseTuneObjective objective of
                 Right TuneFinalEquity -> finalEq
@@ -155,6 +170,10 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
                 Right TuneEquityDdTurnover -> finalEq - pDd * maxDdN - pTurn * turnoverN
                 Left _ -> finalEq
      in baseScore - activityPenalty - exposurePenalty
+
+paybackBonusFromDuration :: Double -> Double
+paybackBonusFromDuration paybackDuration =
+    min 0.05 (1 / (1 + paybackDuration))
 
 normalizeObjectiveCode :: String -> Either String String
 normalizeObjectiveCode raw = tuneObjectiveCode <$> parseTuneObjective raw
