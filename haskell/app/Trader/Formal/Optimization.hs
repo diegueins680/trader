@@ -31,9 +31,9 @@ roiRequirementClauses =
     [ "Prefer higher annualized return as the repo's daily-ROI proxy."
     , "Penalize drawdown and tail loss."
     , "Penalize turnover."
-    , "Reward positive expectancy only after a completed round trip."
-    , "Reward faster payback only after a completed round trip with positive expectancy."
-    , "Penalize low completed round-trip activity and idle capital."
+    , "Use average trade return as a supporting signal once the candidate shows trade activity."
+    , "Reward faster payback only after the candidate clears the minimum activity and idle-capital floors with positive expectancy."
+    , "Penalize low activity and idle capital."
     ]
 
 data TieBreakCandidate = TieBreakCandidate
@@ -112,7 +112,7 @@ roiImplementationScore penaltyMaxDd penaltyTurnover m =
         activityPenalty = activityPenaltyFor activityCount
         exposurePenalty = exposurePenaltyFor exposure
         expectancyReward = expectancyRewardFor activityCount expectancy
-        paybackReward = paybackRewardFor activityCount expectancy avgHold
+        paybackReward = paybackRewardFor activityCount expectancy exposure avgHold
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
      in annRet
@@ -131,7 +131,7 @@ roiSpecScore penaltyMaxDd penaltyTurnover m =
         pTurn = max 0 penaltyTurnover
         returnReward = rvAnnualizedReturn view
         expectancyReward = expectancyRewardFor activityCount (rvExpectancy view)
-        paybackReward = paybackRewardFor activityCount (rvExpectancy view) (rvAvgHold view)
+        paybackReward = paybackRewardFor activityCount (rvExpectancy view) (rvExposure view) (rvAvgHold view)
         riskPenalty = pDd * (rvMaxDrawdown view + rvTailLoss view)
         turnoverPenalty = pTurn * rvTurnover view
         sparseActivityPenalty = activityPenaltyFor activityCount
@@ -437,7 +437,7 @@ roiViewFromMetrics m =
         }
 
 activityCountFromMetrics :: BacktestMetrics -> Int
-activityCountFromMetrics metrics = max 0 (bmRoundTrips metrics)
+activityCountFromMetrics metrics = max 0 (max (bmRoundTrips metrics) (bmTradeCount metrics))
 
 expectancyRewardFor :: Int -> Double -> Double
 expectancyRewardFor activityCount expectancy =
@@ -445,9 +445,9 @@ expectancyRewardFor activityCount expectancy =
         then 0
         else 0.5 * expectancy
 
-paybackRewardFor :: Int -> Double -> Double -> Double
-paybackRewardFor activityCount expectancy avgHold =
-    if activityCount <= 0 || expectancy <= 0
+paybackRewardFor :: Int -> Double -> Double -> Double -> Double
+paybackRewardFor activityCount expectancy exposure avgHold =
+    if not (meetsRoiPaybackFloor activityCount exposure) || expectancy <= 0
         then 0
         else paybackBonusFor avgHold
 
@@ -457,16 +457,26 @@ paybackBonusFor avgHold =
         then 0
         else min 0.05 (1 / (1 + avgHold))
 
+minimumRoiActivityFloor :: Int
+minimumRoiActivityFloor = 3
+
+minimumRoiExposureFloor :: Double
+minimumRoiExposureFloor = 0.01
+
+meetsRoiPaybackFloor :: Int -> Double -> Bool
+meetsRoiPaybackFloor activityCount exposure =
+    activityCount >= minimumRoiActivityFloor && exposure >= minimumRoiExposureFloor
+
 activityPenaltyFor :: Int -> Double
 activityPenaltyFor activityCount
     | activityCount <= 0 = 0.25
-    | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
+    | activityCount < minimumRoiActivityFloor = fromIntegral (minimumRoiActivityFloor - activityCount) * 0.03
     | otherwise = 0
 
 exposurePenaltyFor :: Double -> Double
 exposurePenaltyFor exposure
     | exposure <= 0 = 0.05
-    | exposure < 0.01 = 0.02
+    | exposure < minimumRoiExposureFloor = 0.02
     | otherwise = 0
 
 comparisonEps :: Double
@@ -700,15 +710,15 @@ gateCellPermissivenessRank behavior =
         VolConfGateAllowEntry -> 2
 
 zeroRoundTripRewardInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Int -> Double -> Bool
-zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover tradeCount exposure =
+zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover _tradeCount exposure =
     let baseline =
             scoreWith
-                (RoiState annualizedReturn maxDrawdown tailLoss turnover 0 0 0 tradeCount exposure)
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover 0 0 0 0 exposure)
                 penaltyMaxDd
                 penaltyTurnover
         scoreFor expectancy avgHold =
             scoreWith
-                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold 0 tradeCount exposure)
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold 0 0 exposure)
                 penaltyMaxDd
                 penaltyTurnover
      in and
@@ -719,13 +729,14 @@ zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn ma
 
 paybackExpectancyInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Int -> Double -> Bool
 paybackExpectancyInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy roundTrips tradeCount exposure =
-    let scoreFor avgHold =
+    let activityCount = max roundTrips tradeCount
+        scoreFor avgHold =
             scoreWith
                 (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
                 penaltyMaxDd
                 penaltyTurnover
         paybackScores = [scoreFor avgHold | avgHold <- positiveAvgHoldDomain]
-     in if expectancy <= 0
+     in if expectancy <= 0 || not (meetsRoiPaybackFloor activityCount exposure)
             then allApproxEq paybackScores
             else nonIncreasing paybackScores
 

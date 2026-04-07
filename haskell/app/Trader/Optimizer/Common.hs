@@ -122,17 +122,23 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         roundTrips = metricInt (Just metrics) "roundTrips" 0
         tradeCount = metricInt (Just metrics) "tradeCount" 0
         activityCount = max roundTrips tradeCount
+        paybackActivityFloor = 3
+        paybackExposureFloor = 0.01
         activityPenalty
             | activityCount <= 0 = 0.25
-            | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
+            | activityCount < paybackActivityFloor = fromIntegral (paybackActivityFloor - activityCount) * 0.03
             | otherwise = 0
         exposurePenalty
             | exposure <= 0 = 0.05
-            | exposure < 0.01 = 0.02
+            | exposure < paybackExposureFloor = 0.02
             | otherwise = 0
+        -- Fast payback should only break ties once the candidate clears the
+        -- same activity and deployment floors used to penalize brittle runs.
         paybackBonus
             | avgTradeReturn <= 0 = 0
             | avgHoldingPeriods <= 0 = 0
+            | activityCount < paybackActivityFloor = 0
+            | exposure < paybackExposureFloor = 0
             | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
         baseScore =
             case parseTuneObjective objective of
