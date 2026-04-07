@@ -260,9 +260,16 @@ closeTimingRecommendationAccepted currentMaxHoldBars recommended report
             ) of
             (Just evidenceDuration, Just supportCount, Just meanLift) ->
                 evidenceDuration == recommended
+                    && closeTimingRecommendationHasContiguousPositiveLiftSupport recommended report
                     && supportCount >= minimumPositiveLiftSupportSamples
                     && meanLift > 0
             _ -> False
+
+closeTimingRecommendationHasContiguousPositiveLiftSupport :: Int -> ComboCloseTimingReport -> Bool
+closeTimingRecommendationHasContiguousPositiveLiftSupport recommended report =
+    case cctrRecommendedMaxHoldBarsContiguousPositiveLiftHorizon report of
+        Just contiguousHorizon -> recommended > 0 && recommended <= contiguousHorizon
+        Nothing -> False
 
 isMorePermissiveMaxHoldBars :: Maybe Int -> Int -> Bool
 isMorePermissiveMaxHoldBars Nothing _ = False
@@ -303,6 +310,7 @@ closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report =
             , "medianOptimalDuration" .= cctrMedianOptimalDuration report
             , "q75OptimalDuration" .= cctrQ75OptimalDuration report
             , "recommendedMaxHoldBars" .= cctrRecommendedMaxHoldBars report
+            , "recommendedMaxHoldBarsContiguousPositiveLiftHorizon" .= cctrRecommendedMaxHoldBarsContiguousPositiveLiftHorizon report
             , "recommendedMaxHoldBarsAccepted" .= recommendationAccepted
             , "recommendedMaxHoldBarsEvidenceDuration" .= cctrRecommendedMaxHoldBarsEvidenceDuration report
             , "recommendedMaxHoldBarsPositiveLiftSampleCount" .= cctrRecommendedMaxHoldBarsPositiveLiftSampleCount report
