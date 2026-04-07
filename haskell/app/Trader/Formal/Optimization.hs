@@ -31,9 +31,10 @@ roiRequirementClauses =
     [ "Prefer higher annualized return as the repo's daily-ROI proxy."
     , "Penalize drawdown and tail loss."
     , "Penalize turnover."
-    , "Reward positive expectancy only after a completed round trip."
+    , "Apply expectancy reward or penalty only after a completed round trip."
     , "Reward faster payback only after a completed round trip with positive expectancy."
     , "Penalize low completed round-trip activity and idle capital."
+    , "An inactive or zero-round-trip candidate must not outrank an otherwise-identical active profitable candidate on expectancy/payback terms alone."
     ]
 
 data TieBreakCandidate = TieBreakCandidate
@@ -58,6 +59,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrExpectancyMonotone :: !Bool
     , fvrPaybackMonotone :: !Bool
     , fvrZeroRoundTripRewardInvariant :: !Bool
+    , fvrInactiveRewardTermsCannotOutrankActive :: !Bool
     , fvrActivityPenaltyOrdered :: !Bool
     , fvrExposurePenaltyOrdered :: !Bool
     , fvrTieBreakTotalOrderAfterNormalization :: !Bool
@@ -111,15 +113,13 @@ roiImplementationScore penaltyMaxDd penaltyTurnover m =
         activityCount = activityCountFromMetrics m
         activityPenalty = activityPenaltyFor activityCount
         exposurePenalty = exposurePenaltyFor exposure
-        expectancyReward = expectancyRewardFor activityCount expectancy
-        paybackReward = paybackRewardFor activityCount expectancy avgHold
+        rewardAdjustment = roiRewardTerms activityCount expectancy avgHold
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
      in annRet
             - pDd * (maxDd + tailLoss)
             - pTurn * turnover
-            + expectancyReward
-            + paybackReward
+            + rewardAdjustment
             - activityPenalty
             - exposurePenalty
 
@@ -130,13 +130,12 @@ roiSpecScore penaltyMaxDd penaltyTurnover m =
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
         returnReward = rvAnnualizedReturn view
-        expectancyReward = expectancyRewardFor activityCount (rvExpectancy view)
-        paybackReward = paybackRewardFor activityCount (rvExpectancy view) (rvAvgHold view)
+        rewardAdjustment = roiRewardTerms activityCount (rvExpectancy view) (rvAvgHold view)
         riskPenalty = pDd * (rvMaxDrawdown view + rvTailLoss view)
         turnoverPenalty = pTurn * rvTurnover view
         sparseActivityPenalty = activityPenaltyFor activityCount
         idleCapitalPenalty = exposurePenaltyFor (rvExposure view)
-     in returnReward + expectancyReward + paybackReward - riskPenalty - turnoverPenalty - sparseActivityPenalty - idleCapitalPenalty
+     in returnReward + rewardAdjustment - riskPenalty - turnoverPenalty - sparseActivityPenalty - idleCapitalPenalty
 
 tieBreakCandidateFromMetrics :: BacktestMetrics -> Double -> Double -> TieBreakCandidate
 tieBreakCandidateFromMetrics metrics openThr closeThr =
@@ -342,6 +341,11 @@ verifyFormalOptimization =
                     , tradeCount <- activityDomain
                     , exposure <- exposureDomain
                     ]
+            , fvrInactiveRewardTermsCannotOutrankActive =
+                and
+                    [ inactiveRewardTermsCannotOutrankActiveFor avgHold
+                    | avgHold <- avgHoldDomain
+                    ]
             , fvrActivityPenaltyOrdered =
                 and
                     [ activityPenaltyOrderedFor
@@ -450,6 +454,11 @@ paybackRewardFor activityCount expectancy avgHold =
     if activityCount <= 0 || expectancy <= 0
         then 0
         else paybackBonusFor avgHold
+
+roiRewardTerms :: Int -> Double -> Double -> Double
+roiRewardTerms activityCount expectancy avgHold =
+    expectancyRewardFor activityCount expectancy
+        + paybackRewardFor activityCount expectancy avgHold
 
 paybackBonusFor :: Double -> Double
 paybackBonusFor avgHold =
@@ -717,6 +726,16 @@ zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn ma
             , avgHold <- avgHoldDomain
             ]
 
+inactiveRewardTermsCannotOutrankActiveFor :: Double -> Bool
+inactiveRewardTermsCannotOutrankActiveFor avgHold =
+    and
+        [ let inactiveReward = roiRewardTerms 0 expectancy avgHold
+              activeReward = roiRewardTerms 1 expectancy avgHold
+           in approxEq inactiveReward 0
+                && activeReward > inactiveReward + comparisonEps
+        | expectancy <- positiveExpectancyDomain
+        ]
+
 paybackExpectancyInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Int -> Double -> Bool
 paybackExpectancyInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy roundTrips tradeCount exposure =
     let scoreFor avgHold =
@@ -942,6 +961,9 @@ turnoverDomain = [0.0, 0.2, 0.6]
 
 expectancyDomain :: [Double]
 expectancyDomain = [-0.1, 0.0, 0.1]
+
+positiveExpectancyDomain :: [Double]
+positiveExpectancyDomain = filter (> 0) expectancyDomain
 
 avgHoldDomain :: [Double]
 avgHoldDomain = [0.0, 1.0, 39.0]

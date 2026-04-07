@@ -119,7 +119,9 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         exposure = metricFloat (Just metrics) "exposure" 0
         roundTrips = metricInt (Just metrics) "roundTrips" 0
         tradeCount = metricInt (Just metrics) "tradeCount" 0
-        activityCount = max roundTrips tradeCount
+        completedRoundTrips = max 0 roundTrips
+        observedTrades = max 0 tradeCount
+        activityCount = max completedRoundTrips observedTrades
         activityPenalty
             | activityCount <= 0 = 0.25
             | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
@@ -128,7 +130,11 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
             | exposure <= 0 = 0.05
             | exposure < 0.01 = 0.02
             | otherwise = 0
+        expectancyAdjustment
+            | completedRoundTrips <= 0 = 0
+            | otherwise = 0.5 * avgTradeReturn
         paybackBonus
+            | completedRoundTrips <= 0 = 0
             | avgTradeReturn <= 0 = 0
             | avgHoldingPeriods <= 0 = 0
             | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
@@ -137,7 +143,7 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
                 Right TuneFinalEquity -> finalEq
                 Right TuneAnnualizedEquity -> annRet
                 Right TuneRoi ->
-                    annRet - pDd * (maxDdN + cvar95N) - pTurn * turnoverN + 0.5 * avgTradeReturn + paybackBonus
+                    annRet - pDd * (maxDdN + cvar95N) - pTurn * turnoverN + expectancyAdjustment + paybackBonus
                 Right TuneSharpe -> sharpe
                 Right TuneCalmar ->
                     if maxDdN <= 0
