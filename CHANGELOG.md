@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: make Codex-backed autoloop planner calls retry transient transport failures (`ETIMEDOUT`, websocket idle disconnects) with backoff, and raise the default `plan-patch` timeout budget so long patch-generation turns do not abort the trader forever lane prematurely.
 - Dev/CI: make the repo-local autoloop forever runner fetch `origin`, merge every still-unmerged local/remote branch into `main` before each bounded cycle, auto-resolve direct merge conflicts in favor of the current `main` content, and push the reconciled `main` branch so branch backlog cleanup becomes a continuous lane instead of a one-off operator task.
 - Dev/CI: add a launchd installer for the repo-local autoloop forever runner (`scripts/install-autoloop-launchagent.sh`), make `autoloop-forever.sh status` verify PID liveness instead of trusting stale JSON, and emit a periodic heartbeat from `scripts/autoloop-forever.mjs` so local forever-lane status stays truthful and durable across shell exits/login sessions.
 - API: bound Binance key-check probe phases with hard backend timeouts so blocked signed requests on hosts like Fly return a concrete probe failure instead of hanging until the UI request timeout; the best-effort egress-IP lookup is also capped more aggressively.
