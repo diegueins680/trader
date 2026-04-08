@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: teach the trader autoloop to auto-heal formatting-only GitHub CI failures on editable Haskell files by parsing `fourmolu --mode check` logs, formatting those exact files with `fourmolu -i`, rerunning the formatter check plus normal Haskell verification, and pushing the repair directly instead of stalling in model-driven `no_change`.
 - Dev/CI: make each trader autoloop cycle poll the latest GitHub head on the loop branch before discovery, wait for its GitHub Actions state to settle, and enter log-backed repair mode immediately when that remote head is already red instead of starting unrelated new work.
 - Dev/CI: make Codex-backed autoloop planner calls retry transient transport failures (`ETIMEDOUT`, websocket idle disconnects) with backoff, and raise the default `plan-patch` timeout budget so long patch-generation turns do not abort the trader forever lane prematurely.
 - Dev/CI: make the repo-local autoloop forever runner fetch `origin`, merge every still-unmerged local/remote branch into `main` before each bounded cycle, auto-resolve direct merge conflicts in favor of the current `main` content, and push the reconciled `main` branch so branch backlog cleanup becomes a continuous lane instead of a one-off operator task.

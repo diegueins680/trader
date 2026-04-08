@@ -84,7 +84,10 @@ const BLOCKED_EDIT_PREFIXES = [
   "haskell/trader.cabal",
 ];
 
+const FOURMOLU_CHECK_COMMAND = "cd haskell && find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check";
+
 const SAFE_VERIFICATION_COMMANDS = new Set([
+  FOURMOLU_CHECK_COMMAND,
   "cd haskell && cabal build",
   "cd haskell && cabal test",
   "cd haskell && bash scripts/ci_smoke.sh",
@@ -157,43 +160,65 @@ async function main() {
   for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
     await updateStatus({ phase: "reset-branch", iteration, failureContext: summarizeFailureContext(failureContext) });
     hardResetToCurrentHead();
-    const repoContext = await buildRepoContext();
-    await updateStatus({ phase: "choose-change", iteration });
-    const idea = failureContext
-      ? await requestFixIdea(repoContext, failureContext)
-      : await requestIdeaSelection(repoContext);
-    await updateStatus({ phase: "algorithm-review", iteration, idea: summarizeIdea(idea) });
-    await updateStatus({ phase: "formal-methods-review", iteration, idea: summarizeIdea(idea) });
+    const automaticRepair = failureContext ? detectAutomaticRepair(failureContext) : null;
+    let plannedPaths = [];
+    let verificationCommands = [];
+    let commitMessage = "";
+    let planSummary = null;
 
-    if (idea.noChange) {
+    if (automaticRepair) {
+      plannedPaths = automaticRepair.changedPaths;
+      verificationCommands = automaticRepair.verificationCommands;
+      commitMessage = automaticRepair.commitMessage;
       await updateStatus({
-        phase: "complete",
+        phase: "auto-repair",
         iteration,
-        outcome: "no_change",
-        message: idea.rationale || "No safe change proposed.",
+        failureContext: summarizeFailureContext(failureContext),
+        automaticRepair: summarizeAutomaticRepair(automaticRepair),
       });
-      console.log(`No safe change proposed${idea.rationale ? `: ${idea.rationale}` : "."}`);
-      return;
-    }
+      applyAutomaticRepair(automaticRepair);
+    } else {
+      const repoContext = await buildRepoContext();
+      await updateStatus({ phase: "choose-change", iteration });
+      const idea = failureContext
+        ? await requestFixIdea(repoContext, failureContext)
+        : await requestIdeaSelection(repoContext);
+      await updateStatus({ phase: "algorithm-review", iteration, idea: summarizeIdea(idea) });
+      await updateStatus({ phase: "formal-methods-review", iteration, idea: summarizeIdea(idea) });
 
-    const editableFiles = await readEditableFiles(idea.filesNeeded);
-    await updateStatus({ phase: "plan-patch", iteration, idea: summarizeIdea(idea) });
-    const plan = await requestPatchPlan(repoContext, idea, editableFiles, failureContext);
-    if (plan.noChange) {
-      await updateStatus({
-        phase: "complete",
-        iteration,
-        outcome: "no_patch_plan",
-        message: plan.summary || "No patch plan returned.",
-      });
-      console.log(`No patch plan returned${plan.summary ? `: ${plan.summary}` : "."}`);
-      return;
-    }
+      if (idea.noChange) {
+        await updateStatus({
+          phase: "complete",
+          iteration,
+          outcome: "no_change",
+          message: idea.rationale || "No safe change proposed.",
+        });
+        console.log(`No safe change proposed${idea.rationale ? `: ${idea.rationale}` : "."}`);
+        return;
+      }
 
-    assertPlanMatchesEditableFiles(plan.changes, editableFiles);
-    const plannedPaths = uniqueStrings(plan.changes.map((change) => sanitizeRelativePath(change.path)));
-    await updateStatus({ phase: "apply-patch", iteration, plan: summarizePlan(plan), plannedPaths });
-    applyFileChanges(plan.changes);
+      const editableFiles = await readEditableFiles(idea.filesNeeded);
+      await updateStatus({ phase: "plan-patch", iteration, idea: summarizeIdea(idea) });
+      const plan = await requestPatchPlan(repoContext, idea, editableFiles, failureContext);
+      if (plan.noChange) {
+        await updateStatus({
+          phase: "complete",
+          iteration,
+          outcome: "no_patch_plan",
+          message: plan.summary || "No patch plan returned.",
+        });
+        console.log(`No patch plan returned${plan.summary ? `: ${plan.summary}` : "."}`);
+        return;
+      }
+
+      assertPlanMatchesEditableFiles(plan.changes, editableFiles);
+      plannedPaths = uniqueStrings(plan.changes.map((change) => sanitizeRelativePath(change.path)));
+      verificationCommands = planVerificationCommands(plannedPaths, [...idea.verificationCommands, ...plan.verificationCommands]);
+      commitMessage = plan.commitMessage;
+      planSummary = summarizePlan(plan);
+      await updateStatus({ phase: "apply-patch", iteration, plan: planSummary, plannedPaths });
+      applyFileChanges(plan.changes);
+    }
     let changedPaths = collectChangedPlanPaths(plannedPaths);
     if (changedPaths.length === 0) {
       await updateStatus({
@@ -201,22 +226,19 @@ async function main() {
         iteration,
         outcome: "no_changes",
         message: "Model produced no file changes after normalization.",
-        plan: summarizePlan(plan),
+        plan: planSummary,
+        automaticRepair: automaticRepair ? summarizeAutomaticRepair(automaticRepair) : undefined,
       });
       console.log("Model produced no file changes after normalization; stopping.");
       return;
     }
-
-    const verificationCommands = planVerificationCommands(changedPaths, [
-      ...idea.verificationCommands,
-      ...plan.verificationCommands,
-    ]);
     await updateStatus({
       phase: "verify",
       iteration,
       changedPaths,
       verificationCommands,
-      plan: summarizePlan(plan),
+      plan: planSummary,
+      automaticRepair: automaticRepair ? summarizeAutomaticRepair(automaticRepair) : undefined,
     });
     await runVerificationCommands(verificationCommands);
     changedPaths = collectChangedPlanPaths(plannedPaths);
@@ -236,7 +258,6 @@ async function main() {
       console.warn(`Skipping unexpected worktree paths outside the plan: ${unexpectedChanges.join(", ")}`);
     }
 
-    const commitMessage = plan.commitMessage;
     if (DRY_RUN) {
       await updateStatus({
         phase: "complete",
@@ -246,7 +267,8 @@ async function main() {
         changedPaths,
         verificationCommands,
         unexpectedChanges,
-        plan: summarizePlan(plan),
+        plan: planSummary,
+        automaticRepair: automaticRepair ? summarizeAutomaticRepair(automaticRepair) : undefined,
       });
       console.log(JSON.stringify({ commitMessage, changedPaths, verificationCommands }, null, 2));
       return;
@@ -266,7 +288,8 @@ async function main() {
         branch: LOOP_BRANCH,
         headSha: pushedHeadSha,
         changedPaths,
-        plan: summarizePlan(plan),
+        plan: planSummary,
+        automaticRepair: automaticRepair ? summarizeAutomaticRepair(automaticRepair) : undefined,
         message: skipMessage,
       });
       console.log(`${skipMessage} Pushed ${pushedHeadSha} directly to ${LOOP_BRANCH}.`);
@@ -279,7 +302,8 @@ async function main() {
       branch: LOOP_BRANCH,
       headSha: pushedHeadSha,
       changedPaths,
-      plan: summarizePlan(plan),
+      plan: planSummary,
+      automaticRepair: automaticRepair ? summarizeAutomaticRepair(automaticRepair) : undefined,
     });
     const ci = waitForBranchCi(pushedHeadSha, LOOP_BRANCH);
     if (ci.ok) {
@@ -507,6 +531,46 @@ function summarizeFailureContext(failureContext) {
     runId: failureContext.runId,
     runUrl: failureContext.runUrl,
     changedPaths: failureContext.changedPaths,
+  };
+}
+
+function summarizeAutomaticRepair(repair) {
+  if (!repair) return null;
+  return {
+    type: repair.type,
+    changedPaths: repair.changedPaths,
+    commitMessage: repair.commitMessage,
+  };
+}
+
+function parseFourmoluFailurePaths(failedLog) {
+  return uniqueStrings(
+    String(failedLog || "")
+      .split(/\r?\n/)
+      .map((line) => line.match(/\b((?:app|test|bench)\/[A-Za-z0-9_./-]+\.hs)\b/)?.[1] || "")
+      .filter(Boolean)
+      .map((relPath) => sanitizeRelativePath(`haskell/${relPath}`)),
+  );
+}
+
+function detectAutomaticRepair(failureContext) {
+  if (!failureContext?.failedLog) return null;
+
+  const failedLog = String(failureContext.failedLog);
+  const changedPaths = uniqueStrings((failureContext.changedPaths || []).map(sanitizeRelativePath));
+  const isFourmoluFailure = /\bfourmolu --mode check\b/.test(failedLog);
+  if (!isFourmoluFailure) return null;
+
+  const fourmoluPaths = parseFourmoluFailurePaths(failedLog).filter(
+    (filePath) => changedPaths.length === 0 || changedPaths.includes(filePath),
+  );
+  if (fourmoluPaths.length === 0 || !fourmoluPaths.every(allowedEditPath)) return null;
+
+  return {
+    type: "fourmolu",
+    changedPaths: fourmoluPaths,
+    commitMessage: fourmoluPaths.length === 1 ? `Haskell: format ${path.basename(fourmoluPaths[0], ".hs")}` : "Haskell: apply fourmolu fixes",
+    verificationCommands: planVerificationCommands(fourmoluPaths, [FOURMOLU_CHECK_COMMAND]),
   };
 }
 
@@ -823,6 +887,23 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     .join("\n");
 
   return normalizePatchPlan(await callModelJson({ prompt, maxOutputTokens: 12000, timeoutMs: CODEX_PATCH_TIMEOUT_MS }));
+}
+
+function applyAutomaticRepair(repair) {
+  if (repair.type === "fourmolu") {
+    const relPaths = repair.changedPaths.map((filePath) => {
+      const rel = sanitizeRelativePath(filePath);
+      if (!rel.startsWith("haskell/")) throw new Error(`fourmolu repair expected a Haskell path: ${rel}`);
+      return rel.slice("haskell/".length);
+    });
+    runCommand("fourmolu", ["-i", ...relPaths], {
+      cwd: path.join(ROOT, "haskell"),
+      capture: false,
+    });
+    return;
+  }
+
+  throw new Error(`Unsupported automatic repair type: ${repair.type}`);
 }
 
 function applyFileChanges(changes) {
