@@ -33,8 +33,7 @@ roiRequirementClauses =
     , "Penalize drawdown and tail loss."
     , "Penalize turnover."
     , "Use average trade return as a supporting signal once the candidate shows trade activity."
-    , "Reward faster payback only for finite strictly positive payback durations after the candidate clears the minimum activity and idle-capital floors with positive expectancy."
-    , "Treat zero, negative, and non-finite payback durations exactly like missing payback data."
+    , "Reward faster payback only for finite strictly positive payback durations after the candidate clears the minimum activity and idle-capital floors with positive expectancy; treat zero, negative, and non-finite payback exactly like missing data."
     , "Penalize low activity and idle capital."
     ]
 
