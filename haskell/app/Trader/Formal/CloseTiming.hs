@@ -22,7 +22,7 @@ module Trader.Formal.CloseTiming (
 ) where
 
 import Data.Function (on)
-import Data.List (foldl', groupBy, sort, sortOn)
+import Data.List (foldl', group, sort, sortOn)
 import Data.Maybe (mapMaybe)
 import qualified Data.Vector as V
 
@@ -473,7 +473,7 @@ observedHoldHorizon =
 analyzedHoldBarDomain :: [TradeTimingSample] -> [Int]
 analyzedHoldBarDomain =
     mapMaybe groupHead
-        . groupBy (==)
+        . group
         . sort
         . filter (> 0)
         . map ttsOptimalDuration
@@ -670,8 +670,8 @@ closeTimingRecommendationEligible stats positiveLiftCount currentHoldHorizon rec
     obligations before persistence/backfill can rewrite `maxHoldBars`.
 -}
 capRecommendationToSupportedPositiveLiftHorizon :: Int -> Int -> Int
-capRecommendationToSupportedPositiveLiftHorizon q75Bars supportedHorizon =
-    min q75Bars supportedHorizon
+capRecommendationToSupportedPositiveLiftHorizon =
+    min
 
 recommendedCloseTimingHold :: Maybe ComboTimingStats -> Int -> Maybe Int -> Maybe Int -> Maybe Int -> Maybe Int -> [Int] -> [TradeTimingSample] -> Maybe Int
 recommendedCloseTimingHold (Just stats) positiveLiftCount (Just currentHoldHorizon) (Just q75Bars) (Just supportedHorizon) (Just analyzedUpperBound) analyzedHoldBars samples
