@@ -2,6 +2,7 @@
 
 module Trader.App.BinanceProbe (
     BinanceErrorInfo (..),
+    binanceAuthFailureFromMessage,
     binanceTradeTestConfirmsAuth,
     parseBinanceError,
 ) where
@@ -57,6 +58,13 @@ parseBinanceError raw =
             , beiMsg = outMsg
             , beiSummary = summary
             }
+
+binanceAuthFailureFromMessage :: String -> Maybe BinanceErrorInfo
+binanceAuthFailureFromMessage raw =
+    let info = parseBinanceError raw
+     in if looksLikeAuthFailure (beiCode info) (beiSummary info)
+            then Just info
+            else Nothing
 
 binanceTradeTestConfirmsAuth :: Maybe Int -> String -> Bool
 binanceTradeTestConfirmsAuth mCode summary =

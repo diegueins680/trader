@@ -280,7 +280,7 @@ export function buildAutoloopDirtyCheckpointBranchName({ loopBranch, timestamp }
 
 export function normalizeGitBranchShortName(rawBranch) {
   const raw = String(rawBranch ?? "").trim();
-  if (!raw || raw === "HEAD" || raw.endsWith("/HEAD")) return "";
+  if (!raw || raw === "HEAD" || raw === "origin" || raw.endsWith("/HEAD")) return "";
   return raw
     .replace(/^refs\/heads\//, "")
     .replace(/^refs\/remotes\/origin\//, "")

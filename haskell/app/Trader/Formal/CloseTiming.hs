@@ -22,7 +22,7 @@ module Trader.Formal.CloseTiming (
 ) where
 
 import Data.Function (on)
-import Data.List (foldl', group, sort, sortOn)
+import Data.List (foldl', group, groupBy, sort, sortOn)
 import Data.Maybe (mapMaybe)
 import qualified Data.Vector as V
 

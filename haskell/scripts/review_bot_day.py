@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -31,6 +32,29 @@ ACK_ONLY_STATUSES = {
     "new",
     "pendingcancel",
 }
+
+AUTH_FAILURE_CODES = {
+    -2015,
+    -2014,
+    -1022,
+    -1021,
+    401,
+    403,
+}
+
+AUTH_FAILURE_PHRASES = (
+    "invalid api-key",
+    "invalid api key",
+    "permissions for action",
+    "signature for this request",
+    "signature is not valid",
+    "timestamp for this request is outside of the recvwindow",
+    "recvwindow",
+    "api-key format invalid",
+)
+
+HTTP_STATUS_RE = re.compile(r"http(?:/\d(?:\.\d)?)?\s+(\d{3})", re.IGNORECASE)
+BINANCE_CODE_RE = re.compile(r"binance code\s+(-?\d+)(?:\s*[:/]\s*(.*))?", re.IGNORECASE)
 
 DIRECTIONALITY_CHOP_EFFICIENCY_MAX = 0.25
 DIRECTIONALITY_MR_EFFICIENCY_MAX = 0.40
@@ -364,6 +388,48 @@ def order_flow_role_from_side(order_side: str | None, reference_side: str | None
     if order_side == expected_open_side:
         return "entry_or_add"
     return "exit_or_flatten"
+
+
+def extract_http_status_code(message: str) -> int | None:
+    match = HTTP_STATUS_RE.search(message)
+    if match is None:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def extract_labeled_binance_error(message: str) -> tuple[int | None, str | None]:
+    match = BINANCE_CODE_RE.search(message)
+    if match is None:
+        return None, None
+    try:
+        code = int(match.group(1))
+    except ValueError:
+        code = None
+    summary = (match.group(2) or "").strip() or None
+    return code, summary
+
+
+def classify_binance_auth_failure(message: Any) -> dict[str, Any] | None:
+    text = str(message or "").strip()
+    if not text:
+        return None
+    http_code = extract_http_status_code(text)
+    code, summary = extract_labeled_binance_error(text)
+    summary_text = summary or text
+    lower_summary = summary_text.lower()
+    if code not in AUTH_FAILURE_CODES and http_code not in AUTH_FAILURE_CODES and not any(
+        phrase in lower_summary for phrase in AUTH_FAILURE_PHRASES
+    ):
+        return None
+    return {
+        "authFailure": True,
+        "authFailureSummary": summary_text,
+        "authFailureCode": code,
+        "authFailureHttpCode": http_code,
+    }
 
 
 def classify_order_event_flow_role(
@@ -806,6 +872,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
                 directionality = order_event.get("directionality")
             elif order_idx is not None:
                 directionality = build_directionality_snapshot(prices, order_idx, latest_regimes)
+            auth_failure = classify_binance_auth_failure(order.get("message")) if order.get("sent") is not True else None
             flow_role = classify_order_event_flow_role(snapshot, order_event, order_idx)
             order_row = {
                 "symbol": snapshot.symbol,
@@ -822,6 +889,10 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
                 "executedQty": order.get("executedQty"),
                 "quantity": order.get("quantity"),
                 "ackOnly": ack_only,
+                "authFailure": auth_failure is not None,
+                "authFailureSummary": auth_failure["authFailureSummary"] if auth_failure else None,
+                "authFailureCode": auth_failure["authFailureCode"] if auth_failure else None,
+                "authFailureHttpCode": auth_failure["authFailureHttpCode"] if auth_failure else None,
                 "directionality": directionality,
                 "nonDirectionalVeto": bool(directionality and directionality.get("nonDirectional")),
                 "nonDirectionalReason": directionality.get("reason") if directionality else None,
@@ -853,6 +924,12 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
     non_directional_unknown_role_events = [
         row for row in order_events if row["nonDirectionalVeto"] and row["flowRole"] == "unknown"
     ]
+    auth_failure_order_events = [row for row in order_events if row["authFailure"]]
+    auth_failure_entry_or_add_events = [row for row in auth_failure_order_events if row["flowRole"] == "entry_or_add"]
+    auth_failure_exit_or_flatten_events = [
+        row for row in auth_failure_order_events if row["flowRole"] == "exit_or_flatten"
+    ]
+    auth_failure_unknown_role_events = [row for row in auth_failure_order_events if row["flowRole"] == "unknown"]
 
     compound = 1.0
     for trade in completed_trades:
@@ -881,6 +958,10 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             "openPositionsCarriedIn": len(carried_open_positions),
             "sameDayOrderEvents": len(order_events),
             "ackOnlyOrderEvents": sum(1 for row in order_events if row["ackOnly"]),
+            "authFailureOrderEvents": len(auth_failure_order_events),
+            "authFailureEntryOrAddEvents": len(auth_failure_entry_or_add_events),
+            "authFailureExitOrFlattenEvents": len(auth_failure_exit_or_flatten_events),
+            "authFailureUnknownRoleEvents": len(auth_failure_unknown_role_events),
             "nonDirectionalOrderAttempts": len(non_directional_order_attempts),
             "nonDirectionalExitOrFlattenEvents": len(non_directional_exit_or_flatten_events),
             "nonDirectionalUnknownRoleEvents": len(non_directional_unknown_role_events),
@@ -899,6 +980,9 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
                 snap.symbol for snap in snapshots if not infer_open_times(snap) and (snap.status.get("trades") or snap.status.get("openTrade"))
             ],
             "adoptedTradeClosures": adopted_trade_closures,
+            "authFailureEntryOrAddEvents": auth_failure_entry_or_add_events,
+            "authFailureExitOrFlattenEvents": auth_failure_exit_or_flatten_events,
+            "authFailureUnknownRoleEvents": auth_failure_unknown_role_events,
             "nonDirectionalOrderAttempts": non_directional_order_attempts,
             "nonDirectionalExitOrFlattenEvents": non_directional_exit_or_flatten_events,
             "nonDirectionalUnknownRoleEvents": non_directional_unknown_role_events,
@@ -929,6 +1013,10 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"`open_carried_in={summary['openPositionsCarriedIn']}` "
         f"`order_events={summary['sameDayOrderEvents']}` "
         f"`ack_only={summary['ackOnlyOrderEvents']}` "
+        f"`auth_failures={summary['authFailureOrderEvents']}` "
+        f"`auth_entry_or_add={summary['authFailureEntryOrAddEvents']}` "
+        f"`auth_exit_or_flatten={summary['authFailureExitOrFlattenEvents']}` "
+        f"`auth_unknown={summary['authFailureUnknownRoleEvents']}` "
         f"`non_directional_attempts={summary['nonDirectionalOrderAttempts']}` "
         f"`non_directional_exit_or_flatten={summary['nonDirectionalExitOrFlattenEvents']}` "
         f"`non_directional_unknown={summary['nonDirectionalUnknownRoleEvents']}` "
@@ -1005,13 +1093,16 @@ def render_markdown(report: dict[str, Any]) -> str:
                     f"eff `{efficiency:.5f}` "
                     f"veto `{directionality.get('reason') or 'allow'}`"
                 ) if efficiency is not None else f" regime `{directionality.get('label')}` veto `{directionality.get('reason') or 'allow'}`"
+            auth_suffix = ""
+            if event["authFailure"]:
+                auth_suffix = f" auth `{event['authFailureSummary']}`"
             lines.append(
                 "- "
                 f"`{event['symbol']}` `{event['atLocal']}` `{event['opSide']}` "
                 f"status `{event['status']}` qty `{event['executedQty']}` "
                 f"sent `{event['sent']}` "
                 f"message `{event['message']}` "
-                f"flow `{event['flowRole']}` via `{event['flowRoleEvidence']}`{gap}{directionality_suffix}"
+                f"flow `{event['flowRole']}` via `{event['flowRoleEvidence']}`{gap}{auth_suffix}{directionality_suffix}"
             )
     else:
         lines.append("- No order events touched the target local date.")
@@ -1054,6 +1145,27 @@ def render_markdown(report: dict[str, Any]) -> str:
                 "- "
                 f"`{trade['symbol']}` closed on `{trade['exitTimeLocal']}` but its saved entry provenance is `adopted`. "
                 "Treat it as a carry-in position that exited today, not a confirmed same-day fresh entry."
+            )
+    if report["anomalies"]["authFailureEntryOrAddEvents"]:
+        for event in report["anomalies"]["authFailureEntryOrAddEvents"]:
+            lines.append(
+                "- "
+                f"`{event['symbol']}` failed `{event['opSide']}` entry/add flow at `{event['atLocal']}` because Binance auth/IP/signature validation failed: "
+                f"`{event['authFailureSummary']}`."
+            )
+    if report["anomalies"]["authFailureExitOrFlattenEvents"]:
+        for event in report["anomalies"]["authFailureExitOrFlattenEvents"]:
+            lines.append(
+                "- "
+                f"`{event['symbol']}` failed `{event['opSide']}` exit/flatten flow at `{event['atLocal']}` because Binance auth/IP/signature validation failed: "
+                f"`{event['authFailureSummary']}`."
+            )
+    if report["anomalies"]["authFailureUnknownRoleEvents"]:
+        for event in report["anomalies"]["authFailureUnknownRoleEvents"]:
+            lines.append(
+                "- "
+                f"`{event['symbol']}` failed at `{event['atLocal']}` with Binance auth/IP/signature validation, but its flow role stayed "
+                f"`{event['flowRole']}` via `{event['flowRoleEvidence']}`."
             )
     if report["anomalies"]["nonDirectionalOrderAttempts"]:
         for event in report["anomalies"]["nonDirectionalOrderAttempts"]:

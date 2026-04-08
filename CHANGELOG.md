@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: make repo-local autoloop dirty-worktree recovery best-effort on remote push by preserving rescue/checkpoint commits on local `autoloop/wip/*` and `autoloop/dirty/*` branches, returning the loop branch to a clean state, and letting later cycles merge/push that backlog instead of parking forever on transient `origin` failures.
+- Dev/CI: skip the bare `origin` remote alias when reconciling unmerged branches into `main`, so the forever runner only considers real branch heads during its pre-cycle merge sweep.
+- Trading/Ops: halt the live Binance bot immediately with `BINANCE_AUTH_INVALID` when an order failure message matches Binance auth/IP/signature errors, and extend `haskell/scripts/review_bot_day.py` to tag those same-day order events with per-event auth fields plus separate entry/add vs exit/flatten summary/anomaly buckets.
 - Dev/CI: make each trader autoloop cycle poll the latest GitHub head on the loop branch before discovery, wait for its GitHub Actions state to settle, and enter log-backed repair mode immediately when that remote head is already red instead of starting unrelated new work.
 - Dev/CI: make Codex-backed autoloop planner calls retry transient transport failures (`ETIMEDOUT`, websocket idle disconnects) with backoff, and raise the default `plan-patch` timeout budget so long patch-generation turns do not abort the trader forever lane prematurely.
 - Dev/CI: make the repo-local autoloop forever runner fetch `origin`, merge every still-unmerged local/remote branch into `main` before each bounded cycle, auto-resolve direct merge conflicts in favor of the current `main` content, and push the reconciled `main` branch so branch backlog cleanup becomes a continuous lane instead of a one-off operator task.
