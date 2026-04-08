@@ -554,6 +554,15 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /runCommand\("git", \["merge", "--no-ff", "--no-edit", branchRef\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["restore", "--source=HEAD", "--staged", "--worktree", "--", \.\.\.conflicts\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["push", "origin", `\$\{BASE_BRANCH\}:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
+  assert.match(script, /const pruneResult = pruneMergedRefsOnBaseBranch\(BASE_BRANCH\);/);
+  assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
+  assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
+  assert.match(script, /runCommand\("git", \["push", "origin", "--delete", candidate\.shortName\], \{ capture: false \}\)/);
+  assert.match(script, /runCommand\("git", \["branch", "-D", candidate\.shortName\], \{ capture: false \}\)/);
+  assert.match(script, /prunedLocalBranches: pruneResult\.prunedLocalBranches/);
+  assert.match(script, /prunedRemoteBranches: pruneResult\.prunedRemoteBranches/);
+  assert.match(script, /pruneErrors: pruneResult\.pruneErrors/);
+  assert.match(script, /branch reconciliation pruned \$\{pruneResult\.prunedLocalBranches\.length\} local and \$\{pruneResult\.prunedRemoteBranches\.length\} remote merged ref\(s\)/);
 });
 
 test("autoloop workflow uses an optional dedicated push token and no PR permission", async () => {

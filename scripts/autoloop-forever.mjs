@@ -347,6 +347,66 @@ function pushBaseBranchWithRetry() {
   }
 }
 
+function isIgnorablePruneError(message) {
+  const text = String(message ?? "");
+  return (
+    /remote ref does not exist/i.test(text) ||
+    /remote ref not found/i.test(text) ||
+    /unable to delete .*remote ref does not exist/i.test(text) ||
+    /branch .* not found/i.test(text)
+  );
+}
+
+function pruneMergedRefsOnBaseBranch(baseBranch) {
+  const localBranches = splitNonEmptyLines(
+    runCommand("git", ["branch", "--format=%(refname:short)", "--merged", baseBranch], { trimOutput: false }),
+  );
+  const remoteBranches = splitNonEmptyLines(
+    runCommand("git", ["branch", "-r", "--format=%(refname:short)", "--merged", baseBranch], { trimOutput: false }),
+  );
+  const candidates = buildBranchMergeCandidates({ localBranches, remoteBranches, baseBranch });
+  const prunedLocalBranches = [];
+  const prunedRemoteBranches = [];
+  const pruneErrors = [];
+
+  for (const candidate of candidates) {
+    if (candidate.remoteRef) {
+      try {
+        runCommand("git", ["push", "origin", "--delete", candidate.shortName], { capture: false });
+        prunedRemoteBranches.push(candidate.shortName);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!isIgnorablePruneError(message)) {
+          pruneErrors.push({ branch: candidate.shortName, scope: "remote", error: message });
+        }
+      }
+    }
+
+    if (candidate.localRef) {
+      try {
+        runCommand("git", ["branch", "-D", candidate.shortName], { capture: false });
+        prunedLocalBranches.push(candidate.shortName);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!isIgnorablePruneError(message)) {
+          pruneErrors.push({ branch: candidate.shortName, scope: "local", error: message });
+        }
+      }
+    }
+  }
+
+  if (prunedRemoteBranches.length > 0) {
+    runCommand("git", ["fetch", "origin", "--prune"], { capture: false });
+  }
+
+  return {
+    candidateBranches: candidates.map((candidate) => candidate.shortName),
+    prunedLocalBranches,
+    prunedRemoteBranches,
+    pruneErrors,
+  };
+}
+
 async function reconcileUnmergedBranchesOntoBaseBranch() {
   const startedAt = new Date().toISOString();
 
@@ -386,6 +446,7 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
     const shouldPush =
       originSync.outcome !== "noop" || mergedBranches.length > 0 || conflictResolvedBranches.length > 0;
     const pushResult = shouldPush ? pushBaseBranchWithRetry() : { pushed: false, retried: false, retrySync: null };
+    const pruneResult = pruneMergedRefsOnBaseBranch(BASE_BRANCH);
     const summary = {
       startedAt,
       endedAt: new Date().toISOString(),
@@ -397,12 +458,30 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       pushed: pushResult.pushed,
       pushRetried: pushResult.retried,
       retrySyncOutcome: pushResult.retrySync?.outcome ?? null,
+      pruneCandidateBranches: pruneResult.candidateBranches,
+      prunedLocalBranches: pruneResult.prunedLocalBranches,
+      prunedRemoteBranches: pruneResult.prunedRemoteBranches,
+      pruneErrors: pruneResult.pruneErrors,
       head: runCommand("git", ["rev-parse", "HEAD"]),
     };
+
+    if (pruneResult.pruneErrors.length > 0) {
+      return {
+        ok: false,
+        reason: `merged ref pruning on ${BASE_BRANCH} failed`,
+        details: pruneResult.pruneErrors.map((item) => `${item.scope}:${item.branch}: ${item.error}`).slice(0, 40),
+        summary,
+      };
+    }
 
     if (mergedBranches.length > 0 || conflictResolvedBranches.length > 0) {
       await logRunner(
         `branch reconciliation merged ${mergedBranches.length + conflictResolvedBranches.length} branch(es) into ${BASE_BRANCH}`,
+      );
+    }
+    if (pruneResult.prunedLocalBranches.length > 0 || pruneResult.prunedRemoteBranches.length > 0) {
+      await logRunner(
+        `branch reconciliation pruned ${pruneResult.prunedLocalBranches.length} local and ${pruneResult.prunedRemoteBranches.length} remote merged ref(s)`,
       );
     } else if (originSync.outcome !== "noop" && pushResult.pushed) {
       await logRunner(`branch reconciliation refreshed ${BASE_BRANCH} from origin/${BASE_BRANCH}`);
