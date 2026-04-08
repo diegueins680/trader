@@ -8,9 +8,11 @@ module Trader.Formal.CloseTiming (
     ComboTimingStats (..),
     ComboTrade (..),
     TradeTimingSample (..),
+    acceptedCloseTimingMaxHoldBars,
     analyzeComboCloseTiming,
     buildCloseTimingStats,
     closeTimingDecision,
+    closeTimingRecommendationAccepted,
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
     optimalCloseObservation,
@@ -93,7 +95,15 @@ data ComboTimingStats = ComboTimingStats
 
 {- | Combo-level report used to retune timing-based exits from historical trades.
 Retunes fail closed unless the positive-lift q75 candidate is supported by
-enough analyzed trades.
+enough analyzed trades, is conservatively capped to the last hold bucket with
+enough profitable-support evidence, the exact recommended duration bucket itself
+has enough profitable-support samples and positive estimated lift, matches an
+analyzed hold bucket, stays within the analyzed hold window, any longer retune
+is backed by consistent exact-bucket upward evidence against the observed q75
+hold horizon and clears the one-bar deadband, and any shorter retune is backed
+by consistent exact-bucket downward evidence against the observed q75 hold
+horizon. Accepted applications also add a one-bar deadband so adjacent
+recommendations collapse to the current hold horizon.
 -}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
@@ -109,6 +119,9 @@ data ComboCloseTimingReport = ComboCloseTimingReport
     , cctrMedianOptimalDuration :: !(Maybe Int)
     , cctrQ75OptimalDuration :: !(Maybe Int)
     , cctrRecommendedMaxHoldBars :: !(Maybe Int)
+    , cctrRecommendedMaxHoldBarsEvidenceDuration :: !(Maybe Int)
+    , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount :: !(Maybe Int)
+    , cctrRecommendedMaxHoldBarsMeanLift :: !(Maybe Double)
     }
     deriving (Eq, Show)
 
@@ -287,7 +300,22 @@ analyzeComboCloseTiming comboId prices trades =
         medianObservedDuration = percentileInt 0.5 (map ttsObservedDuration samples)
         medianOptimalDuration = percentileInt 0.5 (map ttsOptimalDuration samples)
         q75OptimalDuration = supportedPositiveLiftDuration samples
-        recommendedMaxHoldBars = recommendedCloseTimingHold stats positiveLiftSampleCount q75OptimalDuration
+        currentHoldHorizon = observedHoldHorizon samples
+        supportedHorizon = supportedPositiveLiftHorizon samples
+        analyzedHoldBars = analyzedHoldBarDomain samples
+        analyzedUpperBound = analyzedHoldWindowUpperBound samples
+        recommendedMaxHoldBars =
+            recommendedCloseTimingHold
+                stats
+                positiveLiftSampleCount
+                currentHoldHorizon
+                q75OptimalDuration
+                supportedHorizon
+                analyzedUpperBound
+                analyzedHoldBars
+                samples
+        (recommendedEvidenceDuration, recommendedPositiveLiftSampleCount, recommendedMeanLift) =
+            recommendedCloseTimingEvidence recommendedMaxHoldBars samples
      in ComboCloseTimingReport
             { cctrComboId = comboId
             , cctrSampleCount = length samples
@@ -302,6 +330,9 @@ analyzeComboCloseTiming comboId prices trades =
             , cctrMedianOptimalDuration = medianOptimalDuration
             , cctrQ75OptimalDuration = q75OptimalDuration
             , cctrRecommendedMaxHoldBars = recommendedMaxHoldBars
+            , cctrRecommendedMaxHoldBarsEvidenceDuration = recommendedEvidenceDuration
+            , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = recommendedPositiveLiftSampleCount
+            , cctrRecommendedMaxHoldBarsMeanLift = recommendedMeanLift
             }
   where
     normalizeTrade trade
@@ -314,9 +345,43 @@ minimumCloseTimingSamples = 5
 minimumPositiveLiftSupportSamples :: Int
 minimumPositiveLiftSupportSamples = 3
 
+closeTimingRecommendationDeadbandBars :: Int
+closeTimingRecommendationDeadbandBars = 1
+
+acceptedCloseTimingMaxHoldBars :: Maybe Int -> ComboCloseTimingReport -> Maybe Int
+acceptedCloseTimingMaxHoldBars currentMaxHoldBars report =
+    case cctrRecommendedMaxHoldBars report of
+        Just recommended
+            | closeTimingRecommendationAccepted currentMaxHoldBars recommended report -> Just recommended
+        _ -> currentMaxHoldBars
+
+closeTimingRecommendationAccepted :: Maybe Int -> Int -> ComboCloseTimingReport -> Bool
+closeTimingRecommendationAccepted currentMaxHoldBars recommended report =
+    cctrRecommendedMaxHoldBars report == Just recommended
+        && closeTimingRecommendationClearsDeadband currentMaxHoldBars recommended
+        && closeTimingRecommendationHasExactBucketEvidence recommended report
+
+closeTimingRecommendationClearsDeadband :: Maybe Int -> Int -> Bool
+closeTimingRecommendationClearsDeadband Nothing _ = True
+closeTimingRecommendationClearsDeadband (Just currentMaxHoldBars) recommendedMaxHoldBars =
+    abs (recommendedMaxHoldBars - currentMaxHoldBars) > closeTimingRecommendationDeadbandBars
+
+closeTimingRecommendationHasExactBucketEvidence :: Int -> ComboCloseTimingReport -> Bool
+closeTimingRecommendationHasExactBucketEvidence recommended report =
+    case ( cctrRecommendedMaxHoldBarsEvidenceDuration report
+         , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount report
+         , cctrRecommendedMaxHoldBarsMeanLift report
+         ) of
+        (Just evidenceDuration, Just supportCount, Just meanLift) ->
+            evidenceDuration == recommended
+                && supportCount >= minimumPositiveLiftSupportSamples
+                && isFinite meanLift
+                && meanLift > 0
+        _ -> False
+
 positiveLiftSamples :: [TradeTimingSample] -> [TradeTimingSample]
 positiveLiftSamples =
-    filter (\sample -> ttsReturnLift sample > 0 && ttsOptimalDuration sample > 0)
+    filter (\sample -> isFinite (ttsReturnLift sample) && ttsReturnLift sample > 0 && ttsOptimalDuration sample > 0)
 
 positiveLiftSupportDurations :: [TradeTimingSample] -> [Int]
 positiveLiftSupportDurations =
@@ -334,34 +399,296 @@ supportedPositiveLiftDuration samples
     | not (hasMinimumPositiveLiftSupport samples) = Nothing
     | otherwise = percentileInt 0.75 (positiveLiftSupportDurations samples)
 
+positiveLiftSupportHoldBarDomain :: [TradeTimingSample] -> [Int]
+positiveLiftSupportHoldBarDomain =
+    analyzedHoldBarDomain . positiveLiftSamples
+
+supportedPositiveLiftHorizon :: [TradeTimingSample] -> Maybe Int
+supportedPositiveLiftHorizon samples =
+    case filter hasMinimumSupport (positiveLiftSupportHoldBarDomain samples) of
+        [] -> Nothing
+        supportedHoldBars -> Just (maximum supportedHoldBars)
+  where
+    hasMinimumSupport holdBars =
+        closeTimingRecommendationHasMinimumBucketSupport holdBars samples
+
+holdDurationPositiveLiftSupportSamples :: Int -> [TradeTimingSample] -> [TradeTimingSample]
+holdDurationPositiveLiftSupportSamples holdBars =
+    filter (\sample -> ttsOptimalDuration sample == holdBars) . positiveLiftSamples
+
+holdDurationPositiveLiftSupportCount :: Int -> [TradeTimingSample] -> Int
+holdDurationPositiveLiftSupportCount holdBars =
+    length . holdDurationPositiveLiftSupportSamples holdBars
+
+holdDurationDownwardPositiveLiftSupportSamples :: Int -> [TradeTimingSample] -> [TradeTimingSample]
+holdDurationDownwardPositiveLiftSupportSamples holdBars =
+    filter (\sample -> ttsObservedDuration sample > holdBars) . holdDurationPositiveLiftSupportSamples holdBars
+
+holdDurationDownwardPositiveLiftSupportCount :: Int -> [TradeTimingSample] -> Int
+holdDurationDownwardPositiveLiftSupportCount holdBars =
+    length . holdDurationDownwardPositiveLiftSupportSamples holdBars
+
+holdDurationUpwardPositiveLiftSupportSamples :: Int -> Int -> [TradeTimingSample] -> [TradeTimingSample]
+holdDurationUpwardPositiveLiftSupportSamples currentHoldHorizon holdBars =
+    filter (\sample -> ttsObservedDuration sample <= currentHoldHorizon) . holdDurationPositiveLiftSupportSamples holdBars
+
+holdDurationUpwardPositiveLiftSupportCount :: Int -> Int -> [TradeTimingSample] -> Int
+holdDurationUpwardPositiveLiftSupportCount currentHoldHorizon holdBars =
+    length . holdDurationUpwardPositiveLiftSupportSamples currentHoldHorizon holdBars
+
+closeTimingRecommendationHasMinimumBucketSupport :: Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasMinimumBucketSupport holdBars samples =
+    holdDurationPositiveLiftSupportCount holdBars samples >= minimumPositiveLiftSupportSamples
+
+closeTimingRecommendationHasMinimumDownwardBucketSupport :: Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasMinimumDownwardBucketSupport holdBars samples =
+    holdDurationDownwardPositiveLiftSupportCount holdBars samples >= minimumPositiveLiftSupportSamples
+
+closeTimingRecommendationHasMinimumUpwardBucketSupport :: Int -> Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasMinimumUpwardBucketSupport currentHoldHorizon holdBars samples =
+    holdDurationUpwardPositiveLiftSupportCount currentHoldHorizon holdBars samples >= minimumPositiveLiftSupportSamples
+
 legacyCloseTimingRecommendationEligible :: ComboTimingStats -> Int -> Bool
 legacyCloseTimingRecommendationEligible stats q75Bars =
     ctsMedianLift stats > 0 && q75Bars > 0
 
-closeTimingRecommendationEligible :: ComboTimingStats -> Int -> Int -> Bool
-closeTimingRecommendationEligible stats positiveLiftCount q75Bars =
-    ctsSampleCount stats >= minimumCloseTimingSamples
-        && positiveLiftCount >= minimumPositiveLiftSupportSamples
-        && legacyCloseTimingRecommendationEligible stats q75Bars
+positiveLiftSupportEvidenceOrdered :: ComboTimingStats -> Int -> Bool
+positiveLiftSupportEvidenceOrdered stats positiveLiftCount =
+    positiveLiftCount >= minimumPositiveLiftSupportSamples
+        && positiveLiftCount <= ctsSampleCount stats
 
-{- | Formal invariant / proof sketch for upward hold retunes:
+sampleHoldWindowUpperBound :: TradeTimingSample -> Int
+sampleHoldWindowUpperBound sample =
+    max 0 (2 * ttsObservedDuration sample)
+
+analyzedHoldWindowUpperBound :: [TradeTimingSample] -> Maybe Int
+analyzedHoldWindowUpperBound [] = Nothing
+analyzedHoldWindowUpperBound samples =
+    Just (maximum (map sampleHoldWindowUpperBound samples))
+
+observedHoldHorizon :: [TradeTimingSample] -> Maybe Int
+observedHoldHorizon =
+    percentileInt 0.75 . filter (> 0) . map ttsObservedDuration
+
+analyzedHoldBarDomain :: [TradeTimingSample] -> [Int]
+analyzedHoldBarDomain =
+    mapMaybe groupHead
+        . groupBy (==)
+        . sort
+        . filter (> 0)
+        . map ttsOptimalDuration
+  where
+    groupHead [] = Nothing
+    groupHead (holdBars : _) = Just holdBars
+
+closeTimingRecommendationWithinAnalyzedBounds :: Int -> Int -> Bool
+closeTimingRecommendationWithinAnalyzedBounds q75Bars analyzedUpperBound =
+    q75Bars > 0 && q75Bars <= analyzedUpperBound
+
+closeTimingRecommendationWithinAnalyzedDomain :: Int -> [Int] -> Bool
+closeTimingRecommendationWithinAnalyzedDomain q75Bars analyzedHoldBars =
+    q75Bars > 0 && q75Bars `elem` analyzedHoldBars
+
+holdDurationLiftSamples :: Int -> [TradeTimingSample] -> [Double]
+holdDurationLiftSamples holdBars =
+    map ttsReturnLift . filter (\sample -> ttsOptimalDuration sample == holdBars)
+
+holdDurationEstimatedLift :: Int -> [TradeTimingSample] -> Maybe Double
+holdDurationEstimatedLift holdBars samples =
+    case holdDurationLiftSamples holdBars samples of
+        [] -> Nothing
+        lifts
+            | all isFinite lifts -> Just (mean lifts)
+            | otherwise -> Nothing
+
+holdDurationDownwardLiftSamples :: Int -> [TradeTimingSample] -> [Double]
+holdDurationDownwardLiftSamples holdBars =
+    map ttsReturnLift . holdDurationDownwardPositiveLiftSupportSamples holdBars
+
+holdDurationDownwardEstimatedLift :: Int -> [TradeTimingSample] -> Maybe Double
+holdDurationDownwardEstimatedLift holdBars samples =
+    case holdDurationDownwardLiftSamples holdBars samples of
+        [] -> Nothing
+        lifts
+            | all isFinite lifts -> Just (mean lifts)
+            | otherwise -> Nothing
+
+holdDurationUpwardLiftSamples :: Int -> Int -> [TradeTimingSample] -> [Double]
+holdDurationUpwardLiftSamples currentHoldHorizon holdBars =
+    map ttsReturnLift . holdDurationUpwardPositiveLiftSupportSamples currentHoldHorizon holdBars
+
+holdDurationUpwardEstimatedLift :: Int -> Int -> [TradeTimingSample] -> Maybe Double
+holdDurationUpwardEstimatedLift currentHoldHorizon holdBars samples =
+    case holdDurationUpwardLiftSamples currentHoldHorizon holdBars samples of
+        [] -> Nothing
+        lifts
+            | all isFinite lifts -> Just (mean lifts)
+            | otherwise -> Nothing
+
+closeTimingRecommendationHasPositiveEstimatedLift :: Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasPositiveEstimatedLift holdBars samples =
+    case holdDurationEstimatedLift holdBars samples of
+        Just liftEstimate -> isFinite liftEstimate && liftEstimate > 0
+        Nothing -> False
+
+closeTimingRecommendationDownwardEvidenceConsistent :: Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationDownwardEvidenceConsistent holdBars samples =
+    let totalSupport = holdDurationPositiveLiftSupportCount holdBars samples
+        downwardSupport = holdDurationDownwardPositiveLiftSupportCount holdBars samples
+     in downwardSupport > 0 && totalSupport == downwardSupport
+
+closeTimingRecommendationHasPositiveDownwardEstimatedLift :: Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasPositiveDownwardEstimatedLift holdBars samples =
+    case holdDurationDownwardEstimatedLift holdBars samples of
+        Just liftEstimate -> isFinite liftEstimate && liftEstimate > 0
+        Nothing -> False
+
+closeTimingRecommendationClearsUpwardDeadband :: Int -> Int -> Bool
+closeTimingRecommendationClearsUpwardDeadband currentHoldHorizon recommendedHoldBars =
+    recommendedHoldBars > currentHoldHorizon
+        && recommendedHoldBars - currentHoldHorizon > closeTimingRecommendationDeadbandBars
+
+closeTimingRecommendationUpwardEvidenceConsistent :: Int -> Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationUpwardEvidenceConsistent currentHoldHorizon holdBars samples =
+    let totalSupport = holdDurationPositiveLiftSupportCount holdBars samples
+        upwardSupport = holdDurationUpwardPositiveLiftSupportCount currentHoldHorizon holdBars samples
+     in upwardSupport > 0 && totalSupport == upwardSupport
+
+closeTimingRecommendationHasPositiveUpwardEstimatedLift :: Int -> Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasPositiveUpwardEstimatedLift currentHoldHorizon holdBars samples =
+    case holdDurationUpwardEstimatedLift currentHoldHorizon holdBars samples of
+        Just liftEstimate -> isFinite liftEstimate && liftEstimate > 0
+        Nothing -> False
+
+closeTimingRecommendationHasConsistentUpwardEvidence :: Int -> Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasConsistentUpwardEvidence currentHoldHorizon holdBars samples =
+    closeTimingRecommendationClearsUpwardDeadband currentHoldHorizon holdBars
+        && closeTimingRecommendationHasMinimumUpwardBucketSupport currentHoldHorizon holdBars samples
+        && closeTimingRecommendationUpwardEvidenceConsistent currentHoldHorizon holdBars samples
+        && closeTimingRecommendationHasPositiveUpwardEstimatedLift currentHoldHorizon holdBars samples
+
+closeTimingRecommendationHasConsistentDownwardEvidence :: Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationHasConsistentDownwardEvidence holdBars samples =
+    closeTimingRecommendationHasMinimumDownwardBucketSupport holdBars samples
+        && closeTimingRecommendationDownwardEvidenceConsistent holdBars samples
+        && closeTimingRecommendationHasPositiveDownwardEstimatedLift holdBars samples
+
+closeTimingRecommendationRetuneDirectionAllowed :: Int -> Int -> [TradeTimingSample] -> Bool
+closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples
+    | recommendedHoldBars < currentHoldHorizon =
+        closeTimingRecommendationHasConsistentDownwardEvidence recommendedHoldBars samples
+    | recommendedHoldBars > currentHoldHorizon =
+        closeTimingRecommendationHasConsistentUpwardEvidence currentHoldHorizon recommendedHoldBars samples
+    | otherwise = True
+
+closeTimingRecommendationEligible :: ComboTimingStats -> Int -> Int -> Int -> Int -> [Int] -> [TradeTimingSample] -> Bool
+closeTimingRecommendationEligible stats positiveLiftCount currentHoldHorizon recommendedHoldBars analyzedUpperBound analyzedHoldBars samples =
+    ctsSampleCount stats >= minimumCloseTimingSamples
+        && positiveLiftSupportEvidenceOrdered stats positiveLiftCount
+        && closeTimingRecommendationWithinAnalyzedBounds recommendedHoldBars analyzedUpperBound
+        && closeTimingRecommendationWithinAnalyzedDomain recommendedHoldBars analyzedHoldBars
+        && closeTimingRecommendationHasMinimumBucketSupport recommendedHoldBars samples
+        && closeTimingRecommendationHasPositiveEstimatedLift recommendedHoldBars samples
+        && closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples
+        && legacyCloseTimingRecommendationEligible stats recommendedHoldBars
+
+{- | Formal invariant / proof sketch for hold retunes and accepted applications:
 
 1. Sparse profitable support fails closed: if the profitable-support sample is empty or has
    fewer than `minimumPositiveLiftSupportSamples` members, then
-   `supportedPositiveLiftDuration = Nothing` and `recommendedMaxHoldBars = Nothing`.
+   `supportedPositiveLiftDuration = Nothing`, `supportedPositiveLiftHorizon = Nothing`,
+   and `recommendedMaxHoldBars = Nothing`.
 2. Even when positive-lift support exists, low total sample count still fails closed:
    `ctsSampleCount < minimumCloseTimingSamples` keeps `recommendedMaxHoldBars = Nothing`.
-3. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
-   `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
-4. Any emitted recommendation is exact evidence-backed support: when a recommendation exists,
-   it is exactly the q75 profitable-support duration and therefore comes from the profitable
-   support window rather than from unsupported or more permissive data.
+3. Evidence counters stay ordered: `positiveLiftCount <= ctsSampleCount` is required before
+   a recommendation can exist, so malformed or inflated support counts fail closed.
+4. Sparse-tail upward retunes are capped before validation: if
+   `supportedPositiveLiftDuration = Just q75Bars` and
+   `supportedPositiveLiftHorizon = Just supportedHorizon`, then the candidate
+   recommendation is `capRecommendationToSupportedPositiveLiftHorizon q75Bars supportedHorizon`,
+   so thin positive-lift tails can never extend a retune past the last hold bucket with
+   enough profitable-support samples.
+5. Therefore any emitted recommendation satisfies
+   `recommendedMaxHoldBars <= supportedPositiveLiftHorizon`; weakening or inconsistent
+   profitable-support evidence can only shrink or remove `supportedPositiveLiftHorizon`,
+   so the recommendation can stay unchanged or decrease, never increase.
+6. Any emitted recommendation must match an analyzed hold bucket: `recommendedHoldBars > 0`
+   and `recommendedHoldBars `elem` analyzedHoldBarDomain samples` are both required before
+   emitting a retune.
+7. The exact recommended hold bucket must itself carry enough profitable support and
+   positive estimated lift:
+   `holdDurationPositiveLiftSupportCount recommendedHoldBars samples >= minimumPositiveLiftSupportSamples`
+   and `mean [ttsReturnLift s | s <- samples, ttsOptimalDuration s == recommendedHoldBars] > 0`
+   are both required before emitting a retune.
+8. Upward retunes are identified against the observed q75 hold horizon
+   `observedHoldHorizon samples`. If `recommendedHoldBars > currentHoldHorizon`, then
+   `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
+   requires `closeTimingRecommendationHasConsistentUpwardEvidence currentHoldHorizon recommendedHoldBars samples`.
+9. Consistent upward evidence means `recommendedHoldBars - currentHoldHorizon > closeTimingRecommendationDeadbandBars`,
+   every profitable-support sample for the recommended bucket comes from a trade whose observed
+   duration was at or below `currentHoldHorizon`, the exact-bucket upward support count meets
+   `minimumPositiveLiftSupportSamples`, and the upward-only mean lift is finite and positive.
+10. Therefore weak, mixed-direction, sub-deadband, or insufficient exact-bucket upward evidence is
+    no more permissive than missing data: all such cases force `recommendedMaxHoldBars = Nothing`.
+11. Weakening or thinning upward evidence can only shrink or remove the upward support set used in
+    step 9, so the recommendation can stay unchanged or disappear, never become more permissive.
+12. Downward retunes are identified against the observed q75 hold horizon
+    `observedHoldHorizon samples`. If `recommendedHoldBars < currentHoldHorizon`, then
+    `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
+    requires `closeTimingRecommendationHasConsistentDownwardEvidence recommendedHoldBars samples`.
+13. Consistent downward evidence means every profitable-support sample for the recommended
+    bucket comes from a trade whose observed duration was strictly longer than that bucket,
+    the exact-bucket downward support count meets `minimumPositiveLiftSupportSamples`, and
+    the downward-only mean lift is finite and positive.
+14. Therefore malformed, mixed-direction, or insufficient exact-bucket downward evidence is
+    no more permissive than missing data: all such cases force `recommendedMaxHoldBars = Nothing`.
+15. Any emitted recommendation stays inside the analyzed window:
+    `recommendedHoldBars <= analyzedHoldWindowUpperBound` is required before emitting
+    `Just recommendedHoldBars`.
+16. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
+    `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
+17. Accepted applications add a one-bar deadband around the current hold horizon:
+    if `cctrRecommendedMaxHoldBars = Just recommendedHoldBars`,
+    `currentMaxHoldBars = Just currentHoldHorizon`, and
+    `abs (recommendedHoldBars - currentHoldHorizon) <= closeTimingRecommendationDeadbandBars`,
+    then `closeTimingRecommendationAccepted (Just currentHoldHorizon) recommendedHoldBars report = False`
+    and `acceptedCloseTimingMaxHoldBars (Just currentHoldHorizon) report = Just currentHoldHorizon`.
+18. Any non-identity accepted retune still requires exact-bucket evidence:
+    `cctrRecommendedMaxHoldBarsEvidenceDuration == Just recommendedHoldBars`,
+    `cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just supportCount` with
+    `supportCount >= minimumPositiveLiftSupportSamples`, and
+    `cctrRecommendedMaxHoldBarsMeanLift = Just meanLift` with finite `meanLift > 0`.
+19. Because `recommendedMaxHoldBars` is only emitted when
+    `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
+    holds, accepted upward and downward retunes inherit the fail-closed directionality proof;
+    the deadband can only shrink the set of applied retunes, never widen it.
+20. When `currentMaxHoldBars = Nothing`, the distance comparison is unavailable, so acceptance
+    still requires the exact-bucket evidence above and otherwise preserves the existing
+    fail-closed recommendation contract.
+21. Therefore any non-identity accepted retune both clears the one-bar deadband and satisfies
+    the profitable-support, positive-lift, analyzed-domain, supported-horizon, and directional
+    obligations before persistence/backfill can rewrite `maxHoldBars`.
 -}
-recommendedCloseTimingHold :: Maybe ComboTimingStats -> Int -> Maybe Int -> Maybe Int
-recommendedCloseTimingHold (Just stats) positiveLiftCount (Just q75Bars)
-    | closeTimingRecommendationEligible stats positiveLiftCount q75Bars =
-        Just q75Bars
-recommendedCloseTimingHold _ _ _ = Nothing
+capRecommendationToSupportedPositiveLiftHorizon :: Int -> Int -> Int
+capRecommendationToSupportedPositiveLiftHorizon q75Bars supportedHorizon =
+    min q75Bars supportedHorizon
+
+recommendedCloseTimingHold :: Maybe ComboTimingStats -> Int -> Maybe Int -> Maybe Int -> Maybe Int -> Maybe Int -> [Int] -> [TradeTimingSample] -> Maybe Int
+recommendedCloseTimingHold (Just stats) positiveLiftCount (Just currentHoldHorizon) (Just q75Bars) (Just supportedHorizon) (Just analyzedUpperBound) analyzedHoldBars samples
+    | closeTimingRecommendationEligible stats positiveLiftCount currentHoldHorizon recommendedHoldBars analyzedUpperBound analyzedHoldBars samples =
+        Just recommendedHoldBars
+  where
+    recommendedHoldBars =
+        capRecommendationToSupportedPositiveLiftHorizon q75Bars supportedHorizon
+recommendedCloseTimingHold _ _ _ _ _ _ _ _ = Nothing
+
+recommendedCloseTimingEvidence :: Maybe Int -> [TradeTimingSample] -> (Maybe Int, Maybe Int, Maybe Double)
+recommendedCloseTimingEvidence Nothing _ = (Nothing, Nothing, Nothing)
+recommendedCloseTimingEvidence (Just holdBars) samples =
+    ( Just holdBars
+    , Just (holdDurationPositiveLiftSupportCount holdBars samples)
+    , holdDurationEstimatedLift holdBars samples
+    )
 
 timingRatio :: TradeTimingSample -> Double
 timingRatio sample

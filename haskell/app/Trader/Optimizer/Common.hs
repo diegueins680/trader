@@ -23,7 +23,9 @@ import Text.Read (readMaybe)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
     ComboTrade (..),
+    acceptedCloseTimingMaxHoldBars,
     analyzeComboCloseTiming,
+    closeTimingRecommendationAccepted,
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
  )
@@ -120,16 +122,23 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         roundTrips = metricInt (Just metrics) "roundTrips" 0
         tradeCount = metricInt (Just metrics) "tradeCount" 0
         activityCount = max roundTrips tradeCount
+        paybackActivityFloor = 3
+        paybackExposureFloor = 0.01
         activityPenalty
             | activityCount <= 0 = 0.25
-            | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
+            | activityCount < paybackActivityFloor = fromIntegral (paybackActivityFloor - activityCount) * 0.03
             | otherwise = 0
         exposurePenalty
             | exposure <= 0 = 0.05
-            | exposure < 0.01 = 0.02
+            | exposure < paybackExposureFloor = 0.02
             | otherwise = 0
+        -- Fast payback should only break ties once the candidate clears the
+        -- same activity and deployment floors used to penalize brittle runs.
         paybackBonus
+            | avgTradeReturn <= 0 = 0
             | avgHoldingPeriods <= 0 = 0
+            | activityCount < paybackActivityFloor = 0
+            | exposure < paybackExposureFloor = 0
             | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
         baseScore =
             case parseTuneObjective objective of
@@ -243,8 +252,7 @@ closeTimingReportFromBacktest comboId raw =
         Nothing -> analyzeComboCloseTiming comboId [] []
 
 appliedCloseTimingMaxHoldBars :: Maybe Int -> ComboCloseTimingReport -> Maybe Int
-appliedCloseTimingMaxHoldBars currentMaxHoldBars report =
-    cctrRecommendedMaxHoldBars report <|> currentMaxHoldBars
+appliedCloseTimingMaxHoldBars = acceptedCloseTimingMaxHoldBars
 
 applyCloseTimingMetrics ::
     Maybe (KM.KeyMap Value) ->
@@ -259,23 +267,32 @@ applyCloseTimingMetrics metrics currentMaxHoldBars appliedMaxHoldBars report =
 
 closeTimingReportToValue :: Maybe Int -> Maybe Int -> ComboCloseTimingReport -> Value
 closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report =
-    object
-        [ "comboId" .= cctrComboId report
-        , "sampleCount" .= cctrSampleCount report
-        , "minimumSampleCount" .= minimumCloseTimingSamples
-        , "positiveLiftSampleCount" .= cctrPositiveLiftSampleCount report
-        , "minimumPositiveLiftSampleCount" .= minimumPositiveLiftSupportSamples
-        , "medianRatio" .= cctrMedianRatio report
-        , "q25Ratio" .= cctrQ25Ratio report
-        , "q75Ratio" .= cctrQ75Ratio report
-        , "madRatio" .= cctrMadRatio report
-        , "meanLift" .= cctrMeanLift report
-        , "medianLift" .= cctrMedianLift report
-        , "medianObservedDuration" .= cctrMedianObservedDuration report
-        , "medianOptimalDuration" .= cctrMedianOptimalDuration report
-        , "q75OptimalDuration" .= cctrQ75OptimalDuration report
-        , "recommendedMaxHoldBars" .= cctrRecommendedMaxHoldBars report
-        , "originalMaxHoldBars" .= currentMaxHoldBars
-        , "appliedMaxHoldBars" .= appliedMaxHoldBars
-        , "positiveLift" .= maybe False (> 0) (cctrMedianLift report)
-        ]
+    let recommendationAccepted =
+            case cctrRecommendedMaxHoldBars report of
+                Just recommended ->
+                    closeTimingRecommendationAccepted currentMaxHoldBars recommended report
+                Nothing -> False
+     in object
+            [ "comboId" .= cctrComboId report
+            , "sampleCount" .= cctrSampleCount report
+            , "minimumSampleCount" .= minimumCloseTimingSamples
+            , "positiveLiftSampleCount" .= cctrPositiveLiftSampleCount report
+            , "minimumPositiveLiftSampleCount" .= minimumPositiveLiftSupportSamples
+            , "medianRatio" .= cctrMedianRatio report
+            , "q25Ratio" .= cctrQ25Ratio report
+            , "q75Ratio" .= cctrQ75Ratio report
+            , "madRatio" .= cctrMadRatio report
+            , "meanLift" .= cctrMeanLift report
+            , "medianLift" .= cctrMedianLift report
+            , "medianObservedDuration" .= cctrMedianObservedDuration report
+            , "medianOptimalDuration" .= cctrMedianOptimalDuration report
+            , "q75OptimalDuration" .= cctrQ75OptimalDuration report
+            , "recommendedMaxHoldBars" .= cctrRecommendedMaxHoldBars report
+            , "recommendedMaxHoldBarsAccepted" .= recommendationAccepted
+            , "recommendedMaxHoldBarsEvidenceDuration" .= cctrRecommendedMaxHoldBarsEvidenceDuration report
+            , "recommendedMaxHoldBarsPositiveLiftSampleCount" .= cctrRecommendedMaxHoldBarsPositiveLiftSampleCount report
+            , "recommendedMaxHoldBarsMeanLift" .= cctrRecommendedMaxHoldBarsMeanLift report
+            , "originalMaxHoldBars" .= currentMaxHoldBars
+            , "appliedMaxHoldBars" .= appliedMaxHoldBars
+            , "positiveLift" .= maybe False (> 0) (cctrMedianLift report)
+            ]
