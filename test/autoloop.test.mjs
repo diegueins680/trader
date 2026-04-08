@@ -442,6 +442,16 @@ test("autoloop script repairs the latest remote branch head before proposing new
   assert.match(script, /changedPaths: listCommitChangedPaths\(latestHeadSha\),/);
 });
 
+test("autoloop script prefers the stored gh auth token over a stale GH_TOKEN environment value", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /function buildSanitizedGhAuthEnv\(extraEnv = \{\}\)/);
+  assert.match(script, /function getStoredGhToken\(\)/);
+  assert.match(script, /env: buildSanitizedGhAuthEnv\(\),/);
+  assert.match(script, /const storedToken = getStoredGhToken\(\);/);
+  assert.match(script, /const envToken =[\s\S]*process\.env\.GITHUB_PAT/);
+  assert.match(script, /env: storedToken[\s\S]*buildSanitizedGhAuthEnv\(\{[\s\S]*GH_TOKEN: storedToken,/);
+});
+
 test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /const CODEX_EXEC_TIMEOUT_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000\);/);

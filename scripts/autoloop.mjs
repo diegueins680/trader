@@ -125,6 +125,8 @@ let statusState = {
   updatedAt: new Date().toISOString(),
 };
 
+let cachedStoredGhToken = null;
+
 async function main() {
   await updateStatus({ phase: "preflight" });
   if (!PLANNER_BACKEND) {
@@ -354,13 +356,57 @@ function runGit(args, opts) {
   return runCommand("git", args, opts);
 }
 
+function buildSanitizedGhAuthEnv(extraEnv = {}) {
+  return {
+    ...process.env,
+    ...extraEnv,
+    GH_TOKEN: "",
+    GITHUB_TOKEN: "",
+    GITHUB_PAT: "",
+  };
+}
+
+function getStoredGhToken() {
+  if (cachedStoredGhToken !== null) {
+    return cachedStoredGhToken;
+  }
+
+  try {
+    cachedStoredGhToken = execFileSync("gh", ["auth", "token"], {
+      cwd: ROOT,
+      env: buildSanitizedGhAuthEnv(),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    cachedStoredGhToken = "";
+  }
+
+  return cachedStoredGhToken;
+}
+
 function runGh(args, opts = {}) {
+  const storedToken = getStoredGhToken();
+  const envToken =
+    opts.env?.GITHUB_TOKEN ||
+    opts.env?.GH_TOKEN ||
+    opts.env?.GITHUB_PAT ||
+    process.env.GITHUB_TOKEN ||
+    process.env.GH_TOKEN ||
+    process.env.GITHUB_PAT ||
+    "";
   return runCommand("gh", args, {
     ...opts,
-    env: {
-      ...(opts.env || {}),
-      GH_TOKEN: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "",
-    },
+    // Prefer the stored gh login when local shells leak a stale GH_TOKEN.
+    env: storedToken
+      ? buildSanitizedGhAuthEnv({
+          ...(opts.env || {}),
+          GH_TOKEN: storedToken,
+        })
+      : {
+          ...(opts.env || {}),
+          GH_TOKEN: envToken,
+        },
   });
 }
 
