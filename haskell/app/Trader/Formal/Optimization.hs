@@ -25,15 +25,15 @@ import Trader.VolConfGate (
 
 roiRequirementSummary :: String
 roiRequirementSummary =
-    "Maximize daily ROI without paying for fragility, churn, or inactivity."
+    "Maximize daily ROI without paying for fragility, churn, or idle no-trade states."
 
 roiRequirementClauses :: [String]
 roiRequirementClauses =
     [ "Prefer higher annualized return as the repo's daily-ROI proxy."
     , "Penalize drawdown and tail loss."
     , "Penalize turnover."
-    , "Use average trade return as a supporting signal once the candidate shows trade activity."
-    , "Reward faster payback only for finite strictly positive payback durations after the candidate clears the minimum activity and idle-capital floors with positive expectancy; treat zero, negative, and non-finite payback exactly like missing data."
+    , "Use average trade return as a supporting signal only after at least one completed round trip clears the idle-capital floor."
+    , "Reward faster payback only for finite strictly positive payback durations after the candidate clears the minimum completed-round-trip and idle-capital floors with positive expectancy; treat zero, negative, and non-finite payback exactly like missing data."
     , "Penalize low activity and idle capital."
     ]
 
@@ -63,6 +63,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrActivityPenaltyOrdered :: !Bool
     , fvrExposurePenaltyOrdered :: !Bool
     , fvrTieBreakTotalOrderAfterNormalization :: !Bool
+    , fvrTieBreakHysteresisPreference :: !Bool
     , fvrTieBreakSpecMatchesImplementation :: !Bool
     , fvrVolConfCanonicalizationInvariant :: !Bool
     , fvrVolConfMalformedVolMatchesMissing :: !Bool
@@ -96,6 +97,7 @@ data RoiView = RoiView
     , rvTurnover :: !Double
     , rvExpectancy :: !Double
     , rvAvgHold :: !Double
+    , rvRoundTrips :: !Int
     , rvActivityCount :: !Int
     , rvExposure :: !Double
     }
@@ -110,11 +112,12 @@ roiImplementationScore penaltyMaxDd penaltyTurnover m =
         expectancy = sanitizeFinite0 (bmAvgTradeReturn m)
         paybackDuration = positiveFiniteDuration (bmAvgHoldingPeriods m)
         exposure = max 0 (sanitizeFinite0 (bmExposure m))
+        completedRoundTrips = completedRoundTripsFromMetrics m
         activityCount = activityCountFromMetrics m
         activityPenalty = activityPenaltyFor activityCount
         exposurePenalty = exposurePenaltyFor exposure
-        expectancyReward = expectancyRewardFor activityCount expectancy
-        paybackReward = paybackRewardFor activityCount expectancy exposure paybackDuration
+        expectancyReward = expectancyRewardFor completedRoundTrips exposure expectancy
+        paybackReward = paybackRewardFor completedRoundTrips expectancy exposure paybackDuration
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
      in annRet
@@ -129,11 +132,12 @@ roiSpecScore :: Double -> Double -> BacktestMetrics -> Double
 roiSpecScore penaltyMaxDd penaltyTurnover m =
     let view = roiViewFromMetrics m
         activityCount = rvActivityCount view
+        completedRoundTrips = rvRoundTrips view
         pDd = max 0 penaltyMaxDd
         pTurn = max 0 penaltyTurnover
         returnReward = rvAnnualizedReturn view
-        expectancyReward = expectancyRewardFor activityCount (rvExpectancy view)
-        paybackReward = paybackRewardFor activityCount (rvExpectancy view) (rvExposure view) (positiveFiniteDuration (rvAvgHold view))
+        expectancyReward = expectancyRewardFor completedRoundTrips (rvExposure view) (rvExpectancy view)
+        paybackReward = paybackRewardFor completedRoundTrips (rvExpectancy view) (rvExposure view) (positiveFiniteDuration (rvAvgHold view))
         riskPenalty = pDd * (rvMaxDrawdown view + rvTailLoss view)
         turnoverPenalty = pTurn * rvTurnover view
         sparseActivityPenalty = activityPenaltyFor activityCount
@@ -193,6 +197,106 @@ verifyFormalOptimization =
         tieBreakPairs = [(cand, best) | cand <- tieBreakDomain, best <- tieBreakDomain]
         volConfInputs = allVolConfInputs
         kalmanFusionInputs = allKalmanFusionInputs
+        zeroRoundTripRewardInvariant =
+            and
+                [ zeroRoundTripRewardInvariantFor
+                    penaltyMaxDd
+                    penaltyTurnover
+                    annualizedReturn
+                    maxDrawdown
+                    tailLoss
+                    turnover
+                    tradeCount
+                    exposure
+                | penaltyMaxDd <- penaltyMaxDrawdownDomain
+                , penaltyTurnover <- penaltyTurnoverDomain
+                , annualizedReturn <- annualizedReturnDomain
+                , maxDrawdown <- maxDrawdownDomain
+                , tailLoss <- tailLossDomain
+                , turnover <- turnoverDomain
+                , tradeCount <- activityDomain
+                , exposure <- exposureDomain
+                ]
+        activityPenaltyOrdered =
+            and
+                [ activityPenaltyOrderedFor
+                    penaltyMaxDd
+                    penaltyTurnover
+                    annualizedReturn
+                    maxDrawdown
+                    tailLoss
+                    turnover
+                    expectancy
+                    avgHold
+                    tradeCount
+                    exposure
+                | penaltyMaxDd <- penaltyMaxDrawdownDomain
+                , penaltyTurnover <- penaltyTurnoverDomain
+                , annualizedReturn <- annualizedReturnDomain
+                , maxDrawdown <- maxDrawdownDomain
+                , tailLoss <- tailLossDomain
+                , turnover <- turnoverDomain
+                , expectancy <- expectancyDomain
+                , avgHold <- avgHoldDomain
+                , tradeCount <- activityDomain
+                , exposure <- exposureDomain
+                ]
+                && zeroRoundTripRewardInvariant
+        idleExposureRewardInvariant =
+            and
+                [ idleExposureRewardInvariantFor
+                    penaltyMaxDd
+                    penaltyTurnover
+                    annualizedReturn
+                    maxDrawdown
+                    tailLoss
+                    turnover
+                    expectancy
+                    avgHold
+                    roundTrips
+                    tradeCount
+                | penaltyMaxDd <- penaltyMaxDrawdownDomain
+                , penaltyTurnover <- penaltyTurnoverDomain
+                , annualizedReturn <- annualizedReturnDomain
+                , maxDrawdown <- maxDrawdownDomain
+                , tailLoss <- tailLossDomain
+                , turnover <- turnoverDomain
+                , expectancy <- expectancyDomain
+                , avgHold <- avgHoldDomain
+                , roundTrips <- activityDomain
+                , tradeCount <- activityDomain
+                ]
+        exposurePenaltyOrdered =
+            and
+                [ nonDecreasing
+                    [ scoreWith
+                        (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
+                        penaltyMaxDd
+                        penaltyTurnover
+                    | exposure <- exposureDomain
+                    ]
+                | penaltyMaxDd <- penaltyMaxDrawdownDomain
+                , penaltyTurnover <- penaltyTurnoverDomain
+                , annualizedReturn <- annualizedReturnDomain
+                , maxDrawdown <- maxDrawdownDomain
+                , tailLoss <- tailLossDomain
+                , turnover <- turnoverDomain
+                , expectancy <- expectancyDomain
+                , avgHold <- avgHoldDomain
+                , roundTrips <- activityDomain
+                , tradeCount <- activityDomain
+                ]
+                && idleExposureRewardInvariant
+        tieBreakHysteresisPreference =
+            and
+                [ tieBreakHysteresisPreferenceFor
+                    (TieBreakCandidate finalEquity turnover roundTrips openThr openThr)
+                    (TieBreakCandidate finalEquity turnover roundTrips openThr (openThr + 0.01))
+                | finalEquity <- [1.0, 1.05, 1.1]
+                , turnover <- [0.0, 0.1, 0.2]
+                , roundTrips <- [0, 2, 4]
+                , openThr <- [0.01, 0.02]
+                ]
      in FormalVerificationReport
             { fvrRoiStateCount = length roiInputs
             , fvrTieBreakPairCount = length tieBreakPairs
@@ -348,72 +452,12 @@ verifyFormalOptimization =
                     , tradeCount <- activityDomain
                     , exposure <- exposureDomain
                     ]
-            , fvrZeroRoundTripRewardInvariant =
-                and
-                    [ zeroRoundTripRewardInvariantFor
-                        penaltyMaxDd
-                        penaltyTurnover
-                        annualizedReturn
-                        maxDrawdown
-                        tailLoss
-                        turnover
-                        tradeCount
-                        exposure
-                    | penaltyMaxDd <- penaltyMaxDrawdownDomain
-                    , penaltyTurnover <- penaltyTurnoverDomain
-                    , annualizedReturn <- annualizedReturnDomain
-                    , maxDrawdown <- maxDrawdownDomain
-                    , tailLoss <- tailLossDomain
-                    , turnover <- turnoverDomain
-                    , tradeCount <- activityDomain
-                    , exposure <- exposureDomain
-                    ]
-            , fvrActivityPenaltyOrdered =
-                and
-                    [ activityPenaltyOrderedFor
-                        penaltyMaxDd
-                        penaltyTurnover
-                        annualizedReturn
-                        maxDrawdown
-                        tailLoss
-                        turnover
-                        expectancy
-                        avgHold
-                        tradeCount
-                        exposure
-                    | penaltyMaxDd <- penaltyMaxDrawdownDomain
-                    , penaltyTurnover <- penaltyTurnoverDomain
-                    , annualizedReturn <- annualizedReturnDomain
-                    , maxDrawdown <- maxDrawdownDomain
-                    , tailLoss <- tailLossDomain
-                    , turnover <- turnoverDomain
-                    , expectancy <- expectancyDomain
-                    , avgHold <- avgHoldDomain
-                    , tradeCount <- activityDomain
-                    , exposure <- exposureDomain
-                    ]
-            , fvrExposurePenaltyOrdered =
-                and
-                    [ nonDecreasing
-                        [ scoreWith
-                            (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
-                            penaltyMaxDd
-                            penaltyTurnover
-                        | exposure <- exposureDomain
-                        ]
-                    | penaltyMaxDd <- penaltyMaxDrawdownDomain
-                    , penaltyTurnover <- penaltyTurnoverDomain
-                    , annualizedReturn <- annualizedReturnDomain
-                    , maxDrawdown <- maxDrawdownDomain
-                    , tailLoss <- tailLossDomain
-                    , turnover <- turnoverDomain
-                    , expectancy <- expectancyDomain
-                    , avgHold <- avgHoldDomain
-                    , roundTrips <- activityDomain
-                    , tradeCount <- activityDomain
-                    ]
+            , fvrZeroRoundTripRewardInvariant = zeroRoundTripRewardInvariant
+            , fvrActivityPenaltyOrdered = activityPenaltyOrdered
+            , fvrExposurePenaltyOrdered = exposurePenaltyOrdered
             , fvrTieBreakTotalOrderAfterNormalization =
                 all tieBreakTotalOrderAfterNormalizationFor tieBreakPairs
+            , fvrTieBreakHysteresisPreference = tieBreakHysteresisPreference
             , fvrTieBreakSpecMatchesImplementation =
                 all tieBreakMatchesImplementationFor tieBreakPairs
             , fvrVolConfCanonicalizationInvariant =
@@ -458,6 +502,7 @@ roiViewFromMetrics m =
         , rvTurnover = max 0 (sanitizeFinite0 (bmTurnover m))
         , rvExpectancy = sanitizeFinite0 (bmAvgTradeReturn m)
         , rvAvgHold = bmAvgHoldingPeriods m
+        , rvRoundTrips = completedRoundTripsFromMetrics m
         , rvActivityCount = activityCountFromMetrics m
         , rvExposure = max 0 (sanitizeFinite0 (bmExposure m))
         }
@@ -465,15 +510,22 @@ roiViewFromMetrics m =
 activityCountFromMetrics :: BacktestMetrics -> Int
 activityCountFromMetrics metrics = max 0 (max (bmRoundTrips metrics) (bmTradeCount metrics))
 
-expectancyRewardFor :: Int -> Double -> Double
-expectancyRewardFor activityCount expectancy =
-    if activityCount <= 0
-        then 0
-        else 0.5 * expectancy
+completedRoundTripsFromMetrics :: BacktestMetrics -> Int
+completedRoundTripsFromMetrics metrics = max 0 (bmRoundTrips metrics)
+
+meetsRoiExpectancyFloor :: Int -> Double -> Bool
+meetsRoiExpectancyFloor completedRoundTrips exposure =
+    completedRoundTrips > 0 && exposure >= minimumRoiExposureFloor
+
+expectancyRewardFor :: Int -> Double -> Double -> Double
+expectancyRewardFor completedRoundTrips exposure expectancy
+    | expectancy <= 0 = 0.5 * expectancy
+    | not (meetsRoiExpectancyFloor completedRoundTrips exposure) = 0
+    | otherwise = 0.5 * expectancy
 
 paybackRewardFor :: Int -> Double -> Double -> Maybe Double -> Double
-paybackRewardFor activityCount expectancy exposure mAvgHold =
-    if not (meetsRoiPaybackFloor activityCount exposure) || expectancy <= 0
+paybackRewardFor completedRoundTrips expectancy exposure mAvgHold =
+    if not (meetsRoiPaybackFloor completedRoundTrips exposure) || expectancy <= 0
         then 0
         else maybe 0 paybackBonusFor mAvgHold
 
@@ -490,8 +542,8 @@ minimumRoiExposureFloor :: Double
 minimumRoiExposureFloor = 0.01
 
 meetsRoiPaybackFloor :: Int -> Double -> Bool
-meetsRoiPaybackFloor activityCount exposure =
-    activityCount >= minimumRoiActivityFloor && exposure >= minimumRoiExposureFloor
+meetsRoiPaybackFloor completedRoundTrips exposure =
+    completedRoundTrips >= minimumRoiActivityFloor && exposure >= minimumRoiExposureFloor
 
 activityPenaltyFor :: Int -> Double
 activityPenaltyFor activityCount
@@ -537,16 +589,25 @@ normalizeTieBreakThresholdPair openThr closeThr
     | isFinite openThr && isFinite closeThr = (openThr, closeThr)
     | otherwise = (tieBreakNonFiniteLowSentinel, tieBreakNonFiniteLowSentinel)
 
+-- Keep the documented lexicographic threshold contract explicit:
+-- after equity, turnover, and round trips tie, prefer
+-- closeThreshold <= openThreshold hysteresis before threshold magnitude.
 tieBreakKey :: TieBreakCandidate -> (Double, Down Double, Int, Int, Double, Double)
 tieBreakKey candidate =
     let normalized = normalizeTieBreakCandidate candidate
      in ( tbcFinalEquity normalized
         , Down (tbcTurnover normalized)
         , tbcRoundTrips normalized
-        , if isInvertedNormalized normalized then 0 else 1
+        , tieBreakHysteresisRank normalized
         , tbcOpenThreshold normalized
         , tbcCloseThreshold normalized
         )
+
+tieBreakHysteresisRank :: TieBreakCandidate -> Int
+tieBreakHysteresisRank candidate =
+    if tbcCloseThreshold candidate <= tbcOpenThreshold candidate + comparisonEps
+        then 1
+        else 0
 
 isInvertedNormalized :: TieBreakCandidate -> Bool
 isInvertedNormalized candidate =
@@ -620,6 +681,13 @@ tieBreakTotalOrderAfterNormalizationFor (cand, best) =
             && bestPreferred == (bestKey > candKey)
             && (candPreferred || bestPreferred || candKey == bestKey)
             && not (candPreferred && bestPreferred)
+
+tieBreakHysteresisPreferenceFor :: TieBreakCandidate -> TieBreakCandidate -> Bool
+tieBreakHysteresisPreferenceFor preferred inverted =
+    preferTieBreakSpec preferred inverted
+        && preferTieBreakImplementation preferred inverted
+        && not (preferTieBreakSpec inverted preferred)
+        && not (preferTieBreakImplementation inverted preferred)
 
 volConfCanonicalizationInvariantFor :: (VolConfGatePreset, Maybe Double, Maybe Double) -> Bool
 volConfCanonicalizationInvariantFor (preset, mVolatility, mConfidence) =
@@ -736,33 +804,36 @@ gateCellPermissivenessRank behavior =
         VolConfGateAllowEntry -> 2
 
 zeroRoundTripRewardInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Int -> Double -> Bool
-zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover _tradeCount exposure =
-    let baseline =
+zeroRoundTripRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover tradeCount exposure =
+    let scoreFor roundTrips expectancy avgHold =
             scoreWith
-                (RoiState annualizedReturn maxDrawdown tailLoss turnover 0 0 0 0 exposure)
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
                 penaltyMaxDd
                 penaltyTurnover
-        scoreFor expectancy avgHold =
-            scoreWith
-                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold 0 0 exposure)
-                penaltyMaxDd
-                penaltyTurnover
+        baseline = scoreFor 0 0 0
      in and
-            [ approxEq baseline (scoreFor expectancy avgHold)
+            [ let zeroScore = scoreFor 0 expectancy avgHold
+                  activeScore = scoreFor 1 expectancy avgHold
+               in zeroScore <= activeScore + comparisonEps
             | expectancy <- expectancyDomain
             , avgHold <- avgHoldDomain
             ]
+            && and
+                [ approxEq baseline (scoreFor 0 expectancy avgHold)
+                | expectancy <- positiveExpectancyDomain
+                , avgHold <- avgHoldDomain
+                ]
 
 paybackExpectancyInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Int -> Double -> Bool
 paybackExpectancyInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy roundTrips tradeCount exposure =
-    let activityCount = max roundTrips tradeCount
+    let completedRoundTrips = max 0 roundTrips
         scoreFor avgHold =
             scoreWith
                 (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
                 penaltyMaxDd
                 penaltyTurnover
         paybackScores = [scoreFor avgHold | avgHold <- positiveAvgHoldDomain]
-     in if expectancy <= 0 || not (meetsRoiPaybackFloor activityCount exposure)
+     in if expectancy <= 0 || not (meetsRoiPaybackFloor completedRoundTrips exposure)
             then allApproxEq paybackScores
             else nonIncreasing paybackScores
 
@@ -794,6 +865,20 @@ activityPenaltyOrderedFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawd
                 penaltyTurnover
      in nonDecreasing [scoreFor roundTrips | roundTrips <- activityDomain]
             && and [scoreFor 0 <= scoreFor roundTrips | roundTrips <- positiveActivityDomain]
+
+idleExposureRewardInvariantFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Int -> Bool
+idleExposureRewardInvariantFor penaltyMaxDd penaltyTurnover annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount =
+    let activeExposure = minimumRoiExposureFloor
+        scoreFor exposure =
+            scoreWith
+                (RoiState annualizedReturn maxDrawdown tailLoss turnover expectancy avgHold roundTrips tradeCount exposure)
+                penaltyMaxDd
+                penaltyTurnover
+        activeScore = scoreFor activeExposure
+     in and
+            [ scoreFor exposure <= activeScore + comparisonEps
+            | exposure <- idleExposureDomain
+            ]
 
 metricsFromState :: RoiState -> BacktestMetrics
 metricsFromState state =
@@ -829,10 +914,10 @@ allApproxEq [] = True
 allApproxEq (x : xs) = all (approxEq x) xs
 
 nonDecreasing :: [Double] -> Bool
-nonDecreasing xs = and (zipWith (<=) xs (drop 1 xs))
+nonDecreasing xs = and (zipWith (\x y -> x <= y + comparisonEps) xs (drop 1 xs))
 
 nonIncreasing :: [Double] -> Bool
-nonIncreasing xs = and (zipWith (>=) xs (drop 1 xs))
+nonIncreasing xs = and (zipWith (\x y -> x + comparisonEps >= y) xs (drop 1 xs))
 
 allRoiInputs :: [(Double, Double, RoiState)]
 allRoiInputs =
@@ -999,6 +1084,9 @@ turnoverDomain = [0.0, 0.2, 0.6]
 expectancyDomain :: [Double]
 expectancyDomain = [-0.1, 0.0, 0.1]
 
+positiveExpectancyDomain :: [Double]
+positiveExpectancyDomain = filter (> 0) expectancyDomain
+
 avgHoldDomain :: [Double]
 avgHoldDomain = [0.0, 1.0, 39.0]
 
@@ -1016,3 +1104,6 @@ positiveActivityDomain = filter (> 0) activityDomain
 
 exposureDomain :: [Double]
 exposureDomain = [0.0, 0.005, 0.01]
+
+idleExposureDomain :: [Double]
+idleExposureDomain = filter (< minimumRoiExposureFloor) exposureDomain
