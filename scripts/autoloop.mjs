@@ -30,7 +30,7 @@ const BASE_BRANCH =
   process.env.AUTOLOOP_BASE_BRANCH || process.env.GITHUB_BASE_REF || process.env.GITHUB_REF_NAME || "main";
 const LOOP_BRANCH = BASE_BRANCH;
 const MAX_ITERATIONS = clampInt(process.env.AUTOLOOP_MAX_ITERATIONS, 2, 1, 5);
-const MAX_EDITABLE_FILE_BYTES = clampInt(process.env.AUTOLOOP_MAX_FILE_BYTES, 40000, 4000, 100000);
+const MAX_EDITABLE_FILE_BYTES = clampInt(process.env.AUTOLOOP_MAX_FILE_BYTES, 1000000, 4000, 5000000);
 const MAX_EDITABLE_FILES = clampInt(process.env.AUTOLOOP_MAX_FILES, 120, 20, 300);
 const DRY_RUN = process.argv.includes("--dry-run");
 const STATUS_FILE = resolveOptionalPath(process.env.AUTOLOOP_STATUS_FILE);
@@ -129,6 +129,7 @@ let statusState = {
 };
 
 let cachedStoredGhToken = null;
+let cachedTrackedFiles = null;
 
 async function main() {
   await updateStatus({ phase: "preflight" });
@@ -160,6 +161,7 @@ async function main() {
   for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
     await updateStatus({ phase: "reset-branch", iteration, failureContext: summarizeFailureContext(failureContext) });
     hardResetToCurrentHead();
+    const failureRepairPaths = deriveFailureRepairPaths(failureContext);
     const automaticRepair = failureContext ? detectAutomaticRepair(failureContext) : null;
     let plannedPaths = [];
     let verificationCommands = [];
@@ -178,11 +180,15 @@ async function main() {
       });
       applyAutomaticRepair(automaticRepair);
     } else {
-      const repoContext = await buildRepoContext();
+      const repoContext = await buildRepoContext(failureRepairPaths);
       await updateStatus({ phase: "choose-change", iteration });
-      const idea = failureContext
-        ? await requestFixIdea(repoContext, failureContext)
+      const selectedIdea = failureContext
+        ? await requestFixIdea(repoContext, failureContext, failureRepairPaths)
         : await requestIdeaSelection(repoContext);
+      const idea =
+        failureContext && selectedIdea.noChange
+          ? buildFailureRepairIdea(failureContext, failureRepairPaths) || selectedIdea
+          : selectedIdea;
       await updateStatus({ phase: "algorithm-review", iteration, idea: summarizeIdea(idea) });
       await updateStatus({ phase: "formal-methods-review", iteration, idea: summarizeIdea(idea) });
 
@@ -197,7 +203,7 @@ async function main() {
         return;
       }
 
-      const editableFiles = await readEditableFiles(idea.filesNeeded);
+      const editableFiles = await readEditableFiles(failureContext ? [...failureRepairPaths, ...idea.filesNeeded] : idea.filesNeeded);
       await updateStatus({ phase: "plan-patch", iteration, idea: summarizeIdea(idea) });
       const plan = await requestPatchPlan(repoContext, idea, editableFiles, failureContext);
       if (plan.noChange) {
@@ -614,7 +620,98 @@ function editableFilePriority(filePath) {
   return index === -1 ? EDITABLE_FILE_PRIORITY_PREFIXES.length : index;
 }
 
-async function listEditableFiles() {
+function compareEditablePaths(left, right) {
+  const priorityDelta = editableFilePriority(left) - editableFilePriority(right);
+  if (priorityDelta !== 0) return priorityDelta;
+  return left.localeCompare(right);
+}
+
+function getTrackedFiles() {
+  if (cachedTrackedFiles !== null) {
+    return cachedTrackedFiles;
+  }
+
+  cachedTrackedFiles = new Set(runGit(["ls-files"]).split(/\r?\n/).filter(Boolean));
+  return cachedTrackedFiles;
+}
+
+function resolveFailureReferencedPath(rawPath) {
+  const rel = sanitizeRelativePath(String(rawPath || "").trim().replace(/:\d+(?::\d+)?$/, ""));
+  if (!rel) return "";
+
+  const candidates = [rel];
+  if (/^(app|test|bench|scripts)\//.test(rel) && /\.(hs|lhs|py|sh)$/.test(rel)) {
+    candidates.unshift(`haskell/${rel}`);
+  }
+  if (/^(src|test)\//.test(rel) && /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(rel)) {
+    candidates.unshift(`haskell/web/${rel}`);
+  }
+
+  const trackedFiles = getTrackedFiles();
+  return candidates.map(sanitizeRelativePath).find((candidate) => trackedFiles.has(candidate)) || rel;
+}
+
+function parseFailureReferencedPaths(failedLog) {
+  const rawMatches = [];
+  for (const pattern of [
+    /\b((?:[A-Za-z0-9_.-]+\/)+(?:[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+))(?::\d+(?::\d+)?)?\b/g,
+    /\b(FORMAL_METHODS\.md|README\.md|CHANGELOG\.md|AGENTS\.md|mission\.md)\b/g,
+  ]) {
+    for (const match of String(failedLog || "").matchAll(pattern)) {
+      rawMatches.push(match[1]);
+    }
+  }
+
+  return uniqueStrings(rawMatches.map(resolveFailureReferencedPath).filter(Boolean).filter(allowedEditPath)).sort(compareEditablePaths);
+}
+
+function deriveFailureRepairPaths(failureContext) {
+  if (!failureContext) return [];
+
+  return uniqueStrings([
+    ...parseFailureReferencedPaths(failureContext.failedLog),
+    ...uniqueStrings((failureContext.changedPaths || []).map(sanitizeRelativePath).filter(allowedEditPath)),
+  ]).sort(compareEditablePaths);
+}
+
+function chooseRepairReviewPath(paths, prefixes, fallbackCandidates = []) {
+  const trackedFiles = getTrackedFiles();
+  return uniqueStrings([...paths, ...fallbackCandidates].map(sanitizeRelativePath))
+    .filter((candidate) => candidate && trackedFiles.has(candidate))
+    .find(
+      (candidate) =>
+        allowedEditPath(candidate) &&
+        prefixes.some((prefix) => candidate === prefix || candidate.startsWith(prefix)),
+    ) || "";
+}
+
+function buildFailureRepairIdea(failureContext, failureRepairPaths) {
+  if (!failureContext || failureRepairPaths.length === 0) return null;
+
+  const algorithmReviewPath = chooseRepairReviewPath(failureRepairPaths, ALGORITHM_REVIEW_PREFIXES, ["haskell/app/Main.hs"]);
+  const formalMethodsPath = chooseRepairReviewPath(
+    failureRepairPaths,
+    FORMAL_METHODS_REVIEW_PREFIXES,
+    ["haskell/test/TestMain.hs", "FORMAL_METHODS.md"],
+  );
+  const filesNeeded = uniqueStrings([...failureRepairPaths, algorithmReviewPath, formalMethodsPath].filter(Boolean)).sort(compareEditablePaths);
+  if (!algorithmReviewPath || !formalMethodsPath || filesNeeded.length === 0) return null;
+
+  return {
+    noChange: false,
+    title: `Self-heal failing CI on ${failureContext.branchName}`,
+    rationale:
+      "The failed CI log names editable files, so the loop must attempt a direct repair on those failure-targeted artifacts before declaring noChange or proposing unrelated work.",
+    algorithmReviewPath,
+    algorithmReviewFocus: `Review ${algorithmReviewPath} for the smallest safe behavioral or interface change needed to clear the failing CI run.`,
+    formalMethodsPath,
+    formalMethodsFocus: `Align ${formalMethodsPath} with the failing invariant, requirement, or test assertion from the CI log and keep the proof obligation explicit.`,
+    filesNeeded,
+    verificationCommands: planVerificationCommands(filesNeeded, []),
+  };
+}
+
+async function listEditableFiles(prioritizedPaths = []) {
   const files = runGit(["ls-files"]).split(/\r?\n/).filter(Boolean);
   const result = [];
   for (const rel of files) {
@@ -626,11 +723,25 @@ async function listEditableFiles() {
     result.push({ path: rel, size: stat.size });
   }
   result.sort((left, right) => {
-    const priorityDelta = editableFilePriority(left.path) - editableFilePriority(right.path);
-    if (priorityDelta !== 0) return priorityDelta;
-    return left.path.localeCompare(right.path);
+    return compareEditablePaths(left.path, right.path);
   });
-  return result.slice(0, MAX_EDITABLE_FILES);
+
+  const prioritized = uniqueStrings(prioritizedPaths.map(sanitizeRelativePath));
+  const byPath = new Map(result.map((file) => [file.path, file]));
+  const ordered = [];
+  const seen = new Set();
+  for (const rel of prioritized) {
+    const file = byPath.get(rel);
+    if (!file || seen.has(file.path)) continue;
+    seen.add(file.path);
+    ordered.push(file);
+  }
+  for (const file of result) {
+    if (seen.has(file.path)) continue;
+    seen.add(file.path);
+    ordered.push(file);
+  }
+  return ordered.slice(0, MAX_EDITABLE_FILES);
 }
 
 async function readOptionalText(relativePath, maxChars) {
@@ -643,8 +754,8 @@ async function readOptionalText(relativePath, maxChars) {
   }
 }
 
-async function buildRepoContext() {
-  const editableFiles = await listEditableFiles();
+async function buildRepoContext(failureRepairPaths = []) {
+  const editableFiles = await listEditableFiles(failureRepairPaths);
   const agents = await fs.readFile(path.join(ROOT, "AGENTS.md"), "utf8");
   const ciWorkflow = await fs.readFile(path.join(ROOT, ".github/workflows/ci.yml"), "utf8");
   const readme = clampText(await fs.readFile(path.join(ROOT, "README.md"), "utf8"), 14000);
@@ -654,6 +765,10 @@ async function buildRepoContext() {
   const packageJson = await fs.readFile(path.join(ROOT, "package.json"), "utf8");
   const webPackageJson = await fs.readFile(path.join(ROOT, "haskell/web/package.json"), "utf8");
   const editableList = editableFiles.map((file) => `${file.path} (${file.size} bytes)`).join("\n");
+  const failureEditableList = editableFiles
+    .filter((file) => failureRepairPaths.includes(file.path))
+    .map((file) => `${file.path} (${file.size} bytes)`)
+    .join("\n");
   const recentCommits = runGit(["log", "--oneline", "-5"]);
 
   return {
@@ -666,6 +781,8 @@ async function buildRepoContext() {
     packageJson,
     webPackageJson,
     editableList,
+    failureEditableList,
+    editablePaths: editableFiles.map((file) => file.path),
     recentCommits,
   };
 }
@@ -699,6 +816,9 @@ function repoContextText(repoContext) {
     repoContext.objectives ? "Trader objectives excerpt:" : "",
     repoContext.objectives || "",
     repoContext.objectives ? "" : "",
+    repoContext.failureEditableList ? "Failure-targeted editable files:" : "",
+    repoContext.failureEditableList || "",
+    repoContext.failureEditableList ? "" : "",
     `Editable files (limited to ${MAX_EDITABLE_FILE_BYTES} bytes each):`,
     repoContext.editableList,
   ].join("\n");
@@ -808,15 +928,17 @@ async function requestIdeaSelection(repoContext) {
   return normalizeIdeaSelection(await callModelJson({ prompt, maxOutputTokens: 2000 }));
 }
 
-async function requestFixIdea(repoContext, failureContext) {
+async function requestFixIdea(repoContext, failureContext, failureRepairPaths = []) {
   const prompt = [
     "You are selecting a repair for a failed autonomous CI run on the repository branch.",
     "Bias strongly toward backend Haskell trading-algorithm fixes with formal-methods-backed coverage unless the failure clearly requires another file to be touched.",
     "Respond in JSON with keys: noChange, title, rationale, algorithmReviewPath, algorithmReviewFocus, formalMethodsPath, formalMethodsFocus, filesNeeded, verificationCommands.",
     "Constraints:",
     "- Focus on fixing the reported failure with the smallest safe change.",
+    "- Self-heal is required for any actionable failure or error when the failed log names editable files.",
     "- Still explicitly cover the cycle phases: choose the repair, review one local Haskell algorithm file, review one formal-methods artifact with an explicit invariant/property/proof obligation, then commit/push and wait for GitHub CI.",
     "- Touch only files from the editable file list.",
+    "- When the failed log names editable files, filesNeeded must include the smallest relevant subset of those failure-targeted files before unrelated context files.",
     `- algorithmReviewPath must be within ${ALGORITHM_REVIEW_PREFIXES.join(" or ")} and filesNeeded must include it.`,
     `- formalMethodsPath must be within ${FORMAL_METHODS_REVIEW_PREFIXES.join(" or ")} and filesNeeded must include it.`,
     "- Prefer trading logic, signal gates, predictors, optimizer behavior, position/risk management, or market-state inference over UI-only repairs.",
@@ -827,6 +949,7 @@ async function requestFixIdea(repoContext, failureContext) {
     `Failed head: ${failureContext.headSha}`,
     `Failed run: ${failureContext.runUrl}`,
     `Changed paths on the current branch: ${failureContext.changedPaths.join(", ")}`,
+    `Failure-targeted editable files: ${failureRepairPaths.join(", ") || "(none)"}`,
     "Failed log excerpt:",
     clampText(failureContext.failedLog, 20000),
     "",
