@@ -413,6 +413,7 @@ test("autoloop script targets the base branch directly without PR helpers", asyn
 
 test("autoloop script polls GitHub CI for each pushed sha before completing", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt\(process\.env\.AUTOLOOP_CI_DISCOVERY_TIMEOUT_SECONDS, 3000, 60, 7200\);/);
   assert.match(script, /const pushedHeadSha = runGit\(\["rev-parse", "HEAD"\]\);/);
   assert.match(script, /phase: "ci-wait",\s*[\s\S]*headSha: pushedHeadSha/);
   assert.match(script, /const ci = waitForBranchCi\(pushedHeadSha, LOOP_BRANCH\);/);

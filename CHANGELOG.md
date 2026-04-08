@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - CLI/API: trim unmatched outer wrapper parentheses from wrapped Binance auth-failure summaries (for example `user error (...)`), so probe output and live auth-failure halts keep the exact Binance message text instead of a stray trailing `)`.
+- Dev/CI: raise the trader autoloop GitHub CI discovery timeout default to 3000 seconds so bounded cycles do not abort early while slower Actions/check-suites are still registering or completing.
 - Dev/CI: make the trader autoloop self-heal any actionable GitHub CI failure by promoting failure-referenced editable files from CI logs into the repair context, raising the default editable-file cap to 1,000,000 bytes so large formal/test artifacts stay in scope, and falling back to a targeted repair plan instead of declaring `no_change` when the model skips an editable failing file; `fourmolu --mode check` failures still use the faster deterministic formatter fix path.
 - Dev/CI: make each trader autoloop cycle poll the latest GitHub head on the loop branch before discovery, wait for its GitHub Actions state to settle, and enter log-backed repair mode immediately when that remote head is already red instead of starting unrelated new work.
 - Dev/CI: make Codex-backed autoloop planner calls retry transient transport failures (`ETIMEDOUT`, websocket idle disconnects) with backoff, and raise the default `plan-patch` timeout budget so long patch-generation turns do not abort the trader forever lane prematurely.
