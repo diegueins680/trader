@@ -87,14 +87,14 @@ import Trader.Predictors.KNN (predictKNN, trainKNN)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (allPredictors, predictorSetFromString)
 import Trader.SensorVariance (emptySensorVar, updateResidual, varianceFor)
-import Trader.SignalGates (SignalThresholdBoundary (..), mkSignalThresholdBoundary, normalizeSignalThreshold, signalCrossAssetCheck, signalEntryEdgeSpikeOk, signalEntryHeadroomOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
+import Trader.SignalGates (DirectionalitySnapshot (..), SignalThresholdBoundary (..), mkSignalThresholdBoundary, normalizeSignalThreshold, signalCrossAssetCheck, signalDirectionalitySnapshot, signalEntryEdgeSpikeOk, signalEntryHeadroomOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
 import Trader.Split (Split (..), splitTrainBacktest)
 import qualified Trader.Symbol as Symbol
 import Trader.Test.ApiRoutes (apiRouteSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.Cors (corsSuite)
 import Trader.TopCombosStore (TopCombosMergeStats (..), comboIdentityKey, comboPerformanceKey, compactTopCombosPayloadForSync, mergeTopCombosPayloads, mergeTopCombosPayloadsWithStats, recalculateComboPerformanceFromOperation, resolveComboSymbol, sanitizeComboSymbolForPlatform, sanitizeTopCombosValue, topCombosPayloadEquivalent)
-import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), simulateEnsemble, simulateEnsembleWithHLChecked)
+import Trader.Trading (BacktestResult (..), EnsembleConfig (..), ExitReason (..), IntrabarFill (..), Positioning (..), Trade (..), TradeEntrySource (..), simulateEnsemble, simulateEnsembleWithHLChecked)
 import Trader.VolConfGate (VolConfGatePreset (..))
 
 main :: IO ()
@@ -277,6 +277,9 @@ main = do
               , run "signal gate emits META_LABEL reason" testSignalGateMetaLabel
               , run "signal gate emits REGIME_BANK reason" testSignalGateRegimeBank
               , run "signal gate emits FUNDING_OI reason" testSignalGateFundingOi
+              , run "signal directionality flags chop entries" testSignalDirectionalityChop
+              , run "signal directionality flags MR-drift entries" testSignalDirectionalityMrDrift
+              , run "signal directionality preserves trend entries" testSignalDirectionalityTrendAllowed
               , run "signal funding/OI damp stays finite on non-finite inputs" testSignalFundingOiFiniteDamp
               , run "signal funding/OI zero caps disable gating" testSignalFundingOiZeroCapsDisable
               , run "sensor variance ignores non-finite residuals" testSensorVarianceIgnoresNonFiniteResiduals
@@ -1292,6 +1295,7 @@ testMetricsProfitFactorPnL = do
                 , trReturn = 1.0
                 , trHoldingPeriods = 1
                 , trEntryHighVolProb = Nothing
+                , trEntrySource = TradeEntrySignal
                 , trExitReason = Just ExitSignal
                 , trEntryIp = Nothing
                 , trExitIp = Nothing
@@ -1305,6 +1309,7 @@ testMetricsProfitFactorPnL = do
                 , trReturn = -0.5
                 , trHoldingPeriods = 1
                 , trEntryHighVolProb = Nothing
+                , trEntrySource = TradeEntrySignal
                 , trExitReason = Just ExitSignal
                 , trEntryIp = Nothing
                 , trExitIp = Nothing
@@ -1335,6 +1340,7 @@ testMetricsSanitizeNonFiniteInputs = do
                 , trReturn = 0 / 0
                 , trHoldingPeriods = -3
                 , trEntryHighVolProb = Nothing
+                , trEntrySource = TradeEntrySignal
                 , trExitReason = Just ExitSignal
                 , trEntryIp = Nothing
                 , trExitIp = Nothing
@@ -2735,6 +2741,7 @@ runSignalPostGate =
         (const True)
         (const True)
         True
+        (const (True, Nothing))
 
 testSignalGateMtfWarmup :: IO ()
 testSignalGateMtfWarmup = do
@@ -2760,6 +2767,7 @@ testSignalGateMaxVolatility = do
                 (const True)
                 (const True)
                 True
+                (const (True, Nothing))
                 True
                 (const (True, Nothing))
                 (const (True, Nothing))
@@ -2779,6 +2787,7 @@ testSignalGateMaxVolatilityPrecedesWarmup = do
                 (const True)
                 (const True)
                 True
+                (const (True, Nothing))
                 True
                 (const (True, Nothing))
                 (const (True, Nothing))
@@ -2798,6 +2807,7 @@ testSignalGateMaxVolatilityPrecedesTrendFilter = do
                 (const True)
                 (const True)
                 True
+                (const (True, Nothing))
                 True
                 (const (True, Nothing))
                 (const (True, Nothing))
@@ -2817,6 +2827,7 @@ testSignalGateVolTargetWarmup = do
                 (const True)
                 (const True)
                 True
+                (const (True, Nothing))
                 True
                 (const (True, Nothing))
                 (const (True, Nothing))
@@ -2836,6 +2847,7 @@ testSignalGateVolTargetWarmupPrecedesTrendFilter = do
                 (const True)
                 (const True)
                 True
+                (const (True, Nothing))
                 True
                 (const (True, Nothing))
                 (const (True, Nothing))
@@ -2855,6 +2867,7 @@ testSignalGateVolTargetWarmupPrecedesKalmanCloud = do
                 (const False)
                 (const True)
                 True
+                (const (True, Nothing))
                 True
                 (const (True, Nothing))
                 (const (True, Nothing))
@@ -2874,6 +2887,7 @@ testSignalGateVolTargetWarmupPrecedesPriceAction = do
                 (const True)
                 (const False)
                 True
+                (const (True, Nothing))
                 True
                 (const (True, Nothing))
                 (const (True, Nothing))
@@ -2893,6 +2907,7 @@ testSignalGateRepeatedBlockStaysHold = do
                 (const True)
                 (const True)
                 True
+                (const (True, Nothing))
                 True
                 (const (True, Nothing))
                 (const (True, Nothing))
@@ -2908,6 +2923,7 @@ testSignalGateRepeatedBlockStaysHold = do
                 (const True)
                 (const True)
                 True
+                (const (True, Nothing))
                 True
                 (const (True, Nothing))
                 (const (True, Nothing))
@@ -3015,6 +3031,40 @@ testSignalGateFundingOi = do
                 (const True)
                 fundingCheck
     assert "funding pressure above cap returns FUNDING_OI" (result == (Nothing, Just "FUNDING_OI"))
+
+testSignalDirectionalityChop :: IO ()
+testSignalDirectionalityChop = do
+    let prices = V.fromList [100.0, 101.0, 100.0, 101.0, 100.0]
+        snapshot = signalDirectionalitySnapshot 0.05 Nothing prices 4
+    case snapshot of
+        Nothing -> assert "expected directionality snapshot for chop sequence" False
+        Just snap -> do
+            assert "flat zig-zag path is labeled chop" (dsLabel snap == "chop")
+            assert "flat zig-zag path is vetoed as non-directional chop" (dsReason snap == Just "NON_DIRECTIONAL_CHOP")
+            assert "flat zig-zag path is explicitly non-directional" (dsNonDirectional snap)
+
+testSignalDirectionalityMrDrift :: IO ()
+testSignalDirectionalityMrDrift = do
+    let prices = V.fromList [100.0, 102.0, 101.0, 103.0, 102.0]
+        regimes = Just (RegimeProbs 0.08102 0.82061 0.09837)
+        snapshot = signalDirectionalitySnapshot 0.05 regimes prices 4
+    case snapshot of
+        Nothing -> assert "expected directionality snapshot for MR drift sequence" False
+        Just snap -> do
+            assert "alternating drift remains below the MR efficiency cap" (dsEfficiency snap > 0.25 && dsEfficiency snap <= 0.4)
+            assert "MR-drift sequence is vetoed when MR strongly dominates" (dsReason snap == Just "NON_DIRECTIONAL_MR")
+            assert "MR-drift sequence records MR as regime leader" (dsRegimeLeader snap == Just "mr")
+
+testSignalDirectionalityTrendAllowed :: IO ()
+testSignalDirectionalityTrendAllowed = do
+    let prices = V.fromList [100.0, 101.0, 102.0, 103.0, 104.0]
+        regimes = Just (RegimeProbs 0.7 0.2 0.1)
+        snapshot = signalDirectionalitySnapshot 0.05 regimes prices 4
+    case snapshot of
+        Nothing -> assert "expected directionality snapshot for trend sequence" False
+        Just snap -> do
+            assert "clean trend path is labeled directional" (dsLabel snap == "trend-up")
+            assert "clean trend path is not vetoed" (dsReason snap == Nothing && not (dsNonDirectional snap))
 
 testSignalFundingOiFiniteDamp :: IO ()
 testSignalFundingOiFiniteDamp = do

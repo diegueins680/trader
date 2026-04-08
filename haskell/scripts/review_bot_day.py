@@ -32,6 +32,10 @@ ACK_ONLY_STATUSES = {
     "pendingcancel",
 }
 
+DIRECTIONALITY_CHOP_EFFICIENCY_MAX = 0.25
+DIRECTIONALITY_MR_EFFICIENCY_MAX = 0.40
+DIRECTIONALITY_REGIME_HYSTERESIS = 0.05
+
 INTERVAL_UNITS_MS = {
     "m": 60_000,
     "h": 3_600_000,
@@ -234,6 +238,73 @@ def float_or_none(value: Any) -> float | None:
     return None
 
 
+def normalized_entry_source(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw in {"signal", "adopted"}:
+        return raw
+    return None
+
+
+def normalized_regimes(value: Any) -> dict[str, float] | None:
+    if not isinstance(value, dict):
+        return None
+    trend = float_or_none(value.get("trend"))
+    mr = float_or_none(value.get("mr"))
+    high_vol = float_or_none(value.get("highVol"))
+    if trend is None and mr is None and high_vol is None:
+        return None
+    return {
+        "trend": trend if trend is not None else 0.0,
+        "mr": mr if mr is not None else 0.0,
+        "highVol": high_vol if high_vol is not None else 0.0,
+    }
+
+
+def build_directionality_snapshot(
+    prices: list[float],
+    idx: int,
+    regimes: dict[str, Any] | None,
+    regime_hysteresis: float = DIRECTIONALITY_REGIME_HYSTERESIS,
+) -> dict[str, Any] | None:
+    regime = classify_regime(prices, idx)
+    if regime["label"] == "insufficient":
+        return None
+    normalized = normalized_regimes(regimes)
+    regime_leader = None
+    regime_gap = None
+    mr_dominant = False
+    if normalized is not None:
+        ranked = sorted(normalized.items(), key=lambda item: item[1], reverse=True)
+        if ranked:
+            regime_leader = ranked[0][0]
+        if len(ranked) >= 2:
+            regime_gap = ranked[0][1] - ranked[1][1]
+        mr_dominant = regime_leader == "mr" and regime_gap is not None and regime_gap >= max(0.0, regime_hysteresis)
+
+    efficiency = regime["efficiency"]
+    reason = None
+    if efficiency <= DIRECTIONALITY_CHOP_EFFICIENCY_MAX:
+        reason = "NON_DIRECTIONAL_CHOP"
+    elif efficiency <= DIRECTIONALITY_MR_EFFICIENCY_MAX and mr_dominant:
+        reason = "NON_DIRECTIONAL_MR"
+
+    return {
+        "lookbackBars": regime["lookbackBars"],
+        "netReturnPct": regime["netReturnPct"],
+        "realizedVolPct": regime["realizedVolPct"],
+        "efficiency": efficiency,
+        "zScore": regime["zScore"],
+        "label": regime["label"],
+        "trendProb": normalized["trend"] if normalized is not None else None,
+        "mrProb": normalized["mr"] if normalized is not None else None,
+        "highVolProb": normalized["highVol"] if normalized is not None else None,
+        "regimeLeader": regime_leader,
+        "regimeGap": regime_gap,
+        "nonDirectional": reason is not None,
+        "reason": reason,
+    }
+
+
 def is_ack_only_order(order_event: dict[str, Any]) -> bool:
     order = order_event.get("order") or {}
     if not order.get("sent"):
@@ -261,6 +332,22 @@ def position_direction(value: Any) -> int:
     return 0
 
 
+def position_side(value: Any) -> str | None:
+    direction = position_direction(value)
+    if direction > 0:
+        return "long"
+    if direction < 0:
+        return "short"
+    return None
+
+
+def normalized_order_side(value: Any) -> str | None:
+    raw = str(value or "").strip().upper()
+    if raw in {"BUY", "SELL"}:
+        return raw
+    return None
+
+
 def open_side_to_order_side(side: Any) -> str | None:
     side_text = str(side or "").strip().lower()
     if side_text == "long":
@@ -268,6 +355,96 @@ def open_side_to_order_side(side: Any) -> str | None:
     if side_text == "short":
         return "SELL"
     return None
+
+
+def order_flow_role_from_side(order_side: str | None, reference_side: str | None) -> str | None:
+    expected_open_side = open_side_to_order_side(reference_side)
+    if order_side is None or expected_open_side is None:
+        return None
+    if order_side == expected_open_side:
+        return "entry_or_add"
+    return "exit_or_flatten"
+
+
+def classify_order_event_flow_role(
+    snapshot: BotSnapshot,
+    order_event: dict[str, Any],
+    order_idx: int | None,
+) -> dict[str, Any]:
+    order_side = normalized_order_side(order_event.get("opSide") or (order_event.get("order") or {}).get("side"))
+    if order_side is None:
+        return {
+            "flowRole": "unknown",
+            "flowRoleEvidence": "missing_order_side",
+            "contextSide": None,
+        }
+
+    message = str((order_event.get("order") or {}).get("message") or "").strip().lower()
+    message_side_contexts = [
+        ("message_already_flat", None, "exit_or_flatten"),
+        ("message_already_long", "long", None),
+        ("message_already_short", "short", None),
+    ]
+    for evidence, side, fixed_role in message_side_contexts:
+        marker = evidence.replace("message_", "").replace("_", " ")
+        if marker in message:
+            role = fixed_role if fixed_role is not None else order_flow_role_from_side(order_side, side)
+            if role is not None:
+                return {
+                    "flowRole": role,
+                    "flowRoleEvidence": evidence,
+                    "contextSide": side,
+                }
+
+    for trade in snapshot.status.get("trades") or []:
+        entry_idx = int(trade.get("entryIndex", -1))
+        exit_idx = int(trade.get("exitIndex", -1))
+        if order_idx not in {entry_idx, exit_idx}:
+            continue
+        trade_side = infer_trade_side(snapshot, entry_idx, exit_idx)
+        role = order_flow_role_from_side(order_side, trade_side)
+        if role is not None:
+            return {
+                "flowRole": role,
+                "flowRoleEvidence": "completed_trade_entry_side" if order_idx == entry_idx else "completed_trade_exit_side",
+                "contextSide": trade_side,
+            }
+
+    open_trade = snapshot.status.get("openTrade")
+    if isinstance(open_trade, dict):
+        open_trade_side = str(open_trade.get("side") or "").strip().lower()
+        role = order_flow_role_from_side(order_side, open_trade_side)
+        if role is not None:
+            return {
+                "flowRole": role,
+                "flowRoleEvidence": "open_trade_side",
+                "contextSide": open_trade_side,
+            }
+
+    positions = snapshot.status.get("positions") or []
+    if order_idx is not None:
+        position_side_contexts = [
+            ("position_at_index", position_side(positions[order_idx]) if 0 <= order_idx < len(positions) else None),
+            ("position_before_index", position_side(positions[order_idx - 1]) if 0 < order_idx <= len(positions) else None),
+            (
+                "position_after_index",
+                position_side(positions[order_idx + 1]) if 0 <= order_idx < len(positions) - 1 else None,
+            ),
+        ]
+        for evidence, side in position_side_contexts:
+            role = order_flow_role_from_side(order_side, side)
+            if role is not None:
+                return {
+                    "flowRole": role,
+                    "flowRoleEvidence": evidence,
+                    "contextSide": side,
+                }
+
+    return {
+        "flowRole": "entry_or_add",
+        "flowRoleEvidence": "default_without_close_context",
+        "contextSide": None,
+    }
 
 
 def order_matches_open_side(order_event: dict[str, Any], open_side: Any) -> bool:
@@ -305,6 +482,7 @@ def build_open_position_provenance(
     start_ms: int,
     end_ms: int,
     tz: ZoneInfo,
+    entry_source: str | None,
 ) -> dict[str, Any]:
     matching_orders = [
         order_event for order_event in snapshot.status.get("orders") or [] if order_matches_open_side(order_event, open_trade.get("side"))
@@ -359,6 +537,16 @@ def build_open_position_provenance(
                 "kind": "entered_today",
                 "provenance": "same_day_order_evidence",
                 "provenanceDetail": "Matched saved opening order evidence on the target day.",
+            }
+        )
+        return details
+
+    if entry_source == "adopted":
+        details.update(
+            {
+                "kind": "carried_in",
+                "provenance": "startup_adopted_position",
+                "provenanceDetail": "Bot snapshot marks the position as adopted from pre-start exchange state.",
             }
         )
         return details
@@ -464,6 +652,7 @@ def build_open_position_at_window_end(
         matching_side = str(matching_open_trade.get("side") or "").strip().lower()
         if matching_entry != entry_idx or matching_side != side:
             matching_open_trade = None
+    entry_source = normalized_entry_source(matching_open_trade.get("entrySource") if matching_open_trade is not None else None)
 
     entry_equity = None
     if matching_open_trade is not None:
@@ -488,6 +677,7 @@ def build_open_position_at_window_end(
         "markToMarketPct": mtm_pct,
         "trail": matching_open_trade.get("trail") if matching_open_trade is not None else None,
         "size": matching_open_trade.get("size") if matching_open_trade is not None else None,
+        "entrySource": entry_source,
         "entryRegime": classify_regime(prices, entry_idx),
         "latestRegimes": snapshot.status.get("latestSignal", {}).get("regimes") if snapshot.updated_at_ms <= end_ms else None,
         "latestVolatility": snapshot.status.get("latestSignal", {}).get("volatility") if snapshot.updated_at_ms <= end_ms else None,
@@ -500,6 +690,7 @@ def build_open_position_at_window_end(
         start_ms,
         end_ms,
         tz,
+        entry_source,
     )
     kind = provenance.pop("kind")
     position_row.update(provenance)
@@ -541,6 +732,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
     carried_open_positions: list[dict[str, Any]] = []
     order_events: list[dict[str, Any]] = []
     ambiguous_open_positions: list[dict[str, Any]] = []
+    adopted_trade_closures: list[dict[str, Any]] = []
 
     for snapshot in snapshots:
         prices = snapshot.status.get("prices") or []
@@ -561,27 +753,31 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             entry_ms = open_times[entry_idx] if 0 <= entry_idx < len(open_times) else None
             entry_price = prices[entry_idx] if 0 <= entry_idx < len(prices) else None
             exit_price = prices[exit_idx] if 0 <= exit_idx < len(prices) else None
-            completed_trades.append(
-                {
-                    "symbol": snapshot.symbol,
-                    "interval": snapshot.status.get("interval"),
-                    "side": infer_trade_side(snapshot, entry_idx, exit_idx),
-                    "entryIndex": entry_idx,
-                    "exitIndex": exit_idx,
-                    "entryTimeLocal": local_iso(entry_ms, tz) if entry_ms is not None else None,
-                    "exitTimeLocal": local_iso(exit_ms, tz),
-                    "entryPrice": entry_price,
-                    "exitPrice": exit_price,
-                    "returnPct": safe_pct(float_or_none(trade.get("return"))),
-                    "holdingBars": trade.get("holdingPeriods"),
-                    "exitReason": trade.get("exitReason"),
-                    "entryHighVolProb": trade.get("entryHighVolProb"),
-                    "entryRegime": classify_regime(prices, entry_idx),
-                    "exitRegime": classify_regime(prices, exit_idx),
-                    "latestRegimes": latest_regimes if snapshot.updated_at_ms <= end_ms else None,
-                    "latestVolatility": latest_signal.get("volatility") if snapshot.updated_at_ms <= end_ms else None,
-                }
-            )
+            entry_source = normalized_entry_source(trade.get("entrySource"))
+            trade_row = {
+                "symbol": snapshot.symbol,
+                "interval": snapshot.status.get("interval"),
+                "side": infer_trade_side(snapshot, entry_idx, exit_idx),
+                "entryIndex": entry_idx,
+                "exitIndex": exit_idx,
+                "entryTimeLocal": local_iso(entry_ms, tz) if entry_ms is not None else None,
+                "exitTimeLocal": local_iso(exit_ms, tz),
+                "entryPrice": entry_price,
+                "exitPrice": exit_price,
+                "returnPct": safe_pct(float_or_none(trade.get("return"))),
+                "holdingBars": trade.get("holdingPeriods"),
+                "exitReason": trade.get("exitReason"),
+                "entryHighVolProb": trade.get("entryHighVolProb"),
+                "entrySource": entry_source,
+                "provenance": "startup_adopted_position" if entry_source == "adopted" else "signal_entry",
+                "entryRegime": classify_regime(prices, entry_idx),
+                "exitRegime": classify_regime(prices, exit_idx),
+                "latestRegimes": latest_regimes if snapshot.updated_at_ms <= end_ms else None,
+                "latestVolatility": latest_signal.get("volatility") if snapshot.updated_at_ms <= end_ms else None,
+            }
+            completed_trades.append(trade_row)
+            if entry_source == "adopted":
+                adopted_trade_closures.append(trade_row)
 
         if cutoff_idx is not None:
             position_at_window_end = build_open_position_at_window_end(snapshot, cutoff_idx, start_ms, end_ms, tz)
@@ -603,33 +799,60 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
                 continue
             ack_only = is_ack_only_order(order_event)
             order = order_event.get("order") or {}
-            order_events.append(
-                {
-                    "symbol": snapshot.symbol,
-                    "atLocal": local_iso(at_ms, tz),
-                    "openTimeLocal": local_iso(int(order_event.get("openTime")), tz)
-                    if isinstance(order_event.get("openTime"), (int, float))
-                    else None,
-                    "index": order_event.get("index"),
-                    "opSide": order_event.get("opSide"),
-                    "price": order_event.get("price"),
-                    "sent": order.get("sent"),
-                    "status": order.get("status"),
-                    "message": order.get("message"),
-                    "executedQty": order.get("executedQty"),
-                    "quantity": order.get("quantity"),
-                    "ackOnly": ack_only,
-                }
-            )
+            order_idx_raw = order_event.get("index")
+            order_idx = int(order_idx_raw) if isinstance(order_idx_raw, (int, float)) else None
+            directionality = None
+            if isinstance(order_event.get("directionality"), dict):
+                directionality = order_event.get("directionality")
+            elif order_idx is not None:
+                directionality = build_directionality_snapshot(prices, order_idx, latest_regimes)
+            flow_role = classify_order_event_flow_role(snapshot, order_event, order_idx)
+            order_row = {
+                "symbol": snapshot.symbol,
+                "atLocal": local_iso(at_ms, tz),
+                "openTimeLocal": local_iso(int(order_event.get("openTime")), tz)
+                if isinstance(order_event.get("openTime"), (int, float))
+                else None,
+                "index": order_idx,
+                "opSide": order_event.get("opSide"),
+                "price": order_event.get("price"),
+                "sent": order.get("sent"),
+                "status": order.get("status"),
+                "message": order.get("message"),
+                "executedQty": order.get("executedQty"),
+                "quantity": order.get("quantity"),
+                "ackOnly": ack_only,
+                "directionality": directionality,
+                "nonDirectionalVeto": bool(directionality and directionality.get("nonDirectional")),
+                "nonDirectionalReason": directionality.get("reason") if directionality else None,
+                "flowRole": flow_role["flowRole"],
+                "flowRoleEvidence": flow_role["flowRoleEvidence"],
+                "contextSide": flow_role["contextSide"],
+            }
+            order_events.append(order_row)
 
     completed_trades.sort(key=lambda row: (row["exitTimeLocal"] or "", row["symbol"]))
     open_positions.sort(key=lambda row: (row["entryTimeLocal"] or "", row["symbol"]))
     carried_open_positions.sort(key=lambda row: (row["entryTimeLocal"] or "", row["symbol"]))
     order_events.sort(key=lambda row: (row["atLocal"] or "", row["symbol"]))
     ambiguous_open_positions.sort(key=lambda row: (row["entryTimeLocal"] or "", row["symbol"]))
+    adopted_trade_closures.sort(key=lambda row: (row["exitTimeLocal"] or "", row["symbol"]))
 
-    active_symbols = {row["symbol"] for row in completed_trades} | {row["symbol"] for row in open_positions}
+    active_symbols = (
+        {row["symbol"] for row in completed_trades}
+        | {row["symbol"] for row in open_positions}
+        | {row["symbol"] for row in carried_open_positions}
+    )
     fill_evidence_gaps = [row for row in order_events if row["ackOnly"] and row["symbol"] in active_symbols]
+    non_directional_order_attempts = [
+        row for row in order_events if row["nonDirectionalVeto"] and row["flowRole"] == "entry_or_add"
+    ]
+    non_directional_exit_or_flatten_events = [
+        row for row in order_events if row["nonDirectionalVeto"] and row["flowRole"] == "exit_or_flatten"
+    ]
+    non_directional_unknown_role_events = [
+        row for row in order_events if row["nonDirectionalVeto"] and row["flowRole"] == "unknown"
+    ]
 
     compound = 1.0
     for trade in completed_trades:
@@ -658,6 +881,9 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             "openPositionsCarriedIn": len(carried_open_positions),
             "sameDayOrderEvents": len(order_events),
             "ackOnlyOrderEvents": sum(1 for row in order_events if row["ackOnly"]),
+            "nonDirectionalOrderAttempts": len(non_directional_order_attempts),
+            "nonDirectionalExitOrFlattenEvents": len(non_directional_exit_or_flatten_events),
+            "nonDirectionalUnknownRoleEvents": len(non_directional_unknown_role_events),
             "fillEvidenceGaps": len(fill_evidence_gaps),
             "ambiguousOpenPositionOrigins": len(ambiguous_open_positions),
             "snapshotsUpdatedAfterWindow": len(snapshots_updated_after_window),
@@ -672,6 +898,10 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             "missingOpenTimeReconstruction": [
                 snap.symbol for snap in snapshots if not infer_open_times(snap) and (snap.status.get("trades") or snap.status.get("openTrade"))
             ],
+            "adoptedTradeClosures": adopted_trade_closures,
+            "nonDirectionalOrderAttempts": non_directional_order_attempts,
+            "nonDirectionalExitOrFlattenEvents": non_directional_exit_or_flatten_events,
+            "nonDirectionalUnknownRoleEvents": non_directional_unknown_role_events,
             "ambiguousOpenPositionOrigins": ambiguous_open_positions,
             "snapshotsUpdatedAfterWindow": snapshots_updated_after_window,
         },
@@ -699,6 +929,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"`open_carried_in={summary['openPositionsCarriedIn']}` "
         f"`order_events={summary['sameDayOrderEvents']}` "
         f"`ack_only={summary['ackOnlyOrderEvents']}` "
+        f"`non_directional_attempts={summary['nonDirectionalOrderAttempts']}` "
+        f"`non_directional_exit_or_flatten={summary['nonDirectionalExitOrFlattenEvents']}` "
+        f"`non_directional_unknown={summary['nonDirectionalUnknownRoleEvents']}` "
         f"`fill_gaps={summary['fillEvidenceGaps']}` "
         f"`ambiguous_open_origin={summary['ambiguousOpenPositionOrigins']}` "
         f"`snapshots_after_window={summary['snapshotsUpdatedAfterWindow']}`"
@@ -718,7 +951,8 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"pnl `{trade['returnPct']:.5f}%` "
                 f"hold `{trade['holdingBars']}` bars "
                 f"exitReason `{trade['exitReason']}` "
-                f"regime `{entry_regime}->{exit_regime}`"
+                f"regime `{entry_regime}->{exit_regime}` "
+                f"source `{trade.get('entrySource') or 'unknown'}`"
             )
     else:
         lines.append("- No completed trades closed on the target local date.")
@@ -761,12 +995,23 @@ def render_markdown(report: dict[str, Any]) -> str:
             gap = " fill-gap" if event["ackOnly"] and event["symbol"] in {
                 row["symbol"] for row in report["anomalies"]["fillEvidenceGaps"]
             } else ""
+            directionality = event.get("directionality") or {}
+            directionality_suffix = ""
+            if directionality:
+                efficiency = float_or_none(directionality.get("efficiency"))
+                directionality_suffix = (
+                    " "
+                    f"regime `{directionality.get('label')}` "
+                    f"eff `{efficiency:.5f}` "
+                    f"veto `{directionality.get('reason') or 'allow'}`"
+                ) if efficiency is not None else f" regime `{directionality.get('label')}` veto `{directionality.get('reason') or 'allow'}`"
             lines.append(
                 "- "
                 f"`{event['symbol']}` `{event['atLocal']}` `{event['opSide']}` "
                 f"status `{event['status']}` qty `{event['executedQty']}` "
                 f"sent `{event['sent']}` "
-                f"message `{event['message']}`{gap}"
+                f"message `{event['message']}` "
+                f"flow `{event['flowRole']}` via `{event['flowRoleEvidence']}`{gap}{directionality_suffix}"
             )
     else:
         lines.append("- No order events touched the target local date.")
@@ -802,6 +1047,59 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"`{trade['symbol']}` open position at `{trade['entryTimeLocal']}` has "
                 f"ambiguous provenance: `{trade.get('adoptionMessage')}`. "
                 "Review should not treat it as a confirmed same-day entry."
+            )
+    if report["anomalies"]["adoptedTradeClosures"]:
+        for trade in report["anomalies"]["adoptedTradeClosures"]:
+            lines.append(
+                "- "
+                f"`{trade['symbol']}` closed on `{trade['exitTimeLocal']}` but its saved entry provenance is `adopted`. "
+                "Treat it as a carry-in position that exited today, not a confirmed same-day fresh entry."
+            )
+    if report["anomalies"]["nonDirectionalOrderAttempts"]:
+        for event in report["anomalies"]["nonDirectionalOrderAttempts"]:
+            directionality = event.get("directionality") or {}
+            efficiency = float_or_none(directionality.get("efficiency"))
+            if efficiency is not None:
+                lines.append(
+                    "- "
+                    f"`{event['symbol']}` attempted `{event['opSide']}` at `{event['atLocal']}` in "
+                    f"`{directionality.get('label')}` with efficiency `{efficiency:.5f}`. "
+                    f"The new low-directionality gate would veto it as `{event['nonDirectionalReason']}` "
+                    f"(flow `{event['flowRole']}` via `{event['flowRoleEvidence']}`)."
+                )
+            else:
+                lines.append(
+                    "- "
+                    f"`{event['symbol']}` attempted `{event['opSide']}` at `{event['atLocal']}` in "
+                    f"`{directionality.get('label')}`. "
+                    f"The new low-directionality gate would veto it as `{event['nonDirectionalReason']}` "
+                    f"(flow `{event['flowRole']}` via `{event['flowRoleEvidence']}`)."
+                )
+    if report["anomalies"]["nonDirectionalExitOrFlattenEvents"]:
+        for event in report["anomalies"]["nonDirectionalExitOrFlattenEvents"]:
+            directionality = event.get("directionality") or {}
+            efficiency = float_or_none(directionality.get("efficiency"))
+            if efficiency is not None:
+                lines.append(
+                    "- "
+                    f"`{event['symbol']}` hit a non-directional veto at `{event['atLocal']}` with "
+                    f"flow `{event['flowRole']}` via `{event['flowRoleEvidence']}` in "
+                    f"`{directionality.get('label')}` (efficiency `{efficiency:.5f}`), but this was an "
+                    "exit/flatten event and should not count as a fresh entry attempt."
+                )
+            else:
+                lines.append(
+                    "- "
+                    f"`{event['symbol']}` hit a non-directional veto at `{event['atLocal']}` with "
+                    f"flow `{event['flowRole']}` via `{event['flowRoleEvidence']}`, but this was an "
+                    "exit/flatten event and should not count as a fresh entry attempt."
+                )
+    if report["anomalies"]["nonDirectionalUnknownRoleEvents"]:
+        for event in report["anomalies"]["nonDirectionalUnknownRoleEvents"]:
+            lines.append(
+                "- "
+                f"`{event['symbol']}` hit a non-directional veto at `{event['atLocal']}` but its order-flow role is "
+                f"`{event['flowRole']}` via `{event['flowRoleEvidence']}`. Review this event before using it as an entry-attempt signal."
             )
     if report["anomalies"]["snapshotsUpdatedAfterWindow"]:
         lines.append(

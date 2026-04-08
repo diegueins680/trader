@@ -272,6 +272,12 @@ export function buildAutoloopRecoveryBranchName({ loopBranch, runId, timestamp }
   return `autoloop/wip/${base}/${run}-${stamp}`;
 }
 
+export function buildAutoloopDirtyCheckpointBranchName({ loopBranch, timestamp }) {
+  const base = sanitizeGitRefFragment(loopBranch || "main", "main");
+  const stamp = sanitizeGitRefFragment(String(timestamp ?? "").replace(/[:.]/g, "-"), "now").replace(/\//g, "-");
+  return `autoloop/dirty/${base}/dirty-worktree-${stamp}`;
+}
+
 export function prepareShellCommand(command) {
   const normalized = String(command ?? "").trim();
   const needsGhcup =
