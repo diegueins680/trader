@@ -442,6 +442,19 @@ test("autoloop script repairs the latest remote branch head before proposing new
   assert.match(script, /changedPaths: listCommitChangedPaths\(latestHeadSha\),/);
 });
 
+test("autoloop script auto-heals formatting-only CI failures on editable Haskell files", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const FOURMOLU_CHECK_COMMAND = "cd haskell && find app test bench -name '\*\.hs' -print0 \| xargs -0 fourmolu --mode check";/);
+  assert.match(script, /const automaticRepair = failureContext \? detectAutomaticRepair\(failureContext\) : null;/);
+  assert.match(script, /phase: "auto-repair"/);
+  assert.match(script, /function parseFourmoluFailurePaths\(failedLog\)/);
+  assert.match(script, /const isFourmoluFailure = \/\\bfourmolu --mode check\\b\/\.test\(failedLog\);/);
+  assert.match(script, /type: "fourmolu"/);
+  assert.match(script, /function applyAutomaticRepair\(repair\)/);
+  assert.match(script, /runCommand\("fourmolu", \["-i", \.\.\.relPaths\], \{/);
+  assert.match(script, /verificationCommands: planVerificationCommands\(fourmoluPaths, \[FOURMOLU_CHECK_COMMAND\]\),/);
+});
+
 test("autoloop script prefers the stored gh auth token over a stale GH_TOKEN environment value", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /function buildSanitizedGhAuthEnv\(extraEnv = \{\}\)/);
