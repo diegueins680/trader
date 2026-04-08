@@ -43,10 +43,12 @@ const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_
 const CODEX_EXEC_TIMEOUT_MS = clampInt(process.env.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000);
 const CODEX_PATCH_TIMEOUT_MS = clampInt(
   process.env.AUTOLOOP_CODEX_PATCH_TIMEOUT_MS,
-  1200000,
-  CODEX_EXEC_TIMEOUT_MS,
   1800000,
+  CODEX_EXEC_TIMEOUT_MS,
+  3600000,
 );
+const CODEX_RETRY_MAX_ATTEMPTS = clampInt(process.env.AUTOLOOP_CODEX_RETRY_MAX_ATTEMPTS, 2, 1, 5);
+const CODEX_RETRY_BACKOFF_MS = clampInt(process.env.AUTOLOOP_CODEX_RETRY_BACKOFF_MS, 15000, 1000, 120000);
 const CODEX_REASONING_EFFORT = resolveCodexReasoningEffort(process.env.AUTOLOOP_CODEX_REASONING_EFFORT);
 const SKIP_CI_WAIT = readBooleanEnv(process.env.AUTOLOOP_SKIP_CI_WAIT);
 const HAS_CODEX = commandExists("codex");
@@ -359,6 +361,19 @@ function runBash(command, opts = {}) {
   return runCommand("/bin/bash", ["-lc", prepareShellCommand(command)], opts);
 }
 
+function isRetryableCodexExecError(err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return /(ETIMEDOUT|ECONNRESET|stream disconnected before completion|idle timeout waiting for websocket|Reconnecting\.\.\.)/i.test(
+    message,
+  );
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function commandExists(command) {
   try {
     execFileSync("/bin/bash", ["-lc", `command -v ${JSON.stringify(command)} >/dev/null`], {
@@ -603,34 +618,51 @@ async function callModelJson({ prompt, maxOutputTokens = 4000, timeoutMs = CODEX
 }
 
 async function callModelJsonViaCodex({ prompt, maxOutputTokens, timeoutMs }) {
-  const rawEvents = runCommand(
-    "codex",
-    [
-      "exec",
-      "--json",
-      "--ephemeral",
-      "--sandbox",
-      "read-only",
-      "--color",
-      "never",
-      "--model",
-      OPENAI_MODEL,
-      "-c",
-      `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
-      "-",
-    ],
-    {
-      input: [
-        "Return JSON only. The final response must be a single valid JSON object with no markdown fences.",
-        "Use only the prompt contents below. Do not run shell commands, open files, inspect the repository, or use web search.",
-        "Do not narrate progress or emit intermediate messages. Reply with the final JSON object immediately.",
-        `Treat this max_output_tokens hint as advisory: ${maxOutputTokens}.`,
-        prompt,
-      ].join("\n\n"),
-      timeoutMs,
-    },
-  );
-  return parseJsonResponse(extractCodexExecLastMessage(rawEvents));
+  const input = [
+    "Return JSON only. The final response must be a single valid JSON object with no markdown fences.",
+    "Use only the prompt contents below. Do not run shell commands, open files, inspect the repository, or use web search.",
+    "Do not narrate progress or emit intermediate messages. Reply with the final JSON object immediately.",
+    `Treat this max_output_tokens hint as advisory: ${maxOutputTokens}.`,
+    prompt,
+  ].join("\n\n");
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= CODEX_RETRY_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const rawEvents = runCommand(
+        "codex",
+        [
+          "exec",
+          "--json",
+          "--ephemeral",
+          "--sandbox",
+          "read-only",
+          "--color",
+          "never",
+          "--model",
+          OPENAI_MODEL,
+          "-c",
+          `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
+          "-",
+        ],
+        {
+          input,
+          timeoutMs,
+        },
+      );
+      return parseJsonResponse(extractCodexExecLastMessage(rawEvents));
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableCodexExecError(err) || attempt >= CODEX_RETRY_MAX_ATTEMPTS) throw err;
+      const delayMs = CODEX_RETRY_BACKOFF_MS * attempt;
+      console.warn(
+        `Codex exec transient failure on attempt ${attempt}/${CODEX_RETRY_MAX_ATTEMPTS}; retrying in ${delayMs}ms.`,
+      );
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError ?? new Error("Codex exec failed without an error.");
 }
 
 async function requestIdeaSelection(repoContext) {

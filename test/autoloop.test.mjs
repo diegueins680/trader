@@ -431,7 +431,9 @@ test("autoloop script feeds failed CI logs back into codex repair prompts", asyn
 test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /const CODEX_EXEC_TIMEOUT_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000\);/);
-  assert.match(script, /const CODEX_PATCH_TIMEOUT_MS = clampInt\(\s*process\.env\.AUTOLOOP_CODEX_PATCH_TIMEOUT_MS,\s*900000,\s*CODEX_EXEC_TIMEOUT_MS,\s*1800000,\s*\);/);
+  assert.match(script, /const CODEX_PATCH_TIMEOUT_MS = clampInt\(\s*process\.env\.AUTOLOOP_CODEX_PATCH_TIMEOUT_MS,\s*1800000,\s*CODEX_EXEC_TIMEOUT_MS,\s*3600000,\s*\);/);
+  assert.match(script, /const CODEX_RETRY_MAX_ATTEMPTS = clampInt\(process\.env\.AUTOLOOP_CODEX_RETRY_MAX_ATTEMPTS, 2, 1, 5\);/);
+  assert.match(script, /const CODEX_RETRY_BACKOFF_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_RETRY_BACKOFF_MS, 15000, 1000, 120000\);/);
   assert.match(script, /const CODEX_REASONING_EFFORT = resolveCodexReasoningEffort\(process\.env\.AUTOLOOP_CODEX_REASONING_EFFORT\);/);
   assert.match(script, /if \(value === "low" \|\| value === "medium" \|\| value === "high" \|\| value === "xhigh"\) return value;/);
   assert.match(script, /return "xhigh";/);
@@ -440,6 +442,10 @@ test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", 
   assert.match(script, /Do not run shell commands, open files, inspect the repository, or use web search\./);
   assert.match(script, /async function callModelJson\(\{ prompt, maxOutputTokens = 4000, timeoutMs = CODEX_EXEC_TIMEOUT_MS \}\)/);
   assert.match(script, /timeoutMs,\s*\n\s*}\s*,\s*\n\s*\);/);
+  assert.match(script, /for \(let attempt = 1; attempt <= CODEX_RETRY_MAX_ATTEMPTS; attempt \+= 1\)/);
+  assert.match(script, /if \(!isRetryableCodexExecError\(err\) \|\| attempt >= CODEX_RETRY_MAX_ATTEMPTS\) throw err;/);
+  assert.match(script, /await sleep\(delayMs\);/);
+  assert.match(script, /function isRetryableCodexExecError\(err\)/);
   assert.match(script, /callModelJson\(\{ prompt, maxOutputTokens: 12000, timeoutMs: CODEX_PATCH_TIMEOUT_MS \}\)/);
   assert.match(script, /parseJsonResponse\(extractCodexExecLastMessage\(rawEvents\)\)/);
   assert.doesNotMatch(script, /--output-last-message/);
