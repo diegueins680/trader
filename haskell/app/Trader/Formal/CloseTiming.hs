@@ -13,6 +13,7 @@ module Trader.Formal.CloseTiming (
     buildCloseTimingStats,
     closeTimingDecision,
     closeTimingRecommendationAccepted,
+    closeTimingRecommendationHasRetuneEvidence,
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
     optimalCloseObservation,
@@ -97,13 +98,14 @@ data ComboTimingStats = ComboTimingStats
 Retunes fail closed unless the positive-lift q75 candidate is supported by
 enough analyzed trades, is conservatively capped to the last hold bucket with
 enough profitable-support evidence, the exact recommended duration bucket itself
-has enough profitable-support samples and positive estimated lift, matches an
-analyzed hold bucket, stays within the analyzed hold window, any longer retune
-is backed by consistent exact-bucket upward evidence against the observed q75
-hold horizon and clears the one-bar deadband, and any shorter retune is backed
-by consistent exact-bucket downward evidence against the observed q75 hold
-horizon. Accepted applications also add a one-bar deadband so adjacent
-recommendations collapse to the current hold horizon.
+has enough profitable-support samples and positive estimated lift, report-level
+lift/support fields remain finite, ordered, and above the profitable-support
+floors, matches an analyzed hold bucket, stays within the analyzed hold window,
+any longer retune is backed by consistent exact-bucket upward evidence against
+the observed q75 hold horizon and clears the one-bar deadband, and any shorter
+retune is backed by consistent exact-bucket downward evidence against the
+observed q75 hold horizon. Accepted applications also add a one-bar deadband so
+adjacent recommendations collapse to the current hold horizon.
 -}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
@@ -358,8 +360,30 @@ acceptedCloseTimingMaxHoldBars currentMaxHoldBars report =
 closeTimingRecommendationAccepted :: Maybe Int -> Int -> ComboCloseTimingReport -> Bool
 closeTimingRecommendationAccepted currentMaxHoldBars recommended report =
     cctrRecommendedMaxHoldBars report == Just recommended
+        && closeTimingRecommendationHasRetuneEvidence recommended report
         && closeTimingRecommendationClearsDeadband currentMaxHoldBars recommended
+
+closeTimingRecommendationHasRetuneEvidence :: Int -> ComboCloseTimingReport -> Bool
+closeTimingRecommendationHasRetuneEvidence recommended report =
+    recommended > 0
+        && closeTimingRecommendationHasOrderedReportSupport report
+        && closeTimingRecommendationHasFiniteLiftStats report
         && closeTimingRecommendationHasExactBucketEvidence recommended report
+
+closeTimingRecommendationHasOrderedReportSupport :: ComboCloseTimingReport -> Bool
+closeTimingRecommendationHasOrderedReportSupport report =
+    cctrSampleCount report >= minimumCloseTimingSamples
+        && cctrPositiveLiftSampleCount report >= minimumPositiveLiftSupportSamples
+        && cctrPositiveLiftSampleCount report <= cctrSampleCount report
+
+closeTimingRecommendationHasFiniteLiftStats :: ComboCloseTimingReport -> Bool
+closeTimingRecommendationHasFiniteLiftStats report =
+    case (cctrMeanLift report, cctrMedianLift report) of
+        (Just meanLift, Just medianLift) ->
+            isFinite meanLift
+                && isFinite medianLift
+                && medianLift > 0
+        _ -> False
 
 closeTimingRecommendationClearsDeadband :: Maybe Int -> Int -> Bool
 closeTimingRecommendationClearsDeadband Nothing _ = True
@@ -373,8 +397,10 @@ closeTimingRecommendationHasExactBucketEvidence recommended report =
          , cctrRecommendedMaxHoldBarsMeanLift report
          ) of
         (Just evidenceDuration, Just supportCount, Just meanLift) ->
-            evidenceDuration == recommended
+            recommended > 0
+                && evidenceDuration == recommended
                 && supportCount >= minimumPositiveLiftSupportSamples
+                && supportCount <= cctrPositiveLiftSampleCount report
                 && isFinite meanLift
                 && meanLift > 0
         _ -> False
@@ -600,74 +626,88 @@ closeTimingRecommendationEligible stats positiveLiftCount currentHoldHorizon rec
    and `recommendedMaxHoldBars = Nothing`.
 2. Even when positive-lift support exists, low total sample count still fails closed:
    `ctsSampleCount < minimumCloseTimingSamples` keeps `recommendedMaxHoldBars = Nothing`.
-3. Evidence counters stay ordered: `positiveLiftCount <= ctsSampleCount` is required before
-   a recommendation can exist, so malformed or inflated support counts fail closed.
-4. Sparse-tail upward retunes are capped before validation: if
+3. Report-level lift statistics must remain present and finite for any accepted retune:
+   `cctrMeanLift = Just meanLift` with finite `meanLift` and
+   `cctrMedianLift = Just medianLift` with finite `medianLift > 0`.
+4. Evidence counters stay ordered: `positiveLiftCount <= ctsSampleCount` is required before
+   a recommendation can exist, and accepted reports additionally require
+   `minimumPositiveLiftSupportSamples <= cctrPositiveLiftSampleCount <= cctrSampleCount`,
+   so malformed or inflated support counts fail closed.
+5. Sparse-tail upward retunes are capped before validation: if
    `supportedPositiveLiftDuration = Just q75Bars` and
    `supportedPositiveLiftHorizon = Just supportedHorizon`, then the candidate
    recommendation is `capRecommendationToSupportedPositiveLiftHorizon q75Bars supportedHorizon`,
    so thin positive-lift tails can never extend a retune past the last hold bucket with
    enough profitable-support samples.
-5. Therefore any emitted recommendation satisfies
+6. Therefore any emitted recommendation satisfies
    `recommendedMaxHoldBars <= supportedPositiveLiftHorizon`; weakening or inconsistent
    profitable-support evidence can only shrink or remove `supportedPositiveLiftHorizon`,
    so the recommendation can stay unchanged or decrease, never increase.
-6. Any emitted recommendation must match an analyzed hold bucket: `recommendedHoldBars > 0`
+7. Any emitted recommendation must match an analyzed hold bucket: `recommendedHoldBars > 0`
    and `recommendedHoldBars `elem` analyzedHoldBarDomain samples` are both required before
    emitting a retune.
-7. The exact recommended hold bucket must itself carry enough profitable support and
+8. The exact recommended hold bucket must itself carry enough profitable support and
    positive estimated lift:
    `holdDurationPositiveLiftSupportCount recommendedHoldBars samples >= minimumPositiveLiftSupportSamples`
    and `mean [ttsReturnLift s | s <- samples, ttsOptimalDuration s == recommendedHoldBars] > 0`
    are both required before emitting a retune.
-8. Upward retunes are identified against the observed q75 hold horizon
+9. Upward retunes are identified against the observed q75 hold horizon
    `observedHoldHorizon samples`. If `recommendedHoldBars > currentHoldHorizon`, then
    `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
    requires `closeTimingRecommendationHasConsistentUpwardEvidence currentHoldHorizon recommendedHoldBars samples`.
-9. Consistent upward evidence means `recommendedHoldBars - currentHoldHorizon > closeTimingRecommendationDeadbandBars`,
-   every profitable-support sample for the recommended bucket comes from a trade whose observed
-   duration was at or below `currentHoldHorizon`, the exact-bucket upward support count meets
-   `minimumPositiveLiftSupportSamples`, and the upward-only mean lift is finite and positive.
-10. Therefore weak, mixed-direction, sub-deadband, or insufficient exact-bucket upward evidence is
+10. Consistent upward evidence means `recommendedHoldBars - currentHoldHorizon > closeTimingRecommendationDeadbandBars`,
+    every profitable-support sample for the recommended bucket comes from a trade whose observed
+    duration was at or below `currentHoldHorizon`, the exact-bucket upward support count meets
+    `minimumPositiveLiftSupportSamples`, and the upward-only mean lift is finite and positive.
+11. Therefore weak, mixed-direction, sub-deadband, or insufficient exact-bucket upward evidence is
     no more permissive than missing data: all such cases force `recommendedMaxHoldBars = Nothing`.
-11. Weakening or thinning upward evidence can only shrink or remove the upward support set used in
-    step 9, so the recommendation can stay unchanged or disappear, never become more permissive.
-12. Downward retunes are identified against the observed q75 hold horizon
+12. Weakening or thinning upward evidence can only shrink or remove the upward support set used in
+    step 10, so the recommendation can stay unchanged or disappear, never become more permissive.
+13. Downward retunes are identified against the observed q75 hold horizon
     `observedHoldHorizon samples`. If `recommendedHoldBars < currentHoldHorizon`, then
     `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
     requires `closeTimingRecommendationHasConsistentDownwardEvidence recommendedHoldBars samples`.
-13. Consistent downward evidence means every profitable-support sample for the recommended
+14. Consistent downward evidence means every profitable-support sample for the recommended
     bucket comes from a trade whose observed duration was strictly longer than that bucket,
     the exact-bucket downward support count meets `minimumPositiveLiftSupportSamples`, and
     the downward-only mean lift is finite and positive.
-14. Therefore malformed, mixed-direction, or insufficient exact-bucket downward evidence is
+15. Therefore malformed, mixed-direction, or insufficient exact-bucket downward evidence is
     no more permissive than missing data: all such cases force `recommendedMaxHoldBars = Nothing`.
-15. Any emitted recommendation stays inside the analyzed window:
+16. Any emitted recommendation stays inside the analyzed window:
     `recommendedHoldBars <= analyzedHoldWindowUpperBound` is required before emitting
     `Just recommendedHoldBars`.
-16. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
+17. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
     `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
-17. Accepted applications add a one-bar deadband around the current hold horizon:
+18. Accepted applications add a one-bar deadband around the current hold horizon:
     if `cctrRecommendedMaxHoldBars = Just recommendedHoldBars`,
     `currentMaxHoldBars = Just currentHoldHorizon`, and
     `abs (recommendedHoldBars - currentHoldHorizon) <= closeTimingRecommendationDeadbandBars`,
     then `closeTimingRecommendationAccepted (Just currentHoldHorizon) recommendedHoldBars report = False`
     and `acceptedCloseTimingMaxHoldBars (Just currentHoldHorizon) report = Just currentHoldHorizon`.
-18. Any non-identity accepted retune still requires exact-bucket evidence:
+19. Any non-identity accepted retune also requires
+    `closeTimingRecommendationHasRetuneEvidence recommendedHoldBars report`.
+20. `closeTimingRecommendationHasRetuneEvidence` requires `recommendedHoldBars > 0`,
+    ordered report support, finite report lift stats, and exact-bucket evidence with
     `cctrRecommendedMaxHoldBarsEvidenceDuration == Just recommendedHoldBars`,
-    `cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just supportCount` with
-    `supportCount >= minimumPositiveLiftSupportSamples`, and
+    `cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just supportCount` where
+    `minimumPositiveLiftSupportSamples <= supportCount <= cctrPositiveLiftSampleCount`, and
     `cctrRecommendedMaxHoldBarsMeanLift = Just meanLift` with finite `meanLift > 0`.
-19. Because `recommendedMaxHoldBars` is only emitted when
-    `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
-    holds, accepted upward and downward retunes inherit the fail-closed directionality proof;
-    the deadband can only shrink the set of applied retunes, never widen it.
-20. When `currentMaxHoldBars = Nothing`, the distance comparison is unavailable, so acceptance
-    still requires the exact-bucket evidence above and otherwise preserves the existing
-    fail-closed recommendation contract.
-21. Therefore any non-identity accepted retune both clears the one-bar deadband and satisfies
-    the profitable-support, positive-lift, analyzed-domain, supported-horizon, and directional
-    obligations before persistence/backfill can rewrite `maxHoldBars`.
+21. Therefore malformed, non-finite, or below-floor report lift/support fields are no more
+    permissive than missing data: they force NoRetune / `Nothing` at recommendation time or
+    `closeTimingRecommendationAccepted ... = False` at application time.
+22. Weakening evidence by decreasing support counts, dropping lift fields, or making any required
+    lift stat non-finite can only falsify the guard in step 20; it can never turn a rejected
+    report into an accepted one.
+23. Because `acceptedCloseTimingMaxHoldBars` only rewrites the horizon when
+    `closeTimingRecommendationAccepted` holds, degrading evidence preserves the current hold
+    horizon and cannot yield a shorter or otherwise more aggressive applied retune than
+    stronger valid evidence.
+24. When `currentMaxHoldBars = Nothing`, the distance comparison is unavailable, so acceptance
+    still requires the exact-bucket and report-level evidence above and otherwise preserves the
+    existing fail-closed recommendation contract.
+25. Therefore any non-identity accepted retune both clears the one-bar deadband and satisfies
+    the profitable-support, positive-lift, analyzed-domain, supported-horizon, finite-report,
+    and directional obligations before persistence/backfill can rewrite `maxHoldBars`.
 -}
 capRecommendationToSupportedPositiveLiftHorizon :: Int -> Int -> Int
 capRecommendationToSupportedPositiveLiftHorizon q75Bars supportedHorizon =
