@@ -32,6 +32,7 @@ const LOOP_BRANCH = BASE_BRANCH;
 const MAX_ITERATIONS = clampInt(process.env.AUTOLOOP_MAX_ITERATIONS, 2, 1, 5);
 const MAX_EDITABLE_FILE_BYTES = clampInt(process.env.AUTOLOOP_MAX_FILE_BYTES, 1000000, 4000, 5000000);
 const MAX_EDITABLE_FILES = clampInt(process.env.AUTOLOOP_MAX_FILES, 120, 20, 300);
+const PATCH_PLAN_PROMPT_MAX_CHARS = clampInt(process.env.AUTOLOOP_PATCH_PLAN_MAX_CHARS, 900000, 200000, 1048576);
 const DRY_RUN = process.argv.includes("--dry-run");
 const STATUS_FILE = resolveOptionalPath(process.env.AUTOLOOP_STATUS_FILE);
 const RUN_ID = process.env.AUTOLOOP_RUN_ID || "";
@@ -203,7 +204,7 @@ async function main() {
         return;
       }
 
-      const editableFiles = await readEditableFiles(failureContext ? [...failureRepairPaths, ...idea.filesNeeded] : idea.filesNeeded);
+      const editableFiles = await readEditableFiles(idea.filesNeeded);
       await updateStatus({ phase: "plan-patch", iteration, idea: summarizeIdea(idea) });
       const plan = await requestPatchPlan(repoContext, idea, editableFiles, failureContext);
       if (plan.noChange) {
@@ -976,7 +977,7 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     .map((file) => `FILE: ${file.path}\n<<<FILE\n${file.content}\nFILE;`)
     .join("\n\n");
 
-  const prompt = [
+  const promptLines = [
     "You are implementing a single repository change.",
     "Keep the change centered on a backend Haskell trading improvement and its formal-methods coverage.",
     "Use the selected file contents below as the complete source of truth for editing this patch-plan step.",
@@ -1001,13 +1002,33 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     idea.algorithmReviewFocus ? `Algorithm review focus: ${idea.algorithmReviewFocus}` : "",
     idea.formalMethodsPath ? `Formal methods review file: ${idea.formalMethodsPath}` : "",
     idea.formalMethodsFocus ? `Formal methods review focus: ${idea.formalMethodsFocus}` : "",
-    failureContext ? `Failed CI log excerpt:\n${clampText(failureContext.failedLog, 18000)}` : "",
-    "",
-    "Editable file contents:",
-    fileSections,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].filter(Boolean);
+
+  let failedLogChars = failureContext ? 18000 : 0;
+  let prompt = "";
+  for (;;) {
+    prompt = [
+      ...promptLines,
+      failureContext ? `Failed CI log excerpt:\n${clampText(failureContext.failedLog, failedLogChars)}` : "",
+      "",
+      "Editable file contents:",
+      fileSections,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    if (prompt.length <= PATCH_PLAN_PROMPT_MAX_CHARS || !failureContext || failedLogChars <= 2000) {
+      break;
+    }
+    failedLogChars = Math.max(2000, Math.floor(failedLogChars / 2));
+  }
+
+  if (prompt.length > PATCH_PLAN_PROMPT_MAX_CHARS) {
+    const fileSizes = editableFiles.map((file) => `${file.path} (${file.content.length} chars)`).join(", ");
+    throw new Error(
+      `Patch-plan prompt is ${prompt.length} chars, above AUTOLOOP_PATCH_PLAN_MAX_CHARS=${PATCH_PLAN_PROMPT_MAX_CHARS}. Selected files: ${fileSizes}`,
+    );
+  }
 
   return normalizePatchPlan(await callModelJson({ prompt, maxOutputTokens: 12000, timeoutMs: CODEX_PATCH_TIMEOUT_MS }));
 }
