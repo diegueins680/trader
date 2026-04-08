@@ -446,6 +446,18 @@ function runCommand(command, args, opts = {}) {
   }
 }
 
+function tryPushBranchBestEffort(branchName) {
+  try {
+    runCommand("git", ["push", "-u", "origin", `${branchName}:refs/heads/${branchName}`], { capture: false });
+    return { pushed: true, error: null };
+  } catch (err) {
+    return {
+      pushed: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 async function tryAutoSnapshotDirtyCycle() {
   const dirtyStatus = runCommand("git", ["status", "--porcelain"], { trimOutput: false });
   const dirtyPaths = parseGitStatusPaths(dirtyStatus);
@@ -481,6 +493,7 @@ async function tryAutoSnapshotDirtyCycle() {
     timestamp: new Date().toISOString(),
   });
   const commitMessage = `WIP: save failed autoloop cycle ${cycleStatus?.runId || "cycle"}`;
+  let pushResult = { pushed: false, error: null };
 
   try {
     runCommand("git", ["config", "user.name", "autoloop[bot]"], { capture: false });
@@ -488,8 +501,8 @@ async function tryAutoSnapshotDirtyCycle() {
     runCommand("git", ["checkout", "-b", recoveryBranch], { capture: false });
     runCommand("git", ["add", "--", ...dirtyPaths], { capture: false });
     runCommand("git", ["commit", "-m", commitMessage], { capture: false });
-    runCommand("git", ["push", "-u", "origin", `${recoveryBranch}:refs/heads/${recoveryBranch}`], { capture: false });
     const commit = runCommand("git", ["rev-parse", "HEAD"]);
+    pushResult = tryPushBranchBestEffort(recoveryBranch);
     runCommand("git", ["checkout", currentBranch], { capture: false });
     await writeJsonFileAtomic(CURRENT_CYCLE_STATUS_FILE, {
       ...(cycleStatus || {}),
@@ -497,12 +510,20 @@ async function tryAutoSnapshotDirtyCycle() {
       recoveryCommit: commit,
       recoveredDirtyPaths: dirtyPaths,
       recoveredAt: new Date().toISOString(),
+      recoveryPushed: pushResult.pushed,
+      recoveryPushError: pushResult.error,
     });
-    await logRunner(`auto-snapshotted failed dirty cycle to ${recoveryBranch} (${commit})`);
+    await logRunner(
+      pushResult.pushed
+        ? `auto-snapshotted failed dirty cycle to ${recoveryBranch} (${commit})`
+        : `auto-snapshotted failed dirty cycle to ${recoveryBranch} (${commit}); push deferred: ${pushResult.error}`,
+    );
     return {
       recovered: true,
       branch: recoveryBranch,
       commit,
+      pushed: pushResult.pushed,
+      pushError: pushResult.error,
       paths: dirtyPaths,
     };
   } catch (err) {
@@ -552,6 +573,7 @@ async function tryAutoCheckpointDirtyWorktree() {
     `- source branch: ${currentBranch}`,
     `- paths: ${dirtyPaths.join(", ")}`,
   ].join("\n");
+  let pushResult = { pushed: false, error: null };
 
   try {
     runCommand("git", ["config", "user.name", "autoloop[bot]"], { capture: false });
@@ -559,14 +581,20 @@ async function tryAutoCheckpointDirtyWorktree() {
     runCommand("git", ["checkout", "-b", checkpointBranch], { capture: false });
     runCommand("git", ["add", "-A"], { capture: false });
     runCommand("git", ["commit", "-m", analysis.commitMessage, "-m", commitBody], { capture: false });
-    runCommand("git", ["push", "-u", "origin", `${checkpointBranch}:refs/heads/${checkpointBranch}`], { capture: false });
     const commit = runCommand("git", ["rev-parse", "HEAD"]);
+    pushResult = tryPushBranchBestEffort(checkpointBranch);
     runCommand("git", ["checkout", currentBranch], { capture: false });
-    await logRunner(`auto-checkpointed dirty worktree to ${checkpointBranch} (${commit})`);
+    await logRunner(
+      pushResult.pushed
+        ? `auto-checkpointed dirty worktree to ${checkpointBranch} (${commit})`
+        : `auto-checkpointed dirty worktree to ${checkpointBranch} (${commit}); push deferred: ${pushResult.error}`,
+    );
     return {
       recovered: true,
       branch: checkpointBranch,
       commit,
+      pushed: pushResult.pushed,
+      pushError: pushResult.error,
       paths: dirtyPaths,
       commitMessage: analysis.commitMessage,
       reason: analysis.summary,
