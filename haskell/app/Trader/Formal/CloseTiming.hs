@@ -23,7 +23,7 @@ module Trader.Formal.CloseTiming (
 ) where
 
 import Data.Function (on)
-import Data.List (foldl', group, sort, sortOn)
+import Data.List (foldl', group, groupBy, sort, sortOn)
 import Data.Maybe (mapMaybe)
 import qualified Data.Vector as V
 
@@ -618,7 +618,18 @@ closeTimingRecommendationEligible stats positiveLiftCount currentHoldHorizon rec
         && closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples
         && legacyCloseTimingRecommendationEligible stats recommendedHoldBars
 
-{- | Formal invariant / proof sketch for hold retunes and accepted applications:
+{- | Formal invariant / proof sketch for combo partitioning, hold retunes and accepted applications:
+
+Combo partitioning invariant:
+`buildCloseTimingStats` applies `sortOn ctoCombo` before
+groupBy ((==) `on` ctoCombo), and `summarizeAllCombos` applies
+`sortOn ttsComboId` before groupBy ((==) `on` ttsComboId). Because equality
+groups on a sorted key are contiguous, every emitted group is homogeneous in its
+combo key. Therefore ratio summaries, `positiveLiftSampleCount`,
+profitable-support thresholds, and any `recommendedMaxHoldBars` evidence are
+computed per combo with no cross-combo leakage. Restoring the `Data.List.groupBy`
+import only re-establishes this existing partitioning semantics; it does not
+widen the grouping key, alter sort order, or relax any retune guard.
 
 1. Sparse profitable support fails closed: if the profitable-support sample is empty or has
    fewer than `minimumPositiveLiftSupportSamples` members, then
