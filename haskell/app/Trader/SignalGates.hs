@@ -6,6 +6,7 @@ module Trader.SignalGates (
     mkSignalThresholdBoundary,
     normalizeSignalThreshold,
     signalDirectionalitySnapshot,
+    signalDirectionalityEntryAllowed,
     signalEntryHeadroomThresholdCap,
     signalEntryHeadroomOk,
     signalEntryEdgeSpikeOk,
@@ -73,11 +74,9 @@ maxSignalThreshold = 0.999999
 
 normalizeSignalThreshold :: Double -> Double
 normalizeSignalThreshold raw =
-    if finite raw && raw > 0
+    if finiteDouble raw && raw > 0
         then min maxSignalThreshold raw
         else 0
-  where
-    finite x = not (isNaN x || isInfinite x)
 
 mkSignalThresholdBoundary :: Double -> Double -> Double -> Double -> SignalThresholdBoundary
 mkSignalThresholdBoundary configuredOpen configuredClose effectiveOpen effectiveClose =
@@ -89,10 +88,9 @@ mkSignalThresholdBoundary configuredOpen configuredClose effectiveOpen effective
         }
   where
     normalizeConfigured raw =
-        if finite raw && raw >= 0
+        if finiteDouble raw && raw >= 0
             then raw
             else 0
-    finite x = not (isNaN x || isInfinite x)
 
 entryEdgeSpikeLimit :: Double
 entryEdgeSpikeLimit = 4.0
@@ -121,34 +119,99 @@ directionalityChopEfficiencyMax = 0.25
 directionalityMrEfficiencyMax :: Double
 directionalityMrEfficiencyMax = 0.4
 
+directionalityMalformedReason :: String
+directionalityMalformedReason = "NON_DIRECTIONAL_MALFORMED"
+
+finiteDouble :: Double -> Bool
+finiteDouble x = not (isNaN x || isInfinite x)
+
+directionalityProbOk :: Double -> Bool
+directionalityProbOk p = finiteDouble p && p >= 0 && p <= 1
+
+directionalityGapOk :: Double -> Bool
+directionalityGapOk g = finiteDouble g && g >= 0 && g <= 1
+
+mkMalformedDirectionalitySnapshot :: Int -> DirectionalitySnapshot
+mkMalformedDirectionalitySnapshot windowLen =
+    DirectionalitySnapshot
+        { dsLookbackBars = max 0 windowLen
+        , dsNetReturnPct = 0
+        , dsRealizedVolPct = 0
+        , dsEfficiency = 0
+        , dsZScore = 0
+        , dsLabel = "malformed"
+        , dsTrendProb = Nothing
+        , dsMrProb = Nothing
+        , dsHighVolProb = Nothing
+        , dsRegimeLeader = Nothing
+        , dsRegimeGap = Nothing
+        , dsNonDirectional = True
+        , dsReason = Just directionalityMalformedReason
+        }
+
+directionalitySnapshotWellFormed :: DirectionalitySnapshot -> Bool
+directionalitySnapshotWellFormed snap =
+    dsLookbackBars snap >= 3
+        && finiteDouble (dsNetReturnPct snap)
+        && finiteDouble (dsRealizedVolPct snap)
+        && finiteDouble (dsEfficiency snap)
+        && dsEfficiency snap >= 0
+        && dsEfficiency snap <= 1
+        && finiteDouble (dsZScore snap)
+        && maybe True directionalityProbOk (dsTrendProb snap)
+        && maybe True directionalityProbOk (dsMrProb snap)
+        && maybe True directionalityProbOk (dsHighVolProb snap)
+        && maybe True directionalityGapOk (dsRegimeGap snap)
+
+signalDirectionalityEntryAllowed :: Maybe DirectionalitySnapshot -> Bool
+signalDirectionalityEntryAllowed mSnapshot =
+    case mSnapshot of
+        Nothing -> False
+        Just snap ->
+            directionalitySnapshotWellFormed snap
+                && not (dsNonDirectional snap)
+
 signalEntryHeadroomThresholdCap :: Double -> Double
 signalEntryHeadroomThresholdCap edge =
-    let finite x = not (isNaN x || isInfinite x)
-        edge' =
-            if finite edge && edge > 0
+    let edge' =
+            if finiteDouble edge && edge > 0
                 then edge
                 else 0
      in normalizeSignalThreshold (edge' / entryEdgeHeadroomMultiple)
 
 signalEntryHeadroomOk :: Double -> Maybe Double -> Bool
 signalEntryHeadroomOk openThreshold edgeForMethod =
-    let finite x = not (isNaN x || isInfinite x)
-        openThreshold' = normalizeSignalThreshold openThreshold
+    let openThreshold' = normalizeSignalThreshold openThreshold
         requiredEdge = entryEdgeHeadroomMultiple * openThreshold'
      in openThreshold' <= 0
             || case edgeForMethod of
                 Just edge ->
-                    finite edge
+                    finiteDouble edge
                         && edge >= requiredEdge
                 Nothing -> False
 
 signalDirectionalitySnapshot :: Double -> Maybe RegimeProbs -> V.Vector Double -> Int -> Maybe DirectionalitySnapshot
 signalDirectionalitySnapshot regimeHysteresis mRegimes pricesV idx
     | idx < 0 || idx >= V.length pricesV = Nothing
-    | windowLen < 3 = Nothing
-    | any badPrice window = Nothing
-    | null returns = Nothing
+    | windowLen < 3 = Just malformedSnapshot
+    | any badPrice window = Just malformedSnapshot
+    | null returns = Just malformedSnapshot
     | otherwise =
+        case builtSnapshot of
+            Just snapshot -> Just snapshot
+            Nothing -> Just malformedSnapshot
+  where
+    start = max 0 (idx - directionalityLookbackBars + 1)
+    windowLen = idx - start + 1
+    window = V.toList (V.slice start windowLen pricesV)
+    returns =
+        [ cur / prev - 1
+        | (prev, cur) <- zip window (drop 1 window)
+        , prev > 0
+        ]
+    badPrice px = px <= 0 || isNaN px || isInfinite px
+    malformedSnapshot = mkMalformedDirectionalitySnapshot windowLen
+    builtSnapshot =
         let net =
                 case (head window, last window) of
                     (p0, p1)
@@ -171,85 +234,96 @@ signalDirectionalitySnapshot regimeHysteresis mRegimes pricesV idx
                 if realizedVol <= 1e-12
                     then 0
                     else net / (realizedVol * sqrt (fromIntegral (length returns)))
-            label
-                | realizedVol * 100 >= directionalityHighVolVolPct = "high-vol"
-                | efficiency >= directionalityTrendEfficiencyMin && abs zScore >= directionalityTrendZMin =
-                    if net >= 0
-                        then "trend-up"
-                        else "trend-down"
-                | efficiency <= directionalityChopEfficiencyMax = "chop"
-                | otherwise = "range-drift"
-            (trendProb, mrProb, highVolProb, regimeLeader, regimeGap, mrDominant) =
-                case mRegimes of
-                    Nothing -> (Nothing, Nothing, Nothing, Nothing, Nothing, False)
-                    Just regimes ->
+            metricsOk =
+                finiteDouble net
+                    && finiteDouble path
+                    && finiteDouble efficiency
+                    && efficiency >= 0
+                    && efficiency <= 1
+                    && finiteDouble realizedVol
+                    && realizedVol >= 0
+                    && finiteDouble zScore
+         in if not metricsOk
+                then Nothing
+                else
+                    let label
+                            | realizedVol * 100 >= directionalityHighVolVolPct = "high-vol"
+                            | efficiency >= directionalityTrendEfficiencyMin && abs zScore >= directionalityTrendZMin =
+                                if net >= 0
+                                    then "trend-up"
+                                    else "trend-down"
+                            | efficiency <= directionalityChopEfficiencyMax = "chop"
+                            | otherwise = "range-drift"
+                        (trendProb, mrProb, highVolProb, regimeLeader, regimeGap, mrDominant) =
+                            signalDirectionalityRegimeEvidence regimeHysteresis mRegimes
+                        mReason
+                            | efficiency <= directionalityChopEfficiencyMax = Just "NON_DIRECTIONAL_CHOP"
+                            | efficiency <= directionalityMrEfficiencyMax =
+                                case mrDominant of
+                                    Just True -> Just "NON_DIRECTIONAL_MR"
+                                    Just False -> Nothing
+                                    Nothing -> Just directionalityMalformedReason
+                            | otherwise = Nothing
+                     in Just
+                            DirectionalitySnapshot
+                                { dsLookbackBars = windowLen
+                                , dsNetReturnPct = net * 100
+                                , dsRealizedVolPct = realizedVol * 100
+                                , dsEfficiency = efficiency
+                                , dsZScore = zScore
+                                , dsLabel = label
+                                , dsTrendProb = trendProb
+                                , dsMrProb = mrProb
+                                , dsHighVolProb = highVolProb
+                                , dsRegimeLeader = regimeLeader
+                                , dsRegimeGap = regimeGap
+                                , dsNonDirectional = isJust mReason
+                                , dsReason = mReason
+                                }
+
+signalDirectionalityRegimeEvidence ::
+    Double ->
+    Maybe RegimeProbs ->
+    (Maybe Double, Maybe Double, Maybe Double, Maybe String, Maybe Double, Maybe Bool)
+signalDirectionalityRegimeEvidence regimeHysteresis mRegimes =
+    case mRegimes of
+        Nothing -> (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
+        Just regimes ->
+            let trendProb = rpTrend regimes
+                mrProb = rpMR regimes
+                highVolProb = rpHighVol regimes
+             in if all directionalityProbOk [trendProb, mrProb, highVolProb]
+                    then
                         let ranked =
                                 sortOn
                                     (Data.Ord.Down . snd)
-                                    [ ("trend", rpTrend regimes)
-                                    , ("mr", rpMR regimes)
-                                    , ("highVol", rpHighVol regimes)
+                                    [ ("trend", trendProb)
+                                    , ("mr", mrProb)
+                                    , ("highVol", highVolProb)
                                     ]
-                            gapFor rankedRegs =
-                                case rankedRegs of
+                            gap =
+                                case ranked of
                                     ((_, p1) : (_, p2) : _) -> Just (p1 - p2)
                                     _ -> Nothing
-                            leaderFor rankedRegs =
-                                case rankedRegs of
+                            leader =
+                                case ranked of
                                     ((name, _) : _) -> Just name
                                     _ -> Nothing
-                            gap = gapFor ranked
-                            leader = leaderFor ranked
                             dominant =
                                 case (leader, gap) of
-                                    (Just "mr", Just g) -> g >= max 0 regimeHysteresis
-                                    _ -> False
-                         in ( Just (rpTrend regimes)
-                            , Just (rpMR regimes)
-                            , Just (rpHighVol regimes)
-                            , leader
-                            , gap
-                            , dominant
-                            )
-            mReason
-                | efficiency <= directionalityChopEfficiencyMax = Just "NON_DIRECTIONAL_CHOP"
-                | efficiency <= directionalityMrEfficiencyMax && mrDominant = Just "NON_DIRECTIONAL_MR"
-                | otherwise = Nothing
-         in Just
-                DirectionalitySnapshot
-                    { dsLookbackBars = windowLen
-                    , dsNetReturnPct = net * 100
-                    , dsRealizedVolPct = realizedVol * 100
-                    , dsEfficiency = efficiency
-                    , dsZScore = zScore
-                    , dsLabel = label
-                    , dsTrendProb = trendProb
-                    , dsMrProb = mrProb
-                    , dsHighVolProb = highVolProb
-                    , dsRegimeLeader = regimeLeader
-                    , dsRegimeGap = regimeGap
-                    , dsNonDirectional = isJust mReason
-                    , dsReason = mReason
-                    }
-  where
-    start = max 0 (idx - directionalityLookbackBars + 1)
-    windowLen = idx - start + 1
-    window = V.toList (V.slice start windowLen pricesV)
-    returns =
-        [ cur / prev - 1
-        | (prev, cur) <- zip window (drop 1 window)
-        , prev > 0
-        ]
-    badPrice px = px <= 0 || isNaN px || isInfinite px
+                                    (Just "mr", Just g) | directionalityGapOk g -> Just (g >= max 0 regimeHysteresis)
+                                    (Just _, Just g) | directionalityGapOk g -> Just False
+                                    _ -> Nothing
+                         in (Just trendProb, Just mrProb, Just highVolProb, leader, gap, dominant)
+                    else (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
 
 signalEntryEdgeSpikeOk :: Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeOk openThreshold edgeForMethod =
-    let finite x = not (isNaN x || isInfinite x)
-        openThreshold' = normalizeSignalThreshold openThreshold
+    let openThreshold' = normalizeSignalThreshold openThreshold
      in openThreshold' <= 0
             || case edgeForMethod of
                 Just edge ->
-                    finite edge
+                    finiteDouble edge
                         && edge >= 0
                         && edge <= maxCredibleSignalEdge
                         && edge <= entryEdgeSpikeLimit * openThreshold'
@@ -314,23 +388,21 @@ signalFundingOiCheck enabled fundingCap volCap sizeMult funding oiVolProxy =
     if not enabled
         then (True, 1.0)
         else
-            let finite x = not (isNaN x || isInfinite x)
-                clamp01 x = max 0 (min 1 x)
+            let clamp01 x = max 0 (min 1 x)
                 sizeFloor =
-                    if finite sizeMult
+                    if finiteDouble sizeMult
                         then clamp01 sizeMult
                         else 0
                 cleanCap mCap =
                     case mCap of
-                        -- Zero/negative caps are treated as disabled, matching CLI/docs semantics.
-                        Just cap | finite cap && cap > 0 -> Just cap
+                        Just cap | finiteDouble cap && cap > 0 -> Just cap
                         _ -> Nothing
                 fundingCap' = cleanCap fundingCap
                 volCap' = cleanCap volCap
-                fundingFinite = finite funding
+                fundingFinite = finiteDouble funding
                 oiVolProxyFinite =
                     case oiVolProxy of
-                        Just v | finite v -> Just v
+                        Just v | finiteDouble v -> Just v
                         _ -> Nothing
                 fundingOk =
                     case fundingCap' of
