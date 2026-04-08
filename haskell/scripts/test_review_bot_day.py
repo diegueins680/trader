@@ -396,6 +396,100 @@ class ReviewBotDayTest(unittest.TestCase):
         self.assertEqual(report["anomalies"]["nonDirectionalOrderAttempts"], [])
         self.assertEqual(len(report["anomalies"]["nonDirectionalExitOrFlattenEvents"]), 2)
 
+    def test_classifies_binance_auth_failures_by_order_flow_role(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenant_dir = Path(tmpdir)
+            self.write_snapshot(
+                tenant_dir,
+                "BNBUSDT",
+                {
+                    "symbol": "BNBUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": 1775347200000,
+                    "prices": [600.0, 605.0, 610.0],
+                    "positions": [0, 0, 0],
+                    "openTimes": [1775336400000, 1775340000000, 1775343600000],
+                    "equityCurve": [1.0, 1.0, 1.0],
+                    "latestSignal": {"volatility": 0.2, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [
+                        {
+                            "atMs": 1775340030000,
+                            "index": 1,
+                            "opSide": "BUY",
+                            "openTime": 1775340000000,
+                            "order": {
+                                "message": "Order failed: futures/positionRisk HTTP 401 / Binance code -2015: Invalid API-key, IP, or permissions for action.",
+                                "sent": False,
+                                "status": None,
+                                "symbol": "BNBUSDT",
+                            },
+                            "price": 605.0,
+                        }
+                    ],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "BTCUSDT",
+                {
+                    "symbol": "BTCUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": 1775347200000,
+                    "prices": [68000.0, 68100.0, 67950.0],
+                    "positions": [0, -1, 0],
+                    "openTimes": [1775336400000, 1775340000000, 1775343600000],
+                    "equityCurve": [1.0, 1.0, 0.999],
+                    "latestSignal": {"volatility": 0.2, "regimes": {}},
+                    "trades": [
+                        {
+                            "entryEquity": 1.0,
+                            "entryIndex": 1,
+                            "exitEquity": 0.999,
+                            "exitIndex": 2,
+                            "exitReason": "SIGNAL",
+                            "holdingPeriods": 1,
+                            "return": -0.001,
+                        }
+                    ],
+                    "openTrade": None,
+                    "orders": [
+                        {
+                            "atMs": 1775343630000,
+                            "index": 2,
+                            "opSide": "BUY",
+                            "openTime": 1775343600000,
+                            "order": {
+                                "message": "Order failed: futures/positionRisk HTTP 401 / Binance code -2015: Invalid API-key, IP, or permissions for action.",
+                                "sent": False,
+                                "status": None,
+                                "symbol": "BTCUSDT",
+                            },
+                            "price": 67950.0,
+                        }
+                    ],
+                },
+            )
+
+            report = review_bot_day.build_report("2026-04-04", "America/Guayaquil", tenant_dir)
+
+        self.assertEqual(report["summary"]["authFailureOrderEvents"], 2)
+        self.assertEqual(report["summary"]["authFailureEntryOrAddEvents"], 1)
+        self.assertEqual(report["summary"]["authFailureExitOrFlattenEvents"], 1)
+        self.assertEqual(report["summary"]["authFailureUnknownRoleEvents"], 0)
+        self.assertEqual([event["authFailure"] for event in report["orderEvents"]], [True, True])
+        self.assertEqual(
+            [event["authFailureSummary"] for event in report["orderEvents"]],
+            [
+                "Invalid API-key, IP, or permissions for action.",
+                "Invalid API-key, IP, or permissions for action.",
+            ],
+        )
+        self.assertEqual([event["flowRole"] for event in report["orderEvents"]], ["entry_or_add", "exit_or_flatten"])
+        self.assertEqual(report["anomalies"]["authFailureEntryOrAddEvents"][0]["symbol"], "BNBUSDT")
+        self.assertEqual(report["anomalies"]["authFailureExitOrFlattenEvents"][0]["symbol"], "BTCUSDT")
+
     def test_marks_adopted_trade_closure_as_carry_in_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tenant_dir = Path(tmpdir)

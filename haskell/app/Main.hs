@@ -94,7 +94,7 @@ import Trader.App.Args (
     resolveBarsForPlatform,
     validateArgs,
  )
-import Trader.App.BinanceProbe (BinanceErrorInfo (..), binanceTradeTestConfirmsAuth, parseBinanceError)
+import Trader.App.BinanceProbe (BinanceErrorInfo (..), binanceAuthFailureFromMessage, binanceTradeTestConfirmsAuth, parseBinanceError)
 import Trader.App.Csv (loadCsvPriceSeries)
 import Trader.App.Env (getBuildCommit, loadEnvFile, traderVersion)
 import Trader.App.Observability (
@@ -9849,6 +9849,23 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 (1, -1) -> prevSize + entrySize
                 (-1, 1) -> prevSize + entrySize
                 _ -> max prevSize entrySize
+        liveBinanceAuthFailureHaltReason o =
+            if argBinanceLive args
+                && argPlatform args == PlatformBinance
+                && not (aorSent o)
+                && isJust (binanceAuthFailureFromMessage (aorMessage o))
+                then Just "BINANCE_AUTH_INVALID"
+                else Nothing
+        haltForOrderFailure errors o =
+            case haltReason1 of
+                Just _ -> (haltReason1, haltedAt1)
+                Nothing ->
+                    case liveBinanceAuthFailureHaltReason o of
+                        Just reason -> (Just reason, Just now)
+                        Nothing ->
+                            case argMaxOrderErrors args of
+                                Just lim | errors >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
+                                _ -> (Nothing, Nothing)
 
     (ops', orders', trades', openTrade', mOrder, posFinal, eqFinal, switchedApplied, orderErrors1, haltReason2, haltedAt2) <-
         if partialExitWanted
@@ -9891,13 +9908,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                         if tradeEnabled
                             then if appliedPartial then 0 else errors0 + 1
                             else 0
-                    (haltReason3, haltedAt3) =
-                        case haltReason1 of
-                            Just _ -> (haltReason1, haltedAt1)
-                            Nothing ->
-                                case argMaxOrderErrors args of
-                                    Just lim | errors1 >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
-                                    _ -> (Nothing, Nothing)
+                    (haltReason3, haltedAt3) = haltForOrderFailure errors1 oPartial
 
                 metricsRecordOrder metrics oPartial
                 journalWriteMaybe
@@ -10026,13 +10037,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 if tradeEnabled
                                     then if appliedExecution then 0 else errors0 + 1
                                     else 0
-                            (haltReason3, haltedAt3) =
-                                case haltReason1 of
-                                    Just _ -> (haltReason1, haltedAt1)
-                                    Nothing ->
-                                        case argMaxOrderErrors args of
-                                            Just lim | errors1 >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
-                                            _ -> (Nothing, Nothing)
+                            (haltReason3, haltedAt3) = haltForOrderFailure errors1 o
 
                         metricsRecordOrder metrics o
                         journalWriteMaybe

@@ -3,10 +3,13 @@ module Trader.Test.BinanceProbe (
 ) where
 
 import Trader.App.BinanceProbe (BinanceErrorInfo (..), binanceTradeTestConfirmsAuth, parseBinanceError)
+import qualified Trader.App.BinanceProbe as BinanceProbe
 
 binanceProbeSuite :: [(String, IO ())]
 binanceProbeSuite =
     [ ("binance probe parser keeps wrapped auth failures as failures", testWrappedAuthFailure)
+    , ("binance auth helper classifies wrapped order failures", testAuthFailureHelperWrappedOrderFailure)
+    , ("binance auth helper ignores validation rejects", testAuthFailureHelperIgnoresValidationReject)
     , ("binance trade-test confirmation recognizes order validation rejects", testOrderValidationReject)
     , ("binance trade-test confirmation ignores transient upstream failures", testTransientFailure)
     , ("binance probe parser handles nested json bodies", testNestedJsonBody)
@@ -23,6 +26,21 @@ testWrappedAuthFailure = do
     expectEq "binance code" (Just (-2015)) (beiCode err)
     expectEq "summary" "Invalid API-key, IP, or permissions for action." (beiSummary err)
     expectFalse "auth/IP failures must stay failed" (binanceTradeTestConfirmsAuth (beiCode err) (beiSummary err))
+
+testAuthFailureHelperWrappedOrderFailure :: IO ()
+testAuthFailureHelperWrappedOrderFailure =
+    case BinanceProbe.binanceAuthFailureFromMessage "Order failed: user error (futures/positionRisk HTTP 401: Binance code -2015: Invalid API-key, IP, or permissions for action.)" of
+        Nothing -> error "expected auth failure classification"
+        Just err -> do
+            expectEq "helper http code" (Just 401) (beiHttpCode err)
+            expectEq "helper binance code" (Just (-2015)) (beiCode err)
+            expectEq "helper summary" "Invalid API-key, IP, or permissions for action." (beiSummary err)
+
+testAuthFailureHelperIgnoresValidationReject :: IO ()
+testAuthFailureHelperIgnoresValidationReject =
+    case BinanceProbe.binanceAuthFailureFromMessage "Order failed: Binance code -1013: Filter failure: LOT_SIZE" of
+        Nothing -> pure ()
+        Just err -> error ("unexpected auth failure classification: " ++ show err)
 
 testOrderValidationReject :: IO ()
 testOrderValidationReject = do

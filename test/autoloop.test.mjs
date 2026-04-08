@@ -290,6 +290,7 @@ test("normalizeGitBranchShortName strips origin and refs prefixes", () => {
   assert.equal(normalizeGitBranchShortName("origin/feature/test"), "feature/test");
   assert.equal(normalizeGitBranchShortName("refs/heads/main"), "main");
   assert.equal(normalizeGitBranchShortName("refs/remotes/origin/topic"), "topic");
+  assert.equal(normalizeGitBranchShortName("origin"), "");
   assert.equal(normalizeGitBranchShortName("origin/HEAD"), "");
   assert.equal(normalizeGitBranchShortName(""), "");
 });
@@ -298,7 +299,7 @@ test("buildBranchMergeCandidates prefers local heads while deduping remote match
   assert.deepEqual(
     buildBranchMergeCandidates({
       localBranches: ["feature/local", "topic/only-local", "main"],
-      remoteBranches: ["origin/feature/local", "origin/topic/only-remote", "origin/main", "origin/HEAD"],
+      remoteBranches: ["origin", "origin/feature/local", "origin/topic/only-remote", "origin/main", "origin/HEAD"],
       baseBranch: "main",
     }),
     [
@@ -514,13 +515,17 @@ test("autoloop forever script auto-snapshots recoverable dirty cycles before blo
   assert.match(script, /const dirtyRecovery = await tryAutoSnapshotDirtyCycle\(\);/);
   assert.match(script, /const dirtyCheckpoint = await tryAutoCheckpointDirtyWorktree\(\);/);
   assert.match(script, /runCommand\("git", \["status", "--porcelain"\], \{ trimOutput: false \}\)/);
+  assert.match(script, /function tryPushBranchBestEffort\(branchName\)/);
   assert.match(script, /cycle [^`]*recovery=\$\{dirtyRecovery\?\.recovered \? dirtyRecovery\.branch : "none"\}/);
   assert.match(script, /cycleStatus\?\.phase !== "error" \|\| changedPaths\.length === 0/);
   assert.match(script, /dirty worktree does not exactly match the last failed cycle changedPaths/);
   assert.match(script, /buildAutoloopRecoveryBranchName\(/);
   assert.match(script, /auto-snapshotted failed dirty cycle to/);
+  assert.match(script, /push deferred:/);
+  assert.match(script, /recoveryPushed: pushResult\.pushed/);
   assert.match(script, /buildAutoloopDirtyCheckpointBranchName\(/);
   assert.match(script, /auto-checkpointed dirty worktree to/);
+  assert.match(script, /pushError: pushResult\.error/);
 });
 
 test("autoloop forever script reconciles every unmerged branch onto main before bounded cycles", async () => {
