@@ -17,9 +17,10 @@ module Trader.SignalGates (
     signalRunPostDirectionGates,
 ) where
 
+import Control.Applicative ((<|>))
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.List (sortOn)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isJust)
 import qualified Data.Ord
 import qualified Data.Vector as V
 import Trader.Predictors.Types (RegimeProbs (..))
@@ -227,7 +228,7 @@ signalDirectionalitySnapshot regimeHysteresis mRegimes pricesV idx
                     , dsHighVolProb = highVolProb
                     , dsRegimeLeader = regimeLeader
                     , dsRegimeGap = regimeGap
-                    , dsNonDirectional = maybe False (const True) mReason
+                    , dsNonDirectional = isJust mReason
                     , dsReason = mReason
                     }
   where
@@ -398,7 +399,7 @@ signalRunPostDirectionGates chosenDir mPairsOverlayReason volOk volTargetReady t
                                                         else
                                                             let (nonDirectionalOk, mNonDirectionalReason) = nonDirectionalCheck dir
                                                              in if not nonDirectionalOk
-                                                                    then (Nothing, maybe (Just "NON_DIRECTIONAL") Just mNonDirectionalReason)
+                                                                    then (Nothing, mNonDirectionalReason <|> Just "NON_DIRECTIONAL")
                                                                     else
                                                                         if not regimeEdgeOk
                                                                             then (Nothing, Just "REGIME_BANK")

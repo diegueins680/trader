@@ -3064,7 +3064,7 @@ testSignalDirectionalityTrendAllowed = do
         Nothing -> assert "expected directionality snapshot for trend sequence" False
         Just snap -> do
             assert "clean trend path is labeled directional" (dsLabel snap == "trend-up")
-            assert "clean trend path is not vetoed" (dsReason snap == Nothing && not (dsNonDirectional snap))
+            assert "clean trend path is not vetoed" (isNothing (dsReason snap) && not (dsNonDirectional snap))
 
 testSignalFundingOiFiniteDamp :: IO ()
 testSignalFundingOiFiniteDamp = do

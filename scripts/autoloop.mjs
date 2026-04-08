@@ -37,7 +37,6 @@ const STATUS_FILE = resolveOptionalPath(process.env.AUTOLOOP_STATUS_FILE);
 const RUN_ID = process.env.AUTOLOOP_RUN_ID || "";
 const RUN_MODE = process.env.AUTOLOOP_RUN_MODE || "bounded";
 const REQUESTED_BACKEND = process.env.AUTOLOOP_BACKEND || "auto";
-const CI_WORKFLOW_NAME = process.env.AUTOLOOP_CI_WORKFLOW_NAME || "CI";
 const CI_DISCOVERY_POLL_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_POLL_SECONDS, 30, 5, 300);
 const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_TIMEOUT_SECONDS, 900, 60, 7200);
 const CODEX_EXEC_TIMEOUT_MS = clampInt(process.env.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000);
@@ -126,6 +125,8 @@ let statusState = {
   updatedAt: new Date().toISOString(),
 };
 
+let cachedStoredGhToken = null;
+
 async function main() {
   await updateStatus({ phase: "preflight" });
   if (!PLANNER_BACKEND) {
@@ -144,7 +145,15 @@ async function main() {
   await checkoutLoopBranch();
   await updateStatus({ phase: "ready" });
 
-  let failureContext = null;
+  let failureContext = await inspectLatestRemoteBranchFailureContext();
+  if (failureContext) {
+    await updateStatus({
+      phase: "repair-needed",
+      iteration: 0,
+      failureContext: summarizeFailureContext(failureContext),
+      message: `Latest remote ${failureContext.branchName} commit ${failureContext.headSha} has failing GitHub Actions.`,
+    });
+  }
   for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
     await updateStatus({ phase: "reset-branch", iteration, failureContext: summarizeFailureContext(failureContext) });
     hardResetToCurrentHead();
@@ -347,13 +356,57 @@ function runGit(args, opts) {
   return runCommand("git", args, opts);
 }
 
+function buildSanitizedGhAuthEnv(extraEnv = {}) {
+  return {
+    ...process.env,
+    ...extraEnv,
+    GH_TOKEN: "",
+    GITHUB_TOKEN: "",
+    GITHUB_PAT: "",
+  };
+}
+
+function getStoredGhToken() {
+  if (cachedStoredGhToken !== null) {
+    return cachedStoredGhToken;
+  }
+
+  try {
+    cachedStoredGhToken = execFileSync("gh", ["auth", "token"], {
+      cwd: ROOT,
+      env: buildSanitizedGhAuthEnv(),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    cachedStoredGhToken = "";
+  }
+
+  return cachedStoredGhToken;
+}
+
 function runGh(args, opts = {}) {
+  const storedToken = getStoredGhToken();
+  const envToken =
+    opts.env?.GITHUB_TOKEN ||
+    opts.env?.GH_TOKEN ||
+    opts.env?.GITHUB_PAT ||
+    process.env.GITHUB_TOKEN ||
+    process.env.GH_TOKEN ||
+    process.env.GITHUB_PAT ||
+    "";
   return runCommand("gh", args, {
     ...opts,
-    env: {
-      ...(opts.env || {}),
-      GH_TOKEN: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "",
-    },
+    // Prefer the stored gh login when local shells leak a stale GH_TOKEN.
+    env: storedToken
+      ? buildSanitizedGhAuthEnv({
+          ...(opts.env || {}),
+          GH_TOKEN: storedToken,
+        })
+      : {
+          ...(opts.env || {}),
+          GH_TOKEN: envToken,
+        },
   });
 }
 
@@ -860,41 +913,121 @@ function pushBranch() {
   runGit(["push", "-u", "origin", `${LOOP_BRANCH}:refs/heads/${LOOP_BRANCH}`], { capture: false });
 }
 
-function waitForBranchCi(headSha, branchName) {
-  let runId = null;
-  let runUrl = null;
+function isSuccessfulWorkflowConclusion(conclusion) {
+  return conclusion === "success" || conclusion === "neutral" || conclusion === "skipped";
+}
 
-  // Poll GitHub Actions for the exact pushed SHA so every direct push is
-  // gated on a green CI run instead of a later branch-level workflow.
-  const maxAttempts = Math.max(1, Math.ceil(CI_DISCOVERY_TIMEOUT_SECONDS / CI_DISCOVERY_POLL_SECONDS));
-  for (let i = 0; i < maxAttempts; i += 1) {
-    const runs = listWorkflowRunsForHead(headSha, branchName);
-    const match = runs.find((run) => run.head_sha === headSha && run.name === CI_WORKFLOW_NAME);
-    if (match) {
-      runId = match.id;
-      runUrl = match.html_url || match.url;
-      break;
-    }
-    if (i + 1 < maxAttempts) {
-      runCommand("sleep", [String(CI_DISCOVERY_POLL_SECONDS)], { capture: false });
-    }
-  }
+function isFailedWorkflowConclusion(conclusion) {
+  return Boolean(conclusion) && !isSuccessfulWorkflowConclusion(conclusion);
+}
 
-  if (!runId) {
-    const suiteSummary = summarizeCheckSuitesForHead(headSha);
-    throw new Error(
-      `No ${CI_WORKFLOW_NAME} workflow run found for branch ${branchName} and head ${headSha} after ${CI_DISCOVERY_TIMEOUT_SECONDS}s.` +
-        `${suiteSummary ? ` Check suites: ${suiteSummary}.` : " Check suites: none."}`,
-    );
-  }
-
+function listCommitChangedPaths(headSha) {
   try {
-    runGh(["run", "watch", String(runId), "--interval", "30", "--exit-status"], { capture: false });
-    return { ok: true, runId, runUrl };
+    const response = JSON.parse(runGh(["api", `repos/:owner/:repo/commits/${headSha}`]));
+    return uniqueStrings(
+      (Array.isArray(response?.files) ? response.files : [])
+        .map((file) => String(file?.filename || "").trim())
+        .filter(Boolean),
+    );
   } catch {
-    const failedLog = runGh(["run", "view", String(runId), "--log-failed"]);
-    return { ok: false, runId, runUrl, failedLog };
+    return [];
   }
+}
+
+function readFailedWorkflowRunLog(runId) {
+  try {
+    return runGh(["run", "view", String(runId), "--log-failed"]);
+  } catch {
+    return runGh(["run", "view", String(runId), "--log"]);
+  }
+}
+
+function collectFailedWorkflowDiagnostics(failedRuns) {
+  const logs = failedRuns.map((run) => {
+    const runId = run?.id ? String(run.id) : "";
+    const name = String(run?.name || run?.display_title || "(unnamed workflow)");
+    const url = String(run?.html_url || run?.url || "");
+    const failedLog = clampText(readFailedWorkflowRunLog(runId), 18000);
+    return [`Workflow: ${name}`, `Run URL: ${url}`, failedLog].filter(Boolean).join("\n");
+  });
+
+  return {
+    runId: failedRuns[0]?.id ?? null,
+    runUrl: failedRuns[0]?.html_url || failedRuns[0]?.url || "",
+    failedLog: logs.join("\n\n---\n\n"),
+  };
+}
+
+function pollGitHubActionsForHead(headSha, branchName, { requireWorkflowRun }) {
+  const deadline = Date.now() + CI_DISCOVERY_TIMEOUT_SECONDS * 1000;
+
+  while (true) {
+    const runs = listWorkflowRunsForHead(headSha, branchName).filter((run) => run.head_sha === headSha);
+    const failedRuns = runs.filter(
+      (run) => run.status === "completed" && isFailedWorkflowConclusion(run.conclusion),
+    );
+    if (failedRuns.length > 0) {
+      return {
+        ok: false,
+        headSha,
+        branchName,
+        workflowRuns: runs,
+        ...collectFailedWorkflowDiagnostics(failedRuns),
+      };
+    }
+
+    const pendingRuns = runs.filter((run) => run.status !== "completed");
+    if (runs.length > 0 && pendingRuns.length === 0) {
+      return {
+        ok: true,
+        headSha,
+        branchName,
+        workflowRuns: runs,
+      };
+    }
+
+    if (Date.now() >= deadline) {
+      if (!requireWorkflowRun && runs.length === 0) {
+        return {
+          ok: true,
+          headSha,
+          branchName,
+          workflowRuns: [],
+          missing: true,
+        };
+      }
+
+      const suiteSummary = summarizeCheckSuitesForHead(headSha);
+      throw new Error(
+        `No completed GitHub Actions workflow run found for branch ${branchName} and head ${headSha} after ${CI_DISCOVERY_TIMEOUT_SECONDS}s.` +
+          `${suiteSummary ? ` Check suites: ${suiteSummary}.` : " Check suites: none."}`,
+      );
+    }
+
+    runCommand("sleep", [String(CI_DISCOVERY_POLL_SECONDS)], { capture: false });
+  }
+}
+
+function waitForBranchCi(headSha, branchName) {
+  return pollGitHubActionsForHead(headSha, branchName, { requireWorkflowRun: true });
+}
+
+async function inspectLatestRemoteBranchFailureContext() {
+  const latestHeadSha = readRemoteBranchHead(LOOP_BRANCH) || readRemoteBranchHead(BASE_BRANCH);
+  if (!latestHeadSha) return null;
+
+  const ci = pollGitHubActionsForHead(latestHeadSha, LOOP_BRANCH, { requireWorkflowRun: false });
+  if (ci.ok) return null;
+
+  return {
+    iteration: 0,
+    branchName: LOOP_BRANCH,
+    headSha: latestHeadSha,
+    runId: ci.runId,
+    runUrl: ci.runUrl,
+    failedLog: ci.failedLog,
+    changedPaths: listCommitChangedPaths(latestHeadSha),
+  };
 }
 
 function listWorkflowRunsForHead(headSha, branchName) {
