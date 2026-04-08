@@ -415,8 +415,11 @@ test("autoloop script polls GitHub CI for each pushed sha before completing", as
   assert.match(script, /const pushedHeadSha = runGit\(\["rev-parse", "HEAD"\]\);/);
   assert.match(script, /phase: "ci-wait",\s*[\s\S]*headSha: pushedHeadSha/);
   assert.match(script, /const ci = waitForBranchCi\(pushedHeadSha, LOOP_BRANCH\);/);
-  assert.match(script, /const runs = listWorkflowRunsForHead\(headSha, branchName\);/);
-  assert.match(script, /run\.head_sha === headSha && run\.name === CI_WORKFLOW_NAME/);
+  assert.match(script, /function pollGitHubActionsForHead\(headSha, branchName, \{ requireWorkflowRun \}\)/);
+  assert.match(script, /const runs = listWorkflowRunsForHead\(headSha, branchName\)\.filter\(\(run\) => run\.head_sha === headSha\);/);
+  assert.match(script, /const failedRuns = runs\.filter\(/);
+  assert.match(script, /const pendingRuns = runs\.filter\(/);
+  assert.match(script, /return \{\s*ok: true,\s*headSha,\s*branchName,\s*workflowRuns: runs,/);
 });
 
 test("autoloop script feeds failed CI logs back into codex repair prompts", async () => {
@@ -425,7 +428,18 @@ test("autoloop script feeds failed CI logs back into codex repair prompts", asyn
   assert.match(script, /const idea = failureContext\s*\?\s*await requestFixIdea\(repoContext, failureContext\)/);
   assert.match(script, /"Failed log excerpt:",\s*clampText\(failureContext\.failedLog, 20000\)/);
   assert.match(script, /failureContext \? `Failed CI log excerpt:\\n\$\{clampText\(failureContext\.failedLog, 18000\)\}` : ""/);
-  assert.match(script, /const failedLog = runGh\(\["run", "view", String\(runId\), "--log-failed"\]\);/);
+  assert.match(script, /function readFailedWorkflowRunLog\(runId\)/);
+  assert.match(script, /const failedLog = clampText\(readFailedWorkflowRunLog\(runId\), 18000\);/);
+});
+
+test("autoloop script repairs the latest remote branch head before proposing new work", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /let failureContext = await inspectLatestRemoteBranchFailureContext\(\);/);
+  assert.match(script, /Latest remote \$\{failureContext\.branchName\} commit \$\{failureContext\.headSha\} has failing GitHub Actions\./);
+  assert.match(script, /async function inspectLatestRemoteBranchFailureContext\(\)/);
+  assert.match(script, /const latestHeadSha = readRemoteBranchHead\(LOOP_BRANCH\) \|\| readRemoteBranchHead\(BASE_BRANCH\);/);
+  assert.match(script, /const ci = pollGitHubActionsForHead\(latestHeadSha, LOOP_BRANCH, \{ requireWorkflowRun: false \}\);/);
+  assert.match(script, /changedPaths: listCommitChangedPaths\(latestHeadSha\),/);
 });
 
 test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", async () => {
