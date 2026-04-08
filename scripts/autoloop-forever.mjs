@@ -6,9 +6,12 @@ import path from "node:path";
 import process from "node:process";
 import { execFileSync, spawn } from "node:child_process";
 import {
+  buildBranchMergeCandidates,
   buildAutoloopDirtyCheckpointBranchName,
   buildAutoloopRecoveryBranchName,
+  normalizeGitBranchShortName,
   parseGitStatusPaths,
+  uniqueStrings,
   writeJsonFileAtomic,
 } from "./autoloop-lib.mjs";
 
@@ -20,6 +23,7 @@ const CURRENT_CYCLE_STATUS_FILE = path.join(STATE_DIR, "current-cycle.json");
 const PID_FILE = path.join(STATE_DIR, "runner.pid");
 const STOP_FILE = path.join(STATE_DIR, "stop");
 const RUNNER_LOG_FILE = path.join(STATE_DIR, "runner.log");
+const BASE_BRANCH = normalizeGitBranchShortName(process.env.AUTOLOOP_BASE_BRANCH || "main") || "main";
 const LOOP_INTERVAL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_INTERVAL_SECONDS, 300, 15, 86400);
 const STOP_POLL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_STOP_POLL_SECONDS, 5, 1, 60);
 const STATUS_HEARTBEAT_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_STATUS_HEARTBEAT_SECONDS, 15, 5, 300);
@@ -32,6 +36,7 @@ let runnerState = {
   intervalSeconds: LOOP_INTERVAL_SECONDS,
   stopPollSeconds: STOP_POLL_SECONDS,
   statusHeartbeatSeconds: STATUS_HEARTBEAT_SECONDS,
+  baseBranch: BASE_BRANCH,
   root: ROOT,
   pidFile: relativePath(PID_FILE),
   stopFile: relativePath(STOP_FILE),
@@ -75,6 +80,20 @@ async function main() {
         continue;
       }
 
+      const branchSweep = await reconcileUnmergedBranchesOntoBaseBranch();
+      if (!branchSweep.ok) {
+        await logRunner(`branch reconciliation blocked: ${branchSweep.reason}`);
+        await updateRunnerStatus({
+          state: "blocked",
+          blockReason: branchSweep.reason,
+          blockDetails: branchSweep.details ?? [],
+          lastBranchSweep: branchSweep.summary ?? null,
+          nextRunAt: futureIso(LOOP_INTERVAL_SECONDS),
+        });
+        if (await sleepWithStopPolling(LOOP_INTERVAL_SECONDS)) break;
+        continue;
+      }
+
       const cycleIndex = runnerState.cycleCount + 1;
       const cycleStamp = new Date().toISOString().replace(/[:.]/g, "-");
       const cycleLogFile = path.join(CYCLES_DIR, `cycle-${String(cycleIndex).padStart(4, "0")}-${cycleStamp}.log`);
@@ -82,6 +101,7 @@ async function main() {
       await updateRunnerStatus({
         state: "running",
         cycleCount: cycleIndex,
+        lastBranchSweep: branchSweep.summary ?? null,
         currentLogFile: relativePath(cycleLogFile),
         nextRunAt: null,
         blockReason: null,
@@ -249,6 +269,164 @@ async function detectPreflightBlock() {
   }
 
   return null;
+}
+
+function splitNonEmptyLines(raw) {
+  return String(raw ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function listUnmergedConflictPaths() {
+  return uniqueStrings(runCommand("git", ["diff", "--name-only", "--diff-filter=U"], { trimOutput: false }).split(/\r?\n/))
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function mergeRefOntoBaseBranch(branchRef, shortName = normalizeGitBranchShortName(branchRef)) {
+  const headBefore = runCommand("git", ["rev-parse", "HEAD"]);
+
+  try {
+    runCommand("git", ["merge", "--no-ff", "--no-edit", branchRef], { capture: false });
+  } catch (err) {
+    const conflicts = listUnmergedConflictPaths();
+    if (conflicts.length === 0) throw err;
+
+    // Conflict resolution stays fail-closed toward the current main branch.
+    runCommand("git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...conflicts], { capture: false });
+    runCommand("git", ["commit", "--no-edit"], { capture: false });
+
+    return {
+      outcome: "conflict-resolved",
+      ref: branchRef,
+      shortName,
+      headBefore,
+      headAfter: runCommand("git", ["rev-parse", "HEAD"]),
+      conflicts,
+    };
+  }
+
+  const headAfter = runCommand("git", ["rev-parse", "HEAD"]);
+  return {
+    outcome: headAfter === headBefore ? "noop" : "merged",
+    ref: branchRef,
+    shortName,
+    headBefore,
+    headAfter,
+    conflicts: [],
+  };
+}
+
+function syncBaseBranchToOrigin() {
+  const remoteRef = `origin/${BASE_BRANCH}`;
+  const localHead = runCommand("git", ["rev-parse", "HEAD"]);
+  const remoteHead = runCommand("git", ["rev-parse", remoteRef]);
+  if (localHead === remoteHead) {
+    return {
+      outcome: "noop",
+      ref: remoteRef,
+      shortName: BASE_BRANCH,
+      headBefore: localHead,
+      headAfter: localHead,
+      conflicts: [],
+    };
+  }
+  return mergeRefOntoBaseBranch(remoteRef, BASE_BRANCH);
+}
+
+function pushBaseBranchWithRetry() {
+  try {
+    runCommand("git", ["push", "origin", `${BASE_BRANCH}:refs/heads/${BASE_BRANCH}`], { capture: false });
+    return { pushed: true, retried: false, retrySync: null };
+  } catch {
+    runCommand("git", ["fetch", "origin", "--prune"], { capture: false });
+    const retrySync = syncBaseBranchToOrigin();
+    runCommand("git", ["push", "origin", `${BASE_BRANCH}:refs/heads/${BASE_BRANCH}`], { capture: false });
+    return { pushed: true, retried: true, retrySync };
+  }
+}
+
+async function reconcileUnmergedBranchesOntoBaseBranch() {
+  const startedAt = new Date().toISOString();
+
+  try {
+    runCommand("git", ["fetch", "origin", "--prune"], { capture: false });
+    const currentBranch = normalizeGitBranchShortName(runCommand("git", ["branch", "--show-current"])) || BASE_BRANCH;
+    if (currentBranch !== BASE_BRANCH) {
+      runCommand("git", ["checkout", BASE_BRANCH], { capture: false });
+    }
+
+    const originSync = syncBaseBranchToOrigin();
+    const localBranches = splitNonEmptyLines(
+      runCommand("git", ["branch", "--format=%(refname:short)", "--no-merged", BASE_BRANCH], { trimOutput: false }),
+    );
+    const remoteBranches = splitNonEmptyLines(
+      runCommand("git", ["branch", "-r", "--format=%(refname:short)", "--no-merged", BASE_BRANCH], { trimOutput: false }),
+    );
+    const candidates = buildBranchMergeCandidates({ localBranches, remoteBranches, baseBranch: BASE_BRANCH });
+
+    const mergedBranches = [];
+    const conflictResolvedBranches = [];
+
+    for (const candidate of candidates) {
+      const mergeResult = mergeRefOntoBaseBranch(candidate.ref, candidate.shortName);
+      if (mergeResult.outcome === "merged") {
+        mergedBranches.push(candidate.shortName);
+        continue;
+      }
+      if (mergeResult.outcome === "conflict-resolved") {
+        conflictResolvedBranches.push({
+          branch: candidate.shortName,
+          conflicts: mergeResult.conflicts,
+        });
+      }
+    }
+
+    const shouldPush =
+      originSync.outcome !== "noop" || mergedBranches.length > 0 || conflictResolvedBranches.length > 0;
+    const pushResult = shouldPush ? pushBaseBranchWithRetry() : { pushed: false, retried: false, retrySync: null };
+    const summary = {
+      startedAt,
+      endedAt: new Date().toISOString(),
+      baseBranch: BASE_BRANCH,
+      syncedOrigin: originSync.outcome,
+      candidateBranches: candidates.map((candidate) => candidate.shortName),
+      mergedBranches,
+      conflictResolvedBranches,
+      pushed: pushResult.pushed,
+      pushRetried: pushResult.retried,
+      retrySyncOutcome: pushResult.retrySync?.outcome ?? null,
+      head: runCommand("git", ["rev-parse", "HEAD"]),
+    };
+
+    if (mergedBranches.length > 0 || conflictResolvedBranches.length > 0) {
+      await logRunner(
+        `branch reconciliation merged ${mergedBranches.length + conflictResolvedBranches.length} branch(es) into ${BASE_BRANCH}`,
+      );
+    } else if (originSync.outcome !== "noop" && pushResult.pushed) {
+      await logRunner(`branch reconciliation refreshed ${BASE_BRANCH} from origin/${BASE_BRANCH}`);
+    }
+
+    return { ok: true, summary };
+  } catch (err) {
+    try {
+      runCommand("git", ["merge", "--abort"], { capture: false });
+    } catch {}
+
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      reason: `branch reconciliation onto ${BASE_BRANCH} failed`,
+      details: splitNonEmptyLines(message).slice(0, 40),
+      summary: {
+        startedAt,
+        endedAt: new Date().toISOString(),
+        baseBranch: BASE_BRANCH,
+        error: message,
+      },
+    };
+  }
 }
 
 function runCommand(command, args, opts = {}) {

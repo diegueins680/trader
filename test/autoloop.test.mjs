@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  buildBranchMergeCandidates,
   buildActionsRunsApiPath,
   buildAutoloopRecoveryBranchName,
   buildForceWithLeaseFlag,
@@ -12,6 +13,7 @@ import {
   clampText,
   extractCodexExecLastMessage,
   extractResponseText,
+  normalizeGitBranchShortName,
   normalizeIdeaSelection,
   normalizePatchPlan,
   parseGitStatusPaths,
@@ -284,6 +286,44 @@ test("buildAutoloopRecoveryBranchName scopes rescue branches under autoloop/wip"
   assert.equal(branch, "autoloop/wip/main/cycle-7-2026-03-31t06-15-04-123z");
 });
 
+test("normalizeGitBranchShortName strips origin and refs prefixes", () => {
+  assert.equal(normalizeGitBranchShortName("origin/feature/test"), "feature/test");
+  assert.equal(normalizeGitBranchShortName("refs/heads/main"), "main");
+  assert.equal(normalizeGitBranchShortName("refs/remotes/origin/topic"), "topic");
+  assert.equal(normalizeGitBranchShortName("origin/HEAD"), "");
+  assert.equal(normalizeGitBranchShortName(""), "");
+});
+
+test("buildBranchMergeCandidates prefers local heads while deduping remote matches", () => {
+  assert.deepEqual(
+    buildBranchMergeCandidates({
+      localBranches: ["feature/local", "topic/only-local", "main"],
+      remoteBranches: ["origin/feature/local", "origin/topic/only-remote", "origin/main", "origin/HEAD"],
+      baseBranch: "main",
+    }),
+    [
+      {
+        shortName: "feature/local",
+        ref: "feature/local",
+        localRef: "feature/local",
+        remoteRef: "origin/feature/local",
+      },
+      {
+        shortName: "topic/only-local",
+        ref: "topic/only-local",
+        localRef: "topic/only-local",
+        remoteRef: "",
+      },
+      {
+        shortName: "topic/only-remote",
+        ref: "origin/topic/only-remote",
+        localRef: "",
+        remoteRef: "origin/topic/only-remote",
+      },
+    ],
+  );
+});
+
 test("buildOpenAiApiError marks quota and auth failures as skippable", () => {
   const quotaErr = buildOpenAiApiError(429, {
     error: { code: "insufficient_quota", type: "insufficient_quota" },
@@ -438,6 +478,19 @@ test("autoloop forever script auto-snapshots recoverable dirty cycles before blo
   assert.match(script, /auto-snapshotted failed dirty cycle to/);
   assert.match(script, /buildAutoloopDirtyCheckpointBranchName\(/);
   assert.match(script, /auto-checkpointed dirty worktree to/);
+});
+
+test("autoloop forever script reconciles every unmerged branch onto main before bounded cycles", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
+  assert.match(script, /const BASE_BRANCH = normalizeGitBranchShortName\(process\.env\.AUTOLOOP_BASE_BRANCH \|\| "main"\) \|\| "main";/);
+  assert.match(script, /const branchSweep = await reconcileUnmergedBranchesOntoBaseBranch\(\);/);
+  assert.match(script, /runCommand\("git", \["fetch", "origin", "--prune"\], \{ capture: false \}\);/);
+  assert.match(script, /buildBranchMergeCandidates\(\{ localBranches, remoteBranches, baseBranch: BASE_BRANCH \}\)/);
+  assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
+  assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
+  assert.match(script, /runCommand\("git", \["merge", "--no-ff", "--no-edit", branchRef\], \{ capture: false \}\)/);
+  assert.match(script, /runCommand\("git", \["restore", "--source=HEAD", "--staged", "--worktree", "--", \.\.\.conflicts\], \{ capture: false \}\)/);
+  assert.match(script, /runCommand\("git", \["push", "origin", `\$\{BASE_BRANCH\}:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
 });
 
 test("autoloop workflow uses an optional dedicated push token and no PR permission", async () => {

@@ -278,6 +278,43 @@ export function buildAutoloopDirtyCheckpointBranchName({ loopBranch, timestamp }
   return `autoloop/dirty/${base}/dirty-worktree-${stamp}`;
 }
 
+export function normalizeGitBranchShortName(rawBranch) {
+  const raw = String(rawBranch ?? "").trim();
+  if (!raw || raw === "HEAD" || raw.endsWith("/HEAD")) return "";
+  return raw
+    .replace(/^refs\/heads\//, "")
+    .replace(/^refs\/remotes\/origin\//, "")
+    .replace(/^origin\//, "")
+    .trim();
+}
+
+export function buildBranchMergeCandidates({ localBranches = [], remoteBranches = [], baseBranch = "main" } = {}) {
+  const base = normalizeGitBranchShortName(baseBranch || "main");
+  const localByShortName = new Map();
+  const remoteByShortName = new Map();
+
+  for (const branch of localBranches) {
+    const shortName = normalizeGitBranchShortName(branch);
+    if (!shortName || shortName === base) continue;
+    localByShortName.set(shortName, String(branch).trim());
+  }
+
+  for (const branch of remoteBranches) {
+    const shortName = normalizeGitBranchShortName(branch);
+    if (!shortName || shortName === base) continue;
+    remoteByShortName.set(shortName, String(branch).trim());
+  }
+
+  return uniqueStrings([...localByShortName.keys(), ...remoteByShortName.keys()])
+    .sort((left, right) => left.localeCompare(right))
+    .map((shortName) => ({
+      shortName,
+      ref: localByShortName.get(shortName) || remoteByShortName.get(shortName) || shortName,
+      localRef: localByShortName.get(shortName) || "",
+      remoteRef: remoteByShortName.get(shortName) || "",
+    }));
+}
+
 export function prepareShellCommand(command) {
   const normalized = String(command ?? "").trim();
   const needsGhcup =
