@@ -426,7 +426,7 @@ test("autoloop script polls GitHub CI for each pushed sha before completing", as
 test("autoloop script feeds failed CI logs back into codex repair prompts", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /failureContext = \{\s*[\s\S]*failedLog: ci\.failedLog,/);
-  assert.match(script, /const idea = failureContext\s*\?\s*await requestFixIdea\(repoContext, failureContext\)/);
+  assert.match(script, /const selectedIdea = failureContext\s*\?\s*await requestFixIdea\(repoContext, failureContext, failureRepairPaths\)/);
   assert.match(script, /"Failed log excerpt:",\s*clampText\(failureContext\.failedLog, 20000\)/);
   assert.match(script, /failureContext \? `Failed CI log excerpt:\\n\$\{clampText\(failureContext\.failedLog, 18000\)\}` : ""/);
   assert.match(script, /function readFailedWorkflowRunLog\(runId\)/);
@@ -446,6 +446,7 @@ test("autoloop script repairs the latest remote branch head before proposing new
 test("autoloop script auto-heals formatting-only CI failures on editable Haskell files", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /const FOURMOLU_CHECK_COMMAND = "cd haskell && find app test bench -name '\*\.hs' -print0 \| xargs -0 fourmolu --mode check";/);
+  assert.match(script, /const failureRepairPaths = deriveFailureRepairPaths\(failureContext\);/);
   assert.match(script, /const automaticRepair = failureContext \? detectAutomaticRepair\(failureContext\) : null;/);
   assert.match(script, /phase: "auto-repair"/);
   assert.match(script, /function parseFourmoluFailurePaths\(failedLog\)/);
@@ -454,6 +455,19 @@ test("autoloop script auto-heals formatting-only CI failures on editable Haskell
   assert.match(script, /function applyAutomaticRepair\(repair\)/);
   assert.match(script, /runCommand\("fourmolu", \["-i", \.\.\.relPaths\], \{/);
   assert.match(script, /verificationCommands: planVerificationCommands\(fourmoluPaths, \[FOURMOLU_CHECK_COMMAND\]\),/);
+});
+
+test("autoloop script promotes failing log paths into generic self-heal scope", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const MAX_EDITABLE_FILE_BYTES = clampInt\(process\.env\.AUTOLOOP_MAX_FILE_BYTES, 1000000, 4000, 5000000\);/);
+  assert.match(script, /function parseFailureReferencedPaths\(failedLog\)/);
+  assert.match(script, /function deriveFailureRepairPaths\(failureContext\)/);
+  assert.match(script, /const repoContext = await buildRepoContext\(failureRepairPaths\);/);
+  assert.match(script, /await requestFixIdea\(repoContext, failureContext, failureRepairPaths\)/);
+  assert.match(script, /buildFailureRepairIdea\(failureContext, failureRepairPaths\) \|\| selectedIdea/);
+  assert.match(script, /const editableFiles = await readEditableFiles\(failureContext \? \[\.\.\.failureRepairPaths, \.\.\.idea\.filesNeeded\] : idea\.filesNeeded\);/);
+  assert.match(script, /Self-heal is required for any actionable failure or error when the failed log names editable files\./);
+  assert.match(script, /Failure-targeted editable files: \$\{failureRepairPaths\.join\(", "\) \|\| "\([^"]+\)"\}/);
 });
 
 test("autoloop script prefers the stored gh auth token over a stale GH_TOKEN environment value", async () => {
