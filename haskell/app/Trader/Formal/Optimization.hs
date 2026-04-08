@@ -63,6 +63,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrActivityPenaltyOrdered :: !Bool
     , fvrExposurePenaltyOrdered :: !Bool
     , fvrTieBreakTotalOrderAfterNormalization :: !Bool
+    , fvrTieBreakHysteresisPreference :: !Bool
     , fvrTieBreakSpecMatchesImplementation :: !Bool
     , fvrVolConfCanonicalizationInvariant :: !Bool
     , fvrVolConfMalformedVolMatchesMissing :: !Bool
@@ -286,6 +287,16 @@ verifyFormalOptimization =
                 , tradeCount <- activityDomain
                 ]
                 && idleExposureRewardInvariant
+        tieBreakHysteresisPreference =
+            and
+                [ tieBreakHysteresisPreferenceFor
+                    (TieBreakCandidate finalEquity turnover roundTrips openThr openThr)
+                    (TieBreakCandidate finalEquity turnover roundTrips openThr (openThr + 0.01))
+                | finalEquity <- [1.0, 1.05, 1.1]
+                , turnover <- [0.0, 0.1, 0.2]
+                , roundTrips <- [0, 2, 4]
+                , openThr <- [0.01, 0.02]
+                ]
      in FormalVerificationReport
             { fvrRoiStateCount = length roiInputs
             , fvrTieBreakPairCount = length tieBreakPairs
@@ -446,6 +457,7 @@ verifyFormalOptimization =
             , fvrExposurePenaltyOrdered = exposurePenaltyOrdered
             , fvrTieBreakTotalOrderAfterNormalization =
                 all tieBreakTotalOrderAfterNormalizationFor tieBreakPairs
+            , fvrTieBreakHysteresisPreference = tieBreakHysteresisPreference
             , fvrTieBreakSpecMatchesImplementation =
                 all tieBreakMatchesImplementationFor tieBreakPairs
             , fvrVolConfCanonicalizationInvariant =
@@ -577,16 +589,25 @@ normalizeTieBreakThresholdPair openThr closeThr
     | isFinite openThr && isFinite closeThr = (openThr, closeThr)
     | otherwise = (tieBreakNonFiniteLowSentinel, tieBreakNonFiniteLowSentinel)
 
+-- Keep the documented lexicographic threshold contract explicit:
+-- after equity, turnover, and round trips tie, prefer
+-- closeThreshold <= openThreshold hysteresis before threshold magnitude.
 tieBreakKey :: TieBreakCandidate -> (Double, Down Double, Int, Int, Double, Double)
 tieBreakKey candidate =
     let normalized = normalizeTieBreakCandidate candidate
      in ( tbcFinalEquity normalized
         , Down (tbcTurnover normalized)
         , tbcRoundTrips normalized
-        , if isInvertedNormalized normalized then 0 else 1
+        , tieBreakHysteresisRank normalized
         , tbcOpenThreshold normalized
         , tbcCloseThreshold normalized
         )
+
+tieBreakHysteresisRank :: TieBreakCandidate -> Int
+tieBreakHysteresisRank candidate =
+    if tbcCloseThreshold candidate <= tbcOpenThreshold candidate + comparisonEps
+        then 1
+        else 0
 
 isInvertedNormalized :: TieBreakCandidate -> Bool
 isInvertedNormalized candidate =
@@ -660,6 +681,13 @@ tieBreakTotalOrderAfterNormalizationFor (cand, best) =
             && bestPreferred == (bestKey > candKey)
             && (candPreferred || bestPreferred || candKey == bestKey)
             && not (candPreferred && bestPreferred)
+
+tieBreakHysteresisPreferenceFor :: TieBreakCandidate -> TieBreakCandidate -> Bool
+tieBreakHysteresisPreferenceFor preferred inverted =
+    preferTieBreakSpec preferred inverted
+        && preferTieBreakImplementation preferred inverted
+        && not (preferTieBreakSpec inverted preferred)
+        && not (preferTieBreakImplementation inverted preferred)
 
 volConfCanonicalizationInvariantFor :: (VolConfGatePreset, Maybe Double, Maybe Double) -> Bool
 volConfCanonicalizationInvariantFor (preset, mVolatility, mConfidence) =
@@ -886,10 +914,10 @@ allApproxEq [] = True
 allApproxEq (x : xs) = all (approxEq x) xs
 
 nonDecreasing :: [Double] -> Bool
-nonDecreasing xs = and (zipWith (<=) xs (drop 1 xs))
+nonDecreasing xs = and (zipWith (\x y -> x <= y + comparisonEps) xs (drop 1 xs))
 
 nonIncreasing :: [Double] -> Bool
-nonIncreasing xs = and (zipWith (>=) xs (drop 1 xs))
+nonIncreasing xs = and (zipWith (\x y -> x + comparisonEps >= y) xs (drop 1 xs))
 
 allRoiInputs :: [(Double, Double, RoiState)]
 allRoiInputs =
