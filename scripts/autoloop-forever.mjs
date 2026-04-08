@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { execFileSync, spawn } from "node:child_process";
 import {
+  buildAutoloopDirtyCheckpointBranchName,
   buildAutoloopRecoveryBranchName,
   parseGitStatusPaths,
   writeJsonFileAtomic,
@@ -21,6 +22,7 @@ const STOP_FILE = path.join(STATE_DIR, "stop");
 const RUNNER_LOG_FILE = path.join(STATE_DIR, "runner.log");
 const LOOP_INTERVAL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_INTERVAL_SECONDS, 300, 15, 86400);
 const STOP_POLL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_STOP_POLL_SECONDS, 5, 1, 60);
+const STATUS_HEARTBEAT_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_STATUS_HEARTBEAT_SECONDS, 15, 5, 300);
 const CHILD_ARGS = process.argv.slice(2);
 
 let runnerState = {
@@ -29,6 +31,7 @@ let runnerState = {
   state: "starting",
   intervalSeconds: LOOP_INTERVAL_SECONDS,
   stopPollSeconds: STOP_POLL_SECONDS,
+  statusHeartbeatSeconds: STATUS_HEARTBEAT_SECONDS,
   root: ROOT,
   pidFile: relativePath(PID_FILE),
   stopFile: relativePath(STOP_FILE),
@@ -43,6 +46,7 @@ let runnerState = {
 
 let shutdownRequest = null;
 let activeChild = null;
+let statusHeartbeatTimer = null;
 
 async function main() {
   await ensureStateDir();
@@ -50,8 +54,9 @@ async function main() {
   await clearLaunchArtifacts();
   await fs.writeFile(PID_FILE, `${process.pid}\n`, "utf8");
   installSignalHandlers();
+  startStatusHeartbeat();
   await logRunner(`started persistent runner with interval=${LOOP_INTERVAL_SECONDS}s`);
-  await updateRunnerStatus({ state: "idle" });
+  await updateRunnerStatus({ state: "idle", heartbeatAt: new Date().toISOString() });
 
   try {
     while (true) {
@@ -121,6 +126,7 @@ async function main() {
       if (await sleepWithStopPolling(LOOP_INTERVAL_SECONDS)) break;
     }
   } finally {
+    stopStatusHeartbeat();
     const shutdown = shutdownRequest || {
       reason: "completed",
       requestedAt: new Date().toISOString(),
@@ -181,6 +187,20 @@ async function updateRunnerStatus(patch) {
   await writeJsonFileAtomic(STATUS_FILE, runnerState);
 }
 
+function startStatusHeartbeat() {
+  stopStatusHeartbeat();
+  statusHeartbeatTimer = setInterval(() => {
+    void updateRunnerStatus({ heartbeatAt: new Date().toISOString(), pid: process.pid });
+  }, STATUS_HEARTBEAT_SECONDS * 1000);
+  statusHeartbeatTimer.unref?.();
+}
+
+function stopStatusHeartbeat() {
+  if (!statusHeartbeatTimer) return;
+  clearInterval(statusHeartbeatTimer);
+  statusHeartbeatTimer = null;
+}
+
 async function logRunner(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
   await fs.appendFile(RUNNER_LOG_FILE, line, "utf8");
@@ -207,14 +227,23 @@ async function detectPreflightBlock() {
     };
   }
 
+  let status = runCommand("git", ["status", "--porcelain"], { trimOutput: false });
+  if (!status) return null;
+
   const dirtyRecovery = await tryAutoSnapshotDirtyCycle();
-  const status = runCommand("git", ["status", "--porcelain"], { trimOutput: false });
+  status = runCommand("git", ["status", "--porcelain"], { trimOutput: false });
+  if (!status) return null;
+
+  const dirtyCheckpoint = await tryAutoCheckpointDirtyWorktree();
+  status = runCommand("git", ["status", "--porcelain"], { trimOutput: false });
   if (status) {
     return {
       reason:
-        dirtyRecovery && dirtyRecovery.recovered
-          ? "dirty worktree persisted after auto-snapshot recovery; waiting for operator cleanup before bounded autoloop runs"
-          : "dirty worktree; waiting for operator cleanup before bounded autoloop runs",
+        dirtyCheckpoint && dirtyCheckpoint.recovered
+          ? "dirty worktree persisted after auto-checkpoint recovery; waiting for operator cleanup before bounded autoloop runs"
+          : dirtyRecovery && dirtyRecovery.recovered
+            ? "dirty worktree persisted after auto-snapshot recovery; waiting for operator cleanup before bounded autoloop runs"
+            : "dirty worktree; waiting for operator cleanup before bounded autoloop runs",
       details: status.split(/\r?\n/).filter(Boolean).slice(0, 40),
     };
   }
@@ -311,6 +340,73 @@ async function tryAutoSnapshotDirtyCycle() {
       recovered: false,
       reason: message,
       paths: dirtyPaths,
+    };
+  }
+}
+
+function analyzeDirtyWorktree(paths, currentBranch) {
+  const segments = paths
+    .map((item) => String(item).split("/")[0] || String(item))
+    .filter(Boolean);
+  const topScopes = Array.from(new Set(segments)).slice(0, 4);
+  const scopeSummary = topScopes.length > 0 ? topScopes.join(", ") : "misc";
+  return {
+    commitMessage: "chore(autoloop): checkpoint dirty worktree",
+    summary: `Checkpoint dirty worktree from ${currentBranch || "main"} covering ${scopeSummary}.`,
+  };
+}
+
+async function tryAutoCheckpointDirtyWorktree() {
+  const dirtyStatus = runCommand("git", ["status", "--porcelain"], { trimOutput: false });
+  const dirtyPaths = parseGitStatusPaths(dirtyStatus);
+  if (dirtyPaths.length === 0) return null;
+
+  const currentBranch = runCommand("git", ["branch", "--show-current"]) || "main";
+  const checkpointBranch = buildAutoloopDirtyCheckpointBranchName({
+    loopBranch: currentBranch,
+    timestamp: new Date().toISOString(),
+  });
+  const analysis = analyzeDirtyWorktree(dirtyPaths, currentBranch);
+  const commitBody = [
+    analysis.summary,
+    "",
+    "Dirty worktree analysis:",
+    `- source branch: ${currentBranch}`,
+    `- paths: ${dirtyPaths.join(", ")}`,
+  ].join("\n");
+
+  try {
+    runCommand("git", ["config", "user.name", "autoloop[bot]"], { capture: false });
+    runCommand("git", ["config", "user.email", "autoloop[bot]@users.noreply.github.com"], { capture: false });
+    runCommand("git", ["checkout", "-b", checkpointBranch], { capture: false });
+    runCommand("git", ["add", "-A"], { capture: false });
+    runCommand("git", ["commit", "-m", analysis.commitMessage, "-m", commitBody], { capture: false });
+    runCommand("git", ["push", "-u", "origin", `${checkpointBranch}:refs/heads/${checkpointBranch}`], { capture: false });
+    const commit = runCommand("git", ["rev-parse", "HEAD"]);
+    runCommand("git", ["checkout", currentBranch], { capture: false });
+    await logRunner(`auto-checkpointed dirty worktree to ${checkpointBranch} (${commit})`);
+    return {
+      recovered: true,
+      branch: checkpointBranch,
+      commit,
+      paths: dirtyPaths,
+      commitMessage: analysis.commitMessage,
+      reason: analysis.summary,
+    };
+  } catch (err) {
+    try {
+      const branchAfterError = runCommand("git", ["branch", "--show-current"]);
+      if (branchAfterError && branchAfterError !== currentBranch) {
+        runCommand("git", ["checkout", currentBranch], { capture: false });
+      }
+    } catch {}
+    const message = err instanceof Error ? err.message : String(err);
+    await logRunner(`auto-checkpoint failed: ${message}`);
+    return {
+      recovered: false,
+      reason: message,
+      paths: dirtyPaths,
+      commitMessage: analysis.commitMessage,
     };
   }
 }

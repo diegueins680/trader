@@ -68,12 +68,47 @@ stop_runner() {
 }
 
 show_status() {
-  if [[ -f "${STATUS_FILE}" ]]; then
-    cat "${STATUS_FILE}"
-    exit 0
+  if [[ ! -f "${STATUS_FILE}" ]]; then
+    printf 'No autoloop status file found at %s.\n' "${STATUS_FILE}" >&2
+    exit 1
   fi
-  printf 'No autoloop status file found at %s.\n' "${STATUS_FILE}" >&2
-  exit 1
+
+  python3 - "${STATUS_FILE}" "${PID_FILE}" <<'PY'
+import json
+import os
+import sys
+
+status_path, pid_path = sys.argv[1:3]
+with open(status_path, "r", encoding="utf-8") as handle:
+    status = json.load(handle)
+
+pid = status.get("pid")
+try:
+    with open(pid_path, "r", encoding="utf-8") as handle:
+        raw = handle.read().strip()
+    if raw:
+        pid = int(raw)
+except Exception:
+    pass
+
+alive = False
+if isinstance(pid, int) and pid > 0:
+    try:
+        os.kill(pid, 0)
+        alive = True
+    except OSError:
+        alive = False
+
+status["pid"] = pid
+status["pidAlive"] = alive
+status["live"] = alive and status.get("state") not in {"stopped", "error", "dead"}
+if not alive and status.get("state") not in {"stopped", "error", "dead"}:
+    status["state"] = "dead"
+    status["nextRunAt"] = None
+    status["statusReason"] = "runner pid recorded in status is not alive"
+
+print(json.dumps(status, indent=2))
+PY
 }
 
 command="${1:-run}"

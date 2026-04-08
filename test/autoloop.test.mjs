@@ -429,12 +429,15 @@ test("bounded autoloop reports the required lifecycle phases in order", async ()
 test("autoloop forever script auto-snapshots recoverable dirty cycles before blocking", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
   assert.match(script, /const dirtyRecovery = await tryAutoSnapshotDirtyCycle\(\);/);
+  assert.match(script, /const dirtyCheckpoint = await tryAutoCheckpointDirtyWorktree\(\);/);
   assert.match(script, /runCommand\("git", \["status", "--porcelain"\], \{ trimOutput: false \}\)/);
   assert.match(script, /cycle [^`]*recovery=\$\{dirtyRecovery\?\.recovered \? dirtyRecovery\.branch : "none"\}/);
   assert.match(script, /cycleStatus\?\.phase !== "error" \|\| changedPaths\.length === 0/);
   assert.match(script, /dirty worktree does not exactly match the last failed cycle changedPaths/);
   assert.match(script, /buildAutoloopRecoveryBranchName\(/);
   assert.match(script, /auto-snapshotted failed dirty cycle to/);
+  assert.match(script, /buildAutoloopDirtyCheckpointBranchName\(/);
+  assert.match(script, /auto-checkpointed dirty worktree to/);
 });
 
 test("autoloop workflow uses an optional dedicated push token and no PR permission", async () => {
@@ -466,4 +469,32 @@ test("writeJsonFileAtomic creates parent directories and writes formatted JSON",
   await writeJsonFileAtomic(filePath, { phase: "verify", ok: true });
   const out = await fs.readFile(filePath, "utf8");
   assert.deepEqual(JSON.parse(out), { phase: "verify", ok: true });
+});
+
+test("autoloop forever runner emits a heartbeat so status timestamps cannot go stale while alive", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
+  assert.match(script, /const STATUS_HEARTBEAT_SECONDS = clampInt\(process\.env\.AUTOLOOP_FOREVER_STATUS_HEARTBEAT_SECONDS, 15, 5, 300\);/);
+  assert.match(script, /startStatusHeartbeat\(\);/);
+  assert.match(script, /heartbeatAt: new Date\(\)\.toISOString\(\)/);
+  assert.match(script, /statusHeartbeatTimer\.unref\?\.\(\);/);
+  assert.match(script, /stopStatusHeartbeat\(\);/);
+});
+
+test("autoloop forever status command marks dead runner pids as dead instead of trusting stale JSON", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop-forever.sh", import.meta.url), "utf8");
+  assert.match(script, /python3 - "\$\{STATUS_FILE\}" "\$\{PID_FILE\}"/);
+  assert.match(script, /status\["pidAlive"\] = alive/);
+  assert.match(script, /status\["live"\] = alive and status\.get\("state"\) not in \{"stopped", "error", "dead"\}/);
+  assert.match(script, /status\["state"\] = "dead"/);
+  assert.match(script, /runner pid recorded in status is not alive/);
+});
+
+test("launchagent installer keeps the forever runner alive across login sessions", async () => {
+  const script = await fs.readFile(new URL("../scripts/install-autoloop-launchagent.sh", import.meta.url), "utf8");
+  assert.match(script, /AUTOLOOP_LAUNCHD_LABEL:-ai\.openclaw\.trader\.autoloop\.forever/);
+  assert.match(script, /<key>RunAtLoad<\/key>\s*<true\/>/);
+  assert.match(script, /<key>KeepAlive<\/key>\s*<true\/>/);
+  assert.match(script, /scripts\/autoloop-forever\.sh<\/string>/);
+  assert.match(script, /launchctl bootstrap/);
+  assert.match(script, /launchctl kickstart -k/);
 });

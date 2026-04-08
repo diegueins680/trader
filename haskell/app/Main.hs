@@ -297,10 +297,12 @@ import Trader.S3 (
  )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.SignalGates (
+    DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
     mkSignalThresholdBoundary,
     normalizeSignalThreshold,
     signalCrossAssetCheck,
+    signalDirectionalitySnapshot,
     signalEntryEdgeSpikeOk,
     signalEntryHeadroomOk,
     signalFundingOiCheck,
@@ -344,9 +346,11 @@ import Trader.Trading (
     Positioning (..),
     StepMeta (..),
     Trade (..),
+    TradeEntrySource (..),
     exitReasonFromCode,
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
+    tradeEntrySourceCode,
  )
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
@@ -398,6 +402,7 @@ data LatestSignal = LatestSignal
     , lsKalmanDir :: !(Maybe Int)
     , lsLstmNext :: !(Maybe Double)
     , lsSizingNext :: !(Maybe Double)
+    , lsDirectionality :: !(Maybe DirectionalitySnapshot)
     , lsLstmDir :: !(Maybe Int)
     , lsChosenDir :: !(Maybe Int)
     , lsCloseDir :: !(Maybe Int)
@@ -1202,6 +1207,7 @@ instance ToJSON LatestSignal where
                 , "confidence" .= lsConfidence s
                 , "positionSize" .= lsPositionSize s
                 , "exitSize" .= lsExitSize s
+                , "directionality" .= lsDirectionality s
                 , "kalmanDirection" .= (if isJust (lsKalmanNext s) then dirLabel (lsKalmanDir s) else Nothing)
                 , "lstmNext" .= lsLstmNext s
                 , "lstmDirection" .= (if isJust (lsLstmNext s) then dirLabel (lsLstmDir s) else Nothing)
@@ -4496,6 +4502,7 @@ botOpenTradeJson trade =
         , "entryHighVolProb" .= botOpenEntryHighVolProb trade
         , "holdingPeriods" .= botOpenHoldingPeriods trade
         , "entryPrice" .= botOpenEntryPrice trade
+        , "entrySource" .= tradeEntrySourceCode (botOpenEntrySource trade)
         , "trail" .= botOpenTrail trade
         , "size" .= botOpenSize trade
         , "partialTaken" .= botOpenPartialTaken trade
@@ -4913,6 +4920,7 @@ data BotOpenTrade = BotOpenTrade
     , botOpenEntryHighVolProb :: !(Maybe Double)
     , botOpenHoldingPeriods :: !Int
     , botOpenEntryPrice :: !Double
+    , botOpenEntrySource :: !TradeEntrySource
     , botOpenSize :: !Double
     , botOpenTrail :: !Double
     , botOpenSide :: !PositionSide
@@ -5848,6 +5856,7 @@ data BotOrderEvent = BotOrderEvent
     , boePrice :: !Double
     , boeOpenTime :: !Int64
     , boeAtMs :: !Int64
+    , boeDirectionality :: !(Maybe DirectionalitySnapshot)
     , boeOrder :: !ApiOrderResult
     }
     deriving (Eq, Show, Generic)
@@ -7460,50 +7469,56 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 else eq0
         pos1 = pos0 V.// [(n - 1, desiredPos)]
         openTrade =
-            case desiredPos of
-                1 ->
-                    let px = lastPrice
-                        openSize = max 0 desiredSize
-                        entryHv = rpHighVol <$> lsRegimes latest
-                     in Just
-                            BotOpenTrade
-                                { botOpenEntryIndex = n - 1
-                                , botOpenEntryEquity = eq1 V.! (n - 1)
-                                , botOpenEntryIp = originIp
-                                , botOpenComboUuid = mComboUuid
-                                , botOpenEntryHighVolProb = entryHv
-                                , botOpenHoldingPeriods = 0
-                                , botOpenEntryPrice = px
-                                , botOpenSize = openSize
-                                , botOpenTrail = px
-                                , botOpenSide = SideLong
-                                , botOpenPartialTaken = False
-                                }
-                (-1) ->
-                    let px = lastPrice
-                        openSize = max 0 desiredSize
-                        entryHv = rpHighVol <$> lsRegimes latest
-                     in Just
-                            BotOpenTrade
-                                { botOpenEntryIndex = n - 1
-                                , botOpenEntryEquity = eq1 V.! (n - 1)
-                                , botOpenEntryIp = originIp
-                                , botOpenComboUuid = mComboUuid
-                                , botOpenEntryHighVolProb = entryHv
-                                , botOpenHoldingPeriods = 0
-                                , botOpenEntryPrice = px
-                                , botOpenSize = openSize
-                                , botOpenTrail = px
-                                , botOpenSide = SideShort
-                                , botOpenPartialTaken = False
-                                }
-                _ -> Nothing
+            let entrySource =
+                    if startPos0 /= 0 && desiredPos == startPos0
+                        then TradeEntryAdopted
+                        else TradeEntrySignal
+             in case desiredPos of
+                    1 ->
+                        let px = lastPrice
+                            openSize = max 0 desiredSize
+                            entryHv = rpHighVol <$> lsRegimes latest
+                         in Just
+                                BotOpenTrade
+                                    { botOpenEntryIndex = n - 1
+                                    , botOpenEntryEquity = eq1 V.! (n - 1)
+                                    , botOpenEntryIp = originIp
+                                    , botOpenComboUuid = mComboUuid
+                                    , botOpenEntryHighVolProb = entryHv
+                                    , botOpenHoldingPeriods = 0
+                                    , botOpenEntryPrice = px
+                                    , botOpenEntrySource = entrySource
+                                    , botOpenSize = openSize
+                                    , botOpenTrail = px
+                                    , botOpenSide = SideLong
+                                    , botOpenPartialTaken = False
+                                    }
+                    (-1) ->
+                        let px = lastPrice
+                            openSize = max 0 desiredSize
+                            entryHv = rpHighVol <$> lsRegimes latest
+                         in Just
+                                BotOpenTrade
+                                    { botOpenEntryIndex = n - 1
+                                    , botOpenEntryEquity = eq1 V.! (n - 1)
+                                    , botOpenEntryIp = originIp
+                                    , botOpenComboUuid = mComboUuid
+                                    , botOpenEntryHighVolProb = entryHv
+                                    , botOpenHoldingPeriods = 0
+                                    , botOpenEntryPrice = px
+                                    , botOpenEntrySource = entrySource
+                                    , botOpenSize = openSize
+                                    , botOpenTrail = px
+                                    , botOpenSide = SideShort
+                                    , botOpenPartialTaken = False
+                                    }
+                    _ -> Nothing
         ops =
             ([BotOp (n - 1) opSide lastPrice | wantSwitch && appliedSwitch])
 
         orders =
             case (wantSwitch, mOrder) of
-                (True, Just o) -> [BotOrderEvent (n - 1) opSide lastPrice lastOt now o]
+                (True, Just o) -> [BotOrderEvent (n - 1) opSide lastPrice lastOt now (lsDirectionality latest) o]
                 _ -> []
 
         maxPoints = max (lookback + 3) (bsMaxPoints settings)
@@ -9804,6 +9819,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 , botOpenEntryHighVolProb = rpHighVol <$> lsRegimes latestFinal
                 , botOpenHoldingPeriods = 0
                 , botOpenEntryPrice = priceNew
+                , botOpenEntrySource = TradeEntrySignal
                 , botOpenSize = size
                 , botOpenTrail = priceNew
                 , botOpenSide = side
@@ -9818,6 +9834,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 , trReturn = exitEq / botOpenEntryEquity ot - 1
                 , trHoldingPeriods = botOpenHoldingPeriods ot
                 , trEntryHighVolProb = botOpenEntryHighVolProb ot
+                , trEntrySource = botOpenEntrySource ot
                 , trExitReason = exitReasonFromCode <$> mExitReason
                 , trEntryIp = botOpenEntryIp ot
                 , trExitIp = botTradeOriginIp st
@@ -9838,7 +9855,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
             then do
                 oPartial <- placeBotCloseIfEnabled args settings latestFinal (botEnv st) (botSymbol st)
                 let opSide = if prevPos > 0 then "SELL" else "BUY"
-                    orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now oPartial
+                    orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now (lsDirectionality latestFinal) oPartial
                     ordersNew = botOrders st ++ [orderEv]
                     tradeEnabled = bsTradeEnabled settings
                     targetQty = max 0 (min prevSize (prevSize * partialTpFrac))
@@ -9964,7 +9981,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 if desiredPosWanted > prevPos
                                     then "BUY"
                                     else "SELL"
-                            orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now o
+                            orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now (lsDirectionality latestFinal) o
                             ordersNew = botOrders st ++ [orderEv]
                             tradeEnabled = bsTradeEnabled settings
                             alreadyMsg =
@@ -16969,8 +16986,29 @@ probeCoinbase step action = do
                 (code, m, summary) = parseCoinbaseError msg
             pure (ApiBinanceProbe False False step code m summary)
 
+binanceKeyProbeTimeoutMicros :: Int
+binanceKeyProbeTimeoutMicros = 15 * 1000000
+
+binanceEgressIpProbeOverallTimeoutMicros :: Int
+binanceEgressIpProbeOverallTimeoutMicros = 2000000
+
 binanceEgressIpProbeTimeoutMicros :: Int
-binanceEgressIpProbeTimeoutMicros = 1500000
+binanceEgressIpProbeTimeoutMicros = 750000
+
+runTimedProbe :: Int -> String -> IO a -> IO a
+runTimedProbe timeoutMicros label action = do
+    result <- timeout timeoutMicros action
+    case result of
+        Just value -> pure value
+        Nothing ->
+            throwIO
+                ( userError
+                    ( label
+                        ++ " timed out after "
+                        ++ show (max 1 (timeoutMicros `div` 1000000))
+                        ++ "s."
+                    )
+                )
 
 binanceEgressIpProbeUrls :: [String]
 binanceEgressIpProbeUrls =
@@ -16985,8 +17023,10 @@ resolveBinanceEgressIp = do
     case mOverride >>= extractPublicIpCandidate of
         Just ip -> pure (Just ip)
         Nothing -> do
-            manager <- newManager tlsManagerSettings
-            probeUrls manager binanceEgressIpProbeUrls
+            mResult <- timeout binanceEgressIpProbeOverallTimeoutMicros $ do
+                manager <- newManager tlsManagerSettings
+                probeUrls manager binanceEgressIpProbeUrls
+            pure (fromMaybe Nothing mResult)
   where
     probeUrls _ [] = pure Nothing
     probeUrls manager (url : rest) = do
@@ -17069,16 +17109,17 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                 )
             signedProbe <-
                 probeBinance "signed" $ do
-                    case market of
-                        MarketFutures -> do
-                            let quoteAsset = maybe "USDT" (snd . splitSymbol) mSym
-                            _ <- fetchFuturesAvailableBalance env quoteAsset
-                            pure ()
-                        _ -> do
-                            sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure mSym
-                            let (baseAsset, _) = splitSymbol sym'
-                            _ <- fetchFreeBalance env baseAsset
-                            pure ()
+                    runTimedProbe binanceKeyProbeTimeoutMicros "Binance signed probe" $
+                        case market of
+                            MarketFutures -> do
+                                let quoteAsset = maybe "USDT" (snd . splitSymbol) mSym
+                                _ <- fetchFuturesAvailableBalance env quoteAsset
+                                pure ()
+                            _ -> do
+                                sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure mSym
+                                let (baseAsset, _) = splitSymbol sym'
+                                _ <- fetchFreeBalance env baseAsset
+                                pure ()
 
             tradeProbe <-
                 case market of
@@ -17137,7 +17178,13 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                                                                     , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
                                                                                     ]
                                                                         Just . appendProbeContext ctx
-                                                                            <$> probeBinance "order/test" (void (placeMarketOrder env OrderTest sym'' Buy qty (Just qq1) Nothing (trim <$> argIdempotencyKey args)))
+                                                                            <$> probeBinance
+                                                                                "order/test"
+                                                                                ( runTimedProbe
+                                                                                    binanceKeyProbeTimeoutMicros
+                                                                                    "Binance order/test probe"
+                                                                                    (void (placeMarketOrder env OrderTest sym'' Buy qty (Just qq1) Nothing (trim <$> argIdempotencyKey args)))
+                                                                                )
                                                     Just qRaw -> do
                                                         mPrice <- fetchPriceIfNeeded env sym'' mFilters
                                                         case normalizeProbeQty mFilters mPrice qRaw of
@@ -17155,7 +17202,13 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                                                             , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
                                                                             ]
                                                                 Just . appendProbeContext ctx
-                                                                    <$> probeBinance "order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) qq Nothing (trim <$> argIdempotencyKey args)))
+                                                                    <$> probeBinance
+                                                                        "order/test"
+                                                                        ( runTimedProbe
+                                                                            binanceKeyProbeTimeoutMicros
+                                                                            "Binance order/test probe"
+                                                                            (void (placeMarketOrder env OrderTest sym'' Buy (Just q) qq Nothing (trim <$> argIdempotencyKey args)))
+                                                                        )
                     MarketFutures -> do
                         advanceRequestProgressMaybe mTracker "order/test" (Just "futures/order/test")
                         case mSym of
@@ -17187,7 +17240,13 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                                                     , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
                                                                     ]
                                                         Just . appendProbeContext ctx
-                                                            <$> probeBinance "futures/order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args)))
+                                                            <$> probeBinance
+                                                                "futures/order/test"
+                                                                ( runTimedProbe
+                                                                    binanceKeyProbeTimeoutMicros
+                                                                    "Binance futures/order/test probe"
+                                                                    (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args)))
+                                                                )
                                     Nothing -> do
                                         qq <-
                                             case argOrderQuote args of
@@ -17239,7 +17298,13 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                                                                             , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
                                                                                             ]
                                                                                 Just . appendProbeContext ctx
-                                                                                    <$> probeBinance "futures/order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args)))
+                                                                                    <$> probeBinance
+                                                                                        "futures/order/test"
+                                                                                        ( runTimedProbe
+                                                                                            binanceKeyProbeTimeoutMicros
+                                                                                            "Binance futures/order/test probe"
+                                                                                            (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args)))
+                                                                                        )
 
             let normalizeTradeProbe p
                     | abpOk p || abpSkipped p || not (abpOk signedProbe) = p
@@ -20771,6 +20836,7 @@ tradeToJson tr =
         , "return" .= trReturn tr
         , "holdingPeriods" .= trHoldingPeriods tr
         , "entryHighVolProb" .= trEntryHighVolProb tr
+        , "entrySource" .= tradeEntrySourceCode (trEntrySource tr)
         , "exitReason" .= trExitReason tr
         , "entryIp" .= trEntryIp tr
         , "exitIp" .= trExitIp tr
@@ -22545,6 +22611,7 @@ baselineSimLongFlat perSideCost prices wantLong =
                 , trReturn = if entryEquity == 0 then 0 else eqExit / entryEquity - 1
                 , trHoldingPeriods = holdingPeriods
                 , trEntryHighVolProb = Nothing
+                , trEntrySource = TradeEntrySignal
                 , trExitReason = Nothing
                 , trEntryIp = Nothing
                 , trExitIp = Nothing
@@ -24393,6 +24460,12 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     _ -> False
                                )
                     else snrScale > 0
+            directionalitySnapshot =
+                signalDirectionalitySnapshot regimeBankHysteresis mRegimes pricesV t
+            nonDirectionalCheck _ =
+                case directionalitySnapshot of
+                    Just snap | dsNonDirectional snap -> (False, dsReason snap)
+                    _ -> (True, Nothing)
             blendDir = blendNext >>= directionPrice openThrAdj
             lstmCloseDir = mLstmNext >>= directionPrice closeThrAdj
             blendCloseDir = blendNext >>= directionPrice closeThrAdj
@@ -25137,6 +25210,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     cloudOk
                     priceActionOk
                     signalToNoiseOk
+                    nonDirectionalCheck
                     regimeEdgeOk
                     mtfConsensusCheck
                     crossAssetCheck
@@ -25592,6 +25666,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 , lsKalmanDir = kalDir
                 , lsLstmNext = mLstmNext
                 , lsSizingNext = sizingNext
+                , lsDirectionality = directionalitySnapshot
                 , lsLstmDir = lstmDir
                 , lsChosenDir = chosenDir
                 , lsCloseDir = closeDir

@@ -1,5 +1,173 @@
 # Trader Objectives
 
+## 2026-04-06 (23:13 trading review)
+
+### Findings
+- A bounded replay of `2026-04-06 00:00-23:13 America/Guayaquil` showed only one completed trade touching the day: `UNIUSDT` `1h` long, exited `2026-04-06 14:00 -05`, `+0.02320%`, with saved `entrySource=adopted` / `provenance=startup_adopted_position` rather than a confirmed fresh same-day signal entry.
+- The same replay still had one carried position open at the cutoff: `BTCUSDT` `1d` short from `2026-04-05 19:00 -05`, marked `+0.08742%`, in `high-vol` with very weak efficiency (`0.05622`).
+- Before this pass, the daily-review tool misclassified today’s two `UNIUSDT` `SELL` order events as `nonDirectionalOrderAttempts=2` even though both were risk-reducing flow on the adopted long:
+  - `2026-04-06 12:16:57 -05`: ack-only `Order sent.`
+  - `2026-04-06 14:00:51 -05`: `No order: already flat.`
+- The live decision surface therefore did **not** show two fresh non-directional entries today. The dominant engineering failure mode was review semantics: exit/flatten flow on an inherited position was inflating the entry-attempt metric that should drive strategy retunes.
+
+### Hypotheses
+- Daily-review invariants should distinguish opening risk from reducing risk: `nonDirectionalOrderAttempts` must count only entry/add flow, never closes/flattening.
+- Startup-adopted positions should remain visible in review output, but their same-day exits should be treated as carry management rather than evidence that the live entry engine violated the low-directionality gate.
+- With today’s sample, the narrowest useful code change is observability correctness, not another live-rule retune on top of the already-added low-directionality gate.
+
+### Metrics
+- Before the fix (from the pre-patch replay at the start of this pass):
+  - `completedTrades=1`
+  - `completedCompoundPct=+0.02320%`
+  - `openPositionsCarriedIn=1`
+  - `sameDayOrderEvents=2`
+  - `ackOnlyOrderEvents=1`
+  - `nonDirectionalOrderAttempts=2` **(false positive)**
+  - `fillEvidenceGaps=1`
+- After the fix:
+  - `nonDirectionalOrderAttempts=0`
+  - `nonDirectionalExitOrFlattenEvents=2`
+  - `nonDirectionalUnknownRoleEvents=0`
+  - flow-role evidence on today’s two `UNIUSDT` events: `completed_trade_entry_side`, `message_already_flat`
+
+### Changes Made
+- Used Codex to add stable per-order `flowRole` classification (`entry_or_add`, `exit_or_flatten`, `unknown`) in `haskell/scripts/review_bot_day.py`.
+- Tightened `nonDirectionalOrderAttempts` so it counts only non-directional entry/add flow, and added explicit `nonDirectionalExitOrFlattenEvents` / `nonDirectionalUnknownRoleEvents` metrics plus anomaly lists for auditability.
+- Added a deterministic regression reproducing today’s adopted-`UNIUSDT` close/flatten failure mode in `haskell/scripts/test_review_bot_day.py`.
+- Updated `README.md` and `CHANGELOG.md` for the new review semantics.
+
+### Validation Results
+- `python3 -m py_compile haskell/scripts/review_bot_day.py haskell/scripts/test_review_bot_day.py` passed.
+- `python3 -m unittest haskell/scripts/test_review_bot_day.py` passed (`8` tests).
+- `python3 haskell/scripts/review_bot_day.py --date 2026-04-06 --timezone America/Guayaquil --end-local 2026-04-06T23:13:00-05:00 --format json` now reports `nonDirectionalOrderAttempts=0`, `nonDirectionalExitOrFlattenEvents=2`.
+
+### Remaining Risks
+- Today’s `UNIUSDT` close still has ack-only fill evidence (`status=NEW`, `executedQty=0`), so execution provenance remains weaker than a direct exchange fill ledger.
+- `BTCUSDT` remains a carried high-vol / low-efficiency short; today’s replay does not prove whether startup adoption policy itself should be tightened yet.
+- The review tool is now more truthful, but the underlying artifacts are still snapshot-based rather than exchange-native execution logs.
+
+### Downstream Objectives
+- Keep entry/add flow and exit/flatten flow split in every daily review so strategy retunes are not trained on risk-reduction events.
+- If several future days show startup-adopted positions repeatedly exiting from non-directional states, test a dedicated adoption-policy experiment (for example: faster post-start flattening under low directionality) instead of mislabeling those exits as failed entries.
+
+## 2026-04-06
+
+### Findings
+- `mission.md` and `org.md` did not exist at the repo root at the start of this pass, so the operating contract for the Trader Firm CTO lane was implicit instead of resumable.
+- The repo-native autoloop forever contract is now materially stronger than it was in earlier passes: the dirty tree already contains stale-PID detection in `./scripts/autoloop-forever.sh status`, status heartbeats in `scripts/autoloop-forever.mjs`, and a macOS LaunchAgent installer path in `scripts/install-autoloop-launchagent.sh`, all covered by `npm run test:autoloop`.
+- The latest data report before this pass remained the `2026-04-05` section in `reports/trader.md`, whose engineering truth was a low-directionality entry veto and stronger daily-review diagnostics. Nothing in today’s autoloop lane audit contradicted that strategy work.
+- Runtime truth at audit time:
+  - repo-local forever supervisor is alive and heartbeating
+  - current runner state is `blocked`
+  - block reason is the dirty worktree
+  - LaunchAgent keepalive is **not** installed, so the lane is not yet truly durable across shell exit/login
+- One concrete repo-side contract gap was still real: `scripts/install-autoloop-launchagent.sh` existed but was not executable, which made the documented operator install path fail immediately.
+
+### Hypotheses
+- The autoloop lane should be treated as a permanent engineering mission lane, separate from any single strategy tweak or one-day report.
+- "Running" is not enough; the lane is green only when the forever supervisor is both alive **and** service-managed, with bounded cycles unblocked.
+- The narrowest repo-side fix for this pass is to close contract gaps and make the lane explicit in persistent CTO memory, not to force the blocked runner through a dirty worktree.
+
+### Metrics
+- `npm run test:autoloop`: passed (`33/33`)
+- Forever runner status at audit time:
+  - `pidAlive=true`
+  - `live=true`
+  - `state=blocked`
+  - `blockReason=dirty worktree; waiting for operator cleanup before bounded autoloop runs`
+- LaunchAgent status:
+  - plist not installed under `~/Library/LaunchAgents/ai.openclaw.trader.autoloop.forever.plist`
+
+### Changes Made
+- Fixed the executable bit on `scripts/install-autoloop-launchagent.sh` so the documented forever-install command path is actually runnable.
+- Created repo-root `mission.md` and `org.md` so future resume passes have explicit mission and ownership documents to read.
+- Created persistent `.openclaw` lane memory:
+  - `.openclaw/trader-firm-cto.repo-autoloop-forever.objective.md`
+  - `.openclaw/trader-firm-cto.repo-autoloop-forever.report.md`
+- Rewrote the downstream CTO objective so `trader-firm-cto.repo-autoloop-forever` is now the standing mission lane instead of an implied side task.
+
+### Validation Results
+- `npm run test:autoloop` passed.
+- `./scripts/install-autoloop-launchagent.sh status` now runs successfully and reports:
+  - LaunchAgent not installed
+  - repo-local forever runner live but blocked
+- `./scripts/autoloop-forever.sh status` reports a fresh heartbeat instead of stale status when the runner is alive.
+
+### Remaining Risks
+- The lane is still operationally blocked by the dirty worktree, so no bounded autoloop cycle can make forward progress right now.
+- The runner is not yet protected by LaunchAgent keepalive, so it is not a true forever deployment across logout/reboot/session loss.
+- There is still a distinction between repo sufficiency and operator enablement: the repo contract is now close, but the machine is not yet fully green.
+
+### Downstream Objectives
+- Keep `trader-firm-cto.repo-autoloop-forever` as a permanent lane in every CTO pass until it is both service-managed and unblocked.
+- After the owner resolves the dirty tree, install the LaunchAgent and confirm `launchctl` sees `ai.openclaw.trader.autoloop.forever` as loaded.
+- Only declare the lane healthy when both of these are true at the same time:
+  - LaunchAgent installed and running
+  - repo-local status shows `live=true` without a blocker
+
+## 2026-04-05
+
+### Findings
+- Source of truth for this bounded review was the latest tenant snapshot set under `haskell/.tmp/bot/tenants/binance-dc286605a9946343b18aeb2670e23ce51f6d9e0e1b37f50205f1945c6c54016a/`, replayed for local date `2026-04-05` with task cutoff `2026-04-05 23:07 America/Guayaquil`.
+- Raw Binance trade export was not available in this shell (`tmp/today-binance-trades.raw` reported `Missing BINANCE_API_KEY`), so today’s engineering review relied on persisted bot-state snapshots rather than exchange fill history.
+- The bounded replay showed no completed trades and no open exposure at the cutoff: `completedTrades=0`, `openPositionsEnteredToday=0`, `openPositionsCarriedIn=0`.
+- The whole decision surface for the day was therefore two ack-only entry attempts:
+  - `BTCUSDT` `1d` short at `2026-04-05 19:00 -05`, price `69212.2`, regime `high-vol`, 24-bar efficiency `0.06009`, realized vol `2.12952%`
+  - `UNIUSDT` `1h` long at `2026-04-05 22:00 -05`, price `3.171`, regime `chop`, 24-bar efficiency `0.19639`, realized vol `0.46675%`, regime probs `mr=0.89790`, `trend=0.04494`, `highVol=0.05717`
+- Both attempted entries were low-directionality decisions rather than credible directional trends. They combined large raw model edges with weak path efficiency, which matches the repeated `chop` / `range-drift` pathology already seen on `2026-03-31` and `2026-04-03`.
+- The most actionable engineering problem today was that the live engine still allowed directional entries after the model had already wandered into non-directional states, and the saved review artifacts did not make that veto visible enough to measure from persisted order events.
+
+### Hypotheses
+- Directional entries should satisfy a path-quality invariant in addition to threshold/headroom checks: if 24-bar realized directionality is too weak, hold flat even when the raw model edge is large.
+- A small post-direction veto is justified now because today’s two order attempts and several prior reviewed entries all came from the same low-efficiency failure cluster.
+- The narrowest useful implementation is:
+  - veto as `NON_DIRECTIONAL_CHOP` when 24-bar efficiency `<= 0.25`
+  - veto as `NON_DIRECTIONAL_MR` when 24-bar efficiency `<= 0.40` and saved HMM regime probabilities are clearly mean-reversion dominated by at least the existing `regimeBankHysteresis` gap
+- Daily reviews should persist and replay those directionality diagnostics directly from `latestSignal` and order events so future cron runs can verify whether the live engine blocked the same low-quality setups it was supposed to block.
+
+### Metrics
+- Bounded replay summary (`2026-04-05 00:00-23:07 -05`):
+  - `completedTrades=0`
+  - `completedCompoundPct=0.0%`
+  - `openPositionsEnteredToday=0`
+  - `openPositionsCarriedIn=0`
+  - `sameDayOrderEvents=2`
+  - `ackOnlyOrderEvents=2`
+  - `nonDirectionalOrderAttempts=2`
+  - `fillEvidenceGaps=0`
+  - `snapshotsUpdatedAfterWindow=11`
+- Counterfactual gate coverage on today’s decisions:
+  - blocked today: `2/2`
+  - `BTCUSDT` veto: `NON_DIRECTIONAL_CHOP`
+  - `UNIUSDT` veto: `NON_DIRECTIONAL_CHOP`
+- Counterfactual checks on previously reviewed low-efficiency examples using the current saved artifacts:
+  - blocked historical checks: `3/3`
+  - `BNBUSDT` (`2026-04-03` short candidate) efficiency `0.02106` -> `NON_DIRECTIONAL_CHOP`
+  - `ATOMUSDT` (`2026-03-31` open long candidate) efficiency `0.16509` -> `NON_DIRECTIONAL_CHOP`
+  - `LINKUSDT` (`2026-03-31` open long candidate) efficiency `0.16916` -> `NON_DIRECTIONAL_CHOP`
+
+### Changes Made
+- Added a pure `DirectionalitySnapshot` helper plus `signalDirectionalitySnapshot` to `haskell/app/Trader/SignalGates.hs`.
+- Added a new post-direction live/backtest veto path that returns `NON_DIRECTIONAL_CHOP` or `NON_DIRECTIONAL_MR` before entry execution when realized directionality is too weak.
+- Persisted the directionality snapshot into `latestSignal` and bot `orders` in `haskell/app/Main.hs` so saved snapshots carry the same gate inputs the engine used.
+- Extended `haskell/scripts/review_bot_day.py` to replay/report `directionality`, `nonDirectionalVeto`, `nonDirectionalReason`, and `nonDirectionalOrderAttempts`, with fallback reconstruction for older snapshots that do not yet persist those fields.
+- Added focused regression coverage in both `haskell/test/TestMain.hs` and `haskell/scripts/test_review_bot_day.py`.
+- Updated `README.md` and `CHANGELOG.md` for the new low-directionality gate and diagnostics.
+
+### Validation Results
+- `python3 -m py_compile haskell/scripts/review_bot_day.py haskell/scripts/test_review_bot_day.py` passed.
+- `python3 -m unittest haskell/scripts/test_review_bot_day.py` passed (`7` tests).
+- `python3 haskell/scripts/review_bot_day.py --date 2026-04-05 --timezone America/Guayaquil --end-local 2026-04-05T23:07:00-05:00 --format json` passed and now reports `nonDirectionalOrderAttempts=2` with per-order directionality diagnostics.
+- A one-off counterfactual replay over today’s saved order attempts plus three previously reviewed low-efficiency examples reported `blocked_today=2/2` and `blocked_historical_checks=3/3`.
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal test` passed, including the new directionality-gate regression tests.
+- `cd haskell && PATH=$HOME/.ghcup/bin:$PATH cabal build exe:trader-hs` recompiled through `app/Main.hs`, but the final link did not complete before the bounded timeout; no compiler error surfaced before termination.
+
+### Remaining Risks
+- The review is still snapshot-based because direct Binance trade export was unavailable without API credentials, so today’s analysis remains stronger on decision intent than on fill provenance.
+- The new veto uses fixed engineering thresholds (`0.25`, `0.40`) derived from repeated low-efficiency examples, not a full historical optimizer sweep across every symbol/timeframe.
+- `BTCUSDT` lacked saved regime probabilities at the attempted entry, so its veto relied only on realized path efficiency / high-vol context rather than on the HMM dominance branch.
+- The `trader-hs` link step remains slow or stalled in this sandbox; the compile path and test suite are clean, but a fully completed executable link was not observed within the bounded wait.
+
 ## 2026-04-03
 
 ### Findings

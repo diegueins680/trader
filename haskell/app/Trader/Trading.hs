@@ -4,6 +4,8 @@ module Trader.Trading (
     IntrabarFill (..),
     PositionSide (..),
     ExitReason (..),
+    TradeEntrySource (..),
+    tradeEntrySourceCode,
     exitReasonCode,
     exitReasonFromCode,
     StepMeta (..),
@@ -246,11 +248,23 @@ data Trade = Trade
     , trReturn :: !Double
     , trHoldingPeriods :: !Int
     , trEntryHighVolProb :: !(Maybe Double)
+    , trEntrySource :: !TradeEntrySource
     , trExitReason :: !(Maybe ExitReason)
     , trEntryIp :: !(Maybe T.Text)
     , trExitIp :: !(Maybe T.Text)
     }
     deriving (Eq, Show)
+
+data TradeEntrySource
+    = TradeEntrySignal
+    | TradeEntryAdopted
+    deriving (Eq, Show)
+
+tradeEntrySourceCode :: TradeEntrySource -> String
+tradeEntrySourceCode source =
+    case source of
+        TradeEntrySignal -> "signal"
+        TradeEntryAdopted -> "adopted"
 
 data OpenTrade = OpenTrade
     { otEntryIndex :: !Int
@@ -2097,6 +2111,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trReturn = eqExit / otEntryEquity ot - 1
                                                 , trHoldingPeriods = otHoldingPeriods ot
                                                 , trEntryHighVolProb = metaAt (otEntryIndex ot) >>= smHighVolProb
+                                                , trEntrySource = TradeEntrySignal
                                                 , trExitReason = Just why
                                                 , trEntryIp = Nothing
                                                 , trExitIp = Nothing
@@ -2258,6 +2273,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trReturn = exitEq / otEntryEquity otHeld - 1
                                                                             , trHoldingPeriods = otHoldingPeriods otHeld
                                                                             , trEntryHighVolProb = metaAt (otEntryIndex otHeld) >>= smHighVolProb
+                                                                            , trEntrySource = TradeEntrySignal
                                                                             , trExitReason = reason
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
@@ -2327,6 +2343,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trReturn = exitEq / otEntryEquity otHeld - 1
                                                                             , trHoldingPeriods = otHoldingPeriods otHeld
                                                                             , trEntryHighVolProb = metaAt (otEntryIndex otHeld) >>= smHighVolProb
+                                                                            , trEntrySource = TradeEntrySignal
                                                                             , trExitReason = reason
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
@@ -2364,6 +2381,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                 , trReturn = exitEq / otEntryEquity otHeld - 1
                                                                                 , trHoldingPeriods = otHoldingPeriods otHeld
                                                                                 , trEntryHighVolProb = metaAt (otEntryIndex otHeld) >>= smHighVolProb
+                                                                                , trEntrySource = TradeEntrySignal
                                                                                 , trExitReason = Just ExitLiquidation
                                                                                 , trEntryIp = Nothing
                                                                                 , trExitIp = Nothing
@@ -2549,6 +2567,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trReturn = exitEq / otEntryEquity ot - 1
                                                 , trHoldingPeriods = otHoldingPeriods ot
                                                 , trEntryHighVolProb = metaAt (otEntryIndex ot) >>= smHighVolProb
+                                                , trEntrySource = TradeEntrySignal
                                                 , trExitReason = Just ExitEod
                                                 , trEntryIp = Nothing
                                                 , trExitIp = Nothing
