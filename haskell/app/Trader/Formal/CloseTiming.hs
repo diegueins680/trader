@@ -27,7 +27,6 @@ import Data.List (foldl', group, groupBy, sort, sortOn)
 import Data.Maybe (mapMaybe)
 import qualified Data.Vector as V
 
--- | Historical position sample grouped by combo.
 data CloseTimingObservation = CloseTimingObservation
     { ctoCombo :: !String
     , ctoOpenAtMs :: !Int
@@ -36,9 +35,7 @@ data CloseTimingObservation = CloseTimingObservation
     }
     deriving (Eq, Show)
 
-{- | Robust summary over tm in normalized units:
-  r = (tm - ta) / (tc - ta), with support [0, 2].
--}
+-- | Robust summary over tm in normalized units on [0, 2].
 data CloseTimingStats = CloseTimingStats
     { ctsCombo :: !String
     , ctsSamples :: !Int
@@ -49,7 +46,7 @@ data CloseTimingStats = CloseTimingStats
     }
     deriving (Eq, Show)
 
--- | Close policy: mark close-ready once age ratio meets or exceeds the risk-budget quantile.
+-- | Close once the age ratio reaches the chosen risk-budget target.
 data CloseTimingDecision = CloseTimingDecision
     { ctdShouldClose :: !Bool
     , ctdAgeRatio :: !Double
@@ -67,7 +64,7 @@ data ComboTrade = ComboTrade
     }
     deriving (Eq, Show)
 
--- | Per-trade sample with the optimal close index tm in [ta, ta + 2 * (tc - ta)].
+-- | Per-trade timing sample with the best close inside the bounded search window.
 data TradeTimingSample = TradeTimingSample
     { ttsComboId :: !String
     , ttsEntryIndex :: !Int
@@ -81,7 +78,7 @@ data TradeTimingSample = TradeTimingSample
     }
     deriving (Eq, Show)
 
--- | Robust tm-distribution summary per combo.
+-- | Robust timing and lift summary for a combo.
 data ComboTimingStats = ComboTimingStats
     { ctsComboId :: !String
     , ctsSampleCount :: !Int
@@ -94,18 +91,12 @@ data ComboTimingStats = ComboTimingStats
     }
     deriving (Eq, Show)
 
-{- | Combo-level report used to retune timing-based exits from historical trades.
-Retunes fail closed unless the positive-lift q75 candidate is supported by
-enough analyzed trades, is conservatively capped to the last hold bucket with
-enough profitable-support evidence, the exact recommended duration bucket itself
-has enough profitable-support samples and positive estimated lift, report-level
-lift/support fields remain finite, ordered, and above the profitable-support
-floors, matches an analyzed hold bucket, stays within the analyzed hold window,
-any longer retune is backed by consistent exact-bucket upward evidence against
-the observed q75 hold horizon and clears the one-bar deadband, and any shorter
-retune is backed by consistent exact-bucket downward evidence against the
-observed q75 hold horizon. Accepted applications also add a one-bar deadband so
-adjacent recommendations collapse to the current hold horizon.
+{- | Combo-level report used to retune timing-based exits.
+
+Recommendations fail closed unless they come from an analyzed profitable bucket
+with minimum support, positive finite lift, and an application that is no more
+aggressive than the analyzed upward-evidence horizon. Accepted applications also
+keep a one-bar deadband around the current hold.
 -}
 data ComboCloseTimingReport = ComboCloseTimingReport
     { cctrComboId :: !String
@@ -118,8 +109,10 @@ data ComboCloseTimingReport = ComboCloseTimingReport
     , cctrMeanLift :: !(Maybe Double)
     , cctrMedianLift :: !(Maybe Double)
     , cctrMedianObservedDuration :: !(Maybe Int)
+    , cctrObservedHoldHorizon :: !(Maybe Int)
     , cctrMedianOptimalDuration :: !(Maybe Int)
     , cctrQ75OptimalDuration :: !(Maybe Int)
+    , cctrAnalyzedHoldBars :: ![Int]
     , cctrRecommendedMaxHoldBars :: !(Maybe Int)
     , cctrRecommendedMaxHoldBarsEvidenceDuration :: !(Maybe Int)
     , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount :: !(Maybe Int)
@@ -159,7 +152,7 @@ closeTimingWindowUpper ta tc =
         tcInteger = toInteger tc
      in taInteger + 2 * (tcInteger - taInteger)
 
--- | Higher PnL wins; equal PnL picks the earliest timestamp so ties stay order-invariant.
+-- | Higher PnL wins; equal PnL picks the earliest timestamp.
 chooseBetterClose :: (Int, Double) -> (Int, Double) -> (Int, Double)
 chooseBetterClose best cur
     | snd cur > snd best = cur
@@ -174,8 +167,6 @@ buildCloseTimingStats obs =
     grouped =
         groupBy ((==) `on` ctoCombo) . sortOn ctoCombo $ filter validObservation obs
 
-    -- groupBy emits non-empty groups, but we still pattern-match so the helper
-    -- stays total without relying on partial list functions.
     statsFor [] = Nothing
     statsFor xs@(x : _) =
         let combo = ctoCombo x
@@ -300,9 +291,9 @@ analyzeComboCloseTiming comboId prices trades =
         stats = summarizeComboTiming samples
         positiveLiftSampleCount = positiveLiftSupportCount samples
         medianObservedDuration = percentileInt 0.5 (map ttsObservedDuration samples)
+        currentHoldHorizon = observedHoldHorizon samples
         medianOptimalDuration = percentileInt 0.5 (map ttsOptimalDuration samples)
         q75OptimalDuration = supportedPositiveLiftDuration samples
-        currentHoldHorizon = observedHoldHorizon samples
         supportedHorizon = supportedPositiveLiftHorizon samples
         analyzedHoldBars = analyzedHoldBarDomain samples
         analyzedUpperBound = analyzedHoldWindowUpperBound samples
@@ -329,8 +320,10 @@ analyzeComboCloseTiming comboId prices trades =
             , cctrMeanLift = fmap (\ComboTimingStats{ctsMeanLift = v} -> v) stats
             , cctrMedianLift = fmap (\ComboTimingStats{ctsMedianLift = v} -> v) stats
             , cctrMedianObservedDuration = medianObservedDuration
+            , cctrObservedHoldHorizon = currentHoldHorizon
             , cctrMedianOptimalDuration = medianOptimalDuration
             , cctrQ75OptimalDuration = q75OptimalDuration
+            , cctrAnalyzedHoldBars = analyzedHoldBars
             , cctrRecommendedMaxHoldBars = recommendedMaxHoldBars
             , cctrRecommendedMaxHoldBarsEvidenceDuration = recommendedEvidenceDuration
             , cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = recommendedPositiveLiftSampleCount
@@ -361,6 +354,7 @@ closeTimingRecommendationAccepted :: Maybe Int -> Int -> ComboCloseTimingReport 
 closeTimingRecommendationAccepted currentMaxHoldBars recommended report =
     cctrRecommendedMaxHoldBars report == Just recommended
         && closeTimingRecommendationHasRetuneEvidence recommended report
+        && closeTimingRecommendationApplicationDirectionAllowed currentMaxHoldBars recommended report
         && closeTimingRecommendationClearsDeadband currentMaxHoldBars recommended
 
 closeTimingRecommendationHasRetuneEvidence :: Int -> ComboCloseTimingReport -> Bool
@@ -368,6 +362,7 @@ closeTimingRecommendationHasRetuneEvidence recommended report =
     recommended > 0
         && closeTimingRecommendationHasOrderedReportSupport report
         && closeTimingRecommendationHasFiniteLiftStats report
+        && closeTimingRecommendationWithinReportedAnalyzedDomain recommended report
         && closeTimingRecommendationHasExactBucketEvidence recommended report
 
 closeTimingRecommendationHasOrderedReportSupport :: ComboCloseTimingReport -> Bool
@@ -384,6 +379,21 @@ closeTimingRecommendationHasFiniteLiftStats report =
                 && isFinite medianLift
                 && medianLift > 0
         _ -> False
+
+closeTimingRecommendationWithinReportedAnalyzedDomain :: Int -> ComboCloseTimingReport -> Bool
+closeTimingRecommendationWithinReportedAnalyzedDomain recommended report =
+    recommended > 0 && recommended `elem` cctrAnalyzedHoldBars report
+
+closeTimingRecommendationApplicationDirectionAllowed :: Maybe Int -> Int -> ComboCloseTimingReport -> Bool
+closeTimingRecommendationApplicationDirectionAllowed Nothing _ _ = True
+closeTimingRecommendationApplicationDirectionAllowed (Just currentMaxHoldBars) recommended report
+    | recommended > currentMaxHoldBars =
+        case cctrObservedHoldHorizon report of
+            Just analyzedHoldHorizon ->
+                analyzedHoldHorizon > 0
+                    && currentMaxHoldBars >= analyzedHoldHorizon
+            Nothing -> False
+    | otherwise = True
 
 closeTimingRecommendationClearsDeadband :: Maybe Int -> Int -> Bool
 closeTimingRecommendationClearsDeadband Nothing _ = True
@@ -618,107 +628,19 @@ closeTimingRecommendationEligible stats positiveLiftCount currentHoldHorizon rec
         && closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples
         && legacyCloseTimingRecommendationEligible stats recommendedHoldBars
 
-{- | Formal invariant / proof sketch for combo partitioning, hold retunes and accepted applications:
+{- | Formal invariant / proof sketch for combo partitioning and fail-closed hold retunes.
 
-Combo partitioning invariant:
-`buildCloseTimingStats` applies `sortOn ctoCombo` before
-groupBy ((==) `on` ctoCombo), and `summarizeAllCombos` applies
-`sortOn ttsComboId` before groupBy ((==) `on` ttsComboId). Because equality
-groups on a sorted key are contiguous, every emitted group is homogeneous in its
-combo key. Therefore ratio summaries, `positiveLiftSampleCount`,
-profitable-support thresholds, and any `recommendedMaxHoldBars` evidence are
-computed per combo with no cross-combo leakage. Restoring the `Data.List.groupBy`
-import only re-establishes this existing partitioning semantics; it does not
-widen the grouping key, alter sort order, or relax any retune guard.
-
-1. Sparse profitable support fails closed: if the profitable-support sample is empty or has
-   fewer than `minimumPositiveLiftSupportSamples` members, then
-   `supportedPositiveLiftDuration = Nothing`, `supportedPositiveLiftHorizon = Nothing`,
-   and `recommendedMaxHoldBars = Nothing`.
-2. Even when positive-lift support exists, low total sample count still fails closed:
-   `ctsSampleCount < minimumCloseTimingSamples` keeps `recommendedMaxHoldBars = Nothing`.
-3. Report-level lift statistics must remain present and finite for any accepted retune:
-   `cctrMeanLift = Just meanLift` with finite `meanLift` and
-   `cctrMedianLift = Just medianLift` with finite `medianLift > 0`.
-4. Evidence counters stay ordered: `positiveLiftCount <= ctsSampleCount` is required before
-   a recommendation can exist, and accepted reports additionally require
-   `minimumPositiveLiftSupportSamples <= cctrPositiveLiftSampleCount <= cctrSampleCount`,
-   so malformed or inflated support counts fail closed.
-5. Sparse-tail upward retunes are capped before validation: if
-   `supportedPositiveLiftDuration = Just q75Bars` and
-   `supportedPositiveLiftHorizon = Just supportedHorizon`, then the candidate
-   recommendation is `capRecommendationToSupportedPositiveLiftHorizon q75Bars supportedHorizon`,
-   so thin positive-lift tails can never extend a retune past the last hold bucket with
-   enough profitable-support samples.
-6. Therefore any emitted recommendation satisfies
-   `recommendedMaxHoldBars <= supportedPositiveLiftHorizon`; weakening or inconsistent
-   profitable-support evidence can only shrink or remove `supportedPositiveLiftHorizon`,
-   so the recommendation can stay unchanged or decrease, never increase.
-7. Any emitted recommendation must match an analyzed hold bucket: `recommendedHoldBars > 0`
-   and `recommendedHoldBars `elem` analyzedHoldBarDomain samples` are both required before
-   emitting a retune.
-8. The exact recommended hold bucket must itself carry enough profitable support and
-   positive estimated lift:
-   `holdDurationPositiveLiftSupportCount recommendedHoldBars samples >= minimumPositiveLiftSupportSamples`
-   and `mean [ttsReturnLift s | s <- samples, ttsOptimalDuration s == recommendedHoldBars] > 0`
-   are both required before emitting a retune.
-9. Upward retunes are identified against the observed q75 hold horizon
-   `observedHoldHorizon samples`. If `recommendedHoldBars > currentHoldHorizon`, then
-   `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
-   requires `closeTimingRecommendationHasConsistentUpwardEvidence currentHoldHorizon recommendedHoldBars samples`.
-10. Consistent upward evidence means `recommendedHoldBars - currentHoldHorizon > closeTimingRecommendationDeadbandBars`,
-    every profitable-support sample for the recommended bucket comes from a trade whose observed
-    duration was at or below `currentHoldHorizon`, the exact-bucket upward support count meets
-    `minimumPositiveLiftSupportSamples`, and the upward-only mean lift is finite and positive.
-11. Therefore weak, mixed-direction, sub-deadband, or insufficient exact-bucket upward evidence is
-    no more permissive than missing data: all such cases force `recommendedMaxHoldBars = Nothing`.
-12. Weakening or thinning upward evidence can only shrink or remove the upward support set used in
-    step 10, so the recommendation can stay unchanged or disappear, never become more permissive.
-13. Downward retunes are identified against the observed q75 hold horizon
-    `observedHoldHorizon samples`. If `recommendedHoldBars < currentHoldHorizon`, then
-    `closeTimingRecommendationRetuneDirectionAllowed currentHoldHorizon recommendedHoldBars samples`
-    requires `closeTimingRecommendationHasConsistentDownwardEvidence recommendedHoldBars samples`.
-14. Consistent downward evidence means every profitable-support sample for the recommended
-    bucket comes from a trade whose observed duration was strictly longer than that bucket,
-    the exact-bucket downward support count meets `minimumPositiveLiftSupportSamples`, and
-    the downward-only mean lift is finite and positive.
-15. Therefore malformed, mixed-direction, or insufficient exact-bucket downward evidence is
-    no more permissive than missing data: all such cases force `recommendedMaxHoldBars = Nothing`.
-16. Any emitted recommendation stays inside the analyzed window:
-    `recommendedHoldBars <= analyzedHoldWindowUpperBound` is required before emitting
-    `Just recommendedHoldBars`.
-17. Non-positive combo-level lift fails closed: descriptive ratios may still exist, but
-    `ctsMedianLift <= 0` keeps `recommendedMaxHoldBars = Nothing`.
-18. Accepted applications add a one-bar deadband around the current hold horizon:
-    if `cctrRecommendedMaxHoldBars = Just recommendedHoldBars`,
-    `currentMaxHoldBars = Just currentHoldHorizon`, and
-    `abs (recommendedHoldBars - currentHoldHorizon) <= closeTimingRecommendationDeadbandBars`,
-    then `closeTimingRecommendationAccepted (Just currentHoldHorizon) recommendedHoldBars report = False`
-    and `acceptedCloseTimingMaxHoldBars (Just currentHoldHorizon) report = Just currentHoldHorizon`.
-19. Any non-identity accepted retune also requires
-    `closeTimingRecommendationHasRetuneEvidence recommendedHoldBars report`.
-20. `closeTimingRecommendationHasRetuneEvidence` requires `recommendedHoldBars > 0`,
-    ordered report support, finite report lift stats, and exact-bucket evidence with
-    `cctrRecommendedMaxHoldBarsEvidenceDuration == Just recommendedHoldBars`,
-    `cctrRecommendedMaxHoldBarsPositiveLiftSampleCount = Just supportCount` where
-    `minimumPositiveLiftSupportSamples <= supportCount <= cctrPositiveLiftSampleCount`, and
-    `cctrRecommendedMaxHoldBarsMeanLift = Just meanLift` with finite `meanLift > 0`.
-21. Therefore malformed, non-finite, or below-floor report lift/support fields are no more
-    permissive than missing data: they force NoRetune / `Nothing` at recommendation time or
-    `closeTimingRecommendationAccepted ... = False` at application time.
-22. Weakening evidence by decreasing support counts, dropping lift fields, or making any required
-    lift stat non-finite can only falsify the guard in step 20; it can never turn a rejected
-    report into an accepted one.
-23. Because `acceptedCloseTimingMaxHoldBars` only rewrites the horizon when
-    `closeTimingRecommendationAccepted` holds, degrading evidence preserves the current hold
-    horizon and cannot yield a shorter or otherwise more aggressive applied retune than
-    stronger valid evidence.
-24. When `currentMaxHoldBars = Nothing`, the distance comparison is unavailable, so acceptance
-    still requires the exact-bucket and report-level evidence above and otherwise preserves the
-    existing fail-closed recommendation contract.
-25. Therefore any non-identity accepted retune both clears the one-bar deadband and satisfies
-    the profitable-support, positive-lift, analyzed-domain, supported-horizon, finite-report,
-    and directional obligations before persistence/backfill can rewrite `maxHoldBars`.
+1. Combo partitioning is exact because both summary builders sort by combo key before `groupBy`.
+2. No recommendation exists unless total samples meet `minimumCloseTimingSamples`.
+3. No recommendation exists unless profitable-support samples meet `minimumPositiveLiftSupportSamples`.
+4. Any emitted `recommendedMaxHoldBars` is closed over `analyzedHoldBarDomain samples`; unsupported extrapolated hold buckets are never emitted.
+5. The exact recommended bucket must itself have minimum profitable support and positive finite mean lift.
+6. Upward retunes are only emitted when all exact-bucket support comes from trades whose observed duration is at or below the analyzed observed-hold horizon, and the move clears the one-bar deadband.
+7. Downward retunes are only emitted when all exact-bucket support comes from trades whose observed duration is above the recommended bucket.
+8. `closeTimingRecommendationHasRetuneEvidence` rechecks ordered report support, finite positive lift stats, analyzed-domain closure through `cctrAnalyzedHoldBars`, and exact-bucket evidence fields tied to the recommended duration.
+9. `closeTimingRecommendationAccepted` additionally rejects upward applications when `currentMaxHoldBars` is smaller than the analyzed observed-hold horizon stored in `cctrObservedHoldHorizon`.
+10. Therefore weakening evidence by lowering sample/support counts, removing analyzed-domain membership, or making required lift stats malformed can only preserve or shrink the applied hold limit; it can never justify a larger accepted upward extension.
+11. `acceptedCloseTimingMaxHoldBars` rewrites the hold limit only when every guard holds; otherwise it preserves the current value.
 -}
 capRecommendationToSupportedPositiveLiftHorizon :: Int -> Int -> Int
 capRecommendationToSupportedPositiveLiftHorizon =
@@ -803,7 +725,6 @@ orderQuartiles q25 q50 q75 =
         [a, b, c] -> (a, b, c)
         _ -> (0, 0, 0)
 
--- Non-finite budgets collapse to beta=0, preserving the median-target policy.
 normalizeRiskBudget :: Double -> Double
 normalizeRiskBudget x
     | isFinite x = clamp 0 1 x
