@@ -18,17 +18,18 @@ import Trader.SignalGates
 
 -- Existing test harness imports and helpers remain unchanged.
 
-              , run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
-              , run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
-              , run "signal gate fee monotonicity holds" testSignalGateEntryFeeBufferMonotoneFees
-              , run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
-              , run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
-              , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
+              run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
+              run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
+              run "signal gate fee monotonicity holds" testSignalGateEntryFeeBufferMonotoneFees
+              run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
+              run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
+              run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
 
 -- Bounded executable obligations for the fee-aware entry gate cover:
 -- zero-fee specialization, boundary acceptance, strict-below rejection,
 -- monotone non-increasing admissibility, once-blocked-stays-blocked,
--- negative-fee clamping, and non-finite-input fail-closed behavior.
+-- negative-fee clamping, non-finite-input fail-closed behavior,
+-- and the independent spike-veto conjunction on the same entry-only path.
 testSignalGateEntryFeeBuffer :: IO ()
 testSignalGateEntryFeeBuffer = do
     assert
