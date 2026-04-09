@@ -139,7 +139,7 @@ extractLabeledBinanceError = go
 
     parseLabeledMsg rest =
         case dropWhile isSpace rest of
-            ':' : more -> fmap stripTrailingUnmatchedParens (nonEmptyTrim more)
+            ':' : more -> fmap stripSingleTrailingWrapperParen (nonEmptyTrim more)
             _ -> Nothing
 
 looksLikeAuthFailure :: Maybe Int -> String -> Bool
@@ -212,19 +212,22 @@ nonEmptyTrim raw =
     let trimmed = trim raw
      in if null trimmed then Nothing else Just trimmed
 
-stripTrailingUnmatchedParens :: String -> String
-stripTrailingUnmatchedParens raw =
-    let trimmed = trim raw
-     in if hasTrailingUnmatchedParen trimmed
-            then stripTrailingUnmatchedParens (init trimmed)
-            else trimmed
+stripSingleTrailingWrapperParen :: String -> String
+stripSingleTrailingWrapperParen summary
+    | hasSingleTrailingWrapperParen summary = init summary
+    | otherwise = summary
   where
-    hasTrailingUnmatchedParen s =
-        not (null s)
-            && last s == ')'
-            && count '(' s < count ')' s
+    hasSingleTrailingWrapperParen value =
+        not (null value)
+            && last value == ')'
+            && parenBalance value == (-1)
 
-    count needle = length . filter (== needle)
+parenBalance :: String -> Int
+parenBalance = foldl step 0
+  where
+    step balance '(' = balance + 1
+    step balance ')' = balance - 1
+    step balance _ = balance
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
