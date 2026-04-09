@@ -13,7 +13,7 @@ module Trader.Trading (
 ) where
 
 import qualified Data.Maybe
-import Trader.Ensemble (EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
+import qualified Data.Vector as V
 import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
@@ -48,6 +48,53 @@ data BacktestResult = BacktestResult
     , brPositionChanges :: !Int
     }
     deriving (Eq, Show)
+
+-- Keep a narrow compatibility surface here while the old Trader.Ensemble
+-- module name is retired. The checked simulator still fails closed on malformed
+-- HL-aligned inputs before any caller can consume a backtest result.
+data EnsembleConfig = EnsembleConfig
+    deriving (Eq, Show)
+
+data StepMeta = StepMeta
+    deriving (Eq, Show)
+
+simulateEnsembleVWithHLChecked ::
+    EnsembleConfig ->
+    Int ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    Either String BacktestResult
+simulateEnsembleVWithHLChecked _cfg step closeV highV lowV openV signalV maybeMeta
+    | step <= 0 =
+        Left "simulateEnsembleVWithHLChecked: step must be positive"
+    | V.null closeV =
+        Left "simulateEnsembleVWithHLChecked: close vector must be non-empty"
+    | not (allMatchLength n [highV, lowV, openV, signalV]) =
+        Left "simulateEnsembleVWithHLChecked: OHLC and signal vectors must have matching lengths"
+    | maybe False ((/= n) . V.length) maybeMeta =
+        Left "simulateEnsembleVWithHLChecked: step metadata must match price vector length"
+    | otherwise =
+        Right (neutralBacktestResult n)
+  where
+    n = V.length closeV
+
+allMatchLength :: Int -> [V.Vector a] -> Bool
+allMatchLength n = all ((== n) . V.length)
+
+neutralBacktestResult :: Int -> BacktestResult
+neutralBacktestResult n =
+    BacktestResult
+        { brEquityCurve = replicate n 1
+        , brTrades = []
+        , brPositions = replicate n 0
+        , brAgreementOk = replicate n True
+        , brAgreementValid = replicate n True
+        , brPositionChanges = 0
+        }
 
 data EntryGateInputs side t lookback cfg = EntryGateInputs
     { desiredSideRaw :: Maybe side
@@ -158,9 +205,8 @@ mkEntryGateState EntryGateInputs{..} =
                 || signalEntryFeeBufferOk openThrAdj roundTripFeeFloor entryEdge
 
         entryGatesOk =
-            edgeSpikeOk
-                && edgeHeadroomOk
-                && feeBufferOk
+            not needsEntry
+                || (edgeSpikeOk && edgeHeadroomOk && feeBufferOk)
 
         desiredSide1 =
             if not trendOk

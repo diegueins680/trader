@@ -21,9 +21,12 @@ import Trader.SignalGates (
 import Trader.Trading (
     BacktestResult (..),
     EnsembleConfig (..),
+    EntryGateInputs (..),
+    EntryGateState (..),
     ExitReason (..),
     StepMeta (..),
     Trade (..),
+    mkEntryGateState,
     simulateEnsembleVWithHLChecked,
  )
 
@@ -33,6 +36,9 @@ main :: IO ()
 main = do
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
     run "trading optimizer seam stays pinned to checked simulator" testTradingOptimizerCheckedSimulatorSurface
+    run "trading entry gate rejects malformed fee and edge inputs" testTradingEntryGateMalformedInputs
+    run "trading entry gate fee floor stays monotone" testTradingEntryGateFeeMonotone
+    run "trading entry gate keeps spike/headroom/fee vetoes entry-only" testTradingEntryGateEntryOnlyVetoes
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
@@ -137,6 +143,92 @@ testTradingOptimizerCheckedSimulatorSurface = do
         ( case badResult of
             Right (Left _) -> True
             _ -> False
+        )
+
+-- The trading entry-gate integration must keep fresh-entry vetoes fail closed
+-- and entry-only after the import rescue. These bounded witnesses pin the
+-- reviewed conjunction over the shared non-negative entry edge sample.
+mkBaseEntryGateInputs ::
+    Maybe Bool ->
+    Maybe Bool ->
+    Double ->
+    Double ->
+    EntryGateInputs Bool Int Int Double
+mkBaseEntryGateInputs desiredSideRaw0 posSide0 edge0 feePerSide0 =
+    EntryGateInputs
+        { desiredSideRaw = desiredSideRaw0
+        , desiredSizeRaw = 1
+        , posSide = posSide0
+        , volConfGateEnabled = False
+        , lstmEntryScaleRaw = 1
+        , trendOkAt = \_ _ _ -> True
+        , t = 0
+        , trendLookbackStep = 1
+        , volOkAt = const True
+        , ecFee = id
+        , cfg = feePerSide0
+        , isBad = \x -> isNaN x || isInfinite x
+        , minSignalToNoiseAdj = 0
+        , volPerBarAt = const (Just 1)
+        , clamp01 = max 0 . min 1
+        , edgeRaw = edge0
+        , openThrAdj = 0.01
+        , snrOk = True
+        , volTargetReady = True
+        , triLayerOk = True
+        }
+
+testTradingEntryGateMalformedInputs :: IO ()
+testTradingEntryGateMalformedInputs = do
+    let malformedFeeState =
+            mkEntryGateState (mkBaseEntryGateInputs (Just True) Nothing 0.05 (0 / 0))
+        malformedEdgeState =
+            mkEntryGateState (mkBaseEntryGateInputs (Just True) Nothing (0 / 0) 0.001)
+    assert
+        "mkEntryGateState rejects malformed fee floors before opening a fresh position"
+        ( needsEntry malformedFeeState
+            && not (feeBufferOk malformedFeeState)
+            && not (entryGatesOk malformedFeeState)
+            && desiredSide1 malformedFeeState == Nothing
+        )
+    assert
+        "mkEntryGateState clamps malformed edge samples and still rejects the fresh entry"
+        ( needsEntry malformedEdgeState
+            && entryEdge malformedEdgeState == Just 0
+            && not (edgeHeadroomOk malformedEdgeState)
+            && not (entryGatesOk malformedEdgeState)
+            && desiredSide1 malformedEdgeState == Nothing
+        )
+
+testTradingEntryGateFeeMonotone :: IO ()
+testTradingEntryGateFeeMonotone = do
+    let lowFeeState =
+            mkEntryGateState (mkBaseEntryGateInputs (Just True) Nothing 0.0165 0.001)
+        highFeeState =
+            mkEntryGateState (mkBaseEntryGateInputs (Just True) Nothing 0.0165 0.00175)
+    assert
+        "raising the round-trip fee floor cannot reopen a previously blocked entry"
+        ( needsEntry lowFeeState
+            && needsEntry highFeeState
+            && roundTripFeeFloor lowFeeState < roundTripFeeFloor highFeeState
+            && not (feeBufferOk lowFeeState)
+            && not (feeBufferOk highFeeState)
+            && desiredSide1 lowFeeState == Nothing
+            && desiredSide1 highFeeState == Nothing
+        )
+
+testTradingEntryGateEntryOnlyVetoes :: IO ()
+testTradingEntryGateEntryOnlyVetoes = do
+    let holdState =
+            mkEntryGateState (mkBaseEntryGateInputs (Just True) (Just True) (0 / 0) (0 / 0))
+    assert
+        "Trader.Trading only evaluates spike, headroom, and fee-buffer vetoes for fresh entries"
+        ( not (needsEntry holdState)
+            && edgeSpikeOk holdState
+            && edgeHeadroomOk holdState
+            && feeBufferOk holdState
+            && entryGatesOk holdState
+            && desiredSide1 holdState == Just True
         )
 
 -- Bounded executable obligations for the restored signal-gate facade cover:
