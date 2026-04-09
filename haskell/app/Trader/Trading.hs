@@ -1,3 +1,5 @@
+module Trader.Trading where
+
 import Trader.SignalGates (
     normalizeSignalThreshold,
     signalEntryEdgeSpikeOk,
@@ -70,6 +72,7 @@ feeBufferOk =
     not needsEntry
         || signalEntryFeeBufferOk openThrAdj roundTripFeeFloor entryEdge
 
+-- Fail closed: a fresh entry must satisfy every veto over the same entryEdge sample.
 entryGatesOk =
     edgeSpikeOk
         && edgeHeadroomOk
