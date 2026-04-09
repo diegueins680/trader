@@ -8,6 +8,10 @@ import qualified Trader.App.BinanceProbe as BinanceProbe
 binanceProbeSuite :: [(String, IO ())]
 binanceProbeSuite =
     [ ("binance probe parser keeps wrapped auth failures as failures", testWrappedAuthFailure)
+    , ("binance probe parser normalizes wrapped auth summaries idempotently", testAuthSummaryNormalizationIdempotent)
+    , ("binance probe parser preserves balanced auth-summary parentheses", testAuthSummaryNormalizationPreservesBalancedParens)
+    , ("binance probe parser preserves malformed auth-summary wrapper suffixes", testAuthSummaryNormalizationPreservesMalformedSuffix)
+    , ("binance probe parser leaves clean auth summaries unchanged", testAuthSummaryNormalizationLeavesCleanMessage)
     , ("binance auth helper classifies wrapped order failures", testAuthFailureHelperWrappedOrderFailure)
     , ("binance auth helper ignores validation rejects", testAuthFailureHelperIgnoresValidationReject)
     , ("binance trade-test confirmation recognizes order validation rejects", testOrderValidationReject)
@@ -26,6 +30,46 @@ testWrappedAuthFailure = do
     expectEq "binance code" (Just (-2015)) (beiCode err)
     expectEq "summary" "Invalid API-key, IP, or permissions for action." (beiSummary err)
     expectFalse "auth/IP failures must stay failed" (binanceTradeTestConfirmsAuth (beiCode err) (beiSummary err))
+
+testAuthSummaryNormalizationIdempotent :: IO ()
+testAuthSummaryNormalizationIdempotent = do
+    let raw =
+            "Order failed: user error (futures/positionRisk HTTP 401: Binance code -2015: Invalid API-key (desk route), IP, or permissions for action.)"
+        once = parseBinanceError raw
+        twice = parseBinanceError ("Binance code -2015: " ++ beiSummary once)
+    expectEq "idempotent auth summary" "Invalid API-key (desk route), IP, or permissions for action." (beiSummary once)
+    expectEq "idempotent auth summary after reparse" (beiSummary once) (beiSummary twice)
+    expectEq "idempotent auth code after reparse" (beiCode once) (beiCode twice)
+
+testAuthSummaryNormalizationPreservesBalancedParens :: IO ()
+testAuthSummaryNormalizationPreservesBalancedParens = do
+    let err =
+            parseBinanceError
+                "Order failed: user error (Binance code -2015: Invalid API-key (desk route) blocked signature check (recvWindow).)"
+    expectEq
+        "balanced auth summary"
+        "Invalid API-key (desk route) blocked signature check (recvWindow)."
+        (beiSummary err)
+
+testAuthSummaryNormalizationPreservesMalformedSuffix :: IO ()
+testAuthSummaryNormalizationPreservesMalformedSuffix = do
+    let raw =
+            "Order failed: user error (futures/positionRisk HTTP 401: Binance code -2015: Invalid API-key, IP, or permissions for action.))"
+        err = parseBinanceError raw
+        reparsed = parseBinanceError ("Binance code -2015: " ++ beiSummary err)
+    expectEq
+        "malformed auth summary"
+        "Invalid API-key, IP, or permissions for action.))"
+        (beiSummary err)
+    expectEq "malformed auth summary idempotent" (beiSummary err) (beiSummary reparsed)
+
+testAuthSummaryNormalizationLeavesCleanMessage :: IO ()
+testAuthSummaryNormalizationLeavesCleanMessage = do
+    let err = parseBinanceError "Binance code -2015: Invalid API-key, IP, or permissions for action."
+    expectEq
+        "clean auth summary"
+        "Invalid API-key, IP, or permissions for action."
+        (beiSummary err)
 
 testAuthFailureHelperWrappedOrderFailure :: IO ()
 testAuthFailureHelperWrappedOrderFailure =
