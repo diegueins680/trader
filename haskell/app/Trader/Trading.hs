@@ -6,7 +6,7 @@ import qualified Data.Maybe
 import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
-    signalEntryHeadroomOk
+    signalEntryHeadroomOk,
  )
 
 data EntryGateInputs side t lookback cfg = EntryGateInputs
@@ -52,8 +52,8 @@ data EntryGateState side = EntryGateState
 
 -- The live trading loop uses the same binding block to keep entry-only vetoes
 -- fail-closed over one shared edge observation after the refactor repair.
-mkEntryGateState :: Eq side => EntryGateInputs side t lookback cfg -> EntryGateState side
-mkEntryGateState EntryGateInputs {..} =
+mkEntryGateState :: (Eq side) => EntryGateInputs side t lookback cfg -> EntryGateState side
+mkEntryGateState EntryGateInputs{..} =
     let desiredSize0 =
             if Data.Maybe.isNothing desiredSideRaw
                 then 0
@@ -131,4 +131,4 @@ mkEntryGateState EntryGateInputs {..} =
                 || not entryGatesOk
                 then Nothing
                 else desiredSide0
-     in EntryGateState {..}
+     in EntryGateState{..}
