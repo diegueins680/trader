@@ -19,6 +19,17 @@ module Trader.SignalGates (
 
 -- Existing threshold, directionality, and gate helpers remain unchanged.
 
+finiteDouble :: Double -> Bool
+finiteDouble value = not (isNaN value || isInfinite value)
+
+normalizeSignalThreshold :: Double -> Double
+normalizeSignalThreshold raw
+    | finiteDouble raw = max 0 raw
+    | otherwise = 0
+
+entryEdgeHeadroomMultiple :: Double
+entryEdgeHeadroomMultiple = 1.5
+
 signalEntryHeadroomThresholdCap :: Double -> Double
 signalEntryHeadroomThresholdCap edge =
     let edge' =

@@ -9,6 +9,7 @@ import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
+    signalEntryHeadroomThresholdCap,
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
@@ -21,6 +22,7 @@ import Trader.SignalGates (
 main :: IO ()
 main = do
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
+    run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
     run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
     run "signal gate fee monotonicity holds" testSignalGateEntryFeeBufferMonotoneFees
     run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
@@ -30,13 +32,34 @@ main = do
     run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
 
 -- Bounded executable obligations for the fee-aware entry gate cover:
--- zero-fee specialization, boundary acceptance, strict-below rejection,
--- monotone non-increasing admissibility, once-blocked-stays-blocked,
--- negative-fee clamping, missing/non-finite-input fail-closed behavior,
--- and preservation of the shared non-negative entryEdge sample across
--- the independent spike veto and the fee/headroom gates on the fresh-entry path,
--- including the conjunction fact that the fee buffer may veto but cannot reopen
--- an entry already blocked by the upstream spike/headroom pair.
+-- the 1.5x headroom-threshold-cap witness, zero-fee specialization,
+-- boundary acceptance, strict-below rejection, monotone non-increasing
+-- admissibility, once-blocked-stays-blocked, negative-fee clamping,
+-- missing/non-finite-input fail-closed behavior, and preservation of the
+-- shared non-negative entryEdge sample across the independent spike veto
+-- and the fee/headroom gates on the fresh-entry path, including the
+-- conjunction fact that the fee buffer may veto but cannot reopen an
+-- entry already blocked by the upstream spike/headroom pair.
+testSignalGateEntryHeadroomThresholdCap :: IO ()
+testSignalGateEntryHeadroomThresholdCap = do
+    let cappedOpenThreshold = signalEntryHeadroomThresholdCap 0.015
+    assert
+        "headroom threshold cap reconstructs the 1.5x admissible boundary"
+        ( signalEntryHeadroomOk cappedOpenThreshold (Just 0.015)
+            && not (signalEntryHeadroomOk cappedOpenThreshold (Just 0.014999))
+        )
+    assert
+        "headroom threshold cap matches the zero-fee fee-buffer boundary"
+        ( signalEntryFeeBufferOk cappedOpenThreshold 0 (Just 0.015)
+            && not (signalEntryFeeBufferOk cappedOpenThreshold 0 (Just 0.014999))
+        )
+    assert
+        "headroom threshold cap normalizes malformed or negative edges to zero"
+        ( signalEntryHeadroomThresholdCap (0 / 0) == 0
+            && signalEntryHeadroomThresholdCap (1 / 0) == 0
+            && signalEntryHeadroomThresholdCap (-0.01) == 0
+        )
+
 testSignalGateEntryFeeBuffer :: IO ()
 testSignalGateEntryFeeBuffer = do
     assert
@@ -144,8 +167,14 @@ testSignalGateEntryFeeBufferFailsClosed = do
         "non-finite fee floor fails closed"
         (not (signalEntryFeeBufferOk 0.01 (0 / 0) (Just 0.05)))
     assert
+        "infinite fee floor fails closed"
+        (not (signalEntryFeeBufferOk 0.01 (1 / 0) (Just 0.05)))
+    assert
         "non-finite edge fails closed"
         (not (signalEntryFeeBufferOk 0.01 0.002 (Just (1 / 0))))
+    assert
+        "NaN edge fails closed"
+        (not (signalEntryFeeBufferOk 0.01 0.002 (Just (0 / 0))))
     assert
         "negative fee floors stay clamped at zero below the pure headroom boundary"
         (not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.014999)))
