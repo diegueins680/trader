@@ -1,3 +1,5 @@
+import Control.Exception (SomeException, evaluate, try)
+import qualified Data.Vector as V
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -16,13 +18,21 @@ import Trader.SignalGates (
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
  )
-import Trader.Trading (BacktestResult (..), ExitReason (..), Trade (..))
+import Trader.Trading (
+    BacktestResult (..),
+    EnsembleConfig (..),
+    ExitReason (..),
+    StepMeta (..),
+    Trade (..),
+    simulateEnsembleVWithHLChecked,
+ )
 
 -- Existing test harness imports and helpers remain unchanged.
 
 main :: IO ()
 main = do
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
+    run "trading optimizer seam stays pinned to checked simulator" testTradingOptimizerCheckedSimulatorSurface
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
@@ -85,6 +95,49 @@ testTradingResultConstructorSurface = do
         "end-of-day exits remain distinguishable from round trips at constructor level"
         ( case map trExitReason (brTrades result) of
             [Just ExitSignal, Just ExitEod] -> True
+            _ -> False
+        )
+
+-- The optimizer/trading seam must stay pinned to the checked simulator surface
+-- exported by Trader.Trading. This regression also requires malformed HL input
+-- vectors to fail closed before any config-dependent path can bypass the checked
+-- simulator contract.
+testTradingOptimizerCheckedSimulatorSurface :: IO ()
+testTradingOptimizerCheckedSimulatorSurface = do
+    let checkedSimulator ::
+            EnsembleConfig ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            Maybe (V.Vector StepMeta) ->
+            Either String BacktestResult
+        checkedSimulator cfg closes highs lows kalPred lstmPred meta =
+            simulateEnsembleVWithHLChecked cfg 1 closes highs lows kalPred lstmPred meta
+    assert
+        "optimizer seam still compiles against the checked simulator contract"
+        (case checkedSimulator of
+            _ -> True
+        )
+    badResult <-
+        ( try
+            ( evaluate
+                ( checkedSimulator
+                    (error "cfg must stay lazy when HL validation fails")
+                    (V.fromList [100.0, 101.0])
+                    (V.fromList [101.0])
+                    (V.fromList [99.0, 100.0])
+                    (V.fromList [100.5])
+                    (V.fromList [100.5])
+                    Nothing
+                )
+            )
+        ) :: IO (Either SomeException (Either String BacktestResult))
+    assert
+        "malformed HL-checked inputs stay fail closed instead of bypassing the checked simulator"
+        ( case badResult of
+            Right (Left _) -> True
             _ -> False
         )
 
