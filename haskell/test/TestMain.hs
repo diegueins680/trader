@@ -113,15 +113,12 @@ testTradingOptimizerCheckedSimulatorSurface = do
             V.Vector Double ->
             Maybe (V.Vector StepMeta) ->
             Either String BacktestResult
-        checkedSimulator cfg closes highs lows kalPred lstmPred meta =
-            simulateEnsembleVWithHLChecked cfg 1 closes highs lows kalPred lstmPred meta
+        checkedSimulator cfg = simulateEnsembleVWithHLChecked cfg 1
     assert
         "optimizer seam still compiles against the checked simulator contract"
-        ( case checkedSimulator of
-            _ -> True
-        )
+        True
     badResult <-
-        ( try
+        try
             ( evaluate
                 ( checkedSimulator
                     (error "cfg must stay lazy when HL validation fails")
@@ -132,8 +129,7 @@ testTradingOptimizerCheckedSimulatorSurface = do
                     (V.fromList [100.5])
                     Nothing
                 )
-            )
-        ) ::
+            ) ::
             IO (Either SomeException (Either String BacktestResult))
     assert
         "malformed HL-checked inputs stay fail closed instead of bypassing the checked simulator"
