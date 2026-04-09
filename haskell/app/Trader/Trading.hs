@@ -13,6 +13,7 @@ module Trader.Trading (
 ) where
 
 import qualified Data.Maybe
+import Trader.Ensemble (EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
 import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
