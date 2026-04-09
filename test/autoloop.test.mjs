@@ -427,7 +427,10 @@ test("autoloop script polls GitHub CI for each pushed sha before completing", as
 test("autoloop script feeds failed CI logs back into codex repair prompts", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /failureContext = \{\s*[\s\S]*failedLog: ci\.failedLog,/);
-  assert.match(script, /const selectedIdea = failureContext\s*\?\s*await requestFixIdea\(repoContext, failureContext, failureRepairPaths\)/);
+  assert.match(
+    script,
+    /const selectedIdea = failureContext\s*\?\s*await requestFixIdea\(repoContext, failureContext, failureRepairPaths, automaticRepairFailure\)/,
+  );
   assert.match(script, /"Failed log excerpt:",\s*clampText\(failureContext\.failedLog, 20000\)/);
   assert.match(script, /let failedLogChars = failureContext \? 18000 : 0;/);
   assert.match(script, /failureContext \? `Failed CI log excerpt:\\n\$\{clampText\(failureContext\.failedLog, failedLogChars\)\}` : ""/);
@@ -451,6 +454,11 @@ test("autoloop script auto-heals formatting-only CI failures on editable Haskell
   assert.match(script, /const failureRepairPaths = deriveFailureRepairPaths\(failureContext\);/);
   assert.match(script, /const automaticRepair = failureContext \? detectAutomaticRepair\(failureContext\) : null;/);
   assert.match(script, /phase: "auto-repair"/);
+  assert.match(script, /let automaticRepairFailure = "";/);
+  assert.match(script, /try \{\s*applyAutomaticRepair\(automaticRepair\);/);
+  assert.match(script, /Automatic .* repair failed; falling back to semantic repair\./);
+  assert.match(script, /phase: "auto-repair-fallback"/);
+  assert.match(script, /if \(!automaticRepair \|\| automaticRepairFailure\)/);
   assert.match(script, /function parseFourmoluFailurePaths\(failedLog\)/);
   assert.match(script, /const isFourmoluFailure = \/\\bfourmolu --mode check\\b\/\.test\(failedLog\);/);
   assert.match(script, /type: "fourmolu"/);
@@ -466,11 +474,12 @@ test("autoloop script promotes failing log paths into generic self-heal scope", 
   assert.match(script, /function parseFailureReferencedPaths\(failedLog\)/);
   assert.match(script, /function deriveFailureRepairPaths\(failureContext\)/);
   assert.match(script, /const repoContext = await buildRepoContext\(failureRepairPaths\);/);
-  assert.match(script, /await requestFixIdea\(repoContext, failureContext, failureRepairPaths\)/);
+  assert.match(script, /await requestFixIdea\(repoContext, failureContext, failureRepairPaths, automaticRepairFailure\)/);
   assert.match(script, /buildFailureRepairIdea\(failureContext, failureRepairPaths\) \|\| selectedIdea/);
   assert.match(script, /const editableFiles = await readEditableFiles\(idea\.filesNeeded\);/);
   assert.match(script, /Self-heal is required for any actionable failure or error when the failed log names editable files\./);
   assert.match(script, /Failure-targeted editable files: \$\{failureRepairPaths\.join\(", "\) \|\| "\([^"]+\)"\}/);
+  assert.match(script, /Automatic repair failure: \$\{clampText\(automaticRepairFailure, 4000\)\}/);
   assert.match(script, /if \(prompt\.length > PATCH_PLAN_PROMPT_MAX_CHARS\)/);
   assert.match(script, /Patch-plan prompt is \$\{prompt\.length\} chars, above AUTOLOOP_PATCH_PLAN_MAX_CHARS=/);
 });
