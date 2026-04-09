@@ -117,7 +117,7 @@ testTradingOptimizerCheckedSimulatorSurface = do
             simulateEnsembleVWithHLChecked cfg 1 closes highs lows kalPred lstmPred meta
     assert
         "optimizer seam still compiles against the checked simulator contract"
-        (case checkedSimulator of
+        ( case checkedSimulator of
             _ -> True
         )
     badResult <-
@@ -133,7 +133,8 @@ testTradingOptimizerCheckedSimulatorSurface = do
                     Nothing
                 )
             )
-        ) :: IO (Either SomeException (Either String BacktestResult))
+        ) ::
+            IO (Either SomeException (Either String BacktestResult))
     assert
         "malformed HL-checked inputs stay fail closed instead of bypassing the checked simulator"
         ( case badResult of
