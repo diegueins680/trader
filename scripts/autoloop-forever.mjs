@@ -7,8 +7,6 @@ import process from "node:process";
 import { execFileSync, spawn } from "node:child_process";
 import {
   buildBranchMergeCandidates,
-  buildAutoloopDirtyCheckpointBranchName,
-  buildAutoloopRecoveryBranchName,
   normalizeGitBranchShortName,
   parseGitStatusPaths,
   uniqueStrings,
@@ -525,15 +523,15 @@ function runCommand(command, args, opts = {}) {
   }
 }
 
-function tryPushBranchBestEffort(branchName) {
+function pushHeadToBaseBranchWithRetry() {
   try {
-    runCommand("git", ["push", "-u", "origin", `${branchName}:refs/heads/${branchName}`], { capture: false });
-    return { pushed: true, error: null };
-  } catch (err) {
-    return {
-      pushed: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    runCommand("git", ["push", "origin", `HEAD:refs/heads/${BASE_BRANCH}`], { capture: false });
+    return { pushed: true, retried: false, retrySync: null };
+  } catch {
+    runCommand("git", ["fetch", "origin", "--prune"], { capture: false });
+    const retrySync = syncBaseBranchToOrigin();
+    runCommand("git", ["push", "origin", `HEAD:refs/heads/${BASE_BRANCH}`], { capture: false });
+    return { pushed: true, retried: true, retrySync };
   }
 }
 
@@ -565,53 +563,41 @@ async function tryAutoSnapshotDirtyCycle() {
     };
   }
 
-  const currentBranch = runCommand("git", ["branch", "--show-current"]) || String(cycleStatus?.loopBranch || "main");
-  const recoveryBranch = buildAutoloopRecoveryBranchName({
-    loopBranch: cycleStatus?.loopBranch || currentBranch || "main",
-    runId: cycleStatus?.runId || `cycle-${runnerState.cycleCount || 0}`,
-    timestamp: new Date().toISOString(),
-  });
   const commitMessage = `WIP: save failed autoloop cycle ${cycleStatus?.runId || "cycle"}`;
-  let pushResult = { pushed: false, error: null };
 
   try {
     runCommand("git", ["config", "user.name", "autoloop[bot]"], { capture: false });
     runCommand("git", ["config", "user.email", "autoloop[bot]@users.noreply.github.com"], { capture: false });
-    runCommand("git", ["checkout", "-b", recoveryBranch], { capture: false });
     runCommand("git", ["add", "--", ...dirtyPaths], { capture: false });
     runCommand("git", ["commit", "-m", commitMessage], { capture: false });
     const commit = runCommand("git", ["rev-parse", "HEAD"]);
-    pushResult = tryPushBranchBestEffort(recoveryBranch);
-    runCommand("git", ["checkout", currentBranch], { capture: false });
+    const pushResult = pushHeadToBaseBranchWithRetry();
     await writeJsonFileAtomic(CURRENT_CYCLE_STATUS_FILE, {
       ...(cycleStatus || {}),
-      recoveryBranch,
+      recoveryBranch: BASE_BRANCH,
+      recoveryMode: "direct-main",
       recoveryCommit: commit,
       recoveredDirtyPaths: dirtyPaths,
       recoveredAt: new Date().toISOString(),
       recoveryPushed: pushResult.pushed,
-      recoveryPushError: pushResult.error,
+      recoveryPushRetried: pushResult.retried,
+      recoveryPushRetrySync: pushResult.retrySync,
     });
     await logRunner(
-      pushResult.pushed
-        ? `auto-snapshotted failed dirty cycle to ${recoveryBranch} (${commit})`
-        : `auto-snapshotted failed dirty cycle to ${recoveryBranch} (${commit}); push deferred: ${pushResult.error}`,
+      pushResult.retried
+        ? `auto-committed failed dirty cycle directly to ${BASE_BRANCH} (${commit}) after syncing origin/${BASE_BRANCH}`
+        : `auto-committed failed dirty cycle directly to ${BASE_BRANCH} (${commit})`,
     );
     return {
       recovered: true,
-      branch: recoveryBranch,
+      branch: BASE_BRANCH,
       commit,
       pushed: pushResult.pushed,
-      pushError: pushResult.error,
+      retried: pushResult.retried,
+      retrySync: pushResult.retrySync,
       paths: dirtyPaths,
     };
   } catch (err) {
-    try {
-      const branchAfterError = runCommand("git", ["branch", "--show-current"]);
-      if (branchAfterError && branchAfterError !== currentBranch) {
-        runCommand("git", ["checkout", currentBranch], { capture: false });
-      }
-    } catch {}
     const message = err instanceof Error ? err.message : String(err);
     await logRunner(`auto-snapshot recovery failed: ${message}`);
     return {
@@ -639,11 +625,7 @@ async function tryAutoCheckpointDirtyWorktree() {
   const dirtyPaths = parseGitStatusPaths(dirtyStatus);
   if (dirtyPaths.length === 0) return null;
 
-  const currentBranch = runCommand("git", ["branch", "--show-current"]) || "main";
-  const checkpointBranch = buildAutoloopDirtyCheckpointBranchName({
-    loopBranch: currentBranch,
-    timestamp: new Date().toISOString(),
-  });
+  const currentBranch = runCommand("git", ["branch", "--show-current"]) || BASE_BRANCH;
   const analysis = analyzeDirtyWorktree(dirtyPaths, currentBranch);
   const commitBody = [
     analysis.summary,
@@ -652,39 +634,30 @@ async function tryAutoCheckpointDirtyWorktree() {
     `- source branch: ${currentBranch}`,
     `- paths: ${dirtyPaths.join(", ")}`,
   ].join("\n");
-  let pushResult = { pushed: false, error: null };
-
   try {
     runCommand("git", ["config", "user.name", "autoloop[bot]"], { capture: false });
     runCommand("git", ["config", "user.email", "autoloop[bot]@users.noreply.github.com"], { capture: false });
-    runCommand("git", ["checkout", "-b", checkpointBranch], { capture: false });
     runCommand("git", ["add", "-A"], { capture: false });
     runCommand("git", ["commit", "-m", analysis.commitMessage, "-m", commitBody], { capture: false });
     const commit = runCommand("git", ["rev-parse", "HEAD"]);
-    pushResult = tryPushBranchBestEffort(checkpointBranch);
-    runCommand("git", ["checkout", currentBranch], { capture: false });
+    const pushResult = pushHeadToBaseBranchWithRetry();
     await logRunner(
-      pushResult.pushed
-        ? `auto-checkpointed dirty worktree to ${checkpointBranch} (${commit})`
-        : `auto-checkpointed dirty worktree to ${checkpointBranch} (${commit}); push deferred: ${pushResult.error}`,
+      pushResult.retried
+        ? `auto-committed dirty worktree directly to ${BASE_BRANCH} (${commit}) after syncing origin/${BASE_BRANCH}`
+        : `auto-committed dirty worktree directly to ${BASE_BRANCH} (${commit})`,
     );
     return {
       recovered: true,
-      branch: checkpointBranch,
+      branch: BASE_BRANCH,
       commit,
       pushed: pushResult.pushed,
-      pushError: pushResult.error,
+      retried: pushResult.retried,
+      retrySync: pushResult.retrySync,
       paths: dirtyPaths,
       commitMessage: analysis.commitMessage,
       reason: analysis.summary,
     };
   } catch (err) {
-    try {
-      const branchAfterError = runCommand("git", ["branch", "--show-current"]);
-      if (branchAfterError && branchAfterError !== currentBranch) {
-        runCommand("git", ["checkout", currentBranch], { capture: false });
-      }
-    } catch {}
     const message = err instanceof Error ? err.message : String(err);
     await logRunner(`auto-checkpoint failed: ${message}`);
     return {
