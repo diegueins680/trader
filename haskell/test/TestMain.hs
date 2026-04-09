@@ -47,6 +47,9 @@ testSignalGateEntryFeeBuffer = do
         "fee-aware gate rejects missing edge when the fee buffer is active"
         (not (signalEntryFeeBufferOk 0 0.002 Nothing))
     assert
+        "zero-fee specialization fails closed on missing edge"
+        (not (signalEntryFeeBufferOk 0.01 0 Nothing))
+    assert
         "zero-fee specialization accepts equality at the pure headroom boundary"
         (signalEntryFeeBufferOk 0.01 0 (Just 0.015))
     assert
