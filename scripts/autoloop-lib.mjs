@@ -254,30 +254,6 @@ export function parseGitStatusPaths(rawStatus) {
   return uniqueStrings(paths);
 }
 
-function sanitizeGitRefFragment(raw, fallback = "unknown") {
-  const text = String(raw ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._/-]+/g, "-")
-    .replace(/\/+/g, "/")
-    .replace(/^-+|-+$/g, "")
-    .replace(/^\/+|\/+$/g, "");
-  return text || fallback;
-}
-
-export function buildAutoloopRecoveryBranchName({ loopBranch, runId, timestamp }) {
-  const base = sanitizeGitRefFragment(loopBranch || "main", "main");
-  const run = sanitizeGitRefFragment(runId || "cycle", "cycle").replace(/\//g, "-");
-  const stamp = sanitizeGitRefFragment(String(timestamp ?? "").replace(/[:.]/g, "-"), "now").replace(/\//g, "-");
-  return `autoloop/wip/${base}/${run}-${stamp}`;
-}
-
-export function buildAutoloopDirtyCheckpointBranchName({ loopBranch, timestamp }) {
-  const base = sanitizeGitRefFragment(loopBranch || "main", "main");
-  const stamp = sanitizeGitRefFragment(String(timestamp ?? "").replace(/[:.]/g, "-"), "now").replace(/\//g, "-");
-  return `autoloop/dirty/${base}/dirty-worktree-${stamp}`;
-}
-
 export function normalizeGitBranchShortName(rawBranch) {
   const raw = String(rawBranch ?? "").trim();
   if (!raw || raw === "HEAD" || raw === "origin" || raw.endsWith("/HEAD")) return "";
