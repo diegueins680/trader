@@ -4,12 +4,16 @@ module Trader.Trading (
     BacktestResult (..),
     ExitReason (..),
     Trade (..),
+    EnsembleConfig (..),
+    StepMeta (..),
+    simulateEnsembleVWithHLChecked,
     EntryGateInputs (..),
     EntryGateState (..),
     mkEntryGateState,
 ) where
 
 import qualified Data.Maybe
+import Trader.Ensemble (EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
 import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
