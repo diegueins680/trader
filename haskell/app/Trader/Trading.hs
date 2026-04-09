@@ -1,9 +1,9 @@
-import Trader.SignalGates
-    ( normalizeSignalThreshold
-    , signalEntryEdgeSpikeOk
-    , signalEntryFeeBufferOk
-    , signalEntryHeadroomOk
-    )
+import Trader.SignalGates (
+    normalizeSignalThreshold,
+    signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
+    signalEntryHeadroomOk,
+ )
 
 -- Existing imports and surrounding trading loop code remain unchanged.
 
@@ -29,8 +29,9 @@ lstmEntryScale =
 
 trendOk =
     case desiredSide0 of
-        Just side | needsEntry ->
-            trendOkAt t trendLookbackStep side
+        Just side
+            | needsEntry ->
+                trendOkAt t trendLookbackStep side
         _ ->
             True
 
@@ -47,8 +48,9 @@ snrScale =
     if minSignalToNoiseAdj <= 0
         then 1
         else case volPerBarAt t of
-            Just vol | vol > 0 ->
-                clamp01 (max 0 edgeRaw / vol / minSignalToNoiseAdj)
+            Just vol
+                | vol > 0 ->
+                    clamp01 (max 0 edgeRaw / vol / minSignalToNoiseAdj)
             _ ->
                 0
 
@@ -74,13 +76,12 @@ entryGatesOk =
         && feeBufferOk
 
 desiredSide1 =
-    if
-        not trendOk
-            || not volOk
-            || not snrOk
-            || not volTargetReady
-            || not triLayerOk
-            || not entryGatesOk
+    if not trendOk
+        || not volOk
+        || not snrOk
+        || not volTargetReady
+        || not triLayerOk
+        || not entryGatesOk
         then Nothing
         else desiredSide0
 
