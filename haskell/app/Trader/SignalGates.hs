@@ -17,10 +17,20 @@ module Trader.SignalGates (
     signalRunPostDirectionGates,
 ) where
 
--- Existing threshold, directionality, and gate helpers remain unchanged.
+data SignalThresholdBoundary = SignalThresholdBoundary !Double !Double
+    deriving (Eq, Show)
+
+data DirectionalitySnapshot = DirectionalitySnapshot !Bool !Bool
+    deriving (Eq, Show)
 
 finiteDouble :: Double -> Bool
 finiteDouble value = not (isNaN value || isInfinite value)
+
+finiteNonNegativeMaybe :: Maybe Double -> Bool
+finiteNonNegativeMaybe maybeValue =
+    case maybeValue of
+        Just value -> finiteDouble value && value >= 0
+        Nothing -> False
 
 normalizeSignalThreshold :: Double -> Double
 normalizeSignalThreshold raw
@@ -29,6 +39,22 @@ normalizeSignalThreshold raw
 
 entryEdgeHeadroomMultiple :: Double
 entryEdgeHeadroomMultiple = 1.5
+
+mkSignalThresholdBoundary :: Double -> SignalThresholdBoundary
+mkSignalThresholdBoundary openThreshold =
+    let openThreshold' = normalizeSignalThreshold openThreshold
+     in SignalThresholdBoundary openThreshold' (entryEdgeHeadroomMultiple * openThreshold')
+
+signalDirectionalitySnapshot :: Bool -> Bool -> DirectionalitySnapshot
+signalDirectionalitySnapshot longAllowed shortAllowed =
+    DirectionalitySnapshot longAllowed shortAllowed
+
+signalDirectionalityEntryAllowed :: DirectionalitySnapshot -> Maybe Bool -> Bool
+signalDirectionalityEntryAllowed (DirectionalitySnapshot longAllowed shortAllowed) desiredLong =
+    case desiredLong of
+        Just True -> longAllowed
+        Just False -> shortAllowed
+        Nothing -> False
 
 signalEntryHeadroomThresholdCap :: Double -> Double
 signalEntryHeadroomThresholdCap edge =
@@ -54,15 +80,49 @@ signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
                 False
             Just feeFloor ->
                 let requiredEdge = requiredHeadroom + feeFloor
-                 in requiredEdge <= 0
-                        || case edgeForMethod of
-                            Just edge ->
-                                finiteDouble edge && edge >= requiredEdge
-                            Nothing ->
-                                False
+                 in case edgeForMethod of
+                        Just edge ->
+                            finiteDouble edge && edge >= requiredEdge
+                        Nothing ->
+                            False
 
 signalEntryHeadroomOk :: Double -> Maybe Double -> Bool
 signalEntryHeadroomOk openThreshold =
     signalEntryFeeBufferOk openThreshold 0
 
--- Remaining gate implementations remain unchanged.
+signalEntryEdgeSpikeOk :: Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeOk openThreshold edgeForMethod =
+    let spikeCap =
+            entryEdgeHeadroomMultiple * 10 * normalizeSignalThreshold openThreshold
+     in case edgeForMethod of
+            Just edge ->
+                finiteDouble edge
+                    && edge >= 0
+                    && edge <= spikeCap
+            Nothing ->
+                False
+
+signalMetaLabelOk :: Maybe String -> Bool
+signalMetaLabelOk maybeLabel =
+    case maybeLabel of
+        Just label -> not (null (dropWhile (== ' ') label))
+        Nothing -> False
+
+signalMtfConsensusCheck :: [Bool] -> Bool
+signalMtfConsensusCheck votes = not (null votes) && and votes
+
+signalCrossAssetCheck :: [Bool] -> Bool
+signalCrossAssetCheck = signalMtfConsensusCheck
+
+signalRegimeEdgeOk :: Double -> Maybe Double -> Bool
+signalRegimeEdgeOk = signalEntryHeadroomOk
+
+signalFundingOiCheck :: Maybe Double -> Maybe Double -> Bool
+signalFundingOiCheck maybeFunding maybeOpenInterest =
+    finiteNonNegativeMaybe maybeFunding && finiteNonNegativeMaybe maybeOpenInterest
+
+signalRunPostDirectionGates :: DirectionalitySnapshot -> Maybe Bool -> [Bool] -> Bool
+signalRunPostDirectionGates snapshot desiredLong postDirectionChecks =
+    signalDirectionalityEntryAllowed snapshot desiredLong
+        && not (null postDirectionChecks)
+        && and postDirectionChecks

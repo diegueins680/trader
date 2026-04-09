@@ -21,6 +21,7 @@ import Trader.SignalGates (
 
 main :: IO ()
 main = do
+    run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
     run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
@@ -29,17 +30,42 @@ main = do
     run "signal gate fee buffer stays subordinate to spike/headroom vetoes" testSignalGateEntryFeeBufferSubordinate
     run "signal gate shared entryEdge conjunction stays fail closed" testSignalGateEntryConjunctiveSharedEdge
     run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
+    run "signal gate post-direction wrappers cannot reopen blocked entries" testSignalGateNoReopenPostDirection
     run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
 
--- Bounded executable obligations for the fee-aware entry gate cover:
+-- Bounded executable obligations for the restored signal-gate facade cover:
+-- the threshold-boundary witness and entry-only directionality snapshot,
 -- the 1.5x headroom-threshold-cap witness, zero-fee specialization,
 -- boundary acceptance, strict-below rejection, monotone non-increasing
--- admissibility, once-blocked-stays-blocked, negative-fee clamping,
--- missing/non-finite-input fail-closed behavior, and preservation of the
--- shared non-negative entryEdge sample across the independent spike veto
--- and the fee/headroom gates on the fresh-entry path, including the
--- conjunction fact that the fee buffer may veto but cannot reopen an
--- entry already blocked by the upstream spike/headroom pair.
+-- admissibility, once-blocked-stays-blocked under the post-direction wrapper,
+-- negative-fee clamping, missing/non-finite-input fail-closed behavior, and
+-- preservation of the shared non-negative entryEdge sample across the
+-- independent spike veto and the fee/headroom gates on the fresh-entry path,
+-- including the conjunction fact that the fee buffer may veto but cannot
+-- reopen an entry already blocked upstream.
+testSignalGateFacadeSurface :: IO ()
+testSignalGateFacadeSurface = do
+    let boundary = mkSignalThresholdBoundary 0.01
+    let directionality = signalDirectionalitySnapshot True False
+    assert
+        "restored threshold boundary preserves normalized threshold and required edge"
+        (boundary == SignalThresholdBoundary 0.01 0.015)
+    assert
+        "directionality snapshot remains entry-only and side-specific"
+        ( signalDirectionalityEntryAllowed directionality (Just True)
+            && not (signalDirectionalityEntryAllowed directionality (Just False))
+            && not (signalDirectionalityEntryAllowed directionality Nothing)
+        )
+    assert
+        "restored facade wrappers stay fail closed on malformed inputs"
+        ( normalizeSignalThreshold (-0.01) == 0
+            && not (signalMetaLabelOk Nothing)
+            && not (signalMtfConsensusCheck [])
+            && not (signalCrossAssetCheck [])
+            && not (signalRegimeEdgeOk 0.01 Nothing)
+            && not (signalFundingOiCheck Nothing Nothing)
+        )
+
 testSignalGateEntryHeadroomThresholdCap :: IO ()
 testSignalGateEntryHeadroomThresholdCap = do
     let cappedOpenThreshold = signalEntryHeadroomThresholdCap 0.015
@@ -78,6 +104,9 @@ testSignalGateEntryFeeBuffer = do
         "zero-fee specialization fails closed on missing edge"
         (not (signalEntryFeeBufferOk 0.01 0 Nothing))
     assert
+        "zero-threshold zero-fee entries still require an explicit edge sample"
+        (signalEntryFeeBufferOk 0 0 (Just 0) && not (signalEntryFeeBufferOk 0 0 Nothing))
+    assert
         "zero-fee specialization accepts equality at the pure headroom boundary"
         (signalEntryFeeBufferOk 0.01 0 (Just 0.015))
     assert
@@ -87,13 +116,13 @@ testSignalGateEntryFeeBuffer = do
 testSignalGateEntryFeeBufferMonotoneFees :: IO ()
 testSignalGateEntryFeeBufferMonotoneFees = do
     let alloweds =
-            map
-                (\fee -> signalEntryFeeBufferOk 0.01 fee (Just 0.018))
-                [0, 0.002, 0.0035, 0.004]
+            [ signalEntryFeeBufferOk 0.01 fee (Just 0.018)
+            | fee <- [0, 0.002, 0.0035, 0.004]
+            ]
     let blockedLadder =
-            map
-                (\fee -> signalEntryFeeBufferOk 0.01 fee (Just 0.0165))
-                [0.002, 0.0035, 0.004]
+            [ signalEntryFeeBufferOk 0.01 fee (Just 0.0165)
+            | fee <- [0.002, 0.0035, 0.004]
+            ]
     assert
         "fee ladder keeps the expected allow/block shape"
         (alloweds == [True, True, False, False])
@@ -109,8 +138,7 @@ testSignalGateEntryFeeBufferMonotoneFees = do
 
 testSignalGateEntryFeeBufferMonotoneEdge :: IO ()
 testSignalGateEntryFeeBufferMonotoneEdge = do
-    let alloweds =
-            map (signalEntryFeeBufferOk 0.01 0.002 . Just) [0.02, 0.017, 0.016, 0.015]
+    let alloweds = map (signalEntryFeeBufferOk 0.01 0.002 . Just) [0.02, 0.017, 0.016, 0.015]
     assert
         "edge ladder keeps the expected allow/block shape under a fixed fee floor"
         (alloweds == [True, True, False, False])
@@ -181,5 +209,25 @@ testSignalGateEntryFeeBufferFailsClosed = do
     assert
         "negative fee floors are clamped to zero instead of reopening entries"
         (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.015))
+
+testSignalGateNoReopenPostDirection :: IO ()
+testSignalGateNoReopenPostDirection = do
+    let directionality = signalDirectionalitySnapshot True True
+    let blockedEdge = Just 0.015
+    let postDirectionChecks =
+            [ signalEntryEdgeSpikeOk 0.01 blockedEdge
+            , signalEntryHeadroomOk 0.01 blockedEdge
+            , signalEntryFeeBufferOk 0.01 0.002 blockedEdge
+            ]
+    assert
+        "post-direction wrapper cannot reopen an entry already blocked upstream"
+        ( not (and postDirectionChecks)
+            && not (signalRunPostDirectionGates directionality (Just True) postDirectionChecks)
+        )
+    assert
+        "post-direction wrapper stays fail closed without a side or downstream gates"
+        ( not (signalRunPostDirectionGates directionality Nothing [True])
+            && not (signalRunPostDirectionGates directionality (Just True) [])
+        )
 
 -- Remaining signal-gate tests, including the spike-veto witness, remain unchanged.
