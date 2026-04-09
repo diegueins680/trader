@@ -16,11 +16,13 @@ import Trader.SignalGates (
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
  )
+import Trader.Trading (BacktestResult (..), ExitReason (..), Trade (..))
 
 -- Existing test harness imports and helpers remain unchanged.
 
 main :: IO ()
 main = do
+    run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
@@ -32,6 +34,59 @@ main = do
     run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
     run "signal gate post-direction wrappers cannot reopen blocked entries" testSignalGateNoReopenPostDirection
     run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
+
+-- Fail-closed API stability obligation for downstream analytics:
+-- Trader.Metrics must be able to import and pattern-match the canonical
+-- BacktestResult, Trade, and ExitReason constructors from Trader.Trading.
+-- If a future refactor drops those constructor exports, this regression fails
+-- immediately at compile time instead of silently drifting downstream behavior.
+testTradingResultConstructorSurface :: IO ()
+testTradingResultConstructorSurface = do
+    let roundTrip =
+            Trade
+                { trEntryEquity = 1.0
+                , trExitEquity = 1.1
+                , trReturn = 0.1
+                , trHoldingPeriods = 3
+                , trExitReason = Just ExitSignal
+                }
+        sessionClose =
+            Trade
+                { trEntryEquity = 1.1
+                , trExitEquity = 1.1
+                , trReturn = 0
+                , trHoldingPeriods = 1
+                , trExitReason = Just ExitEod
+                }
+        result =
+            BacktestResult
+                { brEquityCurve = [1.0, 1.1, 1.1]
+                , brTrades = [roundTrip, sessionClose]
+                , brPositions = [1.0, 0.0, 0.0]
+                , brAgreementOk = [True, False]
+                , brAgreementValid = [True, True]
+                , brPositionChanges = 1
+                }
+    assert
+        "backtest result constructor remains visible for downstream pattern matches"
+        ( case result of
+            BacktestResult{brEquityCurve = [1.0, 1.1, 1.1], brPositionChanges = 1} -> True
+            _ -> False
+        )
+    assert
+        "trade constructor preserves holding-period and exit-reason access"
+        ( case brTrades result of
+            [ Trade{trHoldingPeriods = 3, trExitReason = Just ExitSignal}
+                , Trade{trHoldingPeriods = 1, trExitReason = Just ExitEod}
+                ] -> True
+            _ -> False
+        )
+    assert
+        "end-of-day exits remain distinguishable from round trips at constructor level"
+        ( case map trExitReason (brTrades result) of
+            [Just ExitSignal, Just ExitEod] -> True
+            _ -> False
+        )
 
 -- Bounded executable obligations for the restored signal-gate facade cover:
 -- the threshold-boundary witness and entry-only directionality snapshot,
