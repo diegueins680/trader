@@ -205,7 +205,7 @@ async function main() {
         : await requestIdeaSelection(repoContext);
       const idea =
         failureContext && selectedIdea.noChange
-          ? buildFailureRepairIdea(failureContext, failureRepairPaths) || selectedIdea
+          ? buildFailureRepairIdea(failureContext, failureRepairPaths, automaticRepairFailure) || selectedIdea
           : selectedIdea;
       await updateStatus({ phase: "algorithm-review", iteration, idea: summarizeIdea(idea) });
       await updateStatus({ phase: "formal-methods-review", iteration, idea: summarizeIdea(idea) });
@@ -577,6 +577,19 @@ function parseFourmoluFailurePaths(failedLog) {
   );
 }
 
+function hasHaskellParserFailure(logText) {
+  return /\bThe GHC parser \(in Haddock mode\) failed\b|\bparse error on input\b/.test(String(logText || ""));
+}
+
+function deriveParserFailurePaths(...logTexts) {
+  return uniqueStrings(
+    logTexts
+      .map((text) => parseFourmoluFailurePaths(text))
+      .flat()
+      .filter(allowedEditPath),
+  ).sort(compareEditablePaths);
+}
+
 function detectAutomaticRepair(failureContext) {
   if (!failureContext?.failedLog) return null;
 
@@ -686,15 +699,21 @@ function parseFailureReferencedPaths(failedLog) {
 function deriveFailureRepairPaths(failureContext) {
   if (!failureContext) return [];
 
+  const parserFailurePaths = deriveParserFailurePaths(failureContext.failedLog);
+  const referencedPaths = parseFailureReferencedPaths(failureContext.failedLog);
+  const changedPaths = uniqueStrings((failureContext.changedPaths || []).map(sanitizeRelativePath).filter(allowedEditPath)).sort(
+    compareEditablePaths,
+  );
   return uniqueStrings([
-    ...parseFailureReferencedPaths(failureContext.failedLog),
-    ...uniqueStrings((failureContext.changedPaths || []).map(sanitizeRelativePath).filter(allowedEditPath)),
-  ]).sort(compareEditablePaths);
+    ...parserFailurePaths,
+    ...referencedPaths,
+    ...changedPaths,
+  ]);
 }
 
-function chooseRepairReviewPath(paths, prefixes, fallbackCandidates = []) {
+function chooseRepairReviewPath(paths, prefixes, fallbackCandidates = [], preferredCandidates = []) {
   const trackedFiles = getTrackedFiles();
-  return uniqueStrings([...paths, ...fallbackCandidates].map(sanitizeRelativePath))
+  return uniqueStrings([...preferredCandidates, ...paths, ...fallbackCandidates].map(sanitizeRelativePath))
     .filter((candidate) => candidate && trackedFiles.has(candidate))
     .find(
       (candidate) =>
@@ -703,29 +722,47 @@ function chooseRepairReviewPath(paths, prefixes, fallbackCandidates = []) {
     ) || "";
 }
 
-function buildFailureRepairIdea(failureContext, failureRepairPaths) {
+function buildFailureRepairIdea(failureContext, failureRepairPaths, automaticRepairFailure = "") {
   if (!failureContext || failureRepairPaths.length === 0) return null;
 
-  const algorithmReviewPath = chooseRepairReviewPath(failureRepairPaths, ALGORITHM_REVIEW_PREFIXES, ["haskell/app/Main.hs"]);
+  const parserFailurePaths = deriveParserFailurePaths(failureContext.failedLog, automaticRepairFailure);
+  const syntaxRepairRequired = parserFailurePaths.length > 0 && hasHaskellParserFailure(`${failureContext.failedLog}\n${automaticRepairFailure}`);
+  const algorithmReviewPath = chooseRepairReviewPath(
+    failureRepairPaths,
+    ALGORITHM_REVIEW_PREFIXES,
+    ["haskell/app/Main.hs"],
+    parserFailurePaths,
+  );
   const formalMethodsPath = chooseRepairReviewPath(
     failureRepairPaths,
     FORMAL_METHODS_REVIEW_PREFIXES,
     ["haskell/test/TestMain.hs", "FORMAL_METHODS.md"],
+    parserFailurePaths,
   );
-  const filesNeeded = uniqueStrings([...failureRepairPaths, algorithmReviewPath, formalMethodsPath].filter(Boolean)).sort(compareEditablePaths);
+  const filesNeeded = uniqueStrings([
+    ...(syntaxRepairRequired ? parserFailurePaths : []),
+    ...failureRepairPaths,
+    algorithmReviewPath,
+    formalMethodsPath,
+  ].filter(Boolean));
   if (!algorithmReviewPath || !formalMethodsPath || filesNeeded.length === 0) return null;
 
   return {
     noChange: false,
     title: `Self-heal failing CI on ${failureContext.branchName}`,
-    rationale:
-      "The failed CI log names editable files, so the loop must attempt a direct repair on those failure-targeted artifacts before declaring noChange or proposing unrelated work.",
+    rationale: syntaxRepairRequired
+      ? "The failed CI log shows parser-level Haskell errors in editable files, so the loop must restore valid syntax/module structure in those parser-failing artifacts before any formatter-only or unrelated repair."
+      : "The failed CI log names editable files, so the loop must attempt a direct repair on those failure-targeted artifacts before declaring noChange or proposing unrelated work.",
     algorithmReviewPath,
-    algorithmReviewFocus: `Review ${algorithmReviewPath} for the smallest safe behavioral or interface change needed to clear the failing CI run.`,
+    algorithmReviewFocus: syntaxRepairRequired
+      ? `Review ${algorithmReviewPath} and restore the smallest valid Haskell syntax/module/import structure needed to clear the parser failure before any behavioral change.`
+      : `Review ${algorithmReviewPath} for the smallest safe behavioral or interface change needed to clear the failing CI run.`,
     formalMethodsPath,
-    formalMethodsFocus: `Align ${formalMethodsPath} with the failing invariant, requirement, or test assertion from the CI log and keep the proof obligation explicit.`,
+    formalMethodsFocus: syntaxRepairRequired
+      ? `Align ${formalMethodsPath} with the parser-failing invariant from the CI log, keep module/test structure parseable, and preserve the proof obligation explicitly.`
+      : `Align ${formalMethodsPath} with the failing invariant, requirement, or test assertion from the CI log and keep the proof obligation explicit.`,
     filesNeeded,
-    verificationCommands: planVerificationCommands(filesNeeded, []),
+    verificationCommands: planVerificationCommands(filesNeeded, syntaxRepairRequired ? ["cd haskell && cabal build", FOURMOLU_CHECK_COMMAND] : []),
   };
 }
 
@@ -947,6 +984,8 @@ async function requestIdeaSelection(repoContext) {
 }
 
 async function requestFixIdea(repoContext, failureContext, failureRepairPaths = [], automaticRepairFailure = "") {
+  const parserFailurePaths = deriveParserFailurePaths(failureContext?.failedLog, automaticRepairFailure);
+  const syntaxRepairRequired = parserFailurePaths.length > 0 && hasHaskellParserFailure(`${failureContext?.failedLog || ""}\n${automaticRepairFailure}`);
   const prompt = [
     "You are selecting a repair for a failed autonomous CI run on the repository branch.",
     "Bias strongly toward backend Haskell trading-algorithm fixes with formal-methods-backed coverage unless the failure clearly requires another file to be touched.",
@@ -954,9 +993,11 @@ async function requestFixIdea(repoContext, failureContext, failureRepairPaths = 
     "Constraints:",
     "- Focus on fixing the reported failure with the smallest safe change.",
     "- Self-heal is required for any actionable failure or error when the failed log names editable files.",
+    "- If the failed log shows parser-level Haskell errors, restore valid syntax, module headers, import/export structure, and declaration shape in the named files before attempting formatter-only cleanup or unrelated semantic edits.",
     "- Still explicitly cover the cycle phases: choose the repair, review one local Haskell algorithm file, review one formal-methods artifact with an explicit invariant/property/proof obligation, then commit/push and wait for GitHub CI.",
     "- Touch only files from the editable file list.",
     "- When the failed log names editable files, filesNeeded must include the smallest relevant subset of those failure-targeted files before unrelated context files.",
+    "- When parser-failing files are named, filesNeeded must include those parser-failing files first and may omit unrelated changed files unless they are required to make the named files build and format cleanly.",
     `- algorithmReviewPath must be within ${ALGORITHM_REVIEW_PREFIXES.join(" or ")} and filesNeeded must include it.`,
     `- formalMethodsPath must be within ${FORMAL_METHODS_REVIEW_PREFIXES.join(" or ")} and filesNeeded must include it.`,
     "- Prefer trading logic, signal gates, predictors, optimizer behavior, position/risk management, or market-state inference over UI-only repairs.",
@@ -968,6 +1009,7 @@ async function requestFixIdea(repoContext, failureContext, failureRepairPaths = 
     `Failed run: ${failureContext.runUrl}`,
     `Changed paths on the current branch: ${failureContext.changedPaths.join(", ")}`,
     `Failure-targeted editable files: ${failureRepairPaths.join(", ") || "(none)"}`,
+    syntaxRepairRequired ? `Parser-failing editable files: ${parserFailurePaths.join(", ")}` : "",
     automaticRepairFailure ? `Automatic repair failure: ${clampText(automaticRepairFailure, 4000)}` : "",
     "Failed log excerpt:",
     clampText(failureContext.failedLog, 20000),
@@ -994,6 +1036,8 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
   const fileSections = editableFiles
     .map((file) => `FILE: ${file.path}\n<<<FILE\n${file.content}\nFILE;`)
     .join("\n\n");
+  const parserFailurePaths = deriveParserFailurePaths(failureContext?.failedLog);
+  const syntaxRepairRequired = parserFailurePaths.length > 0 && hasHaskellParserFailure(failureContext?.failedLog || "");
 
   const promptLines = [
     "You are implementing a single repository change.",
@@ -1007,6 +1051,7 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     "- Only modify the provided files.",
     "- Preserve unrelated content.",
     "- Keep the change minimal and focused.",
+    "- If the failed CI log shows parser-level Haskell errors, first restore valid Haskell syntax/module/import/test structure in the named files before attempting formatter-only cleanup or broader semantic edits.",
     "- Explicitly complete the required phases inside this plan: the chosen backend algorithm change, a review of the selected Haskell algorithm file, and a formal-methods review with an invariant/property/proof-sketch update.",
     "- algorithmReviewSummary must say what backend algorithm file was reviewed and what algorithmic change or no-change decision followed.",
     "- formalMethodsSummary must name the invariant/property/test or FORMAL_METHODS / Trader.Formal proof sketch that now covers the change.",
@@ -1020,6 +1065,7 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     idea.algorithmReviewFocus ? `Algorithm review focus: ${idea.algorithmReviewFocus}` : "",
     idea.formalMethodsPath ? `Formal methods review file: ${idea.formalMethodsPath}` : "",
     idea.formalMethodsFocus ? `Formal methods review focus: ${idea.formalMethodsFocus}` : "",
+    syntaxRepairRequired ? `Parser-failing files that must be made parseable first: ${parserFailurePaths.join(", ")}` : "",
   ].filter(Boolean);
 
   let failedLogChars = failureContext ? 18000 : 0;
