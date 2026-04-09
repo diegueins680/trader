@@ -4,16 +4,12 @@ module Trader.Trading (
     BacktestResult (..),
     ExitReason (..),
     Trade (..),
-    EnsembleConfig (..),
-    StepMeta (..),
-    simulateEnsembleVWithHLChecked,
     EntryGateInputs (..),
     EntryGateState (..),
     mkEntryGateState,
 ) where
 
 import qualified Data.Maybe
-import Trader.Ensemble (EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
 import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
@@ -28,8 +24,8 @@ data ExitReason
     | ExitEod
     deriving (Eq, Show)
 
--- Keep the canonical backtest result surface exported so metrics and optimizer
--- executables fail closed at compile time if this API drifts.
+-- Keep the canonical backtest result surface exported so metrics and downstream
+-- callers fail closed at compile time if this API drifts.
 data Trade = Trade
     { trEntryEquity :: !Double
     , trExitEquity :: !Double
