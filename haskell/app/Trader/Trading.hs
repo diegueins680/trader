@@ -1,12 +1,12 @@
 module Trader.Trading where
 
 import qualified Data.Maybe
-import Trader.SignalGates
-    ( normalizeSignalThreshold,
-      signalEntryEdgeSpikeOk,
-      signalEntryFeeBufferOk,
-      signalEntryHeadroomOk
-    )
+import Trader.SignalGates (
+    normalizeSignalThreshold,
+    signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
+    signalEntryHeadroomOk,
+ )
 
 -- Existing imports and surrounding trading loop code remain unchanged.
 
