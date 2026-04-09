@@ -594,13 +594,12 @@ function detectAutomaticRepair(failureContext) {
   if (!failureContext?.failedLog) return null;
 
   const failedLog = String(failureContext.failedLog);
-  const changedPaths = uniqueStrings((failureContext.changedPaths || []).map(sanitizeRelativePath));
   const isFourmoluFailure = /\bfourmolu --mode check\b/.test(failedLog);
   if (!isFourmoluFailure) return null;
 
-  const fourmoluPaths = parseFourmoluFailurePaths(failedLog).filter(
-    (filePath) => changedPaths.length === 0 || changedPaths.includes(filePath),
-  );
+  // Trust the failed formatter log over commit changed-path metadata because CI
+  // can surface parse/format failures from files outside a narrow changedPaths set.
+  const fourmoluPaths = parseFourmoluFailurePaths(failedLog);
   if (fourmoluPaths.length === 0 || !fourmoluPaths.every(allowedEditPath)) return null;
 
   return {

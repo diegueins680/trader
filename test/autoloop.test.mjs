@@ -451,6 +451,10 @@ test("autoloop script auto-heals formatting-only CI failures on editable Haskell
   assert.match(script, /if \(!automaticRepair \|\| automaticRepairFailure\)/);
   assert.match(script, /function parseFourmoluFailurePaths\(failedLog\)/);
   assert.match(script, /const isFourmoluFailure = \/\\bfourmolu --mode check\\b\/\.test\(failedLog\);/);
+  assert.match(
+    script,
+    /Trust the failed formatter log over commit changed-path metadata because CI[\s\S]*const fourmoluPaths = parseFourmoluFailurePaths\(failedLog\);/,
+  );
   assert.match(script, /type: "fourmolu"/);
   assert.match(script, /function applyAutomaticRepair\(repair\)/);
   assert.match(script, /runCommand\("fourmolu", \["-i", \.\.\.relPaths\], \{/);
