@@ -555,8 +555,17 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /buildBranchMergeCandidates\(\{ localBranches, remoteBranches, baseBranch: BASE_BRANCH \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
-  assert.match(script, /runCommand\("git", \["merge", "--no-ff", "--no-edit", branchRef\], \{ capture: false \}\)/);
+  assert.match(script, /function buildMergeCommitMessage\(shortName = "", branchRef = ""\)/);
+  assert.match(script, /function buildConflictResolutionCommitMessage\(shortName = "", branchRef = ""\)/);
+  assert.match(script, /return `autoloop: sync \$\{BASE_BRANCH\} with origin\/\$\{BASE_BRANCH\}`;/);
+  assert.match(script, /return `autoloop: merge \$\{shortName \|\| branchRef\} into \$\{BASE_BRANCH\}`;/);
+  assert.match(script, /function rebaseBaseBranchOntoOrigin\(\)/);
+  assert.match(script, /runCommand\("git", \["rebase", remoteRef\], \{ capture: false \}\)/);
+  assert.match(script, /runCommand\("git", \["rebase", "--abort"\], \{ capture: false \}\)/);
+  assert.match(script, /outcome: "rebased"/);
+  assert.match(script, /runCommand\("git", \["merge", "--no-ff", "-m", mergeMessage, branchRef\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["restore", "--source=HEAD", "--staged", "--worktree", "--", \.\.\.conflicts\], \{ capture: false \}\)/);
+  assert.match(script, /runCommand\("git", \["commit", "-m", conflictMessage\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["push", "origin", `\$\{BASE_BRANCH\}:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
   assert.match(script, /const pruneResult = pruneMergedRefsOnBaseBranch\(BASE_BRANCH\);/);
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
