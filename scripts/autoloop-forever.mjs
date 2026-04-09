@@ -332,21 +332,42 @@ function mergeRefOntoBaseBranch(branchRef, shortName = normalizeGitBranchShortNa
   };
 }
 
-function syncBaseBranchToOrigin() {
+function rebaseBaseBranchOntoOrigin() {
   const remoteRef = `origin/${BASE_BRANCH}`;
-  const localHead = runCommand("git", ["rev-parse", "HEAD"]);
+  const headBefore = runCommand("git", ["rev-parse", "HEAD"]);
   const remoteHead = runCommand("git", ["rev-parse", remoteRef]);
-  if (localHead === remoteHead) {
+  if (headBefore === remoteHead) {
     return {
       outcome: "noop",
       ref: remoteRef,
       shortName: BASE_BRANCH,
-      headBefore: localHead,
-      headAfter: localHead,
+      headBefore,
+      headAfter: headBefore,
       conflicts: [],
     };
   }
-  return mergeRefOntoBaseBranch(remoteRef, BASE_BRANCH);
+
+  try {
+    runCommand("git", ["rebase", remoteRef], { capture: false });
+  } catch {
+    try {
+      runCommand("git", ["rebase", "--abort"], { capture: false });
+    } catch {}
+    return mergeRefOntoBaseBranch(remoteRef, BASE_BRANCH);
+  }
+
+  return {
+    outcome: "rebased",
+    ref: remoteRef,
+    shortName: BASE_BRANCH,
+    headBefore,
+    headAfter: runCommand("git", ["rev-parse", "HEAD"]),
+    conflicts: [],
+  };
+}
+
+function syncBaseBranchToOrigin() {
+  return rebaseBaseBranchOntoOrigin();
 }
 
 function pushBaseBranchWithRetry() {
