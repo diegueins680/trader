@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Trading: derive low-directionality efficiency and z-score from the additive per-bar return path, so clean monotonic trend windows stay directional instead of being misclassified as malformed when the compounded endpoint return slightly exceeds the summed simple-return path.
 - CLI/API: trim unmatched outer wrapper parentheses from wrapped Binance auth-failure summaries (for example `user error (...)`), so probe output and live auth-failure halts keep the exact Binance message text instead of a stray trailing `)`.
 - Dev/CI: raise the trader autoloop GitHub CI discovery timeout default to 3000 seconds so bounded cycles do not abort early while slower Actions/check-suites are still registering or completing.
 - Dev/CI: make the trader autoloop prune all merged local and remote refs after each successful `main` reconciliation pass, so `autoloop/wip/*`, `autoloop/dirty/*`, and other already-merged backlog branches stop accumulating even while the loop keeps creating fresh recovery checkpoints.

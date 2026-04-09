@@ -13,6 +13,7 @@ binanceProbeSuite =
     , ("binance probe parser preserves malformed auth-summary wrapper suffixes", testAuthSummaryNormalizationPreservesMalformedSuffix)
     , ("binance probe parser leaves clean auth summaries unchanged", testAuthSummaryNormalizationLeavesCleanMessage)
     , ("binance auth helper classifies wrapped order failures", testAuthFailureHelperWrappedOrderFailure)
+    , ("binance auth helper preserves balanced payload text inside wrapped auth failures", testAuthFailureHelperPreservesBalancedPayload)
     , ("binance auth helper ignores validation rejects", testAuthFailureHelperIgnoresValidationReject)
     , ("binance trade-test confirmation recognizes order validation rejects", testOrderValidationReject)
     , ("binance trade-test confirmation ignores transient upstream failures", testTransientFailure)
@@ -21,6 +22,7 @@ binanceProbeSuite =
     , ("binance probe parser recognizes HTTP status-line prefixes", testHttpStatusLine)
     , ("binance probe parser recognizes wrapped HTTP/2 status lines", testWrappedHttp2StatusLine)
     , ("binance probe parser keeps long json messages intact", testLongJsonBody)
+    , ("binance probe summary normalization satisfies bounded invariants", testSummaryNormalizationBoundedInvariants)
     ]
 
 testWrappedAuthFailure :: IO ()
@@ -80,6 +82,20 @@ testAuthFailureHelperWrappedOrderFailure =
             expectEq "helper binance code" (Just (-2015)) (beiCode err)
             expectEq "helper summary" "Invalid API-key, IP, or permissions for action." (beiSummary err)
 
+testAuthFailureHelperPreservesBalancedPayload :: IO ()
+testAuthFailureHelperPreservesBalancedPayload =
+    case
+        BinanceProbe.binanceAuthFailureFromMessage
+            "Order failed: user error (futures/account HTTP 401: Binance code -1022: Signature for this request is not valid. (details=(recvWindow=5000)))"
+    of
+        Nothing -> error "expected auth failure classification"
+        Just err -> do
+            expectEq "balanced helper code" (Just (-1022)) (beiCode err)
+            expectEq
+                "balanced helper summary"
+                "Signature for this request is not valid. (details=(recvWindow=5000))"
+                (beiSummary err)
+
 testAuthFailureHelperIgnoresValidationReject :: IO ()
 testAuthFailureHelperIgnoresValidationReject =
     case BinanceProbe.binanceAuthFailureFromMessage "Order failed: Binance code -1013: Filter failure: LOT_SIZE" of
@@ -136,6 +152,53 @@ testLongJsonBody = do
     expectEq "long json code" (Just (-1013)) (beiCode err)
     expectEq "long json summary" longMsg (beiSummary err)
     expectTrue "long json validation reject should confirm auth" (binanceTradeTestConfirmsAuth (beiCode err) (beiSummary err))
+
+testSummaryNormalizationBoundedInvariants :: IO ()
+testSummaryNormalizationBoundedInvariants =
+    mapM_ assertCase cases
+  where
+    cases =
+        [ ( "already clean"
+          , "Invalid API-key, IP, or permissions for action."
+          , "Invalid API-key, IP, or permissions for action."
+          )
+        , ( "single wrapper"
+          , "Invalid API-key, IP, or permissions for action.)"
+          , "Invalid API-key, IP, or permissions for action."
+          )
+        , ( "balanced payload"
+          , "Signature for this request is not valid. (details=(recvWindow=5000))"
+          , "Signature for this request is not valid. (details=(recvWindow=5000))"
+          )
+        , ( "balanced payload with wrapper"
+          , "Signature for this request is not valid. (details=(recvWindow=5000)))"
+          , "Signature for this request is not valid. (details=(recvWindow=5000))"
+          )
+        ]
+
+    assertCase (label, raw, expected) = do
+        let once = normalizeLabeledSummary raw
+            twice = normalizeLabeledSummary once
+        expectEq (label ++ " normalized summary") expected once
+        expectEq (label ++ " normalization idempotence") once twice
+        expectFalse (label ++ " unmatched trailing paren") (endsWithUnmatchedTrailingParen once)
+
+normalizeLabeledSummary :: String -> String
+normalizeLabeledSummary raw =
+    beiSummary (parseBinanceError ("order/test HTTP 401: Binance code -2015: " ++ raw))
+
+endsWithUnmatchedTrailingParen :: String -> Bool
+endsWithUnmatchedTrailingParen summary =
+    not (null summary)
+        && last summary == ')'
+        && parenBalance summary < 0
+
+parenBalance :: String -> Int
+parenBalance = foldl step 0
+  where
+    step balance '(' = balance + 1
+    step balance ')' = balance - 1
+    step balance _ = balance
 
 expectEq :: (Eq a, Show a) => String -> a -> a -> IO ()
 expectEq label expected actual =
