@@ -17,6 +17,7 @@ import Trader.SignalGates
                                                 then Nothing
                                                 else desiredSideRaw
 
+                                        -- Only fresh entries should consult the entry-only veto gates below.
                                         needsEntry =
                                             Data.Maybe.isJust desiredSide0
                                                 && desiredSide0 /= posSide

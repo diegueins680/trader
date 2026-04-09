@@ -25,6 +25,10 @@ import Trader.SignalGates
               , run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
               , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
 
+-- Bounded executable obligations for the fee-aware entry gate cover:
+-- zero-fee specialization, boundary acceptance, strict-below rejection,
+-- monotone non-increasing admissibility, once-blocked-stays-blocked,
+-- negative-fee clamping, and non-finite-input fail-closed behavior.
 testSignalGateEntryFeeBuffer :: IO ()
 testSignalGateEntryFeeBuffer = do
     assert
@@ -39,6 +43,9 @@ testSignalGateEntryFeeBuffer = do
     assert
         "fee-aware gate rejects missing edge when the fee buffer is active"
         (not (signalEntryFeeBufferOk 0 0.002 Nothing))
+    assert
+        "zero-fee specialization accepts equality at the pure headroom boundary"
+        (signalEntryFeeBufferOk 0.01 0 (Just 0.015))
     assert
         "headroom-only helper remains the zero-fee specialization"
         (signalEntryHeadroomOk 0.01 (Just 0.015) == signalEntryFeeBufferOk 0.01 0 (Just 0.015))
@@ -85,6 +92,9 @@ testSignalGateEntryFeeBufferFailsClosed = do
     assert
         "non-finite edge fails closed"
         (not (signalEntryFeeBufferOk 0.01 0.002 (Just (1 / 0))))
+    assert
+        "negative fee floors stay clamped at zero below the pure headroom boundary"
+        (not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.014999)))
     assert
         "negative fee floors are clamped to zero instead of reopening entries"
         (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.015))

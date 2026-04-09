@@ -14,7 +14,7 @@ module Trader.SignalGates (
     signalCrossAssetCheck,
     signalRegimeEdgeOk,
     signalFundingOiCheck,
-    signalRunPostDirectionGates
+    signalRunPostDirectionGates,
 ) where
 
 -- Existing threshold, directionality, and gate helpers remain unchanged.
@@ -32,6 +32,8 @@ normalizeSignalFeeFloor raw
     | finiteDouble raw = Just (max 0 raw)
     | otherwise = Nothing
 
+-- The fee-aware gate is a monotone strengthening of the headroom check:
+-- invalid fee floors fail closed, and larger fee floors require larger edge.
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
 signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
     let requiredHeadroom =
