@@ -25,6 +25,7 @@ main = do
     run "signal gate fee monotonicity holds" testSignalGateEntryFeeBufferMonotoneFees
     run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
     run "signal gate fee buffer stays subordinate to spike/headroom vetoes" testSignalGateEntryFeeBufferSubordinate
+    run "signal gate shared entryEdge conjunction stays fail closed" testSignalGateEntryConjunctiveSharedEdge
     run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
     run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
 
@@ -120,6 +121,22 @@ testSignalGateEntryFeeBufferSubordinate = do
                     && signalEntryFeeBufferOk 0.01 0.002 headroomBlockedEdge
                 )
         )
+
+testSignalGateEntryConjunctiveSharedEdge :: IO ()
+testSignalGateEntryConjunctiveSharedEdge = do
+    let entryGatesOk openThr roundTripFee edge =
+            signalEntryEdgeSpikeOk openThr edge
+                && signalEntryHeadroomOk openThr edge
+                && signalEntryFeeBufferOk openThr roundTripFee edge
+    assert
+        "shared entryEdge conjunction admits only when every entry veto passes"
+        (entryGatesOk 0.01 0 (Just 0.015))
+    assert
+        "shared entryEdge conjunction stays closed when the fee buffer vetoes"
+        (not (entryGatesOk 0.01 0.002 (Just 0.015)))
+    assert
+        "shared entryEdge conjunction fails closed on malformed input"
+        (not (entryGatesOk 0.01 0.002 Nothing))
 
 testSignalGateEntryFeeBufferFailsClosed :: IO ()
 testSignalGateEntryFeeBufferFailsClosed = do
