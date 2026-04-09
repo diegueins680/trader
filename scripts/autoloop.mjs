@@ -164,6 +164,7 @@ async function main() {
     hardResetToCurrentHead();
     const failureRepairPaths = deriveFailureRepairPaths(failureContext);
     const automaticRepair = failureContext ? detectAutomaticRepair(failureContext) : null;
+    let automaticRepairFailure = "";
     let plannedPaths = [];
     let verificationCommands = [];
     let commitMessage = "";
@@ -179,12 +180,28 @@ async function main() {
         failureContext: summarizeFailureContext(failureContext),
         automaticRepair: summarizeAutomaticRepair(automaticRepair),
       });
-      applyAutomaticRepair(automaticRepair);
-    } else {
+      try {
+        applyAutomaticRepair(automaticRepair);
+      } catch (err) {
+        automaticRepairFailure = err instanceof Error ? err.message : String(err);
+        // Formatter failures on syntactically-broken files still need a semantic
+        // repair path instead of aborting the cycle.
+        console.warn(`Automatic ${automaticRepair.type} repair failed; falling back to semantic repair.\n${automaticRepairFailure}`);
+        await updateStatus({
+          phase: "auto-repair-fallback",
+          iteration,
+          failureContext: summarizeFailureContext(failureContext),
+          automaticRepair: summarizeAutomaticRepair(automaticRepair),
+          message: automaticRepairFailure,
+        });
+      }
+    }
+
+    if (!automaticRepair || automaticRepairFailure) {
       const repoContext = await buildRepoContext(failureRepairPaths);
       await updateStatus({ phase: "choose-change", iteration });
       const selectedIdea = failureContext
-        ? await requestFixIdea(repoContext, failureContext, failureRepairPaths)
+        ? await requestFixIdea(repoContext, failureContext, failureRepairPaths, automaticRepairFailure)
         : await requestIdeaSelection(repoContext);
       const idea =
         failureContext && selectedIdea.noChange
@@ -929,7 +946,7 @@ async function requestIdeaSelection(repoContext) {
   return normalizeIdeaSelection(await callModelJson({ prompt, maxOutputTokens: 2000 }));
 }
 
-async function requestFixIdea(repoContext, failureContext, failureRepairPaths = []) {
+async function requestFixIdea(repoContext, failureContext, failureRepairPaths = [], automaticRepairFailure = "") {
   const prompt = [
     "You are selecting a repair for a failed autonomous CI run on the repository branch.",
     "Bias strongly toward backend Haskell trading-algorithm fixes with formal-methods-backed coverage unless the failure clearly requires another file to be touched.",
@@ -951,6 +968,7 @@ async function requestFixIdea(repoContext, failureContext, failureRepairPaths = 
     `Failed run: ${failureContext.runUrl}`,
     `Changed paths on the current branch: ${failureContext.changedPaths.join(", ")}`,
     `Failure-targeted editable files: ${failureRepairPaths.join(", ") || "(none)"}`,
+    automaticRepairFailure ? `Automatic repair failure: ${clampText(automaticRepairFailure, 4000)}` : "",
     "Failed log excerpt:",
     clampText(failureContext.failedLog, 20000),
     "",
