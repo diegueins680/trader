@@ -19,6 +19,23 @@ module Trader.SignalGates (
 
 -- Existing threshold, directionality, and gate helpers remain unchanged.
 
+finiteDouble :: Double -> Bool
+finiteDouble raw = not (isNaN raw || isInfinite raw)
+
+normalizeSignalThreshold :: Double -> Double
+normalizeSignalThreshold raw
+    | finiteDouble raw = max 0 raw
+    | otherwise = 0
+
+entryEdgeHeadroomMultiple :: Double
+entryEdgeHeadroomMultiple = 1.5
+
+normalizeSignalEntryEdge :: Maybe Double -> Maybe Double
+normalizeSignalEntryEdge Nothing = Nothing
+normalizeSignalEntryEdge (Just raw)
+    | finiteDouble raw && raw >= 0 = Just raw
+    | otherwise = Nothing
+
 signalEntryHeadroomThresholdCap :: Double -> Double
 signalEntryHeadroomThresholdCap edge =
     let edge' =
@@ -33,22 +50,18 @@ normalizeSignalFeeFloor raw
     | otherwise = Nothing
 
 -- The fee-aware gate is a monotone strengthening of the headroom check:
--- invalid fee floors fail closed, and larger fee floors require larger edge.
+-- invalid fee floors and malformed edges fail closed, and larger fee floors
+-- require larger edge.
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
 signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
     let requiredHeadroom =
             entryEdgeHeadroomMultiple * normalizeSignalThreshold openThreshold
-     in case normalizeSignalFeeFloor roundTripFeeFloor of
-            Nothing ->
-                False
-            Just feeFloor ->
+     in case (normalizeSignalFeeFloor roundTripFeeFloor, normalizeSignalEntryEdge edgeForMethod) of
+            (Just feeFloor, Just edge) ->
                 let requiredEdge = requiredHeadroom + feeFloor
-                 in requiredEdge <= 0
-                        || case edgeForMethod of
-                            Just edge ->
-                                finiteDouble edge && edge >= requiredEdge
-                            Nothing ->
-                                False
+                 in edge >= max 0 requiredEdge
+            _ ->
+                False
 
 signalEntryHeadroomOk :: Double -> Maybe Double -> Bool
 signalEntryHeadroomOk openThreshold =

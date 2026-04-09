@@ -22,6 +22,7 @@ main :: IO ()
 main = do
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
+    run "signal gate zero-fee specialization stays aligned with headroom gate" testSignalGateEntryZeroFeeSpecialization
     run "signal gate fee monotonicity holds" testSignalGateEntryFeeBufferMonotoneFees
     run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
     run "signal gate fee buffer stays subordinate to spike/headroom vetoes" testSignalGateEntryFeeBufferSubordinate
@@ -60,6 +61,25 @@ testSignalGateEntryFeeBuffer = do
     assert
         "headroom-only helper remains the zero-fee specialization"
         (signalEntryHeadroomOk 0.01 (Just 0.015) == signalEntryFeeBufferOk 0.01 0 (Just 0.015))
+
+testSignalGateEntryZeroFeeSpecialization :: IO ()
+testSignalGateEntryZeroFeeSpecialization = do
+    let samples =
+            [ (0, Just 0)
+            , (0.01, Just 0.015)
+            , (0.01, Just 0.014999)
+            , (0.01, Nothing)
+            , (0.01, Just (1 / 0))
+            ]
+    assert
+        "zero-fee specialization matches the headroom helper across boundary and fail-closed samples"
+        ( all
+            (\(openThreshold, edge) ->
+                signalEntryHeadroomOk openThreshold edge
+                    == signalEntryFeeBufferOk openThreshold 0 edge
+            )
+            samples
+        )
 
 testSignalGateEntryFeeBufferMonotoneFees :: IO ()
 testSignalGateEntryFeeBufferMonotoneFees = do
@@ -146,6 +166,9 @@ testSignalGateEntryFeeBufferFailsClosed = do
     assert
         "non-finite edge fails closed"
         (not (signalEntryFeeBufferOk 0.01 0.002 (Just (1 / 0))))
+    assert
+        "non-finite edge fails closed even when fees and normalized headroom collapse to zero"
+        (not (signalEntryFeeBufferOk 0 0 (Just (0 / 0))))
     assert
         "negative fee floors stay clamped at zero below the pure headroom boundary"
         (not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.014999)))
