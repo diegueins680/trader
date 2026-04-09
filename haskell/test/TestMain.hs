@@ -1,3 +1,4 @@
+import Data.Maybe (isNothing)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -129,19 +130,19 @@ testTradingEntryGateFailClosedMonotone = do
         edgeAlloweds =
             map (freshEntryAllowed 0.001) [0.02, 0.017, 0.016, 0.015]
         feeAlloweds =
-            map (\feePerSide -> freshEntryAllowed feePerSide 0.018) [0, 0.001, 0.00175, 0.002]
+            map (`freshEntryAllowed` 0.018) [0, 0.001, 0.00175, 0.002]
     assert
         "malformed fee context still fails closed on the fresh-entry path"
         ( needsEntry malformedFeeState
             && not (feeBufferOk malformedFeeState)
             && not (entryGatesOk malformedFeeState)
-            && desiredSide1 malformedFeeState == Nothing
+            && isNothing (desiredSide1 malformedFeeState)
         )
     assert
         "fresh-entry gating reuses the shared non-negative edge sample"
         ( entryEdge negativeEdgeState == Just 0
             && not (edgeHeadroomOk negativeEdgeState)
-            && desiredSide1 negativeEdgeState == Nothing
+            && isNothing (desiredSide1 negativeEdgeState)
         )
     assert
         "fresh-entry edge ladder keeps the expected allow/block shape"
@@ -167,13 +168,13 @@ mkTradingEntryGateInputs feePerSide rawEdge currentSide =
         , trendOkAt = \_ _ _ -> True
         , t = ()
         , trendLookbackStep = ()
-        , volOkAt = \_ -> True
+        , volOkAt = const True
         , ecFee = id
         , cfg = feePerSide
         , isBad = \x -> isNaN x || isInfinite x
         , minSignalToNoiseAdj = 0
-        , volPerBarAt = \_ -> Nothing
-        , clamp01 = \x -> max 0 (min 1 x)
+        , volPerBarAt = const Nothing
+        , clamp01 = max 0 . min 1
         , edgeRaw = rawEdge
         , openThrAdj = 0.01
         , snrOk = True
