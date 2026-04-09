@@ -455,6 +455,8 @@ test("autoloop script auto-heals formatting-only CI failures on editable Haskell
   assert.match(script, /function applyAutomaticRepair\(repair\)/);
   assert.match(script, /runCommand\("fourmolu", \["-i", \.\.\.relPaths\], \{/);
   assert.match(script, /verificationCommands: planVerificationCommands\(fourmoluPaths, \[FOURMOLU_CHECK_COMMAND\]\),/);
+  assert.match(script, /function hasHaskellParserFailure\(logText\)/);
+  assert.match(script, /function deriveParserFailurePaths\(\.\.\.logTexts\)/);
 });
 
 test("autoloop script promotes failing log paths into generic self-heal scope", async () => {
@@ -465,13 +467,19 @@ test("autoloop script promotes failing log paths into generic self-heal scope", 
   assert.match(script, /function deriveFailureRepairPaths\(failureContext\)/);
   assert.match(script, /const repoContext = await buildRepoContext\(failureRepairPaths\);/);
   assert.match(script, /await requestFixIdea\(repoContext, failureContext, failureRepairPaths, automaticRepairFailure\)/);
-  assert.match(script, /buildFailureRepairIdea\(failureContext, failureRepairPaths\) \|\| selectedIdea/);
+  assert.match(script, /buildFailureRepairIdea\(failureContext, failureRepairPaths, automaticRepairFailure\) \|\| selectedIdea/);
   assert.match(script, /const editableFiles = await readEditableFiles\(idea\.filesNeeded\);/);
   assert.match(script, /Self-heal is required for any actionable failure or error when the failed log names editable files\./);
   assert.match(script, /Failure-targeted editable files: \$\{failureRepairPaths\.join\(", "\) \|\| "\([^"]+\)"\}/);
   assert.match(script, /Automatic repair failure: \$\{clampText\(automaticRepairFailure, 4000\)\}/);
   assert.match(script, /if \(prompt\.length > PATCH_PLAN_PROMPT_MAX_CHARS\)/);
   assert.match(script, /Patch-plan prompt is \$\{prompt\.length\} chars, above AUTOLOOP_PATCH_PLAN_MAX_CHARS=/);
+  assert.match(script, /The failed CI log shows parser-level Haskell errors in editable files, so the loop must restore valid syntax\/module structure/);
+  assert.match(script, /If the failed log shows parser-level Haskell errors, restore valid syntax, module headers, import\/export structure, and declaration shape/);
+  assert.match(script, /When parser-failing files are named, filesNeeded must include those parser-failing files first/);
+  assert.match(script, /Parser-failing editable files: \$\{parserFailurePaths\.join\(", "\)\}/);
+  assert.match(script, /Parser-failing files that must be made parseable first: \$\{parserFailurePaths\.join\(", "\)\}/);
+  assert.match(script, /verificationCommands: planVerificationCommands\(filesNeeded, syntaxRepairRequired \? \["cd haskell && cabal build", FOURMOLU_CHECK_COMMAND\] : \[\]\),/);
 });
 
 test("autoloop script prefers the stored gh auth token over a stale GH_TOKEN environment value", async () => {
