@@ -84,10 +84,8 @@ testAuthFailureHelperWrappedOrderFailure =
 
 testAuthFailureHelperPreservesBalancedPayload :: IO ()
 testAuthFailureHelperPreservesBalancedPayload =
-    case
-        BinanceProbe.binanceAuthFailureFromMessage
-            "Order failed: user error (futures/account HTTP 401: Binance code -1022: Signature for this request is not valid. (details=(recvWindow=5000)))"
-    of
+    case BinanceProbe.binanceAuthFailureFromMessage
+        "Order failed: user error (futures/account HTTP 401: Binance code -1022: Signature for this request is not valid. (details=(recvWindow=5000)))" of
         Nothing -> error "expected auth failure classification"
         Just err -> do
             expectEq "balanced helper code" (Just (-1022)) (beiCode err)
@@ -158,22 +156,26 @@ testSummaryNormalizationBoundedInvariants =
     mapM_ assertCase cases
   where
     cases =
-        [ ( "already clean"
-          , "Invalid API-key, IP, or permissions for action."
-          , "Invalid API-key, IP, or permissions for action."
-          )
-        , ( "single wrapper"
-          , "Invalid API-key, IP, or permissions for action.)"
-          , "Invalid API-key, IP, or permissions for action."
-          )
-        , ( "balanced payload"
-          , "Signature for this request is not valid. (details=(recvWindow=5000))"
-          , "Signature for this request is not valid. (details=(recvWindow=5000))"
-          )
-        , ( "balanced payload with wrapper"
-          , "Signature for this request is not valid. (details=(recvWindow=5000)))"
-          , "Signature for this request is not valid. (details=(recvWindow=5000))"
-          )
+        [
+            ( "already clean"
+            , "Invalid API-key, IP, or permissions for action."
+            , "Invalid API-key, IP, or permissions for action."
+            )
+        ,
+            ( "single wrapper"
+            , "Invalid API-key, IP, or permissions for action.)"
+            , "Invalid API-key, IP, or permissions for action."
+            )
+        ,
+            ( "balanced payload"
+            , "Signature for this request is not valid. (details=(recvWindow=5000))"
+            , "Signature for this request is not valid. (details=(recvWindow=5000))"
+            )
+        ,
+            ( "balanced payload with wrapper"
+            , "Signature for this request is not valid. (details=(recvWindow=5000)))"
+            , "Signature for this request is not valid. (details=(recvWindow=5000))"
+            )
         ]
 
     assertCase (label, raw, expected) = do
