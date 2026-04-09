@@ -1,5 +1,3 @@
-import Control.Exception (SomeException, evaluate, try)
-import qualified Data.Vector as V
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -20,19 +18,21 @@ import Trader.SignalGates (
  )
 import Trader.Trading (
     BacktestResult (..),
-    EnsembleConfig (..),
+    EntryGateInputs (..),
+    EntryGateState (..),
     ExitReason (..),
-    StepMeta (..),
     Trade (..),
-    simulateEnsembleVWithHLChecked,
+    mkEntryGateState,
  )
 
--- Existing test harness imports and helpers remain unchanged.
+-- Existing test harness imports and helpers remain unchanged outside the
+-- entry-gate fixture added below.
 
 main :: IO ()
 main = do
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
-    run "trading optimizer seam stays pinned to checked simulator" testTradingOptimizerCheckedSimulatorSurface
+    run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
+    run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
@@ -98,46 +98,88 @@ testTradingResultConstructorSurface = do
             _ -> False
         )
 
--- The optimizer/trading seam must stay pinned to the checked simulator surface
--- exported by Trader.Trading. This executable witness preserves the reviewed
--- fail-closed obligation that malformed HL input vectors are rejected before
--- any config-dependent path can bypass the checked simulator contract or force
--- cfg.
-testTradingOptimizerCheckedSimulatorSurface :: IO ()
-testTradingOptimizerCheckedSimulatorSurface = do
-    let checkedSimulator ::
-            EnsembleConfig ->
-            V.Vector Double ->
-            V.Vector Double ->
-            V.Vector Double ->
-            V.Vector Double ->
-            V.Vector Double ->
-            Maybe (V.Vector StepMeta) ->
-            Either String BacktestResult
-        checkedSimulator cfg = simulateEnsembleVWithHLChecked cfg 1
+-- The reviewed Trading.hs change removes only the dead ensemble re-export seam.
+-- These executable obligations pin the surviving entry-gate integration to two
+-- properties: entry-only vetoes do not run when no fresh entry is needed, and
+-- on fresh entries admissibility is monotone non-increasing as raw edge falls
+-- or the fee floor rises, with malformed fee context staying fail closed.
+testTradingEntryGateEntryOnly :: IO ()
+testTradingEntryGateEntryOnly = do
+    let state =
+            mkEntryGateState (mkTradingEntryGateInputs (0 / 0) (-0.01) (Just True))
     assert
-        "optimizer seam still compiles against the checked simulator contract"
-        True
-    badResult <-
-        try
-            ( evaluate
-                ( checkedSimulator
-                    (error "cfg must stay lazy when HL validation fails")
-                    (V.fromList [100.0, 101.0])
-                    (V.fromList [101.0])
-                    (V.fromList [99.0, 100.0])
-                    (V.fromList [100.5])
-                    (V.fromList [100.5])
-                    Nothing
-                )
-            ) ::
-            IO (Either SomeException (Either String BacktestResult))
-    assert
-        "malformed HL-checked inputs stay fail closed instead of bypassing the checked simulator"
-        ( case badResult of
-            Right (Left _) -> True
-            _ -> False
+        "entry-only vetoes stay bypassed when the position already matches the desired side"
+        ( not (needsEntry state)
+            && entryEdge state == Just 0
+            && edgeSpikeOk state
+            && edgeHeadroomOk state
+            && feeBufferOk state
+            && entryGatesOk state
+            && desiredSide1 state == Just True
         )
+
+testTradingEntryGateFailClosedMonotone :: IO ()
+testTradingEntryGateFailClosedMonotone = do
+    let malformedFeeState =
+            mkEntryGateState (mkTradingEntryGateInputs (0 / 0) 0.02 Nothing)
+        negativeEdgeState =
+            mkEntryGateState (mkTradingEntryGateInputs 0 (-0.01) Nothing)
+        freshEntryAllowed feePerSide rawEdge =
+            desiredSide1 (mkEntryGateState (mkTradingEntryGateInputs feePerSide rawEdge Nothing)) == Just True
+        edgeAlloweds =
+            map (freshEntryAllowed 0.001) [0.02, 0.017, 0.016, 0.015]
+        feeAlloweds =
+            map (\feePerSide -> freshEntryAllowed feePerSide 0.018) [0, 0.001, 0.00175, 0.002]
+    assert
+        "malformed fee context still fails closed on the fresh-entry path"
+        ( needsEntry malformedFeeState
+            && not (feeBufferOk malformedFeeState)
+            && not (entryGatesOk malformedFeeState)
+            && desiredSide1 malformedFeeState == Nothing
+        )
+    assert
+        "fresh-entry gating reuses the shared non-negative edge sample"
+        ( entryEdge negativeEdgeState == Just 0
+            && not (edgeHeadroomOk negativeEdgeState)
+            && desiredSide1 negativeEdgeState == Nothing
+        )
+    assert
+        "fresh-entry edge ladder keeps the expected allow/block shape"
+        (edgeAlloweds == [True, True, False, False])
+    assertMonotoneNonIncreasing
+        "lower raw edge cannot reopen a blocked fresh-entry state"
+        edgeAlloweds
+    assert
+        "fresh-entry fee ladder keeps the expected allow/block shape"
+        (feeAlloweds == [True, True, False, False])
+    assertMonotoneNonIncreasing
+        "higher fee floors cannot reopen a blocked fresh-entry state"
+        feeAlloweds
+
+mkTradingEntryGateInputs :: Double -> Double -> Maybe Bool -> EntryGateInputs Bool () () Double
+mkTradingEntryGateInputs feePerSide rawEdge currentSide =
+    EntryGateInputs
+        { desiredSideRaw = Just True
+        , desiredSizeRaw = 1
+        , posSide = currentSide
+        , volConfGateEnabled = False
+        , lstmEntryScaleRaw = 1.25
+        , trendOkAt = \_ _ _ -> True
+        , t = ()
+        , trendLookbackStep = ()
+        , volOkAt = \_ -> True
+        , ecFee = id
+        , cfg = feePerSide
+        , isBad = \x -> isNaN x || isInfinite x
+        , minSignalToNoiseAdj = 0
+        , volPerBarAt = \_ -> Nothing
+        , clamp01 = \x -> max 0 (min 1 x)
+        , edgeRaw = rawEdge
+        , openThrAdj = 0.01
+        , snrOk = True
+        , volTargetReady = True
+        , triLayerOk = True
+        }
 
 -- Bounded executable obligations for the restored signal-gate facade cover:
 -- the threshold-boundary witness and entry-only directionality snapshot,
