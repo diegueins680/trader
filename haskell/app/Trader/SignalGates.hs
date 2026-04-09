@@ -14,7 +14,7 @@ module Trader.SignalGates (
     signalCrossAssetCheck,
     signalRegimeEdgeOk,
     signalFundingOiCheck,
-    signalRunPostDirectionGates
+    signalRunPostDirectionGates,
 ) where
 
 -- Existing threshold, directionality, and gate helpers remain unchanged.
