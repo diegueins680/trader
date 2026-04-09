@@ -1,42 +1,51 @@
+Keep the existing module header, exports, imports, tie-break normalization, and unrelated proof machinery unchanged.
+
 Replace the ROI normalization helpers and verifier block so `roiImplementationScore` and `roiViewFromMetrics` use explicit conservative canonicalizers:
 
-1. Add new constants near the existing ROI helpers:
-- `roiMalformedRewardSentinel :: Double = -1.0e6`
-- `roiMalformedPenaltySentinel :: Double = 1.0e6`
+roiMalformedRewardSentinel :: Double
+roiMalformedRewardSentinel = -1.0e6
 
-2. Add new helper functions and use them from both the implementation and spec mirror:
-- `normalizeRoiRewardMetric :: Double -> Double`
-  - finite -> original value
-  - NaN/Infinity -> `roiMalformedRewardSentinel`
-- `normalizeRoiPenaltyMetric :: Double -> Double`
-  - finite and >= 0 -> original value
-  - negative or NaN/Infinity -> `roiMalformedPenaltySentinel`
-- `normalizeRoiExposureMetric :: Double -> Double`
-  - finite and >= 0 -> original value
-  - negative or NaN/Infinity -> `0`
-- `normalizeRoiActivityCount :: Int -> Int`
-  - `max 0`
-- `normalizeRoiPaybackDuration :: Double -> Maybe Double`
-  - delegate to `positiveFiniteDuration`
+roiMalformedPenaltySentinel :: Double
+roiMalformedPenaltySentinel = 1.0e6
 
-3. Change `roiImplementationScore` to use those helpers instead of the current permissive `sanitizeFinite0` / `max 0` combinations for annualized return, drawdown, tail loss, turnover, expectancy, payback duration, activity counts, and exposure.
+normalizeRoiRewardMetric :: Double -> Double
+normalizeRoiRewardMetric x
+    | isNaN x || isInfinite x = roiMalformedRewardSentinel
+    | otherwise = x
 
-4. Change `roiViewFromMetrics`, `activityCountFromMetrics`, and `completedRoundTripsFromMetrics` to use the same canonicalization contract.
+normalizeRoiPenaltyMetric :: Double -> Double
+normalizeRoiPenaltyMetric x
+    | isNaN x || isInfinite x = roiMalformedPenaltySentinel
+    | x < 0 = roiMalformedPenaltySentinel
+    | otherwise = x
 
-5. Extend `FormalVerificationReport` with:
-- `fvrMalformedRoiInputsFailClosed :: !Bool`
+normalizeRoiExposureMetric :: Double -> Double
+normalizeRoiExposureMetric x
+    | isNaN x || isInfinite x = 0
+    | x < 0 = 0
+    | otherwise = x
 
-6. Add malformed domains and a bounded property checker, for example:
-- `malformedRewardDomain = nonFiniteDomain`
-- `malformedPenaltyDomain = (-0.5) : nonFiniteDomain`
-- `malformedExposureDomain = (-0.5) : nonFiniteDomain`
-- `malformedActivityDomain = [-2, -1]`
-- `malformedRoiInputsFailClosedFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Int -> Double -> Bool`
-  - build a finite baseline `RoiState`
-  - assert that replacing annualized return, drawdown, tail loss, turnover, expectancy, avgHold, roundTrips, tradeCount, or exposure with malformed-domain values never yields a higher score than the baseline
+normalizeRoiActivityCount :: Int -> Int
+normalizeRoiActivityCount = max 0
 
-7. Wire the new property into `verifyFormalOptimization`:
-- compute `fvrMalformedRoiInputsFailClosed` over the existing bounded ROI domains
-- include it in the constructed `FormalVerificationReport`
+normalizeRoiPaybackDuration :: Double -> Maybe Double
+normalizeRoiPaybackDuration = positiveFiniteDuration
 
-8. Keep the existing tie-break normalization unchanged; the ROI fail-closed guarantee is now enforced before tie-break selection is even relevant.
+Update `roiImplementationScore` so annualized return and expectancy go through `normalizeRoiRewardMetric`; drawdown, tail loss, turnover, and any penalty-only quantity go through `normalizeRoiPenaltyMetric`; activity counts go through `normalizeRoiActivityCount`; payback duration goes through `normalizeRoiPaybackDuration`; and exposure goes through `normalizeRoiExposureMetric`.
+
+Update `roiViewFromMetrics`, `activityCountFromMetrics`, and `completedRoundTripsFromMetrics` to use the same canonicalization contract so the implementation and spec mirror agree.
+
+Extend `FormalVerificationReport` with:
+    , fvrMalformedRoiInputsFailClosed :: !Bool
+
+Add malformed domains:
+malformedRewardDomain = nonFiniteDomain
+malformedPenaltyDomain = (-0.5) : nonFiniteDomain
+malformedExposureDomain = (-0.5) : nonFiniteDomain
+malformedActivityDomain = [-2, -1]
+
+Add `malformedRoiInputsFailClosedFor :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Int -> Int -> Double -> Bool` that builds a finite baseline `RoiState` and proves replacing annualized return, drawdown, tail loss, turnover, expectancy, avgHold, roundTrips, tradeCount, or exposure with malformed-domain values never yields a higher ROI score than the baseline.
+
+Wire the new property into `verifyFormalOptimization` by computing `fvrMalformedRoiInputsFailClosed` over the existing bounded ROI domains and including it in the constructed `FormalVerificationReport`.
+
+Do not change the existing tie-break normalization logic.
