@@ -1,13 +1,31 @@
-import Trader.SignalGates (DirectionalitySnapshot (..), SignalThresholdBoundary (..), mkSignalThresholdBoundary, normalizeSignalThreshold, signalCrossAssetCheck, signalDirectionalityEntryAllowed, signalDirectionalitySnapshot, signalEntryEdgeSpikeOk, signalEntryFeeBufferOk, signalEntryHeadroomOk, signalFundingOiCheck, signalMetaLabelOk, signalMtfConsensusCheck, signalRegimeEdgeOk, signalRunPostDirectionGates)
+import Trader.SignalGates (
+    DirectionalitySnapshot (..),
+    SignalThresholdBoundary (..),
+    mkSignalThresholdBoundary,
+    normalizeSignalThreshold,
+    signalCrossAssetCheck,
+    signalDirectionalityEntryAllowed,
+    signalDirectionalitySnapshot,
+    signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
+    signalEntryHeadroomOk,
+    signalFundingOiCheck,
+    signalMetaLabelOk,
+    signalMtfConsensusCheck,
+    signalRegimeEdgeOk,
+    signalRunPostDirectionGates
+)
 
 -- Existing test harness imports and helpers remain unchanged.
 
-              , run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
-              , run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
-              , run "signal gate fee monotonicity holds" testSignalGateEntryFeeBufferMonotoneFees
-              , run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
-              , run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
-              , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
+signalGateTests =
+    [ run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
+    , run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
+    , run "signal gate fee monotonicity holds" testSignalGateEntryFeeBufferMonotoneFees
+    , run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
+    , run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
+    , run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
+    ]
 
 testSignalGateEntryFeeBuffer :: IO ()
 testSignalGateEntryFeeBuffer = do
