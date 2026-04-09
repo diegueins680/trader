@@ -212,16 +212,17 @@ signalDirectionalitySnapshot regimeHysteresis mRegimes pricesV idx
     badPrice px = px <= 0 || isNaN px || isInfinite px
     malformedSnapshot = mkMalformedDirectionalitySnapshot windowLen
     builtSnapshot =
-        let net =
+        let netReturnPct =
                 case (head window, last window) of
                     (p0, p1)
                         | p0 > 0 -> p1 / p0 - 1
                     _ -> 0
+            netDirectional = sum returns
             path = sum (map abs returns)
             efficiency =
                 if path <= 1e-12
                     then 0
-                    else abs net / path
+                    else min 1 (abs netDirectional / path)
             meanRet = sum returns / fromIntegral (length returns)
             variance =
                 if length returns < 2
@@ -233,9 +234,10 @@ signalDirectionalitySnapshot regimeHysteresis mRegimes pricesV idx
             zScore =
                 if realizedVol <= 1e-12
                     then 0
-                    else net / (realizedVol * sqrt (fromIntegral (length returns)))
+                    else netDirectional / (realizedVol * sqrt (fromIntegral (length returns)))
             metricsOk =
-                finiteDouble net
+                finiteDouble netReturnPct
+                    && finiteDouble netDirectional
                     && finiteDouble path
                     && finiteDouble efficiency
                     && efficiency >= 0
@@ -249,7 +251,7 @@ signalDirectionalitySnapshot regimeHysteresis mRegimes pricesV idx
                     let label
                             | realizedVol * 100 >= directionalityHighVolVolPct = "high-vol"
                             | efficiency >= directionalityTrendEfficiencyMin && abs zScore >= directionalityTrendZMin =
-                                if net >= 0
+                                if netDirectional >= 0
                                     then "trend-up"
                                     else "trend-down"
                             | efficiency <= directionalityChopEfficiencyMax = "chop"
@@ -267,7 +269,7 @@ signalDirectionalitySnapshot regimeHysteresis mRegimes pricesV idx
                      in Just
                             DirectionalitySnapshot
                                 { dsLookbackBars = windowLen
-                                , dsNetReturnPct = net * 100
+                                , dsNetReturnPct = netReturnPct * 100
                                 , dsRealizedVolPct = realizedVol * 100
                                 , dsEfficiency = efficiency
                                 , dsZScore = zScore
