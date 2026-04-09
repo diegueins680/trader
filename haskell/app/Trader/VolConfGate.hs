@@ -157,11 +157,11 @@ confidenceBucket preset mConfidence =
                 _ -> 0.60
         strongThreshold = 0.80
         confidence =
-            case sanitizeFiniteMaybe mConfidence of
-                -- Missing and malformed confidence are treated as weak to keep
-                -- the gate conservative.
+            case sanitizeConfidenceUnitInterval mConfidence of
+                -- Missing, non-finite, and out-of-range confidence are treated
+                -- as weak so malformed model outputs cannot weaken the gate.
                 Nothing -> 0.0
-                Just rawConfidence -> clamp 0 1 rawConfidence
+                Just validConfidence -> validConfidence
      in if confidence < weakThreshold
             then ConfidenceWeak
             else
@@ -196,6 +196,13 @@ sanitizeFiniteMaybe :: Maybe Double -> Maybe Double
 sanitizeFiniteMaybe mValue =
     case mValue of
         Just x | isFinite x -> Just x
+        _ -> Nothing
+
+sanitizeConfidenceUnitInterval :: Maybe Double -> Maybe Double
+sanitizeConfidenceUnitInterval mConfidence =
+    case sanitizeFiniteMaybe mConfidence of
+        Just confidence
+            | confidence >= 0 && confidence <= 1 -> Just confidence
         _ -> Nothing
 
 sanitizeFiniteWith :: Double -> Double -> Double
