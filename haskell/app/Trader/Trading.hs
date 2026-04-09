@@ -1,6 +1,13 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Trader.Trading where
+module Trader.Trading
+    ( BacktestResult (..)
+    , ExitReason (..)
+    , Trade (..)
+    , EntryGateInputs (..)
+    , EntryGateState (..)
+    , mkEntryGateState
+    ) where
 
 import qualified Data.Maybe
 import Trader.SignalGates (
@@ -8,6 +15,35 @@ import Trader.SignalGates (
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
+
+data ExitReason
+    = ExitSignal
+    | ExitStopLoss
+    | ExitTakeProfit
+    | ExitTime
+    | ExitEod
+    deriving (Eq, Show)
+
+-- Keep the canonical backtest result surface exported so metrics and optimizer
+-- executables fail closed at compile time if this API drifts.
+data Trade = Trade
+    { trEntryEquity :: !Double
+    , trExitEquity :: !Double
+    , trReturn :: !Double
+    , trHoldingPeriods :: !Int
+    , trExitReason :: !(Maybe ExitReason)
+    }
+    deriving (Eq, Show)
+
+data BacktestResult = BacktestResult
+    { brEquityCurve :: ![Double]
+    , brTrades :: ![Trade]
+    , brPositions :: ![Double]
+    , brAgreementOk :: ![Bool]
+    , brAgreementValid :: ![Bool]
+    , brPositionChanges :: !Int
+    }
+    deriving (Eq, Show)
 
 data EntryGateInputs side t lookback cfg = EntryGateInputs
     { desiredSideRaw :: Maybe side
