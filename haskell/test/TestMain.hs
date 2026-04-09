@@ -1,20 +1,20 @@
-import Trader.SignalGates
-    ( DirectionalitySnapshot (..)
-    , SignalThresholdBoundary (..)
-    , mkSignalThresholdBoundary
-    , normalizeSignalThreshold
-    , signalCrossAssetCheck
-    , signalDirectionalityEntryAllowed
-    , signalDirectionalitySnapshot
-    , signalEntryEdgeSpikeOk
-    , signalEntryFeeBufferOk
-    , signalEntryHeadroomOk
-    , signalFundingOiCheck
-    , signalMetaLabelOk
-    , signalMtfConsensusCheck
-    , signalRegimeEdgeOk
-    , signalRunPostDirectionGates
-    )
+import Trader.SignalGates (
+    DirectionalitySnapshot (..),
+    SignalThresholdBoundary (..),
+    mkSignalThresholdBoundary,
+    normalizeSignalThreshold,
+    signalCrossAssetCheck,
+    signalDirectionalityEntryAllowed,
+    signalDirectionalitySnapshot,
+    signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
+    signalEntryHeadroomOk,
+    signalFundingOiCheck,
+    signalMetaLabelOk,
+    signalMtfConsensusCheck,
+    signalRegimeEdgeOk,
+    signalRunPostDirectionGates,
+ )
 
 -- Existing test harness imports and helpers remain unchanged.
 
@@ -30,8 +30,9 @@ main = do
 -- Bounded executable obligations for the fee-aware entry gate cover:
 -- zero-fee specialization, boundary acceptance, strict-below rejection,
 -- monotone non-increasing admissibility, once-blocked-stays-blocked,
--- negative-fee clamping, non-finite-input fail-closed behavior,
--- and the independent spike-veto conjunction on the same entry-only path.
+-- negative-fee clamping, missing/non-finite-input fail-closed behavior,
+-- and preservation of the shared non-negative entryEdge sample across
+-- the independent spike veto and the fee/headroom gates on the fresh-entry path.
 testSignalGateEntryFeeBuffer :: IO ()
 testSignalGateEntryFeeBuffer = do
     assert
@@ -105,4 +106,4 @@ testSignalGateEntryFeeBufferFailsClosed = do
         "negative fee floors are clamped to zero instead of reopening entries"
         (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.015))
 
--- Remaining signal-gate tests remain unchanged.
+-- Remaining signal-gate tests, including the spike-veto witness, remain unchanged.
