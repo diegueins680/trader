@@ -16,11 +16,17 @@ import Trader.SignalGates (
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
  )
+import Trader.Trading (
+    entryGatesAllow,
+    normalizeEntryIntent,
+ )
 
 -- Existing test harness imports and helpers remain unchanged.
 
 main :: IO ()
 main = do
+    run "trading entry scope stays fail closed" testTradingEntryScopeFailClosed
+    run "trading entry gate requirements stay monotone" testTradingEntryGateMonotoneRequirements
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
@@ -33,16 +39,68 @@ main = do
     run "signal gate post-direction wrappers cannot reopen blocked entries" testSignalGateNoReopenPostDirection
     run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
 
--- Bounded executable obligations for the restored signal-gate facade cover:
+-- Bounded executable obligations for the restored signal-gate facade and trading
+-- entry scope cover:
 -- the threshold-boundary witness and entry-only directionality snapshot,
 -- the 1.5x headroom-threshold-cap witness, zero-fee specialization,
 -- boundary acceptance, strict-below rejection, monotone non-increasing
 -- admissibility, once-blocked-stays-blocked under the post-direction wrapper,
--- negative-fee clamping, missing/non-finite-input fail-closed behavior, and
--- preservation of the shared non-negative entryEdge sample across the
--- independent spike veto and the fee/headroom gates on the fresh-entry path,
--- including the conjunction fact that the fee buffer may veto but cannot
--- reopen an entry already blocked upstream.
+-- negative-fee clamping, missing/non-finite-input fail-closed behavior, the
+-- restored trading-layer intent normalization, and preservation of the shared
+-- non-negative entryEdge sample across the independent spike veto and the
+-- fee/headroom gates on the fresh-entry path, including the conjunction fact
+-- that the fee buffer may veto but cannot reopen an entry already blocked
+-- upstream.
+testTradingEntryScopeFailClosed :: IO ()
+testTradingEntryScopeFailClosed = do
+    let isBad x = isNaN x || isInfinite x
+    assert
+        "missing desired side collapses size and suppresses a fresh entry"
+        (normalizeEntryIntent isBad Nothing 1 Nothing == (0, Nothing, False))
+    assert
+        "non-finite desired size fail closes before a fresh entry can form"
+        (normalizeEntryIntent isBad (Just True) (0 / 0) Nothing == (0, Nothing, False))
+    assert
+        "non-positive desired size cannot request a fresh entry"
+        (normalizeEntryIntent isBad (Just True) 0 Nothing == (0, Nothing, False))
+    assert
+        "side mismatch still yields a fresh entry after normalized intent survives"
+        (normalizeEntryIntent isBad (Just True) 1 (Just False) == (1, Just True, True))
+    assert
+        "entry-only conjunction stays fail closed on missing edge and malformed fees"
+        ( not (entryGatesAllow True 0.01 0.002 Nothing)
+            && not (entryGatesAllow True 0.01 (0 / 0) (Just 0.05))
+            && not (entryGatesAllow True 0.01 (1 / 0) (Just 0.05))
+        )
+    assert
+        "non-entry paths bypass the fresh-entry veto conjunction"
+        ( entryGatesAllow False 0.01 0.002 Nothing
+            && entryGatesAllow False 0.01 (0 / 0) Nothing
+        )
+
+testTradingEntryGateMonotoneRequirements :: IO ()
+testTradingEntryGateMonotoneRequirements = do
+    let feeLadder =
+            [ entryGatesAllow True 0.01 fee (Just 0.018)
+            | fee <- [0, 0.002, 0.003, 0.004]
+            ]
+    assert
+        "fresh-entry conjunction keeps the expected fee allow/block shape"
+        (feeLadder == [True, True, True, False])
+    assertMonotoneNonIncreasing
+        "stricter fee floors remain monotone non-increasing"
+        feeLadder
+    let headroomLadder =
+            [ signalEntryHeadroomOk openThr (Just 0.017)
+            | openThr <- [0.009, 0.01, 0.011, 0.012]
+            ]
+    assert
+        "headroom ladder keeps the expected allow/block shape"
+        (headroomLadder == [True, True, True, False])
+    assertMonotoneNonIncreasing
+        "stricter headroom requirements remain monotone non-increasing"
+        headroomLadder
+
 testSignalGateFacadeSurface :: IO ()
 testSignalGateFacadeSurface = do
     let boundary = mkSignalThresholdBoundary 0.01
