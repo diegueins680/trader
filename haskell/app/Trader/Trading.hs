@@ -1,4 +1,9 @@
-import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk, signalEntryFeeBufferOk, signalEntryHeadroomOk)
+import Trader.SignalGates
+    ( normalizeSignalThreshold
+    , signalEntryEdgeSpikeOk
+    , signalEntryFeeBufferOk
+    , signalEntryHeadroomOk
+    )
 
 -- Existing imports and surrounding trading loop code remain unchanged.
 
@@ -8,9 +13,14 @@ import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk, sig
                                                 else max 0 desiredSizeRaw
 
                                         desiredSide0 =
-                                            if desiredSize0 <= 0 then Nothing else desiredSideRaw
+                                            if desiredSize0 <= 0
+                                                then Nothing
+                                                else desiredSideRaw
 
-                                        needsEntry = Data.Maybe.isJust desiredSide0 && desiredSide0 /= posSide
+                                        needsEntry =
+                                            Data.Maybe.isJust desiredSide0
+                                                && desiredSide0 /= posSide
+
                                         lstmEntryScale =
                                             if needsEntry && not volConfGateEnabled
                                                 then lstmEntryScaleRaw
@@ -18,10 +28,13 @@ import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk, sig
 
                                         trendOk =
                                             case desiredSide0 of
-                                                Just side | needsEntry -> trendOkAt t trendLookbackStep side
-                                                _ -> True
+                                                Just side | needsEntry ->
+                                                    trendOkAt t trendLookbackStep side
+                                                _ ->
+                                                    True
 
-                                        volOk = (not needsEntry || volOkAt t)
+                                        volOk =
+                                            not needsEntry || volOkAt t
 
                                         roundTripFeeFloor =
                                             let feePerSide = ecFee cfg
@@ -33,20 +46,36 @@ import Trader.SignalGates (normalizeSignalThreshold, signalEntryEdgeSpikeOk, sig
                                             if minSignalToNoiseAdj <= 0
                                                 then 1
                                                 else case volPerBarAt t of
-                                                    Just vol | vol > 0 -> clamp01 (max 0 edgeRaw / vol / minSignalToNoiseAdj)
-                                                    _ -> 0
+                                                    Just vol | vol > 0 ->
+                                                        clamp01 (max 0 edgeRaw / vol / minSignalToNoiseAdj)
+                                                    _ ->
+                                                        0
 
                                         -- Reuse the same non-negative edge sample across entry-only veto gates.
                                         entryEdge = Just (max 0 edgeRaw)
+
                                         edgeSpikeOk =
-                                            not needsEntry || signalEntryEdgeSpikeOk openThrAdj entryEdge
+                                            not needsEntry
+                                                || signalEntryEdgeSpikeOk openThrAdj entryEdge
+
                                         edgeHeadroomOk =
-                                            not needsEntry || signalEntryHeadroomOk openThrAdj entryEdge
+                                            not needsEntry
+                                                || signalEntryHeadroomOk openThrAdj entryEdge
+
                                         feeBufferOk =
-                                            not needsEntry || signalEntryFeeBufferOk openThrAdj roundTripFeeFloor entryEdge
+                                            not needsEntry
+                                                || signalEntryFeeBufferOk openThrAdj roundTripFeeFloor entryEdge
 
                                         desiredSide1 =
-                                            if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk || not edgeSpikeOk || not edgeHeadroomOk || not feeBufferOk
+                                            if
+                                                not trendOk
+                                                    || not volOk
+                                                    || not snrOk
+                                                    || not volTargetReady
+                                                    || not triLayerOk
+                                                    || not edgeSpikeOk
+                                                    || not edgeHeadroomOk
+                                                    || not feeBufferOk
                                                 then Nothing
                                                 else desiredSide0
 

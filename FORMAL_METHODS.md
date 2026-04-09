@@ -10,16 +10,16 @@ Clauses:
 4. For fixed `openThreshold` and fee floor, admissibility is monotone non-increasing as raw edge falls.
 5. Non-finite fee floors or non-finite edges are fail-closed.
 6. Once a state is blocked at fee floor `f`, it remains blocked for every `f' >= f`.
-7. In `simulateEnsembleLongFlatVWithHLChecked`, the spike, headroom, and fee-buffer checks are consulted only when `needsEntry` is true and are combined conjunctively, so the restored fee-aware gate can veto a new entry but can never admit an entry that another gate already blocked.
+7. In `simulateEnsembleLongFlatVWithHLChecked`, the spike, headroom, and fee-buffer checks are consulted only when `needsEntry` is true and are combined conjunctively over the same `entryEdge` sample, so the restored fee-aware gate can veto a new entry but can never admit an entry that another gate already blocked.
 
 Bounded executable obligations in `haskell/test/TestMain.hs`:
 
-- `testSignalGateEntryHeadroom`
-- `testSignalGateEntryFeeBuffer`
-- `testSignalGateEntryFeeBufferMonotoneFees`
-- `testSignalGateEntryFeeBufferMonotoneEdge`
-- `testSignalGateEntryFeeBufferFailsClosed`
-- `testSignalGateEntryEdgeSpike`
+- `testSignalGateEntryHeadroom` preserves the legacy headroom boundary cases.
+- `testSignalGateEntryFeeBuffer` covers equality-at-boundary acceptance, strict-below-boundary rejection, zero-threshold-with-fees behavior, missing-edge fail-closed behavior, and the zero-fee specialization.
+- `testSignalGateEntryFeeBufferMonotoneFees` witnesses monotone non-increasing admissibility as `roundTripFeeFloor` rises and the once-blocked-stays-blocked ladder.
+- `testSignalGateEntryFeeBufferMonotoneEdge` witnesses monotone non-increasing admissibility as raw edge falls under a fixed fee floor.
+- `testSignalGateEntryFeeBufferFailsClosed` covers non-finite fee floors, non-finite edges, and negative fee-floor clamping.
+- `testSignalGateEntryEdgeSpike` keeps the independent spike veto in the same entry-only conjunction.
 
 Proof sketch:
 
@@ -27,4 +27,4 @@ Proof sketch:
 - `signalEntryHeadroomOk` is implemented by partially applying the fee-aware predicate with a zero fee floor, so the legacy headroom contract is preserved as a special case.
 - The guard compares edge against an affine requirement with unit slope in the fee floor, so increasing fees cannot reduce the minimum admissible edge.
 - Lowering raw edge cannot make a blocked state admissible because the predicate is only `edge >= requiredEdge` once the inputs are well formed.
-- `simulateEnsembleLongFlatVWithHLChecked` reuses the same non-negative `entryEdge` sample across the spike/headroom/fee vetoes and combines those booleans conjunctively under `needsEntry`, so the fee-aware gate is fail-closed and entry-only at integration time.
+- `simulateEnsembleLongFlatVWithHLChecked` reuses the same non-negative `entryEdge` sample across the spike/headroom/fee vetoes and combines those booleans conjunctively under `needsEntry`, so the fee-aware gate remains fail-closed and entry-only at integration time.
