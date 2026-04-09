@@ -99,9 +99,10 @@ testTradingResultConstructorSurface = do
         )
 
 -- The optimizer/trading seam must stay pinned to the checked simulator surface
--- exported by Trader.Trading. This regression also requires malformed HL input
--- vectors to fail closed before any config-dependent path can bypass the checked
--- simulator contract.
+-- exported by Trader.Trading. This executable witness preserves the reviewed
+-- fail-closed obligation that malformed HL input vectors are rejected before
+-- any config-dependent path can bypass the checked simulator contract or force
+-- cfg.
 testTradingOptimizerCheckedSimulatorSurface :: IO ()
 testTradingOptimizerCheckedSimulatorSurface = do
     let checkedSimulator ::
