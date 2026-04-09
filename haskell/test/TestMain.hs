@@ -24,6 +24,7 @@ main = do
     run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
     run "signal gate fee monotonicity holds" testSignalGateEntryFeeBufferMonotoneFees
     run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
+    run "signal gate fee buffer stays subordinate to spike/headroom vetoes" testSignalGateEntryFeeBufferSubordinate
     run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
     run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
 
@@ -32,7 +33,9 @@ main = do
 -- monotone non-increasing admissibility, once-blocked-stays-blocked,
 -- negative-fee clamping, missing/non-finite-input fail-closed behavior,
 -- and preservation of the shared non-negative entryEdge sample across
--- the independent spike veto and the fee/headroom gates on the fresh-entry path.
+-- the independent spike veto and the fee/headroom gates on the fresh-entry path,
+-- including the conjunction fact that the fee buffer may veto but cannot reopen
+-- an entry already blocked by the upstream spike/headroom pair.
 testSignalGateEntryFeeBuffer :: IO ()
 testSignalGateEntryFeeBuffer = do
     assert
@@ -90,6 +93,31 @@ testSignalGateEntryFeeBufferMonotoneEdge = do
     assertMonotoneNonIncreasing
         "lower edge cannot reopen a blocked fee-aware entry"
         alloweds
+
+testSignalGateEntryFeeBufferSubordinate :: IO ()
+testSignalGateEntryFeeBufferSubordinate = do
+    let feeOnlyVetoEdge = Just 0.015
+    let passesSpikeAndHeadroom =
+            signalEntryEdgeSpikeOk 0.01 feeOnlyVetoEdge
+                && signalEntryHeadroomOk 0.01 feeOnlyVetoEdge
+    assert
+        "fee buffer may veto an entry that passes spike and pure headroom gates"
+        (passesSpikeAndHeadroom
+            && not (signalEntryFeeBufferOk 0.01 0.002 feeOnlyVetoEdge))
+    let headroomBlockedEdge = Just 0.014999
+    let blockedBySpikeOrHeadroom =
+            not
+                ( signalEntryEdgeSpikeOk 0.01 headroomBlockedEdge
+                    && signalEntryHeadroomOk 0.01 headroomBlockedEdge
+                )
+    assert
+        "fee buffer cannot admit an entry already blocked by the spike/headroom conjunction"
+        (blockedBySpikeOrHeadroom
+            && not
+                ( signalEntryEdgeSpikeOk 0.01 headroomBlockedEdge
+                    && signalEntryHeadroomOk 0.01 headroomBlockedEdge
+                    && signalEntryFeeBufferOk 0.01 0.002 headroomBlockedEdge
+                ))
 
 testSignalGateEntryFeeBufferFailsClosed :: IO ()
 testSignalGateEntryFeeBufferFailsClosed = do
