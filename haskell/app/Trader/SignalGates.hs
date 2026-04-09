@@ -17,7 +17,7 @@ module Trader.SignalGates (
     signalRunPostDirectionGates,
 ) where
 
-...
+-- Existing threshold, directionality, and gate helpers remain unchanged.
 
 signalEntryHeadroomThresholdCap :: Double -> Double
 signalEntryHeadroomThresholdCap edge =
@@ -50,4 +50,4 @@ signalEntryHeadroomOk :: Double -> Maybe Double -> Bool
 signalEntryHeadroomOk openThreshold =
     signalEntryFeeBufferOk openThreshold 0
 
-...
+-- Remaining gate implementations remain unchanged.
