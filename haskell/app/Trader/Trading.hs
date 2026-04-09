@@ -1,13 +1,13 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Trader.Trading
-    ( BacktestResult (..)
-    , ExitReason (..)
-    , Trade (..)
-    , EntryGateInputs (..)
-    , EntryGateState (..)
-    , mkEntryGateState
-    ) where
+module Trader.Trading (
+    BacktestResult (..),
+    ExitReason (..),
+    Trade (..),
+    EntryGateInputs (..),
+    EntryGateState (..),
+    mkEntryGateState,
+) where
 
 import qualified Data.Maybe
 import Trader.SignalGates (
