@@ -282,18 +282,34 @@ function listUnmergedConflictPaths() {
     .filter(Boolean);
 }
 
+function buildMergeCommitMessage(shortName = "", branchRef = "") {
+  if (shortName === BASE_BRANCH || branchRef === `origin/${BASE_BRANCH}`) {
+    return `autoloop: sync ${BASE_BRANCH} with origin/${BASE_BRANCH}`;
+  }
+  return `autoloop: merge ${shortName || branchRef} into ${BASE_BRANCH}`;
+}
+
+function buildConflictResolutionCommitMessage(shortName = "", branchRef = "") {
+  if (shortName === BASE_BRANCH || branchRef === `origin/${BASE_BRANCH}`) {
+    return `autoloop: resolve ${BASE_BRANCH} sync conflicts`;
+  }
+  return `autoloop: resolve conflicts while merging ${shortName || branchRef} into ${BASE_BRANCH}`;
+}
+
 function mergeRefOntoBaseBranch(branchRef, shortName = normalizeGitBranchShortName(branchRef)) {
   const headBefore = runCommand("git", ["rev-parse", "HEAD"]);
+  const mergeMessage = buildMergeCommitMessage(shortName, branchRef);
+  const conflictMessage = buildConflictResolutionCommitMessage(shortName, branchRef);
 
   try {
-    runCommand("git", ["merge", "--no-ff", "--no-edit", branchRef], { capture: false });
+    runCommand("git", ["merge", "--no-ff", "-m", mergeMessage, branchRef], { capture: false });
   } catch (err) {
     const conflicts = listUnmergedConflictPaths();
     if (conflicts.length === 0) throw err;
 
     // Conflict resolution stays fail-closed toward the current main branch.
     runCommand("git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...conflicts], { capture: false });
-    runCommand("git", ["commit", "--no-edit"], { capture: false });
+    runCommand("git", ["commit", "-m", conflictMessage], { capture: false });
 
     return {
       outcome: "conflict-resolved",
