@@ -11,6 +11,7 @@ module Trader.VolConfGate (
 ) where
 
 import Data.List (intercalate)
+import Data.Maybe (fromMaybe)
 
 data VolConfGatePreset
     = VolConfGateDisabled
@@ -157,11 +158,9 @@ confidenceBucket preset mConfidence =
                 _ -> 0.60
         strongThreshold = 0.80
         confidence =
-            case sanitizeConfidenceUnitInterval mConfidence of
-                -- Missing, non-finite, and out-of-range confidence are treated
-                -- as weak so malformed model outputs cannot weaken the gate.
-                Nothing -> 0.0
-                Just validConfidence -> validConfidence
+            -- Missing, non-finite, and out-of-range confidence are treated
+            -- as weak so malformed model outputs cannot weaken the gate.
+            fromMaybe 0.0 (sanitizeConfidenceUnitInterval mConfidence)
      in if confidence < weakThreshold
             then ConfidenceWeak
             else
