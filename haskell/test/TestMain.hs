@@ -102,8 +102,9 @@ testSignalGateEntryFeeBufferSubordinate = do
                 && signalEntryHeadroomOk 0.01 feeOnlyVetoEdge
     assert
         "fee buffer may veto an entry that passes spike and pure headroom gates"
-        (passesSpikeAndHeadroom
-            && not (signalEntryFeeBufferOk 0.01 0.002 feeOnlyVetoEdge))
+        ( passesSpikeAndHeadroom
+            && not (signalEntryFeeBufferOk 0.01 0.002 feeOnlyVetoEdge)
+        )
     let headroomBlockedEdge = Just 0.014999
     let blockedBySpikeOrHeadroom =
             not
@@ -112,12 +113,13 @@ testSignalGateEntryFeeBufferSubordinate = do
                 )
     assert
         "fee buffer cannot admit an entry already blocked by the spike/headroom conjunction"
-        (blockedBySpikeOrHeadroom
+        ( blockedBySpikeOrHeadroom
             && not
                 ( signalEntryEdgeSpikeOk 0.01 headroomBlockedEdge
                     && signalEntryHeadroomOk 0.01 headroomBlockedEdge
                     && signalEntryFeeBufferOk 0.01 0.002 headroomBlockedEdge
-                ))
+                )
+        )
 
 testSignalGateEntryFeeBufferFailsClosed :: IO ()
 testSignalGateEntryFeeBufferFailsClosed = do
