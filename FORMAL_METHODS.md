@@ -1,6 +1,6 @@
 ## Formal fee-aware entry gate contract
 
-`signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into entry admissibility in `haskell/app/Trader/Trading.hs`, is treated as a fail-closed marginal-entry veto.
+`signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, is treated as a fail-closed marginal-entry veto.
 
 Clauses:
 
@@ -10,7 +10,7 @@ Clauses:
 4. For fixed `openThreshold` and fee floor, admissibility is monotone non-increasing as raw edge falls.
 5. Non-finite fee floors or non-finite edges are fail-closed.
 6. Once a state is blocked at fee floor `f`, it remains blocked for every `f' >= f`.
-7. In `simulateEnsembleLongFlatVWithHLChecked`, the spike, headroom, and fee-buffer checks are consulted only when `needsEntry` is true and are combined conjunctively over the same `entryEdge` sample, so the restored fee-aware gate can veto a new entry but can never admit an entry that another gate already blocked.
+7. In `mkEntryGateState`, the spike, headroom, and fee-buffer checks are consulted only when `needsEntry` is true, each check receives the same non-negative `entryEdge` sample `Just (max 0 edgeRaw)`, and the three booleans are combined conjunctively before `desiredSide1` can keep a fresh entry alive.
 
 Bounded executable obligations in `haskell/test/TestMain.hs`:
 
@@ -27,4 +27,5 @@ Proof sketch:
 - `signalEntryHeadroomOk` is implemented by partially applying the fee-aware predicate with a zero fee floor, so the legacy headroom contract is preserved as a special case.
 - The guard compares edge against an affine requirement with unit slope in the fee floor, so increasing fees cannot reduce the minimum admissible edge.
 - Lowering raw edge cannot make a blocked state admissible because the predicate is only `edge >= requiredEdge` once the inputs are well formed.
-- `simulateEnsembleLongFlatVWithHLChecked` reuses the same non-negative `entryEdge` sample across the spike/headroom/fee vetoes and combines those booleans conjunctively under `needsEntry`, so the fee-aware gate remains fail-closed and entry-only at integration time.
+- In `mkEntryGateState`, `roundTripFeeFloor` becomes `0 / 0` whenever the per-side fee sample is bad, and that malformed fee is then rejected by `signalEntryFeeBufferOk`, preserving fail-closed behavior at the Trading.hs integration boundary.
+- `mkEntryGateState` reuses the same non-negative `entryEdge` sample across the spike/headroom/fee vetoes and combines those booleans conjunctively under `needsEntry`, so the fee-aware gate remains fail-closed and entry-only at integration time.
