@@ -46,8 +46,7 @@ mkSignalThresholdBoundary openThreshold =
      in SignalThresholdBoundary openThreshold' (entryEdgeHeadroomMultiple * openThreshold')
 
 signalDirectionalitySnapshot :: Bool -> Bool -> DirectionalitySnapshot
-signalDirectionalitySnapshot longAllowed shortAllowed =
-    DirectionalitySnapshot longAllowed shortAllowed
+signalDirectionalitySnapshot = DirectionalitySnapshot
 
 signalDirectionalityEntryAllowed :: DirectionalitySnapshot -> Maybe Bool -> Bool
 signalDirectionalityEntryAllowed (DirectionalitySnapshot longAllowed shortAllowed) desiredLong =
