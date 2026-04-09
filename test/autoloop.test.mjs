@@ -6,7 +6,6 @@ import test from "node:test";
 import {
   buildBranchMergeCandidates,
   buildActionsRunsApiPath,
-  buildAutoloopRecoveryBranchName,
   buildForceWithLeaseFlag,
   buildRemoteTrackingRefspec,
   buildOpenAiApiError,
@@ -277,15 +276,6 @@ test("parseGitStatusPaths extracts tracked, untracked, and renamed paths", () =>
   ]);
 });
 
-test("buildAutoloopRecoveryBranchName scopes rescue branches under autoloop/wip", () => {
-  const branch = buildAutoloopRecoveryBranchName({
-    loopBranch: "main",
-    runId: "cycle-7",
-    timestamp: "2026-03-31T06:15:04.123Z",
-  });
-  assert.equal(branch, "autoloop/wip/main/cycle-7-2026-03-31t06-15-04-123z");
-});
-
 test("normalizeGitBranchShortName strips origin and refs prefixes", () => {
   assert.equal(normalizeGitBranchShortName("origin/feature/test"), "feature/test");
   assert.equal(normalizeGitBranchShortName("refs/heads/main"), "main");
@@ -543,17 +533,18 @@ test("autoloop forever script auto-snapshots recoverable dirty cycles before blo
   assert.match(script, /const dirtyRecovery = await tryAutoSnapshotDirtyCycle\(\);/);
   assert.match(script, /const dirtyCheckpoint = await tryAutoCheckpointDirtyWorktree\(\);/);
   assert.match(script, /runCommand\("git", \["status", "--porcelain"\], \{ trimOutput: false \}\)/);
-  assert.match(script, /function tryPushBranchBestEffort\(branchName\)/);
+  assert.match(script, /function pushHeadToBaseBranchWithRetry\(\)/);
+  assert.match(script, /runCommand\("git", \["push", "origin", `HEAD:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
   assert.match(script, /cycle [^`]*recovery=\$\{dirtyRecovery\?\.recovered \? dirtyRecovery\.branch : "none"\}/);
   assert.match(script, /cycleStatus\?\.phase !== "error" \|\| changedPaths\.length === 0/);
   assert.match(script, /dirty worktree does not exactly match the last failed cycle changedPaths/);
-  assert.match(script, /buildAutoloopRecoveryBranchName\(/);
-  assert.match(script, /auto-snapshotted failed dirty cycle to/);
-  assert.match(script, /push deferred:/);
+  assert.match(script, /recoveryBranch: BASE_BRANCH/);
+  assert.match(script, /recoveryMode: "direct-main"/);
+  assert.match(script, /auto-committed failed dirty cycle directly to/);
   assert.match(script, /recoveryPushed: pushResult\.pushed/);
-  assert.match(script, /buildAutoloopDirtyCheckpointBranchName\(/);
-  assert.match(script, /auto-checkpointed dirty worktree to/);
-  assert.match(script, /pushError: pushResult\.error/);
+  assert.match(script, /recoveryPushRetried: pushResult\.retried/);
+  assert.match(script, /auto-committed dirty worktree directly to/);
+  assert.match(script, /retried: pushResult\.retried/);
 });
 
 test("autoloop forever script reconciles every unmerged branch onto main before bounded cycles", async () => {
