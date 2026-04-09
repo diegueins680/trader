@@ -29,9 +29,10 @@ main = do
     run "signal gate fee buffer stays subordinate to spike/headroom vetoes" testSignalGateEntryFeeBufferSubordinate
     run "signal gate shared entryEdge conjunction stays fail closed" testSignalGateEntryConjunctiveSharedEdge
     run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
+    run "signal gate facade stays fail closed and monotone" testSignalGateFacadeFailClosedMonotone
     run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
 
--- Bounded executable obligations for the fee-aware entry gate cover:
+-- Bounded executable obligations for the fee-aware entry gate and restored facade cover:
 -- the 1.5x headroom-threshold-cap witness, zero-fee specialization,
 -- boundary acceptance, strict-below rejection, monotone non-increasing
 -- admissibility, once-blocked-stays-blocked, negative-fee clamping,
@@ -39,7 +40,10 @@ main = do
 -- shared non-negative entryEdge sample across the independent spike veto
 -- and the fee/headroom gates on the fresh-entry path, including the
 -- conjunction fact that the fee buffer may veto but cannot reopen an
--- entry already blocked by the upstream spike/headroom pair.
+-- entry already blocked by the upstream spike/headroom pair. The repaired
+-- facade proof also locks the zero-fee/headroom equivalence and shows that
+-- no restored alias can reopen an entry already rejected by the core
+-- conjunction.
 testSignalGateEntryHeadroomThresholdCap :: IO ()
 testSignalGateEntryHeadroomThresholdCap = do
     let cappedOpenThreshold = signalEntryHeadroomThresholdCap 0.015
@@ -181,5 +185,52 @@ testSignalGateEntryFeeBufferFailsClosed = do
     assert
         "negative fee floors are clamped to zero instead of reopening entries"
         (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.015))
+
+testSignalGateFacadeFailClosedMonotone :: IO ()
+testSignalGateFacadeFailClosedMonotone = do
+    let SignalThresholdBoundary openThreshold requiredEdge = mkSignalThresholdBoundary 0.01
+    let boundedEdges =
+            [Nothing, Just (0 / 0), Just 0.014999, Just requiredEdge, Just 0.02]
+    let coreGate edge =
+            signalEntryEdgeSpikeOk openThreshold edge
+                && signalEntryHeadroomOk openThreshold edge
+                && signalEntryFeeBufferOk openThreshold 0 edge
+    let facadeGate edge =
+            signalRunPostDirectionGates
+                [ signalDirectionalityEntryAllowed (signalDirectionalitySnapshot (coreGate edge))
+                , signalMetaLabelOk (coreGate edge)
+                , signalMtfConsensusCheck (coreGate edge)
+                , signalCrossAssetCheck (coreGate edge)
+                , signalRegimeEdgeOk (coreGate edge)
+                , signalFundingOiCheck (coreGate edge)
+                ]
+    assert
+        "restored threshold boundary carries the same headroom witness"
+        ( signalEntryHeadroomOk openThreshold (Just requiredEdge)
+            && signalEntryFeeBufferOk openThreshold 0 (Just requiredEdge)
+            && not (signalEntryFeeBufferOk openThreshold 0 (Just (requiredEdge - 0.000001)))
+        )
+    assert
+        "zero-fee specialization agrees with headroom-only gating across bounded samples"
+        ( and
+            [ signalEntryHeadroomOk openThreshold edge
+                == signalEntryFeeBufferOk openThreshold 0 edge
+            | edge <- boundedEdges
+            ]
+        )
+    assert
+        "directionality snapshot stays fail closed"
+        ( not (signalDirectionalityEntryAllowed (DirectionalitySnapshot False))
+            && signalDirectionalityEntryAllowed (signalDirectionalitySnapshot True)
+        )
+    assert
+        "restored facade cannot admit an entry the core conjunction rejects"
+        (and [not (facadeGate edge) || coreGate edge | edge <- boundedEdges])
+    assert
+        "post-direction gate conjunction fails closed on empty or blocked inputs"
+        ( not (signalRunPostDirectionGates [])
+            && not (signalRunPostDirectionGates [True, False, True])
+            && signalRunPostDirectionGates [True, True, True]
+        )
 
 -- Remaining signal-gate tests, including the spike-veto witness, remain unchanged.

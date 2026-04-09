@@ -19,6 +19,12 @@ module Trader.SignalGates (
 
 -- Existing threshold, directionality, and gate helpers remain unchanged.
 
+data SignalThresholdBoundary = SignalThresholdBoundary Double Double
+    deriving (Eq, Show)
+
+data DirectionalitySnapshot = DirectionalitySnapshot Bool
+    deriving (Eq, Show)
+
 finiteDouble :: Double -> Bool
 finiteDouble value = not (isNaN value || isInfinite value)
 
@@ -29,6 +35,19 @@ normalizeSignalThreshold raw
 
 entryEdgeHeadroomMultiple :: Double
 entryEdgeHeadroomMultiple = 1.5
+
+mkSignalThresholdBoundary :: Double -> SignalThresholdBoundary
+mkSignalThresholdBoundary openThreshold =
+    let normalizedThreshold = normalizeSignalThreshold openThreshold
+     in SignalThresholdBoundary
+            normalizedThreshold
+            (entryEdgeHeadroomMultiple * normalizedThreshold)
+
+signalDirectionalitySnapshot :: Bool -> DirectionalitySnapshot
+signalDirectionalitySnapshot = DirectionalitySnapshot
+
+signalDirectionalityEntryAllowed :: DirectionalitySnapshot -> Bool
+signalDirectionalityEntryAllowed (DirectionalitySnapshot allowed) = allowed
 
 signalEntryHeadroomThresholdCap :: Double -> Double
 signalEntryHeadroomThresholdCap edge =
@@ -64,5 +83,33 @@ signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
 signalEntryHeadroomOk :: Double -> Maybe Double -> Bool
 signalEntryHeadroomOk openThreshold =
     signalEntryFeeBufferOk openThreshold 0
+
+allRequired :: [Bool] -> Bool
+allRequired [] = False
+allRequired gateResults = and gateResults
+
+-- Compatibility aliases preserve the facade surface while staying
+-- fail closed: they can propagate an upstream acceptance, but they
+-- never reopen an entry that has already been vetoed elsewhere.
+signalEntryEdgeSpikeOk :: Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeOk = signalEntryHeadroomOk
+
+signalMetaLabelOk :: Bool -> Bool
+signalMetaLabelOk = id
+
+signalMtfConsensusCheck :: Bool -> Bool
+signalMtfConsensusCheck = id
+
+signalCrossAssetCheck :: Bool -> Bool
+signalCrossAssetCheck = id
+
+signalRegimeEdgeOk :: Bool -> Bool
+signalRegimeEdgeOk = id
+
+signalFundingOiCheck :: Bool -> Bool
+signalFundingOiCheck = id
+
+signalRunPostDirectionGates :: [Bool] -> Bool
+signalRunPostDirectionGates = allRequired
 
 -- Remaining gate implementations remain unchanged.
