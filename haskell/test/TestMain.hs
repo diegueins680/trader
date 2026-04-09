@@ -18,7 +18,7 @@ import Trader.SignalGates
 
 -- Existing test harness imports and helpers remain unchanged.
 
-              , run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
+              run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
               , run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
               , run "signal gate fee monotonicity holds" testSignalGateEntryFeeBufferMonotoneFees
               , run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
