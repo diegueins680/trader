@@ -1,3 +1,5 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+
 import Data.Maybe (isNothing)
 import qualified Data.Vector as V
 import Trader.SignalGates (
@@ -31,11 +33,13 @@ import Trader.Trading (
  )
 
 -- Focus the regression surface on the optimizer-facing checked-simulator
--- witness and the fee-aware entry-gate invariants.
+-- witness, the execution-config contract that Trader.Optimization updates, and
+-- the fee-aware entry-gate invariants.
 
 main :: IO ()
 main = do
     run "trading checked simulator facade stays optimizer-visible" testTradingCheckedSimulatorSurface
+    run "optimizer execution-config contract preserves fold payloads and zeroes flip exits together" testOptimizerExecutionConfigContract
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
     run "trading entry gate shared-edge conjunction stays fail closed at integration boundary" testTradingEntryGateSharedEdgeConjunction
@@ -70,7 +74,7 @@ checkedSimulatorContractWitness ::
 checkedSimulatorContractWitness cfg =
     simulateEnsembleVWithHLChecked cfg 1
 
-optimizerConfigSurfaceWitness :: EnsembleConfig -> (Double, Double, Double, Double, Int, Double)
+optimizerConfigSurfaceWitness :: EnsembleConfig -> (Double, Double, Double, Double, Int, Double, Int, Int)
 optimizerConfigSurfaceWitness cfg =
     ( ecPeriodsPerYear cfg
     , ecOpenThreshold cfg
@@ -78,6 +82,8 @@ optimizerConfigSurfaceWitness cfg =
     , ecMinEdge cfg
     , ecRouterLookback cfg
     , ecFee cfg
+    , ecLstmExitFlipBars cfg
+    , ecLstmExitFlipGraceBars cfg
     )
 
 optimizerStepMetaSurfaceWitness ::
@@ -100,6 +106,58 @@ optimizerStepMetaSurfaceWitness meta =
     , smQuantile90 meta
     )
 
+optimizerExecutionConfigContractWitness ::
+    Bool ->
+    Maybe (V.Vector Double) ->
+    Maybe (V.Vector Double) ->
+    Maybe (V.Vector Bool) ->
+    EnsembleConfig ->
+    EnsembleConfig
+optimizerExecutionConfigContractWitness lstmFlipEnabled openTimesF openPricesF metaMaskF cfg =
+    let foldCfg =
+            cfg
+                { ecOpenTimes = openTimesF
+                , ecOpenPrices = openPricesF
+                , ecMetaMask = metaMaskF
+                }
+     in if lstmFlipEnabled
+            then foldCfg
+            else
+                foldCfg
+                    { ecLstmExitFlipBars = 0
+                    , ecLstmExitFlipGraceBars = 0
+                    }
+
+sampleOptimizerConfig :: EnsembleConfig
+sampleOptimizerConfig =
+    EnsembleConfig
+        { ecPeriodsPerYear = 252
+        , ecOpenThreshold = 0.01
+        , ecCloseThreshold = 0.005
+        , ecMinEdge = 0.002
+        , ecRouterLookback = 12
+        , ecRouterMinScore = 0.55
+        , ecRouterScorePnlWeight = 0.5
+        , ecFee = 0.001
+        , ecFeeFixed = 0
+        , ecFeeMin = 0
+        , ecSlippage = 0.0002
+        , ecSlippageVolMult = 0.1
+        , ecSlippageImpactPower = 1
+        , ecSlippageImpact = 0.0001
+        , ecSpread = 0.0003
+        , ecSpreadVolMult = 0.05
+        , ecMaxPositionSize = 1
+        , ecBlendWeight = 0.5
+        , ecKalmanZMin = 0.25
+        , ecKalmanZMax = 2
+        , ecLstmExitFlipBars = 3
+        , ecLstmExitFlipGraceBars = 2
+        , ecOpenTimes = Just (V.fromList [0, 1, 2, 3])
+        , ecOpenPrices = Just (V.fromList [100, 101, 102, 103])
+        , ecMetaMask = Just (V.fromList [True, False, True])
+        }
+
 testTradingCheckedSimulatorSurface :: IO ()
 testTradingCheckedSimulatorSurface =
     assert
@@ -108,6 +166,40 @@ testTradingCheckedSimulatorSurface =
             optimizerConfigSurfaceWitness `seq`
                 optimizerStepMetaSurfaceWitness `seq`
                     True
+        )
+
+-- Bounded proof sketch for the reviewed Optimization.hs execution-config path:
+-- the fold payload projected into each walk-forward backtest must preserve the
+-- aligned openTimes/openPrices/metaMask slices verbatim, and the non-LSTM
+-- branch must zero both flip-exit counters together instead of drifting one
+-- field at a time.
+testOptimizerExecutionConfigContract :: IO ()
+testOptimizerExecutionConfigContract = do
+    let openTimesF = Just (V.fromList [10, 11, 12])
+        openPricesF = Just (V.fromList [200, 201, 202])
+        metaMaskF = Just (V.fromList [False, True])
+        disabledCfg =
+            optimizerExecutionConfigContractWitness False openTimesF openPricesF metaMaskF sampleOptimizerConfig
+        enabledCfg =
+            optimizerExecutionConfigContractWitness True openTimesF openPricesF metaMaskF sampleOptimizerConfig
+    assert
+        "optimizer fold config preserves aligned openTimes/openPrices/metaMask payloads"
+        ( ecOpenTimes disabledCfg == openTimesF
+            && ecOpenPrices disabledCfg == openPricesF
+            && ecMetaMask disabledCfg == metaMaskF
+        )
+    assert
+        "optimizer flip-disabled branch zeroes both LSTM exit counters together"
+        ( ecLstmExitFlipBars disabledCfg == 0
+            && ecLstmExitFlipGraceBars disabledCfg == 0
+        )
+    assert
+        "optimizer flip-enabled branch preserves both LSTM exit counters while keeping fold payloads intact"
+        ( ecOpenTimes enabledCfg == openTimesF
+            && ecOpenPrices enabledCfg == openPricesF
+            && ecMetaMask enabledCfg == metaMaskF
+            && ecLstmExitFlipBars enabledCfg == ecLstmExitFlipBars sampleOptimizerConfig
+            && ecLstmExitFlipGraceBars enabledCfg == ecLstmExitFlipGraceBars sampleOptimizerConfig
         )
 
 -- Fail-closed API stability obligation for downstream analytics:
