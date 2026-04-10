@@ -37,10 +37,11 @@ import Trader.Trading (
     Positioning (..),
     StepMeta (..),
     Trade (..),
-    defaultEnsembleConfig,
+    TradeEntrySource (..),
     mkEntryGateState,
     simulateEnsembleVWithHLChecked,
  )
+import Trader.VolConfGate (VolConfGatePreset (..))
 
 -- Focus the regression surface on the optimizer-facing checked-simulator
 -- witness, the execution-config contract that Trader.Optimization updates, the
@@ -71,9 +72,8 @@ main = do
 
 -- Trader.Optimization must keep importing the checked simulator/config/meta
 -- surface from Trader.Trading. This witness fails at compile time if the public
--- seam drifts again while the Trading-local fallback keeps the optimizer-facing
--- boundary buildable and the entry-gate behavior is locked by the regressions
--- below.
+-- seam drifts again while Trading-local defaults stay internal and the
+-- entry-gate behavior is locked by the regressions below.
 checkedSimulatorContractWitness ::
     EnsembleConfig ->
     V.Vector Double ->
@@ -140,46 +140,133 @@ optimizerExecutionConfigContractWitness lstmFlipEnabled openTimesF openPricesF m
                     , ecLstmExitFlipGraceBars = 0
                     }
 
--- Seed the optimizer fixture from the production default so this regression
+-- Build the optimizer fixture from the public constructor so this regression
 -- stays aligned with the live EnsembleConfig contract as strict fields are
--- added, while still only overriding the optimizer-facing surface under test.
+-- added, while keeping Trader.Trading's private defaults out of the test
+-- surface and only overriding the optimizer-facing fields under review.
 sampleOptimizerConfig :: EnsembleConfig
 sampleOptimizerConfig =
-    defaultEnsembleConfig
-        { ecPeriodsPerYear = 252
-        , ecOpenThreshold = 0.01
+    EnsembleConfig
+        { ecOpenThreshold = 0.01
         , ecCloseThreshold = 0.005
-        , ecMinEdge = 0.002
-        , ecRouterLookback = 12
-        , ecRouterMinScore = 0.55
-        , ecRouterScorePnlWeight = 0.5
         , ecFee = 0.001
+        , ecSlippage = 0.0002
+        , ecSpread = 0.0003
         , ecFeeFixed = 0
         , ecFeeMin = 0
-        , ecSlippage = 0.0002
         , ecSlippageVolMult = 0.1
-        , ecSlippageImpactPower = 1
         , ecSlippageImpact = 0.0001
-        , ecSpread = 0.0003
+        , ecSlippageImpactPower = 1
         , ecSpreadVolMult = 0.05
-        , ecMaxPositionSize = 1
-        , ecBlendWeight = 0.5
-        , ecKalmanZMin = 0.25
-        , ecKalmanZMax = 2
-        , ecLstmExitFlipBars = 3
-        , ecLstmExitFlipGraceBars = 2
+        , ecStopLoss = Nothing
+        , ecTakeProfit = Nothing
+        , ecTrailingStop = Nothing
+        , ecStopLossVolMult = 0
+        , ecTakeProfitVolMult = 0
+        , ecTrailingStopVolMult = 0
+        , ecMinHoldBars = 0
+        , ecCooldownBars = 0
+        , ecMaxHoldBars = Nothing
+        , ecMaxDrawdown = Nothing
+        , ecMaxDailyLoss = Nothing
+        , ecMaxWeeklyLoss = Nothing
+        , ecRiskPerTrade = Nothing
+        , ecMaxTradesPerDay = Nothing
+        , ecExpectancyLookback = 0
+        , ecMinExpectancy = Nothing
+        , ecPerfLookback = 0
+        , ecPerfMinWinRate = Nothing
+        , ecPerfMinProfitFactor = Nothing
+        , ecAdaptiveFilters = False
+        , ecAdaptiveEdgeBufferMax = 0
+        , ecAdaptiveMinSignalToNoiseMax = 0
+        , ecAdaptiveKalmanZMinMax = 0
+        , ecAdaptiveTrendLookbackMax = 0
+        , ecLossStreakMax = 0
+        , ecLossStreakCooldownBars = 0
+        , ecNoTradeWindows = []
+        , ecIntervalSeconds = Nothing
         , ecOpenTimes = Just (V.fromList ([0, 1, 2, 3] :: [Int64]))
         , ecOpenPrices = Just (V.fromList [100, 101, 102, 103])
         , ecMetaMask = Just (V.fromList [True, False, True])
+        , ecPositioning = LongFlat
+        , ecIntrabarFill = StopFirst
+        , ecMaxPositionSize = 1
+        , ecMinEdge = 0.002
+        , ecMinSignalToNoise = 0
+        , ecSnrSizeWeight = 0
+        , ecThresholdFactorEnabled = False
+        , ecThresholdFactorAlpha = 0
+        , ecThresholdFactorMin = 1
+        , ecThresholdFactorMax = 1
+        , ecThresholdFactorFloor = 0
+        , ecThresholdFactorEdgeKalWeight = 0
+        , ecThresholdFactorEdgeLstmWeight = 0
+        , ecThresholdFactorKalmanZWeight = 0
+        , ecThresholdFactorHighVolWeight = 0
+        , ecThresholdFactorConformalWeight = 0
+        , ecThresholdFactorQuantileWeight = 0
+        , ecThresholdFactorLstmConfWeight = 0
+        , ecThresholdFactorLstmHealthWeight = 0
+        , ecLstmTrainingHealth = Nothing
+        , ecTrendLookback = 0
+        , ecPeriodsPerYear = 252
+        , ecVolTarget = Nothing
+        , ecVolLookback = 0
+        , ecVolEwmaAlpha = Nothing
+        , ecVolFloor = 0
+        , ecVolScaleMax = 1
+        , ecMaxVolatility = Nothing
+        , ecVolConfGate = VolConfGateDisabled
+        , ecRebalanceBars = 0
+        , ecRebalanceThreshold = 0
+        , ecRebalanceGlobal = False
+        , ecRebalanceResetOnSignal = False
+        , ecFundingRate = 0
+        , ecFundingBySide = False
+        , ecFundingOnOpen = False
+        , ecBlendWeight = 0.5
+        , ecRouterLookback = 12
+        , ecRouterMinScore = 0.55
+        , ecRouterScorePnlWeight = 0.5
+        , ecKalmanDt = 1
+        , ecKalmanProcessVar = 0
+        , ecKalmanMeasurementVar = 1
+        , ecTriLayer = False
+        , ecTriLayerFastMult = 1
+        , ecTriLayerSlowMult = 1
+        , ecTriLayerCloudPadding = 0
+        , ecTriLayerCloudSlope = 0
+        , ecTriLayerCloudWidth = 0
+        , ecTriLayerTouchLookback = 1
+        , ecTriLayerRequirePriceAction = False
+        , ecTriLayerPriceActionBody = 0
+        , ecTriLayerExitOnSlow = False
+        , ecKalmanBandLookback = 0
+        , ecKalmanBandStdMult = 0
+        , ecLstmExitFlipBars = 3
+        , ecLstmExitFlipGraceBars = 2
+        , ecLstmExitFlipStrong = False
+        , ecLstmConfidenceSoft = 0
+        , ecLstmConfidenceHard = 0
+        , ecKalmanZMin = 0.25
+        , ecKalmanZMax = 2
+        , ecMaxHighVolProb = Nothing
+        , ecMaxConformalWidth = Nothing
+        , ecMaxQuantileWidth = Nothing
+        , ecConfirmConformal = False
+        , ecConfirmQuantiles = False
+        , ecConfidenceSizing = False
+        , ecMinPositionSize = 0
         }
 
 allPositionings :: [Positioning]
 allPositionings =
-    [minBound .. maxBound]
+    [LongFlat, LongShort]
 
 allIntrabarFills :: [IntrabarFill]
 allIntrabarFills =
-    [minBound .. maxBound]
+    [StopFirst, TakeProfitFirst]
 
 testTradingCheckedSimulatorSurface :: IO ()
 testTradingCheckedSimulatorSurface =
@@ -234,19 +321,31 @@ testTradingResultConstructorSurface :: IO ()
 testTradingResultConstructorSurface = do
     let roundTrip =
             Trade
-                { trEntryEquity = 1.0
+                { trEntryIndex = 0
+                , trExitIndex = 1
+                , trEntryEquity = 1.0
                 , trExitEquity = 1.1
                 , trReturn = 0.1
                 , trHoldingPeriods = 3
+                , trEntryHighVolProb = Nothing
+                , trEntrySource = TradeEntrySignal
                 , trExitReason = Just ExitSignal
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
                 }
         sessionClose =
             Trade
-                { trEntryEquity = 1.1
+                { trEntryIndex = 1
+                , trExitIndex = 2
+                , trEntryEquity = 1.1
                 , trExitEquity = 1.1
                 , trReturn = 0
                 , trHoldingPeriods = 1
+                , trEntryHighVolProb = Nothing
+                , trEntrySource = TradeEntrySignal
                 , trExitReason = Just ExitEod
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
                 }
         result =
             BacktestResult
@@ -469,10 +568,11 @@ testTradingEntryGateFailClosedMonotone = do
         "higher fee floors cannot reopen a blocked fresh-entry state"
         feeAlloweds
 
--- Formal proof sketch extension: once the fresh-entry conjunction blocks,
--- replacing the fee or edge input with malformed values must leave the state
--- blocked as well, so the Trading/SignalGates integration cannot reopen from
--- NaN or Infinity drift while the simulator seam stays decoupled.
+-- Formal proof sketch extension over the public Trader.Trading surface: once
+-- the fresh-entry conjunction blocks, replacing the fee or edge input with
+-- malformed values must leave the state blocked as well, so the
+-- Trading/SignalGates integration cannot reopen from NaN or Infinity drift
+-- while the simulator seam stays decoupled.
 testTradingEntryGateMalformedNoReopen :: IO ()
 testTradingEntryGateMalformedNoReopen = do
     let blockedState =
