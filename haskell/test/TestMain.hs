@@ -2,6 +2,12 @@
 
 import Data.Maybe (isNothing)
 import qualified Data.Vector as V
+import Trader.App.Args (
+    intrabarFillCode,
+    parseIntrabarFill,
+    parsePositioning,
+    positioningCode,
+ )
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -26,6 +32,8 @@ import Trader.Trading (
     EntryGateInputs (..),
     EntryGateState (..),
     ExitReason (..),
+    IntrabarFill (..),
+    Positioning (..),
     StepMeta (..),
     Trade (..),
     mkEntryGateState,
@@ -33,14 +41,16 @@ import Trader.Trading (
  )
 
 -- Focus the regression surface on the optimizer-facing checked-simulator
--- witness, the execution-config contract that Trader.Optimization updates, and
--- the fee-aware entry-gate invariants.
+-- witness, the execution-config contract that Trader.Optimization updates, the
+-- CLI enum contract consumed by Trader.App.Args, and the fee-aware entry-gate
+-- invariants.
 
 main :: IO ()
 main = do
     run "trading checked simulator facade stays optimizer-visible" testTradingCheckedSimulatorSurface
     run "optimizer execution-config contract preserves fold payloads and zeroes flip exits together" testOptimizerExecutionConfigContract
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
+    run "trading CLI enum surface stays visible and round-trips via args parsers" testTradingCliEnumContract
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
     run "trading entry gate shared-edge conjunction stays fail closed at integration boundary" testTradingEntryGateSharedEdgeConjunction
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
@@ -158,6 +168,14 @@ sampleOptimizerConfig =
         , ecMetaMask = Just (V.fromList [True, False, True])
         }
 
+allPositionings :: [Positioning]
+allPositionings =
+    [minBound .. maxBound]
+
+allIntrabarFills :: [IntrabarFill]
+allIntrabarFills =
+    [minBound .. maxBound]
+
 testTradingCheckedSimulatorSurface :: IO ()
 testTradingCheckedSimulatorSurface =
     assert
@@ -253,6 +271,34 @@ testTradingResultConstructorSurface = do
         ( case map trExitReason (brTrades result) of
             [Just ExitSignal, Just ExitEod] -> True
             _ -> False
+        )
+
+-- Bounded CLI/config contract invariant for the reviewed Trading.hs export
+-- surface: the Positioning and IntrabarFill constructor sets must stay public,
+-- and the canonical App.Args code/parser pairs must remain exhaustive over the
+-- exported constructor lists.
+testTradingCliEnumContract :: IO ()
+testTradingCliEnumContract = do
+    assert
+        "positioning constructor surface remains bounded and exported from Trader.Trading"
+        (allPositionings == [LongFlat, LongShort])
+    assert
+        "intrabar-fill constructor surface remains bounded and exported from Trader.Trading"
+        (allIntrabarFills == [StopFirst, TakeProfitFirst])
+    assert
+        "positioning constructors round-trip through CLI code and parser"
+        (all (\positioning -> parsePositioning (positioningCode positioning) == Right positioning) allPositionings)
+    assert
+        "intrabar-fill constructors round-trip through CLI code and parser"
+        (all (\fill -> parseIntrabarFill (intrabarFillCode fill) == Right fill) allIntrabarFills)
+    assert
+        "legacy CLI aliases still resolve to the expected trading constructors"
+        ( and
+            [ parsePositioning "long" == Right LongFlat
+            , parsePositioning "ls" == Right LongShort
+            , parseIntrabarFill "stop" == Right StopFirst
+            , parseIntrabarFill "tp" == Right TakeProfitFirst
+            ]
         )
 
 -- The reviewed Trading.hs change restores only the optimizer-facing checked-
