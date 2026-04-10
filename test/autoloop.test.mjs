@@ -614,16 +614,20 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /branch reconciliation skipped \$\{pruneResult\.skippedWorktreeBranches\.length\} merged local ref\(s\) still attached to worktrees/);
 });
 
-test("autoloop workflow uses an optional dedicated push token and no PR permission", async () => {
+test("autoloop workflow requires a dedicated push token and never skips post-push CI polling", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/autoloop.yml", import.meta.url), "utf8");
   assert.match(workflow, /contents:\s+write/);
   assert.doesNotMatch(workflow, /pull-requests:\s+write/);
+  assert.match(workflow, /name:\s+Require dedicated push token/);
+  assert.match(workflow, /AUTOLOOP_PUSH_TOKEN is required so autoloop pushes trigger downstream CI and can poll GitHub Actions to repair failures\./);
   assert.match(workflow, /name:\s+Install HLint/);
   assert.match(workflow, /sudo apt-get update && sudo apt-get install -y hlint/);
   assert.match(workflow, /name:\s+Install fourmolu/);
   assert.match(workflow, /cabal install fourmolu-0\.15\.0\.0/);
-  assert.match(workflow, /token:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN \|\| github\.token\s*\}\}/);
-  assert.match(workflow, /AUTOLOOP_SKIP_CI_WAIT:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN == '' && '1' \|\| ''\s*\}\}/);
+  assert.match(workflow, /token:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN\s*\}\}/);
+  assert.match(workflow, /GITHUB_TOKEN:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN\s*\}\}/);
+  assert.doesNotMatch(workflow, /AUTOLOOP_SKIP_CI_WAIT:/);
+  assert.doesNotMatch(workflow, /github\.token/);
 });
 
 test("repo root package exposes the autoloop verifier script", async () => {

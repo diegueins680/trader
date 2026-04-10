@@ -33,10 +33,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 330
     steps:
+      - name: Require dedicated push token
+        env:
+          AUTOLOOP_PUSH_TOKEN: ${{ secrets.AUTOLOOP_PUSH_TOKEN }}
+        run: |
+          if [[ -z "${AUTOLOOP_PUSH_TOKEN:-}" ]]; then
+            echo "::error::AUTOLOOP_PUSH_TOKEN is required so autoloop pushes trigger downstream CI and can poll GitHub Actions to repair failures."
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.AUTOLOOP_PUSH_TOKEN || github.token }}
+          token: ${{ secrets.AUTOLOOP_PUSH_TOKEN }}
 
       - uses: haskell/ghcup-setup@v1
         with:
@@ -81,8 +90,7 @@ jobs:
 
       - name: Run autoloop
         env:
-          GITHUB_TOKEN: ${{ secrets.AUTOLOOP_PUSH_TOKEN || github.token }}
-          AUTOLOOP_SKIP_CI_WAIT: ${{ secrets.AUTOLOOP_PUSH_TOKEN == '' && '1' || '' }}
+          GITHUB_TOKEN: ${{ secrets.AUTOLOOP_PUSH_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AUTOLOOP_BASE_BRANCH: ${{ github.event.repository.default_branch }}
           AUTOLOOP_MODEL: ${{ github.event.inputs.model || vars.AUTOLOOP_MODEL }}
