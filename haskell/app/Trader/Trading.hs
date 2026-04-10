@@ -1,3 +1,4 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Trader.Trading (
@@ -29,6 +30,26 @@ data EnsembleConfig = EnsembleConfig
     , ecCloseThreshold :: !Double
     , ecMinEdge :: !Double
     , ecRouterLookback :: !Int
+    , ecRouterMinScore :: !Double
+    , ecRouterScorePnlWeight :: !Double
+    , ecFee :: !Double
+    , ecFeeFixed :: !Double
+    , ecFeeMin :: !Double
+    , ecSlippage :: !Double
+    , ecSlippageVolMult :: !Double
+    , ecSlippageImpactPower :: !Double
+    , ecSlippageImpact :: !Double
+    , ecSpread :: !Double
+    , ecSpreadVolMult :: !Double
+    , ecMaxPositionSize :: !Double
+    , ecBlendWeight :: !Double
+    , ecKalmanZMin :: !Double
+    , ecKalmanZMax :: !Double
+    , ecLstmExitFlipBars :: !Int
+    , ecLstmExitFlipGraceBars :: !Int
+    , ecOpenTimes :: !(Maybe (V.Vector Double))
+    , ecOpenPrices :: !(Maybe (V.Vector Double))
+    , ecMetaMask :: !(Maybe (V.Vector Bool))
     }
     deriving (Eq, Show)
 
