@@ -29,12 +29,12 @@ import Trader.SignalGates (
 data Positioning
     = LongFlat
     | LongShort
-    deriving (Bounded, Enum, Eq, Show)
+    deriving (Bounded, Enum, Eq, Ord, Read, Show)
 
 data IntrabarFill
     = StopFirst
     | TakeProfitFirst
-    deriving (Bounded, Enum, Eq, Show)
+    deriving (Bounded, Enum, Eq, Ord, Read, Show)
 
 -- Keep the optimizer-visible config/meta surface local to Trader.Trading so
 -- the fresh-entry algorithm no longer depends on the unavailable
