@@ -344,7 +344,7 @@ testTradingEntryGateMalformedNoReopen = do
             && not (entryGatesOk blockedState)
             && isNothing (desiredSide1 blockedState)
             && all
-                (\state ->
+                ( \state ->
                     needsEntry state
                         && not (entryGatesOk state)
                         && isNothing (desiredSide1 state)
