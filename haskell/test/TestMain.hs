@@ -800,6 +800,13 @@ testSignalGateEntryFeeBufferFailsClosed = do
         "infinite fee floor fails closed"
         (not (signalEntryFeeBufferOk 0.01 (1 / 0) (Just 0.05)))
     assert
+        "non-finite open threshold fails closed instead of collapsing to zero"
+        ( not (signalEntryFeeBufferOk (0 / 0) 0 (Just 0))
+            && not (signalEntryFeeBufferOk (1 / 0) 0 (Just 0))
+            && not (signalEntryHeadroomOk (0 / 0) (Just 0))
+            && not (signalEntryHeadroomOk (1 / 0) (Just 0))
+        )
+    assert
         "non-finite edge fails closed"
         (not (signalEntryFeeBufferOk 0.01 0.002 (Just (1 / 0))))
     assert

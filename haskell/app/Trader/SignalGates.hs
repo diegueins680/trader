@@ -189,17 +189,20 @@ normalizeSignalFeeFloor raw
 
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
 signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
-    let requiredHeadroom = entryEdgeHeadroomMultiple * normalizeSignalThreshold openThreshold
-     in case normalizeSignalFeeFloor roundTripFeeFloor of
-            Nothing -> False
-            Just feeFloor ->
-                let requiredEdge = requiredHeadroom + feeFloor
-                 in requiredEdge <= 0
-                        || case edgeForMethod of
-                            Just edge ->
-                                finiteDouble edge
-                                    && edge >= requiredEdge
-                            Nothing -> False
+    if not (finiteDouble openThreshold)
+        then False
+        else
+            let requiredHeadroom = entryEdgeHeadroomMultiple * normalizeSignalThreshold openThreshold
+             in case normalizeSignalFeeFloor roundTripFeeFloor of
+                    Nothing -> False
+                    Just feeFloor ->
+                        let requiredEdge = requiredHeadroom + feeFloor
+                         in requiredEdge <= 0
+                                || case edgeForMethod of
+                                    Just edge ->
+                                        finiteDouble edge
+                                            && edge >= requiredEdge
+                                    Nothing -> False
 
 signalEntryHeadroomOk :: Double -> Maybe Double -> Bool
 signalEntryHeadroomOk openThreshold =
