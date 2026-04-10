@@ -103,8 +103,8 @@ testTradingCheckedSimulatorSurface =
         "optimizer-facing checked simulator facade remains exported from Trader.Trading"
         ( checkedSimulatorContractWitness `seq`
             optimizerConfigSurfaceWitness `seq`
-            optimizerStepMetaSurfaceWitness `seq`
-            True
+                optimizerStepMetaSurfaceWitness `seq`
+                    True
         )
 
 -- Fail-closed API stability obligation for downstream analytics:
