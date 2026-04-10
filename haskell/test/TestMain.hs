@@ -620,37 +620,71 @@ mkTradingEntryGateInputs feePerSide rawEdge currentSide =
         , triLayerOk = True
         }
 
--- Bounded executable obligations for the restored signal-gate facade cover:
--- the threshold-boundary witness and entry-only directionality snapshot,
--- the 1.5x headroom-threshold-cap witness, zero-fee specialization,
--- boundary acceptance, strict-below rejection, monotone non-increasing
--- admissibility, once-blocked-stays-blocked under the post-direction wrapper,
--- negative-fee clamping, missing/non-finite-input fail-closed behavior, and
--- preservation of the shared non-negative entryEdge sample across the
--- independent spike veto and the fee/headroom gates on the fresh-entry path,
--- including the conjunction fact that the fee buffer may veto but cannot
--- reopen an entry already blocked upstream.
+-- Bounded executable obligations for the restored signal-gate facade now cover:
+-- the four-field threshold-boundary witness, a live DirectionalitySnapshot
+-- built through the current price/regime API, snapshot-only fail-closed
+-- directionality admission on Nothing and non-directional snapshots, the 1.5x
+-- headroom-threshold-cap witness, zero-fee specialization, boundary
+-- acceptance, strict-below rejection, monotone non-increasing admissibility,
+-- once-blocked-stays-blocked under the post-direction wrapper, negative-fee
+-- clamping, missing/non-finite-input fail-closed behavior, and preservation of
+-- the shared non-negative entryEdge sample across the independent spike veto
+-- and the fee/headroom gates on the fresh-entry path, including the
+-- conjunction fact that the fee buffer may veto but cannot reopen an entry
+-- already blocked upstream.
 testSignalGateFacadeSurface :: IO ()
 testSignalGateFacadeSurface = do
-    let boundary = mkSignalThresholdBoundary 0.01
-    let directionality = signalDirectionalitySnapshot True False
+    let openThreshold = 0.01
+        requiredEdge = 0.015
+        boundary@(SignalThresholdBoundary configuredOpen configuredClose effectiveOpen effectiveClose) =
+            mkSignalThresholdBoundary openThreshold 0 openThreshold requiredEdge
+        directionalPrices = V.fromList [100, 101, 103, 106, 110]
+        directionalSnapshot =
+            signalDirectionalitySnapshot 0 Nothing directionalPrices (V.length directionalPrices - 1)
+        nonDirectionalPrices = V.fromList [100, 100, 100, 100]
+        nonDirectionalSnapshot =
+            signalDirectionalitySnapshot 0 Nothing nonDirectionalPrices (V.length nonDirectionalPrices - 1)
+        directionalBuilt =
+            case directionalSnapshot of
+                Just snap ->
+                    not (dsNonDirectional snap)
+                        && dsReason snap == Nothing
+                        && dsLookbackBars snap == V.length directionalPrices
+                Nothing -> False
+        nonDirectionalBuilt =
+            case nonDirectionalSnapshot of
+                Just snap ->
+                    dsNonDirectional snap
+                        && dsReason snap == Just "NON_DIRECTIONAL_CHOP"
+                        && dsLookbackBars snap == V.length nonDirectionalPrices
+                Nothing -> False
+        (fundingOiOk, _) =
+            signalFundingOiCheck True (Just 0.01) (Just 0.1) 0.02 1 Nothing
     assert
-        "restored threshold boundary preserves normalized threshold and required edge"
-        (boundary == SignalThresholdBoundary 0.01 0.015)
+        "restored threshold boundary preserves the normalized threshold and required edge/headroom boundary"
+        ( boundary == SignalThresholdBoundary openThreshold 0 openThreshold requiredEdge
+            && configuredOpen == openThreshold
+            && configuredClose == 0
+            && effectiveOpen == openThreshold
+            && effectiveClose == requiredEdge
+            && signalEntryHeadroomThresholdCap effectiveClose == effectiveOpen
+        )
     assert
-        "directionality snapshot remains entry-only and side-specific"
-        ( signalDirectionalityEntryAllowed directionality (Just True)
-            && not (signalDirectionalityEntryAllowed directionality (Just False))
-            && not (signalDirectionalityEntryAllowed directionality Nothing)
+        "directionality snapshot stays snapshot-only, entry-allowed for directional evidence, and fail closed otherwise"
+        ( directionalBuilt
+            && signalDirectionalityEntryAllowed directionalSnapshot
+            && not (signalDirectionalityEntryAllowed Nothing)
+            && nonDirectionalBuilt
+            && not (signalDirectionalityEntryAllowed nonDirectionalSnapshot)
         )
     assert
         "restored facade wrappers stay fail closed on malformed inputs"
         ( normalizeSignalThreshold (-0.01) == 0
-            && not (signalMetaLabelOk Nothing)
-            && not (signalMtfConsensusCheck [])
-            && not (signalCrossAssetCheck [])
-            && not (signalRegimeEdgeOk 0.01 Nothing)
-            && not (signalFundingOiCheck Nothing Nothing)
+            && not (signalMetaLabelOk True 0.01 Nothing 0 Nothing False False)
+            && signalMtfConsensusCheck True [] 1 1 == (False, Just "MTF_WARMUP")
+            && signalCrossAssetCheck True Nothing 1 == (False, Just "CROSS_ASSET")
+            && not (signalRegimeEdgeOk True 0.01 Nothing)
+            && not fundingOiOk
         )
 
 testSignalGateEntryHeadroom :: IO ()
