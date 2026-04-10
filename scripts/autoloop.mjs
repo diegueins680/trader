@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
@@ -86,9 +86,11 @@ const BLOCKED_EDIT_PREFIXES = [
 ];
 
 const FOURMOLU_CHECK_COMMAND = "cd haskell && find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check";
+const HLINT_CHECK_COMMAND = "cd haskell && hlint app test bench";
 
 const SAFE_VERIFICATION_COMMANDS = new Set([
   FOURMOLU_CHECK_COMMAND,
+  HLINT_CHECK_COMMAND,
   "cd haskell && cabal build",
   "cd haskell && cabal test",
   "cd haskell && bash scripts/ci_smoke.sh",
@@ -567,14 +569,47 @@ function summarizeAutomaticRepair(repair) {
   };
 }
 
-function parseFourmoluFailurePaths(failedLog) {
+function parseHaskellFailurePaths(logText) {
   return uniqueStrings(
-    String(failedLog || "")
+    String(logText || "")
       .split(/\r?\n/)
       .map((line) => line.match(/\b((?:app|test|bench)\/[A-Za-z0-9_./-]+\.hs)\b/)?.[1] || "")
       .filter(Boolean)
       .map((relPath) => sanitizeRelativePath(`haskell/${relPath}`)),
   );
+}
+
+function parseFourmoluFailurePaths(failedLog) {
+  return parseHaskellFailurePaths(failedLog);
+}
+
+function stripHlintBlockIndent(blockText) {
+  return String(blockText || "")
+    .replace(/\s+$/, "")
+    .split(/\r?\n/)
+    .map((line) => (line.startsWith("  ") ? line.slice(2) : line))
+    .join("\n");
+}
+
+function parseHlintFailureEntries(failedLog) {
+  const pattern =
+    /(?<file>(?:app|test|bench)\/[A-Za-z0-9_./-]+\.hs):(?<span>[^:\n]+): (?<severity>Warning|Suggestion|Error): (?<hint>[^\n]+)\nFound:\n(?<found>[\s\S]*?)\nPerhaps:\n(?<perhaps>[\s\S]*?)(?=\n(?:\d+ hints?\n|Error: Process completed with exit code \d+\n|(?:app|test|bench)\/[A-Za-z0-9_./-]+\.hs:[^:\n]+: )|$)/g;
+
+  return Array.from(String(failedLog || "").matchAll(pattern))
+    .map((match) => {
+      const filePath = sanitizeRelativePath(`haskell/${match.groups?.file || ""}`);
+      const startLine = Number.parseInt(match.groups?.span?.match(/\d+/)?.[0] || "", 10);
+      const found = stripHlintBlockIndent(match.groups?.found || "");
+      const replacement = stripHlintBlockIndent(match.groups?.perhaps || "");
+      return {
+        path: filePath,
+        hint: String(match.groups?.hint || "").trim(),
+        startLine: Number.isFinite(startLine) ? startLine : 0,
+        found,
+        replacement,
+      };
+    })
+    .filter((entry) => entry.path && entry.found && entry.replacement && entry.found !== entry.replacement);
 }
 
 function hasHaskellParserFailure(logText) {
@@ -595,18 +630,33 @@ function detectAutomaticRepair(failureContext) {
 
   const failedLog = String(failureContext.failedLog);
   const isFourmoluFailure = /\bfourmolu --mode check\b/.test(failedLog);
-  if (!isFourmoluFailure) return null;
+  if (isFourmoluFailure) {
+    // Trust the failed formatter log over commit changed-path metadata because CI
+    // can surface parse/format failures from files outside a narrow changedPaths set.
+    const fourmoluPaths = parseFourmoluFailurePaths(failedLog);
+    if (fourmoluPaths.length > 0 && fourmoluPaths.every(allowedEditPath)) {
+      return {
+        type: "fourmolu",
+        changedPaths: fourmoluPaths,
+        commitMessage: fourmoluPaths.length === 1 ? `Haskell: format ${path.basename(fourmoluPaths[0], ".hs")}` : "Haskell: apply fourmolu fixes",
+        verificationCommands: planVerificationCommands(fourmoluPaths, [FOURMOLU_CHECK_COMMAND]),
+      };
+    }
+  }
 
-  // Trust the failed formatter log over commit changed-path metadata because CI
-  // can surface parse/format failures from files outside a narrow changedPaths set.
-  const fourmoluPaths = parseFourmoluFailurePaths(failedLog);
-  if (fourmoluPaths.length === 0 || !fourmoluPaths.every(allowedEditPath)) return null;
+  const isHlintFailure = /\bhlint app test bench\b/.test(failedLog);
+  if (!isHlintFailure) return null;
+
+  const hlintEntries = parseHlintFailureEntries(failedLog);
+  const hlintPaths = uniqueStrings(hlintEntries.map((entry) => entry.path));
+  if (hlintEntries.length === 0 || hlintPaths.length === 0 || !hlintPaths.every(allowedEditPath)) return null;
 
   return {
-    type: "fourmolu",
-    changedPaths: fourmoluPaths,
-    commitMessage: fourmoluPaths.length === 1 ? `Haskell: format ${path.basename(fourmoluPaths[0], ".hs")}` : "Haskell: apply fourmolu fixes",
-    verificationCommands: planVerificationCommands(fourmoluPaths, [FOURMOLU_CHECK_COMMAND]),
+    type: "hlint",
+    changedPaths: hlintPaths,
+    commitMessage: hlintPaths.length === 1 ? `Haskell: apply hlint fix for ${path.basename(hlintPaths[0], ".hs")}` : "Haskell: apply hlint fixes",
+    verificationCommands: planVerificationCommands(hlintPaths, [HLINT_CHECK_COMMAND]),
+    suggestions: hlintEntries,
   };
 }
 
@@ -1110,7 +1160,73 @@ function applyAutomaticRepair(repair) {
     return;
   }
 
+  if (repair.type === "hlint") {
+    applyHlintSuggestions(repair.suggestions || []);
+    return;
+  }
+
   throw new Error(`Unsupported automatic repair type: ${repair.type}`);
+}
+
+function applyHlintSuggestions(suggestions) {
+  const suggestionsByPath = new Map();
+  for (const suggestion of suggestions) {
+    if (!suggestion?.path || !allowedEditPath(suggestion.path)) {
+      throw new Error(`hlint repair referenced a non-editable path: ${suggestion?.path || ""}`);
+    }
+    const current = suggestionsByPath.get(suggestion.path) || [];
+    current.push(suggestion);
+    suggestionsByPath.set(suggestion.path, current);
+  }
+
+  for (const [relativePath, pathSuggestions] of suggestionsByPath.entries()) {
+    const abs = path.join(ROOT, relativePath);
+    let content = readFileSync(abs, "utf8");
+    const orderedSuggestions = [...pathSuggestions].sort(
+      (left, right) => right.startLine - left.startLine || right.found.length - left.found.length,
+    );
+    for (const suggestion of orderedSuggestions) {
+      content = replaceHlintSuggestion(content, suggestion);
+    }
+    writeFileSync(abs, content, "utf8");
+  }
+}
+
+function replaceHlintSuggestion(content, suggestion) {
+  const foundIndex = findSnippetNearLine(content, suggestion.found, suggestion.startLine);
+  if (foundIndex !== -1) {
+    return `${content.slice(0, foundIndex)}${suggestion.replacement}${content.slice(foundIndex + suggestion.found.length)}`;
+  }
+
+  const fallbackIndex = content.indexOf(suggestion.found);
+  if (fallbackIndex !== -1 && content.indexOf(suggestion.found, fallbackIndex + suggestion.found.length) === -1) {
+    return `${content.slice(0, fallbackIndex)}${suggestion.replacement}${content.slice(fallbackIndex + suggestion.found.length)}`;
+  }
+
+  throw new Error(`Unable to apply hlint suggestion "${suggestion.hint}" in ${suggestion.path}`);
+}
+
+function findSnippetNearLine(content, snippet, startLine) {
+  if (!snippet || !Number.isFinite(startLine) || startLine <= 0) return -1;
+  const snippetLines = snippet.split(/\r?\n/).length;
+  const searchStart = indexForLine(content, Math.max(1, startLine - 20));
+  const searchEnd = indexForLine(content, startLine + snippetLines + 20);
+  const window = content.slice(searchStart, searchEnd || undefined);
+  const localIndex = window.indexOf(snippet);
+  return localIndex === -1 ? -1 : searchStart + localIndex;
+}
+
+function indexForLine(content, lineNumber) {
+  if (!Number.isFinite(lineNumber) || lineNumber <= 1) return 0;
+  let index = 0;
+  let currentLine = 1;
+  while (currentLine < lineNumber && index < content.length) {
+    const newlineIndex = content.indexOf("\n", index);
+    if (newlineIndex === -1) return content.length;
+    index = newlineIndex + 1;
+    currentLine += 1;
+  }
+  return index;
 }
 
 function applyFileChanges(changes) {

@@ -463,6 +463,24 @@ test("autoloop script auto-heals formatting-only CI failures on editable Haskell
   assert.match(script, /function deriveParserFailurePaths\(\.\.\.logTexts\)/);
 });
 
+test("autoloop script auto-heals hlint-only CI failures on editable Haskell files", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /const HLINT_CHECK_COMMAND = "cd haskell && hlint app test bench";/);
+  assert.match(script, /SAFE_VERIFICATION_COMMANDS = new Set\(\[[\s\S]*HLINT_CHECK_COMMAND/);
+  assert.match(script, /function stripHlintBlockIndent\(blockText\)/);
+  assert.match(script, /function parseHlintFailureEntries\(failedLog\)/);
+  assert.match(script, /const isHlintFailure = \/\\bhlint app test bench\\b\/\.test\(failedLog\);/);
+  assert.match(script, /type: "hlint"/);
+  assert.match(script, /verificationCommands: planVerificationCommands\(hlintPaths, \[HLINT_CHECK_COMMAND\]\),/);
+  assert.match(script, /suggestions: hlintEntries/);
+  assert.match(script, /if \(repair.type === "hlint"\)/);
+  assert.match(script, /applyHlintSuggestions\(repair\.suggestions \|\| \[\]\);/);
+  assert.match(script, /function applyHlintSuggestions\(suggestions\)/);
+  assert.match(script, /function replaceHlintSuggestion\(content, suggestion\)/);
+  assert.match(script, /function findSnippetNearLine\(content, snippet, startLine\)/);
+  assert.match(script, /Unable to apply hlint suggestion/);
+});
+
 test("autoloop script promotes failing log paths into generic self-heal scope", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /const MAX_EDITABLE_FILE_BYTES = clampInt\(process\.env\.AUTOLOOP_MAX_FILE_BYTES, 1000000, 4000, 5000000\);/);
@@ -582,18 +600,28 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /const pruneResult = pruneMergedRefsOnBaseBranch\(BASE_BRANCH\);/);
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
+  assert.match(script, /runCommand\("git", \["worktree", "list", "--porcelain"\], \{ trimOutput: false \}\)/);
+  assert.match(script, /const worktreeBranches = listWorktreeBranches\(\);/);
+  assert.match(script, /if \(worktreeBranches\.has\(candidate\.shortName\)\) \{/);
+  assert.match(script, /skippedWorktreeBranches\.push\(candidate\.shortName\);/);
   assert.match(script, /runCommand\("git", \["push", "origin", "--delete", candidate\.shortName\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-D", candidate\.shortName\], \{ capture: false \}\)/);
   assert.match(script, /prunedLocalBranches: pruneResult\.prunedLocalBranches/);
   assert.match(script, /prunedRemoteBranches: pruneResult\.prunedRemoteBranches/);
+  assert.match(script, /skippedWorktreeBranches: pruneResult\.skippedWorktreeBranches/);
   assert.match(script, /pruneErrors: pruneResult\.pruneErrors/);
   assert.match(script, /branch reconciliation pruned \$\{pruneResult\.prunedLocalBranches\.length\} local and \$\{pruneResult\.prunedRemoteBranches\.length\} remote merged ref\(s\)/);
+  assert.match(script, /branch reconciliation skipped \$\{pruneResult\.skippedWorktreeBranches\.length\} merged local ref\(s\) still attached to worktrees/);
 });
 
 test("autoloop workflow uses an optional dedicated push token and no PR permission", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/autoloop.yml", import.meta.url), "utf8");
   assert.match(workflow, /contents:\s+write/);
   assert.doesNotMatch(workflow, /pull-requests:\s+write/);
+  assert.match(workflow, /name:\s+Install HLint/);
+  assert.match(workflow, /sudo apt-get update && sudo apt-get install -y hlint/);
+  assert.match(workflow, /name:\s+Install fourmolu/);
+  assert.match(workflow, /cabal install fourmolu-0\.15\.0\.0/);
   assert.match(workflow, /token:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN \|\| github\.token\s*\}\}/);
   assert.match(workflow, /AUTOLOOP_SKIP_CI_WAIT:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN == '' && '1' \|\| ''\s*\}\}/);
 });

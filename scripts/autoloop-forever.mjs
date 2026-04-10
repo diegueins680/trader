@@ -392,6 +392,17 @@ function isIgnorablePruneError(message) {
   );
 }
 
+function listWorktreeBranches() {
+  const lines = splitNonEmptyLines(runCommand("git", ["worktree", "list", "--porcelain"], { trimOutput: false }));
+  const branches = new Set();
+  for (const line of lines) {
+    if (!line.startsWith("branch ")) continue;
+    const shortName = normalizeGitBranchShortName(line.slice("branch ".length).trim());
+    if (shortName) branches.add(shortName);
+  }
+  return branches;
+}
+
 function pruneMergedRefsOnBaseBranch(baseBranch) {
   const localBranches = splitNonEmptyLines(
     runCommand("git", ["branch", "--format=%(refname:short)", "--merged", baseBranch], { trimOutput: false }),
@@ -400,8 +411,10 @@ function pruneMergedRefsOnBaseBranch(baseBranch) {
     runCommand("git", ["branch", "-r", "--format=%(refname:short)", "--merged", baseBranch], { trimOutput: false }),
   );
   const candidates = buildBranchMergeCandidates({ localBranches, remoteBranches, baseBranch });
+  const worktreeBranches = listWorktreeBranches();
   const prunedLocalBranches = [];
   const prunedRemoteBranches = [];
+  const skippedWorktreeBranches = [];
   const pruneErrors = [];
 
   for (const candidate of candidates) {
@@ -418,6 +431,10 @@ function pruneMergedRefsOnBaseBranch(baseBranch) {
     }
 
     if (candidate.localRef) {
+      if (worktreeBranches.has(candidate.shortName)) {
+        skippedWorktreeBranches.push(candidate.shortName);
+        continue;
+      }
       try {
         runCommand("git", ["branch", "-D", candidate.shortName], { capture: false });
         prunedLocalBranches.push(candidate.shortName);
@@ -438,6 +455,7 @@ function pruneMergedRefsOnBaseBranch(baseBranch) {
     candidateBranches: candidates.map((candidate) => candidate.shortName),
     prunedLocalBranches,
     prunedRemoteBranches,
+    skippedWorktreeBranches,
     pruneErrors,
   };
 }
@@ -496,6 +514,7 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       pruneCandidateBranches: pruneResult.candidateBranches,
       prunedLocalBranches: pruneResult.prunedLocalBranches,
       prunedRemoteBranches: pruneResult.prunedRemoteBranches,
+      skippedWorktreeBranches: pruneResult.skippedWorktreeBranches,
       pruneErrors: pruneResult.pruneErrors,
       head: runCommand("git", ["rev-parse", "HEAD"]),
     };
@@ -517,6 +536,10 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
     if (pruneResult.prunedLocalBranches.length > 0 || pruneResult.prunedRemoteBranches.length > 0) {
       await logRunner(
         `branch reconciliation pruned ${pruneResult.prunedLocalBranches.length} local and ${pruneResult.prunedRemoteBranches.length} remote merged ref(s)`,
+      );
+    } else if (pruneResult.skippedWorktreeBranches.length > 0) {
+      await logRunner(
+        `branch reconciliation skipped ${pruneResult.skippedWorktreeBranches.length} merged local ref(s) still attached to worktrees`,
       );
     } else if (originSync.outcome !== "noop" && pushResult.pushed) {
       await logRunner(`branch reconciliation refreshed ${BASE_BRANCH} from origin/${BASE_BRANCH}`);

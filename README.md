@@ -4,3 +4,7 @@
   - Entries are also suppressed when the method-selected absolute edge exceeds `4x` the active open-threshold, which blocks stale/outlier prediction spikes before they turn into exhausted-move entries.
   - Entries are now also vetoed as `NON_DIRECTIONAL_CHOP` when 24-bar price efficiency is `<= 0.25`, and as `NON_DIRECTIONAL_MR` when efficiency stays `<= 0.40` while saved HMM regime probabilities are clearly mean-reversion-dominated (using the existing `--regime-bank-hysteresis` gap). This keeps large raw edges from opening new directional trades in chop or range-drift conditions.
   - Directionality efficiency and z-score are derived from the additive per-bar return path, so clean monotonic trend windows remain directional instead of being misclassified as malformed when the compounded endpoint return slightly exceeds the summed simple-return path.
+
+## Autoloop
+- The repo autoloop now treats merged local branches that are still attached to Git worktrees as prune skips instead of blocking the forever runner before any bounded repair cycle starts.
+- The bounded autoloop now includes `hlint app test bench` in its safe verification set and can apply direct `Found:` to `Perhaps:` HLint replacements for editable Haskell files when CI fails on simple HLint-only suggestions.
