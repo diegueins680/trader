@@ -2,6 +2,8 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Trader.Trading (
+    Positioning (..),
+    IntrabarFill (..),
     BacktestResult (..),
     ExitReason (..),
     Trade (..),
@@ -20,6 +22,19 @@ import Trader.SignalGates (
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
+
+-- Keep the CLI-facing trading configuration enums exported from Trader.Trading
+-- so App.Args can parse stable user-facing codes without depending on a moving
+-- internal module boundary.
+data Positioning
+    = LongFlat
+    | LongShort
+    deriving (Bounded, Enum, Eq, Show)
+
+data IntrabarFill
+    = StopFirst
+    | TakeProfitFirst
+    deriving (Bounded, Enum, Eq, Show)
 
 -- Keep the optimizer-visible config/meta surface local to Trader.Trading so
 -- the fresh-entry algorithm no longer depends on the unavailable
