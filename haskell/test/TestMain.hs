@@ -1,5 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
+import Data.Int (Int64)
 import Data.Maybe (isNothing)
 import qualified Data.Vector as V
 import Trader.App.Args (
@@ -36,6 +37,7 @@ import Trader.Trading (
     Positioning (..),
     StepMeta (..),
     Trade (..),
+    defaultEnsembleConfig,
     mkEntryGateState,
     simulateEnsembleVWithHLChecked,
  )
@@ -118,7 +120,7 @@ optimizerStepMetaSurfaceWitness meta =
 
 optimizerExecutionConfigContractWitness ::
     Bool ->
-    Maybe (V.Vector Double) ->
+    Maybe (V.Vector Int64) ->
     Maybe (V.Vector Double) ->
     Maybe (V.Vector Bool) ->
     EnsembleConfig ->
@@ -138,9 +140,12 @@ optimizerExecutionConfigContractWitness lstmFlipEnabled openTimesF openPricesF m
                     , ecLstmExitFlipGraceBars = 0
                     }
 
+-- Seed the optimizer fixture from the production default so this regression
+-- stays aligned with the live EnsembleConfig contract as strict fields are
+-- added, while still only overriding the optimizer-facing surface under test.
 sampleOptimizerConfig :: EnsembleConfig
 sampleOptimizerConfig =
-    EnsembleConfig
+    defaultEnsembleConfig
         { ecPeriodsPerYear = 252
         , ecOpenThreshold = 0.01
         , ecCloseThreshold = 0.005
@@ -163,7 +168,7 @@ sampleOptimizerConfig =
         , ecKalmanZMax = 2
         , ecLstmExitFlipBars = 3
         , ecLstmExitFlipGraceBars = 2
-        , ecOpenTimes = Just (V.fromList [0, 1, 2, 3])
+        , ecOpenTimes = Just (V.fromList ([0, 1, 2, 3] :: [Int64]))
         , ecOpenPrices = Just (V.fromList [100, 101, 102, 103])
         , ecMetaMask = Just (V.fromList [True, False, True])
         }
@@ -193,7 +198,7 @@ testTradingCheckedSimulatorSurface =
 -- field at a time.
 testOptimizerExecutionConfigContract :: IO ()
 testOptimizerExecutionConfigContract = do
-    let openTimesF = Just (V.fromList [10, 11, 12])
+    let openTimesF = Just (V.fromList ([10, 11, 12] :: [Int64]))
         openPricesF = Just (V.fromList [200, 201, 202])
         metaMaskF = Just (V.fromList [False, True])
         disabledCfg =
