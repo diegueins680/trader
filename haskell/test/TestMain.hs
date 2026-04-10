@@ -2,6 +2,12 @@
 
 import Data.Maybe (isNothing)
 import qualified Data.Vector as V
+import Trader.App.Args (
+    intrabarFillCode,
+    parseIntrabarFill,
+    parsePositioning,
+    positioningCode,
+ )
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -26,6 +32,8 @@ import Trader.Trading (
     EntryGateInputs (..),
     EntryGateState (..),
     ExitReason (..),
+    IntrabarFill (..),
+    Positioning (..),
     StepMeta (..),
     Trade (..),
     mkEntryGateState,
@@ -41,6 +49,7 @@ main = do
     run "trading checked simulator facade stays optimizer-visible" testTradingCheckedSimulatorSurface
     run "optimizer execution-config contract preserves fold payloads and zeroes flip exits together" testOptimizerExecutionConfigContract
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
+    run "trading CLI mode surface stays synchronized with Trader.App.Args" testTradingCliModeSurface
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
     run "trading entry gate shared-edge conjunction stays fail closed at integration boundary" testTradingEntryGateSharedEdgeConjunction
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
@@ -253,6 +262,26 @@ testTradingResultConstructorSurface = do
         ( case map trExitReason (brTrades result) of
             [Just ExitSignal, Just ExitEod] -> True
             _ -> False
+        )
+
+-- Bounded CLI-surface proof obligation for the reviewed export repair:
+-- Trader.App.Args must keep its canonical positioning/intrabar-fill codes
+-- synchronized with the exact constructor set exported by Trader.Trading.
+testTradingCliModeSurface :: IO ()
+testTradingCliModeSurface = do
+    let exportedPositionings = [minBound .. maxBound] :: [Positioning]
+        exportedIntrabarFills = [minBound .. maxBound] :: [IntrabarFill]
+    assert
+        "positioning constructors exported by Trader.Trading stay synchronized with Trader.App.Args canonical CLI codes"
+        ( exportedPositionings == [LongFlat, LongShort]
+            && map positioningCode exportedPositionings == ["long-flat", "long-short"]
+            && traverse parsePositioning (map positioningCode exportedPositionings) == Right exportedPositionings
+        )
+    assert
+        "intrabar fill constructors exported by Trader.Trading stay synchronized with Trader.App.Args canonical CLI codes"
+        ( exportedIntrabarFills == [StopFirst, TakeProfitFirst]
+            && map intrabarFillCode exportedIntrabarFills == ["stop-first", "take-profit-first"]
+            && traverse parseIntrabarFill (map intrabarFillCode exportedIntrabarFills) == Right exportedIntrabarFills
         )
 
 -- The reviewed Trading.hs change restores only the optimizer-facing checked-
