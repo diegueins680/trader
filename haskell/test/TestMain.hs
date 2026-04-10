@@ -410,6 +410,54 @@ testTradingCliEnumContract = do
             ]
         )
 
+-- Live exchange reconciliation must trust explicit executed quantity over a
+-- terminal cancel/expire status so partial fills are not lost, while still
+-- failing closed when a no-fill terminal status arrives without fill evidence.
+-- Filled-like statuses may still fall back to the requested quantity when the
+-- exchange omits an executedQty field.
+testOrderExecutionAppliedQuantity :: IO ()
+testOrderExecutionAppliedQuantity = do
+    let fallbackQty = 0.75
+        liveCanceledPartial =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "CANCELED"
+                , oeeExecutedQty = Just 0.25
+                }
+        liveExpiredPartial =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "expired"
+                , oeeExecutedQty = Just 0.125
+                }
+        liveCanceledNoFill =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "cancelled"
+                , oeeExecutedQty = Nothing
+                }
+        liveFilledFallback =
+            OrderExecutionEvidence
+                { oeeSent = True
+                , oeeLive = True
+                , oeeStatus = Just "FILLED"
+                , oeeExecutedQty = Nothing
+                }
+    assert
+        "explicit live partial fills remain authoritative even on terminal cancel/expire statuses"
+        ( orderAppliedQuantity liveCanceledPartial fallbackQty == Just 0.25
+            && orderAppliedQuantity liveExpiredPartial fallbackQty == Just 0.125
+        )
+    assert
+        "terminal no-fill live statuses still fail closed without fill evidence"
+        (orderAppliedQuantity liveCanceledNoFill fallbackQty == Nothing)
+    assert
+        "filled-like live statuses may still fall back to the requested quantity when explicit fill qty is absent"
+        (orderAppliedQuantity liveFilledFallback fallbackQty == Just fallbackQty)
+
 -- The reviewed Trading.hs change restores only the optimizer-facing checked-
 -- simulator seam and leaves the live entry-gate behavior unchanged. These
 -- executable obligations pin the surviving entry-gate integration to four
