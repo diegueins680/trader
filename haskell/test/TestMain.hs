@@ -69,13 +69,14 @@ checkedSimulatorContractWitness ::
 checkedSimulatorContractWitness cfg =
     simulateEnsembleVWithHLChecked cfg 1
 
-optimizerConfigSurfaceWitness :: EnsembleConfig -> (Double, Double, Double, Double, Int)
+optimizerConfigSurfaceWitness :: EnsembleConfig -> (Double, Double, Double, Double, Int, Double)
 optimizerConfigSurfaceWitness cfg =
     ( ecPeriodsPerYear cfg
     , ecOpenThreshold cfg
     , ecCloseThreshold cfg
     , ecMinEdge cfg
     , ecRouterLookback cfg
+    , ecFee cfg
     )
 
 optimizerStepMetaSurfaceWitness ::
@@ -165,9 +166,9 @@ testTradingResultConstructorSurface = do
 -- simulator seam and leaves the live entry-gate behavior unchanged. These
 -- executable obligations pin the surviving entry-gate integration to four
 -- properties: entry-only vetoes do not run when no fresh entry is needed,
--- fresh-entry spike/headroom/fee-buffer checks all read the same non-negative
--- edge sample and fail closed on malformed fee/edge inputs, equality at the
--- required boundary stays admissible, and admissibility is monotone
+-- fresh-entry spike/headroom/fee-buffer checks all read the same non-negative,
+-- finite edge sample and fail closed on malformed fee/edge inputs, equality at
+-- the required boundary stays admissible, and admissibility is monotone
 -- non-increasing as raw edge falls or the fee floor rises.
 testTradingEntryGateEntryOnly :: IO ()
 testTradingEntryGateEntryOnly = do
@@ -185,9 +186,9 @@ testTradingEntryGateEntryOnly = do
         )
 
 -- Bounded integration witness for the documented entry-gate contract: the
--- Trading.hs binding must feed one normalized entryEdge sample into every
--- fresh-entry veto, and malformed inputs must still collapse to a blocked
--- state instead of bypassing the conjunction.
+-- Trading.hs binding must feed one normalized, finite entryEdge sample into
+-- every fresh-entry veto, and malformed inputs must still collapse to a
+-- blocked state instead of bypassing the conjunction.
 testTradingEntryGateSharedEdgeConjunction :: IO ()
 testTradingEntryGateSharedEdgeConjunction = do
     let feeBlockedState =
@@ -196,6 +197,8 @@ testTradingEntryGateSharedEdgeConjunction = do
             mkEntryGateState (mkTradingEntryGateInputs (0 / 0) 0.015 Nothing)
         malformedEdgeState =
             mkEntryGateState (mkTradingEntryGateInputs 0 (0 / 0) Nothing)
+        infiniteEdgeState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 (1 / 0) Nothing)
     assert
         "fresh-entry integration applies spike, headroom, and fee-buffer checks conjunctively to one shared edge"
         ( needsEntry feeBlockedState
@@ -241,6 +244,20 @@ testTradingEntryGateSharedEdgeConjunction = do
             && not (edgeHeadroomOk malformedEdgeState)
             && not (entryGatesOk malformedEdgeState)
             && isNothing (desiredSide1 malformedEdgeState)
+        )
+    assert
+        "positive non-finite raw edge also normalizes once to the shared zero edge"
+        ( needsEntry infiniteEdgeState
+            && entryEdge infiniteEdgeState == Just 0
+            && edgeSpikeOk infiniteEdgeState
+                == signalEntryEdgeSpikeOk 0.01 (entryEdge infiniteEdgeState)
+            && edgeHeadroomOk infiniteEdgeState
+                == signalEntryHeadroomOk 0.01 (entryEdge infiniteEdgeState)
+            && feeBufferOk infiniteEdgeState
+                == signalEntryFeeBufferOk 0.01 (roundTripFeeFloor infiniteEdgeState) (entryEdge infiniteEdgeState)
+            && not (edgeHeadroomOk infiniteEdgeState)
+            && not (entryGatesOk infiniteEdgeState)
+            && isNothing (desiredSide1 infiniteEdgeState)
         )
 
 -- Executable proof sketch for the Trading.hs entry gate: equality at the
