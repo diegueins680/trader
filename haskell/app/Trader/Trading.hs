@@ -13,12 +13,17 @@ module Trader.Trading (
 ) where
 
 import qualified Data.Maybe
-import Trader.Backtest (EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
 import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
+import Trader.Simulator (EnsembleConfig (..), StepMeta (..))
+import qualified Trader.Simulator as Simulator
+
+-- Re-export the canonical checked simulator from its current module so
+-- optimizer-facing callers do not depend on the stale Backtest path.
+simulateEnsembleVWithHLChecked = Simulator.simulateEnsembleVWithHLChecked
 
 data ExitReason
     = ExitSignal

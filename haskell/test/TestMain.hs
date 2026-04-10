@@ -162,10 +162,11 @@ testTradingResultConstructorSurface = do
 
 -- The reviewed Trading.hs change restores only the optimizer-facing checked-
 -- simulator seam and leaves the live entry-gate behavior unchanged. These
--- executable obligations pin the surviving entry-gate integration to two
--- properties: entry-only vetoes do not run when no fresh entry is needed, and
--- on fresh entries admissibility is monotone non-increasing as raw edge falls
--- or the fee floor rises, with malformed fee context staying fail closed.
+-- executable obligations pin the surviving entry-gate integration to four
+-- properties: entry-only vetoes do not run when no fresh entry is needed,
+-- admissibility is monotone non-increasing as raw edge falls or the fee floor
+-- rises, malformed fee or edge inputs fail closed, and once blocked by the fee
+-- floor the fresh-entry path stays blocked for all larger fee floors.
 testTradingEntryGateEntryOnly :: IO ()
 testTradingEntryGateEntryOnly = do
     let state =
@@ -185,6 +186,8 @@ testTradingEntryGateFailClosedMonotone :: IO ()
 testTradingEntryGateFailClosedMonotone = do
     let malformedFeeState =
             mkEntryGateState (mkTradingEntryGateInputs (0 / 0) 0.02 Nothing)
+        malformedEdgeState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 (0 / 0) Nothing)
         negativeEdgeState =
             mkEntryGateState (mkTradingEntryGateInputs 0 (-0.01) Nothing)
         freshEntryAllowed feePerSide rawEdge =
@@ -193,12 +196,24 @@ testTradingEntryGateFailClosedMonotone = do
             map (freshEntryAllowed 0.001) [0.02, 0.017, 0.016, 0.015]
         feeAlloweds =
             map (`freshEntryAllowed` 0.018) [0, 0.001, 0.00175, 0.002]
+        blockedFeeAlloweds =
+            map (\feePerSide -> freshEntryAllowed feePerSide 0.0165) [0.002, 0.0035, 0.004]
     assert
         "malformed fee context still fails closed on the fresh-entry path"
         ( needsEntry malformedFeeState
             && not (feeBufferOk malformedFeeState)
             && not (entryGatesOk malformedFeeState)
             && isNothing (desiredSide1 malformedFeeState)
+        )
+    assert
+        "malformed raw edge still fails closed after the shared non-negative projection"
+        ( needsEntry malformedEdgeState
+            && entryEdge malformedEdgeState == Just 0
+            && edgeSpikeOk malformedEdgeState
+            && not (edgeHeadroomOk malformedEdgeState)
+            && not (feeBufferOk malformedEdgeState)
+            && not (entryGatesOk malformedEdgeState)
+            && isNothing (desiredSide1 malformedEdgeState)
         )
     assert
         "fresh-entry gating reuses the shared non-negative edge sample"
@@ -218,6 +233,12 @@ testTradingEntryGateFailClosedMonotone = do
     assertMonotoneNonIncreasing
         "higher fee floors cannot reopen a blocked fresh-entry state"
         feeAlloweds
+    assert
+        "once blocked at the Trading/SignalGates seam, larger fee floors stay blocked"
+        (blockedFeeAlloweds == [False, False, False])
+    assertMonotoneNonIncreasing
+        "fresh-entry fee blocks stay blocked as the fee floor keeps rising"
+        blockedFeeAlloweds
 
 mkTradingEntryGateInputs :: Double -> Double -> Maybe Bool -> EntryGateInputs Bool () () Double
 mkTradingEntryGateInputs feePerSide rawEdge currentSide =
