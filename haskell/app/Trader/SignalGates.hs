@@ -196,8 +196,7 @@ signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod
                 Nothing -> False
                 Just feeFloor ->
                     let requiredEdge = requiredHeadroom + feeFloor
-                     in requiredEdge <= 0
-                            || maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
+                     in maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
     | otherwise = False
 
 signalEntryHeadroomOk :: Double -> Maybe Double -> Bool

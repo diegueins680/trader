@@ -4,18 +4,18 @@
 
 Clauses:
 
-1. Let `requiredHeadroom = 1.5 * normalizeSignalThreshold openThreshold` and `requiredEdge = requiredHeadroom + max 0 roundTripFeeFloor`. An entry is admissible only when the fee floor and edge are both finite and `edge >= requiredEdge` whenever `requiredEdge > 0`.
+1. Let `requiredHeadroom = 1.5 * normalizeSignalThreshold openThreshold` and `requiredEdge = requiredHeadroom + max 0 roundTripFeeFloor`. An entry is admissible only when the fee floor is finite, the edge sample is explicit (`Just`) and finite, and `edge >= requiredEdge`; this explicit-edge obligation still applies when `requiredEdge == 0`.
 2. `signalEntryHeadroomOk openThreshold` remains the zero-fee specialization `signalEntryFeeBufferOk openThreshold 0`.
 3. For fixed `openThreshold` and edge, admissibility is monotone non-increasing as `roundTripFeeFloor` rises.
 4. For fixed `openThreshold` and fee floor, admissibility is monotone non-increasing as raw edge falls.
-5. Non-finite fee floors or non-finite edges are fail-closed.
+5. Missing edges, non-finite fee floors, or non-finite edges are fail-closed.
 6. Once a state is blocked at fee floor `f`, it remains blocked for every `f' >= f`.
 7. In `mkEntryGateState`, the spike, headroom, and fee-buffer checks are consulted only when `needsEntry` is true, each check receives the same non-negative `entryEdge` sample `Just (max 0 edgeRaw)`, and the three booleans are combined conjunctively before `desiredSide1` can keep a fresh entry alive.
 
 Bounded executable obligations in `haskell/test/TestMain.hs`:
 
 - `testSignalGateEntryHeadroom` preserves the legacy headroom boundary cases.
-- `testSignalGateEntryFeeBuffer` covers equality-at-boundary acceptance, strict-below-boundary rejection, zero-threshold-with-fees behavior, missing-edge fail-closed behavior, and the zero-fee specialization.
+- `testSignalGateEntryFeeBuffer` covers equality-at-boundary acceptance, strict-below-boundary rejection, zero-threshold-with-fees behavior, missing-edge fail-closed behavior, the zero-threshold zero-fee explicit-edge corner, and the zero-fee specialization.
 - `testSignalGateEntryFeeBufferMonotoneFees` witnesses monotone non-increasing admissibility as `roundTripFeeFloor` rises and the once-blocked-stays-blocked ladder.
 - `testSignalGateEntryFeeBufferMonotoneEdge` witnesses monotone non-increasing admissibility as raw edge falls under a fixed fee floor.
 - `testSignalGateEntryFeeBufferFailsClosed` covers non-finite fee floors, non-finite edges, and negative fee-floor clamping.
@@ -24,8 +24,9 @@ Bounded executable obligations in `haskell/test/TestMain.hs`:
 Proof sketch:
 
 - `signalEntryFeeBufferOk` normalizes negative fee floors to `0` but rejects non-finite fee floors outright, so malformed fee inputs cannot reopen entries.
+- The predicate now always inspects `edgeForMethod`, so a missing edge sample cannot bypass the gate even when both the normalized threshold and fee floor collapse to zero.
 - `signalEntryHeadroomOk` is implemented by partially applying the fee-aware predicate with a zero fee floor, so the legacy headroom contract is preserved as a special case.
 - The guard compares edge against an affine requirement with unit slope in the fee floor, so increasing fees cannot reduce the minimum admissible edge.
-- Lowering raw edge cannot make a blocked state admissible because the predicate is only `edge >= requiredEdge` once the inputs are well formed.
+- Lowering raw edge cannot make a blocked state admissible because the predicate is only `edge >= requiredEdge` once the inputs are well formed and the edge sample is explicit.
 - In `mkEntryGateState`, `roundTripFeeFloor` becomes `0 / 0` whenever the per-side fee sample is bad, and that malformed fee is then rejected by `signalEntryFeeBufferOk`, preserving fail-closed behavior at the Trading.hs integration boundary.
 - `mkEntryGateState` reuses the same non-negative `entryEdge` sample across the spike/headroom/fee vetoes and combines those booleans conjunctively under `needsEntry`, so the fee-aware gate remains fail-closed and entry-only at integration time.
