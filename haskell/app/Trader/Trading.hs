@@ -2,14 +2,18 @@
 
 module Trader.Trading (
     BacktestResult (..),
+    EnsembleConfig (..),
+    StepMeta (..),
     ExitReason (..),
     Trade (..),
     EntryGateInputs (..),
     EntryGateState (..),
     mkEntryGateState,
+    simulateEnsembleVWithHLChecked,
 ) where
 
 import qualified Data.Maybe
+import Trader.Ensemble (EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
 import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
@@ -26,6 +30,8 @@ data ExitReason
 
 -- Keep the canonical backtest result surface exported so metrics and downstream
 -- callers fail closed at compile time if this API drifts.
+-- Restore the optimizer-facing checked simulator surface so optimize-equity
+-- and live trading keep sharing the same typed simulation contract.
 data Trade = Trade
     { trEntryEquity :: !Double
     , trExitEquity :: !Double

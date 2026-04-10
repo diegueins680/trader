@@ -1,3 +1,4 @@
+import qualified Data.Vector as V
 import Data.Maybe (isNothing)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
@@ -19,11 +20,14 @@ import Trader.SignalGates (
  )
 import Trader.Trading (
     BacktestResult (..),
+    EnsembleConfig (..),
     EntryGateInputs (..),
     EntryGateState (..),
     ExitReason (..),
+    StepMeta (..),
     Trade (..),
     mkEntryGateState,
+    simulateEnsembleVWithHLChecked,
  )
 
 -- Existing test harness imports and helpers remain unchanged outside the
@@ -32,6 +36,7 @@ import Trader.Trading (
 main :: IO ()
 main = do
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
+    run "trading optimizer facade keeps checked simulator surface visible" testTradingOptimizerCheckedSimulatorSurface
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
@@ -99,11 +104,34 @@ testTradingResultConstructorSurface = do
             _ -> False
         )
 
--- The reviewed Trading.hs change removes only the dead ensemble re-export seam.
--- These executable obligations pin the surviving entry-gate integration to two
--- properties: entry-only vetoes do not run when no fresh entry is needed, and
--- on fresh entries admissibility is monotone non-increasing as raw edge falls
--- or the fee floor rises, with malformed fee context staying fail closed.
+-- Compile-time regression for the optimizer/live-trading contract:
+-- optimize-equity must keep importing the checked simulator and typed metadata
+-- through Trader.Trading. Importing EnsembleConfig(..) and StepMeta(..), plus
+-- this typed witness around simulateEnsembleVWithHLChecked, makes the seam fail
+-- closed at compile time if the Trading facade drifts again.
+testTradingOptimizerCheckedSimulatorSurface :: IO ()
+testTradingOptimizerCheckedSimulatorSurface = do
+    let witness ::
+            EnsembleConfig ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            Maybe (V.Vector StepMeta) ->
+            Either String BacktestResult
+        witness cfg closes highs lows kalPred lstmPred meta =
+            simulateEnsembleVWithHLChecked cfg 1 closes highs lows kalPred lstmPred meta
+    assert
+        "optimizer-facing trading facade keeps the checked simulator and typed metadata visible"
+        (let _ = witness in True)
+
+-- The reviewed Trading.hs change restores the checked-simulator facade without
+-- altering entry-gate behavior. These executable obligations pin the surviving
+-- entry-gate integration to two properties: entry-only vetoes do not run when
+-- no fresh entry is needed, and on fresh entries admissibility is monotone
+-- non-increasing as raw edge falls or the fee floor rises, with malformed fee
+-- context staying fail closed.
 testTradingEntryGateEntryOnly :: IO ()
 testTradingEntryGateEntryOnly = do
     let state =
