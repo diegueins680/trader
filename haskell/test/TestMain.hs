@@ -40,6 +40,7 @@ main = do
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
     run "trading entry gate shared-edge conjunction stays fail closed at integration boundary" testTradingEntryGateSharedEdgeConjunction
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
+    run "trading entry gate malformed inputs cannot reopen a blocked fresh-entry state" testTradingEntryGateMalformedNoReopen
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
@@ -54,9 +55,9 @@ main = do
 
 -- Trader.Optimization must keep importing the checked simulator/config/meta
 -- surface from Trader.Trading. This witness fails at compile time if the public
--- seam drifts again, and the eta-reduced repair stays behavior-preserving:
--- for every closes/highs/lows/kalPred/lstmPred/meta it is extensionally equal
--- to the previous wrapper around the canonical checked simulator binding.
+-- seam drifts again while the Trading-local fallback keeps the optimizer-facing
+-- boundary buildable and the entry-gate behavior is locked by the regressions
+-- below.
 checkedSimulatorContractWitness ::
     EnsembleConfig ->
     V.Vector Double ->
@@ -307,6 +308,32 @@ testTradingEntryGateFailClosedMonotone = do
     assertMonotoneNonIncreasing
         "higher fee floors cannot reopen a blocked fresh-entry state"
         feeAlloweds
+
+-- Formal proof sketch extension: once the fresh-entry conjunction blocks,
+-- replacing the fee or edge input with malformed values must leave the state
+-- blocked as well, so the Trading/SignalGates integration cannot reopen from
+-- NaN or Infinity drift while the simulator seam stays decoupled.
+testTradingEntryGateMalformedNoReopen :: IO ()
+testTradingEntryGateMalformedNoReopen = do
+    let blockedState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 0.015 Nothing)
+        malformedFeeState =
+            mkEntryGateState (mkTradingEntryGateInputs (0 / 0) 0.017 Nothing)
+        malformedEdgeState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 (0 / 0) Nothing)
+    assert
+        "once blocked by the fresh-entry conjunction, malformed fee or edge inputs cannot reopen the state"
+        ( needsEntry blockedState
+            && not (entryGatesOk blockedState)
+            && isNothing (desiredSide1 blockedState)
+            && all
+                (\state ->
+                    needsEntry state
+                        && not (entryGatesOk state)
+                        && isNothing (desiredSide1 state)
+                )
+                [malformedFeeState, malformedEdgeState]
+        )
 
 mkTradingEntryGateInputs :: Double -> Double -> Maybe Bool -> EntryGateInputs Bool () () Double
 mkTradingEntryGateInputs feePerSide rawEdge currentSide =
