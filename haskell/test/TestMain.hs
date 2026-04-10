@@ -143,14 +143,14 @@ testTradingResultConstructorSurface = do
     assert
         "backtest result constructor remains visible for downstream pattern matches"
         ( case result of
-            BacktestResult {brEquityCurve = [1.0, 1.1, 1.1], brPositionChanges = 1} -> True
+            BacktestResult{brEquityCurve = [1.0, 1.1, 1.1], brPositionChanges = 1} -> True
             _ -> False
         )
     assert
         "trade constructor preserves holding-period and exit-reason access"
         ( case brTrades result of
-            [ Trade {trHoldingPeriods = 3, trExitReason = Just ExitSignal}
-                , Trade {trHoldingPeriods = 1, trExitReason = Just ExitEod}
+            [ Trade{trHoldingPeriods = 3, trExitReason = Just ExitSignal}
+                , Trade{trHoldingPeriods = 1, trExitReason = Just ExitEod}
                 ] -> True
             _ -> False
         )
