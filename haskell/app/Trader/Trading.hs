@@ -19,9 +19,14 @@ import Trader.SignalGates (
     signalEntryHeadroomOk,
  )
 
--- Preserve the optimizer-facing Trading facade over the renamed simulation
--- module so downstream callers do not depend on internal module paths.
-import Trader.Simulation (EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
+-- Preserve the optimizer-facing Trading facade over the renamed
+-- ensemble-simulation module so downstream callers do not depend on internal
+-- module paths.
+import Trader.Ensemble (
+    EnsembleConfig (..),
+    StepMeta (..),
+    simulateEnsembleVWithHLChecked,
+ )
 
 data ExitReason
     = ExitSignal
