@@ -9,6 +9,10 @@ import Trader.App.Args (
     parsePositioning,
     positioningCode,
  )
+import Trader.OrderExecution (
+    OrderExecutionEvidence (..),
+    orderAppliedQuantity,
+ )
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -54,6 +58,7 @@ main = do
     run "optimizer execution-config contract preserves fold payloads and zeroes flip exits together" testOptimizerExecutionConfigContract
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
     run "trading CLI enum surface stays visible and round-trips via args parsers" testTradingCliEnumContract
+    run "order execution applied quantity trusts explicit partial fills on terminal live statuses" testOrderExecutionAppliedQuantity
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
     run "trading entry gate shared-edge conjunction stays fail closed at integration boundary" testTradingEntryGateSharedEdgeConjunction
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
