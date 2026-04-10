@@ -2672,18 +2672,23 @@ mkEntryGateState EntryGateInputs{..} =
                     then 0 / 0
                     else 2 * max 0 feePerSide
 
+        canonicalEntryEdge =
+            if isBad edgeRaw
+                then 0
+                else max 0 edgeRaw
+
         snrScale =
             if minSignalToNoiseAdj <= 0
                 then 1
                 else case volPerBarAt t of
                     Just vol
                         | vol > 0 ->
-                            clamp01 (max 0 edgeRaw / vol / minSignalToNoiseAdj)
+                            clamp01 (canonicalEntryEdge / vol / minSignalToNoiseAdj)
                     _ ->
                         0
 
         entryEdge =
-            Just (max 0 edgeRaw)
+            Just canonicalEntryEdge
 
         edgeSpikeOk =
             not needsEntry
