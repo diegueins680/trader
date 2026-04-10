@@ -1,4 +1,5 @@
 import Data.Maybe (isNothing)
+import qualified Data.Vector as V
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -19,18 +20,22 @@ import Trader.SignalGates (
  )
 import Trader.Trading (
     BacktestResult (..),
+    EnsembleConfig (..),
     EntryGateInputs (..),
     EntryGateState (..),
     ExitReason (..),
+    StepMeta (..),
     Trade (..),
     mkEntryGateState,
+    simulateEnsembleVWithHLChecked,
  )
 
 -- Existing test harness imports and helpers remain unchanged outside the
--- entry-gate fixture added below.
+-- optimizer-facing checked-simulator surface witness and the entry-gate fixture.
 
 main :: IO ()
 main = do
+    run "trading checked simulator facade stays optimizer-visible" testTradingCheckedSimulatorSurface
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
@@ -45,6 +50,62 @@ main = do
     run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
     run "signal gate post-direction wrappers cannot reopen blocked entries" testSignalGateNoReopenPostDirection
     run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
+
+-- Trader.Optimization must keep importing the checked simulator/config/meta
+-- surface from Trader.Trading. This witness fails at compile time if the public
+-- seam drifts again, and the repair stays behavior-preserving because the
+-- re-export points at the canonical checked simulator binding rather than a new
+-- wrapper implementation.
+checkedSimulatorContractWitness ::
+    EnsembleConfig ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    Either String BacktestResult
+checkedSimulatorContractWitness cfg closes highs lows kalPred lstmPred meta =
+    simulateEnsembleVWithHLChecked cfg 1 closes highs lows kalPred lstmPred meta
+
+optimizerConfigSurfaceWitness :: EnsembleConfig -> (Double, Double, Double, Double, Int)
+optimizerConfigSurfaceWitness cfg =
+    ( ecPeriodsPerYear cfg
+    , ecOpenThreshold cfg
+    , ecCloseThreshold cfg
+    , ecMinEdge cfg
+    , ecRouterLookback cfg
+    )
+
+optimizerStepMetaSurfaceWitness ::
+    StepMeta ->
+    ( Double
+    , Double
+    , Maybe Double
+    , Maybe Double
+    , Maybe Double
+    , Maybe Double
+    , Maybe Double
+    )
+optimizerStepMetaSurfaceWitness meta =
+    ( smKalmanVar meta
+    , smKalmanMean meta
+    , smHighVolProb meta
+    , smConformalLo meta
+    , smConformalHi meta
+    , smQuantile10 meta
+    , smQuantile90 meta
+    )
+
+testTradingCheckedSimulatorSurface :: IO ()
+testTradingCheckedSimulatorSurface =
+    assert
+        "optimizer-facing checked simulator facade remains exported from Trader.Trading"
+        ( checkedSimulatorContractWitness `seq`
+            optimizerConfigSurfaceWitness `seq`
+            optimizerStepMetaSurfaceWitness `seq`
+            True
+        )
 
 -- Fail-closed API stability obligation for downstream analytics:
 -- Trader.Metrics must be able to import and pattern-match the canonical
@@ -99,8 +160,9 @@ testTradingResultConstructorSurface = do
             _ -> False
         )
 
--- The reviewed Trading.hs change removes only the dead ensemble re-export seam.
--- These executable obligations pin the surviving entry-gate integration to two
+-- The reviewed Trading.hs change restores only the optimizer-facing checked-
+-- simulator seam and leaves the live entry-gate behavior unchanged. These
+-- executable obligations pin the surviving entry-gate integration to two
 -- properties: entry-only vetoes do not run when no fresh entry is needed, and
 -- on fresh entries admissibility is monotone non-increasing as raw edge falls
 -- or the fee floor rises, with malformed fee context staying fail closed.
