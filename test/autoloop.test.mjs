@@ -623,7 +623,11 @@ test("autoloop workflow requires a dedicated push token and never skips post-pus
   assert.match(workflow, /name:\s+Install HLint/);
   assert.match(workflow, /sudo apt-get update && sudo apt-get install -y hlint/);
   assert.match(workflow, /name:\s+Install fourmolu/);
-  assert.match(workflow, /cabal install fourmolu-0\.15\.0\.0/);
+  assert.match(workflow, /curl --fail --silent --show-error --location/);
+  assert.match(workflow, /https:\/\/github\.com\/fourmolu\/fourmolu\/releases\/download\/v0\.15\.0\.0\/fourmolu-0\.15\.0\.0-linux-x86_64/);
+  assert.match(workflow, /chmod \+x "\$HOME\/\.local\/bin\/fourmolu"/);
+  assert.match(workflow, /name:\s+Show fourmolu version/);
+  assert.match(workflow, /run:\s+fourmolu --version/);
   assert.match(workflow, /token:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN\s*\}\}/);
   assert.match(workflow, /GITHUB_TOKEN:\s+\$\{\{\s*secrets\.AUTOLOOP_PUSH_TOKEN\s*\}\}/);
   assert.doesNotMatch(workflow, /AUTOLOOP_SKIP_CI_WAIT:/);

@@ -71,12 +71,16 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y hlint
 
       - name: Install fourmolu
-        working-directory: haskell
         run: |
-          cabal install fourmolu-0.15.0.0 \
-            --installdir="$HOME/.local/bin" \
-            --overwrite-policy=always
+          mkdir -p "$HOME/.local/bin"
+          curl --fail --silent --show-error --location \
+            https://github.com/fourmolu/fourmolu/releases/download/v0.15.0.0/fourmolu-0.15.0.0-linux-x86_64 \
+            --output "$HOME/.local/bin/fourmolu"
+          chmod +x "$HOME/.local/bin/fourmolu"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Show fourmolu version
+        run: fourmolu --version
 
       - uses: actions/setup-node@v6
         with:
