@@ -836,7 +836,7 @@ testSignalGateNoReopenPostDirection = do
                 (\_ -> if mtfAllowed then (True, Nothing) else (False, Just "MTF_CONSENSUS"))
                 (\_ -> if crossAllowed then (True, Nothing) else (False, Just "CROSS_ASSET"))
                 (const metaLabelAllowed)
-                (\_ -> (fundingOiAllowed, 1.0))
+                (const (fundingOiAllowed, 1.0))
     assert
         "post-direction wrapper cannot reopen an entry already blocked upstream"
         ( runPostDirection Nothing (Just "FEE_BUFFER") True True True True True True True True True True True True

@@ -188,21 +188,17 @@ normalizeSignalFeeFloor raw
     | otherwise = Nothing
 
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
-signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
-    if not (finiteDouble openThreshold)
-        then False
-        else
-            let requiredHeadroom = entryEdgeHeadroomMultiple * normalizeSignalThreshold openThreshold
-             in case normalizeSignalFeeFloor roundTripFeeFloor of
-                    Nothing -> False
-                    Just feeFloor ->
-                        let requiredEdge = requiredHeadroom + feeFloor
-                         in requiredEdge <= 0
-                                || case edgeForMethod of
-                                    Just edge ->
-                                        finiteDouble edge
-                                            && edge >= requiredEdge
-                                    Nothing -> False
+signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod
+    | finiteDouble openThreshold =
+        let requiredHeadroom =
+                entryEdgeHeadroomMultiple * normalizeSignalThreshold openThreshold
+         in case normalizeSignalFeeFloor roundTripFeeFloor of
+                Nothing -> False
+                Just feeFloor ->
+                    let requiredEdge = requiredHeadroom + feeFloor
+                     in requiredEdge <= 0
+                            || maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
+    | otherwise = False
 
 signalEntryHeadroomOk :: Double -> Maybe Double -> Bool
 signalEntryHeadroomOk openThreshold =
