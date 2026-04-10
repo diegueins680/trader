@@ -11,6 +11,7 @@ import Trader.App.Args (
  )
 import Trader.OrderExecution (
     OrderExecutionEvidence (..),
+    applyReduceOnlyExecutedQuantity,
     orderAppliedQuantity,
  )
 import Trader.SignalGates (
