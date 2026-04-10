@@ -18,6 +18,12 @@ import Trader.SignalGates (
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
+import Trader.Simulator (EnsembleConfig (..), StepMeta (..))
+import qualified Trader.Simulator as Simulator
+
+-- Re-export the canonical checked simulator from its current module so
+-- optimizer-facing callers do not depend on the stale Backtest path.
+simulateEnsembleVWithHLChecked = Simulator.simulateEnsembleVWithHLChecked
 
 -- Preserve the optimizer-facing Trading facade over the renamed
 -- ensemble-simulation module so downstream callers do not depend on internal
