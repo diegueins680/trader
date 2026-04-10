@@ -264,6 +264,11 @@ export function normalizeGitBranchShortName(rawBranch) {
     .trim();
 }
 
+export function isAutoloopRecoveryBranch(rawBranch) {
+  const shortName = normalizeGitBranchShortName(rawBranch);
+  return shortName.startsWith("autoloop/recovery/") || shortName.startsWith("autoloop/checkpoint/");
+}
+
 export function buildBranchMergeCandidates({ localBranches = [], remoteBranches = [], baseBranch = "main" } = {}) {
   const base = normalizeGitBranchShortName(baseBranch || "main");
   const localByShortName = new Map();
@@ -271,13 +276,13 @@ export function buildBranchMergeCandidates({ localBranches = [], remoteBranches 
 
   for (const branch of localBranches) {
     const shortName = normalizeGitBranchShortName(branch);
-    if (!shortName || shortName === base) continue;
+    if (!shortName || shortName === base || isAutoloopRecoveryBranch(shortName)) continue;
     localByShortName.set(shortName, String(branch).trim());
   }
 
   for (const branch of remoteBranches) {
     const shortName = normalizeGitBranchShortName(branch);
-    if (!shortName || shortName === base) continue;
+    if (!shortName || shortName === base || isAutoloopRecoveryBranch(shortName)) continue;
     remoteByShortName.set(shortName, String(branch).trim());
   }
 
