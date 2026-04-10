@@ -38,6 +38,7 @@ main = do
     run "trading checked simulator facade stays optimizer-visible" testTradingCheckedSimulatorSurface
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
+    run "trading entry gate shared-edge conjunction stays fail closed at integration boundary" testTradingEntryGateSharedEdgeConjunction
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
@@ -162,10 +163,11 @@ testTradingResultConstructorSurface = do
 
 -- The reviewed Trading.hs change restores only the optimizer-facing checked-
 -- simulator seam and leaves the live entry-gate behavior unchanged. These
--- executable obligations pin the surviving entry-gate integration to two
--- properties: entry-only vetoes do not run when no fresh entry is needed, and
--- on fresh entries admissibility is monotone non-increasing as raw edge falls
--- or the fee floor rises, with malformed fee context staying fail closed.
+-- executable obligations pin the surviving entry-gate integration to three
+-- properties: entry-only vetoes do not run when no fresh entry is needed,
+-- fresh-entry spike/headroom/fee-buffer checks all read the same non-negative
+-- edge sample and fail closed on malformed fee/edge inputs, and admissibility
+-- is monotone non-increasing as raw edge falls or the fee floor rises.
 testTradingEntryGateEntryOnly :: IO ()
 testTradingEntryGateEntryOnly = do
     let state =
@@ -179,6 +181,65 @@ testTradingEntryGateEntryOnly = do
             && feeBufferOk state
             && entryGatesOk state
             && desiredSide1 state == Just True
+        )
+
+-- Bounded integration witness for the documented entry-gate contract: the
+-- Trading.hs binding must feed one normalized entryEdge sample into every
+-- fresh-entry veto, and malformed inputs must still collapse to a blocked
+-- state instead of bypassing the conjunction.
+testTradingEntryGateSharedEdgeConjunction :: IO ()
+testTradingEntryGateSharedEdgeConjunction = do
+    let feeBlockedState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 0.015 Nothing)
+        malformedFeeState =
+            mkEntryGateState (mkTradingEntryGateInputs (0 / 0) 0.015 Nothing)
+        malformedEdgeState =
+            mkEntryGateState (mkTradingEntryGateInputs 0 (0 / 0) Nothing)
+    assert
+        "fresh-entry integration applies spike, headroom, and fee-buffer checks conjunctively to one shared edge"
+        ( needsEntry feeBlockedState
+            && entryEdge feeBlockedState == Just 0.015
+            && edgeSpikeOk feeBlockedState
+                == signalEntryEdgeSpikeOk 0.01 (entryEdge feeBlockedState)
+            && edgeHeadroomOk feeBlockedState
+                == signalEntryHeadroomOk 0.01 (entryEdge feeBlockedState)
+            && feeBufferOk feeBlockedState
+                == signalEntryFeeBufferOk 0.01 (roundTripFeeFloor feeBlockedState) (entryEdge feeBlockedState)
+            && edgeSpikeOk feeBlockedState
+            && edgeHeadroomOk feeBlockedState
+            && not (feeBufferOk feeBlockedState)
+            && not (entryGatesOk feeBlockedState)
+            && isNothing (desiredSide1 feeBlockedState)
+        )
+    assert
+        "malformed fee context stays fail closed at the Trading.hs integration boundary"
+        ( needsEntry malformedFeeState
+            && entryEdge malformedFeeState == Just 0.015
+            && edgeSpikeOk malformedFeeState
+                == signalEntryEdgeSpikeOk 0.01 (entryEdge malformedFeeState)
+            && edgeHeadroomOk malformedFeeState
+                == signalEntryHeadroomOk 0.01 (entryEdge malformedFeeState)
+            && feeBufferOk malformedFeeState
+                == signalEntryFeeBufferOk 0.01 (roundTripFeeFloor malformedFeeState) (entryEdge malformedFeeState)
+            && edgeSpikeOk malformedFeeState
+            && edgeHeadroomOk malformedFeeState
+            && not (feeBufferOk malformedFeeState)
+            && not (entryGatesOk malformedFeeState)
+            && isNothing (desiredSide1 malformedFeeState)
+        )
+    assert
+        "malformed raw edge is clamped once and stays fail closed across the entry conjunction"
+        ( needsEntry malformedEdgeState
+            && entryEdge malformedEdgeState == Just 0
+            && edgeSpikeOk malformedEdgeState
+                == signalEntryEdgeSpikeOk 0.01 (entryEdge malformedEdgeState)
+            && edgeHeadroomOk malformedEdgeState
+                == signalEntryHeadroomOk 0.01 (entryEdge malformedEdgeState)
+            && feeBufferOk malformedEdgeState
+                == signalEntryFeeBufferOk 0.01 (roundTripFeeFloor malformedEdgeState) (entryEdge malformedEdgeState)
+            && not (edgeHeadroomOk malformedEdgeState)
+            && not (entryGatesOk malformedEdgeState)
+            && isNothing (desiredSide1 malformedEdgeState)
         )
 
 testTradingEntryGateFailClosedMonotone :: IO ()
