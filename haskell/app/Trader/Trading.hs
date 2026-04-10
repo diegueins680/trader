@@ -13,12 +13,15 @@ module Trader.Trading (
 ) where
 
 import qualified Data.Maybe
-import Trader.Backtest (EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
 import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
+
+-- Preserve the optimizer-facing Trading facade over the renamed simulation
+-- module so downstream callers do not depend on internal module paths.
+import Trader.Simulation (EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
 
 data ExitReason
     = ExitSignal
