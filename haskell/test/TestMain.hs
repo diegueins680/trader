@@ -53,9 +53,9 @@ main = do
 
 -- Trader.Optimization must keep importing the checked simulator/config/meta
 -- surface from Trader.Trading. This witness fails at compile time if the public
--- seam drifts again, and the repair stays behavior-preserving because the
--- re-export points at the canonical checked simulator binding rather than a new
--- wrapper implementation.
+-- seam drifts again, and the eta-reduced repair stays behavior-preserving:
+-- for every closes/highs/lows/kalPred/lstmPred/meta it is extensionally equal
+-- to the previous wrapper around the canonical checked simulator binding.
 checkedSimulatorContractWitness ::
     EnsembleConfig ->
     V.Vector Double ->
@@ -65,8 +65,8 @@ checkedSimulatorContractWitness ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     Either String BacktestResult
-checkedSimulatorContractWitness cfg closes highs lows kalPred lstmPred meta =
-    simulateEnsembleVWithHLChecked cfg 1 closes highs lows kalPred lstmPred meta
+checkedSimulatorContractWitness cfg =
+    simulateEnsembleVWithHLChecked cfg 1
 
 optimizerConfigSurfaceWitness :: EnsembleConfig -> (Double, Double, Double, Double, Int)
 optimizerConfigSurfaceWitness cfg =
