@@ -821,22 +821,31 @@ testSignalGateEntryFeeBufferFailsClosed = do
 
 testSignalGateNoReopenPostDirection :: IO ()
 testSignalGateNoReopenPostDirection = do
-    let directionality = signalDirectionalitySnapshot True True
-    let blockedEdge = Just 0.015
-    let postDirectionChecks =
-            [ signalEntryEdgeSpikeOk 0.01 blockedEdge
-            , signalEntryHeadroomOk 0.01 blockedEdge
-            , signalEntryFeeBufferOk 0.01 0.002 blockedEdge
-            ]
+    let runPostDirection chosenDir mReason volOk volTargetReady trendAllowed cloudAllowed priceActionAllowed signalToNoiseAllowed nonDirectionalAllowed regimeEdgeAllowed mtfAllowed crossAllowed metaLabelAllowed fundingOiAllowed =
+            signalRunPostDirectionGates
+                chosenDir
+                mReason
+                volOk
+                volTargetReady
+                (const trendAllowed)
+                (const cloudAllowed)
+                (const priceActionAllowed)
+                signalToNoiseAllowed
+                (\_ -> if nonDirectionalAllowed then (True, Nothing) else (False, Just "NON_DIRECTIONAL"))
+                regimeEdgeAllowed
+                (\_ -> if mtfAllowed then (True, Nothing) else (False, Just "MTF_CONSENSUS"))
+                (\_ -> if crossAllowed then (True, Nothing) else (False, Just "CROSS_ASSET"))
+                (const metaLabelAllowed)
+                (\_ -> (fundingOiAllowed, 1.0))
     assert
         "post-direction wrapper cannot reopen an entry already blocked upstream"
-        ( not (and postDirectionChecks)
-            && not (signalRunPostDirectionGates directionality (Just True) postDirectionChecks)
+        ( runPostDirection Nothing (Just "FEE_BUFFER") True True True True True True True True True True True True
+            == (Nothing, Just "FEE_BUFFER")
         )
     assert
-        "post-direction wrapper stays fail closed without a side or downstream gates"
-        ( not (signalRunPostDirectionGates directionality Nothing [True])
-            && not (signalRunPostDirectionGates directionality (Just True) [])
+        "post-direction wrapper stays fail closed on downstream vetoes"
+        ( runPostDirection (Just 1) Nothing True True True True True True False True True True True True
+            == (Nothing, Just "NON_DIRECTIONAL")
         )
 
 testSignalGateEntryEdgeSpike :: IO ()
