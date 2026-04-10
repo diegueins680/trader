@@ -648,7 +648,7 @@ testSignalGateFacadeSurface = do
             case directionalSnapshot of
                 Just snap ->
                     not (dsNonDirectional snap)
-                        && dsReason snap == Nothing
+                        && isNothing (dsReason snap)
                         && dsLookbackBars snap == V.length directionalPrices
                 Nothing -> False
         nonDirectionalBuilt =
