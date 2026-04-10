@@ -2,8 +2,12 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Trader.Trading (
+    Positioning (..),
+    IntrabarFill (..),
     BacktestResult (..),
     ExitReason (..),
+    IntrabarFill (..),
+    Positioning (..),
     Trade (..),
     EnsembleConfig (..),
     StepMeta (..),
@@ -20,6 +24,19 @@ import Trader.SignalGates (
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
+
+-- Keep the CLI-facing trading configuration enums exported from Trader.Trading
+-- so App.Args can parse stable user-facing codes without depending on a moving
+-- internal module boundary.
+data Positioning
+    = LongFlat
+    | LongShort
+    deriving (Bounded, Enum, Eq, Show)
+
+data IntrabarFill
+    = StopFirst
+    | TakeProfitFirst
+    deriving (Bounded, Enum, Eq, Show)
 
 -- Keep the optimizer-visible config/meta surface local to Trader.Trading so
 -- the fresh-entry algorithm no longer depends on the unavailable
@@ -63,6 +80,18 @@ data StepMeta = StepMeta
     , smQuantile90 :: !(Maybe Double)
     }
     deriving (Eq, Show)
+
+-- Restore the CLI-visible trading enums consumed by Trader.App.Args without
+-- changing the reviewed trading semantics in this module.
+data Positioning
+    = LongFlat
+    | LongShort
+    deriving (Bounded, Enum, Eq, Ord, Read, Show)
+
+data IntrabarFill
+    = StopFirst
+    | TakeProfitFirst
+    deriving (Bounded, Enum, Eq, Ord, Read, Show)
 
 -- Fail closed if this component reaches the checked simulator without the
 -- canonical simulator implementation linked in. The optimizer-facing surface
