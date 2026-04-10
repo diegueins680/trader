@@ -827,6 +827,11 @@ testSignalGateEntryConjunctiveSharedEdge = do
         "shared entryEdge conjunction stays closed when the fee buffer vetoes"
         (not (entryGatesOk 0.01 0.002 (Just 0.015)))
     assert
+        "shared entryEdge conjunction keeps the spike veto independent when threshold headroom collapses to zero"
+        ( entryGatesOk 0 0 (Just 0)
+            && not (entryGatesOk 0 0 (Just 1))
+        )
+    assert
         "shared entryEdge conjunction fails closed on malformed input"
         (not (entryGatesOk 0.01 0.002 Nothing))
 
@@ -895,6 +900,14 @@ testSignalGateEntryEdgeSpike = do
     assert
         "edge-spike gate rejects outsized edge spikes"
         (not (signalEntryEdgeSpikeOk 0.01 (Just 1)))
+    assert
+        "edge-spike gate keeps explicit-edge and credible-edge bounds when threshold normalizes to zero"
+        ( not (signalEntryEdgeSpikeOk 0 Nothing)
+            && signalEntryEdgeSpikeOk 0 (Just 0)
+            && signalEntryEdgeSpikeOk 0 (Just 0.5)
+            && not (signalEntryEdgeSpikeOk 0 (Just 0.500001))
+            && not (signalEntryEdgeSpikeOk 0 (Just (-0.001)))
+        )
     assert
         "edge-spike gate fails closed on missing or malformed edges"
         ( not (signalEntryEdgeSpikeOk 0.01 Nothing)

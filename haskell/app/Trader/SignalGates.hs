@@ -334,14 +334,13 @@ signalDirectionalityRegimeEvidence regimeHysteresis mRegimes =
 signalEntryEdgeSpikeOk :: Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeOk openThreshold edgeForMethod =
     let openThreshold' = normalizeSignalThreshold openThreshold
-     in openThreshold' <= 0
-            || case edgeForMethod of
-                Just edge ->
-                    finiteDouble edge
-                        && edge >= 0
-                        && edge <= maxCredibleSignalEdge
-                        && edge <= entryEdgeSpikeLimit * openThreshold'
-                Nothing -> False
+     in case edgeForMethod of
+            Just edge ->
+                finiteDouble edge
+                    && edge >= 0
+                    && edge <= maxCredibleSignalEdge
+                    && (openThreshold' <= 0 || edge <= entryEdgeSpikeLimit * openThreshold')
+            Nothing -> False
 
 signalMetaLabelOk ::
     Bool ->
