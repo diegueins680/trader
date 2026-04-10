@@ -454,7 +454,7 @@ testOrderExecutionAppliedQuantity = do
         )
     assert
         "terminal no-fill live statuses still fail closed without fill evidence"
-        (orderAppliedQuantity liveCanceledNoFill fallbackQty == Nothing)
+        (isNothing (orderAppliedQuantity liveCanceledNoFill fallbackQty))
     assert
         "filled-like live statuses may still fall back to the requested quantity when explicit fill qty is absent"
         (orderAppliedQuantity liveFilledFallback fallbackQty == Just fallbackQty)
