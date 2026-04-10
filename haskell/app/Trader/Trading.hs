@@ -22,17 +22,8 @@ import Trader.Simulator (EnsembleConfig (..), StepMeta (..))
 import qualified Trader.Simulator as Simulator
 
 -- Re-export the canonical checked simulator from its current module so
--- optimizer-facing callers do not depend on the stale Backtest path.
+-- optimizer-facing callers do not depend on the internal simulator path.
 simulateEnsembleVWithHLChecked = Simulator.simulateEnsembleVWithHLChecked
-
--- Preserve the optimizer-facing Trading facade over the renamed
--- ensemble-simulation module so downstream callers do not depend on internal
--- module paths.
-import Trader.Ensemble (
-    EnsembleConfig (..),
-    StepMeta (..),
-    simulateEnsembleVWithHLChecked,
- )
 
 data ExitReason
     = ExitSignal
@@ -107,7 +98,7 @@ data EntryGateState side = EntryGateState
 -- The live trading loop uses the same binding block to keep entry-only vetoes
 -- fail-closed over one shared edge observation after the refactor repair.
 mkEntryGateState :: (Eq side) => EntryGateInputs side t lookback cfg -> EntryGateState side
-mkEntryGateState EntryGateInputs{..} =
+mkEntryGateState EntryGateInputs {..} =
     let desiredSize0 =
             if Data.Maybe.isNothing desiredSideRaw
                 then 0
@@ -185,4 +176,4 @@ mkEntryGateState EntryGateInputs{..} =
                 || not entryGatesOk
                 then Nothing
                 else desiredSide0
-     in EntryGateState{..}
+     in EntryGateState {..}

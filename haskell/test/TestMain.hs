@@ -30,8 +30,8 @@ import Trader.Trading (
     simulateEnsembleVWithHLChecked,
  )
 
--- Existing test harness imports and helpers remain unchanged outside the
--- optimizer-facing checked-simulator surface witness and the entry-gate fixture.
+-- Focus the regression surface on the optimizer-facing checked-simulator
+-- witness and the fee-aware entry-gate invariants.
 
 main :: IO ()
 main = do
@@ -143,14 +143,14 @@ testTradingResultConstructorSurface = do
     assert
         "backtest result constructor remains visible for downstream pattern matches"
         ( case result of
-            BacktestResult{brEquityCurve = [1.0, 1.1, 1.1], brPositionChanges = 1} -> True
+            BacktestResult {brEquityCurve = [1.0, 1.1, 1.1], brPositionChanges = 1} -> True
             _ -> False
         )
     assert
         "trade constructor preserves holding-period and exit-reason access"
         ( case brTrades result of
-            [ Trade{trHoldingPeriods = 3, trExitReason = Just ExitSignal}
-                , Trade{trHoldingPeriods = 1, trExitReason = Just ExitEod}
+            [ Trade {trHoldingPeriods = 3, trExitReason = Just ExitSignal}
+                , Trade {trHoldingPeriods = 1, trExitReason = Just ExitEod}
                 ] -> True
             _ -> False
         )
@@ -163,11 +163,12 @@ testTradingResultConstructorSurface = do
 
 -- The reviewed Trading.hs change restores only the optimizer-facing checked-
 -- simulator seam and leaves the live entry-gate behavior unchanged. These
--- executable obligations pin the surviving entry-gate integration to three
+-- executable obligations pin the surviving entry-gate integration to four
 -- properties: entry-only vetoes do not run when no fresh entry is needed,
 -- fresh-entry spike/headroom/fee-buffer checks all read the same non-negative
--- edge sample and fail closed on malformed fee/edge inputs, and admissibility
--- is monotone non-increasing as raw edge falls or the fee floor rises.
+-- edge sample and fail closed on malformed fee/edge inputs, equality at the
+-- required boundary stays admissible, and admissibility is monotone
+-- non-increasing as raw edge falls or the fee floor rises.
 testTradingEntryGateEntryOnly :: IO ()
 testTradingEntryGateEntryOnly = do
     let state =
@@ -242,10 +243,18 @@ testTradingEntryGateSharedEdgeConjunction = do
             && isNothing (desiredSide1 malformedEdgeState)
         )
 
+-- Executable proof sketch for the Trading.hs entry gate: equality at the
+-- required headroom-plus-fee boundary is admissible, but raising the fee
+-- floor, lowering the raw edge, or supplying malformed fee/edge inputs cannot
+-- reopen a blocked fresh-entry state.
 testTradingEntryGateFailClosedMonotone :: IO ()
 testTradingEntryGateFailClosedMonotone = do
-    let malformedFeeState =
+    let boundaryState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 0.017 Nothing)
+        malformedFeeState =
             mkEntryGateState (mkTradingEntryGateInputs (0 / 0) 0.02 Nothing)
+        nonFiniteEdgeState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 (0 / 0) Nothing)
         negativeEdgeState =
             mkEntryGateState (mkTradingEntryGateInputs 0 (-0.01) Nothing)
         freshEntryAllowed feePerSide rawEdge =
@@ -255,11 +264,30 @@ testTradingEntryGateFailClosedMonotone = do
         feeAlloweds =
             map (`freshEntryAllowed` 0.018) [0, 0.001, 0.00175, 0.002]
     assert
+        "fresh-entry equality at the fee-aware boundary stays admissible"
+        ( needsEntry boundaryState
+            && roundTripFeeFloor boundaryState == 0.002
+            && entryEdge boundaryState == Just 0.017
+            && edgeSpikeOk boundaryState
+            && edgeHeadroomOk boundaryState
+            && feeBufferOk boundaryState
+            && entryGatesOk boundaryState
+            && desiredSide1 boundaryState == Just True
+        )
+    assert
         "malformed fee context still fails closed on the fresh-entry path"
         ( needsEntry malformedFeeState
             && not (feeBufferOk malformedFeeState)
             && not (entryGatesOk malformedFeeState)
             && isNothing (desiredSide1 malformedFeeState)
+        )
+    assert
+        "non-finite raw edge collapses to the shared zero edge and stays blocked"
+        ( needsEntry nonFiniteEdgeState
+            && entryEdge nonFiniteEdgeState == Just 0
+            && not (edgeHeadroomOk nonFiniteEdgeState)
+            && not (entryGatesOk nonFiniteEdgeState)
+            && isNothing (desiredSide1 nonFiniteEdgeState)
         )
     assert
         "fresh-entry gating reuses the shared non-negative edge sample"
@@ -336,6 +364,21 @@ testSignalGateFacadeSurface = do
             && not (signalCrossAssetCheck [])
             && not (signalRegimeEdgeOk 0.01 Nothing)
             && not (signalFundingOiCheck Nothing Nothing)
+        )
+
+testSignalGateEntryHeadroom :: IO ()
+testSignalGateEntryHeadroom = do
+    assert
+        "headroom gate accepts equality at the normalized boundary"
+        (signalEntryHeadroomOk 0.01 (Just 0.015))
+    assert
+        "headroom gate rejects entries below the normalized boundary"
+        (not (signalEntryHeadroomOk 0.01 (Just 0.014999)))
+    assert
+        "headroom gate fails closed on missing or malformed edges"
+        ( not (signalEntryHeadroomOk 0.01 Nothing)
+            && not (signalEntryHeadroomOk 0.01 (Just (0 / 0)))
+            && not (signalEntryHeadroomOk 0.01 (Just (1 / 0)))
         )
 
 testSignalGateEntryHeadroomThresholdCap :: IO ()
@@ -502,4 +545,32 @@ testSignalGateNoReopenPostDirection = do
             && not (signalRunPostDirectionGates directionality (Just True) [])
         )
 
--- Remaining signal-gate tests, including the spike-veto witness, remain unchanged.
+testSignalGateEntryEdgeSpike :: IO ()
+testSignalGateEntryEdgeSpike = do
+    assert
+        "edge-spike gate accepts the shared boundary-sized edge sample"
+        (signalEntryEdgeSpikeOk 0.01 (Just 0.015))
+    assert
+        "edge-spike gate rejects outsized edge spikes"
+        (not (signalEntryEdgeSpikeOk 0.01 (Just 1)))
+    assert
+        "edge-spike gate fails closed on missing or malformed edges"
+        ( not (signalEntryEdgeSpikeOk 0.01 Nothing)
+            && not (signalEntryEdgeSpikeOk 0.01 (Just (0 / 0)))
+            && not (signalEntryEdgeSpikeOk 0.01 (Just (1 / 0)))
+        )
+
+run :: String -> IO () -> IO ()
+run label test = do
+    test
+    putStrLn ("ok - " ++ label)
+
+assert :: String -> Bool -> IO ()
+assert message condition =
+    if condition
+        then pure ()
+        else error ("assertion failed: " ++ message)
+
+assertMonotoneNonIncreasing :: String -> [Bool] -> IO ()
+assertMonotoneNonIncreasing message xs =
+    assert message (and (zipWith (\prev next -> prev || not next) xs (drop 1 xs)))
