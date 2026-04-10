@@ -25,15 +25,6 @@ import qualified Trader.Simulator as Simulator
 -- optimizer-facing callers do not depend on the stale Backtest path.
 simulateEnsembleVWithHLChecked = Simulator.simulateEnsembleVWithHLChecked
 
--- Preserve the optimizer-facing Trading facade over the renamed
--- ensemble-simulation module so downstream callers do not depend on internal
--- module paths.
-import Trader.Ensemble (
-    EnsembleConfig (..),
-    StepMeta (..),
-    simulateEnsembleVWithHLChecked,
- )
-
 data ExitReason
     = ExitSignal
     | ExitStopLoss
