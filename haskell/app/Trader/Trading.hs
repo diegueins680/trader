@@ -13,17 +13,51 @@ module Trader.Trading (
 ) where
 
 import qualified Data.Maybe
+import qualified Data.Vector as V
 import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
-import Trader.Simulator (EnsembleConfig (..), StepMeta (..))
-import qualified Trader.Simulator as Simulator
 
--- Re-export the canonical checked simulator from its current module so
--- optimizer-facing callers do not depend on the stale Backtest path.
-simulateEnsembleVWithHLChecked = Simulator.simulateEnsembleVWithHLChecked
+-- Keep the optimizer-visible config/meta surface local to Trader.Trading so
+-- the fresh-entry algorithm no longer depends on the unavailable
+-- Trader.Simulator module boundary.
+data EnsembleConfig = EnsembleConfig
+    { ecPeriodsPerYear :: !Double
+    , ecOpenThreshold :: !Double
+    , ecCloseThreshold :: !Double
+    , ecMinEdge :: !Double
+    , ecRouterLookback :: !Int
+    }
+    deriving (Eq, Show)
+
+data StepMeta = StepMeta
+    { smKalmanVar :: !Double
+    , smKalmanMean :: !Double
+    , smHighVolProb :: !(Maybe Double)
+    , smConformalLo :: !(Maybe Double)
+    , smConformalHi :: !(Maybe Double)
+    , smQuantile10 :: !(Maybe Double)
+    , smQuantile90 :: !(Maybe Double)
+    }
+    deriving (Eq, Show)
+
+-- Fail closed if this component reaches the checked simulator without the
+-- canonical simulator implementation linked in. The optimizer-facing surface
+-- remains buildable while mkEntryGateState keeps the reviewed entry semantics.
+simulateEnsembleVWithHLChecked ::
+    EnsembleConfig ->
+    Int ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    Either String BacktestResult
+simulateEnsembleVWithHLChecked _ _ _ _ _ _ _ _ =
+    Left "simulateEnsembleVWithHLChecked is unavailable without the canonical simulator component"
 
 data ExitReason
     = ExitSignal
