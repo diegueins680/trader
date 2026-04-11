@@ -11,8 +11,9 @@ Clauses:
 5. Missing edges, non-finite fee floors, or non-finite edges are fail-closed.
 6. Once a state is blocked at fee floor `f`, it remains blocked for every `f' >= f`.
 7. In `mkEntryGateState`, the spike, headroom, and fee-buffer checks are consulted only when `needsEntry` is true, each check receives the same non-negative `entryEdge` sample `Just (max 0 edgeRaw)`, and the three booleans are combined conjunctively before `desiredSide1` can keep a fresh entry alive.
+8. Deploy-config normalization in `haskell/web/src/lib/deployConfig.ts` is non-interfering with trading admissibility: blank or missing Fly host inputs may normalize to the default `fly.dev`, malformed Fly app/host overrides are rejected instead of being coerced into a fallback target, and the resulting `apiFallbackUrl` synthesis does not feed `signalEntryHeadroomOk`, `signalEntryFeeBufferOk`, `signalEntryEdgeSpikeOk`, or the fresh-entry conjunction.
 
-Bounded executable obligations in `haskell/test/TestMain.hs`:
+Bounded executable obligations:
 
 - `testSignalGateEntryHeadroom` preserves the legacy headroom boundary cases.
 - `testSignalGateEntryFeeBuffer` covers equality-at-boundary acceptance, strict-below-boundary rejection, zero-threshold-with-fees behavior, missing-edge fail-closed behavior, the zero-threshold zero-fee explicit-edge corner, and the zero-fee specialization.
@@ -20,6 +21,7 @@ Bounded executable obligations in `haskell/test/TestMain.hs`:
 - `testSignalGateEntryFeeBufferMonotoneEdge` witnesses monotone non-increasing admissibility as raw edge falls under a fixed fee floor.
 - `testSignalGateEntryFeeBufferFailsClosed` covers non-finite fee floors, non-finite edges, and negative fee-floor clamping.
 - `testSignalGateEntryEdgeSpike` keeps the independent spike veto in the same entry-only conjunction.
+- `haskell/web/test/deployConfig.test.mjs` covers blank or missing Fly host normalization to the default backend fallback, rejects malformed string and non-string Fly app/host overrides instead of synthesizing a fallback, and keeps that normalization confined to `apiFallbackUrl`.
 
 Proof sketch:
 
@@ -30,5 +32,5 @@ Proof sketch:
 - Lowering raw edge cannot make a blocked state admissible because the predicate is only `edge >= requiredEdge` once the inputs are well formed and the edge sample is explicit.
 - In `mkEntryGateState`, `roundTripFeeFloor` becomes `0 / 0` whenever the per-side fee sample is bad, and that malformed fee is then rejected by `signalEntryFeeBufferOk`, preserving fail-closed behavior at the `Trading.hs` integration boundary.
 - `mkEntryGateState` reuses the same non-negative `entryEdge` sample across the spike/headroom/fee vetoes and combines those booleans conjunctively under `needsEntry`, so the fee-aware gate remains fail-closed and entry-only at integration time.
-- The web-side repair in `haskell/web/src/lib/deployConfig.ts` only normalizes blank, undefined, or malformed Fly app/host inputs before synthesizing `apiFallbackUrl`; it does not alter any value consumed by `signalEntryHeadroomOk`, `signalEntryFeeBufferOk`, `signalEntryEdgeSpikeOk`, or `signalRunPostDirectionGates`, so the fail-closed entry admissibility relation above is unchanged.
+- The web-side repair in `haskell/web/src/lib/deployConfig.ts` defaults only missing or blank Fly host inputs to `fly.dev`, rejects malformed string or non-string Fly app/host overrides before synthesizing `apiFallbackUrl`, and does not alter any value consumed by `signalEntryHeadroomOk`, `signalEntryFeeBufferOk`, `signalEntryEdgeSpikeOk`, or `signalRunPostDirectionGates`, so the fail-closed entry admissibility relation above is unchanged.
 - Review note for this deploy-config repair cycle: `signalEntryHeadroomOk`, `signalEntryFeeBufferOk`, `signalEntryEdgeSpikeOk`, and the `signalRunPostDirectionGates` conjunction were re-reviewed in `SignalGates.hs`; no trading-logic change was required because malformed or missing edge samples still fail closed, `mkEntryGateState` still combines fresh-entry vetoes conjunctively, and admissibility still only tightens as fee floors rise or edge samples fall.

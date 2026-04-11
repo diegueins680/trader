@@ -80,7 +80,9 @@ function readFirstFlyAppName(...raws: unknown[]): string {
 }
 
 function normalizeFlyHost(raw: unknown): string | undefined {
-  const value = readNonBlankString(raw);
+  if (raw === undefined || raw === null) return "fly.dev";
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim();
   if (!value) return "fly.dev";
   const normalized = value.replace(/\/+$/, "").toLowerCase();
   if (!normalized || /^https?:\/\//i.test(normalized) || normalized.includes("/")) return undefined;
