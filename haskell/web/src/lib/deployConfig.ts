@@ -47,11 +47,68 @@ function readBoolean(raw: unknown): boolean | undefined {
   return undefined;
 }
 
+function readNonBlankString(raw: unknown): string {
+  return readString(raw).trim();
+}
+
+function readFirstNonBlankString(...raws: unknown[]): string {
+  for (const raw of raws) {
+    const value = readNonBlankString(raw);
+    if (value) return value;
+  }
+  return "";
+}
+
+function readFirstBoolean(...raws: unknown[]): boolean | undefined {
+  for (const raw of raws) {
+    const value = readBoolean(raw);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function readFirstFlyAppName(...raws: unknown[]): string {
+  for (const raw of raws) {
+    const value = readNonBlankString(raw);
+    if (!value) continue;
+    if (/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(value)) return value;
+  }
+  return "";
+}
+
+function normalizeFlyHost(raw: unknown): string {
+  const value = readNonBlankString(raw)
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+  return value && /^[a-z0-9.-]+$/.test(value) ? value : "fly.dev";
+}
+
+function deriveFlyApiFallbackUrl(raw: Record<string, unknown>): string {
+  const backendFlyApp = readFirstFlyAppName(
+    raw.backendFlyApp,
+    raw.BACKEND_FLY_APP,
+    raw.apiFallbackFlyApp,
+    raw.API_FALLBACK_FLY_APP,
+  );
+  if (!backendFlyApp) return "";
+  const flyHost = normalizeFlyHost(raw.flyHost ?? raw.FLY_HOST ?? raw.flyDomain ?? raw.FLY_DOMAIN);
+  return `https://${backendFlyApp}.${flyHost}/api`;
+}
+
 function normalizeApiTargetIdentity(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
   const withoutTrailingSlashes = trimmed.replace(/\/+$/, "");
-  return withoutTrailingSlashes || (trimmed.startsWith("/") ? "/" : "");
+  if (!withoutTrailingSlashes) return trimmed.startsWith("/") ? "/" : "";
+  if (!/^https?:\/\//i.test(withoutTrailingSlashes)) return withoutTrailingSlashes;
+  try {
+    const url = new URL(withoutTrailingSlashes);
+    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return `${url.protocol.toLowerCase()}//${url.host.toLowerCase()}${pathname}${url.search}`;
+  } catch {
+    return withoutTrailingSlashes;
+  }
 }
 
 function sameApiTarget(left: string, right: string): boolean {
@@ -60,18 +117,33 @@ function sameApiTarget(left: string, right: string): boolean {
   return Boolean(leftIdentity) && leftIdentity === rightIdentity;
 }
 
-function readApiTargets(raw: Record<string, unknown>): Pick<TraderUiDeployConfig, "apiBaseUrl" | "apiBaseUrlInferred" | "apiFallbackUrl"> {
-  const configuredBaseUrl = readString(raw.apiBaseUrl).trim();
-  const configuredFallbackUrl = readString(raw.apiFallbackUrl).trim();
-  const configuredInferred = readBoolean(raw.apiBaseUrlInferred);
+function readApiTargets(
+  raw: Record<string, unknown>,
+): Pick<TraderUiDeployConfig, "apiBaseUrl" | "apiBaseUrlInferred" | "apiFallbackUrl"> {
+  const configuredBaseUrl = readFirstNonBlankString(
+    raw.apiBaseUrl,
+    raw.API_BASE_URL,
+    raw.TRADER_API_BASE_URL,
+  );
+  const configuredFallbackUrl = readFirstNonBlankString(
+    raw.apiFallbackUrl,
+    raw.API_FALLBACK_URL,
+    raw.TRADER_API_FALLBACK_URL,
+  );
+  const derivedFallbackUrl = configuredFallbackUrl || deriveFlyApiFallbackUrl(raw);
+  const configuredInferred = readFirstBoolean(
+    raw.apiBaseUrlInferred,
+    raw.API_BASE_URL_INFERRED,
+    raw.TRADER_API_BASE_URL_INFERRED,
+  );
 
   if (configuredBaseUrl) {
     return {
       apiBaseUrl: configuredBaseUrl,
       apiBaseUrlInferred: configuredInferred,
       apiFallbackUrl:
-        configuredFallbackUrl && !sameApiTarget(configuredBaseUrl, configuredFallbackUrl)
-          ? configuredFallbackUrl
+        derivedFallbackUrl && !sameApiTarget(configuredBaseUrl, derivedFallbackUrl)
+          ? derivedFallbackUrl
           : undefined,
     };
   }
@@ -81,8 +153,8 @@ function readApiTargets(raw: Record<string, unknown>): Pick<TraderUiDeployConfig
     apiBaseUrl: inferredBaseUrl,
     apiBaseUrlInferred: true,
     apiFallbackUrl:
-      configuredFallbackUrl && !sameApiTarget(inferredBaseUrl, configuredFallbackUrl)
-        ? configuredFallbackUrl
+      derivedFallbackUrl && !sameApiTarget(inferredBaseUrl, derivedFallbackUrl)
+        ? derivedFallbackUrl
         : undefined,
   };
 }
@@ -127,11 +199,12 @@ function readConfigFromGlobal(): TraderUiDeployConfig {
   const raw = window.__TRADER_CONFIG__;
   if (!raw || typeof raw !== "object") return defaultConfig();
 
-  const apiTargets = readApiTargets(raw as Record<string, unknown>);
+  const config = raw as Record<string, unknown>;
+  const apiTargets = readApiTargets(config);
   return {
     ...apiTargets,
-    apiToken: readString((raw as { apiToken?: unknown }).apiToken).trim(),
-    timeoutsMs: readTimeouts((raw as { timeoutsMs?: unknown }).timeoutsMs),
+    apiToken: readFirstNonBlankString(config.apiToken, config.API_TOKEN, config.TRADER_API_TOKEN),
+    timeoutsMs: readTimeouts(config.timeoutsMs ?? config.TIMEOUTS_MS ?? config.TRADER_TIMEOUTS_MS),
   };
 }
 

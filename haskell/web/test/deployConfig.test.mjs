@@ -45,6 +45,54 @@ test("deploy-config infers /api primary when apiBaseUrl is blank and preserves d
   assert.equal(config.apiToken, "token");
 });
 
+test("deploy-config derives backend Fly fallback from valid backend env input when explicit fallback is blank", async () => {
+  const config = await loadDeployConfig({
+    apiBaseUrl: " ",
+    apiFallbackUrl: " ",
+    BACKEND_FLY_APP: " trader-api ",
+    FRONTEND_FLY_APP: " ",
+    apiToken: "token",
+  });
+
+  assert.equal(config.apiBaseUrl, "/api");
+  assert.equal(config.apiBaseUrlInferred, true);
+  assert.equal(config.apiFallbackUrl, "https://trader-api.fly.dev/api");
+  assert.equal(config.apiToken, "token");
+});
+
+test("deploy-config ignores blank or malformed Fly env inputs instead of synthesizing an empty fallback", async () => {
+  const blankConfig = await loadDeployConfig({
+    apiBaseUrl: " ",
+    apiFallbackUrl: "",
+    BACKEND_FLY_APP: " ",
+    FLY_DOMAIN: " ",
+    apiToken: "",
+  });
+  assert.equal(blankConfig.apiBaseUrl, "/api");
+  assert.equal(blankConfig.apiFallbackUrl, undefined);
+
+  const malformedConfig = await loadDeployConfig({
+    apiBaseUrl: " ",
+    apiFallbackUrl: "",
+    BACKEND_FLY_APP: "trader/api",
+    FLY_DOMAIN: "https://fly.dev/",
+    apiToken: "",
+  });
+  assert.equal(malformedConfig.apiBaseUrl, "/api");
+  assert.equal(malformedConfig.apiFallbackUrl, undefined);
+});
+
+test("deploy-config deduplicates derived backend Fly fallback against an explicit absolute base URL", async () => {
+  const config = await loadDeployConfig({
+    apiBaseUrl: "HTTPS://Trader-Api.FLY.dev/api/",
+    BACKEND_FLY_APP: "trader-api",
+    apiToken: "",
+  });
+
+  assert.equal(config.apiBaseUrl, "HTTPS://Trader-Api.FLY.dev/api/");
+  assert.equal(config.apiFallbackUrl, undefined);
+});
+
 test("deploy-config keeps exact safe integer millisecond timeouts and clamps only after validation", async () => {
   const config = await loadDeployConfig({
     apiBaseUrl: "/api",
