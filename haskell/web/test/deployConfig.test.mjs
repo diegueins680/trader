@@ -49,8 +49,9 @@ test("deploy-config derives backend Fly fallback from valid backend env input wh
   const config = await loadDeployConfig({
     apiBaseUrl: " ",
     apiFallbackUrl: " ",
-    BACKEND_FLY_APP: " trader-api ",
+    BACKEND_FLY_APP: " Trader-Api ",
     FRONTEND_FLY_APP: " ",
+    FLY_DOMAIN: undefined,
     apiToken: "token",
   });
 
@@ -81,6 +82,16 @@ test("deploy-config ignores blank Fly inputs and rejects malformed Fly overrides
   assert.equal(malformedHostConfig.apiBaseUrl, "/api");
   assert.equal(malformedHostConfig.apiFallbackUrl, undefined);
 
+  const malformedHostLabelConfig = await loadDeployConfig({
+    apiBaseUrl: " ",
+    apiFallbackUrl: "",
+    BACKEND_FLY_APP: "trader-api",
+    FLY_DOMAIN: ".fly..dev",
+    apiToken: "",
+  });
+  assert.equal(malformedHostLabelConfig.apiBaseUrl, "/api");
+  assert.equal(malformedHostLabelConfig.apiFallbackUrl, undefined);
+
   const malformedAppConfig = await loadDeployConfig({
     apiBaseUrl: " ",
     apiFallbackUrl: "",
@@ -90,6 +101,20 @@ test("deploy-config ignores blank Fly inputs and rejects malformed Fly overrides
   });
   assert.equal(malformedAppConfig.apiBaseUrl, "/api");
   assert.equal(malformedAppConfig.apiFallbackUrl, undefined);
+});
+
+test("deploy-config lowercases valid Fly host and app inputs before deriving a fallback", async () => {
+  const config = await loadDeployConfig({
+    apiBaseUrl: " ",
+    apiFallbackUrl: "",
+    BACKEND_FLY_APP: "Trader-Api",
+    FLY_DOMAIN: "Internal-Fly.Dev/",
+    apiToken: "",
+  });
+
+  assert.equal(config.apiBaseUrl, "/api");
+  assert.equal(config.apiBaseUrlInferred, true);
+  assert.equal(config.apiFallbackUrl, "https://trader-api.internal-fly.dev/api");
 });
 
 test("deploy-config deduplicates derived backend Fly fallback against an explicit absolute base URL", async () => {

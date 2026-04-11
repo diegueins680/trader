@@ -15,6 +15,9 @@ export type TraderUiDeployConfig = {
   timeoutsMs?: TraderUiTimeoutsMs;
 };
 
+const flyAppNamePattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const flyHostLabelPattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
 function readString(raw: unknown): string {
   return typeof raw === "string" ? raw : "";
 }
@@ -69,9 +72,9 @@ function readFirstBoolean(...raws: unknown[]): boolean | undefined {
 
 function readFirstFlyAppName(...raws: unknown[]): string {
   for (const raw of raws) {
-    const value = readNonBlankString(raw);
+    const value = readNonBlankString(raw).toLowerCase();
     if (!value) continue;
-    if (/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(value)) return value;
+    if (flyAppNamePattern.test(value)) return value;
   }
   return "";
 }
@@ -80,8 +83,9 @@ function normalizeFlyHost(raw: unknown): string | undefined {
   const value = readNonBlankString(raw);
   if (!value) return "fly.dev";
   const normalized = value.replace(/\/+$/, "").toLowerCase();
-  if (/^https?:\/\//i.test(normalized) || normalized.includes("/")) return undefined;
-  return /^[a-z0-9.-]+$/.test(normalized) ? normalized : undefined;
+  if (!normalized || /^https?:\/\//i.test(normalized) || normalized.includes("/")) return undefined;
+  const labels = normalized.split(".");
+  return labels.every((label) => flyHostLabelPattern.test(label)) ? normalized : undefined;
 }
 
 function deriveFlyApiFallbackUrl(raw: Record<string, unknown>): string {
