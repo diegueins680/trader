@@ -47,6 +47,46 @@ function readBoolean(raw: unknown): boolean | undefined {
   return undefined;
 }
 
+function normalizeApiTargetIdentity(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const withoutTrailingSlashes = trimmed.replace(/\/+$/, "");
+  return withoutTrailingSlashes || (trimmed.startsWith("/") ? "/" : "");
+}
+
+function sameApiTarget(left: string, right: string): boolean {
+  const leftIdentity = normalizeApiTargetIdentity(left);
+  const rightIdentity = normalizeApiTargetIdentity(right);
+  return Boolean(leftIdentity) && leftIdentity === rightIdentity;
+}
+
+function readApiTargets(raw: Record<string, unknown>): Pick<TraderUiDeployConfig, "apiBaseUrl" | "apiBaseUrlInferred" | "apiFallbackUrl"> {
+  const configuredBaseUrl = readString(raw.apiBaseUrl).trim();
+  const configuredFallbackUrl = readString(raw.apiFallbackUrl).trim();
+  const configuredInferred = readBoolean(raw.apiBaseUrlInferred);
+
+  if (configuredBaseUrl) {
+    return {
+      apiBaseUrl: configuredBaseUrl,
+      apiBaseUrlInferred: configuredInferred,
+      apiFallbackUrl:
+        configuredFallbackUrl && !sameApiTarget(configuredBaseUrl, configuredFallbackUrl)
+          ? configuredFallbackUrl
+          : undefined,
+    };
+  }
+
+  const inferredBaseUrl = "/api";
+  return {
+    apiBaseUrl: inferredBaseUrl,
+    apiBaseUrlInferred: true,
+    apiFallbackUrl:
+      configuredFallbackUrl && !sameApiTarget(inferredBaseUrl, configuredFallbackUrl)
+        ? configuredFallbackUrl
+        : undefined,
+  };
+}
+
 function normalizeTimeoutMs(raw: unknown): number | undefined {
   const n0 = readNumber(raw);
   if (n0 == null) return undefined;
@@ -74,15 +114,22 @@ function readTimeouts(raw: unknown): TraderUiTimeoutsMs | undefined {
   return out;
 }
 
-function readConfigFromGlobal(): TraderUiDeployConfig {
-  if (typeof window === "undefined") return { apiBaseUrl: "", apiToken: "" };
-  const raw = window.__TRADER_CONFIG__;
-  if (!raw || typeof raw !== "object") return { apiBaseUrl: "", apiToken: "" };
-
+function defaultConfig(): TraderUiDeployConfig {
   return {
-    apiBaseUrl: readString((raw as { apiBaseUrl?: unknown }).apiBaseUrl).trim(),
-    apiBaseUrlInferred: readBoolean((raw as { apiBaseUrlInferred?: unknown }).apiBaseUrlInferred),
-    apiFallbackUrl: readString((raw as { apiFallbackUrl?: unknown }).apiFallbackUrl).trim(),
+    apiBaseUrl: "/api",
+    apiBaseUrlInferred: true,
+    apiToken: "",
+  };
+}
+
+function readConfigFromGlobal(): TraderUiDeployConfig {
+  if (typeof window === "undefined") return defaultConfig();
+  const raw = window.__TRADER_CONFIG__;
+  if (!raw || typeof raw !== "object") return defaultConfig();
+
+  const apiTargets = readApiTargets(raw as Record<string, unknown>);
+  return {
+    ...apiTargets,
     apiToken: readString((raw as { apiToken?: unknown }).apiToken).trim(),
     timeoutsMs: readTimeouts((raw as { timeoutsMs?: unknown }).timeoutsMs),
   };

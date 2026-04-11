@@ -22,6 +22,29 @@ async function loadDeployConfig(rawConfig) {
   }
 }
 
+test("deploy-config defaults missing global config to inferred /api", async () => {
+  const config = await loadDeployConfig(undefined);
+
+  assert.equal(config.apiBaseUrl, "/api");
+  assert.equal(config.apiBaseUrlInferred, true);
+  assert.equal(config.apiFallbackUrl, undefined);
+  assert.equal(config.apiToken, "");
+});
+
+test("deploy-config infers /api primary when apiBaseUrl is blank and preserves distinct fallback", async () => {
+  const config = await loadDeployConfig({
+    apiBaseUrl: "  ",
+    apiBaseUrlInferred: false,
+    apiFallbackUrl: "https://api.example.com",
+    apiToken: "token",
+  });
+
+  assert.equal(config.apiBaseUrl, "/api");
+  assert.equal(config.apiBaseUrlInferred, true);
+  assert.equal(config.apiFallbackUrl, "https://api.example.com");
+  assert.equal(config.apiToken, "token");
+});
+
 test("deploy-config keeps exact safe integer millisecond timeouts and clamps only after validation", async () => {
   const config = await loadDeployConfig({
     apiBaseUrl: "/api",
