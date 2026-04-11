@@ -1,7 +1,7 @@
 - `--open-threshold 0.002` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
   - Entries must also clear that deadband with at least `1.5x` edge headroom; forecasts that only barely cross the threshold are held as `HOLD (EDGE_HEADROOM)` instead of opening on a boundary-touching move.
   - Entries are also vetoed when the method-selected absolute edge does not clear the active headroom requirement plus an explicit round-trip fee floor (`2 * fee`), which blocks low-margin trades that only look profitable before fees. Non-finite fee or edge inputs fail closed.
-  - Entries are also suppressed when the method-selected absolute edge exceeds `4x` the active open-threshold, which blocks stale/outlier prediction spikes before they turn into exhausted-move entries.
+  - Entries are also suppressed when the method-selected absolute edge exceeds the tighter of the credible-edge ceiling and `4x` the active open-threshold; exact equality at that cap remains admissible, and non-finite threshold or edge inputs fail closed instead of bypassing the spike veto.
   - Entries are now also vetoed as `NON_DIRECTIONAL_CHOP` when 24-bar price efficiency is `<= 0.25`, and as `NON_DIRECTIONAL_MR` when efficiency stays `<= 0.40` while saved HMM regime probabilities are clearly mean-reversion-dominated (using the existing `--regime-bank-hysteresis` gap). This keeps large raw edges from opening new directional trades in chop or range-drift conditions.
   - Directionality efficiency and z-score are derived from the additive per-bar return path, so clean monotonic trend windows remain directional instead of being misclassified as malformed when the compounded endpoint return slightly exceeds the summed simple-return path.
 

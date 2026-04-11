@@ -74,6 +74,7 @@ main = do
     run "signal gate shared entryEdge conjunction stays fail closed" testSignalGateEntryConjunctiveSharedEdge
     run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
     run "signal gate post-direction wrappers cannot reopen blocked entries" testSignalGateNoReopenPostDirection
+    run "signal gate edge-spike monotonicity holds" testSignalGateEntryEdgeSpikeMonotone
     run "signal gate rejects entry edge spikes" testSignalGateEntryEdgeSpike
 
 -- Trader.Optimization must keep importing the checked simulator/config/meta
@@ -878,7 +879,7 @@ testSignalGateEntryConjunctiveSharedEdge = do
     assert
         "shared entryEdge conjunction keeps the spike veto independent when threshold headroom collapses to zero"
         ( entryGatesOk 0 0 (Just 0)
-            && not (entryGatesOk 0 0 (Just 1))
+            && not (entryGatesOk 0 0 (Just 0.5))
         )
     assert
         "shared entryEdge conjunction fails closed on malformed input"
@@ -941,25 +942,40 @@ testSignalGateNoReopenPostDirection = do
             == (Nothing, Just "NON_DIRECTIONAL")
         )
 
+testSignalGateEntryEdgeSpikeMonotone :: IO ()
+testSignalGateEntryEdgeSpikeMonotone = do
+    let alloweds =
+            [ signalEntryEdgeSpikeOk openThr (Just 0.04)
+            | openThr <- [0.02, 0.01, 0.005, 0]
+            ]
+    assert
+        "edge-spike threshold ladder keeps the expected allow/block shape"
+        (alloweds == [True, True, False, False])
+    assertMonotoneNonIncreasing
+        "lower thresholds cannot reopen a blocked edge-spike entry"
+        alloweds
+
 testSignalGateEntryEdgeSpike :: IO ()
 testSignalGateEntryEdgeSpike = do
     assert
-        "edge-spike gate accepts the shared boundary-sized edge sample"
-        (signalEntryEdgeSpikeOk 0.01 (Just 0.015))
+        "edge-spike gate accepts equality at the active 4x threshold cap"
+        (signalEntryEdgeSpikeOk 0.01 (Just 0.04))
     assert
-        "edge-spike gate rejects outsized edge spikes"
-        (not (signalEntryEdgeSpikeOk 0.01 (Just 1)))
+        "edge-spike gate rejects edges above the active 4x threshold cap"
+        (not (signalEntryEdgeSpikeOk 0.01 (Just 0.040001)))
     assert
-        "edge-spike gate keeps explicit-edge and credible-edge bounds when threshold normalizes to zero"
+        "edge-spike gate only admits the shared zero edge when the threshold normalizes to zero"
         ( not (signalEntryEdgeSpikeOk 0 Nothing)
             && signalEntryEdgeSpikeOk 0 (Just 0)
-            && signalEntryEdgeSpikeOk 0 (Just 0.5)
-            && not (signalEntryEdgeSpikeOk 0 (Just 0.500001))
+            && not (signalEntryEdgeSpikeOk 0 (Just 0.000001))
+            && not (signalEntryEdgeSpikeOk 0 (Just 0.5))
             && not (signalEntryEdgeSpikeOk 0 (Just (-0.001)))
         )
     assert
-        "edge-spike gate fails closed on missing or malformed edges"
+        "edge-spike gate fails closed on missing or malformed thresholds or edges"
         ( not (signalEntryEdgeSpikeOk 0.01 Nothing)
+            && not (signalEntryEdgeSpikeOk (0 / 0) (Just 0))
+            && not (signalEntryEdgeSpikeOk (1 / 0) (Just 0))
             && not (signalEntryEdgeSpikeOk 0.01 (Just (0 / 0)))
             && not (signalEntryEdgeSpikeOk 0.01 (Just (1 / 0)))
         )
