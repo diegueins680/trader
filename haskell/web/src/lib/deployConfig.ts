@@ -76,12 +76,12 @@ function readFirstFlyAppName(...raws: unknown[]): string {
   return "";
 }
 
-function normalizeFlyHost(raw: unknown): string {
-  const value = readNonBlankString(raw)
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/+$/, "")
-    .toLowerCase();
-  return value && /^[a-z0-9.-]+$/.test(value) ? value : "fly.dev";
+function normalizeFlyHost(raw: unknown): string | undefined {
+  const value = readNonBlankString(raw);
+  if (!value) return "fly.dev";
+  const normalized = value.replace(/\/+$/, "").toLowerCase();
+  if (/^https?:\/\//i.test(normalized) || normalized.includes("/")) return undefined;
+  return /^[a-z0-9.-]+$/.test(normalized) ? normalized : undefined;
 }
 
 function deriveFlyApiFallbackUrl(raw: Record<string, unknown>): string {
@@ -93,6 +93,7 @@ function deriveFlyApiFallbackUrl(raw: Record<string, unknown>): string {
   );
   if (!backendFlyApp) return "";
   const flyHost = normalizeFlyHost(raw.flyHost ?? raw.FLY_HOST ?? raw.flyDomain ?? raw.FLY_DOMAIN);
+  if (!flyHost) return "";
   return `https://${backendFlyApp}.${flyHost}/api`;
 }
 
