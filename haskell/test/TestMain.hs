@@ -480,6 +480,32 @@ testOrderExecutionAppliedQuantity = do
         "filled-like live statuses may still fall back to the requested quantity when explicit fill qty is absent"
         (orderAppliedQuantity liveFilledFallback fallbackQty == Just fallbackQty)
 
+-- Reduce-only reconciliation must remain close-only even if an exchange reports
+-- an oversized executed quantity or malformed fill size: it may reduce the
+-- current exposure to flat, but it must never flip direction or open new size.
+testOrderExecutionReduceOnlyInvariant :: IO ()
+testOrderExecutionReduceOnlyInvariant = do
+    let longOversized = applyReduceOnlyExecutedQuantity 1 2 5
+        shortPartial = applyReduceOnlyExecutedQuantity (-1) 3 1.25
+        flatNoop = applyReduceOnlyExecutedQuantity 0 4 2
+        malformedQty = applyReduceOnlyExecutedQuantity 1 2 (0 / 0)
+        openQtysStayZero =
+            all
+                (\(_, _, _, openQty) -> openQty == 0)
+                [longOversized, shortPartial, flatNoop, malformedQty]
+    assert
+        "oversized reduce-only fills cap at the existing exposure and flatten instead of reversing"
+        (longOversized == (0, 0, 2, 0))
+    assert
+        "partial reduce-only fills preserve the existing side while residual exposure remains"
+        (shortPartial == (-1, 1.75, 1.25, 0))
+    assert
+        "reduce-only reconciliation cannot open exposure from flat or malformed executed quantity"
+        (flatNoop == (0, 0, 0, 0) && malformedQty == (1, 2, 0, 0))
+    assert
+        "reduce-only reconciliation keeps open quantity pinned to zero across representative cases"
+        openQtysStayZero
+
 -- The reviewed Trading.hs change restores only the optimizer-facing checked-
 -- simulator seam and leaves the live entry-gate behavior unchanged. These
 -- executable obligations pin the surviving entry-gate integration to four
