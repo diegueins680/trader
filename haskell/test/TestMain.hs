@@ -9,6 +9,10 @@ import Trader.App.Args (
     parsePositioning,
     positioningCode,
  )
+import Trader.Formal.Optimization (
+    FormalVerificationReport (..),
+    verifyFormalOptimization,
+ )
 import Trader.OrderExecution (
     OrderExecutionEvidence (..),
     applyReduceOnlyExecutedQuantity,
@@ -59,6 +63,7 @@ main = do
     run "optimizer execution-config contract preserves fold payloads and zeroes flip exits together" testOptimizerExecutionConfigContract
     run "trading result constructors stay visible to metrics" testTradingResultConstructorSurface
     run "trading CLI enum surface stays visible and round-trips via args parsers" testTradingCliEnumContract
+    run "formal optimization exposure penalty stays ordered" testFormalOptimizationExposurePenaltyInvariant
     run "order execution applied quantity trusts explicit partial fills on terminal live statuses" testOrderExecutionAppliedQuantity
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
     run "trading entry gate shared-edge conjunction stays fail closed at integration boundary" testTradingEntryGateSharedEdgeConjunction
@@ -413,6 +418,18 @@ testTradingCliEnumContract = do
             , parseIntrabarFill "tp" == Right TakeProfitFirst
             ]
         )
+
+-- Risk-control regression pin: the formal optimization verifier must keep the
+-- ROI scorer's exposure penalty ordered so higher idle-capital/exposure states
+-- cannot become strictly preferred just because surrounding tuning logic or
+-- normalization changes.
+testFormalOptimizationExposurePenaltyInvariant :: IO ()
+testFormalOptimizationExposurePenaltyInvariant =
+    let report :: FormalVerificationReport
+        report = verifyFormalOptimization
+     in assert
+            "formal optimization report preserves exposure-penalty ordering"
+            (fvrExposurePenaltyOrdered report)
 
 -- Live exchange reconciliation must trust explicit executed quantity over a
 -- terminal cancel/expire status so partial fills are not lost, while still
