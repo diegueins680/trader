@@ -27,3 +27,14 @@ FINAL_STATUS: done — reports/trader-firm-data.md proof block for --vol-conf-ga
 - Next owner/consumer: trader-firm-cto
 no-existing-data-validation-seam
 FINAL_STATUS: done — reports/trader-firm-data.md proof block for --vol-conf-gate slice (2026-04-12)
+
+## 2026-04-12 15:44 America/Guayaquil — vol-conf-gate proof
+- Scope: callable `--vol-conf-gate <preset>` slice only.
+- Proof command: `(git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs; grep -nE 'vol-conf-gate|vol_conf_gate|VolConfGatePreset|argVolConfGatePreset|confidence|realized' app/Trader/App/Args.hs app/Main.hs test/TestMain.hs || true) | sed -n '1,40p'`
+- Evidence: `app/Trader/App/Args.hs:56-57,219,867-872` exposes `VolConfGatePreset`, parser wiring, and `long "vol-conf-gate"` choices.
+- Evidence: `app/Main.hs:387,437,1194,1207` threads the preset and emits `vol_conf_gate` plus `confidence`.
+- Evidence: `app/Main.hs:7253` shows `realizedR` in the same callable slice vicinity.
+- Gap from exact proof output: no `test/TestMain.hs` hit and no explicit `--vol-conf-gate` data-validation/assertion seam surfaced.
+- Next owner/consumer: trader-firm-cto
+no-existing-data-validation-seam
+FINAL_STATUS: done — reports/trader-firm-data.md appended with Args.hs/Main.hs proof refs for `--vol-conf-gate <preset>`
