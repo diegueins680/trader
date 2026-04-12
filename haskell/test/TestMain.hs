@@ -65,6 +65,8 @@ main = do
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
     run "trading entry gate malformed inputs cannot reopen a blocked fresh-entry state" testTradingEntryGateMalformedNoReopen
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
+    run "signal gate weak-directionality snapshots stay fail closed on malformed regime evidence" testSignalGateDirectionalityWeakBandFailClosed
+    run "signal gate weak-directionality admissibility is monotone at the review-band boundaries" testSignalGateDirectionalityWeakBandMonotone
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
     run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
@@ -741,6 +743,65 @@ testSignalGateFacadeSurface = do
             && not (signalRegimeEdgeOk True 0.01 Nothing)
             && not fundingOiOk
         )
+
+mkManualDirectionalitySnapshot :: Double -> Maybe Double -> Maybe Double -> Maybe Double -> Bool -> Maybe String -> DirectionalitySnapshot
+mkManualDirectionalitySnapshot efficiency trendProb mrProb highVolProb nonDirectional reason =
+    DirectionalitySnapshot
+        { dsLookbackBars = 24
+        , dsNetReturnPct = 1.2
+        , dsRealizedVolPct = 0.8
+        , dsEfficiency = efficiency
+        , dsZScore = 1.1
+        , dsLabel = "range-drift"
+        , dsTrendProb = trendProb
+        , dsMrProb = mrProb
+        , dsHighVolProb = highVolProb
+        , dsRegimeLeader = Nothing
+        , dsRegimeGap = Nothing
+        , dsNonDirectional = nonDirectional
+        , dsReason = reason
+        }
+
+testSignalGateDirectionalityWeakBandFailClosed :: IO ()
+testSignalGateDirectionalityWeakBandFailClosed = do
+    let strongMissing =
+            mkManualDirectionalitySnapshot 0.400001 Nothing Nothing Nothing False Nothing
+        weakMissingInterior =
+            mkManualDirectionalitySnapshot 0.26 Nothing Nothing Nothing False Nothing
+        weakMissingBoundary =
+            mkManualDirectionalitySnapshot 0.4 Nothing Nothing Nothing False Nothing
+        weakWellFormed =
+            mkManualDirectionalitySnapshot 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False Nothing
+        weakNonFinite =
+            mkManualDirectionalitySnapshot 0.26 (Just 0.55) (Just (1 / 0)) (Just 0.25) False Nothing
+        weakMrBlocked =
+            mkManualDirectionalitySnapshot 0.26 (Just 0.2) (Just 0.6) (Just 0.2) True (Just "NON_DIRECTIONAL_MR")
+        chopBoundary =
+            mkManualDirectionalitySnapshot 0.25 Nothing Nothing Nothing False Nothing
+    assert
+        "weak-directionality entry gate preserves strong-band behavior and fails closed on malformed review-band regime evidence"
+        ( signalDirectionalityEntryAllowed (Just strongMissing)
+            && not (signalDirectionalityEntryAllowed (Just weakMissingInterior))
+            && not (signalDirectionalityEntryAllowed (Just weakMissingBoundary))
+            && signalDirectionalityEntryAllowed (Just weakWellFormed)
+            && not (signalDirectionalityEntryAllowed (Just weakNonFinite))
+            && not (signalDirectionalityEntryAllowed (Just weakMrBlocked))
+            && not (signalDirectionalityEntryAllowed (Just chopBoundary))
+        )
+
+testSignalGateDirectionalityWeakBandMonotone :: IO ()
+testSignalGateDirectionalityWeakBandMonotone = do
+    let missingRegimeAlloweds =
+            [ signalDirectionalityEntryAllowed
+                (Just (mkManualDirectionalitySnapshot eff Nothing Nothing Nothing False Nothing))
+            | eff <- [0.5, 0.400001, 0.4, 0.3, 0.26, 0.25]
+            ]
+    assert
+        "weak-directionality efficiency ladder keeps the expected allow/block shape without regime evidence"
+        (missingRegimeAlloweds == [True, True, False, False, False, False])
+    assertMonotoneNonIncreasing
+        "lower efficiency cannot reopen a weak-directionality snapshot once regime evidence is missing"
+        missingRegimeAlloweds
 
 testSignalGateEntryHeadroom :: IO ()
 testSignalGateEntryHeadroom = do

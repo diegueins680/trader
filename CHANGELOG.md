@@ -2,6 +2,8 @@
 - Autoloop: stop blocking the forever runner on merged local branches that are still attached to Git worktrees, and add `hlint` verification plus direct log-driven HLint auto-fixes for editable Haskell files.
 - Autoloop/CI: require `AUTOLOOP_PUSH_TOKEN` in the GitHub-hosted autoloop workflow and remove the `github.token` fallback plus `AUTOLOOP_SKIP_CI_WAIT`, so post-push GitHub Actions polling is mandatory there.
 - Autoloop/CI: install a pinned prebuilt `fourmolu` binary in the GitHub-hosted autoloop workflow instead of compiling `fourmolu` from source on each run.
+- Trading: fail closed in the weak 24-bar directionality review band when saved HMM regime probabilities are missing or non-finite, and keep `efficiency <= 0.25` fresh entries blocked even for malformed saved snapshots.
+- Trading/Formal: document the low-directionality fail-closed contract in `FORMAL_METHODS.md` and add bounded Haskell tests covering weak-band malformed-input rejection plus efficiency-boundary monotonicity.
 - Trading: add a fee-aware fail-closed entry gate for marginal signals, so entries now require the method-selected absolute edge to clear both the existing adjusted headroom requirement and an explicit round-trip fee floor (`2 * fee`); non-finite fee or edge inputs are blocked conservatively.
 - Trading/Formal: document the fee-aware entry-gate contract in `FORMAL_METHODS.md` and add bounded Haskell tests covering fee monotonicity, edge monotonicity, and malformed-input fail-closed behavior.
 - Trading: tighten the fresh-entry edge-spike veto so non-finite threshold or edge inputs fail closed, equality at the active `4x` spike cap stays admissible, and lowering the effective threshold cannot admit more entries.

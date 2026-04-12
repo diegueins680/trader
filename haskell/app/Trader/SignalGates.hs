@@ -130,6 +130,17 @@ directionalityEfficiencyOk :: Double -> Bool
 directionalityEfficiencyOk eff =
     finiteDouble eff && eff >= 0 && eff <= 1
 
+directionalityWeakBand :: Double -> Bool
+directionalityWeakBand eff =
+    directionalityEfficiencyOk eff
+        && eff > directionalityChopEfficiencyMax
+        && eff <= directionalityMrEfficiencyMax
+
+directionalityWeakBandRegimeEvidenceOk :: DirectionalitySnapshot -> Bool
+directionalityWeakBandRegimeEvidenceOk snap =
+    not (directionalityWeakBand (dsEfficiency snap))
+        || all isJust [dsTrendProb snap, dsMrProb snap, dsHighVolProb snap]
+
 directionalityProbOk :: Double -> Bool
 directionalityProbOk p = finiteDouble p && p >= 0 && p <= 1
 
@@ -165,6 +176,7 @@ directionalitySnapshotWellFormed snap =
         && maybe True directionalityProbOk (dsMrProb snap)
         && maybe True directionalityProbOk (dsHighVolProb snap)
         && maybe True directionalityGapOk (dsRegimeGap snap)
+        && directionalityWeakBandRegimeEvidenceOk snap
 
 signalDirectionalityEntryAllowed :: Maybe DirectionalitySnapshot -> Bool
 signalDirectionalityEntryAllowed mSnapshot =
@@ -172,6 +184,7 @@ signalDirectionalityEntryAllowed mSnapshot =
         Nothing -> False
         Just snap ->
             directionalitySnapshotWellFormed snap
+                && dsEfficiency snap > directionalityChopEfficiencyMax
                 && not (dsNonDirectional snap)
 
 signalEntryHeadroomThresholdCap :: Double -> Double

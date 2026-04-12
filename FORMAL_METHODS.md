@@ -63,3 +63,28 @@ Proof sketch:
 - The acceptance comparison is `edge <= spikeCap`, so exact equality at the cap remains admissible.
 - Because `normalizeSignalThreshold` sends non-positive finite thresholds to `0`, the degenerate threshold case collapses to `spikeCap = 0`, admitting only the shared zero edge sample.
 - `mkEntryGateState` still reuses one non-negative `entryEdge` across the spike, headroom, and fee-buffer vetoes and combines them conjunctively, so the independent spike repair only removes admissibility and cannot reopen blocked fresh-entry states.
+
+## Formal low-directionality entry gate contract
+
+`signalDirectionalityEntryAllowed` in `haskell/app/Trader/SignalGates.hs` is treated as the fail-closed admission check for fresh entries derived from `DirectionalitySnapshot`.
+
+Clauses:
+
+1. `Nothing`, malformed snapshots, and snapshots already marked `dsNonDirectional = True` are inadmissible.
+2. Fresh directional entries are always blocked when `dsEfficiency <= 0.25`, even if a saved snapshot is otherwise marked directional.
+3. When `0.25 < dsEfficiency <= 0.40`, admissibility requires explicit finite `dsTrendProb`, `dsMrProb`, and `dsHighVolProb`; missing or non-finite regime probabilities are treated as malformed and block the entry.
+4. For `dsEfficiency > 0.40`, the entry gate preserves the prior behavior: regime-probability completeness is not required by this check as long as the snapshot is otherwise well formed and not already marked non-directional.
+5. Admissibility is monotone non-increasing as efficiency falls across the `0.40` review-band boundary and the `0.25` chop boundary under otherwise identical snapshot fields.
+6. Mean-reversion-dominant weak-band snapshots remain blocked because `signalDirectionalitySnapshot` marks them `NON_DIRECTIONAL_MR`, and `signalDirectionalityEntryAllowed` never admits a snapshot with `dsNonDirectional = True`.
+
+Bounded executable obligations:
+
+- `testSignalGateDirectionalityWeakBandFailClosed` covers the strong-band no-change witness, the `0.40` and `0.25` boundaries, weak-band missing-probability fail-closed behavior, non-finite probability rejection, and preservation of the existing `NON_DIRECTIONAL_MR` veto.
+- `testSignalGateDirectionalityWeakBandMonotone` witnesses the non-increasing admissibility ladder as efficiency falls when regime probabilities are missing.
+
+Proof sketch:
+
+- `signalDirectionalityEntryAllowed` now requires `dsEfficiency > directionalityChopEfficiencyMax`, so saved snapshots cannot reopen the documented chop veto by carrying a stale directional label.
+- `directionalitySnapshotWellFormed` now also requires explicit regime probabilities in the weak review band, so missing or non-finite HMM probabilities are reclassified as malformed before any fresh entry can be admitted.
+- The weak-band completeness obligation is one-way: crossing from `> 0.40` into `<= 0.40` can only remove admissible states, and crossing from `> 0.25` into `<= 0.25` removes them all.
+- Mean-reversion dominance still blocks via the existing `dsNonDirectional`/`dsReason` contract produced by `signalDirectionalitySnapshot`, so the repair only shrinks the admissible set for malformed saved snapshots and leaves well-formed directional snapshots unchanged.
