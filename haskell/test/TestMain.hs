@@ -65,6 +65,7 @@ main = do
     run "trading CLI enum surface stays visible and round-trips via args parsers" testTradingCliEnumContract
     run "formal optimization exposure penalty stays ordered" testFormalOptimizationExposurePenaltyInvariant
     run "order execution applied quantity trusts explicit partial fills on terminal live statuses" testOrderExecutionAppliedQuantity
+    run "order execution reduce-only fills stay close-only and cannot flip exposure" testOrderExecutionReduceOnlyInvariant
     run "trading entry gate stays entry-only off the fresh-entry path" testTradingEntryGateEntryOnly
     run "trading entry gate shared-edge conjunction stays fail closed at integration boundary" testTradingEntryGateSharedEdgeConjunction
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
