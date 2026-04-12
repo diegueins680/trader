@@ -120,6 +120,9 @@ directionalityChopEfficiencyMax = 0.25
 directionalityMrEfficiencyMax :: Double
 directionalityMrEfficiencyMax = 0.4
 
+directionalityWeakBandZScoreMin :: Double
+directionalityWeakBandZScoreMin = 0.75
+
 directionalityRegimeMassTolerance :: Double
 directionalityRegimeMassTolerance = 1e-3
 
@@ -143,6 +146,12 @@ directionalityWeakBandRegimeEvidenceOk :: DirectionalitySnapshot -> Bool
 directionalityWeakBandRegimeEvidenceOk snap =
     not (directionalityWeakBand (dsEfficiency snap))
         || directionalitySavedRegimeTuplePresentOk snap
+
+directionalityWeakBandZScoreOk :: DirectionalitySnapshot -> Bool
+directionalityWeakBandZScoreOk snap =
+    not (directionalityWeakBand (dsEfficiency snap))
+        || let zScore = dsZScore snap
+            in finiteDouble zScore && abs zScore >= directionalityWeakBandZScoreMin
 
 directionalityProbOk :: Double -> Bool
 directionalityProbOk p = finiteDouble p && p >= 0 && p <= 1
@@ -213,6 +222,7 @@ signalDirectionalityEntryAllowed mSnapshot =
         Just snap ->
             directionalitySnapshotWellFormed snap
                 && dsEfficiency snap > directionalityChopEfficiencyMax
+                && directionalityWeakBandZScoreOk snap
                 && not (dsNonDirectional snap)
 
 signalEntryHeadroomThresholdCap :: Double -> Double
