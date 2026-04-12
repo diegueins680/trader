@@ -903,7 +903,8 @@ testSignalGateDirectionalityWeakBandFailClosed = do
 testSignalGateDirectionalityWeakBandMonotone :: IO ()
 testSignalGateDirectionalityWeakBandMonotone = do
     let weakAllows side z =
-            signalDirectionalityEntryAllowedForSide side
+            signalDirectionalityEntryAllowedForSide
+                side
                 (Just (mkManualDirectionalitySnapshotWithZScore z 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False Nothing))
         missingRegimeAlloweds =
             [ signalDirectionalityEntryAllowed
