@@ -3,10 +3,12 @@
 module Trader.SignalGates (
     SignalThresholdBoundary (..),
     DirectionalitySnapshot (..),
+    DirectionalityEntrySide (..),
     mkSignalThresholdBoundary,
     normalizeSignalThreshold,
     signalDirectionalitySnapshot,
     signalDirectionalityEntryAllowed,
+    signalDirectionalityEntryAllowedForSide,
     signalEntryHeadroomThresholdCap,
     signalEntryHeadroomOk,
     signalEntryFeeBufferOk,
@@ -50,6 +52,11 @@ data DirectionalitySnapshot = DirectionalitySnapshot
     , dsNonDirectional :: !Bool
     , dsReason :: !(Maybe String)
     }
+    deriving (Eq, Show)
+
+data DirectionalityEntrySide
+    = DirectionalityLong
+    | DirectionalityShort
     deriving (Eq, Show)
 
 instance ToJSON DirectionalitySnapshot where
@@ -147,11 +154,14 @@ directionalityWeakBandRegimeEvidenceOk snap =
     not (directionalityWeakBand (dsEfficiency snap))
         || directionalitySavedRegimeTuplePresentOk snap
 
-directionalityWeakBandZScoreOk :: DirectionalitySnapshot -> Bool
-directionalityWeakBandZScoreOk snap =
+directionalityWeakBandZScoreOk :: DirectionalityEntrySide -> DirectionalitySnapshot -> Bool
+directionalityWeakBandZScoreOk desiredSide snap =
     not (directionalityWeakBand (dsEfficiency snap))
         || let zScore = dsZScore snap
-            in finiteDouble zScore && abs zScore >= directionalityWeakBandZScoreMin
+            in finiteDouble zScore
+                && case desiredSide of
+                    DirectionalityLong -> zScore >= directionalityWeakBandZScoreMin
+                    DirectionalityShort -> zScore <= negate directionalityWeakBandZScoreMin
 
 directionalityProbOk :: Double -> Bool
 directionalityProbOk p = finiteDouble p && p >= 0 && p <= 1
@@ -217,12 +227,17 @@ directionalitySnapshotWellFormed snap =
 
 signalDirectionalityEntryAllowed :: Maybe DirectionalitySnapshot -> Bool
 signalDirectionalityEntryAllowed mSnapshot =
+    signalDirectionalityEntryAllowedForSide DirectionalityLong mSnapshot
+        || signalDirectionalityEntryAllowedForSide DirectionalityShort mSnapshot
+
+signalDirectionalityEntryAllowedForSide :: DirectionalityEntrySide -> Maybe DirectionalitySnapshot -> Bool
+signalDirectionalityEntryAllowedForSide desiredSide mSnapshot =
     case mSnapshot of
         Nothing -> False
         Just snap ->
             directionalitySnapshotWellFormed snap
                 && dsEfficiency snap > directionalityChopEfficiencyMax
-                && directionalityWeakBandZScoreOk snap
+                && directionalityWeakBandZScoreOk desiredSide snap
                 && not (dsNonDirectional snap)
 
 signalEntryHeadroomThresholdCap :: Double -> Double
