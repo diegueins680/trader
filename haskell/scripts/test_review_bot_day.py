@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 
@@ -14,6 +15,9 @@ class ReviewBotDayTest(unittest.TestCase):
     def write_snapshot(self, tenant_dir: Path, symbol: str, status: dict) -> None:
         payload = {"savedAtMs": status["updatedAtMs"], "status": status}
         (tenant_dir / f"bot-state-{symbol}.json").write_text(json.dumps(payload))
+
+    def at_ms(self, iso_text: str) -> int:
+        return int(datetime.fromisoformat(iso_text).timestamp() * 1000)
 
     def test_excludes_adopted_carry_with_prior_order_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -586,6 +590,132 @@ class ReviewBotDayTest(unittest.TestCase):
         self.assertEqual(carried["symbol"], "SOLUSDT")
         self.assertEqual(carried["entrySource"], "adopted")
         self.assertEqual(carried["provenance"], "startup_adopted_position")
+
+    def test_cutoff_freshness_flags_stale_snapshot_by_interval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenant_dir = Path(tmpdir)
+            updated_at_ms = self.at_ms("2026-04-04T12:00:00-05:00")
+            self.write_snapshot(
+                tenant_dir,
+                "FASTUSDT",
+                {
+                    "symbol": "FASTUSDT",
+                    "interval": "5m",
+                    "updatedAtMs": updated_at_ms,
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T11:55:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {"action": "HOLD (LSTM neutral)", "volatility": 0.1, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "SLOWUSDT",
+                {
+                    "symbol": "SLOWUSDT",
+                    "interval": "1d",
+                    "updatedAtMs": updated_at_ms,
+                    "prices": [200.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T00:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {"action": "HOLD (TREND_FILTER)", "volatility": 0.1, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+
+            report = review_bot_day.build_report("2026-04-04", "America/Guayaquil", tenant_dir)
+
+        self.assertEqual(report["summary"]["staleSnapshotsAtCutoff"], 1)
+        self.assertEqual(report["cutoffFreshness"]["availableSymbols"], 2)
+        self.assertEqual(report["cutoffFreshness"]["staleSymbols"], 1)
+        stale = report["anomalies"]["staleSnapshotsAtCutoff"][0]
+        self.assertEqual(stale["symbol"], "FASTUSDT")
+        self.assertTrue(stale["staleAtCutoff"])
+        self.assertEqual(stale["freshnessBudgetMs"], 5 * 60 * 1000)
+        slow = next(row for row in report["cutoffFreshness"]["symbols"] if row["symbol"] == "SLOWUSDT")
+        self.assertFalse(slow["staleAtCutoff"])
+        markdown = review_bot_day.render_markdown(report)
+        self.assertIn("## Cutoff Freshness", markdown)
+        self.assertIn("`FASTUSDT` `5m` snapshot updated", markdown)
+
+    def test_action_census_uses_latest_pre_cutoff_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenant_dir = Path(tmpdir)
+            self.write_snapshot(
+                tenant_dir,
+                "BTCUSDT",
+                {
+                    "symbol": "BTCUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-04T10:00:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T10:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {"action": "HOLD (LSTM neutral)", "volatility": 0.2, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "ETHUSDT",
+                {
+                    "symbol": "ETHUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-04T11:00:00-05:00"),
+                    "prices": [200.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T11:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {"action": "HOLD (EDGE_SPIKE)", "volatility": 0.2, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "SOLUSDT",
+                {
+                    "symbol": "SOLUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-05T00:30:00-05:00"),
+                    "prices": [300.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-05T00:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {"action": "HOLD (LSTM neutral)", "volatility": 0.2, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+
+            report = review_bot_day.build_report("2026-04-04", "America/Guayaquil", tenant_dir)
+
+        self.assertEqual(
+            report["latestActionCensus"]["counts"],
+            [
+                {"action": "HOLD (EDGE_SPIKE)", "count": 1},
+                {"action": "HOLD (LSTM neutral)", "count": 1},
+            ],
+        )
+        self.assertEqual(report["latestActionCensus"]["eligibleSymbols"], 2)
+        self.assertEqual(report["latestActionCensus"]["updatedAfterCutoffSymbols"], ["SOLUSDT"])
+        markdown = review_bot_day.render_markdown(report)
+        self.assertIn("## Latest Action Census", markdown)
+        self.assertIn("`HOLD (EDGE_SPIKE)=1`", markdown)
+        self.assertIn("`HOLD (LSTM neutral)=1`", markdown)
+        self.assertIn("Omitted post-cutoff snapshots from the action census for: `SOLUSDT`", markdown)
 
 
 if __name__ == "__main__":

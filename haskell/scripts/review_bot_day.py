@@ -671,6 +671,80 @@ def snapshot_range_local(snapshots: list[BotSnapshot], tz: ZoneInfo) -> dict[str
     }
 
 
+def latest_signal_action(snapshot: BotSnapshot) -> str | None:
+    latest_signal = snapshot.status.get("latestSignal") or {}
+    action = latest_signal.get("action")
+    if not isinstance(action, str):
+        return None
+    text = action.strip()
+    return text or None
+
+
+def build_cutoff_snapshot_status(snapshot: BotSnapshot, end_ms: int, tz: ZoneInfo) -> dict[str, Any]:
+    updated_at_ms = snapshot.updated_at_ms
+    available_at_cutoff = updated_at_ms > 0 and updated_at_ms <= end_ms
+    freshness_budget_ms = interval_ms(snapshot.status.get("interval"))
+    snapshot_age_ms = end_ms - updated_at_ms if available_at_cutoff else None
+    stale_at_cutoff = None
+    if snapshot_age_ms is not None and freshness_budget_ms is not None:
+        stale_at_cutoff = snapshot_age_ms > freshness_budget_ms
+    return {
+        "symbol": snapshot.symbol,
+        "interval": snapshot.status.get("interval"),
+        "updatedAtLocal": local_iso(updated_at_ms, tz) if updated_at_ms > 0 else None,
+        "availableAtCutoff": available_at_cutoff,
+        "updatedAfterCutoff": updated_at_ms > end_ms if updated_at_ms > 0 else False,
+        "snapshotAgeMs": snapshot_age_ms,
+        "freshnessBudgetMs": freshness_budget_ms,
+        "staleAtCutoff": stale_at_cutoff,
+        "latestAction": latest_signal_action(snapshot),
+    }
+
+
+def build_cutoff_freshness(
+    snapshots: list[BotSnapshot],
+    end_ms: int,
+    tz: ZoneInfo,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    symbols = sorted((build_cutoff_snapshot_status(snapshot, end_ms, tz) for snapshot in snapshots), key=lambda row: row["symbol"])
+    available_symbols = [row for row in symbols if row["availableAtCutoff"]]
+    stale_symbols = [row for row in available_symbols if row["staleAtCutoff"]]
+    fresh_symbols = [row for row in available_symbols if row["staleAtCutoff"] is False]
+    unknown_budget_symbols = [row for row in available_symbols if row["staleAtCutoff"] is None]
+    latest_available_updated_at_ms = max((snap.updated_at_ms for snap in snapshots if 0 < snap.updated_at_ms <= end_ms), default=None)
+
+    action_counts: dict[str, int] = {}
+    missing_action_symbols: list[str] = []
+    for row in available_symbols:
+        action = row["latestAction"]
+        if action is None:
+            missing_action_symbols.append(row["symbol"])
+        else:
+            action_counts[action] = action_counts.get(action, 0) + 1
+
+    action_census = {
+        "eligibleSymbols": len(available_symbols),
+        "counts": [
+            {"action": action, "count": count}
+            for action, count in sorted(action_counts.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "missingActionSymbols": missing_action_symbols,
+        "updatedAfterCutoffSymbols": [row["symbol"] for row in symbols if row["updatedAfterCutoff"]],
+    }
+    freshness = {
+        "latestSnapshotUpdatedAtLocal": local_iso(latest_available_updated_at_ms, tz)
+        if latest_available_updated_at_ms is not None
+        else None,
+        "latestSnapshotAgeMs": end_ms - latest_available_updated_at_ms if latest_available_updated_at_ms is not None else None,
+        "availableSymbols": len(available_symbols),
+        "staleSymbols": len(stale_symbols),
+        "freshSymbols": len(fresh_symbols),
+        "unknownBudgetSymbols": len(unknown_budget_symbols),
+        "symbols": symbols,
+    }
+    return freshness, stale_symbols, action_census
+
+
 def last_open_index_before(open_times: list[int], end_ms: int) -> int | None:
     for idx in range(len(open_times) - 1, -1, -1):
         if open_times[idx] < end_ms:
@@ -930,6 +1004,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
         row for row in auth_failure_order_events if row["flowRole"] == "exit_or_flatten"
     ]
     auth_failure_unknown_role_events = [row for row in auth_failure_order_events if row["flowRole"] == "unknown"]
+    cutoff_freshness, stale_snapshots_at_cutoff, latest_action_census = build_cutoff_freshness(snapshots, end_ms, tz)
 
     compound = 1.0
     for trade in completed_trades:
@@ -946,6 +1021,8 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             "endExclusive": end_local.isoformat(),
         },
         "snapshotRangeLocal": snapshot_range_local(snapshots, tz),
+        "cutoffFreshness": cutoff_freshness,
+        "latestActionCensus": latest_action_census,
         "summary": {
             "completedTrades": len(completed_trades),
             "completedCompoundPct": (compound - 1.0) * 100.0 if completed_trades else 0.0,
@@ -968,6 +1045,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             "fillEvidenceGaps": len(fill_evidence_gaps),
             "ambiguousOpenPositionOrigins": len(ambiguous_open_positions),
             "snapshotsUpdatedAfterWindow": len(snapshots_updated_after_window),
+            "staleSnapshotsAtCutoff": len(stale_snapshots_at_cutoff),
         },
         "completedTrades": completed_trades,
         "openPositionsEnteredToday": open_positions,
@@ -988,8 +1066,30 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             "nonDirectionalUnknownRoleEvents": non_directional_unknown_role_events,
             "ambiguousOpenPositionOrigins": ambiguous_open_positions,
             "snapshotsUpdatedAfterWindow": snapshots_updated_after_window,
+            "staleSnapshotsAtCutoff": stale_snapshots_at_cutoff,
         },
     }
+
+
+def humanize_duration_ms(duration_ms: int | None) -> str:
+    if duration_ms is None:
+        return "unknown"
+    total_seconds = max(0, int(duration_ms // 1000))
+    days, rem = divmod(total_seconds, 86_400)
+    hours, rem = divmod(rem, 3_600)
+    minutes, seconds = divmod(rem, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds and len(parts) < 2:
+        parts.append(f"{seconds}s")
+    if not parts:
+        return "0s"
+    return " ".join(parts[:2])
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -1022,8 +1122,58 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"`non_directional_unknown={summary['nonDirectionalUnknownRoleEvents']}` "
         f"`fill_gaps={summary['fillEvidenceGaps']}` "
         f"`ambiguous_open_origin={summary['ambiguousOpenPositionOrigins']}` "
-        f"`snapshots_after_window={summary['snapshotsUpdatedAfterWindow']}`"
+        f"`snapshots_after_window={summary['snapshotsUpdatedAfterWindow']}` "
+        f"`stale_snapshots={summary['staleSnapshotsAtCutoff']}`"
     )
+    cutoff_freshness = report.get("cutoffFreshness") or {}
+    latest_snapshot_updated_at = cutoff_freshness.get("latestSnapshotUpdatedAtLocal")
+    if latest_snapshot_updated_at:
+        lines.append(
+            "- Cutoff freshness: "
+            f"`latest_snapshot={latest_snapshot_updated_at}` "
+            f"`latest_age={humanize_duration_ms(cutoff_freshness.get('latestSnapshotAgeMs'))}` "
+            f"`available_symbols={cutoff_freshness.get('availableSymbols', 0)}` "
+            f"`stale_symbols={cutoff_freshness.get('staleSymbols', 0)}`"
+        )
+    lines.append("")
+
+    lines.append("## Cutoff Freshness")
+    stale_snapshots = report["anomalies"].get("staleSnapshotsAtCutoff") or []
+    if stale_snapshots:
+        for row in stale_snapshots:
+            lines.append(
+                "- "
+                f"`{row['symbol']}` `{row['interval']}` snapshot updated `{row['updatedAtLocal']}` "
+                f"was stale at cutoff: age `{humanize_duration_ms(row.get('snapshotAgeMs'))}` "
+                f"vs budget `{humanize_duration_ms(row.get('freshnessBudgetMs'))}` "
+                f"latest_action `{row.get('latestAction') or 'unknown'}`"
+            )
+    elif cutoff_freshness.get("availableSymbols", 0):
+        lines.append("- No per-symbol snapshots were stale at the cutoff.")
+    else:
+        lines.append("- No snapshots were available at or before the cutoff.")
+    lines.append("")
+
+    lines.append("## Latest Action Census")
+    latest_action_census = report.get("latestActionCensus") or {}
+    counts = latest_action_census.get("counts") or []
+    if counts:
+        lines.append(
+            "- Latest pre-cutoff actions by symbol: "
+            + " ".join(f"`{row['action']}={row['count']}`" for row in counts)
+        )
+    else:
+        lines.append("- No `latestSignal.action` values were available from snapshots at or before the cutoff.")
+    if latest_action_census.get("missingActionSymbols"):
+        lines.append(
+            "- Missing latest actions for: "
+            + ", ".join(f"`{symbol}`" for symbol in latest_action_census["missingActionSymbols"])
+        )
+    if latest_action_census.get("updatedAfterCutoffSymbols"):
+        lines.append(
+            "- Omitted post-cutoff snapshots from the action census for: "
+            + ", ".join(f"`{symbol}`" for symbol in latest_action_census["updatedAfterCutoffSymbols"])
+        )
     lines.append("")
 
     lines.append("## Completed Trades")
