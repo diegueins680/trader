@@ -19,12 +19,14 @@ import Trader.OrderExecution (
     orderAppliedQuantity,
  )
 import Trader.SignalGates (
+    DirectionalityEntrySide (..),
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
     mkSignalThresholdBoundary,
     normalizeSignalThreshold,
     signalCrossAssetCheck,
     signalDirectionalityEntryAllowed,
+    signalDirectionalityEntryAllowedForSide,
     signalDirectionalitySnapshot,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
@@ -815,7 +817,8 @@ mkManualDirectionalitySnapshot =
 
 testSignalGateDirectionalityWeakBandFailClosed :: IO ()
 testSignalGateDirectionalityWeakBandFailClosed = do
-    let strongMissing =
+    let allows side = signalDirectionalityEntryAllowedForSide side . Just
+        strongMissing =
             mkManualDirectionalitySnapshot 0.400001 Nothing Nothing Nothing False Nothing
         strongMalformedMass =
             mkManualDirectionalitySnapshot 0.400001 (Just 0.5015) (Just 0.25) (Just 0.25) False Nothing
@@ -833,6 +836,8 @@ testSignalGateDirectionalityWeakBandFailClosed = do
             mkManualDirectionalitySnapshotWithZScore (weakBandZScoreFloor - 1e-6) 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False Nothing
         weakNegativeZTooSmall =
             mkManualDirectionalitySnapshotWithZScore (negate weakBandZScoreFloor + 1e-6) 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False Nothing
+        weakZeroZ =
+            mkManualDirectionalitySnapshotWithZScore 0 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False Nothing
         weakMassWithinTolerance =
             mkManualDirectionalitySnapshot 0.26 (Just 0.5005) (Just 0.25) (Just 0.25) False Nothing
         weakNonFiniteZ =
@@ -847,6 +852,8 @@ testSignalGateDirectionalityWeakBandFailClosed = do
             mkManualDirectionalitySnapshot 0.26 (Just 0) (Just 0) (Just 0) False Nothing
         weakMassTooHigh =
             mkManualDirectionalitySnapshot 0.26 (Just 0.5015) (Just 0.25) (Just 0.25) False Nothing
+        weakMalformedEfficiency =
+            mkManualDirectionalitySnapshotWithZScore weakBandZScoreFloor (0 / 0) (Just 0.55) (Just 0.2) (Just 0.25) False Nothing
         weakMrBlocked =
             mkManualDirectionalitySnapshot 0.26 (Just 0.2) (Just 0.6) (Just 0.2) True (Just "NON_DIRECTIONAL_MR")
         chopBoundary =
@@ -857,33 +864,59 @@ testSignalGateDirectionalityWeakBandFailClosed = do
             && not (signalDirectionalityEntryAllowed (Just strongMalformedMass))
             && not (signalDirectionalityEntryAllowed (Just weakMissingInterior))
             && not (signalDirectionalityEntryAllowed (Just weakMissingBoundary))
+            && allows DirectionalityLong weakWellFormed
+            && not (allows DirectionalityShort weakWellFormed)
             && signalDirectionalityEntryAllowed (Just weakWellFormed)
+            && allows DirectionalityLong weakZBoundary
+            && not (allows DirectionalityShort weakZBoundary)
             && signalDirectionalityEntryAllowed (Just weakZBoundary)
+            && allows DirectionalityShort weakNegativeZBoundary
+            && not (allows DirectionalityLong weakNegativeZBoundary)
             && signalDirectionalityEntryAllowed (Just weakNegativeZBoundary)
+            && not (allows DirectionalityLong weakZTooSmall)
+            && not (allows DirectionalityShort weakZTooSmall)
             && not (signalDirectionalityEntryAllowed (Just weakZTooSmall))
+            && not (allows DirectionalityLong weakNegativeZTooSmall)
+            && not (allows DirectionalityShort weakNegativeZTooSmall)
             && not (signalDirectionalityEntryAllowed (Just weakNegativeZTooSmall))
+            && not (allows DirectionalityLong weakZeroZ)
+            && not (allows DirectionalityShort weakZeroZ)
+            && not (signalDirectionalityEntryAllowed (Just weakZeroZ))
             && signalDirectionalityEntryAllowed (Just weakMassWithinTolerance)
+            && not (allows DirectionalityLong weakNonFiniteZ)
+            && not (allows DirectionalityShort weakNonFiniteZ)
             && not (signalDirectionalityEntryAllowed (Just weakNonFiniteZ))
             && not (signalDirectionalityEntryAllowed (Just weakNonFinite))
             && not (signalDirectionalityEntryAllowed (Just weakNegative))
             && not (signalDirectionalityEntryAllowed (Just weakAboveOne))
             && not (signalDirectionalityEntryAllowed (Just weakZeroMass))
             && not (signalDirectionalityEntryAllowed (Just weakMassTooHigh))
+            && not (allows DirectionalityLong weakMalformedEfficiency)
+            && not (allows DirectionalityShort weakMalformedEfficiency)
+            && not (signalDirectionalityEntryAllowed (Just weakMalformedEfficiency))
             && not (signalDirectionalityEntryAllowed (Just weakMrBlocked))
             && not (signalDirectionalityEntryAllowed (Just chopBoundary))
+            && not (signalDirectionalityEntryAllowedForSide DirectionalityLong Nothing)
+            && not (signalDirectionalityEntryAllowedForSide DirectionalityShort Nothing)
         )
 
 testSignalGateDirectionalityWeakBandMonotone :: IO ()
 testSignalGateDirectionalityWeakBandMonotone = do
-    let missingRegimeAlloweds =
+    let weakAllows side z =
+            signalDirectionalityEntryAllowedForSide side
+                (Just (mkManualDirectionalitySnapshotWithZScore z 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False Nothing))
+        missingRegimeAlloweds =
             [ signalDirectionalityEntryAllowed
                 (Just (mkManualDirectionalitySnapshot eff Nothing Nothing Nothing False Nothing))
             | eff <- [0.5, 0.400001, 0.4, 0.3, 0.26, 0.25]
             ]
-        weakZScoreAlloweds =
-            [ signalDirectionalityEntryAllowed
-                (Just (mkManualDirectionalitySnapshotWithZScore z 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False Nothing))
-            | z <- [1.1, weakBandZScoreFloor, weakBandZScoreFloor - 1e-6, 0.2]
+        weakLongSignedZAlloweds =
+            [ weakAllows DirectionalityLong z
+            | z <- [1.1, weakBandZScoreFloor, weakBandZScoreFloor - 1e-6, 0.2, 0, negate weakBandZScoreFloor]
+            ]
+        weakShortSignedZAlloweds =
+            [ weakAllows DirectionalityShort z
+            | z <- [-1.1, negate weakBandZScoreFloor, negate weakBandZScoreFloor + 1e-6, -0.2, 0, weakBandZScoreFloor]
             ]
         massDriftAlloweds =
             [ signalDirectionalityEntryAllowed
@@ -897,11 +930,17 @@ testSignalGateDirectionalityWeakBandMonotone = do
         "lower efficiency cannot reopen a weak-directionality snapshot once regime evidence is missing"
         missingRegimeAlloweds
     assert
-        "weak-directionality z-score ladder keeps the expected allow/block shape"
-        (weakZScoreAlloweds == [True, True, False, False])
+        "weak-directionality long-side signed-z-score ladder keeps the expected allow/block shape"
+        (weakLongSignedZAlloweds == [True, True, False, False, False, False])
     assertMonotoneNonIncreasing
-        "lower weak-band |zScore| cannot reopen entry admissibility once blocked"
-        weakZScoreAlloweds
+        "lower signed weak-band zScore cannot reopen long entry admissibility once blocked"
+        weakLongSignedZAlloweds
+    assert
+        "weak-directionality short-side signed-z-score ladder keeps the expected allow/block shape"
+        (weakShortSignedZAlloweds == [True, True, False, False, False, False])
+    assertMonotoneNonIncreasing
+        "higher weak-band zScore cannot reopen short entry admissibility once blocked"
+        weakShortSignedZAlloweds
     assert
         "weak-directionality HMM-mass ladder keeps the expected allow/block shape"
         (massDriftAlloweds == [True, True, False, False])

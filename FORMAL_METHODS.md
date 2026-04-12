@@ -66,32 +66,34 @@ Proof sketch:
 
 ## Formal low-directionality entry gate contract
 
-`signalDirectionalityEntryAllowedForSide` in `haskell/app/Trader/SignalGates.hs` is the signed fail-closed admission check for fresh entries derived from `DirectionalitySnapshot`. `signalDirectionalityEntryAllowed` remains the side-agnostic convenience wrapper that admits only when at least one signed side is admissible.
+`signalDirectionalityEntryAllowedForSide` in `haskell/app/Trader/SignalGates.hs`, together with the local `directionalityWeakBandSignedZScoreOk` helper, is the signed fail-closed admission check for fresh entries derived from `DirectionalitySnapshot`. `signalDirectionalityEntryAllowed` remains the side-agnostic convenience wrapper that admits only when at least one signed side is admissible.
 
 Clauses:
 
 1. `Nothing`, malformed snapshots, and snapshots already marked `dsNonDirectional = True` are inadmissible.
 2. Fresh directional entries are always blocked when `dsEfficiency <= 0.25`, even if a saved snapshot is otherwise marked directional.
 3. Whenever any saved HMM regime probability is present, admissibility requires a complete tuple: `dsTrendProb`, `dsMrProb`, and `dsHighVolProb` must all be explicit, finite, and in `[0,1]`, and their total probability mass must be positive and within `1e-3` of `1`.
-4. When `0.25 < dsEfficiency <= 0.40`, admissibility requires both that complete normalized tuple and finite signed additive-path confirmation: `zScore >= 0.75` for `DirectionalityLong` and `zScore <= -0.75` for `DirectionalityShort`. Opposite-signed, zero, non-finite, or sub-floor weak-band `zScore` values reject that requested side.
+4. When `0.25 < dsEfficiency <= 0.40`, admissibility requires both that complete normalized tuple and one shared signed weak-band zScore predicate: the score input must be explicit and finite, it is mapped to `signedZScore = zScore` for `DirectionalityLong` and `signedZScore = -zScore` for `DirectionalityShort`, and the requested side is admissible only when `signedZScore >= 0.75`. Exact equality at the signed boundary is admissible; opposite-signed, zero, missing, or non-finite weak-band scores reject the requested side.
 5. For `dsEfficiency > 0.40`, the strong-band no-regime witness is preserved when no saved tuple is present at all, but any explicit malformed saved tuple still blocks as malformed.
-6. Admissibility is monotone non-increasing as efficiency falls across the `0.40` review-band boundary and the `0.25` chop boundary, as saved HMM mass drifts farther outside the `1e-3` normalization tolerance under otherwise identical weak-band snapshots, as a long-side weak-band `zScore` moves downward away from `+0.75`, and as a short-side weak-band `zScore` moves upward away from `-0.75`.
+6. Admissibility is monotone non-increasing as efficiency falls across the `0.40` review-band boundary and the `0.25` chop boundary, as saved HMM mass drifts farther outside the `1e-3` normalization tolerance under otherwise identical weak-band snapshots, and as the signed weak-band zScore for a fixed requested side moves toward and through zero.
 7. Mean-reversion-dominant weak-band snapshots remain blocked because `signalDirectionalitySnapshot` marks them `NON_DIRECTIONAL_MR`, and neither the signed helper nor the wrapper ever admits a snapshot with `dsNonDirectional = True`.
-8. The side-agnostic wrapper is existential only: it may still admit a weak-band snapshot whose signed `zScore` supports one side, but it cannot admit zero or non-finite weak-band scores because neither signed side is admissible there.
+8. For fixed well-formed weak-band regime data, the long and short branches are exact mirror images under `zScore -> -zScore`; only the signed score for the requested side matters.
+9. The side-agnostic wrapper is existential only: it may still admit a weak-band snapshot whose signed `zScore` supports one side, but it cannot admit zero or non-finite weak-band scores because neither signed side is admissible there.
 
 Bounded executable obligations:
 
-- `testSignalGateDirectionalityWeakBandFailClosed` covers the strong-band no-change witness, the `0.40` and `0.25` boundaries, weak-band missing-probability fail-closed behavior, signed `0.75` boundary acceptance for both long and short requests, opposite-sign rejection despite large absolute magnitude, zero/non-finite weak-band fail-closed behavior, tuple sanity rejection, within-tolerance acceptance, and preservation of the existing `NON_DIRECTIONAL_MR` veto.
-- `testSignalGateDirectionalityWeakBandMonotone` witnesses the non-increasing admissibility ladders as efficiency falls when regime probabilities are missing, as long-side weak-band `zScore` moves down through the `+0.75` floor, as short-side weak-band `zScore` moves up through the `-0.75` floor, and as saved HMM mass drifts outside the normalization tolerance in the weak band.
+- `testSignalGateDirectionalityWeakBandFailClosed` covers the strong-band no-change witness, the `0.40` and `0.25` boundaries, side-specific signed `0.75` boundary acceptance for both long and short requests, opposite-sign rejection, zero rejection, malformed snapshot fail-closed behavior (including malformed efficiency and non-finite weak-band `zScore`), tuple sanity rejection, within-tolerance acceptance, preservation of the existing `NON_DIRECTIONAL_MR` veto, and the side-specific `Nothing` fail-closed case.
+- `testSignalGateDirectionalityWeakBandMonotone` witnesses the non-increasing admissibility ladders as efficiency falls when regime probabilities are missing, as the long-side signed weak-band `zScore` moves down through the `+0.75` floor and through zero, as the short-side weak-band `zScore` moves up through the `-0.75` floor and through zero, and as saved HMM mass drifts outside the normalization tolerance in the weak band.
 
 Proof sketch:
 
 - `signalDirectionalityEntryAllowedForSide` still requires `dsEfficiency > directionalityChopEfficiencyMax`, so saved snapshots cannot reopen the documented chop veto by carrying a stale directional label.
 - `directionalitySavedRegimeTupleOk` accepts saved regime probabilities only when they are either completely absent or present as a full HMM tuple whose components are finite in `[0,1]` and whose total mass is positive and within `1e-3` of `1`, so persisted partial or badly normalized tuples become malformed before admission.
-- In the weak review band, the signed helper applies a side-aware additive confirmation guard: long requests require finite `zScore >= 0.75`, short requests require finite `zScore <= -0.75`, and opposite-signed or zero scores can only remove admissible states.
+- In the weak review band, `directionalityWeakBandSignedZScoreOk` applies one shared signed comparison: long requests use `zScore`, short requests use `-zScore`, and both branches compare the result against the same `0.75` floor.
+- Because the helper only admits explicit finite scores satisfying `signedZScore >= 0.75`, moving the signed score toward zero or through zero, or supplying opposite-signed, zero, missing, or non-finite scores, can only remove admissible states.
 - The side-agnostic wrapper is defined as the disjunction of the long and short checks, so it preserves compatibility while still rejecting weak-band zero or non-finite `zScore` samples because neither signed branch can pass there.
 - `signalDirectionalityRegimeEvidence` reuses the same tuple sanity check for live `RegimeProbs`, keeping freshly built snapshots aligned with saved-snapshot admission semantics.
-- The weak-band obligations are one-way: crossing from `> 0.40` into `<= 0.40`, drifting from an in-tolerance HMM tuple to an out-of-tolerance tuple, moving a long-side `zScore` below `+0.75`, or moving a short-side `zScore` above `-0.75` can only remove admissible states.
+- The weak-band obligations are one-way: crossing from `> 0.40` into `<= 0.40`, drifting from an in-tolerance HMM tuple to an out-of-tolerance tuple, or moving the signed weak-band score for the requested side below `0.75` can only remove admissible states; the long and short branches differ only by the sign map.
 - Mean-reversion dominance still blocks via the existing `dsNonDirectional`/`dsReason` contract produced by `signalDirectionalitySnapshot`, so the repair only shrinks the admissible set for weak-band states whose additive confirmation disagrees with the requested entry side and leaves the strong-band no-tuple path unchanged.
 
 ## Formal review-accounting non-interference contract
