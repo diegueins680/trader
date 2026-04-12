@@ -766,8 +766,8 @@ mkManualDirectionalitySnapshotWithZScore zScore efficiency trendProb mrProb high
         }
 
 mkManualDirectionalitySnapshot :: Double -> Maybe Double -> Maybe Double -> Maybe Double -> Bool -> Maybe String -> DirectionalitySnapshot
-mkManualDirectionalitySnapshot efficiency trendProb mrProb highVolProb nonDirectional reason =
-    mkManualDirectionalitySnapshotWithZScore 1.1 efficiency trendProb mrProb highVolProb nonDirectional reason
+mkManualDirectionalitySnapshot =
+    mkManualDirectionalitySnapshotWithZScore 1.1
 
 testSignalGateDirectionalityWeakBandFailClosed :: IO ()
 testSignalGateDirectionalityWeakBandFailClosed = do
