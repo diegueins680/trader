@@ -65,8 +65,8 @@ main = do
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
     run "trading entry gate malformed inputs cannot reopen a blocked fresh-entry state" testTradingEntryGateMalformedNoReopen
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
-    run "signal gate weak-directionality snapshots stay fail closed on malformed regime evidence" testSignalGateDirectionalityWeakBandFailClosed
-    run "signal gate weak-directionality admissibility is monotone at the review-band boundaries" testSignalGateDirectionalityWeakBandMonotone
+    run "signal gate weak-directionality snapshots stay fail closed on malformed saved HMM tuples" testSignalGateDirectionalityWeakBandFailClosed
+    run "signal gate weak-directionality admissibility is monotone across efficiency and HMM-sanity boundaries" testSignalGateDirectionalityWeakBandMonotone
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
     run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
@@ -766,25 +766,43 @@ testSignalGateDirectionalityWeakBandFailClosed :: IO ()
 testSignalGateDirectionalityWeakBandFailClosed = do
     let strongMissing =
             mkManualDirectionalitySnapshot 0.400001 Nothing Nothing Nothing False Nothing
+        strongMalformedMass =
+            mkManualDirectionalitySnapshot 0.400001 (Just 0.5015) (Just 0.25) (Just 0.25) False Nothing
         weakMissingInterior =
             mkManualDirectionalitySnapshot 0.26 Nothing Nothing Nothing False Nothing
         weakMissingBoundary =
             mkManualDirectionalitySnapshot 0.4 Nothing Nothing Nothing False Nothing
         weakWellFormed =
             mkManualDirectionalitySnapshot 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False Nothing
+        weakMassWithinTolerance =
+            mkManualDirectionalitySnapshot 0.26 (Just 0.5005) (Just 0.25) (Just 0.25) False Nothing
         weakNonFinite =
             mkManualDirectionalitySnapshot 0.26 (Just 0.55) (Just (1 / 0)) (Just 0.25) False Nothing
+        weakNegative =
+            mkManualDirectionalitySnapshot 0.26 (Just 0.55) (Just (-0.05)) (Just 0.5) False Nothing
+        weakAboveOne =
+            mkManualDirectionalitySnapshot 0.26 (Just 1.01) (Just 0) (Just 0) False Nothing
+        weakZeroMass =
+            mkManualDirectionalitySnapshot 0.26 (Just 0) (Just 0) (Just 0) False Nothing
+        weakMassTooHigh =
+            mkManualDirectionalitySnapshot 0.26 (Just 0.5015) (Just 0.25) (Just 0.25) False Nothing
         weakMrBlocked =
             mkManualDirectionalitySnapshot 0.26 (Just 0.2) (Just 0.6) (Just 0.2) True (Just "NON_DIRECTIONAL_MR")
         chopBoundary =
             mkManualDirectionalitySnapshot 0.25 Nothing Nothing Nothing False Nothing
     assert
-        "weak-directionality entry gate preserves strong-band behavior and fails closed on malformed review-band regime evidence"
+        "weak-directionality entry gate preserves the strong-band no-tuple path and fails closed on malformed saved HMM tuples"
         ( signalDirectionalityEntryAllowed (Just strongMissing)
+            && not (signalDirectionalityEntryAllowed (Just strongMalformedMass))
             && not (signalDirectionalityEntryAllowed (Just weakMissingInterior))
             && not (signalDirectionalityEntryAllowed (Just weakMissingBoundary))
             && signalDirectionalityEntryAllowed (Just weakWellFormed)
+            && signalDirectionalityEntryAllowed (Just weakMassWithinTolerance)
             && not (signalDirectionalityEntryAllowed (Just weakNonFinite))
+            && not (signalDirectionalityEntryAllowed (Just weakNegative))
+            && not (signalDirectionalityEntryAllowed (Just weakAboveOne))
+            && not (signalDirectionalityEntryAllowed (Just weakZeroMass))
+            && not (signalDirectionalityEntryAllowed (Just weakMassTooHigh))
             && not (signalDirectionalityEntryAllowed (Just weakMrBlocked))
             && not (signalDirectionalityEntryAllowed (Just chopBoundary))
         )
@@ -796,12 +814,23 @@ testSignalGateDirectionalityWeakBandMonotone = do
                 (Just (mkManualDirectionalitySnapshot eff Nothing Nothing Nothing False Nothing))
             | eff <- [0.5, 0.400001, 0.4, 0.3, 0.26, 0.25]
             ]
+        massDriftAlloweds =
+            [ signalDirectionalityEntryAllowed
+                (Just (mkManualDirectionalitySnapshot 0.26 (Just (0.5 + drift)) (Just 0.25) (Just 0.25) False Nothing))
+            | drift <- [0, 0.0005, 0.0015, 0.01]
+            ]
     assert
         "weak-directionality efficiency ladder keeps the expected allow/block shape without regime evidence"
         (missingRegimeAlloweds == [True, True, False, False, False, False])
     assertMonotoneNonIncreasing
         "lower efficiency cannot reopen a weak-directionality snapshot once regime evidence is missing"
         missingRegimeAlloweds
+    assert
+        "weak-directionality HMM-mass ladder keeps the expected allow/block shape"
+        (massDriftAlloweds == [True, True, False, False])
+    assertMonotoneNonIncreasing
+        "larger saved-HMM mass drift cannot admit a weak-band entry once blocked"
+        massDriftAlloweds
 
 testSignalGateEntryHeadroom :: IO ()
 testSignalGateEntryHeadroom = do

@@ -72,19 +72,22 @@ Clauses:
 
 1. `Nothing`, malformed snapshots, and snapshots already marked `dsNonDirectional = True` are inadmissible.
 2. Fresh directional entries are always blocked when `dsEfficiency <= 0.25`, even if a saved snapshot is otherwise marked directional.
-3. When `0.25 < dsEfficiency <= 0.40`, admissibility requires explicit finite `dsTrendProb`, `dsMrProb`, and `dsHighVolProb`; missing or non-finite regime probabilities are treated as malformed and block the entry.
-4. For `dsEfficiency > 0.40`, the entry gate preserves the prior behavior: regime-probability completeness is not required by this check as long as the snapshot is otherwise well formed and not already marked non-directional.
-5. Admissibility is monotone non-increasing as efficiency falls across the `0.40` review-band boundary and the `0.25` chop boundary under otherwise identical snapshot fields.
-6. Mean-reversion-dominant weak-band snapshots remain blocked because `signalDirectionalitySnapshot` marks them `NON_DIRECTIONAL_MR`, and `signalDirectionalityEntryAllowed` never admits a snapshot with `dsNonDirectional = True`.
+3. Whenever any saved HMM regime probability is present, admissibility requires a complete tuple: `dsTrendProb`, `dsMrProb`, and `dsHighVolProb` must all be explicit, finite, and in `[0,1]`, and their total probability mass must be positive and within `1e-3` of `1`.
+4. When `0.25 < dsEfficiency <= 0.40`, admissibility requires that complete normalized tuple to be present; missing, partial, negative, above-one, zero-mass, or badly non-normalized saved regime probabilities are treated as malformed and block the entry.
+5. For `dsEfficiency > 0.40`, the strong-band no-regime witness is preserved when no saved tuple is present at all, but any explicit malformed saved tuple still blocks as malformed.
+6. Admissibility is monotone non-increasing as efficiency falls across the `0.40` review-band boundary and the `0.25` chop boundary, and also as saved HMM mass drifts farther outside the `1e-3` normalization tolerance under otherwise identical weak-band snapshots.
+7. Mean-reversion-dominant weak-band snapshots remain blocked because `signalDirectionalitySnapshot` marks them `NON_DIRECTIONAL_MR`, and `signalDirectionalityEntryAllowed` never admits a snapshot with `dsNonDirectional = True`.
 
 Bounded executable obligations:
 
-- `testSignalGateDirectionalityWeakBandFailClosed` covers the strong-band no-change witness, the `0.40` and `0.25` boundaries, weak-band missing-probability fail-closed behavior, non-finite probability rejection, and preservation of the existing `NON_DIRECTIONAL_MR` veto.
-- `testSignalGateDirectionalityWeakBandMonotone` witnesses the non-increasing admissibility ladder as efficiency falls when regime probabilities are missing.
+- `testSignalGateDirectionalityWeakBandFailClosed` covers the strong-band no-change witness, the `0.40` and `0.25` boundaries, weak-band missing-probability fail-closed behavior, negative and above-one component rejection, zero-mass and out-of-tolerance tuple rejection, within-tolerance acceptance, and preservation of the existing `NON_DIRECTIONAL_MR` veto.
+- `testSignalGateDirectionalityWeakBandMonotone` witnesses the non-increasing admissibility ladders as efficiency falls when regime probabilities are missing and as saved HMM mass drifts outside the normalization tolerance in the weak band.
 
 Proof sketch:
 
 - `signalDirectionalityEntryAllowed` now requires `dsEfficiency > directionalityChopEfficiencyMax`, so saved snapshots cannot reopen the documented chop veto by carrying a stale directional label.
-- `directionalitySnapshotWellFormed` now also requires explicit regime probabilities in the weak review band, so missing or non-finite HMM probabilities are reclassified as malformed before any fresh entry can be admitted.
-- The weak-band completeness obligation is one-way: crossing from `> 0.40` into `<= 0.40` can only remove admissible states, and crossing from `> 0.25` into `<= 0.25` removes them all.
-- Mean-reversion dominance still blocks via the existing `dsNonDirectional`/`dsReason` contract produced by `signalDirectionalitySnapshot`, so the repair only shrinks the admissible set for malformed saved snapshots and leaves well-formed directional snapshots unchanged.
+- `directionalitySavedRegimeTupleOk` accepts saved regime probabilities only when they are either completely absent or present as a full HMM tuple whose components are finite in `[0,1]` and whose total mass is positive and within `1e-3` of `1`, so persisted partial or badly normalized tuples become malformed before admission.
+- `directionalityWeakBandRegimeEvidenceOk` strengthens the weak review band from mere completeness to a complete normalized-tuple requirement, so missing evidence or mass drift beyond tolerance can only remove admissible weak-band states.
+- `signalDirectionalityRegimeEvidence` reuses the same tuple sanity check for live `RegimeProbs`, keeping freshly built snapshots aligned with saved-snapshot admission semantics.
+- The weak-band completeness obligation is one-way: crossing from `> 0.40` into `<= 0.40` can only remove admissible states, and crossing from an in-tolerance HMM tuple to an out-of-tolerance tuple cannot admit a previously blocked state.
+- Mean-reversion dominance still blocks via the existing `dsNonDirectional`/`dsReason` contract produced by `signalDirectionalitySnapshot`, so the repair only shrinks the admissible set for malformed saved HMM tuples and leaves the strong-band no-tuple path unchanged.

@@ -120,6 +120,9 @@ directionalityChopEfficiencyMax = 0.25
 directionalityMrEfficiencyMax :: Double
 directionalityMrEfficiencyMax = 0.4
 
+directionalityRegimeMassTolerance :: Double
+directionalityRegimeMassTolerance = 1e-3
+
 directionalityMalformedReason :: String
 directionalityMalformedReason = "NON_DIRECTIONAL_MALFORMED"
 
@@ -139,10 +142,34 @@ directionalityWeakBand eff =
 directionalityWeakBandRegimeEvidenceOk :: DirectionalitySnapshot -> Bool
 directionalityWeakBandRegimeEvidenceOk snap =
     not (directionalityWeakBand (dsEfficiency snap))
-        || all isJust [dsTrendProb snap, dsMrProb snap, dsHighVolProb snap]
+        || directionalitySavedRegimeTuplePresentOk snap
 
 directionalityProbOk :: Double -> Bool
 directionalityProbOk p = finiteDouble p && p >= 0 && p <= 1
+
+directionalityProbMassOk :: Double -> Bool
+directionalityProbMassOk totalProb =
+    finiteDouble totalProb
+        && totalProb > 0
+        && abs (totalProb - 1) <= directionalityRegimeMassTolerance
+
+directionalityRegimeTupleOk :: Double -> Double -> Double -> Bool
+directionalityRegimeTupleOk trendProb mrProb highVolProb =
+    all directionalityProbOk [trendProb, mrProb, highVolProb]
+        && directionalityProbMassOk (trendProb + mrProb + highVolProb)
+
+directionalitySavedRegimeTuplePresentOk :: DirectionalitySnapshot -> Bool
+directionalitySavedRegimeTuplePresentOk snap =
+    case (dsTrendProb snap, dsMrProb snap, dsHighVolProb snap) of
+        (Just trendProb, Just mrProb, Just highVolProb) ->
+            directionalityRegimeTupleOk trendProb mrProb highVolProb
+        _ -> False
+
+directionalitySavedRegimeTupleOk :: DirectionalitySnapshot -> Bool
+directionalitySavedRegimeTupleOk snap =
+    case (dsTrendProb snap, dsMrProb snap, dsHighVolProb snap) of
+        (Nothing, Nothing, Nothing) -> True
+        _ -> directionalitySavedRegimeTuplePresentOk snap
 
 directionalityGapOk :: Double -> Bool
 directionalityGapOk g = finiteDouble g && g >= 0 && g <= 1
@@ -175,6 +202,7 @@ directionalitySnapshotWellFormed snap =
         && maybe True directionalityProbOk (dsTrendProb snap)
         && maybe True directionalityProbOk (dsMrProb snap)
         && maybe True directionalityProbOk (dsHighVolProb snap)
+        && directionalitySavedRegimeTupleOk snap
         && maybe True directionalityGapOk (dsRegimeGap snap)
         && directionalityWeakBandRegimeEvidenceOk snap
 
@@ -319,7 +347,7 @@ signalDirectionalityRegimeEvidence regimeHysteresis mRegimes =
             let trendProb = rpTrend regimes
                 mrProb = rpMR regimes
                 highVolProb = rpHighVol regimes
-             in if all directionalityProbOk [trendProb, mrProb, highVolProb]
+             in if directionalityRegimeTupleOk trendProb mrProb highVolProb
                     then
                         let ranked =
                                 sortOn
