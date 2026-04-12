@@ -1,5 +1,6 @@
 ## Unreleased
 - Observability: extend `haskell/scripts/review_bot_day.py` with interval-aware cutoff freshness diagnostics, per-symbol stale-snapshot detection, and a compact latest pre-cutoff `latestSignal.action` census in both JSON and markdown output.
+- Observability/Formal: daily review non-directional accounting now explicitly treats same-day order flow as `entry_or_add` versus `exit_or_flatten`, keeps `nonDirectionalOrderAttempts` limited to entry/add events, and documents that adopted-position carry-management exits are reported separately from fresh weak-directionality entry misses.
 - Autoloop: stop blocking the forever runner on merged local branches that are still attached to Git worktrees, and add `hlint` verification plus direct log-driven HLint auto-fixes for editable Haskell files.
 - Autoloop/CI: require `AUTOLOOP_PUSH_TOKEN` in the GitHub-hosted autoloop workflow and remove the `github.token` fallback plus `AUTOLOOP_SKIP_CI_WAIT`, so post-push GitHub Actions polling is mandatory there.
 - Autoloop/CI: install a pinned prebuilt `fourmolu` binary in the GitHub-hosted autoloop workflow instead of compiling `fourmolu` from source on each run.

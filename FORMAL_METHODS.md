@@ -91,3 +91,29 @@ Proof sketch:
 - `signalDirectionalityRegimeEvidence` reuses the same tuple sanity check for live `RegimeProbs`, keeping freshly built snapshots aligned with saved-snapshot admission semantics.
 - The weak-band obligations are one-way: crossing from `> 0.40` into `<= 0.40`, drifting from an in-tolerance HMM tuple to an out-of-tolerance tuple, or falling below the `0.75` z-score floor can only remove admissible states.
 - Mean-reversion dominance still blocks via the existing `dsNonDirectional`/`dsReason` contract produced by `signalDirectionalitySnapshot`, so the repair only shrinks the admissible set for low-confirmation weak-band states and leaves the strong-band no-tuple path unchanged.
+
+## Formal review-accounting non-interference contract
+
+`classify_order_event_flow_role` and `build_report` in `haskell/scripts/review_bot_day.py`, interpreted against `TradeEntrySource` in `haskell/app/Trader/Trading.hs`, are treated as observability-only accounting for same-day order flow.
+
+Clauses:
+
+1. When saved side context is available, same-side flow is classified as `entry_or_add` and opposite-side flow is classified as `exit_or_flatten`.
+2. Completed or open trades tagged `entrySource = adopted` still contribute side context, but opposite-side management orders for those carried positions remain `exit_or_flatten`.
+3. `nonDirectionalOrderAttempts` counts only rows with `nonDirectionalVeto = True` and `flowRole = entry_or_add`.
+4. `nonDirectionalExitOrFlattenEvents` and `nonDirectionalUnknownRoleEvents` remain separate buckets and cannot increase `nonDirectionalOrderAttempts`.
+5. This review partition is non-interfering with live admissibility: `mkEntryGateState` only applies fresh-entry vetoes when `needsEntry` is true, while the exit, flatten, halt, and liquidation paths in `simulateEnsembleLongFlatVWithHLChecked` remain risk-reduction behavior for an already-held or adopted position.
+6. Therefore startup-adopted position management cannot be reclassified by daily review output as a fresh weak-directionality entry failure.
+
+Bounded executable obligations:
+
+- `test_report_counts_non_directional_order_attempts` witnesses that a weak-directionality same-side attempt increments `nonDirectionalOrderAttempts`.
+- `test_excludes_adopted_close_and_flatten_events_from_non_directional_attempts` witnesses that adopted-position carry-management orders are partitioned into `nonDirectionalExitOrFlattenEvents` instead of `nonDirectionalOrderAttempts`.
+- `test_classifies_binance_auth_failures_by_order_flow_role` witnesses the same entry/add versus exit/flatten partition on the broader order-flow classifier so review-side role accounting stays deterministic outside the non-directional veto path.
+
+Proof sketch:
+
+- `classify_order_event_flow_role` first normalizes order side, then compares it with explicit side witnesses from order messages, completed trades, open trades, and nearby saved positions; those witnesses encode whether the order aligns with or opposes the already-held side, not whether the bot originally opened the carry.
+- Because the review partition is side-relative, opposite-side management on an adopted long remains `exit_or_flatten` and opposite-side management on an adopted short remains `exit_or_flatten`; only same-side pressure can enter the `entry_or_add` bucket.
+- `build_report` derives `nonDirectionalOrderAttempts` exclusively from `flowRole = entry_or_add` while emitting `nonDirectionalExitOrFlattenEvents` and `nonDirectionalUnknownRoleEvents` separately, so review-side weak-directionality counts cannot grow from risk-reduction actions.
+- In `Trading.hs`, `mkEntryGateState` can only suppress `desiredSide1` when `needsEntry` is true, while `simulateEnsembleLongFlatVWithHLChecked` keeps carry-management exits on distinct flatten and halt paths. The review accounting is therefore observationally aligned with the live admission boundary and cannot reinterpret adopted-position exits as failed fresh entries.
