@@ -1,4 +1,7 @@
 module Trader.Trading (
+    BacktestResult (..),
+    ExitReason (..),
+    Trade (..),
     TradingEntryGateInputs (..),
     mkTradingEntryGateInputs,
     EntryGateState (..),
@@ -13,6 +16,30 @@ import Trader.SignalGates (
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
+
+data ExitReason
+    = ExitSignal
+    | ExitEod
+    deriving (Eq, Show)
+
+data Trade = Trade
+    { trEntryEquity :: !Double
+    , trExitEquity :: !Double
+    , trReturn :: !Double
+    , trHoldingPeriods :: !Int
+    , trExitReason :: !(Maybe ExitReason)
+    }
+    deriving (Eq, Show)
+
+data BacktestResult = BacktestResult
+    { brEquityCurve :: ![Double]
+    , brTrades :: ![Trade]
+    , brPositions :: ![Double]
+    , brAgreementOk :: ![Bool]
+    , brAgreementValid :: ![Bool]
+    , brPositionChanges :: !Int
+    }
+    deriving (Eq, Show)
 
 defaultOpenThreshold :: Double
 defaultOpenThreshold = 0.01

@@ -2,6 +2,7 @@ module Main (main) where
 
 import Control.Monad (unless)
 import Data.Maybe (isNothing)
+import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.SignalGates (
     normalizeSignalEntryEdge,
     signalEntryEdgeSpikeOk,
@@ -9,6 +10,9 @@ import Trader.SignalGates (
     signalEntryHeadroomOk,
  )
 import Trader.Trading (
+    BacktestResult (..),
+    ExitReason (..),
+    Trade (..),
     desiredSide1,
     edgeHeadroomOk,
     edgeSpikeOk,
@@ -29,6 +33,7 @@ main = do
     testSignalGateEntryFeeBufferFailsClosed
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
+    testMetricsPublicTradingSurfaceRegression
 
 assert :: String -> Bool -> IO ()
 assert message condition =
@@ -297,4 +302,46 @@ testSignalGateEntryFeeBufferFailsClosed = do
         "negative fee floors fail closed instead of collapsing to the zero-fee boundary"
         ( not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.015))
             && not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.05))
+        )
+
+-- Regression over the restored Trader.Trading result surface: metrics
+-- consumers can still construct and inspect BacktestResult, ExitReason, and
+-- Trade through Trader.Trading, then route them through computeMetrics without
+-- private-module imports.
+testMetricsPublicTradingSurfaceRegression :: IO ()
+testMetricsPublicTradingSurfaceRegression = do
+    let metrics =
+            computeMetrics 252 $
+                BacktestResult
+                    { brEquityCurve = [1.0, 1.125, 1.0625]
+                    , brTrades =
+                        [ Trade
+                            { trEntryEquity = 1.0
+                            , trExitEquity = 1.125
+                            , trReturn = 0.125
+                            , trHoldingPeriods = 2
+                            , trExitReason = Just ExitSignal
+                            }
+                        , Trade
+                            { trEntryEquity = 1.125
+                            , trExitEquity = 1.0625
+                            , trReturn = -0.125
+                            , trHoldingPeriods = 1
+                            , trExitReason = Just ExitEod
+                            }
+                        ]
+                    , brPositions = [0, 1, 1, 0]
+                    , brAgreementOk = [True, False]
+                    , brAgreementValid = [True, True]
+                    , brPositionChanges = 2
+                    }
+    assert
+        "metrics can still consume the public Trader.Trading result types"
+        ( bmTradeCount metrics == 2
+            && bmRoundTrips metrics == 1
+            && bmPositionChanges metrics == 2
+            && bmWinRate metrics == 0.5
+            && bmExposure metrics == 0.5
+            && bmAgreementRate metrics == 0.5
+            && bmProfitFactor metrics == Just 2.0
         )
