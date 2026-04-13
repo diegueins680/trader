@@ -2,23 +2,23 @@ module Main (main) where
 
 import Control.Monad (unless)
 import Data.Maybe (isNothing)
-import Trader.SignalGates
-    ( signalEntryEdgeSpikeOk
-    , signalEntryFeeBufferOk
-    , signalEntryHeadroomOk
-    )
-import Trader.Trading
-    ( desiredSide1
-    , edgeHeadroomOk
-    , edgeSpikeOk
-    , entryEdge
-    , entryGatesOk
-    , feeBufferOk
-    , mkEntryGateState
-    , mkTradingEntryGateInputs
-    , needsEntry
-    , roundTripFeeFloor
-    )
+import Trader.SignalGates (
+    signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
+    signalEntryHeadroomOk,
+ )
+import Trader.Trading (
+    desiredSide1,
+    edgeHeadroomOk,
+    edgeSpikeOk,
+    entryEdge,
+    entryGatesOk,
+    feeBufferOk,
+    mkEntryGateState,
+    mkTradingEntryGateInputs,
+    needsEntry,
+    roundTripFeeFloor,
+ )
 
 main :: IO ()
 main = do

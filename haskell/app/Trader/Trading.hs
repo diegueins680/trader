@@ -1,18 +1,18 @@
-module Trader.Trading
-    ( TradingEntryGateInputs(..)
-    , mkTradingEntryGateInputs
-    , EntryGateState(..)
-    , mkEntryGateState
-    ) where
+module Trader.Trading (
+    TradingEntryGateInputs (..),
+    mkTradingEntryGateInputs,
+    EntryGateState (..),
+    mkEntryGateState,
+) where
 
 import Data.Maybe (isNothing)
-import Trader.SignalGates
-    ( finiteDouble
-    , normalizeSignalEntryEdge
-    , signalEntryEdgeSpikeOk
-    , signalEntryFeeBufferOk
-    , signalEntryHeadroomOk
-    )
+import Trader.SignalGates (
+    finiteDouble,
+    normalizeSignalEntryEdge,
+    signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
+    signalEntryHeadroomOk,
+ )
 
 defaultOpenThreshold :: Double
 defaultOpenThreshold = 0.01

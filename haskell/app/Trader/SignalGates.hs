@@ -1,15 +1,15 @@
-module Trader.SignalGates
-    ( entryEdgeHeadroomMultiple
-    , entryEdgeSpikeMultiple
-    , finiteDouble
-    , normalizeSignalThreshold
-    , normalizeSignalFeeFloor
-    , normalizeSignalEntryEdge
-    , signalEntryEdgeSpikeOk
-    , signalEntryHeadroomOk
-    , signalEntryFeeBufferOk
-    , signalFreshEntryOk
-    ) where
+module Trader.SignalGates (
+    entryEdgeHeadroomMultiple,
+    entryEdgeSpikeMultiple,
+    finiteDouble,
+    normalizeSignalThreshold,
+    normalizeSignalFeeFloor,
+    normalizeSignalEntryEdge,
+    signalEntryEdgeSpikeOk,
+    signalEntryHeadroomOk,
+    signalEntryFeeBufferOk,
+    signalFreshEntryOk,
+) where
 
 finiteDouble :: Double -> Bool
 finiteDouble value = not (isNaN value || isInfinite value)
