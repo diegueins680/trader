@@ -820,6 +820,10 @@ testSignalGateDirectionalityWeakBandFailClosed = do
     let allows side = signalDirectionalityEntryAllowedForSide side . Just
         strongMissing =
             mkManualDirectionalitySnapshot 0.400001 Nothing Nothing Nothing False Nothing
+        strongNegativeEfficiency =
+            mkManualDirectionalitySnapshotWithZScore 1.1 (-1e-6) Nothing Nothing Nothing False Nothing
+        strongAboveOneEfficiency =
+            mkManualDirectionalitySnapshotWithZScore 1.1 1.000001 Nothing Nothing Nothing False Nothing
         strongMalformedMass =
             mkManualDirectionalitySnapshot 0.400001 (Just 0.5015) (Just 0.25) (Just 0.25) False Nothing
         weakMissingInterior =
@@ -859,8 +863,14 @@ testSignalGateDirectionalityWeakBandFailClosed = do
         chopBoundary =
             mkManualDirectionalitySnapshot 0.25 Nothing Nothing Nothing False Nothing
     assert
-        "weak-directionality entry gate preserves the strong-band no-tuple path and fails closed on malformed saved HMM tuples"
+        "weak-directionality entry gate preserves the strong-band no-tuple path and fails closed on out-of-range efficiency or malformed saved HMM tuples"
         ( signalDirectionalityEntryAllowed (Just strongMissing)
+            && not (allows DirectionalityLong strongNegativeEfficiency)
+            && not (allows DirectionalityShort strongNegativeEfficiency)
+            && not (signalDirectionalityEntryAllowed (Just strongNegativeEfficiency))
+            && not (allows DirectionalityLong strongAboveOneEfficiency)
+            && not (allows DirectionalityShort strongAboveOneEfficiency)
+            && not (signalDirectionalityEntryAllowed (Just strongAboveOneEfficiency))
             && not (signalDirectionalityEntryAllowed (Just strongMalformedMass))
             && not (signalDirectionalityEntryAllowed (Just weakMissingInterior))
             && not (signalDirectionalityEntryAllowed (Just weakMissingBoundary))
@@ -909,7 +919,7 @@ testSignalGateDirectionalityWeakBandMonotone = do
         missingRegimeAlloweds =
             [ signalDirectionalityEntryAllowed
                 (Just (mkManualDirectionalitySnapshot eff Nothing Nothing Nothing False Nothing))
-            | eff <- [0.5, 0.400001, 0.4, 0.3, 0.26, 0.25]
+            | eff <- [1, 0.5, 0.400001, 0.4, 0.3, 0.26, 0.25]
             ]
         weakLongSignedZAlloweds =
             [ weakAllows DirectionalityLong z
@@ -926,7 +936,7 @@ testSignalGateDirectionalityWeakBandMonotone = do
             ]
     assert
         "weak-directionality efficiency ladder keeps the expected allow/block shape without regime evidence"
-        (missingRegimeAlloweds == [True, True, False, False, False, False])
+        (missingRegimeAlloweds == [True, True, True, False, False, False, False])
     assertMonotoneNonIncreasing
         "lower efficiency cannot reopen a weak-directionality snapshot once regime evidence is missing"
         missingRegimeAlloweds

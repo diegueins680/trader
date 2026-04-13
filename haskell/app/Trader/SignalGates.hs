@@ -143,6 +143,11 @@ directionalityEfficiencyOk :: Double -> Bool
 directionalityEfficiencyOk eff =
     finiteDouble eff && eff >= 0 && eff <= 1
 
+directionalityFreshEntryEfficiencyAllowed :: Double -> Bool
+directionalityFreshEntryEfficiencyAllowed eff =
+    directionalityEfficiencyOk eff
+        && eff > directionalityChopEfficiencyMax
+
 directionalityWeakBand :: Double -> Bool
 directionalityWeakBand eff =
     directionalityEfficiencyOk eff
@@ -151,8 +156,10 @@ directionalityWeakBand eff =
 
 directionalityWeakBandRegimeEvidenceOk :: DirectionalitySnapshot -> Bool
 directionalityWeakBandRegimeEvidenceOk snap =
-    not (directionalityWeakBand (dsEfficiency snap))
-        || directionalitySavedRegimeTuplePresentOk snap
+    let eff = dsEfficiency snap
+     in directionalityEfficiencyOk eff
+            && (not (directionalityWeakBand eff)
+                    || directionalitySavedRegimeTuplePresentOk snap)
 
 directionalitySignedZScore :: DirectionalityEntrySide -> Double -> Maybe Double
 directionalitySignedZScore desiredSide zScore
@@ -169,8 +176,10 @@ directionalityWeakBandSignedZScoreOk desiredSide mZScore =
 
 directionalityWeakBandZScoreOk :: DirectionalityEntrySide -> DirectionalitySnapshot -> Bool
 directionalityWeakBandZScoreOk desiredSide snap =
-    not (directionalityWeakBand (dsEfficiency snap))
-        || directionalityWeakBandSignedZScoreOk desiredSide (Just (dsZScore snap))
+    let eff = dsEfficiency snap
+     in directionalityEfficiencyOk eff
+            && (not (directionalityWeakBand eff)
+                    || directionalityWeakBandSignedZScoreOk desiredSide (Just (dsZScore snap)))
 
 directionalityProbOk :: Double -> Bool
 directionalityProbOk p = finiteDouble p && p >= 0 && p <= 1
@@ -245,7 +254,7 @@ signalDirectionalityEntryAllowedForSide desiredSide mSnapshot =
         Nothing -> False
         Just snap ->
             directionalitySnapshotWellFormed snap
-                && dsEfficiency snap > directionalityChopEfficiencyMax
+                && directionalityFreshEntryEfficiencyAllowed (dsEfficiency snap)
                 && directionalityWeakBandZScoreOk desiredSide snap
                 && not (dsNonDirectional snap)
 
