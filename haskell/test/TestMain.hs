@@ -3,6 +3,7 @@ module Main (main) where
 import Control.Monad (unless)
 import Data.Maybe (isNothing)
 import Trader.SignalGates (
+    normalizeSignalEntryEdge,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
@@ -22,6 +23,7 @@ import Trader.Trading (
 
 main :: IO ()
 main = do
+    testNormalizeSignalEntryEdgeRegression
     testSignalGateEntryBoundaryWitness
     testSignalGateEntryHeadroomSpecializesFeeBuffer
     testSignalGateEntryFeeBufferFailsClosed
@@ -35,6 +37,27 @@ assert message condition =
 assertMonotoneNonIncreasing :: String -> [Bool] -> IO ()
 assertMonotoneNonIncreasing message values =
     assert message (and (zipWith (\left right -> left || not right) values (drop 1 values)))
+
+-- Bounded executable proof obligation for the restored public helper: finite
+-- raw edges normalize monotonically into the same non-negative sample reused
+-- downstream, while malformed inputs collapse to the fail-closed zero sample.
+testNormalizeSignalEntryEdgeRegression :: IO ()
+testNormalizeSignalEntryEdgeRegression = do
+    let orderedFiniteInputs = [-0.02, -0.001, 0, 0.01, 0.017]
+        normalizedFiniteEdges = map normalizeSignalEntryEdge orderedFiniteInputs
+        normalizedFiniteValues = map (maybe (-1) id) normalizedFiniteEdges
+    assert
+        "normalizeSignalEntryEdge is monotone and non-negative on bounded finite inputs"
+        ( normalizedFiniteEdges == map Just [0, 0, 0, 0.01, 0.017]
+            && all (>= 0) normalizedFiniteValues
+            && and (zipWith (<=) normalizedFiniteValues (drop 1 normalizedFiniteValues))
+        )
+    assert
+        "normalizeSignalEntryEdge collapses malformed inputs to the fail-closed zero sample"
+        ( normalizeSignalEntryEdge (0 / 0) == Just 0
+            && normalizeSignalEntryEdge (1 / 0) == Just 0
+            && normalizeSignalEntryEdge ((-1) / 0) == Just 0
+        )
 
 -- Direct SignalGates witness for the restored fee/headroom facade: the zero-fee
 -- boundary and the fee-aware boundary stay admissible, strict-below rejection
@@ -101,14 +124,14 @@ testSignalGateEntryHeadroomSpecializesFeeBuffer = do
                 ]
         )
 
--- The reviewed Trading.hs change keeps the fresh-entry gate entry-only while
--- tightening malformed-fee handling. These executable obligations pin four
--- properties: entry-only vetoes do not run when no fresh entry is needed,
--- fresh-entry spike/headroom/fee-buffer checks all read the same non-negative,
--- finite edge sample and fail closed on negative or non-finite fee/edge inputs,
--- equality at the required boundary stays admissible, and admissibility is monotone
--- non-increasing as raw edge falls or the fee floor rises.
-
+-- The reviewed Trading.hs integration keeps the fresh-entry gate entry-only while
+-- reusing the restored shared edge normalization helper. These executable
+-- obligations pin four properties: entry-only vetoes do not run when no fresh
+-- entry is needed, fresh-entry spike/headroom/fee-buffer checks all read the
+-- same non-negative, finite edge sample and fail closed on negative or
+-- non-finite fee/edge inputs, equality at the required boundary stays
+-- admissible, and admissibility is monotone non-increasing as raw edge falls or
+-- the fee floor rises.
 testTradingEntryGateFailClosedMonotone :: IO ()
 testTradingEntryGateFailClosedMonotone = do
     let boundaryState =
@@ -165,7 +188,10 @@ testTradingEntryGateFailClosedMonotone = do
         )
     assert
         "fresh-entry gating reuses the shared non-negative edge sample"
-        ( entryEdge negativeEdgeState == Just 0
+        ( entryEdge boundaryState == normalizeSignalEntryEdge 0.017
+            && entryEdge nonFiniteEdgeState == normalizeSignalEntryEdge (0 / 0)
+            && entryEdge negativeEdgeState == normalizeSignalEntryEdge (-0.01)
+            && entryEdge negativeEdgeState == Just 0
             && not (edgeHeadroomOk negativeEdgeState)
             && isNothing (desiredSide1 negativeEdgeState)
         )
@@ -216,7 +242,6 @@ testTradingEntryGateMalformedNoReopen = do
 -- negative-fee fail-closed behavior, malformed-input fail-closed behavior, and
 -- preservation of the shared non-negative entryEdge sample across the
 -- independent spike veto and the fee/headroom gates on the fresh-entry path.
-
 testSignalGateEntryFeeBufferFailsClosed :: IO ()
 testSignalGateEntryFeeBufferFailsClosed = do
     assert

@@ -6,6 +6,11 @@ finiteDouble value = not (isNaN value) && not (isInfinite value)
 normalizeSignalThreshold :: Double -> Double
 normalizeSignalThreshold = id
 
+normalizeSignalEntryEdge :: Double -> Maybe Double
+normalizeSignalEntryEdge raw
+    | finiteDouble raw && raw >= 0 = Just raw
+    | otherwise = Just 0
+
 entryEdgeHeadroomMultiple :: Double
 entryEdgeHeadroomMultiple = 1.5
 
