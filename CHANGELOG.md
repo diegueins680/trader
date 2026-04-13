@@ -1,4 +1,6 @@
 ## Unreleased
+- Trading: fail closed on negative fresh-entry fee floors by requiring the round-trip fee floor consumed by `signalEntryFeeBufferOk` to stay finite and non-negative, so corrupted negative fee inputs can no longer relax the marginal-entry gate back to the zero-fee boundary.
+- Trading/Formal: update `FORMAL_METHODS.md` and bounded Haskell regressions so negative fee floors are rejected both at the pure `SignalGates` contract and through the `mkEntryGateState` fresh-entry integration witness.
 - Observability: extend `haskell/scripts/review_bot_day.py` with interval-aware cutoff freshness diagnostics, per-symbol stale-snapshot detection, and a compact latest pre-cutoff `latestSignal.action` census in both JSON and markdown output.
 - Observability/Formal: daily review non-directional accounting now explicitly treats same-day order flow as `entry_or_add` versus `exit_or_flatten`, keeps `nonDirectionalOrderAttempts` limited to entry/add events, and documents that adopted-position carry-management exits are reported separately from fresh weak-directionality entry misses.
 - Autoloop: stop blocking the forever runner on merged local branches that are still attached to Git worktrees, and add `hlint` verification plus direct log-driven HLint auto-fixes for editable Haskell files.
