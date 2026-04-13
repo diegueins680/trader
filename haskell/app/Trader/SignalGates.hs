@@ -1,3 +1,5 @@
+module Trader.SignalGates where
+
 normalizeSignalFeeFloor :: Double -> Maybe Double
 normalizeSignalFeeFloor raw
     | finiteDouble raw && raw >= 0 = Just raw

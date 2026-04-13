@@ -1,3 +1,5 @@
+module Trader.Trading where
+
 roundTripFeeFloor =
     let feePerSide = entryFeeOf cfg
      in if isBad feePerSide
