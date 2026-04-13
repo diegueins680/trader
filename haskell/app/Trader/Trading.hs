@@ -56,13 +56,10 @@ mkEntryGateState cfg =
             not needsEntry' || signalEntryFeeBufferOk defaultOpenThreshold roundTripFeeFloor' entryEdge'
         entryGatesOk' =
             not needsEntry' || (edgeSpikeOk' && edgeHeadroomOk' && feeBufferOk')
-        desiredSide1' =
-            if not needsEntry'
-                then currentSide1 cfg
-                else
-                    if entryGatesOk'
-                        then Just True
-                        else Nothing
+        desiredSide1'
+            | not needsEntry' = currentSide1 cfg
+            | entryGatesOk' = Just True
+            | otherwise = Nothing
      in EntryGateState
             { needsEntry = needsEntry'
             , roundTripFeeFloor = roundTripFeeFloor'

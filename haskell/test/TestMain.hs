@@ -84,7 +84,7 @@ testTradingEntryGateFailClosedMonotone = do
         edgeAlloweds =
             map (freshEntryAllowed 0.001) [0.02, 0.017, 0.016, 0.015]
         feeAlloweds =
-            map (\feePerSide -> freshEntryAllowed feePerSide 0.018) [0, 0.001, 0.00175, 0.002]
+            map (`freshEntryAllowed` 0.018) [0, 0.001, 0.00175, 0.002]
     assert
         "fresh-entry equality at the fee-aware boundary stays admissible"
         ( needsEntry boundaryState
