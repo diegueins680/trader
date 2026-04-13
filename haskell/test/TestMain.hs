@@ -2,6 +2,7 @@ module Main (main) where
 
 import Control.Monad (unless)
 import Data.Maybe (isNothing)
+import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.SignalGates (
     normalizeSignalEntryEdge,
     signalEntryEdgeSpikeOk,
@@ -9,6 +10,9 @@ import Trader.SignalGates (
     signalEntryHeadroomOk,
  )
 import Trader.Trading (
+    BacktestResult (..),
+    ExitReason (..),
+    Trade (..),
     desiredSide1,
     edgeHeadroomOk,
     edgeSpikeOk,
@@ -29,6 +33,7 @@ main = do
     testSignalGateEntryFeeBufferFailsClosed
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
+    testMetricsConsumesTradingPublicResults
 
 assert :: String -> Bool -> IO ()
 assert message condition =
@@ -297,4 +302,37 @@ testSignalGateEntryFeeBufferFailsClosed = do
         "negative fee floors fail closed instead of collapsing to the zero-fee boundary"
         ( not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.015))
             && not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.05))
+        )
+
+-- Public-interface invariant: metrics/reporting must be able to consume the
+-- BacktestResult/Trade/ExitReason constructors re-exported by Trader.Trading.
+-- This fixture runs a bounded metrics path through that boundary so any future
+-- export regression fails at build or test time.
+testMetricsConsumesTradingPublicResults :: IO ()
+testMetricsConsumesTradingPublicResults = do
+    let trade =
+            Trade
+                { trEntryEquity = 1.0
+                , trExitEquity = 1.1
+                , trReturn = 0.1
+                , trHoldingPeriods = 2
+                , trExitReason = Just ExitEod
+                }
+        result =
+            BacktestResult
+                { brEquityCurve = [1.0, 1.1]
+                , brTrades = [trade]
+                , brPositions = [0, 1]
+                , brAgreementOk = [True]
+                , brAgreementValid = [True]
+                , brPositionChanges = 1
+                }
+        metrics = computeMetrics 252 result
+    assert
+        "metrics can consume Trader.Trading public result constructors"
+        ( bmTradeCount metrics == 1
+            && bmRoundTrips metrics == 0
+            && bmPositionChanges metrics == 1
+            && bmProfitFactor metrics == Nothing
+            && bmAgreementRate metrics == 1
         )
