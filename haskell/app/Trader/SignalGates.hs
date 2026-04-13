@@ -231,6 +231,10 @@ mkMalformedDirectionalitySnapshot windowLen =
         , dsReason = Just directionalityMalformedReason
         }
 
+directionalityReasonConsistent :: DirectionalitySnapshot -> Bool
+directionalityReasonConsistent snap =
+    dsNonDirectional snap == isJust (dsReason snap)
+
 directionalitySnapshotWellFormed :: DirectionalitySnapshot -> Bool
 directionalitySnapshotWellFormed snap =
     dsLookbackBars snap >= 3
@@ -244,6 +248,7 @@ directionalitySnapshotWellFormed snap =
         && directionalitySavedRegimeTupleOk snap
         && maybe True directionalityGapOk (dsRegimeGap snap)
         && directionalityWeakBandRegimeEvidenceOk snap
+        && directionalityReasonConsistent snap
 
 signalDirectionalityEntryAllowed :: Maybe DirectionalitySnapshot -> Bool
 signalDirectionalityEntryAllowed mSnapshot =

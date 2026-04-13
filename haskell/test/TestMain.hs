@@ -73,6 +73,7 @@ main = do
     run "trading entry gate refactor stays fail closed and monotone" testTradingEntryGateFailClosedMonotone
     run "trading entry gate malformed inputs cannot reopen a blocked fresh-entry state" testTradingEntryGateMalformedNoReopen
     run "signal gate restored facade stays fail closed and entry-only" testSignalGateFacadeSurface
+    run "signal gate directionality snapshots keep reason and non-directional flag in lockstep" testSignalGateDirectionalityReasonInvariant
     run "signal gate weak-directionality snapshots stay fail closed on malformed saved HMM tuples" testSignalGateDirectionalityWeakBandFailClosed
     run "signal gate weak-directionality admissibility is monotone across efficiency and HMM-sanity boundaries" testSignalGateDirectionalityWeakBandMonotone
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
@@ -788,6 +789,34 @@ testSignalGateFacadeSurface = do
             && signalCrossAssetCheck True Nothing 1 == (False, Just "CROSS_ASSET")
             && not (signalRegimeEdgeOk True 0.01 Nothing)
             && not fundingOiOk
+        )
+
+-- Formal directionality snapshot invariant for the restored SignalGates.hs
+-- seam: serialized snapshots must keep dsNonDirectional and dsReason in
+-- lockstep, so corrupted saved-state payloads cannot bypass the fail-closed
+-- admission check for either side.
+testSignalGateDirectionalityReasonInvariant :: IO ()
+testSignalGateDirectionalityReasonInvariant = do
+    let directional =
+            mkManualDirectionalitySnapshot 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False Nothing
+        reasonOnly =
+            mkManualDirectionalitySnapshot 0.26 (Just 0.55) (Just 0.2) (Just 0.25) False (Just "NON_DIRECTIONAL_MALFORMED")
+        flagOnly =
+            mkManualDirectionalitySnapshot 0.26 (Just 0.55) (Just 0.2) (Just 0.25) True Nothing
+    assert
+        "consistent directional snapshots remain admissible for the matching side"
+        ( signalDirectionalityEntryAllowed (Just directional)
+            && signalDirectionalityEntryAllowedForSide DirectionalityLong (Just directional)
+            && not (signalDirectionalityEntryAllowedForSide DirectionalityShort (Just directional))
+        )
+    assert
+        "directionality admission rejects snapshots whose reason/flag pair diverges"
+        ( not (signalDirectionalityEntryAllowed (Just reasonOnly))
+            && not (signalDirectionalityEntryAllowedForSide DirectionalityLong (Just reasonOnly))
+            && not (signalDirectionalityEntryAllowedForSide DirectionalityShort (Just reasonOnly))
+            && not (signalDirectionalityEntryAllowed (Just flagOnly))
+            && not (signalDirectionalityEntryAllowedForSide DirectionalityLong (Just flagOnly))
+            && not (signalDirectionalityEntryAllowedForSide DirectionalityShort (Just flagOnly))
         )
 
 weakBandZScoreFloor :: Double
