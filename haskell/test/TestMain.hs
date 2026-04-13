@@ -86,6 +86,7 @@ main = do
     run "signal gate edge monotonicity holds under fees" testSignalGateEntryFeeBufferMonotoneEdge
     run "signal gate fee buffer stays subordinate to spike/headroom vetoes" testSignalGateEntryFeeBufferSubordinate
     run "signal gate shared entryEdge conjunction stays fail closed" testSignalGateEntryConjunctiveSharedEdge
+    run "signal gate shared entryEdge conjunction stays monotone as spike caps tighten and fees rise" testSignalGateEntryConjunctiveSharedEdgeMonotone
     run "signal gate fee-aware malformed inputs fail closed" testSignalGateEntryFeeBufferFailsClosed
     run "signal gate post-direction wrappers cannot reopen blocked entries" testSignalGateNoReopenPostDirection
     run "signal gate edge-spike monotonicity holds" testSignalGateEntryEdgeSpikeMonotone
@@ -1217,6 +1218,37 @@ testSignalGateEntryConjunctiveSharedEdge = do
         "shared entryEdge conjunction fails closed on malformed input"
         (not (entryGatesOk 0.01 0.002 Nothing))
 
+-- Shared-edge proof sketch for the reviewed SignalGates.hs entry contract: once
+-- spike, headroom, and fee-buffer gates consume the same normalized edge
+-- sample, tightening the spike threshold or raising the fee floor cannot admit
+-- an entry that was already blocked.
+testSignalGateEntryConjunctiveSharedEdgeMonotone :: IO ()
+testSignalGateEntryConjunctiveSharedEdgeMonotone = do
+    let entryGatesOk openThr roundTripFee edge =
+            signalEntryEdgeSpikeOk openThr edge
+                && signalEntryHeadroomOk openThr edge
+                && signalEntryFeeBufferOk openThr roundTripFee edge
+        feeAlloweds =
+            [ entryGatesOk 0.01 fee (Just 0.018)
+            | fee <- [0, 0.002, 0.0035, 0.004]
+            ]
+        spikeAlloweds =
+            [ entryGatesOk openThr 0 (Just 0.04)
+            | openThr <- [0.02, 0.01, 0.005, 0]
+            ]
+    assert
+        "shared entryEdge conjunction keeps the expected allow/block shape as fee floors rise"
+        (feeAlloweds == [True, True, False, False])
+    assertMonotoneNonIncreasing
+        "higher fee floors cannot reopen the shared entryEdge conjunction once blocked"
+        feeAlloweds
+    assert
+        "shared entryEdge conjunction keeps the expected allow/block shape as spike thresholds tighten"
+        (spikeAlloweds == [True, True, False, False])
+    assertMonotoneNonIncreasing
+        "tighter spike thresholds cannot reopen the shared entryEdge conjunction once blocked"
+        spikeAlloweds
+
 testSignalGateEntryFeeBufferFailsClosed :: IO ()
 testSignalGateEntryFeeBufferFailsClosed = do
     assert
@@ -1238,6 +1270,12 @@ testSignalGateEntryFeeBufferFailsClosed = do
     assert
         "NaN edge fails closed"
         (not (signalEntryFeeBufferOk 0.01 0.002 (Just (0 / 0))))
+    assert
+        "negative edge fails closed under the shared non-negative entry-edge contract"
+        ( not (signalEntryEdgeSpikeOk 0.01 (Just (-0.001)))
+            && not (signalEntryHeadroomOk 0.01 (Just (-0.001)))
+            && not (signalEntryFeeBufferOk 0.01 0 (Just (-0.001)))
+        )
     assert
         "negative fee floors stay clamped at zero below the pure headroom boundary"
         (not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.014999)))
