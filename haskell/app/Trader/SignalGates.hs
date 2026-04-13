@@ -158,8 +158,9 @@ directionalityWeakBandRegimeEvidenceOk :: DirectionalitySnapshot -> Bool
 directionalityWeakBandRegimeEvidenceOk snap =
     let eff = dsEfficiency snap
      in directionalityEfficiencyOk eff
-            && (not (directionalityWeakBand eff)
-                    || directionalitySavedRegimeTuplePresentOk snap)
+            && ( not (directionalityWeakBand eff)
+                    || directionalitySavedRegimeTuplePresentOk snap
+               )
 
 directionalitySignedZScore :: DirectionalityEntrySide -> Double -> Maybe Double
 directionalitySignedZScore desiredSide zScore
@@ -178,8 +179,9 @@ directionalityWeakBandZScoreOk :: DirectionalityEntrySide -> DirectionalitySnaps
 directionalityWeakBandZScoreOk desiredSide snap =
     let eff = dsEfficiency snap
      in directionalityEfficiencyOk eff
-            && (not (directionalityWeakBand eff)
-                    || directionalityWeakBandSignedZScoreOk desiredSide (Just (dsZScore snap)))
+            && ( not (directionalityWeakBand eff)
+                    || directionalityWeakBandSignedZScoreOk desiredSide (Just (dsZScore snap))
+               )
 
 directionalityProbOk :: Double -> Bool
 directionalityProbOk p = finiteDouble p && p >= 0 && p <= 1
