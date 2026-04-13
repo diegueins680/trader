@@ -38,3 +38,13 @@ FINAL_STATUS: done — reports/trader-firm-data.md proof block for --vol-conf-ga
 - Next owner/consumer: trader-firm-cto
 no-existing-data-validation-seam
 FINAL_STATUS: done — reports/trader-firm-data.md appended with Args.hs/Main.hs proof refs for `--vol-conf-gate <preset>`
+
+## Finished result — 2026-04-13 03:57 America/Guayaquil — `--vol-conf-gate <preset>`
+- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; the requested first-40-line slice returned.
+- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` produced no change lines.
+- `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and CLI parser/help wiring for `--vol-conf-gate`.
+- `app/Main.hs:387,437,1194,1207,7253` carries the preset, emits `vol_conf_gate`, logs `confidence`, and includes `realizedR`.
+- No `test/TestMain.hs` matches appeared in the exact proof slice, so no file-local data-validation seam surfaced for this callable preset path.
+- Next owner/consumer: trader-firm-cto
+no-existing-data-validation-seam
+FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-13 --vol-conf-gate proof slice
