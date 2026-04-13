@@ -1,3 +1,64 @@
+module Main (main) where
+
+import Control.Monad (unless)
+import Data.Maybe (isNothing)
+import Trader.SignalGates
+    ( signalEntryEdgeSpikeOk
+    , signalEntryFeeBufferOk
+    , signalEntryHeadroomOk
+    )
+import Trader.Trading
+    ( desiredSide1
+    , edgeHeadroomOk
+    , edgeSpikeOk
+    , entryEdge
+    , entryGatesOk
+    , feeBufferOk
+    , mkEntryGateState
+    , mkTradingEntryGateInputs
+    , needsEntry
+    , roundTripFeeFloor
+    )
+
+main :: IO ()
+main = do
+    testSignalGateEntryBoundaryWitness
+    testSignalGateEntryFeeBufferFailsClosed
+    testTradingEntryGateFailClosedMonotone
+    testTradingEntryGateMalformedNoReopen
+
+assert :: String -> Bool -> IO ()
+assert message condition =
+    unless condition (ioError (userError ("Assertion failed: " ++ message)))
+
+assertMonotoneNonIncreasing :: String -> [Bool] -> IO ()
+assertMonotoneNonIncreasing message values =
+    assert message (and (zipWith (\left right -> left || not right) values (drop 1 values)))
+
+-- Direct SignalGates witness for the restored fee/headroom facade: the zero-fee
+-- boundary and the fee-aware boundary stay admissible, strict-below rejection
+-- stays intact, and higher fee floors cannot reopen an entry that was already
+-- blocked.
+testSignalGateEntryBoundaryWitness :: IO ()
+testSignalGateEntryBoundaryWitness = do
+    let openThreshold = 0.01
+        feeLadder =
+            map (\feeFloor -> signalEntryFeeBufferOk openThreshold feeFloor (Just 0.018)) [0, 0.001, 0.00175, 0.002]
+    assert
+        "signal-gate boundaries remain admissible at equality and reject strict-below edges"
+        ( signalEntryEdgeSpikeOk openThreshold (Just 0.017)
+            && signalEntryHeadroomOk openThreshold (Just 0.015)
+            && signalEntryFeeBufferOk openThreshold 0 (Just 0.015)
+            && signalEntryFeeBufferOk openThreshold 0.002 (Just 0.017)
+            && not (signalEntryFeeBufferOk openThreshold 0.002 (Just 0.016))
+        )
+    assert
+        "direct fee ladder keeps the expected allow/block shape"
+        (feeLadder == [True, True, False, False])
+    assertMonotoneNonIncreasing
+        "direct signal-gate admissibility is monotone non-increasing as the fee floor rises"
+        feeLadder
+
 -- The reviewed Trading.hs change keeps the fresh-entry gate entry-only while
 -- tightening malformed-fee handling. These executable obligations pin four
 -- properties: entry-only vetoes do not run when no fresh entry is needed,
@@ -23,7 +84,7 @@ testTradingEntryGateFailClosedMonotone = do
         edgeAlloweds =
             map (freshEntryAllowed 0.001) [0.02, 0.017, 0.016, 0.015]
         feeAlloweds =
-            map (`freshEntryAllowed` 0.018) [0, 0.001, 0.00175, 0.002]
+            map (\feePerSide -> freshEntryAllowed feePerSide 0.018) [0, 0.001, 0.00175, 0.002]
     assert
         "fresh-entry equality at the fee-aware boundary stays admissible"
         ( needsEntry boundaryState
@@ -109,17 +170,10 @@ testTradingEntryGateMalformedNoReopen = do
         )
 
 -- Bounded executable obligations for the restored signal-gate facade now cover:
--- the four-field threshold-boundary witness, a live DirectionalitySnapshot
--- built through the current price/regime API, snapshot-only fail-closed
--- directionality admission on Nothing and non-directional snapshots, the 1.5x
--- headroom-threshold-cap witness, zero-fee specialization, boundary
--- acceptance, strict-below rejection, monotone non-increasing admissibility,
--- once-blocked-stays-blocked under the post-direction wrapper, negative-fee
--- rejection, missing/non-finite-input fail-closed behavior, and preservation of
--- the shared non-negative entryEdge sample across the independent spike veto
--- and the fee/headroom gates on the fresh-entry path, including the
--- conjunction fact that the fee buffer may veto but cannot reopen an entry
--- already blocked upstream.
+-- the direct boundary witness, zero-fee specialization, negative-threshold and
+-- negative-fee fail-closed behavior, malformed-input fail-closed behavior, and
+-- preservation of the shared non-negative entryEdge sample across the
+-- independent spike veto and the fee/headroom gates on the fresh-entry path.
 
 testSignalGateEntryFeeBufferFailsClosed :: IO ()
 testSignalGateEntryFeeBufferFailsClosed = do
@@ -135,6 +189,12 @@ testSignalGateEntryFeeBufferFailsClosed = do
             && not (signalEntryFeeBufferOk (1 / 0) 0 (Just 0))
             && not (signalEntryHeadroomOk (0 / 0) (Just 0))
             && not (signalEntryHeadroomOk (1 / 0) (Just 0))
+        )
+    assert
+        "negative open threshold fails closed instead of collapsing to zero"
+        ( not (signalEntryFeeBufferOk (-0.01) 0 (Just 0.05))
+            && not (signalEntryHeadroomOk (-0.01) (Just 0.05))
+            && not (signalEntryEdgeSpikeOk (-0.01) (Just 0.05))
         )
     assert
         "non-finite edge fails closed"
