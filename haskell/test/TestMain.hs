@@ -333,6 +333,6 @@ testMetricsConsumesTradingPublicResults = do
         ( bmTradeCount metrics == 1
             && bmRoundTrips metrics == 0
             && bmPositionChanges metrics == 1
-            && bmProfitFactor metrics == Nothing
+            && isNothing (bmProfitFactor metrics)
             && bmAgreementRate metrics == 1
         )
