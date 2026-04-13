@@ -1,4 +1,14 @@
-module Trader.SignalGates where
+module Trader.SignalGates (
+    finiteDouble,
+    normalizeSignalThreshold,
+    normalizeSignalEntryEdge,
+    signalEntryHeadroomThresholdCap,
+    normalizeSignalOpenThreshold,
+    normalizeSignalFeeFloor,
+    signalEntryHeadroomOk,
+    signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
+) where
 
 finiteDouble :: Double -> Bool
 finiteDouble value = not (isNaN value) && not (isInfinite value)
