@@ -1043,7 +1043,8 @@ testSignalGateDirectionalityWeakBandHysteresisFailClosed = do
         )
     assert
         "negative or non-finite regime-bank hysteresis now fails closed for reviewed weak-band fresh entries"
-        ( all malformedWeakBand
+        ( all
+            malformedWeakBand
             [ negativeHysteresisSnapshot
             , nanHysteresisSnapshot
             , infiniteHysteresisSnapshot
