@@ -13,6 +13,7 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 LOG_FILE="${TRADER_API_LOG_FILE:-/tmp/trader-api.log}"
+mkdir -p "$(dirname "$LOG_FILE")"
 export TRADER_API_PORT="${TRADER_API_PORT:-8080}"
 PORT="$TRADER_API_PORT"
 export TRADER_API_BIND_HOST="${TRADER_API_BIND_HOST:-127.0.0.1}"

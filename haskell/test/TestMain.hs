@@ -18,6 +18,7 @@ import Trader.OrderExecution (
     applyReduceOnlyExecutedQuantity,
     orderAppliedQuantity,
  )
+import Trader.Predictors.Types (RegimeProbs (..))
 import Trader.SignalGates (
     DirectionalityEntrySide (..),
     DirectionalitySnapshot (..),
@@ -76,6 +77,8 @@ main = do
     run "signal gate directionality snapshots keep reason and non-directional flag in lockstep" testSignalGateDirectionalityReasonInvariant
     run "signal gate weak-directionality snapshots stay fail closed on malformed saved HMM tuples" testSignalGateDirectionalityWeakBandFailClosed
     run "signal gate weak-directionality admissibility is monotone across efficiency and HMM-sanity boundaries" testSignalGateDirectionalityWeakBandMonotone
+    run "signal gate weak-band regime-bank hysteresis fails closed on malformed inputs" testSignalGateDirectionalityWeakBandHysteresisFailClosed
+    run "signal gate weak-band regime-bank hysteresis ladder is monotone" testSignalGateDirectionalityWeakBandHysteresisMonotone
     run "signal gate rejects low-headroom entries" testSignalGateEntryHeadroom
     run "signal gate headroom threshold cap tracks 1.5x rule" testSignalGateEntryHeadroomThresholdCap
     run "signal gate rejects marginal fee-adjusted entries" testSignalGateEntryFeeBuffer
@@ -844,6 +847,34 @@ mkManualDirectionalitySnapshot :: Double -> Maybe Double -> Maybe Double -> Mayb
 mkManualDirectionalitySnapshot =
     mkManualDirectionalitySnapshotWithZScore 1.1
 
+weakBandDirectionalPrices :: V.Vector Double
+weakBandDirectionalPrices =
+    V.fromList
+        [ 100
+        , 101
+        , 102.01
+        , 103.0301
+        , 104.060401
+        , 105.10100501
+        , 106.1520150601
+        , 107.213535210701
+        , 108.28567056280801
+        , 109.36852726843609
+        , 104.99378617769865
+        ]
+
+weakBandMrLeaderRegimes :: RegimeProbs
+weakBandMrLeaderRegimes =
+    RegimeProbs
+        { rpTrend = 0.32
+        , rpMR = 0.55
+        , rpHighVol = 0.13
+        }
+
+weakBandSnapshotWithHysteresis :: Double -> Maybe DirectionalitySnapshot
+weakBandSnapshotWithHysteresis regimeHysteresis =
+    signalDirectionalitySnapshot regimeHysteresis (Just weakBandMrLeaderRegimes) weakBandDirectionalPrices (V.length weakBandDirectionalPrices - 1)
+
 testSignalGateDirectionalityWeakBandFailClosed :: IO ()
 testSignalGateDirectionalityWeakBandFailClosed = do
     let allows side = signalDirectionalityEntryAllowedForSide side . Just
@@ -987,6 +1018,60 @@ testSignalGateDirectionalityWeakBandMonotone = do
     assertMonotoneNonIncreasing
         "larger saved-HMM mass drift cannot admit a weak-band entry once blocked"
         massDriftAlloweds
+
+-- The reviewed weak-band live-regime path must reject malformed
+-- regime-bank-hysteresis values even when the same snapshot is directional
+-- under a nearby valid threshold.
+testSignalGateDirectionalityWeakBandHysteresisFailClosed :: IO ()
+testSignalGateDirectionalityWeakBandHysteresisFailClosed = do
+    let allows side = signalDirectionalityEntryAllowedForSide side
+        admittedSnapshot = weakBandSnapshotWithHysteresis 0.24
+        negativeHysteresisSnapshot = weakBandSnapshotWithHysteresis (-0.01)
+        nanHysteresisSnapshot = weakBandSnapshotWithHysteresis (0 / 0)
+        infiniteHysteresisSnapshot = weakBandSnapshotWithHysteresis (1 / 0)
+        malformedWeakBand snapshot =
+            case snapshot of
+                Just snap ->
+                    dsNonDirectional snap
+                        && dsReason snap == Just "NON_DIRECTIONAL_MALFORMED"
+                Nothing -> False
+    assert
+        "well-formed hysteresis above the live MR gap keeps the reviewed weak-band snapshot directional"
+        ( allows DirectionalityLong admittedSnapshot
+            && not (allows DirectionalityShort admittedSnapshot)
+            && signalDirectionalityEntryAllowed admittedSnapshot
+        )
+    assert
+        "negative or non-finite regime-bank hysteresis now fails closed for reviewed weak-band fresh entries"
+        ( all malformedWeakBand
+            [ negativeHysteresisSnapshot
+            , nanHysteresisSnapshot
+            , infiniteHysteresisSnapshot
+            ]
+            && all
+                ( \snapshot ->
+                    not (allows DirectionalityLong snapshot)
+                        && not (allows DirectionalityShort snapshot)
+                        && not (signalDirectionalityEntryAllowed snapshot)
+                )
+                [ negativeHysteresisSnapshot
+                , nanHysteresisSnapshot
+                , infiniteHysteresisSnapshot
+                ]
+        )
+
+testSignalGateDirectionalityWeakBandHysteresisMonotone :: IO ()
+testSignalGateDirectionalityWeakBandHysteresisMonotone = do
+    let alloweds =
+            [ signalDirectionalityEntryAllowedForSide DirectionalityLong (weakBandSnapshotWithHysteresis hysteresis)
+            | hysteresis <- [0.24, 0.23, 0.1, 0]
+            ]
+    assert
+        "weak-band regime-bank hysteresis ladder keeps the expected allow/block shape"
+        (alloweds == [True, False, False, False])
+    assertMonotoneNonIncreasing
+        "lower regime-bank hysteresis cannot reopen an MR-dominant weak-band entry once vetoed"
+        alloweds
 
 testSignalGateEntryHeadroom :: IO ()
 testSignalGateEntryHeadroom = do

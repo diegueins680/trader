@@ -12,6 +12,60 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
+# Non-interactive launchers (nohup, LaunchAgents, cron, etc.) often miss the
+# user's interactive PATH, so proactively add common toolchain locations.
+for candidate in "$HOME/.ghcup/bin" "/usr/local/bin" "/opt/homebrew/bin"; do
+  case ":$PATH:" in
+    *":${candidate}:"*) ;;
+    *)
+      if [ -d "$candidate" ]; then
+        PATH="$candidate:$PATH"
+      fi
+      ;;
+  esac
+done
+export PATH
+
+resolve_cabal_bin() {
+  if [ -n "${CABAL_BIN:-}" ] && [ -x "${CABAL_BIN}" ]; then
+    printf '%s\n' "$CABAL_BIN"
+    return 0
+  fi
+
+  if command -v cabal >/dev/null 2>&1; then
+    command -v cabal
+    return 0
+  fi
+
+  local -a candidates=(
+    "$HOME/.ghcup/bin/cabal"
+    "/usr/local/bin/cabal"
+    "/opt/homebrew/bin/cabal"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+CABAL_BIN_RESOLVED="$(resolve_cabal_bin || true)"
+if [ -z "$CABAL_BIN_RESOLVED" ]; then
+  cat <<'EOF'
+ERROR: Could not find `cabal` on PATH.
+Tried PATH plus common locations:
+  ~/.ghcup/bin/cabal
+  /usr/local/bin/cabal
+  /opt/homebrew/bin/cabal
+Install GHCup/cabal or set CABAL_BIN to the full cabal path.
+EOF
+  exit 1
+fi
+
 DB_URL_DEFAULT="postgres://${USER}@127.0.0.1:5432/trader?sslmode=disable"
 export TRADER_DB_URL="${TRADER_DB_URL:-$DB_URL_DEFAULT}"
 
@@ -95,7 +149,7 @@ if ! check_pg_ready; then
     brew services start postgresql >/dev/null 2>&1 || true
     if ! check_pg_ready; then
       # Try versioned formula if the default service isn't installed.
-      pg_formula="$(brew list --formula 2>/dev/null | rg -m1 '^postgresql@' || true)"
+      pg_formula="$(brew list --formula 2>/dev/null | grep -m1 '^postgresql@' || true)"
       if [ -n "${pg_formula}" ]; then
         echo "Postgres still not ready; starting via Homebrew formula ${pg_formula}..."
         brew services start "${pg_formula}" >/dev/null 2>&1 || true
@@ -130,7 +184,7 @@ fi
 if command -v createdb >/dev/null 2>&1; then
   if ! createdb trader >/dev/null 2>&1; then
     if command -v psql >/dev/null 2>&1; then
-      if ! psql -h 127.0.0.1 -lqt 2>/dev/null | awk '{print $1}' | rg -q '^trader$'; then
+      if ! psql -h 127.0.0.1 -lqt 2>/dev/null | awk '{print $1}' | grep -q '^trader$'; then
         echo "WARN: failed to create database 'trader'. Continuing without verification."
       fi
     fi
@@ -146,7 +200,7 @@ EOF
 fi
 
 run_api_once() {
-  cabal run -v0 trader-hs -- --serve --port "${TRADER_API_PORT:-8080}" --platform binance --futures
+  "$CABAL_BIN_RESOLVED" run -v0 trader-hs -- --serve --port "${TRADER_API_PORT:-8080}" --platform binance --futures
 }
 
 restart_on_exit="${TRADER_API_RESTART_ON_EXIT:-0}"

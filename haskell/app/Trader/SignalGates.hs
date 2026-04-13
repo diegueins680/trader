@@ -213,6 +213,17 @@ directionalitySavedRegimeTupleOk snap =
 directionalityGapOk :: Double -> Bool
 directionalityGapOk g = finiteDouble g && g >= 0 && g <= 1
 
+directionalityRegimeHysteresisOk :: Double -> Bool
+directionalityRegimeHysteresisOk regimeHysteresis =
+    finiteDouble regimeHysteresis && regimeHysteresis >= 0
+
+directionalityMrDominant :: Double -> String -> Double -> Maybe Bool
+directionalityMrDominant regimeHysteresis leader g
+    | not (directionalityGapOk g) = Nothing
+    | not (directionalityRegimeHysteresisOk regimeHysteresis) = Nothing
+    | leader == "mr" = Just (g >= regimeHysteresis)
+    | otherwise = Just False
+
 mkMalformedDirectionalitySnapshot :: Int -> DirectionalitySnapshot
 mkMalformedDirectionalitySnapshot windowLen =
     DirectionalitySnapshot
@@ -416,8 +427,7 @@ signalDirectionalityRegimeEvidence regimeHysteresis mRegimes =
                                     _ -> Nothing
                             dominant =
                                 case (leader, gap) of
-                                    (Just "mr", Just g) | directionalityGapOk g -> Just (g >= max 0 regimeHysteresis)
-                                    (Just _, Just g) | directionalityGapOk g -> Just False
+                                    (Just leader', Just g) -> directionalityMrDominant regimeHysteresis leader' g
                                     _ -> Nothing
                          in (Just trendProb, Just mrProb, Just highVolProb, leader, gap, dominant, False)
                     else (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, True)
