@@ -3,6 +3,7 @@ module Main (main) where
 import Control.Monad (unless)
 import Data.Maybe (isNothing)
 import Trader.SignalGates (
+    normalizeSignalEntryEdge,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
@@ -24,6 +25,7 @@ main :: IO ()
 main = do
     testSignalGateEntryBoundaryWitness
     testSignalGateEntryHeadroomSpecializesFeeBuffer
+    testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
@@ -99,6 +101,47 @@ testSignalGateEntryHeadroomSpecializesFeeBuffer = do
                     && not (signalEntryFeeBufferOk 0.01 0 edgeForMethod)
                 | edgeForMethod <- malformedEdges
                 ]
+        )
+
+-- Regression for the restored public helper surface: fresh-entry gating keeps a
+-- single normalized non-negative edge sample, and malformed raw edges still
+-- fail closed because Trading reuses that same sample across the conjunction.
+testNormalizeSignalEntryEdgeFailClosedRegression :: IO ()
+testNormalizeSignalEntryEdgeFailClosedRegression = do
+    let validEdge = normalizeSignalEntryEdge 0.017
+        negativeEdge = normalizeSignalEntryEdge (-0.001)
+        nanEdge = normalizeSignalEntryEdge (0 / 0)
+        infiniteEdge = normalizeSignalEntryEdge (1 / 0)
+        boundaryState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 0.017 Nothing)
+        negativeState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 (-0.001) Nothing)
+        nanState =
+            mkEntryGateState (mkTradingEntryGateInputs 0.001 (0 / 0) Nothing)
+    assert
+        "normalizeSignalEntryEdge stays the shared non-negative fresh-entry sample"
+        ( validEdge == Just 0.017
+            && negativeEdge == Just 0
+            && nanEdge == Just 0
+            && infiniteEdge == Just 0
+            && entryEdge boundaryState == validEdge
+            && entryEdge negativeState == negativeEdge
+            && entryEdge nanState == nanEdge
+        )
+    assert
+        "restored edge normalization still fails closed on the fresh-entry path"
+        ( needsEntry negativeState
+            && not (edgeSpikeOk negativeState)
+            && not (edgeHeadroomOk negativeState)
+            && not (feeBufferOk negativeState)
+            && not (entryGatesOk negativeState)
+            && isNothing (desiredSide1 negativeState)
+            && needsEntry nanState
+            && not (edgeSpikeOk nanState)
+            && not (edgeHeadroomOk nanState)
+            && not (feeBufferOk nanState)
+            && not (entryGatesOk nanState)
+            && isNothing (desiredSide1 nanState)
         )
 
 -- The reviewed Trading.hs change keeps the fresh-entry gate entry-only while
