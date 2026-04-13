@@ -1,8 +1,8 @@
 ## Formal fee-aware entry gate contract
 
-`normalizeSignalEntryEdge` and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry normalization boundary and marginal-entry veto.
+`signalEntryHeadroomThresholdCap`, `normalizeSignalEntryEdge`, and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry normalization boundary, canonical optimizer headroom-cap witness, and marginal-entry veto.
 
-`BacktestResult`, `ExitReason`, and `Trade`, as exported from `haskell/app/Trader/Trading.hs`, are treated as the stable public result surface consumed by `Trader.Metrics` and optimizer code.
+`BacktestResult`, `EnsembleConfig`, `StepMeta`, `simulateEnsembleVWithHLChecked`, `ExitReason`, and `Trade`, as exported from `haskell/app/Trader/Trading.hs`, are treated as the stable public simulation/result surface consumed by `Trader.Optimization`, `Trader.Metrics`, and related optimizer code.
 
 Clauses:
 
@@ -14,7 +14,8 @@ Clauses:
 6. Once a state is blocked at fee floor `f`, it remains blocked for every valid `f' >= f`; malformed fee data also cannot reopen the entry.
 7. In `mkEntryGateState`, the spike, headroom, and fee-buffer checks are consulted only when `needsEntry` is true, each check receives the same `entryEdge` sample computed once as `normalizeSignalEntryEdge edgeRaw`, `normalizeSignalEntryEdge` preserves finite non-negative inputs and collapses negative or non-finite raw edges to `Just 0`, and the three booleans are combined conjunctively before `desiredSide1` can keep a fresh entry alive.
 8. Deploy-config normalization in `haskell/web/src/lib/deployConfig.ts` is non-interfering with trading admissibility: blank or missing Fly host inputs may normalize to the default `fly.dev`, malformed Fly app/host overrides are rejected instead of being coerced into a fallback target, and the resulting `apiFallbackUrl` synthesis does not feed `signalEntryHeadroomOk`, `signalEntryFeeBufferOk`, `signalEntryEdgeSpikeOk`, or the fresh-entry conjunction.
-9. Every metrics consumer must be able to construct and inspect `BacktestResult`, `ExitReason`, and `Trade` through `Trader.Trading`; restoring those exports is a visibility-only repair and does not alter fresh-entry gating, trade construction, exit classification, or backtest aggregation behavior.
+9. Every optimizer or metrics consumer must be able to import `signalEntryHeadroomThresholdCap` through `Trader.SignalGates` and `BacktestResult`, `EnsembleConfig`, `StepMeta`, `simulateEnsembleVWithHLChecked`, `ExitReason`, and `Trade` through `Trader.Trading`; restoring those exports is a visibility-only repair and does not alter fresh-entry gating, optimizer candidate generation, ensemble simulation behavior, trade construction, exit classification, or backtest aggregation behavior.
+10. For any raw edge sample, `signalEntryHeadroomThresholdCap` applies the same fail-closed normalization boundary as `normalizeSignalEntryEdge` and returns the maximum open-threshold witness compatible with the headroom gate; malformed or negative raw edges collapse to cap `0`.
 
 Bounded executable obligations:
 
@@ -27,12 +28,14 @@ Bounded executable obligations:
 - `testTradingEntryGateFailClosedMonotone` and `testTradingEntryGateMalformedNoReopen` extend the `mkEntryGateState` witness so negative or non-finite per-side fees cannot reopen a blocked fresh entry after shared edge normalization.
 - `testSignalGateEntryEdgeSpike` covers equality-at-cap acceptance, zero-threshold zero-edge acceptance, zero-threshold positive-edge rejection, and malformed threshold/edge fail-closed behavior for the independent spike veto in the same entry-only conjunction.
 - `testSignalGateEntryEdgeSpikeMonotone` witnesses monotone non-increasing admissibility as the effective spike threshold is lowered.
-- `testMetricsPublicTradingSurfaceRegression` constructs `BacktestResult`, `ExitReason`, and `Trade` through `Trader.Trading`, routes them through `computeMetrics`, and fails before downstream optimizer builds if the public result-type surface narrows again.
+- `testOptimizerPublicSurfaceRegression` imports `signalEntryHeadroomThresholdCap`, `EnsembleConfig(..)`, `StepMeta(..)`, and `simulateEnsembleVWithHLChecked` through their public modules, witnesses the `0.03 -> 0.02` headroom-cap boundary, and fails before `optimize-equity` CI build time if the optimizer-facing public surface narrows again.
+- `testMetricsConsumesTradingPublicResults` constructs `BacktestResult`, `ExitReason`, and `Trade` through `Trader.Trading`, routes them through `computeMetrics`, and fails before downstream optimizer builds if the public result-type surface narrows again.
 - `haskell/web/test/deployConfig.test.mjs` covers blank or missing Fly host normalization to the default backend fallback, rejects malformed string and non-string Fly app/host overrides instead of synthesizing a fallback, and keeps that normalization confined to `apiFallbackUrl`.
 
 Proof sketch:
 
 - Restoring the public `normalizeSignalEntryEdge` symbol is a visibility-only repair: the helper remains the single raw-edge normalization boundary used by `mkEntryGateState`, preserving finite non-negative samples and collapsing every negative or non-finite raw edge to `Just 0`.
+- `signalEntryHeadroomThresholdCap` is derived from that same normalized non-negative edge sample and `entryEdgeHeadroomMultiple`, so the optimizer can enumerate the maximum admissible open-threshold witness for each observed edge without changing `signalEntryHeadroomOk` or the underlying gate contract.
 - `signalEntryFeeBufferOk` requires fee floors to be finite and non-negative, so negative, `NaN`, and `Infinity` fee inputs fail closed instead of relaxing to the zero-fee boundary.
 - The predicate now always inspects `edgeForMethod`, so a missing edge sample cannot bypass the gate even when both the normalized threshold and fee floor collapse to zero.
 - `signalEntryHeadroomOk` is implemented by partially applying the fee-aware predicate with a zero fee floor, so the legacy headroom contract is preserved as a special case.
@@ -40,5 +43,5 @@ Proof sketch:
 - Lowering raw edge cannot make a blocked state admissible because the predicate is only `edge >= requiredEdge` once the inputs are well formed and the edge sample is explicit.
 - In `mkEntryGateState`, `roundTripFeeFloor` becomes `0 / 0` whenever the per-side fee sample is bad and otherwise preserves the signed doubled per-side fee, so negative per-side fees reach `signalEntryFeeBufferOk` as negative round-trip floors and are rejected there.
 - `mkEntryGateState` computes `entryEdge` once via `normalizeSignalEntryEdge` and reuses that same non-negative sample across the spike/headroom/fee vetoes under `needsEntry`, so restoring helper visibility does not change the fail-closed, entry-only conjunction at integration time.
-- Restoring `BacktestResult`, `ExitReason`, and `Trade` on the `Trader.Trading` export list is a non-semantic visibility repair for `Trader.Metrics`; metrics consumers regain constructor and field access through the intended public module, while `mkEntryGateState`, trade construction, exit classification, and backtest aggregation behavior remain unchanged.
+- Restoring `BacktestResult`, `EnsembleConfig`, `StepMeta`, `simulateEnsembleVWithHLChecked`, `ExitReason`, and `Trade` on the `Trader.Trading` export list is a non-semantic visibility repair for `Trader.Optimization` and `Trader.Metrics`; optimizer search/scoring/risk logic, trade construction, exit classification, and backtest aggregation behavior remain unchanged because the underlying gate and simulator implementations are unchanged.
 - The web-side repair in `haskell/web/src/lib/deployConfig.ts` defaults only missing or blank Fly host inputs to `fly.dev`, rejects malformed string or non-string Fly app/host overrides before synthesizing `apiFallbackUrl`, and does not alter any value consumed by `signalEntryHeadroomOk`, `signalEntryFeeBufferOk`, `signalEntryEdgeSpikeOk`, or `signalRunPostDirectionGates`, so the fail-closed entry admissibility relation above is unchanged.

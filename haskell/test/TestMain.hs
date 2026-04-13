@@ -8,10 +8,13 @@ import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
+    signalEntryHeadroomThresholdCap,
  )
 import Trader.Trading (
     BacktestResult (..),
+    EnsembleConfig (..),
     ExitReason (..),
+    StepMeta (..),
     Trade (..),
     desiredSide1,
     edgeHeadroomOk,
@@ -23,6 +26,7 @@ import Trader.Trading (
     mkTradingEntryGateInputs,
     needsEntry,
     roundTripFeeFloor,
+    simulateEnsembleVWithHLChecked,
  )
 
 main :: IO ()
@@ -33,6 +37,7 @@ main = do
     testSignalGateEntryFeeBufferFailsClosed
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
+    testOptimizerPublicSurfaceRegression
     testMetricsConsumesTradingPublicResults
 
 assert :: String -> Bool -> IO ()
@@ -302,6 +307,30 @@ testSignalGateEntryFeeBufferFailsClosed = do
         "negative fee floors fail closed instead of collapsing to the zero-fee boundary"
         ( not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.015))
             && not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.05))
+        )
+
+-- Public-interface invariant for optimizer wiring: Trader.Optimization must keep
+-- importing the canonical headroom-cap helper from Trader.SignalGates and the
+-- shared simulation surface from Trader.Trading without any semantic adapter in
+-- between. This bounded regression references those names through the public
+-- modules so export narrowing fails in tests before optimize-equity CI build
+-- time, while also witnessing that the cap remains the headroom boundary for a
+-- finite edge sample.
+testOptimizerPublicSurfaceRegression :: IO ()
+testOptimizerPublicSurfaceRegression = do
+    let headroomCap = signalEntryHeadroomThresholdCap 0.03
+        optimizerSurfaceReachable =
+            case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
+                (Nothing, Nothing) ->
+                    signalEntryHeadroomThresholdCap 0.03
+                        `seq` (simulateEnsembleVWithHLChecked `seq` True)
+                _ -> False
+    assert
+        "optimizer-facing public symbols stay importable and preserve the canonical headroom cap"
+        ( optimizerSurfaceReachable
+            && abs (headroomCap - 0.02) <= 1e-12
+            && signalEntryHeadroomOk (max 0 (headroomCap - 1e-12)) (Just 0.03)
+            && not (signalEntryHeadroomOk (headroomCap + 1e-4) (Just 0.03))
         )
 
 -- Public-interface invariant: metrics/reporting must be able to consume the

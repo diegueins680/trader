@@ -17,6 +17,12 @@ entryEdgeHeadroomMultiple = 1.5
 entryEdgeSpikeMultiple :: Double
 entryEdgeSpikeMultiple = 1.7
 
+signalEntryHeadroomThresholdCap :: Double -> Double
+signalEntryHeadroomThresholdCap rawEdge =
+    case normalizeSignalEntryEdge rawEdge of
+        Just edge -> edge / entryEdgeHeadroomMultiple
+        Nothing -> 0
+
 normalizeSignalOpenThreshold :: Double -> Maybe Double
 normalizeSignalOpenThreshold raw
     | finiteDouble raw && raw >= 0 = Just (normalizeSignalThreshold raw)

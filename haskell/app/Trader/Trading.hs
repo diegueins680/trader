@@ -1,5 +1,8 @@
 module Trader.Trading (
     BacktestResult (..),
+    EnsembleConfig (..),
+    StepMeta (..),
+    simulateEnsembleVWithHLChecked,
     ExitReason (..),
     Trade (..),
     TradingEntryGateInputs (..),
