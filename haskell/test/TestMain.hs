@@ -23,6 +23,7 @@ import Trader.Trading (
 main :: IO ()
 main = do
     testSignalGateEntryBoundaryWitness
+    testSignalGateEntryHeadroomSpecializesFeeBuffer
     testSignalGateEntryFeeBufferFailsClosed
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
@@ -37,13 +38,13 @@ assertMonotoneNonIncreasing message values =
 
 -- Direct SignalGates witness for the restored fee/headroom facade: the zero-fee
 -- boundary and the fee-aware boundary stay admissible, strict-below rejection
--- stays intact, and higher fee floors cannot reopen an entry that was already
--- blocked.
+-- stays intact, and higher round-trip fee floors cannot reopen an entry that
+-- was already blocked.
 testSignalGateEntryBoundaryWitness :: IO ()
 testSignalGateEntryBoundaryWitness = do
     let openThreshold = 0.01
         feeLadder =
-            map (\feeFloor -> signalEntryFeeBufferOk openThreshold feeFloor (Just 0.018)) [0, 0.001, 0.00175, 0.002]
+            map (\feeFloor -> signalEntryFeeBufferOk openThreshold feeFloor (Just 0.018)) [0, 0.002, 0.0035, 0.004]
     assert
         "signal-gate boundaries remain admissible at equality and reject strict-below edges"
         ( signalEntryEdgeSpikeOk openThreshold (Just 0.017)
@@ -58,6 +59,47 @@ testSignalGateEntryBoundaryWitness = do
     assertMonotoneNonIncreasing
         "direct signal-gate admissibility is monotone non-increasing as the fee floor rises"
         feeLadder
+
+-- Bounded executable proof obligation for the restored helper surface: the
+-- zero-fee headroom gate is exactly the fee-buffer gate specialized at zero
+-- round-trip fees, equality at the computed boundary stays admissible, and
+-- missing or malformed thresholds/edges remain fail closed instead of
+-- collapsing to a permissive zero boundary.
+testSignalGateEntryHeadroomSpecializesFeeBuffer :: IO ()
+testSignalGateEntryHeadroomSpecializesFeeBuffer = do
+    let specializationSamples =
+            [ (0, Just 0, True)
+            , (0.01, Just 0.015, True)
+            , (0.01, Just 0.014999, False)
+            , (0.02, Just 0.03, True)
+            , (0.02, Just 0.029999, False)
+            ]
+        malformedThresholds = [-0.01, 0 / 0, 1 / 0]
+        malformedEdges = [Nothing, Just (-0.001), Just (0 / 0), Just (1 / 0)]
+    assert
+        "zero-fee headroom stays the fee-buffer specialization on bounded boundary cases"
+        ( all
+            ( \(openThreshold, edgeForMethod, expected) ->
+                signalEntryHeadroomOk openThreshold edgeForMethod == expected
+                    && signalEntryFeeBufferOk openThreshold 0 edgeForMethod == expected
+                    && signalEntryHeadroomOk openThreshold edgeForMethod
+                        == signalEntryFeeBufferOk openThreshold 0 edgeForMethod
+            )
+            specializationSamples
+        )
+    assert
+        "missing or malformed thresholds and edges keep the zero-fee entry gate closed"
+        ( and
+            [ not (signalEntryHeadroomOk openThreshold (Just 0))
+                && not (signalEntryFeeBufferOk openThreshold 0 (Just 0))
+            | openThreshold <- malformedThresholds
+            ]
+            && and
+                [ not (signalEntryHeadroomOk 0.01 edgeForMethod)
+                    && not (signalEntryFeeBufferOk 0.01 0 edgeForMethod)
+                | edgeForMethod <- malformedEdges
+                ]
+        )
 
 -- The reviewed Trading.hs change keeps the fresh-entry gate entry-only while
 -- tightening malformed-fee handling. These executable obligations pin four
