@@ -125,10 +125,12 @@ testTradingEntryGateMalformedNoReopen = do
 testSignalGateEntryFeeBufferFailsClosed :: IO ()
 testSignalGateEntryFeeBufferFailsClosed = do
     let directEdgeAlloweds =
-            map (\edge -> signalEntryFeeBufferOk 0.01 0.002 (Just edge))
+            map
+                (\edge -> signalEntryFeeBufferOk 0.01 0.002 (Just edge))
                 [0.019, 0.017, 0.016, 0.015]
         directFeeAlloweds =
-            map (\feeFloor -> signalEntryFeeBufferOk 0.01 feeFloor (Just 0.018))
+            map
+                (\feeFloor -> signalEntryFeeBufferOk 0.01 feeFloor (Just 0.018))
                 [0, 0.002, 0.003, 0.004]
     assert
         "non-finite fee floor fails closed"
