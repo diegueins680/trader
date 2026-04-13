@@ -322,8 +322,8 @@ testOptimizerPublicSurfaceRegression = do
         optimizerSurfaceReachable =
             case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
                 (Nothing, Nothing) ->
-                    signalEntryHeadroomThresholdCap 0.03
-                        `seq` (simulateEnsembleVWithHLChecked `seq` True)
+                    signalEntryHeadroomThresholdCap 0.03 `seq`
+                        (simulateEnsembleVWithHLChecked `seq` True)
                 _ -> False
     assert
         "optimizer-facing public symbols stay importable and preserve the canonical headroom cap"
