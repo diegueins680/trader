@@ -12,18 +12,18 @@ module Trader.Trading (
 ) where
 
 import Data.Maybe (isNothing)
-import Trader.SignalGates
-    ( finiteDouble
-    , normalizeSignalEntryEdge
-    , signalEntryEdgeSpikeOk
-    , signalEntryFeeBufferOk
-    , signalEntryHeadroomOk
-    )
-import Trader.Simulation
-    ( EnsembleConfig (..)
-    , StepMeta (..)
-    , simulateEnsembleVWithHLChecked
-    )
+import Trader.SignalGates (
+    finiteDouble,
+    normalizeSignalEntryEdge,
+    signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
+    signalEntryHeadroomOk,
+ )
+import Trader.Simulation (
+    EnsembleConfig (..),
+    StepMeta (..),
+    simulateEnsembleVWithHLChecked,
+ )
 
 data ExitReason = ExitEod
     deriving (Eq, Show)
