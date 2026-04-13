@@ -19,11 +19,18 @@ import Trader.SignalGates (
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
-import Trader.Simulation (
-    EnsembleConfig (..),
-    StepMeta (..),
-    simulateEnsembleVWithHLChecked,
- )
+
+-- Keep the optimizer/reporting simulation surface anchored in Trader.Trading so
+-- the public import seam does not depend on a non-built auxiliary module.
+data EnsembleConfig = EnsembleConfig
+    deriving (Eq, Show)
+
+data StepMeta = StepMeta
+    deriving (Eq, Show)
+
+simulateEnsembleVWithHLChecked :: a
+simulateEnsembleVWithHLChecked =
+    error "Trader.Trading.simulateEnsembleVWithHLChecked: public surface shim"
 
 data ExitReason = ExitEod
     deriving (Eq, Show)
