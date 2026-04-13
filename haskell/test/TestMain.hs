@@ -1024,7 +1024,7 @@ testSignalGateDirectionalityWeakBandMonotone = do
 -- under a nearby valid threshold.
 testSignalGateDirectionalityWeakBandHysteresisFailClosed :: IO ()
 testSignalGateDirectionalityWeakBandHysteresisFailClosed = do
-    let allows side = signalDirectionalityEntryAllowedForSide side
+    let allows = signalDirectionalityEntryAllowedForSide
         admittedSnapshot = weakBandSnapshotWithHysteresis 0.24
         negativeHysteresisSnapshot = weakBandSnapshotWithHysteresis (-0.01)
         nanHysteresisSnapshot = weakBandSnapshotWithHysteresis (0 / 0)
