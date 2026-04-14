@@ -577,6 +577,10 @@ optimizerPublicSurfaceInvariant =
                 , ecOpenPrices = openPrices0
                 , ecMetaMask = Nothing
                 }
+        -- The lint-driven rewrite from equality-to-`Nothing` to `isNothing`
+        -- is extensional for the optimizer surface exercised below:
+        -- `thresholdCfg` keeps a concrete mask, while `foldCfg` witnesses the
+        -- absent-mask fold case that drives admissibility and search.
      in and
             [ optimizerSurfacePreservedFields base flipDisabled
             , optimizerSurfacePreservedFields base thresholdCfg
