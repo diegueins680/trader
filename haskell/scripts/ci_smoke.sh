@@ -11,6 +11,48 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 cd "$haskell_dir"
 
+public_surface_witness="$tmpdir/trader-trading-public-surface.hs"
+cat >"$public_surface_witness" <<'EOF'
+module PublicSurfaceWitness where
+
+import qualified Data.Vector as V
+import Trader.SignalGates (signalEntryHeadroomThresholdCap)
+import Trader.Trading (
+    BacktestResult,
+    EnsembleConfig,
+    ExitReason,
+    IntrabarFill (..),
+    Positioning (..),
+    StepMeta,
+    Trade,
+    simulateEnsembleVWithHLChecked
+ )
+
+publicSurfaceShim ::
+    EnsembleConfig ->
+    Int ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    Either String BacktestResult
+publicSurfaceShim = simulateEnsembleVWithHLChecked
+
+publicSurfaceReachable :: Bool
+publicSurfaceReachable =
+    case (Nothing :: Maybe ExitReason, Nothing :: Maybe Trade) of
+        (Nothing, Nothing) ->
+            signalEntryHeadroomThresholdCap 0.03 `seq`
+                (LongFlat `seq`
+                    (StopFirst `seq`
+                        (publicSurfaceShim `seq` True)))
+        _ -> False
+EOF
+
+cabal exec ghc -- -fno-code -iapp "$public_surface_witness" >/dev/null
+
 trader_bin="$(cabal list-bin exe:trader-hs)"
 merge_bin="$(cabal list-bin exe:merge-top-combos)"
 optimize_bin="$(cabal list-bin exe:optimize-equity)"

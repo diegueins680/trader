@@ -52,6 +52,7 @@ import Trader.Trading (
     roundTripFeeFloor,
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
+    simulateEnsembleVWithHLChecked,
     tradeEntrySourceCode,
  )
 import Trader.VolConfGate (VolConfGatePreset (..))
@@ -694,7 +695,8 @@ testTradingPublicSurfaceRegression = do
             case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
                 (Nothing, Nothing) ->
                     simulateEnsemble0 `seq`
-                        (simulateEnsembleWithHLChecked0 `seq` True)
+                        (simulateEnsembleWithHLChecked0 `seq`
+                            (simulateEnsembleVWithHLChecked `seq` True))
                 _ -> False
     assert
         "Main-facing Trader.Trading symbols stay importable and preserve constructor/selector compatibility"
@@ -766,7 +768,8 @@ testOptimizerPublicSurfaceRegression = do
             case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
                 (Nothing, Nothing) ->
                     signalEntryHeadroomThresholdCap 0.03 `seq`
-                        (simulateEnsembleWithHLChecked0 `seq` True)
+                        (simulateEnsembleWithHLChecked0 `seq`
+                            (simulateEnsembleVWithHLChecked `seq` True))
                 _ -> False
     assert
         "optimizer-facing public symbols stay importable and the total neutral-risk witness remains explicit"
