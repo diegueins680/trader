@@ -671,12 +671,15 @@ optimizerPublicSurfaceInvariant =
             , isNothing (ecMetaMask foldCfg)
             ]
 
+-- Keep absent optional holding and drawdown limits encoded strictly as
+-- `Nothing`; the `isNothing` rewrite is extensional for this optimizer
+-- public-surface invariant and preserves the fail-closed witness.
 optimizerCompatibilityFieldsNeutral :: EnsembleConfig -> Bool
 optimizerCompatibilityFieldsNeutral cfg =
     ecMinHoldBars cfg == 0
         && ecCooldownBars cfg == 0
-        && ecMaxHoldBars cfg == Nothing
-        && ecMaxDrawdown cfg == Nothing
+        && isNothing (ecMaxHoldBars cfg)
+        && isNothing (ecMaxDrawdown cfg)
 
 optimizerSurfacePreservedFields :: EnsembleConfig -> EnsembleConfig -> Bool
 optimizerSurfacePreservedFields base updated =
