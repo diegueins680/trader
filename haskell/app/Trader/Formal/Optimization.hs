@@ -671,12 +671,15 @@ optimizerPublicSurfaceInvariant =
             , isNothing (ecMetaMask foldCfg)
             ]
 
+-- Optional exit caps witness the unconstrained-only-when-absent invariant:
+-- `isNothing` is extensional here, so present bounds stay classified as
+-- constrained while missing bounds retain the default fail-closed surface.
 optimizerCompatibilityFieldsNeutral :: EnsembleConfig -> Bool
 optimizerCompatibilityFieldsNeutral cfg =
     ecMinHoldBars cfg == 0
         && ecCooldownBars cfg == 0
-        && ecMaxHoldBars cfg == Nothing
-        && ecMaxDrawdown cfg == Nothing
+        && isNothing (ecMaxHoldBars cfg)
+        && isNothing (ecMaxDrawdown cfg)
 
 optimizerSurfacePreservedFields :: EnsembleConfig -> EnsembleConfig -> Bool
 optimizerSurfacePreservedFields base updated =
