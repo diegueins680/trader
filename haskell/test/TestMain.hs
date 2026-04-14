@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module Main (main) where
 
 import Control.Monad (unless)
@@ -32,6 +34,8 @@ import Trader.Trading (
     EnsembleConfig (..),
     ExitReason (..),
     PositionSide (..),
+    pattern SideLong,
+    pattern SideShort,
     StepMeta (..),
     Trade (..),
     TradeEntrySource (..),
@@ -72,6 +76,42 @@ assert message condition =
 assertMonotoneNonIncreasing :: String -> [Bool] -> IO ()
 assertMonotoneNonIncreasing message values =
     assert message (and (zipWith (\left right -> left || not right) values (drop 1 values)))
+
+sampleEnsembleConfig :: EnsembleConfig
+sampleEnsembleConfig =
+    EnsembleConfig
+        { ecPeriodsPerYear = 252
+        , ecOpenThreshold = 0.01
+        , ecCloseThreshold = 0.005
+        , ecMinEdge = 0
+        , ecRouterLookback = 20
+        , ecRouterMinScore = 0
+        , ecRouterScorePnlWeight = 1
+        , ecFee = 0.001
+        , ecFeeFixed = 0
+        , ecFeeMin = 0
+        , ecSlippage = 0
+        , ecSlippageVolMult = 0
+        , ecSlippageImpactPower = 1
+        , ecSlippageImpact = 0
+        , ecSpread = 0
+        , ecSpreadVolMult = 0
+        , ecStopLoss = 0
+        , ecTakeProfit = 0
+        , ecTrailingStop = 0
+        , ecStopLossVolMult = 0
+        , ecTakeProfitVolMult = 0
+        , ecTrailingStopVolMult = 0
+        , ecMaxPositionSize = 1
+        , ecBlendWeight = 0.5
+        , ecKalmanZMin = -1
+        , ecKalmanZMax = 1
+        , ecLstmExitFlipBars = 0
+        , ecLstmExitFlipGraceBars = 0
+        , ecMetaMask = Nothing
+        , ecOpenTimes = Nothing
+        , ecOpenPrices = Nothing
+        }
 
 -- Direct SignalGates witness for the restored fee/headroom facade: the zero-fee
 -- boundary and the fee-aware boundary stay admissible, strict-below rejection
@@ -433,12 +473,42 @@ testSignalGatesPublicSurfaceRegression = do
         )
 
 -- Formal public-surface invariant for the Main-facing Trader.Trading import
--- seam: the stable position and entry-source types, code translators, and both
--- simulation entrypoints stay reachable from tests so any future export
--- narrowing fails during test/build before trader-hs compilation.
+-- seam: a downstream module can still case-analyze the legacy SideLong/SideShort
+-- constructors, read and record-update Trade entry/exit indices, record-update
+-- the EnsembleConfig risk knobs, and reach the checked simulation entrypoints.
+-- Any future export narrowing should therefore fail in tests before trader-hs or
+-- optimize-equity reaches a later CI build failure.
 testTradingPublicSurfaceRegression :: IO ()
 testTradingPublicSurfaceRegression = do
-    let positionSides = [PositionLong, PositionShort]
+    let positionSideCode side =
+            case side of
+                SideLong -> "long"
+                SideShort -> "short"
+        positionSides = [PositionLong, PositionShort]
+        indexedTrade =
+            Trade
+                { trEntryEquity = 1.0
+                , trExitEquity = 1.1
+                , trReturn = 0.1
+                , trHoldingPeriods = 2
+                , trExitReason = Just ExitEod
+                , trEntryIndex = 7
+                , trExitIndex = 9
+                }
+        shiftedTrade =
+            indexedTrade
+                { trEntryIndex = trEntryIndex indexedTrade - 2
+                , trExitIndex = trExitIndex indexedTrade - 2
+                }
+        riskConfigured =
+            sampleEnsembleConfig
+                { ecStopLoss = 0.01
+                , ecTakeProfit = 0.03
+                , ecTrailingStop = 0.02
+                , ecStopLossVolMult = 1.5
+                , ecTakeProfitVolMult = 2.0
+                , ecTrailingStopVolMult = 1.25
+                }
         signalSource = TradeEntrySignal
         postDirectionSource = TradeEntryPostDirectionGates
         tradingSurfaceReachable =
@@ -448,8 +518,17 @@ testTradingPublicSurfaceRegression = do
                         (simulateEnsembleWithHLChecked `seq` True)
                 _ -> False
     assert
-        "Main-facing Trader.Trading symbols stay importable and keep stable code witnesses"
-        ( positionSides == [PositionLong, PositionShort]
+        "Main-facing Trader.Trading symbols stay importable and preserve constructor/selector compatibility"
+        ( map positionSideCode [SideLong, SideShort] == ["long", "short"]
+            && positionSides == [PositionLong, PositionShort]
+            && trEntryIndex shiftedTrade == 5
+            && trExitIndex shiftedTrade == 7
+            && ecStopLoss riskConfigured == 0.01
+            && ecTakeProfit riskConfigured == 0.03
+            && ecTrailingStop riskConfigured == 0.02
+            && ecStopLossVolMult riskConfigured == 1.5
+            && ecTakeProfitVolMult riskConfigured == 2.0
+            && ecTrailingStopVolMult riskConfigured == 1.25
             && tradeEntrySourceCode signalSource == "signal"
             && tradeEntrySourceCode postDirectionSource == "post_direction_gates"
             && exitReasonFromCode "eod" == Just ExitEod
@@ -494,6 +573,8 @@ testMetricsConsumesTradingPublicResults = do
                 , trReturn = 0.1
                 , trHoldingPeriods = 2
                 , trExitReason = Just ExitEod
+                , trEntryIndex = 0
+                , trExitIndex = 1
                 }
         result =
             BacktestResult

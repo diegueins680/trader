@@ -1,9 +1,13 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module Trader.Trading (
     BacktestResult (..),
     EnsembleConfig (..),
     StepMeta (..),
     IntrabarFill (..),
     PositionSide (..),
+    pattern SideLong,
+    pattern SideShort,
     Positioning (..),
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
@@ -48,6 +52,12 @@ data EnsembleConfig = EnsembleConfig
     , ecSlippageImpact :: !Double
     , ecSpread :: !Double
     , ecSpreadVolMult :: !Double
+    , ecStopLoss :: !Double
+    , ecTakeProfit :: !Double
+    , ecTrailingStop :: !Double
+    , ecStopLossVolMult :: !Double
+    , ecTakeProfitVolMult :: !Double
+    , ecTrailingStopVolMult :: !Double
     , ecMaxPositionSize :: !Double
     , ecBlendWeight :: !Double
     , ecKalmanZMin :: !Double
@@ -78,6 +88,14 @@ data IntrabarFill = StopFirst | TakeProfitFirst
 
 data PositionSide = PositionLong | PositionShort
     deriving (Eq, Show)
+
+pattern SideLong :: PositionSide
+pattern SideLong = PositionLong
+
+pattern SideShort :: PositionSide
+pattern SideShort = PositionShort
+
+{-# COMPLETE SideLong, SideShort #-}
 
 data Positioning = LongFlat | LongShort
     deriving (Eq, Show)
@@ -149,6 +167,8 @@ data Trade = Trade
     , trReturn :: Double
     , trHoldingPeriods :: Int
     , trExitReason :: Maybe ExitReason
+    , trEntryIndex :: Int
+    , trExitIndex :: Int
     }
     deriving (Eq, Show)
 
