@@ -1,6 +1,7 @@
 module Trader.Formal.Optimization (
     FormalVerificationReport (..),
     TieBreakCandidate (..),
+    activityCountFromMetrics,
     preferTieBreakImplementation,
     preferTieBreakSpec,
     roiImplementationScore,
@@ -692,7 +693,9 @@ roiViewFromMetrics m =
         , rvExposure = max 0 (sanitizeFinite0 (bmExposure m))
         }
 
-activityCountFromMetrics :: Int
+-- Activity witness must stay a non-negative upper bound on both round trips
+-- and raw trade count so sparse-activity penalties remain monotone.
+activityCountFromMetrics :: BacktestMetrics -> Int
 activityCountFromMetrics metrics = max 0 (max (bmRoundTrips metrics) (bmTradeCount metrics))
 
 completedRoundTripsFromMetrics :: BacktestMetrics -> Int

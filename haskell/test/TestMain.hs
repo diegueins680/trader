@@ -2,6 +2,7 @@ module Main (main) where
 
 import Control.Monad (unless)
 import Data.Maybe (isNothing)
+import Trader.Formal.Optimization (activityCountFromMetrics)
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.SignalGates (
     normalizeSignalEntryEdge,
@@ -37,6 +38,7 @@ main = do
     testSignalGateEntryFeeBufferFailsClosed
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
+    testOptimizationActivityCountInvariant
     testOptimizerPublicSurfaceRegression
     testMetricsConsumesTradingPublicResults
 
@@ -263,6 +265,66 @@ testTradingEntryGateMalformedNoReopen = do
                 )
                 [negativeFeeState, malformedFeeState, malformedEdgeState]
         )
+
+-- Bounded regression for the optimizer activity witness: the derived helper
+-- stays the non-negative upper bound over completed round trips and raw trade
+-- count, so signature or binding-shape regressions fail before downstream ROI wiring.
+testOptimizationActivityCountInvariant :: IO ()
+testOptimizationActivityCountInvariant = do
+    let samples =
+            [ (-2, -3)
+            , (-1, 0)
+            , (0, -1)
+            , (0, 0)
+            , (1, 0)
+            , (0, 2)
+            , (1, 3)
+            , (3, 1)
+            , (3, 3)
+            ]
+    assert
+        "activityCountFromMetrics stays non-negative and dominates round-trip and trade counters"
+        ( all
+            ( \(roundTrips, tradeCount) ->
+                let metrics = mkActivityMetrics roundTrips tradeCount
+                    activityCount = activityCountFromMetrics metrics
+                    expected = max 0 (max roundTrips tradeCount)
+                 in activityCount == expected
+                        && activityCount >= 0
+                        && activityCount >= bmRoundTrips metrics
+                        && activityCount >= bmTradeCount metrics
+            )
+            samples
+        )
+
+mkActivityMetrics :: Int -> Int -> BacktestMetrics
+mkActivityMetrics roundTrips tradeCount =
+    BacktestMetrics
+        { bmPeriods = 0
+        , bmFinalEquity = 1
+        , bmTotalReturn = 0
+        , bmAnnualizedReturn = 0
+        , bmAnnualizedVolatility = 0
+        , bmSharpe = 0
+        , bmSortino = 0
+        , bmCalmar = 0
+        , bmDownsideVolatility = 0
+        , bmVaR95 = 0
+        , bmCVaR95 = 0
+        , bmMaxDrawdown = 0
+        , bmPositionChanges = 0
+        , bmTradeCount = tradeCount
+        , bmRoundTrips = roundTrips
+        , bmWinRate = 0
+        , bmGrossProfit = 0
+        , bmGrossLoss = 0
+        , bmProfitFactor = Nothing
+        , bmAvgTradeReturn = 0
+        , bmAvgHoldingPeriods = 0
+        , bmExposure = 0
+        , bmAgreementRate = 0
+        , bmTurnover = 0
+        }
 
 -- Bounded executable obligations for the restored signal-gate facade now cover:
 -- the direct boundary witness, zero-fee specialization, negative-threshold and
