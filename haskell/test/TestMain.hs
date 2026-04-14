@@ -216,16 +216,16 @@ optimizerPublicSurfaceWitnessConfig =
 
 optimizerRiskDefaultsNeutral :: EnsembleConfig -> Bool
 optimizerRiskDefaultsNeutral cfg =
-    ecStopLoss cfg == Nothing
-        && ecTakeProfit cfg == Nothing
-        && ecTrailingStop cfg == Nothing
+    isNothing (ecStopLoss cfg)
+        && isNothing (ecTakeProfit cfg)
+        && isNothing (ecTrailingStop cfg)
         && ecStopLossVolMult cfg == 0
         && ecTakeProfitVolMult cfg == 0
         && ecTrailingStopVolMult cfg == 0
         && ecMinHoldBars cfg == 0
         && ecCooldownBars cfg == 0
-        && ecMaxHoldBars cfg == Nothing
-        && ecMaxDrawdown cfg == Nothing
+        && isNothing (ecMaxHoldBars cfg)
+        && isNothing (ecMaxDrawdown cfg)
 
 -- Direct SignalGates witness for the restored fee/headroom facade: the zero-fee
 -- boundary and the fee-aware boundary stay admissible, strict-below rejection
@@ -571,32 +571,32 @@ testSignalGatesPublicSurfaceRegression = do
                 Nothing
                 True
                 True
-                (\_ -> True)
-                (\_ -> True)
-                (\_ -> True)
+                const True
+                const True
+                const True
                 True
-                (\_ -> (True, Nothing))
+                const (True, Nothing)
                 (True, Nothing)
                 (True, Nothing)
                 (True, Nothing)
-                (\_ -> True)
-                (\_ -> (True, 1))
+                const True
+                const (True, 1)
         postDirectionGates2 =
             signalRunPostDirectionGates
                 (Just 1)
                 Nothing
                 False
                 True
-                (\_ -> True)
-                (\_ -> True)
-                (\_ -> True)
+                const True
+                const True
+                const True
                 True
-                (\_ -> (True, Nothing))
+                const (True, Nothing)
                 (True, Nothing)
                 (True, Nothing)
                 (True, Nothing)
-                (\_ -> True)
-                (\_ -> (True, 1))
+                const True
+                const (True, 1)
     assert
         "Main-facing Trader.SignalGates symbols stay importable and compatibility shims remain fail closed"
         ( directionalitySnapshot0 == DirectionalitySnapshot False Nothing
