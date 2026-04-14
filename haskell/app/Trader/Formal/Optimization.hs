@@ -649,6 +649,12 @@ optimizerSurfacePreservedFields base updated =
         , ecSlippageImpact updated == ecSlippageImpact base
         , ecSpread updated == ecSpread base
         , ecSpreadVolMult updated == ecSpreadVolMult base
+        , ecStopLoss updated == ecStopLoss base
+        , ecTakeProfit updated == ecTakeProfit base
+        , ecTrailingStop updated == ecTrailingStop base
+        , ecStopLossVolMult updated == ecStopLossVolMult base
+        , ecTakeProfitVolMult updated == ecTakeProfitVolMult base
+        , ecTrailingStopVolMult updated == ecTrailingStopVolMult base
         , ecMaxPositionSize updated == ecMaxPositionSize base
         , ecBlendWeight updated == ecBlendWeight base
         , ecKalmanZMin updated == ecKalmanZMin base
@@ -674,6 +680,12 @@ optimizerPublicSurfaceBaseConfig =
         , ecSlippageImpact = 0.01
         , ecSpread = 0.0002
         , ecSpreadVolMult = 0.05
+        , ecStopLoss = 0
+        , ecTakeProfit = 0
+        , ecTrailingStop = 0
+        , ecStopLossVolMult = 0
+        , ecTakeProfitVolMult = 0
+        , ecTrailingStopVolMult = 0
         , ecMaxPositionSize = 1
         , ecBlendWeight = 0.5
         , ecKalmanZMin = 0.5

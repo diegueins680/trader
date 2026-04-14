@@ -4,9 +4,11 @@ module Main (main) where
 
 import Control.Monad (unless)
 import Data.Maybe (isNothing)
+import qualified Data.Vector as V
 import Trader.Formal.Optimization (
     activityCountFromMetrics,
     fvrActivityCountInvariant,
+    fvrOptimizerPublicSurfaceInvariant,
     roiViewFromMetrics,
     rvActivityCount,
     verifyFormalOptimization,
@@ -112,6 +114,51 @@ sampleEnsembleConfig =
         , ecOpenTimes = Nothing
         , ecOpenPrices = Nothing
         }
+
+optimizerPublicSurfaceWitnessConfig :: EnsembleConfig
+optimizerPublicSurfaceWitnessConfig =
+    EnsembleConfig
+        { ecPeriodsPerYear = 252
+        , ecOpenThreshold = 0.015
+        , ecCloseThreshold = 0.01
+        , ecMinEdge = 0.001
+        , ecRouterLookback = 8
+        , ecRouterMinScore = 0.55
+        , ecRouterScorePnlWeight = 0.25
+        , ecFee = 0.001
+        , ecFeeFixed = 0
+        , ecFeeMin = 0
+        , ecSlippage = 0.0005
+        , ecSlippageVolMult = 0.1
+        , ecSlippageImpactPower = 1
+        , ecSlippageImpact = 0.01
+        , ecSpread = 0.0002
+        , ecSpreadVolMult = 0.05
+        , ecStopLoss = 0
+        , ecTakeProfit = 0
+        , ecTrailingStop = 0
+        , ecStopLossVolMult = 0
+        , ecTakeProfitVolMult = 0
+        , ecTrailingStopVolMult = 0
+        , ecMaxPositionSize = 1
+        , ecBlendWeight = 0.5
+        , ecKalmanZMin = 0.5
+        , ecKalmanZMax = 2
+        , ecLstmExitFlipBars = 3
+        , ecLstmExitFlipGraceBars = 1
+        , ecMetaMask = Nothing
+        , ecOpenTimes = Nothing
+        , ecOpenPrices = Nothing
+        }
+
+optimizerRiskDefaultsNeutral :: EnsembleConfig -> Bool
+optimizerRiskDefaultsNeutral cfg =
+    ecStopLoss cfg == 0
+        && ecTakeProfit cfg == 0
+        && ecTrailingStop cfg == 0
+        && ecStopLossVolMult cfg == 0
+        && ecTakeProfitVolMult cfg == 0
+        && ecTrailingStopVolMult cfg == 0
 
 -- Direct SignalGates witness for the restored fee/headroom facade: the zero-fee
 -- boundary and the fee-aware boundary stay admissible, strict-below rejection
@@ -539,13 +586,28 @@ testTradingPublicSurfaceRegression = do
 -- Public-interface invariant for optimizer wiring: Trader.Optimization must keep
 -- importing the canonical headroom-cap helper from Trader.SignalGates and the
 -- restored Main-facing checked simulation surface from Trader.Trading without
--- any semantic adapter in between. This bounded regression references those names
--- through the public modules so export narrowing fails in tests before optimize-equity CI build
--- time, while also witnessing that the cap remains the headroom boundary for a
--- finite edge sample.
+-- any semantic adapter in between. This bounded regression also carries a total
+-- optimizer-facing `EnsembleConfig` witness so new strict risk fields fail here
+-- until the neutral baseline is updated.
 testOptimizerPublicSurfaceRegression :: IO ()
 testOptimizerPublicSurfaceRegression = do
     let headroomCap = signalEntryHeadroomThresholdCap 0.03
+        base = optimizerPublicSurfaceWitnessConfig
+        metaMask0 = Just (V.fromList [True, False, True])
+        openTimes0 = Just (V.fromList [10, 11, 12])
+        openPrices0 = Just (V.fromList [100.0, 101.5, 103.0])
+        thresholdCfg =
+            base
+                { ecOpenThreshold = 0.02
+                , ecCloseThreshold = 0.01
+                , ecMetaMask = metaMask0
+                }
+        foldCfg =
+            thresholdCfg
+                { ecOpenTimes = openTimes0
+                , ecOpenPrices = openPrices0
+                , ecMetaMask = Nothing
+                }
         optimizerSurfaceReachable =
             case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
                 (Nothing, Nothing) ->
@@ -553,11 +615,23 @@ testOptimizerPublicSurfaceRegression = do
                         (simulateEnsembleWithHLChecked `seq` True)
                 _ -> False
     assert
-        "optimizer-facing public symbols stay importable and preserve the canonical headroom cap"
+        "optimizer-facing public symbols stay importable and the total neutral-risk witness remains explicit"
         ( optimizerSurfaceReachable
+            && fvrOptimizerPublicSurfaceInvariant verifyFormalOptimization
             && abs (headroomCap - 0.02) <= 1e-12
             && signalEntryHeadroomOk (max 0 (headroomCap - 1e-12)) (Just 0.03)
             && not (signalEntryHeadroomOk (headroomCap + 1e-4) (Just 0.03))
+            && optimizerRiskDefaultsNeutral base
+            && optimizerRiskDefaultsNeutral thresholdCfg
+            && optimizerRiskDefaultsNeutral foldCfg
+            && ecOpenThreshold thresholdCfg == 0.02
+            && ecCloseThreshold thresholdCfg == 0.01
+            && ecMetaMask thresholdCfg == metaMask0
+            && ecOpenTimes thresholdCfg == ecOpenTimes base
+            && ecOpenPrices thresholdCfg == ecOpenPrices base
+            && ecOpenTimes foldCfg == openTimes0
+            && ecOpenPrices foldCfg == openPrices0
+            && isNothing (ecMetaMask foldCfg)
         )
 
 -- Public-interface invariant: metrics/reporting must be able to consume the
