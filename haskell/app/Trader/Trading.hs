@@ -56,8 +56,8 @@ data EnsembleConfig = EnsembleConfig
     , ecStopLossVolMult :: !Double
     , ecTakeProfitVolMult :: !Double
     , ecTrailingStopVolMult :: !Double
-    -- Compatibility-only knobs retained for Main/optimizer callers.
-    , ecMinHoldBars :: !Int
+    , -- Compatibility-only knobs retained for Main/optimizer callers.
+      ecMinHoldBars :: !Int
     , ecCooldownBars :: !Int
     , ecMaxHoldBars :: !Int
     , ecMaxDrawdown :: !Double
