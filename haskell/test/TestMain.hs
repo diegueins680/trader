@@ -2,6 +2,13 @@ module Main (main) where
 
 import Control.Monad (unless)
 import Data.Maybe (isNothing)
+import Trader.Formal.Optimization (
+    activityCountFromMetrics,
+    fvrActivityCountInvariant,
+    roiViewFromMetrics,
+    rvActivityCount,
+    verifyFormalOptimization,
+ )
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.SignalGates (
     normalizeSignalEntryEdge,
@@ -37,6 +44,7 @@ main = do
     testSignalGateEntryFeeBufferFailsClosed
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
+    testOptimizerActivityCountInvariant
     testOptimizerPublicSurfaceRegression
     testMetricsConsumesTradingPublicResults
 
@@ -264,6 +272,61 @@ testTradingEntryGateMalformedNoReopen = do
                 [negativeFeeState, malformedFeeState, malformedEdgeState]
         )
 
+-- Formal optimization regression: the restored activity helper stays total,
+-- dominates both raw activity sources after clamping, and the RoiView
+-- projection stays locked to the helper across bounded negative/positive
+-- counter samples while the report-level proof obligation stays true.
+testOptimizerActivityCountInvariant :: IO ()
+testOptimizerActivityCountInvariant = do
+    let baseMetrics =
+            BacktestMetrics
+                { bmPeriods = 0
+                , bmFinalEquity = 1
+                , bmTotalReturn = 0
+                , bmAnnualizedReturn = 0
+                , bmAnnualizedVolatility = 0
+                , bmSharpe = 0
+                , bmSortino = 0
+                , bmCalmar = 0
+                , bmDownsideVolatility = 0
+                , bmVaR95 = 0
+                , bmCVaR95 = 0
+                , bmMaxDrawdown = 0
+                , bmPositionChanges = 0
+                , bmTradeCount = 0
+                , bmRoundTrips = 0
+                , bmWinRate = 0
+                , bmGrossProfit = 0
+                , bmGrossLoss = 0
+                , bmProfitFactor = Nothing
+                , bmAvgTradeReturn = 0
+                , bmAvgHoldingPeriods = 0
+                , bmExposure = 0
+                , bmAgreementRate = 0
+                , bmTurnover = 0
+                }
+        metricsWithActivity roundTrips tradeCount =
+            baseMetrics
+                { bmRoundTrips = roundTrips
+                , bmTradeCount = tradeCount
+                }
+        samples = [(-2, -1), (-1, 2), (0, 0), (3, 1), (2, 5)]
+        helperMatchesInvariant (roundTrips, tradeCount) =
+            let metrics = metricsWithActivity roundTrips tradeCount
+                activityCount = activityCountFromMetrics metrics
+                expectedActivityCount = max 0 (max roundTrips tradeCount)
+             in activityCount == expectedActivityCount
+                    && activityCount >= 0
+                    && activityCount >= max 0 roundTrips
+                    && activityCount >= max 0 tradeCount
+                    && rvActivityCount (roiViewFromMetrics metrics) == activityCount
+    assert
+        "formal optimization report keeps the activity-count helper invariant"
+        (fvrActivityCountInvariant verifyFormalOptimization)
+    assert
+        "activity-count helper stays non-negative, dominates both counters, and matches the RoiView projection"
+        (all helperMatchesInvariant samples)
+
 -- Bounded executable obligations for the restored signal-gate facade now cover:
 -- the direct boundary witness, zero-fee specialization, negative-threshold and
 -- negative-fee fail-closed behavior, malformed-input fail-closed behavior, and
@@ -364,4 +427,6 @@ testMetricsConsumesTradingPublicResults = do
             && bmPositionChanges metrics == 1
             && isNothing (bmProfitFactor metrics)
             && bmAgreementRate metrics == 1
+            && activityCountFromMetrics metrics == 1
+            && rvActivityCount (roiViewFromMetrics metrics) == 1
         )

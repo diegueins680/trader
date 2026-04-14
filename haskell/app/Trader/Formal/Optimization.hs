@@ -1,12 +1,15 @@
 module Trader.Formal.Optimization (
     FormalVerificationReport (..),
     TieBreakCandidate (..),
+    activityCountFromMetrics,
     preferTieBreakImplementation,
     preferTieBreakSpec,
     roiImplementationScore,
     roiRequirementClauses,
     roiRequirementSummary,
     roiSpecScore,
+    roiViewFromMetrics,
+    rvActivityCount,
     tieBreakCandidateFromMetrics,
     verifyFormalOptimization,
 ) where
@@ -64,6 +67,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrInvalidPaybackMatchesMissing :: !Bool
     , fvrZeroRoundTripRewardInvariant :: !Bool
     , fvrActivityPenaltyOrdered :: !Bool
+    , fvrActivityCountInvariant :: !Bool
     , fvrExposurePenaltyOrdered :: !Bool
     , fvrTieBreakTotalOrderAfterNormalization :: !Bool
     , fvrTieBreakHysteresisPreference :: !Bool
@@ -274,6 +278,8 @@ verifyFormalOptimization =
                 ]
                 && zeroRoundTripRewardInvariant
                 && lowActivityRoundTripOrdered
+        activityCountInvariant =
+            all activityCountInvariantFor allActivityCountMetrics
         idleExposureRewardInvariant =
             and
                 [ idleExposureRewardInvariantFor
@@ -511,6 +517,7 @@ verifyFormalOptimization =
                     ]
             , fvrZeroRoundTripRewardInvariant = zeroRoundTripRewardInvariant
             , fvrActivityPenaltyOrdered = activityPenaltyOrdered
+            , fvrActivityCountInvariant = activityCountInvariant
             , fvrExposurePenaltyOrdered = exposurePenaltyOrdered
             , fvrTieBreakTotalOrderAfterNormalization =
                 all tieBreakTotalOrderAfterNormalizationFor tieBreakPairs
@@ -692,11 +699,22 @@ roiViewFromMetrics m =
         , rvExposure = max 0 (sanitizeFinite0 (bmExposure m))
         }
 
-activityCountFromMetrics :: Int
+activityCountFromMetrics :: BacktestMetrics -> Int
 activityCountFromMetrics metrics = max 0 (max (bmRoundTrips metrics) (bmTradeCount metrics))
 
 completedRoundTripsFromMetrics :: BacktestMetrics -> Int
 completedRoundTripsFromMetrics metrics = max 0 (bmRoundTrips metrics)
+
+activityCountInvariantFor :: BacktestMetrics -> Bool
+activityCountInvariantFor metrics =
+    let activityCount = activityCountFromMetrics metrics
+        projectedActivityCount = rvActivityCount (roiViewFromMetrics metrics)
+        expectedActivityCount = max 0 (max (bmRoundTrips metrics) (bmTradeCount metrics))
+     in activityCount == expectedActivityCount
+            && projectedActivityCount == activityCount
+            && activityCount >= 0
+            && activityCount >= max 0 (bmRoundTrips metrics)
+            && activityCount >= max 0 (bmTradeCount metrics)
 
 meetsRoiExpectancyFloor :: Int -> Double -> Bool
 meetsRoiExpectancyFloor completedRoundTrips exposure =
@@ -1158,6 +1176,13 @@ allRoiStates =
     , exposure <- exposureDomain
     ]
 
+allActivityCountMetrics :: [BacktestMetrics]
+allActivityCountMetrics =
+    [ metricsFromState (RoiState 0 0 0 0 0 0 roundTrips tradeCount 0)
+    | roundTrips <- activityInvariantDomain
+    , tradeCount <- activityInvariantDomain
+    ]
+
 tieBreakDomain :: [TieBreakCandidate]
 tieBreakDomain = tieBreakFiniteDomain ++ tieBreakMalformedDomain
 
@@ -1321,6 +1346,9 @@ positiveActivityDomain = filter (> 0) activityDomain
 
 lowActivityDomain :: [Int]
 lowActivityDomain = filter (< minimumRoiActivityFloor) activityDomain
+
+activityInvariantDomain :: [Int]
+activityInvariantDomain = [-2, -1] ++ activityDomain
 
 exposureDomain :: [Double]
 exposureDomain = [0.0, 0.005, 0.01]
