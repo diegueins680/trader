@@ -608,8 +608,8 @@ optimizerPublicSurfaceInvariant =
             base
                 { ecMinHoldBars = 2
                 , ecCooldownBars = 1
-                , ecMaxHoldBars = 9
-                , ecMaxDrawdown = 0.12
+                , ecMaxHoldBars = Just 9
+                , ecMaxDrawdown = Just 0.12
                 }
         metaMask0 = Just (V.fromList [True, False, True])
         openTimes0 = Just (V.fromList [10, 11, 12])
@@ -647,8 +647,8 @@ optimizerPublicSurfaceInvariant =
             , optimizerSurfacePreservedFields base foldCfg
             , ecMinHoldBars compatibilityCfg == 2
             , ecCooldownBars compatibilityCfg == 1
-            , ecMaxHoldBars compatibilityCfg == 9
-            , ecMaxDrawdown compatibilityCfg == 0.12
+            , ecMaxHoldBars compatibilityCfg == Just 9
+            , ecMaxDrawdown compatibilityCfg == Just 0.12
             , ecOpenThreshold compatibilityCfg == ecOpenThreshold base
             , ecCloseThreshold compatibilityCfg == ecCloseThreshold base
             , ecLstmExitFlipBars compatibilityCfg == ecLstmExitFlipBars base
@@ -675,8 +675,8 @@ optimizerCompatibilityFieldsNeutral :: EnsembleConfig -> Bool
 optimizerCompatibilityFieldsNeutral cfg =
     ecMinHoldBars cfg == 0
         && ecCooldownBars cfg == 0
-        && ecMaxHoldBars cfg == 0
-        && ecMaxDrawdown cfg == 0
+        && ecMaxHoldBars cfg == Nothing
+        && ecMaxDrawdown cfg == Nothing
 
 optimizerSurfacePreservedFields :: EnsembleConfig -> EnsembleConfig -> Bool
 optimizerSurfacePreservedFields base updated =
@@ -726,25 +726,101 @@ optimizerPublicSurfaceBaseConfig =
         , ecSlippageImpact = 0.01
         , ecSpread = 0.0002
         , ecSpreadVolMult = 0.05
-        , ecStopLoss = 0
-        , ecTakeProfit = 0
-        , ecTrailingStop = 0
+        , ecStopLoss = Nothing
+        , ecTakeProfit = Nothing
+        , ecTrailingStop = Nothing
         , ecStopLossVolMult = 0
         , ecTakeProfitVolMult = 0
         , ecTrailingStopVolMult = 0
         , ecMinHoldBars = 0
         , ecCooldownBars = 0
-        , ecMaxHoldBars = 0
-        , ecMaxDrawdown = 0
+        , ecMaxHoldBars = Nothing
+        , ecMaxDrawdown = Nothing
+        , ecMaxDailyLoss = Nothing
+        , ecMaxWeeklyLoss = Nothing
+        , ecRiskPerTrade = Nothing
+        , ecMaxTradesPerDay = Nothing
+        , ecExpectancyLookback = 0
+        , ecMinExpectancy = Nothing
+        , ecPerfLookback = 0
+        , ecPerfMinWinRate = Nothing
+        , ecPerfMinProfitFactor = Nothing
+        , ecAdaptiveFilters = False
+        , ecAdaptiveEdgeBufferMax = 0
+        , ecAdaptiveMinSignalToNoiseMax = 0
+        , ecAdaptiveKalmanZMinMax = 0
+        , ecAdaptiveTrendLookbackMax = 0
+        , ecLossStreakMax = 0
+        , ecLossStreakCooldownBars = 0
+        , ecNoTradeWindows = []
+        , ecIntervalSeconds = Nothing
+        , ecOpenTimes = Nothing
+        , ecOpenPrices = Nothing
+        , ecMetaMask = Nothing
+        , ecPositioning = LongFlat
+        , ecIntrabarFill = StopFirst
         , ecMaxPositionSize = 1
+        , ecMinSignalToNoise = 0
+        , ecSnrSizeWeight = 0
+        , ecThresholdFactorEnabled = False
+        , ecThresholdFactorAlpha = 0
+        , ecThresholdFactorMin = 1
+        , ecThresholdFactorMax = 1
+        , ecThresholdFactorFloor = 0
+        , ecThresholdFactorEdgeKalWeight = 0
+        , ecThresholdFactorEdgeLstmWeight = 0
+        , ecThresholdFactorKalmanZWeight = 0
+        , ecThresholdFactorHighVolWeight = 0
+        , ecThresholdFactorConformalWeight = 0
+        , ecThresholdFactorQuantileWeight = 0
+        , ecThresholdFactorLstmConfWeight = 0
+        , ecThresholdFactorLstmHealthWeight = 0
+        , ecLstmTrainingHealth = Nothing
+        , ecTrendLookback = 0
+        , ecVolTarget = Nothing
+        , ecVolLookback = 20
+        , ecVolEwmaAlpha = Nothing
+        , ecVolFloor = 0
+        , ecVolScaleMax = 1
+        , ecMaxVolatility = Nothing
+        , ecVolConfGate = VolConfGateDisabled
+        , ecRebalanceBars = 0
+        , ecRebalanceThreshold = 0
+        , ecRebalanceGlobal = False
+        , ecRebalanceResetOnSignal = False
+        , ecFundingRate = 0
+        , ecFundingBySide = False
+        , ecFundingOnOpen = False
         , ecBlendWeight = 0.5
+        , ecKalmanDt = 1
+        , ecKalmanProcessVar = 1
+        , ecKalmanMeasurementVar = 1
+        , ecTriLayer = False
+        , ecTriLayerFastMult = 1
+        , ecTriLayerSlowMult = 1
+        , ecTriLayerCloudPadding = 0
+        , ecTriLayerCloudSlope = 0
+        , ecTriLayerCloudWidth = 0
+        , ecTriLayerTouchLookback = 0
+        , ecTriLayerRequirePriceAction = False
+        , ecTriLayerPriceActionBody = 0
+        , ecTriLayerExitOnSlow = False
+        , ecKalmanBandLookback = 0
+        , ecKalmanBandStdMult = 0
         , ecKalmanZMin = 0.5
         , ecKalmanZMax = 2
         , ecLstmExitFlipBars = 3
         , ecLstmExitFlipGraceBars = 1
-        , ecMetaMask = Nothing
-        , ecOpenTimes = Nothing
-        , ecOpenPrices = Nothing
+        , ecLstmExitFlipStrong = False
+        , ecLstmConfidenceSoft = 0
+        , ecLstmConfidenceHard = 0
+        , ecMaxHighVolProb = Nothing
+        , ecMaxConformalWidth = Nothing
+        , ecMaxQuantileWidth = Nothing
+        , ecConfirmConformal = False
+        , ecConfirmQuantiles = False
+        , ecConfidenceSizing = False
+        , ecMinPositionSize = 0
         }
 
 roiViewFromMetrics :: BacktestMetrics -> RoiView
