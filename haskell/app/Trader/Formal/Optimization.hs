@@ -11,6 +11,7 @@ module Trader.Formal.Optimization (
     verifyFormalOptimization,
 ) where
 
+import Data.Maybe (isNothing)
 import Data.Ord (Down (..))
 import qualified Data.Vector as V
 
@@ -551,7 +552,8 @@ verifyFormalOptimization =
             }
 
 -- Witness the public `EnsembleConfig` record surface that `Trader.Optimization`
--- relies on for visibility-only cfg/btCfg updates.
+-- relies on for visibility-only cfg/btCfg updates. Missing `ecMetaMask` must
+-- stay represented as `Nothing` so fold handling remains fail-closed.
 optimizerPublicSurfaceInvariant :: Bool
 optimizerPublicSurfaceInvariant =
     let base = optimizerPublicSurfaceBaseConfig
@@ -591,7 +593,7 @@ optimizerPublicSurfaceInvariant =
             , ecMetaMask thresholdCfg == metaMask0
             , ecOpenTimes foldCfg == openTimes0
             , ecOpenPrices foldCfg == openPrices0
-            , ecMetaMask foldCfg == Nothing
+            , isNothing (ecMetaMask foldCfg)
             ]
 
 optimizerSurfacePreservedFields :: EnsembleConfig -> EnsembleConfig -> Bool
