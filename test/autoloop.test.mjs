@@ -108,6 +108,46 @@ test("buildBranchMergeCandidates ignores autoloop recovery branches", () => {
   assert.equal(isAutoloopRecoveryBranch("feature/live-fix"), false);
 });
 
+test("buildBranchMergeCandidates can include autoloop recovery branches when explicitly requested", () => {
+  const candidates = buildBranchMergeCandidates({
+    baseBranch: "main",
+    includeRecoveryBranches: true,
+    localBranches: [
+      "main",
+      "feature/live-fix",
+      "autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      "autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+    ],
+    remoteBranches: [
+      "origin/main",
+      "origin/feature/live-fix",
+      "origin/autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      "origin/autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+    ],
+  });
+
+  assert.deepEqual(candidates, [
+    {
+      shortName: "autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+      ref: "autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+      localRef: "autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+      remoteRef: "origin/autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+    },
+    {
+      shortName: "autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      ref: "autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      localRef: "autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      remoteRef: "origin/autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+    },
+    {
+      shortName: "feature/live-fix",
+      ref: "feature/live-fix",
+      localRef: "feature/live-fix",
+      remoteRef: "origin/feature/live-fix",
+    },
+  ]);
+});
+
 test("parseJsonResponse rejects invalid JSON", () => {
   assert.throws(() => parseJsonResponse("not-json"), /invalid JSON/);
 });
@@ -616,7 +656,7 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /const BASE_BRANCH = normalizeGitBranchShortName\(process\.env\.AUTOLOOP_BASE_BRANCH \|\| "main"\) \|\| "main";/);
   assert.match(script, /const branchSweep = await reconcileUnmergedBranchesOntoBaseBranch\(\);/);
   assert.match(script, /runCommand\("git", \["fetch", "origin", "--prune"\], \{ capture: false \}\);/);
-  assert.match(script, /buildBranchMergeCandidates\(\{ localBranches, remoteBranches, baseBranch: BASE_BRANCH \}\)/);
+  assert.match(script, /buildBranchMergeCandidates\(\{\s*localBranches,\s*remoteBranches,\s*baseBranch: BASE_BRANCH,\s*includeRecoveryBranches: true,\s*\}\)/);
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
   assert.match(script, /function buildMergeCommitMessage\(shortName = "", branchRef = ""\)/);
@@ -627,7 +667,9 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /runCommand\("git", \["rebase", remoteRef\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["rebase", "--abort"\], \{ capture: false \}\)/);
   assert.match(script, /outcome: "rebased"/);
-  assert.match(script, /runCommand\("git", \["merge", "--no-ff", "-m", mergeMessage, branchRef\], \{ capture: false \}\)/);
+  assert.match(script, /const mergeArgs = isAutoloopRecoveryBranch\(shortName\)/);
+  assert.match(script, /runCommand\("git", mergeArgs, \{ capture: false \}\)/);
+  assert.match(script, /\["merge", "-s", "ours", "--no-ff", "-m", mergeMessage, branchRef\]/);
   assert.match(script, /runCommand\("git", \["restore", "--source=HEAD", "--staged", "--worktree", "--", \.\.\.conflicts\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["commit", "-m", conflictMessage\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["push", "origin", `\$\{BASE_BRANCH\}:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
@@ -635,6 +677,7 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /runCommand\("git", \["worktree", "prune"\], \{ capture: false \}\);/);
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
+  assert.match(script, /includeRecoveryBranches: true/);
   assert.match(script, /runCommand\("git", \["worktree", "list", "--porcelain"\], \{ trimOutput: false \}\)/);
   assert.match(script, /const worktreeBranches = listWorktreeBranches\(\);/);
   assert.match(script, /function remoteBranchStillExists\(remoteRef\)/);
