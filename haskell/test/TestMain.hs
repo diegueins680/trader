@@ -1,5 +1,3 @@
-{-# LANGUAGE PatternSynonyms #-}
-
 module Main (main) where
 
 import Control.Monad (unless)
