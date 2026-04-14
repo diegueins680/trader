@@ -45,13 +45,13 @@ instance FailClosedSurface SignalThresholdBoundary where
 instance FailClosedSurface (Maybe a) where
     failClosedSurface = Nothing
 
-instance FailClosedSurface r => FailClosedSurface (a -> r) where
+instance (FailClosedSurface r) => FailClosedSurface (a -> r) where
     failClosedSurface = const failClosedSurface
 
 finiteDouble :: Double -> Bool
 finiteDouble value = not (isNaN value) && not (isInfinite value)
 
-mkSignalThresholdBoundary :: FailClosedSurface r => r
+mkSignalThresholdBoundary :: (FailClosedSurface r) => r
 mkSignalThresholdBoundary = failClosedSurface
 
 normalizeSignalThreshold :: Double -> Double
@@ -62,10 +62,10 @@ normalizeSignalEntryEdge raw
     | finiteDouble raw = Just (max 0 raw)
     | otherwise = Just 0
 
-signalCrossAssetCheck :: FailClosedSurface r => r
+signalCrossAssetCheck :: (FailClosedSurface r) => r
 signalCrossAssetCheck = failClosedSurface
 
-signalDirectionalitySnapshot :: FailClosedSurface r => r
+signalDirectionalitySnapshot :: (FailClosedSurface r) => r
 signalDirectionalitySnapshot = failClosedSurface
 
 entryEdgeHeadroomMultiple :: Double
@@ -113,14 +113,14 @@ signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
                         let requiredEdge = requiredHeadroom + feeFloor
                          in maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
 
-signalFundingOiCheck :: FailClosedSurface r => r
+signalFundingOiCheck :: (FailClosedSurface r) => r
 signalFundingOiCheck = failClosedSurface
 
-signalMetaLabelOk :: FailClosedSurface r => r
+signalMetaLabelOk :: (FailClosedSurface r) => r
 signalMetaLabelOk = failClosedSurface
 
-signalMtfConsensusCheck :: FailClosedSurface r => r
+signalMtfConsensusCheck :: (FailClosedSurface r) => r
 signalMtfConsensusCheck = failClosedSurface
 
-signalRegimeEdgeOk :: FailClosedSurface r => r
+signalRegimeEdgeOk :: (FailClosedSurface r) => r
 signalRegimeEdgeOk = failClosedSurface
