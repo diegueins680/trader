@@ -23,6 +23,7 @@ module Trader.SignalGates (
     signalRunPostDirectionGates,
 ) where
 
+import Data.Maybe (catMaybes, fromMaybe)
 import qualified Data.Aeson as Aeson
 
 -- Compatibility surface restored for Main: these shims are fail closed by
@@ -213,7 +214,7 @@ signalMtfConsensusCheck :: Bool -> [Maybe Int] -> Int -> (Bool, Maybe String)
 signalMtfConsensusCheck enabled mtfDirs mtfMinAgree
     | not enabled = (True, Nothing)
     | otherwise =
-        let dirs = [dir | Just dir <- mtfDirs]
+        let dirs = catMaybes mtfDirs
             minAgree = max 1 mtfMinAgree
             consensusOk =
                 length dirs >= minAgree
@@ -288,7 +289,7 @@ gateReason :: Bool -> Maybe String -> String -> Maybe String
 gateReason isOpen mReason fallback =
     if isOpen
         then Nothing
-        else Just (maybe fallback id mReason)
+        else Just (fromMaybe fallback mReason)
 
 chooseReason :: [Maybe String] -> Maybe String
 chooseReason [] = Nothing
