@@ -2,6 +2,8 @@ module Trader.Trading (
     BacktestResult (..),
     EnsembleConfig (..),
     StepMeta (..),
+    IntrabarFill (..),
+    Positioning (..),
     simulateEnsembleVWithHLChecked,
     ExitReason (..),
     Trade (..),
@@ -61,6 +63,12 @@ data StepMeta = StepMeta
     , smQuantile10 :: !(Maybe Double)
     , smQuantile90 :: !(Maybe Double)
     }
+    deriving (Eq, Show)
+
+data IntrabarFill = StopFirst | TakeProfitFirst
+    deriving (Eq, Show)
+
+data Positioning = LongFlat | LongShort
     deriving (Eq, Show)
 
 simulateEnsembleVWithHLChecked ::
