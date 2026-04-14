@@ -21,8 +21,13 @@ module Trader.Trading (
     tradeEntrySourceCode,
 ) where
 
+import Data.Char (toUpper)
+import Data.Int (Int64)
 import Data.Maybe (isNothing)
+import qualified Data.Aeson as Aeson
+import qualified Data.Text as T
 import qualified Data.Vector as V
+import Trader.Duration (TimeWindow)
 import Trader.SignalGates (
     finiteDouble,
     normalizeSignalEntryEdge,
@@ -30,6 +35,7 @@ import Trader.SignalGates (
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
  )
+import Trader.VolConfGate (VolConfGatePreset)
 
 -- Keep the optimizer/reporting simulation surface anchored in Trader.Trading so
 -- the public import seam does not depend on a non-built auxiliary module.
@@ -50,26 +56,101 @@ data EnsembleConfig = EnsembleConfig
     , ecSlippageImpact :: !Double
     , ecSpread :: !Double
     , ecSpreadVolMult :: !Double
-    , ecStopLoss :: !Double
-    , ecTakeProfit :: !Double
-    , ecTrailingStop :: !Double
+    , ecStopLoss :: !(Maybe Double)
+    , ecTakeProfit :: !(Maybe Double)
+    , ecTrailingStop :: !(Maybe Double)
     , ecStopLossVolMult :: !Double
     , ecTakeProfitVolMult :: !Double
     , ecTrailingStopVolMult :: !Double
-    , -- Compatibility-only knobs retained for Main/optimizer callers.
-      ecMinHoldBars :: !Int
+    , ecMinHoldBars :: !Int
     , ecCooldownBars :: !Int
-    , ecMaxHoldBars :: !Int
-    , ecMaxDrawdown :: !Double
+    , ecMaxHoldBars :: !(Maybe Int)
+    , ecMaxDrawdown :: !(Maybe Double)
+    , ecMaxDailyLoss :: !(Maybe Double)
+    , ecMaxWeeklyLoss :: !(Maybe Double)
+    , ecRiskPerTrade :: !(Maybe Double)
+    , ecMaxTradesPerDay :: !(Maybe Int)
+    , ecExpectancyLookback :: !Int
+    , ecMinExpectancy :: !(Maybe Double)
+    , ecPerfLookback :: !Int
+    , ecPerfMinWinRate :: !(Maybe Double)
+    , ecPerfMinProfitFactor :: !(Maybe Double)
+    , ecAdaptiveFilters :: !Bool
+    , ecAdaptiveEdgeBufferMax :: !Double
+    , ecAdaptiveMinSignalToNoiseMax :: !Double
+    , ecAdaptiveKalmanZMinMax :: !Double
+    , ecAdaptiveTrendLookbackMax :: !Int
+    , ecLossStreakMax :: !Int
+    , ecLossStreakCooldownBars :: !Int
+    , ecNoTradeWindows :: ![TimeWindow]
+    , ecIntervalSeconds :: !(Maybe Int)
+    , ecOpenTimes :: !(Maybe (V.Vector Int64))
+    , ecOpenPrices :: !(Maybe (V.Vector Double))
+    , ecMetaMask :: !(Maybe (V.Vector Bool))
+    , ecPositioning :: !Positioning
+    , ecIntrabarFill :: !IntrabarFill
     , ecMaxPositionSize :: !Double
+    , ecMinSignalToNoise :: !Double
+    , ecSnrSizeWeight :: !Double
+    , ecThresholdFactorEnabled :: !Bool
+    , ecThresholdFactorAlpha :: !Double
+    , ecThresholdFactorMin :: !Double
+    , ecThresholdFactorMax :: !Double
+    , ecThresholdFactorFloor :: !Double
+    , ecThresholdFactorEdgeKalWeight :: !Double
+    , ecThresholdFactorEdgeLstmWeight :: !Double
+    , ecThresholdFactorKalmanZWeight :: !Double
+    , ecThresholdFactorHighVolWeight :: !Double
+    , ecThresholdFactorConformalWeight :: !Double
+    , ecThresholdFactorQuantileWeight :: !Double
+    , ecThresholdFactorLstmConfWeight :: !Double
+    , ecThresholdFactorLstmHealthWeight :: !Double
+    , ecLstmTrainingHealth :: !(Maybe Double)
+    , ecTrendLookback :: !Int
+    , ecVolTarget :: !(Maybe Double)
+    , ecVolLookback :: !Int
+    , ecVolEwmaAlpha :: !(Maybe Double)
+    , ecVolFloor :: !Double
+    , ecVolScaleMax :: !Double
+    , ecMaxVolatility :: !(Maybe Double)
+    , ecVolConfGate :: !VolConfGatePreset
+    , ecRebalanceBars :: !Int
+    , ecRebalanceThreshold :: !Double
+    , ecRebalanceGlobal :: !Bool
+    , ecRebalanceResetOnSignal :: !Bool
+    , ecFundingRate :: !Double
+    , ecFundingBySide :: !Bool
+    , ecFundingOnOpen :: !Bool
     , ecBlendWeight :: !Double
+    , ecKalmanDt :: !Double
+    , ecKalmanProcessVar :: !Double
+    , ecKalmanMeasurementVar :: !Double
+    , ecTriLayer :: !Bool
+    , ecTriLayerFastMult :: !Double
+    , ecTriLayerSlowMult :: !Double
+    , ecTriLayerCloudPadding :: !Double
+    , ecTriLayerCloudSlope :: !Double
+    , ecTriLayerCloudWidth :: !Double
+    , ecTriLayerTouchLookback :: !Int
+    , ecTriLayerRequirePriceAction :: !Bool
+    , ecTriLayerPriceActionBody :: !Double
+    , ecTriLayerExitOnSlow :: !Bool
+    , ecKalmanBandLookback :: !Int
+    , ecKalmanBandStdMult :: !Double
     , ecKalmanZMin :: !Double
     , ecKalmanZMax :: !Double
     , ecLstmExitFlipBars :: !Int
     , ecLstmExitFlipGraceBars :: !Int
-    , ecMetaMask :: !(Maybe (V.Vector Bool))
-    , ecOpenTimes :: !(Maybe (V.Vector Int))
-    , ecOpenPrices :: !(Maybe (V.Vector Double))
+    , ecLstmExitFlipStrong :: !Bool
+    , ecLstmConfidenceSoft :: !Double
+    , ecLstmConfidenceHard :: !Double
+    , ecMaxHighVolProb :: !(Maybe Double)
+    , ecMaxConformalWidth :: !(Maybe Double)
+    , ecMaxQuantileWidth :: !(Maybe Double)
+    , ecConfirmConformal :: !Bool
+    , ecConfirmQuantiles :: !Bool
+    , ecConfidenceSizing :: !Bool
+    , ecMinPositionSize :: !Double
     }
     deriving (Eq, Show)
 
@@ -84,8 +165,6 @@ data StepMeta = StepMeta
     }
     deriving (Eq, Show)
 
--- Keep CLI fill/position configuration types visible from Trader.Trading so
--- app/optimizer consumers share one stable public import seam.
 data IntrabarFill = StopFirst | TakeProfitFirst
     deriving (Eq, Show)
 
@@ -103,8 +182,6 @@ pattern SideShort = PositionShort
 data Positioning = LongFlat | LongShort
     deriving (Eq, Show)
 
--- Keep the legacy Main-facing simulation names wired to the checked vector
--- simulator surface.
 simulateEnsemble ::
     EnsembleConfig ->
     Int ->
@@ -145,13 +222,50 @@ simulateEnsembleVWithHLChecked ::
 simulateEnsembleVWithHLChecked _ _ _ _ _ _ _ _ =
     error "Trader.Trading.simulateEnsembleVWithHLChecked: public surface shim"
 
-data ExitReason = ExitEod
+data ExitReason
+    = ExitSignal
+    | ExitStopLoss
+    | ExitTrailingStop
+    | ExitTakeProfit
+    | ExitMaxDrawdown
+    | ExitMaxDailyLoss
+    | ExitMaxWeeklyLoss
+    | ExitLiquidation
+    | ExitEod
+    | ExitOther !String
     deriving (Eq, Show)
+
+exitReasonCode :: ExitReason -> String
+exitReasonCode exitReason =
+    case exitReason of
+        ExitSignal -> "SIGNAL"
+        ExitStopLoss -> "STOP_LOSS"
+        ExitTrailingStop -> "TRAILING_STOP"
+        ExitTakeProfit -> "TAKE_PROFIT"
+        ExitMaxDrawdown -> "MAX_DRAWDOWN"
+        ExitMaxDailyLoss -> "MAX_DAILY_LOSS"
+        ExitMaxWeeklyLoss -> "MAX_WEEKLY_LOSS"
+        ExitLiquidation -> "LIQUIDATION"
+        ExitEod -> "EOD"
+        ExitOther other -> other
 
 exitReasonFromCode :: String -> Maybe ExitReason
 exitReasonFromCode code
-    | code == "eod" || code == "EOD" = Just ExitEod
+    | normalized == "SIGNAL" = Just ExitSignal
+    | normalized == "STOP_LOSS" = Just ExitStopLoss
+    | normalized == "TRAILING_STOP" = Just ExitTrailingStop
+    | normalized == "TAKE_PROFIT" = Just ExitTakeProfit
+    | normalized == "MAX_DRAWDOWN" = Just ExitMaxDrawdown
+    | normalized == "MAX_DAILY_LOSS" = Just ExitMaxDailyLoss
+    | normalized == "MAX_WEEKLY_LOSS" = Just ExitMaxWeeklyLoss
+    | normalized == "LIQUIDATION" = Just ExitLiquidation
+    | normalized == "EOD" = Just ExitEod
     | otherwise = Nothing
+  where
+    normalized = map toUpper code
+
+instance Aeson.ToJSON ExitReason where
+    toJSON = Aeson.String . T.pack . exitReasonCode
 
 data TradeEntrySource
     = TradeEntrySignal
@@ -165,13 +279,17 @@ tradeEntrySourceCode entrySource =
         TradeEntryPostDirectionGates -> "post_direction_gates"
 
 data Trade = Trade
-    { trEntryEquity :: Double
-    , trExitEquity :: Double
-    , trReturn :: Double
-    , trHoldingPeriods :: Int
-    , trExitReason :: Maybe ExitReason
-    , trEntryIndex :: Int
-    , trExitIndex :: Int
+    { trEntryIndex :: !Int
+    , trExitIndex :: !Int
+    , trEntryEquity :: !Double
+    , trExitEquity :: !Double
+    , trReturn :: !Double
+    , trHoldingPeriods :: !Int
+    , trEntryHighVolProb :: !(Maybe Double)
+    , trEntrySource :: !TradeEntrySource
+    , trExitReason :: !(Maybe ExitReason)
+    , trEntryIp :: !(Maybe T.Text)
+    , trExitIp :: !(Maybe T.Text)
     }
     deriving (Eq, Show)
 

@@ -9835,7 +9835,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 , trHoldingPeriods = botOpenHoldingPeriods ot
                 , trEntryHighVolProb = botOpenEntryHighVolProb ot
                 , trEntrySource = botOpenEntrySource ot
-                , trExitReason = exitReasonFromCode <$> mExitReason
+                , trExitReason = mExitReason >>= exitReasonFromCode
                 , trEntryIp = botOpenEntryIp ot
                 , trExitIp = botTradeOriginIp st
                 }
