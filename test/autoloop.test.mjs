@@ -637,9 +637,13 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["worktree", "list", "--porcelain"\], \{ trimOutput: false \}\)/);
   assert.match(script, /const worktreeBranches = listWorktreeBranches\(\);/);
+  assert.match(script, /function remoteBranchStillExists\(remoteRef\)/);
+  assert.match(script, /runCommand\("git", \["branch", "-r", "--list", remoteRef\], \{ trimOutput: false \}\)/);
   assert.match(script, /if \(worktreeBranches\.has\(candidate\.shortName\)\) \{/);
   assert.match(script, /skippedWorktreeBranches\.push\(candidate\.shortName\);/);
-  assert.match(script, /runCommand\("git", \["push", "origin", "--delete", candidate\.shortName\], \{ capture: false \}\)/);
+  assert.match(script, /runCommand\("git", \["push", "origin", "--delete", candidate\.shortName\]\)/);
+  assert.match(script, /runCommand\("git", \["fetch", "origin", "--prune"\], \{ capture: false \}\);/);
+  assert.match(script, /if \(!remoteBranchStillExists\(candidate\.remoteRef\)\) \{/);
   assert.match(script, /runCommand\("git", \["branch", "-D", candidate\.shortName\], \{ capture: false \}\)/);
   assert.match(script, /prunedLocalBranches: pruneResult\.prunedLocalBranches/);
   assert.match(script, /prunedRemoteBranches: pruneResult\.prunedRemoteBranches/);
