@@ -12,10 +12,12 @@ module Trader.Formal.Optimization (
 ) where
 
 import Data.Ord (Down (..))
+import qualified Data.Vector as V
 
 import Trader.Duration (positiveFiniteDuration)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
+import Trader.Trading (EnsembleConfig (..))
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
     VolConfGateCell (..),
@@ -65,6 +67,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrTieBreakTotalOrderAfterNormalization :: !Bool
     , fvrTieBreakHysteresisPreference :: !Bool
     , fvrTieBreakSpecMatchesImplementation :: !Bool
+    , fvrOptimizerPublicSurfaceInvariant :: !Bool
     , fvrVolConfCanonicalizationInvariant :: !Bool
     , fvrVolConfMalformedVolMatchesMissing :: !Bool
     , fvrVolConfMalformedConfidenceMatchesWeak :: !Bool
@@ -513,6 +516,7 @@ verifyFormalOptimization =
             , fvrTieBreakHysteresisPreference = tieBreakHysteresisPreference
             , fvrTieBreakSpecMatchesImplementation =
                 all tieBreakMatchesImplementationFor tieBreakPairs
+            , fvrOptimizerPublicSurfaceInvariant = optimizerPublicSurfaceInvariant
             , fvrVolConfCanonicalizationInvariant =
                 all volConfCanonicalizationInvariantFor volConfInputs
             , fvrVolConfMalformedVolMatchesMissing =
@@ -545,6 +549,103 @@ verifyFormalOptimization =
             , fvrKalmanFusionValidEvidenceShrinksVariance =
                 all kalmanFusionValidEvidenceShrinksVarianceFor kalmanFusionInputs
             }
+
+-- Witness the public `EnsembleConfig` record surface that `Trader.Optimization`
+-- relies on for visibility-only cfg/btCfg updates.
+optimizerPublicSurfaceInvariant :: Bool
+optimizerPublicSurfaceInvariant =
+    let base = optimizerPublicSurfaceBaseConfig
+        metaMask0 = Just (V.fromList [True, False, True])
+        openTimes0 = Just (V.fromList [10, 11, 12])
+        openPrices0 = Just (V.fromList [100.0, 101.5, 103.0])
+        flipDisabled =
+            base
+                { ecLstmExitFlipBars = 0
+                , ecLstmExitFlipGraceBars = 0
+                }
+        thresholdCfg =
+            flipDisabled
+                { ecOpenThreshold = 0.02
+                , ecCloseThreshold = 0.01
+                , ecMetaMask = metaMask0
+                }
+        foldCfg =
+            thresholdCfg
+                { ecOpenTimes = openTimes0
+                , ecOpenPrices = openPrices0
+                , ecMetaMask = Nothing
+                }
+     in and
+            [ optimizerSurfacePreservedFields base flipDisabled
+            , optimizerSurfacePreservedFields base thresholdCfg
+            , optimizerSurfacePreservedFields base foldCfg
+            , ecOpenThreshold flipDisabled == ecOpenThreshold base
+            , ecCloseThreshold flipDisabled == ecCloseThreshold base
+            , ecMetaMask flipDisabled == ecMetaMask base
+            , ecOpenTimes thresholdCfg == ecOpenTimes base
+            , ecOpenPrices thresholdCfg == ecOpenPrices base
+            , ecLstmExitFlipBars flipDisabled == 0
+            , ecLstmExitFlipGraceBars flipDisabled == 0
+            , ecOpenThreshold thresholdCfg == 0.02
+            , ecCloseThreshold thresholdCfg == 0.01
+            , ecMetaMask thresholdCfg == metaMask0
+            , ecOpenTimes foldCfg == openTimes0
+            , ecOpenPrices foldCfg == openPrices0
+            , ecMetaMask foldCfg == Nothing
+            ]
+
+optimizerSurfacePreservedFields :: EnsembleConfig -> EnsembleConfig -> Bool
+optimizerSurfacePreservedFields base updated =
+    and
+        [ ecPeriodsPerYear updated == ecPeriodsPerYear base
+        , ecMinEdge updated == ecMinEdge base
+        , ecRouterLookback updated == ecRouterLookback base
+        , ecRouterMinScore updated == ecRouterMinScore base
+        , ecRouterScorePnlWeight updated == ecRouterScorePnlWeight base
+        , ecFee updated == ecFee base
+        , ecFeeFixed updated == ecFeeFixed base
+        , ecFeeMin updated == ecFeeMin base
+        , ecSlippage updated == ecSlippage base
+        , ecSlippageVolMult updated == ecSlippageVolMult base
+        , ecSlippageImpactPower updated == ecSlippageImpactPower base
+        , ecSlippageImpact updated == ecSlippageImpact base
+        , ecSpread updated == ecSpread base
+        , ecSpreadVolMult updated == ecSpreadVolMult base
+        , ecMaxPositionSize updated == ecMaxPositionSize base
+        , ecBlendWeight updated == ecBlendWeight base
+        , ecKalmanZMin updated == ecKalmanZMin base
+        , ecKalmanZMax updated == ecKalmanZMax base
+        ]
+
+optimizerPublicSurfaceBaseConfig :: EnsembleConfig
+optimizerPublicSurfaceBaseConfig =
+    EnsembleConfig
+        { ecPeriodsPerYear = 252
+        , ecOpenThreshold = 0.015
+        , ecCloseThreshold = 0.01
+        , ecMinEdge = 0.001
+        , ecRouterLookback = 8
+        , ecRouterMinScore = 0.55
+        , ecRouterScorePnlWeight = 0.25
+        , ecFee = 0.001
+        , ecFeeFixed = 0
+        , ecFeeMin = 0
+        , ecSlippage = 0.0005
+        , ecSlippageVolMult = 0.1
+        , ecSlippageImpactPower = 1
+        , ecSlippageImpact = 0.01
+        , ecSpread = 0.0002
+        , ecSpreadVolMult = 0.05
+        , ecMaxPositionSize = 1
+        , ecBlendWeight = 0.5
+        , ecKalmanZMin = 0.5
+        , ecKalmanZMax = 2
+        , ecLstmExitFlipBars = 3
+        , ecLstmExitFlipGraceBars = 1
+        , ecMetaMask = Nothing
+        , ecOpenTimes = Nothing
+        , ecOpenPrices = Nothing
+        }
 
 roiViewFromMetrics :: BacktestMetrics -> RoiView
 roiViewFromMetrics m =
