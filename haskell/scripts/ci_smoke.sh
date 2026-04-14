@@ -15,6 +15,114 @@ trader_bin="$(cabal list-bin exe:trader-hs)"
 merge_bin="$(cabal list-bin exe:merge-top-combos)"
 optimize_bin="$(cabal list-bin exe:optimize-equity)"
 
+public_surface_probe="$tmpdir/trading-public-surface-probe.hs"
+cat >"$public_surface_probe" <<'EOF'
+module Main (main) where
+
+import qualified Data.Vector as V
+import Trader.Trading
+    ( BacktestResult
+    , EnsembleConfig
+    , EntryGateState
+    , ExitReason (ExitSignal)
+    , IntrabarFill (StopFirst)
+    , PositionSide (SideLong)
+    , Positioning (LongFlat)
+    , StepMeta
+    , Trade
+    , TradeEntrySource (TradeEntrySignal)
+    , TradingEntryGateInputs
+    , exitReasonFromCode
+    , mkEntryGateState
+    , mkTradingEntryGateInputs
+    , simulateEnsemble
+    , simulateEnsembleVWithHLChecked
+    , simulateEnsembleWithHLChecked
+    , tradeEntrySourceCode
+    )
+
+emptySeries :: V.Vector Double
+emptySeries = V.empty
+
+emptyMeta :: Maybe (V.Vector StepMeta)
+emptyMeta = Nothing
+
+simulateVWitness :: Either String BacktestResult
+simulateVWitness =
+    simulateEnsembleVWithHLChecked
+        undefined
+        0
+        emptySeries
+        emptySeries
+        emptySeries
+        emptySeries
+        emptySeries
+        emptyMeta
+
+simulateCheckedWitness :: Either String BacktestResult
+simulateCheckedWitness =
+    simulateEnsembleWithHLChecked
+        undefined
+        0
+        emptySeries
+        emptySeries
+        emptySeries
+        emptySeries
+        emptySeries
+        emptyMeta
+
+simulateWitness :: BacktestResult
+simulateWitness =
+    simulateEnsemble
+        undefined
+        0
+        emptySeries
+        emptySeries
+        emptySeries
+        emptySeries
+        emptySeries
+        emptyMeta
+
+surfaceTypesWitness ::
+    ( EnsembleConfig -> ()
+    , BacktestResult -> ()
+    , StepMeta -> ()
+    , Trade -> ()
+    , TradingEntryGateInputs -> ()
+    , EntryGateState -> ()
+    )
+surfaceTypesWitness =
+    (const (), const (), const (), const (), const (), const ())
+
+surfaceValuesWitness ::
+    ( IntrabarFill
+    , PositionSide
+    , Positioning
+    , ExitReason
+    , TradeEntrySource
+    , String
+    , Maybe ExitReason
+    )
+surfaceValuesWitness =
+    ( StopFirst
+    , SideLong
+    , LongFlat
+    , ExitSignal
+    , TradeEntrySignal
+    , tradeEntrySourceCode TradeEntrySignal
+    , exitReasonFromCode "SIGNAL"
+    )
+
+entryGateWitness :: EntryGateState
+entryGateWitness = mkEntryGateState (mkTradingEntryGateInputs 0 0 Nothing)
+
+main :: IO ()
+main = pure ()
+EOF
+
+echo "Trader.Trading public surface probe"
+cabal exec ghc -- -fno-code -iapp "$public_surface_probe" >/dev/null
+
 trader_out="$tmpdir/trader-smoke.json"
 "$trader_bin" \
   --data "$repo_root/data/sample_prices.csv" \
