@@ -34,8 +34,6 @@ import Trader.Trading (
     EnsembleConfig (..),
     ExitReason (..),
     PositionSide (..),
-    pattern SideLong,
-    pattern SideShort,
     StepMeta (..),
     Trade (..),
     TradeEntrySource (..),
@@ -53,6 +51,8 @@ import Trader.Trading (
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
+    pattern SideLong,
+    pattern SideShort,
  )
 
 main :: IO ()
