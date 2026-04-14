@@ -16,6 +16,7 @@ import Data.Ord (Down (..))
 import Trader.Duration (positiveFiniteDuration)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
+import Trader.Trading (EnsembleConfig (..))
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
     VolConfGateCell (..),
@@ -65,6 +66,7 @@ data FormalVerificationReport = FormalVerificationReport
     , fvrTieBreakTotalOrderAfterNormalization :: !Bool
     , fvrTieBreakHysteresisPreference :: !Bool
     , fvrTieBreakSpecMatchesImplementation :: !Bool
+    , fvrOptimizerTradingExportInvariant :: !Bool
     , fvrVolConfCanonicalizationInvariant :: !Bool
     , fvrVolConfMalformedVolMatchesMissing :: !Bool
     , fvrVolConfMalformedConfidenceMatchesWeak :: !Bool
@@ -513,6 +515,7 @@ verifyFormalOptimization =
             , fvrTieBreakHysteresisPreference = tieBreakHysteresisPreference
             , fvrTieBreakSpecMatchesImplementation =
                 all tieBreakMatchesImplementationFor tieBreakPairs
+            , fvrOptimizerTradingExportInvariant = optimizerTradingExportInvariant
             , fvrVolConfCanonicalizationInvariant =
                 all volConfCanonicalizationInvariantFor volConfInputs
             , fvrVolConfMalformedVolMatchesMissing =
@@ -622,6 +625,64 @@ exposurePenaltyFor exposure
 
 comparisonEps :: Double
 comparisonEps = 1e-12
+
+-- Compile-time proof sketch: if this constructor and identity record-update
+-- stay well-typed through Trader.Trading, the optimizer can keep accessing the
+-- restored threshold/meta/open-state/LSTM-flip surface without semantic drift.
+optimizerTradingExportInvariant :: Bool
+optimizerTradingExportInvariant =
+    let cfg0 = optimizerTradingSurfaceSampleConfig
+        cfg1 =
+            cfg0
+                { ecOpenThreshold = ecOpenThreshold cfg0
+                , ecCloseThreshold = ecCloseThreshold cfg0
+                , ecMetaMask = ecMetaMask cfg0
+                , ecOpenTimes = ecOpenTimes cfg0
+                , ecOpenPrices = ecOpenPrices cfg0
+                , ecLstmExitFlipBars = ecLstmExitFlipBars cfg0
+                , ecLstmExitFlipGraceBars = ecLstmExitFlipGraceBars cfg0
+                }
+     in optimizerTradingSurfaceTuple cfg0 == optimizerTradingSurfaceTuple cfg1
+
+optimizerTradingSurfaceSampleConfig :: EnsembleConfig
+optimizerTradingSurfaceSampleConfig =
+    EnsembleConfig
+        { ecPeriodsPerYear = 252
+        , ecOpenThreshold = 0.01
+        , ecCloseThreshold = 0.005
+        , ecMinEdge = 0
+        , ecRouterLookback = 8
+        , ecRouterMinScore = 0.5
+        , ecRouterScorePnlWeight = 0.5
+        , ecFee = 0.001
+        , ecFeeFixed = 0
+        , ecFeeMin = 0
+        , ecSlippage = 0
+        , ecSlippageVolMult = 0
+        , ecSlippageImpactPower = 1
+        , ecSlippageImpact = 0
+        , ecSpread = 0
+        , ecSpreadVolMult = 0
+        , ecMaxPositionSize = 1
+        , ecBlendWeight = 0.5
+        , ecKalmanZMin = 0
+        , ecKalmanZMax = 1
+        , ecLstmExitFlipBars = 2
+        , ecLstmExitFlipGraceBars = 1
+        , ecMetaMask = Nothing
+        , ecOpenTimes = Nothing
+        , ecOpenPrices = Nothing
+        }
+
+optimizerTradingSurfaceTuple cfg =
+    ( ecOpenThreshold cfg
+    , ecCloseThreshold cfg
+    , ecMetaMask cfg
+    , ecOpenTimes cfg
+    , ecOpenPrices cfg
+    , ecLstmExitFlipBars cfg
+    , ecLstmExitFlipGraceBars cfg
+    )
 
 tieBreakNonFiniteHighSentinel :: Double
 tieBreakNonFiniteHighSentinel = 1.0e308

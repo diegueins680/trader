@@ -12,6 +12,7 @@ module Trader.Trading (
 ) where
 
 import Data.Maybe (isNothing)
+import qualified Data.Vector as V
 import Trader.SignalGates (
     finiteDouble,
     normalizeSignalEntryEdge,
@@ -23,12 +24,55 @@ import Trader.SignalGates (
 -- Keep the optimizer/reporting simulation surface anchored in Trader.Trading so
 -- the public import seam does not depend on a non-built auxiliary module.
 data EnsembleConfig = EnsembleConfig
+    { ecPeriodsPerYear :: Double
+    , ecOpenThreshold :: Double
+    , ecCloseThreshold :: Double
+    , ecMinEdge :: Double
+    , ecRouterLookback :: Int
+    , ecRouterMinScore :: Double
+    , ecRouterScorePnlWeight :: Double
+    , ecFee :: Double
+    , ecFeeFixed :: Double
+    , ecFeeMin :: Double
+    , ecSlippage :: Double
+    , ecSlippageVolMult :: Double
+    , ecSlippageImpactPower :: Double
+    , ecSlippageImpact :: Double
+    , ecSpread :: Double
+    , ecSpreadVolMult :: Double
+    , ecMaxPositionSize :: Double
+    , ecBlendWeight :: Double
+    , ecKalmanZMin :: Double
+    , ecKalmanZMax :: Double
+    , ecLstmExitFlipBars :: Int
+    , ecLstmExitFlipGraceBars :: Int
+    , ecMetaMask :: Maybe (V.Vector Bool)
+    , ecOpenTimes :: Maybe (V.Vector Double)
+    , ecOpenPrices :: Maybe (V.Vector Double)
+    }
     deriving (Eq, Show)
 
 data StepMeta = StepMeta
+    { smKalmanVar :: Double
+    , smKalmanMean :: Double
+    , smHighVolProb :: Maybe Double
+    , smConformalLo :: Maybe Double
+    , smConformalHi :: Maybe Double
+    , smQuantile10 :: Maybe Double
+    , smQuantile90 :: Maybe Double
+    }
     deriving (Eq, Show)
 
-simulateEnsembleVWithHLChecked :: a
+simulateEnsembleVWithHLChecked ::
+    EnsembleConfig ->
+    Int ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    Either String BacktestResult
 simulateEnsembleVWithHLChecked =
     error "Trader.Trading.simulateEnsembleVWithHLChecked: public surface shim"
 
