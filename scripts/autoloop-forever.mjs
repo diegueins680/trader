@@ -7,6 +7,7 @@ import process from "node:process";
 import { execFileSync, spawn } from "node:child_process";
 import {
   buildBranchMergeCandidates,
+  isAutoloopRecoveryBranch,
   normalizeGitBranchShortName,
   parseGitStatusPaths,
   uniqueStrings,
@@ -404,6 +405,7 @@ function listWorktreeBranches() {
 }
 
 function pruneMergedRefsOnBaseBranch(baseBranch) {
+  runCommand("git", ["worktree", "prune"], { capture: false });
   const localBranches = splitNonEmptyLines(
     runCommand("git", ["branch", "--format=%(refname:short)", "--merged", baseBranch], { trimOutput: false }),
   );
@@ -583,16 +585,41 @@ function runCommand(command, args, opts = {}) {
   }
 }
 
-function pushHeadToBaseBranchWithRetry() {
-  try {
-    runCommand("git", ["push", "origin", `HEAD:refs/heads/${BASE_BRANCH}`], { capture: false });
-    return { pushed: true, retried: false, retrySync: null };
-  } catch {
-    runCommand("git", ["fetch", "origin", "--prune"], { capture: false });
-    const retrySync = syncBaseBranchToOrigin();
-    runCommand("git", ["push", "origin", `HEAD:refs/heads/${BASE_BRANCH}`], { capture: false });
-    return { pushed: true, retried: true, retrySync };
+function sanitizeRecoveryBranchPart(raw, fallback = "snapshot") {
+  const normalized = String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._/-]+/g, "-")
+    .replace(/\/+/g, "/")
+    .replace(/^-+|-+$/g, "")
+    .replace(/\/$/g, "");
+  const flattened = normalized.replace(/\//g, "-");
+  return flattened || fallback;
+}
+
+function buildDirtyRecoveryBranchName(kind, rawLabel = "") {
+  const branchKind = kind === "checkpoint" ? "checkpoint" : "recovery";
+  const basePart = sanitizeRecoveryBranchPart(BASE_BRANCH, "main");
+  const labelPart = sanitizeRecoveryBranchPart(rawLabel, branchKind);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").toLowerCase();
+  return `autoloop/${branchKind}/${basePart}/${labelPart}-${stamp}`;
+}
+
+function pushHeadToRecoveryBranch(branchName) {
+  runCommand("git", ["push", "-u", "origin", `HEAD:refs/heads/${branchName}`], { capture: false });
+  return { pushed: true };
+}
+
+function restoreBaseBranchAfterRecovery(recoveryBranch) {
+  runCommand("git", ["fetch", "origin", "--prune"], { capture: false });
+  runCommand("git", ["checkout", BASE_BRANCH], { capture: false });
+  const baseSync = syncBaseBranchToOrigin();
+  if (recoveryBranch && isAutoloopRecoveryBranch(recoveryBranch)) {
+    try {
+      runCommand("git", ["branch", "-D", recoveryBranch], { capture: false });
+    } catch {}
   }
+  return baseSync;
 }
 
 async function tryAutoSnapshotDirtyCycle() {
@@ -624,37 +651,34 @@ async function tryAutoSnapshotDirtyCycle() {
   }
 
   const commitMessage = `WIP: save failed autoloop cycle ${cycleStatus?.runId || "cycle"}`;
+  const recoveryBranch = buildDirtyRecoveryBranchName("recovery", cycleStatus?.runId || "cycle");
 
   try {
     runCommand("git", ["config", "user.name", "autoloop[bot]"], { capture: false });
     runCommand("git", ["config", "user.email", "autoloop[bot]@users.noreply.github.com"], { capture: false });
+    runCommand("git", ["checkout", "-b", recoveryBranch], { capture: false });
     runCommand("git", ["add", "--", ...dirtyPaths], { capture: false });
     runCommand("git", ["commit", "-m", commitMessage], { capture: false });
     const commit = runCommand("git", ["rev-parse", "HEAD"]);
-    const pushResult = pushHeadToBaseBranchWithRetry();
+    const pushResult = pushHeadToRecoveryBranch(recoveryBranch);
+    const baseSync = restoreBaseBranchAfterRecovery(recoveryBranch);
     await writeJsonFileAtomic(CURRENT_CYCLE_STATUS_FILE, {
       ...(cycleStatus || {}),
-      recoveryBranch: BASE_BRANCH,
-      recoveryMode: "direct-main",
+      recoveryBranch,
+      recoveryMode: "recovery-branch",
       recoveryCommit: commit,
       recoveredDirtyPaths: dirtyPaths,
       recoveredAt: new Date().toISOString(),
       recoveryPushed: pushResult.pushed,
-      recoveryPushRetried: pushResult.retried,
-      recoveryPushRetrySync: pushResult.retrySync,
+      recoveryBaseSync: baseSync,
     });
-    await logRunner(
-      pushResult.retried
-        ? `auto-committed failed dirty cycle directly to ${BASE_BRANCH} (${commit}) after syncing origin/${BASE_BRANCH}`
-        : `auto-committed failed dirty cycle directly to ${BASE_BRANCH} (${commit})`,
-    );
+    await logRunner(`auto-committed failed dirty cycle to ${recoveryBranch} (${commit}) and restored ${BASE_BRANCH}`);
     return {
       recovered: true,
-      branch: BASE_BRANCH,
+      branch: recoveryBranch,
       commit,
       pushed: pushResult.pushed,
-      retried: pushResult.retried,
-      retrySync: pushResult.retrySync,
+      baseSync,
       paths: dirtyPaths,
     };
   } catch (err) {
@@ -686,6 +710,7 @@ async function tryAutoCheckpointDirtyWorktree() {
   if (dirtyPaths.length === 0) return null;
 
   const currentBranch = runCommand("git", ["branch", "--show-current"]) || BASE_BRANCH;
+  const checkpointBranch = buildDirtyRecoveryBranchName("checkpoint", currentBranch || BASE_BRANCH);
   const analysis = analyzeDirtyWorktree(dirtyPaths, currentBranch);
   const commitBody = [
     analysis.summary,
@@ -697,22 +722,19 @@ async function tryAutoCheckpointDirtyWorktree() {
   try {
     runCommand("git", ["config", "user.name", "autoloop[bot]"], { capture: false });
     runCommand("git", ["config", "user.email", "autoloop[bot]@users.noreply.github.com"], { capture: false });
+    runCommand("git", ["checkout", "-b", checkpointBranch], { capture: false });
     runCommand("git", ["add", "-A"], { capture: false });
     runCommand("git", ["commit", "-m", analysis.commitMessage, "-m", commitBody], { capture: false });
     const commit = runCommand("git", ["rev-parse", "HEAD"]);
-    const pushResult = pushHeadToBaseBranchWithRetry();
-    await logRunner(
-      pushResult.retried
-        ? `auto-committed dirty worktree directly to ${BASE_BRANCH} (${commit}) after syncing origin/${BASE_BRANCH}`
-        : `auto-committed dirty worktree directly to ${BASE_BRANCH} (${commit})`,
-    );
+    const pushResult = pushHeadToRecoveryBranch(checkpointBranch);
+    const baseSync = restoreBaseBranchAfterRecovery(checkpointBranch);
+    await logRunner(`auto-committed dirty worktree to ${checkpointBranch} (${commit}) and restored ${BASE_BRANCH}`);
     return {
       recovered: true,
-      branch: BASE_BRANCH,
+      branch: checkpointBranch,
       commit,
       pushed: pushResult.pushed,
-      retried: pushResult.retried,
-      retrySync: pushResult.retrySync,
+      baseSync,
       paths: dirtyPaths,
       commitMessage: analysis.commitMessage,
       reason: analysis.summary,

@@ -9,6 +9,7 @@
 
 ## Autoloop
 - The repo autoloop now treats merged local branches that are still attached to Git worktrees as prune skips instead of blocking the forever runner before any bounded repair cycle starts.
+- The forever runner now prunes stale `git worktree` metadata before merged-ref cleanup, and it saves failed dirty-cycle snapshots onto dedicated `autoloop/recovery/*` or `autoloop/checkpoint/*` branches instead of writing those `WIP` rescue commits directly onto `main`.
 - The bounded autoloop now includes `hlint app test bench` in its safe verification set and can apply direct `Found:` to `Perhaps:` HLint replacements for editable Haskell files when CI fails on simple HLint-only suggestions.
 - The GitHub-hosted autoloop now requires `AUTOLOOP_PUSH_TOKEN`; it no longer falls back to `github.token`, and it no longer skips post-push CI waiting. That keeps Actions polling and failed-log ingestion mandatory after each autoloop push.
 - The GitHub-hosted autoloop now installs a pinned prebuilt `fourmolu` release binary instead of compiling `fourmolu` from source on every run, which removes a slow bootstrap step before the bounded loop can start.

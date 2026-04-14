@@ -12,6 +12,7 @@ import {
   clampText,
   extractCodexExecLastMessage,
   extractResponseText,
+  isAutoloopRecoveryBranch,
   normalizeGitBranchShortName,
   normalizeIdeaSelection,
   normalizePatchPlan,
@@ -76,6 +77,35 @@ test("extractCodexExecLastMessage rejects streams without a completed agent mess
     () => extractCodexExecLastMessage('{"type":"turn.started"}\n{"type":"turn.completed"}'),
     /no completed agent message/i,
   );
+});
+
+test("buildBranchMergeCandidates ignores autoloop recovery branches", () => {
+  const candidates = buildBranchMergeCandidates({
+    baseBranch: "main",
+    localBranches: [
+      "main",
+      "feature/live-fix",
+      "autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      "autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+    ],
+    remoteBranches: [
+      "origin/main",
+      "origin/feature/live-fix",
+      "origin/autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+    ],
+  });
+
+  assert.deepEqual(candidates, [
+    {
+      shortName: "feature/live-fix",
+      ref: "feature/live-fix",
+      localRef: "feature/live-fix",
+      remoteRef: "origin/feature/live-fix",
+    },
+  ]);
+  assert.equal(isAutoloopRecoveryBranch("refs/heads/autoloop/recovery/main/cycle-41"), true);
+  assert.equal(isAutoloopRecoveryBranch("origin/autoloop/checkpoint/main/main-2026"), true);
+  assert.equal(isAutoloopRecoveryBranch("feature/live-fix"), false);
 });
 
 test("parseJsonResponse rejects invalid JSON", () => {
@@ -563,18 +593,22 @@ test("autoloop forever script auto-snapshots recoverable dirty cycles before blo
   assert.match(script, /const dirtyRecovery = await tryAutoSnapshotDirtyCycle\(\);/);
   assert.match(script, /const dirtyCheckpoint = await tryAutoCheckpointDirtyWorktree\(\);/);
   assert.match(script, /runCommand\("git", \["status", "--porcelain"\], \{ trimOutput: false \}\)/);
-  assert.match(script, /function pushHeadToBaseBranchWithRetry\(\)/);
-  assert.match(script, /runCommand\("git", \["push", "origin", `HEAD:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
+  assert.match(script, /function buildDirtyRecoveryBranchName\(kind, rawLabel = ""\)/);
+  assert.match(script, /function pushHeadToRecoveryBranch\(branchName\)/);
+  assert.match(script, /function restoreBaseBranchAfterRecovery\(recoveryBranch\)/);
+  assert.match(script, /runCommand\("git", \["push", "-u", "origin", `HEAD:refs\/heads\/\$\{branchName\}`\], \{ capture: false \}\)/);
+  assert.match(script, /runCommand\("git", \["checkout", "-b", recoveryBranch\], \{ capture: false \}\)/);
+  assert.match(script, /runCommand\("git", \["checkout", "-b", checkpointBranch\], \{ capture: false \}\)/);
   assert.match(script, /cycle [^`]*recovery=\$\{dirtyRecovery\?\.recovered \? dirtyRecovery\.branch : "none"\}/);
   assert.match(script, /cycleStatus\?\.phase !== "error" \|\| changedPaths\.length === 0/);
   assert.match(script, /dirty worktree does not exactly match the last failed cycle changedPaths/);
-  assert.match(script, /recoveryBranch: BASE_BRANCH/);
-  assert.match(script, /recoveryMode: "direct-main"/);
-  assert.match(script, /auto-committed failed dirty cycle directly to/);
+  assert.match(script, /recoveryBranch,\s*recoveryMode: "recovery-branch"/);
+  assert.match(script, /auto-committed failed dirty cycle to/);
   assert.match(script, /recoveryPushed: pushResult\.pushed/);
-  assert.match(script, /recoveryPushRetried: pushResult\.retried/);
-  assert.match(script, /auto-committed dirty worktree directly to/);
-  assert.match(script, /retried: pushResult\.retried/);
+  assert.match(script, /recoveryBaseSync: baseSync/);
+  assert.match(script, /auto-committed dirty worktree to/);
+  assert.match(script, /branch: checkpointBranch/);
+  assert.match(script, /baseSync,/);
 });
 
 test("autoloop forever script reconciles every unmerged branch onto main before bounded cycles", async () => {
@@ -598,6 +632,7 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /runCommand\("git", \["commit", "-m", conflictMessage\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["push", "origin", `\$\{BASE_BRANCH\}:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
   assert.match(script, /const pruneResult = pruneMergedRefsOnBaseBranch\(BASE_BRANCH\);/);
+  assert.match(script, /runCommand\("git", \["worktree", "prune"\], \{ capture: false \}\);/);
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["worktree", "list", "--porcelain"\], \{ trimOutput: false \}\)/);
