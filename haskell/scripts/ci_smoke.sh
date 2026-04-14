@@ -11,6 +11,20 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 cd "$haskell_dir"
 
+public_surface_smoke="$tmpdir/public-surface-smoke.hs"
+cat >"$public_surface_smoke" <<'EOF'
+import Control.Monad (unless)
+import Trader.Formal.Optimization (fvrOptimizerPublicSurfaceInvariant, verifyFormalOptimization)
+
+main :: IO ()
+main =
+    unless
+        (fvrOptimizerPublicSurfaceInvariant verifyFormalOptimization)
+        (ioError (userError "Trader.Trading.simulateEnsembleVWithHLChecked: public surface shim"))
+EOF
+
+cabal exec runghc -- -iapp "$public_surface_smoke"
+
 trader_bin="$(cabal list-bin exe:trader-hs)"
 merge_bin="$(cabal list-bin exe:merge-top-combos)"
 optimize_bin="$(cabal list-bin exe:optimize-equity)"

@@ -21,11 +21,16 @@ import qualified Data.Vector as V
 import Trader.Duration (positiveFiniteDuration)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
+import Trader.SignalGates (
+    signalEntryHeadroomOk,
+    signalEntryHeadroomThresholdCap,
+ )
 import Trader.Trading (
     EnsembleConfig (..),
     IntrabarFill (..),
     PositionSide (..),
     Positioning (..),
+    simulateEnsembleVWithHLChecked,
  )
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
@@ -596,7 +601,15 @@ positioningSurfaceCode positioning =
         LongFlat -> "long-flat"
         LongShort -> "long-short"
 
--- Witness the public `EnsembleConfig` record surface that `Trader.Optimization`
+-- Visibility-only public-surface repair: the checked vector/HL shim must stay
+-- reachable through `Trader.Trading`, but this witness only sequences the
+-- symbol so it cannot change candidate generation or fresh-entry gating.
+tradingCheckedSimulatorPublicSurfaceInvariant :: Bool
+tradingCheckedSimulatorPublicSurfaceInvariant =
+    simulateEnsembleVWithHLChecked `seq` True
+
+-- Witness the public `EnsembleConfig` record surface, checked simulator shim,
+-- and optimizer-facing threshold-cap boundary that `Trader.Optimization`
 -- relies on for visibility-only cfg/btCfg updates. Missing `ecMetaMask` must
 -- stay represented as `Nothing` so fold handling remains fail-closed, and the
 -- legacy hold/cooldown/drawdown knobs must remain visible without changing the
@@ -604,6 +617,7 @@ positioningSurfaceCode positioning =
 optimizerPublicSurfaceInvariant :: Bool
 optimizerPublicSurfaceInvariant =
     let base = optimizerPublicSurfaceBaseConfig
+        headroomCap = signalEntryHeadroomThresholdCap 0.03
         compatibilityCfg =
             base
                 { ecMinHoldBars = 2
@@ -631,12 +645,12 @@ optimizerPublicSurfaceInvariant =
                 , ecOpenPrices = openPrices0
                 , ecMetaMask = Nothing
                 }
-     in -- The lint-driven rewrite from equality-to-`Nothing` to `isNothing`
-        -- is extensional for the optimizer surface exercised below:
-        -- `thresholdCfg` keeps a concrete mask, while `foldCfg` witnesses the
-        -- absent-mask fold case that drives admissibility and search.
-        and
+     in and
             [ tradingCliSurfaceInvariant
+            , tradingCheckedSimulatorPublicSurfaceInvariant
+            , abs (headroomCap - 0.02) <= comparisonEps
+            , signalEntryHeadroomOk (max 0 (headroomCap - comparisonEps)) (Just 0.03)
+            , not (signalEntryHeadroomOk (headroomCap + 1.0e-4) (Just 0.03))
             , optimizerCompatibilityFieldsNeutral base
             , optimizerCompatibilityFieldsNeutral flipDisabled
             , optimizerCompatibilityFieldsNeutral thresholdCfg
