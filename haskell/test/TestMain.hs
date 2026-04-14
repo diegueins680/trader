@@ -53,8 +53,6 @@ import Trader.Trading (
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
-    pattern SideLong,
-    pattern SideShort,
  )
 
 main :: IO ()
@@ -104,6 +102,10 @@ sampleEnsembleConfig =
         , ecStopLossVolMult = 0
         , ecTakeProfitVolMult = 0
         , ecTrailingStopVolMult = 0
+        , ecMinHoldBars = 0
+        , ecCooldownBars = 0
+        , ecMaxHoldBars = 0
+        , ecMaxDrawdown = 0
         , ecMaxPositionSize = 1
         , ecBlendWeight = 0.5
         , ecKalmanZMin = -1
@@ -140,6 +142,10 @@ optimizerPublicSurfaceWitnessConfig =
         , ecStopLossVolMult = 0
         , ecTakeProfitVolMult = 0
         , ecTrailingStopVolMult = 0
+        , ecMinHoldBars = 0
+        , ecCooldownBars = 0
+        , ecMaxHoldBars = 0
+        , ecMaxDrawdown = 0
         , ecMaxPositionSize = 1
         , ecBlendWeight = 0.5
         , ecKalmanZMin = 0.5
@@ -159,6 +165,10 @@ optimizerRiskDefaultsNeutral cfg =
         && ecStopLossVolMult cfg == 0
         && ecTakeProfitVolMult cfg == 0
         && ecTrailingStopVolMult cfg == 0
+        && ecMinHoldBars cfg == 0
+        && ecCooldownBars cfg == 0
+        && ecMaxHoldBars cfg == 0
+        && ecMaxDrawdown cfg == 0
 
 -- Direct SignalGates witness for the restored fee/headroom facade: the zero-fee
 -- boundary and the fee-aware boundary stay admissible, strict-below rejection
@@ -520,11 +530,12 @@ testSignalGatesPublicSurfaceRegression = do
         )
 
 -- Formal public-surface invariant for the Main-facing Trader.Trading import
--- seam: a downstream module can still case-analyze the legacy SideLong/SideShort
--- constructors, read and record-update Trade entry/exit indices, record-update
--- the EnsembleConfig risk knobs, and reach the checked simulation entrypoints.
--- Any future export narrowing should therefore fail in tests before trader-hs or
--- optimize-equity reaches a later CI build failure.
+-- seam: a downstream module importing `PositionSide(..)` can still case-analyze
+-- the legacy SideLong/SideShort constructors, read and record-update Trade
+-- entry/exit indices, record-update the EnsembleConfig compatibility/risk
+-- knobs, and reach the checked simulation entrypoints. Any future export
+-- narrowing should therefore fail in tests before trader-hs or optimize-equity
+-- reaches a later CI build failure.
 testTradingPublicSurfaceRegression :: IO ()
 testTradingPublicSurfaceRegression = do
     let positionSideCode side =
@@ -547,8 +558,15 @@ testTradingPublicSurfaceRegression = do
                 { trEntryIndex = trEntryIndex indexedTrade - 2
                 , trExitIndex = trExitIndex indexedTrade - 2
                 }
-        riskConfigured =
+        compatibilityConfigured =
             sampleEnsembleConfig
+                { ecMinHoldBars = 3
+                , ecCooldownBars = 2
+                , ecMaxHoldBars = 12
+                , ecMaxDrawdown = 0.15
+                }
+        riskConfigured =
+            compatibilityConfigured
                 { ecStopLoss = 0.01
                 , ecTakeProfit = 0.03
                 , ecTrailingStop = 0.02
@@ -570,6 +588,10 @@ testTradingPublicSurfaceRegression = do
             && positionSides == [PositionLong, PositionShort]
             && trEntryIndex shiftedTrade == 5
             && trExitIndex shiftedTrade == 7
+            && ecMinHoldBars riskConfigured == 3
+            && ecCooldownBars riskConfigured == 2
+            && ecMaxHoldBars riskConfigured == 12
+            && ecMaxDrawdown riskConfigured == 0.15
             && ecStopLoss riskConfigured == 0.01
             && ecTakeProfit riskConfigured == 0.03
             && ecTrailingStop riskConfigured == 0.02
@@ -586,13 +608,20 @@ testTradingPublicSurfaceRegression = do
 -- Public-interface invariant for optimizer wiring: Trader.Optimization must keep
 -- importing the canonical headroom-cap helper from Trader.SignalGates and the
 -- restored Main-facing checked simulation surface from Trader.Trading without
--- any semantic adapter in between. This bounded regression also carries a total
--- optimizer-facing `EnsembleConfig` witness so new strict risk fields fail here
--- until the neutral baseline is updated.
+-- any semantic adapter in between. This bounded regression also carries both a
+-- total neutral optimizer witness and a compatibility-field witness so any
+-- future export narrowing or unintended semantic coupling fails here first.
 testOptimizerPublicSurfaceRegression :: IO ()
 testOptimizerPublicSurfaceRegression = do
     let headroomCap = signalEntryHeadroomThresholdCap 0.03
         base = optimizerPublicSurfaceWitnessConfig
+        compatibilityCfg =
+            base
+                { ecMinHoldBars = 2
+                , ecCooldownBars = 1
+                , ecMaxHoldBars = 9
+                , ecMaxDrawdown = 0.12
+                }
         metaMask0 = Just (V.fromList [True, False, True])
         openTimes0 = Just (V.fromList [10, 11, 12])
         openPrices0 = Just (V.fromList [100.0, 101.5, 103.0])
@@ -624,6 +653,15 @@ testOptimizerPublicSurfaceRegression = do
             && optimizerRiskDefaultsNeutral base
             && optimizerRiskDefaultsNeutral thresholdCfg
             && optimizerRiskDefaultsNeutral foldCfg
+            && ecMinHoldBars compatibilityCfg == 2
+            && ecCooldownBars compatibilityCfg == 1
+            && ecMaxHoldBars compatibilityCfg == 9
+            && ecMaxDrawdown compatibilityCfg == 0.12
+            && ecOpenThreshold compatibilityCfg == ecOpenThreshold base
+            && ecCloseThreshold compatibilityCfg == ecCloseThreshold base
+            && ecMetaMask compatibilityCfg == ecMetaMask base
+            && ecOpenTimes compatibilityCfg == ecOpenTimes base
+            && ecOpenPrices compatibilityCfg == ecOpenPrices base
             && ecOpenThreshold thresholdCfg == 0.02
             && ecCloseThreshold thresholdCfg == 0.01
             && ecMetaMask thresholdCfg == metaMask0

@@ -21,7 +21,12 @@ import qualified Data.Vector as V
 import Trader.Duration (positiveFiniteDuration)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
-import Trader.Trading (EnsembleConfig (..), IntrabarFill (..), Positioning (..))
+import Trader.Trading (
+    EnsembleConfig (..),
+    IntrabarFill (..),
+    PositionSide (..),
+    Positioning (..),
+ )
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
     VolConfGateCell (..),
@@ -560,15 +565,24 @@ verifyFormalOptimization =
 
 -- Importing these constructors above makes the formal proof module fail at
 -- compile time if `Trader.Trading` narrows its CLI-facing surface again.
--- The value-level checks keep the stable constructor contract explicit.
+-- The value-level checks keep the stable constructor contract explicit,
+-- including the bundled legacy `SideLong`/`SideShort` import path.
 tradingCliSurfaceInvariant :: Bool
 tradingCliSurfaceInvariant =
     and
-        [ intrabarFillSurfaceCode StopFirst == "stop-first"
+        [ positionSideSurfaceCode SideLong == "long"
+        , positionSideSurfaceCode SideShort == "short"
+        , intrabarFillSurfaceCode StopFirst == "stop-first"
         , intrabarFillSurfaceCode TakeProfitFirst == "take-profit-first"
         , positioningSurfaceCode LongFlat == "long-flat"
         , positioningSurfaceCode LongShort == "long-short"
         ]
+
+positionSideSurfaceCode :: PositionSide -> String
+positionSideSurfaceCode side =
+    case side of
+        SideLong -> "long"
+        SideShort -> "short"
 
 intrabarFillSurfaceCode :: IntrabarFill -> String
 intrabarFillSurfaceCode intrabarFill =
@@ -584,10 +598,19 @@ positioningSurfaceCode positioning =
 
 -- Witness the public `EnsembleConfig` record surface that `Trader.Optimization`
 -- relies on for visibility-only cfg/btCfg updates. Missing `ecMetaMask` must
--- stay represented as `Nothing` so fold handling remains fail-closed.
+-- stay represented as `Nothing` so fold handling remains fail-closed, and the
+-- legacy hold/cooldown/drawdown knobs must remain visible without changing the
+-- optimizer's active scoring inputs.
 optimizerPublicSurfaceInvariant :: Bool
 optimizerPublicSurfaceInvariant =
     let base = optimizerPublicSurfaceBaseConfig
+        compatibilityCfg =
+            base
+                { ecMinHoldBars = 2
+                , ecCooldownBars = 1
+                , ecMaxHoldBars = 9
+                , ecMaxDrawdown = 0.12
+                }
         metaMask0 = Just (V.fromList [True, False, True])
         openTimes0 = Just (V.fromList [10, 11, 12])
         openPrices0 = Just (V.fromList [100.0, 101.5, 103.0])
@@ -614,9 +637,25 @@ optimizerPublicSurfaceInvariant =
         -- absent-mask fold case that drives admissibility and search.
         and
             [ tradingCliSurfaceInvariant
+            , optimizerCompatibilityFieldsNeutral base
+            , optimizerCompatibilityFieldsNeutral flipDisabled
+            , optimizerCompatibilityFieldsNeutral thresholdCfg
+            , optimizerCompatibilityFieldsNeutral foldCfg
+            , optimizerSurfacePreservedFields base compatibilityCfg
             , optimizerSurfacePreservedFields base flipDisabled
             , optimizerSurfacePreservedFields base thresholdCfg
             , optimizerSurfacePreservedFields base foldCfg
+            , ecMinHoldBars compatibilityCfg == 2
+            , ecCooldownBars compatibilityCfg == 1
+            , ecMaxHoldBars compatibilityCfg == 9
+            , ecMaxDrawdown compatibilityCfg == 0.12
+            , ecOpenThreshold compatibilityCfg == ecOpenThreshold base
+            , ecCloseThreshold compatibilityCfg == ecCloseThreshold base
+            , ecLstmExitFlipBars compatibilityCfg == ecLstmExitFlipBars base
+            , ecLstmExitFlipGraceBars compatibilityCfg == ecLstmExitFlipGraceBars base
+            , ecMetaMask compatibilityCfg == ecMetaMask base
+            , ecOpenTimes compatibilityCfg == ecOpenTimes base
+            , ecOpenPrices compatibilityCfg == ecOpenPrices base
             , ecOpenThreshold flipDisabled == ecOpenThreshold base
             , ecCloseThreshold flipDisabled == ecCloseThreshold base
             , ecMetaMask flipDisabled == ecMetaMask base
@@ -631,6 +670,13 @@ optimizerPublicSurfaceInvariant =
             , ecOpenPrices foldCfg == openPrices0
             , isNothing (ecMetaMask foldCfg)
             ]
+
+optimizerCompatibilityFieldsNeutral :: EnsembleConfig -> Bool
+optimizerCompatibilityFieldsNeutral cfg =
+    ecMinHoldBars cfg == 0
+        && ecCooldownBars cfg == 0
+        && ecMaxHoldBars cfg == 0
+        && ecMaxDrawdown cfg == 0
 
 optimizerSurfacePreservedFields :: EnsembleConfig -> EnsembleConfig -> Bool
 optimizerSurfacePreservedFields base updated =
@@ -686,6 +732,10 @@ optimizerPublicSurfaceBaseConfig =
         , ecStopLossVolMult = 0
         , ecTakeProfitVolMult = 0
         , ecTrailingStopVolMult = 0
+        , ecMinHoldBars = 0
+        , ecCooldownBars = 0
+        , ecMaxHoldBars = 0
+        , ecMaxDrawdown = 0
         , ecMaxPositionSize = 1
         , ecBlendWeight = 0.5
         , ecKalmanZMin = 0.5

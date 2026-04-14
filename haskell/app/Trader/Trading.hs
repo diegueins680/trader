@@ -5,9 +5,7 @@ module Trader.Trading (
     EnsembleConfig (..),
     StepMeta (..),
     IntrabarFill (..),
-    PositionSide (..),
-    pattern SideLong,
-    pattern SideShort,
+    PositionSide (PositionLong, PositionShort, SideLong, SideShort),
     Positioning (..),
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
@@ -58,6 +56,11 @@ data EnsembleConfig = EnsembleConfig
     , ecStopLossVolMult :: !Double
     , ecTakeProfitVolMult :: !Double
     , ecTrailingStopVolMult :: !Double
+    -- Compatibility-only knobs retained for Main/optimizer callers.
+    , ecMinHoldBars :: !Int
+    , ecCooldownBars :: !Int
+    , ecMaxHoldBars :: !Int
+    , ecMaxDrawdown :: !Double
     , ecMaxPositionSize :: !Double
     , ecBlendWeight :: !Double
     , ecKalmanZMin :: !Double
