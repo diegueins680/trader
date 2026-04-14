@@ -269,20 +269,24 @@ export function isAutoloopRecoveryBranch(rawBranch) {
   return shortName.startsWith("autoloop/recovery/") || shortName.startsWith("autoloop/checkpoint/");
 }
 
-export function buildBranchMergeCandidates({ localBranches = [], remoteBranches = [], baseBranch = "main" } = {}) {
+export function buildBranchMergeCandidates(
+  { localBranches = [], remoteBranches = [], baseBranch = "main", includeRecoveryBranches = false } = {},
+) {
   const base = normalizeGitBranchShortName(baseBranch || "main");
   const localByShortName = new Map();
   const remoteByShortName = new Map();
 
   for (const branch of localBranches) {
     const shortName = normalizeGitBranchShortName(branch);
-    if (!shortName || shortName === base || isAutoloopRecoveryBranch(shortName)) continue;
+    if (!shortName || shortName === base) continue;
+    if (!includeRecoveryBranches && isAutoloopRecoveryBranch(shortName)) continue;
     localByShortName.set(shortName, String(branch).trim());
   }
 
   for (const branch of remoteBranches) {
     const shortName = normalizeGitBranchShortName(branch);
-    if (!shortName || shortName === base || isAutoloopRecoveryBranch(shortName)) continue;
+    if (!shortName || shortName === base) continue;
+    if (!includeRecoveryBranches && isAutoloopRecoveryBranch(shortName)) continue;
     remoteByShortName.set(shortName, String(branch).trim());
   }
 

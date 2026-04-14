@@ -301,9 +301,12 @@ function mergeRefOntoBaseBranch(branchRef, shortName = normalizeGitBranchShortNa
   const headBefore = runCommand("git", ["rev-parse", "HEAD"]);
   const mergeMessage = buildMergeCommitMessage(shortName, branchRef);
   const conflictMessage = buildConflictResolutionCommitMessage(shortName, branchRef);
+  const mergeArgs = isAutoloopRecoveryBranch(shortName)
+    ? ["merge", "-s", "ours", "--no-ff", "-m", mergeMessage, branchRef]
+    : ["merge", "--no-ff", "-m", mergeMessage, branchRef];
 
   try {
-    runCommand("git", ["merge", "--no-ff", "-m", mergeMessage, branchRef], { capture: false });
+    runCommand("git", mergeArgs, { capture: false });
   } catch (err) {
     const conflicts = listUnmergedConflictPaths();
     if (conflicts.length === 0) throw err;
@@ -412,7 +415,12 @@ function pruneMergedRefsOnBaseBranch(baseBranch) {
   const remoteBranches = splitNonEmptyLines(
     runCommand("git", ["branch", "-r", "--format=%(refname:short)", "--merged", baseBranch], { trimOutput: false }),
   );
-  const candidates = buildBranchMergeCandidates({ localBranches, remoteBranches, baseBranch });
+  const candidates = buildBranchMergeCandidates({
+    localBranches,
+    remoteBranches,
+    baseBranch,
+    includeRecoveryBranches: true,
+  });
   const worktreeBranches = listWorktreeBranches();
   const prunedLocalBranches = [];
   const prunedRemoteBranches = [];
@@ -479,7 +487,12 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
     const remoteBranches = splitNonEmptyLines(
       runCommand("git", ["branch", "-r", "--format=%(refname:short)", "--no-merged", BASE_BRANCH], { trimOutput: false }),
     );
-    const candidates = buildBranchMergeCandidates({ localBranches, remoteBranches, baseBranch: BASE_BRANCH });
+    const candidates = buildBranchMergeCandidates({
+      localBranches,
+      remoteBranches,
+      baseBranch: BASE_BRANCH,
+      includeRecoveryBranches: true,
+    });
 
     const mergedBranches = [];
     const conflictResolvedBranches = [];
