@@ -51,6 +51,7 @@ import Trader.Trading (
     needsEntry,
     roundTripFeeFloor,
     simulateEnsemble,
+    simulateEnsembleVWithHLChecked,
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
  )
@@ -721,10 +722,11 @@ testTradingPublicSurfaceRegression = do
 
 -- Public-interface invariant for optimizer wiring: Trader.Optimization must keep
 -- importing the canonical headroom-cap helper from Trader.SignalGates and the
--- restored Main-facing checked simulation surface from Trader.Trading without
--- any semantic adapter in between. This bounded regression also carries both a
--- total neutral optimizer witness and a compatibility-field witness so any
--- future export narrowing or unintended semantic coupling fails here first.
+-- restored Main-facing checked simulation surface from Trader.Trading,
+-- including the vector public seam, without any semantic adapter in between.
+-- This bounded regression also carries both a total neutral optimizer witness
+-- and a compatibility-field witness so any future export narrowing or
+-- unintended semantic coupling fails here first.
 testOptimizerPublicSurfaceRegression :: IO ()
 testOptimizerPublicSurfaceRegression = do
     let headroomCap = signalEntryHeadroomThresholdCap 0.03
@@ -762,11 +764,23 @@ testOptimizerPublicSurfaceRegression = do
             Maybe (V.Vector StepMeta) ->
             Either String BacktestResult
         simulateEnsembleWithHLChecked0 = simulateEnsembleWithHLChecked
+        simulateEnsembleVWithHLChecked0 ::
+            EnsembleConfig ->
+            Int ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            Maybe (V.Vector StepMeta) ->
+            Either String BacktestResult
+        simulateEnsembleVWithHLChecked0 = simulateEnsembleVWithHLChecked
         optimizerSurfaceReachable =
             case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
                 (Nothing, Nothing) ->
                     signalEntryHeadroomThresholdCap 0.03 `seq`
-                        (simulateEnsembleWithHLChecked0 `seq` True)
+                        (simulateEnsembleWithHLChecked0 `seq`
+                            (simulateEnsembleVWithHLChecked0 `seq` True))
                 _ -> False
     assert
         "optimizer-facing public symbols stay importable and the total neutral-risk witness remains explicit"
