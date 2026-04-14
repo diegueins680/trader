@@ -25,24 +25,30 @@ import Trader.SignalGates (
     signalMetaLabelOk,
     signalMtfConsensusCheck,
     signalRegimeEdgeOk,
+    signalRunPostDirectionGates,
  )
 import Trader.Trading (
     BacktestResult (..),
     EnsembleConfig (..),
     ExitReason (..),
+    PositionSide (..),
     StepMeta (..),
     Trade (..),
+    TradeEntrySource (..),
     desiredSide1,
     edgeHeadroomOk,
     edgeSpikeOk,
     entryEdge,
     entryGatesOk,
+    exitReasonFromCode,
     feeBufferOk,
     mkEntryGateState,
     mkTradingEntryGateInputs,
     needsEntry,
     roundTripFeeFloor,
-    simulateEnsembleVWithHLChecked,
+    simulateEnsemble,
+    simulateEnsembleWithHLChecked,
+    tradeEntrySourceCode,
  )
 
 main :: IO ()
@@ -52,6 +58,7 @@ main = do
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
     testSignalGatesPublicSurfaceRegression
+    testTradingPublicSurfaceRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
     testOptimizerActivityCountInvariant
@@ -383,9 +390,10 @@ testSignalGateEntryFeeBufferFailsClosed = do
         )
 
 -- Public-surface proof obligation for the restored Main import seam: the
--- compatibility names remain importable from Trader.SignalGates, their legacy
--- constructors stay reachable, and the restored veto helpers default to
--- fail-closed results even when exercised through small bounded call shapes.
+-- compatibility names remain importable from Trader.SignalGates, including
+-- signalRunPostDirectionGates, their legacy constructors stay reachable, and
+-- the restored veto helpers default to fail-closed results even when exercised
+-- through small bounded call shapes.
 testSignalGatesPublicSurfaceRegression :: IO ()
 testSignalGatesPublicSurfaceRegression = do
     let directionalitySnapshot0 = signalDirectionalitySnapshot :: DirectionalitySnapshot
@@ -402,6 +410,8 @@ testSignalGatesPublicSurfaceRegression = do
         mtfConsensusCheck3 = signalMtfConsensusCheck () () () :: Bool
         regimeEdgeOk0 = signalRegimeEdgeOk :: Bool
         regimeEdgeOk2 = signalRegimeEdgeOk () () :: Bool
+        postDirectionGates0 = signalRunPostDirectionGates :: Bool
+        postDirectionGates2 = signalRunPostDirectionGates () () :: Bool
     assert
         "Main-facing Trader.SignalGates symbols stay importable and compatibility shims remain fail closed"
         ( directionalitySnapshot0 == DirectionalitySnapshot
@@ -418,13 +428,40 @@ testSignalGatesPublicSurfaceRegression = do
             && not mtfConsensusCheck3
             && not regimeEdgeOk0
             && not regimeEdgeOk2
+            && not postDirectionGates0
+            && not postDirectionGates2
+        )
+
+-- Formal public-surface invariant for the Main-facing Trader.Trading import
+-- seam: the stable position and entry-source types, code translators, and both
+-- simulation entrypoints stay reachable from tests so any future export
+-- narrowing fails during test/build before trader-hs compilation.
+testTradingPublicSurfaceRegression :: IO ()
+testTradingPublicSurfaceRegression = do
+    let positionSides = [PositionLong, PositionShort]
+        signalSource = TradeEntrySignal
+        postDirectionSource = TradeEntryPostDirectionGates
+        tradingSurfaceReachable =
+            case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
+                (Nothing, Nothing) ->
+                    simulateEnsemble `seq`
+                        (simulateEnsembleWithHLChecked `seq` True)
+                _ -> False
+    assert
+        "Main-facing Trader.Trading symbols stay importable and keep stable code witnesses"
+        ( positionSides == [PositionLong, PositionShort]
+            && tradeEntrySourceCode signalSource == "signal"
+            && tradeEntrySourceCode postDirectionSource == "post_direction_gates"
+            && exitReasonFromCode "eod" == Just ExitEod
+            && isNothing (exitReasonFromCode "unknown")
+            && tradingSurfaceReachable
         )
 
 -- Public-interface invariant for optimizer wiring: Trader.Optimization must keep
 -- importing the canonical headroom-cap helper from Trader.SignalGates and the
--- shared simulation surface from Trader.Trading without any semantic adapter in
--- between. This bounded regression references those names through the public
--- modules so export narrowing fails in tests before optimize-equity CI build
+-- restored Main-facing checked simulation surface from Trader.Trading without
+-- any semantic adapter in between. This bounded regression references those names
+-- through the public modules so export narrowing fails in tests before optimize-equity CI build
 -- time, while also witnessing that the cap remains the headroom boundary for a
 -- finite edge sample.
 testOptimizerPublicSurfaceRegression :: IO ()
@@ -434,7 +471,7 @@ testOptimizerPublicSurfaceRegression = do
             case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
                 (Nothing, Nothing) ->
                     signalEntryHeadroomThresholdCap 0.03 `seq`
-                        (simulateEnsembleVWithHLChecked `seq` True)
+                        (simulateEnsembleWithHLChecked `seq` True)
                 _ -> False
     assert
         "optimizer-facing public symbols stay importable and preserve the canonical headroom cap"

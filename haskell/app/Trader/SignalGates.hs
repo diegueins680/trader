@@ -19,6 +19,7 @@ module Trader.SignalGates (
     signalMetaLabelOk,
     signalMtfConsensusCheck,
     signalRegimeEdgeOk,
+    signalRunPostDirectionGates,
 ) where
 
 -- Compatibility surface restored for Main: these shims are fail closed by
@@ -124,3 +125,6 @@ signalMtfConsensusCheck = failClosedSurface
 
 signalRegimeEdgeOk :: (FailClosedSurface r) => r
 signalRegimeEdgeOk = failClosedSurface
+
+signalRunPostDirectionGates :: (FailClosedSurface r) => r
+signalRunPostDirectionGates = failClosedSurface

@@ -3,14 +3,20 @@ module Trader.Trading (
     EnsembleConfig (..),
     StepMeta (..),
     IntrabarFill (..),
+    PositionSide (..),
     Positioning (..),
+    simulateEnsemble,
+    simulateEnsembleWithHLChecked,
     simulateEnsembleVWithHLChecked,
     ExitReason (..),
+    TradeEntrySource (..),
     Trade (..),
     TradingEntryGateInputs (..),
     mkTradingEntryGateInputs,
     EntryGateState (..),
+    exitReasonFromCode,
     mkEntryGateState,
+    tradeEntrySourceCode,
 ) where
 
 import Data.Maybe (isNothing)
@@ -70,8 +76,40 @@ data StepMeta = StepMeta
 data IntrabarFill = StopFirst | TakeProfitFirst
     deriving (Eq, Show)
 
+data PositionSide = PositionLong | PositionShort
+    deriving (Eq, Show)
+
 data Positioning = LongFlat | LongShort
     deriving (Eq, Show)
+
+-- Keep the legacy Main-facing simulation names wired to the checked vector
+-- simulator surface.
+simulateEnsemble ::
+    EnsembleConfig ->
+    Int ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    BacktestResult
+simulateEnsemble cfg periods series0 series1 series2 series3 series4 meta =
+    case simulateEnsembleWithHLChecked cfg periods series0 series1 series2 series3 series4 meta of
+        Left err -> error ("Trader.Trading.simulateEnsemble: " ++ err)
+        Right result -> result
+
+simulateEnsembleWithHLChecked ::
+    EnsembleConfig ->
+    Int ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    Either String BacktestResult
+simulateEnsembleWithHLChecked = simulateEnsembleVWithHLChecked
 
 simulateEnsembleVWithHLChecked ::
     EnsembleConfig ->
@@ -88,6 +126,22 @@ simulateEnsembleVWithHLChecked _ _ _ _ _ _ _ _ =
 
 data ExitReason = ExitEod
     deriving (Eq, Show)
+
+exitReasonFromCode :: String -> Maybe ExitReason
+exitReasonFromCode code
+    | code == "eod" || code == "EOD" = Just ExitEod
+    | otherwise = Nothing
+
+data TradeEntrySource
+    = TradeEntrySignal
+    | TradeEntryPostDirectionGates
+    deriving (Eq, Show)
+
+tradeEntrySourceCode :: TradeEntrySource -> String
+tradeEntrySourceCode entrySource =
+    case entrySource of
+        TradeEntrySignal -> "signal"
+        TradeEntryPostDirectionGates -> "post_direction_gates"
 
 data Trade = Trade
     { trEntryEquity :: Double
