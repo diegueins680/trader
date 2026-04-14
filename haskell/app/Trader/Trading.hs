@@ -2,6 +2,8 @@ module Trader.Trading (
     BacktestResult (..),
     EnsembleConfig (..),
     StepMeta (..),
+    IntrabarFill (..),
+    Positioning (..),
     simulateEnsembleVWithHLChecked,
     ExitReason (..),
     Trade (..),
@@ -61,6 +63,14 @@ data StepMeta = StepMeta
     , smQuantile10 :: !(Maybe Double)
     , smQuantile90 :: !(Maybe Double)
     }
+    deriving (Eq, Show)
+
+-- Keep CLI fill/position configuration types visible from Trader.Trading so
+-- app/optimizer consumers share one stable public import seam.
+data IntrabarFill = StopFirst | TakeProfitFirst
+    deriving (Eq, Show)
+
+data Positioning = LongFlat | LongShort
     deriving (Eq, Show)
 
 simulateEnsembleVWithHLChecked ::

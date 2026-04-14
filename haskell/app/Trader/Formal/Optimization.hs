@@ -18,7 +18,7 @@ import qualified Data.Vector as V
 import Trader.Duration (positiveFiniteDuration)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
-import Trader.Trading (EnsembleConfig (..))
+import Trader.Trading (EnsembleConfig (..), IntrabarFill (..), Positioning (..))
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
     VolConfGateCell (..),
@@ -551,6 +551,30 @@ verifyFormalOptimization =
                 all kalmanFusionValidEvidenceShrinksVarianceFor kalmanFusionInputs
             }
 
+-- Importing these constructors above makes the formal proof module fail at
+-- compile time if `Trader.Trading` narrows its CLI-facing surface again.
+-- The value-level checks keep the stable constructor contract explicit.
+tradingCliSurfaceInvariant :: Bool
+tradingCliSurfaceInvariant =
+    and
+        [ intrabarFillSurfaceCode StopFirst == "stop-first"
+        , intrabarFillSurfaceCode TakeProfitFirst == "take-profit-first"
+        , positioningSurfaceCode LongFlat == "long-flat"
+        , positioningSurfaceCode LongShort == "long-short"
+        ]
+
+intrabarFillSurfaceCode :: IntrabarFill -> String
+intrabarFillSurfaceCode intrabarFill =
+    case intrabarFill of
+        StopFirst -> "stop-first"
+        TakeProfitFirst -> "take-profit-first"
+
+positioningSurfaceCode :: Positioning -> String
+positioningSurfaceCode positioning =
+    case positioning of
+        LongFlat -> "long-flat"
+        LongShort -> "long-short"
+
 -- Witness the public `EnsembleConfig` record surface that `Trader.Optimization`
 -- relies on for visibility-only cfg/btCfg updates. Missing `ecMetaMask` must
 -- stay represented as `Nothing` so fold handling remains fail-closed.
@@ -582,7 +606,8 @@ optimizerPublicSurfaceInvariant =
         -- `thresholdCfg` keeps a concrete mask, while `foldCfg` witnesses the
         -- absent-mask fold case that drives admissibility and search.
         and
-            [ optimizerSurfacePreservedFields base flipDisabled
+            [ tradingCliSurfaceInvariant
+            , optimizerSurfacePreservedFields base flipDisabled
             , optimizerSurfacePreservedFields base thresholdCfg
             , optimizerSurfacePreservedFields base foldCfg
             , ecOpenThreshold flipDisabled == ecOpenThreshold base
@@ -667,7 +692,7 @@ roiViewFromMetrics m =
         , rvExposure = max 0 (sanitizeFinite0 (bmExposure m))
         }
 
-activityCountFromMetrics :: BacktestMetrics -> Int
+activityCountFromMetrics :: Int
 activityCountFromMetrics metrics = max 0 (max (bmRoundTrips metrics) (bmTradeCount metrics))
 
 completedRoundTripsFromMetrics :: BacktestMetrics -> Int
