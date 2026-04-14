@@ -33,7 +33,9 @@ import Trader.Trading (
     BacktestResult (..),
     EnsembleConfig (..),
     ExitReason (..),
+    IntrabarFill (..),
     PositionSide (..),
+    Positioning (..),
     StepMeta (..),
     Trade (..),
     TradeEntrySource (..),
@@ -52,6 +54,7 @@ import Trader.Trading (
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
  )
+import Trader.VolConfGate (VolConfGatePreset (..))
 
 main :: IO ()
 main = do
@@ -94,79 +97,135 @@ sampleEnsembleConfig =
         , ecSlippageImpact = 0
         , ecSpread = 0
         , ecSpreadVolMult = 0
-        , ecStopLoss = 0
-        , ecTakeProfit = 0
-        , ecTrailingStop = 0
+        , ecStopLoss = Nothing
+        , ecTakeProfit = Nothing
+        , ecTrailingStop = Nothing
         , ecStopLossVolMult = 0
         , ecTakeProfitVolMult = 0
         , ecTrailingStopVolMult = 0
         , ecMinHoldBars = 0
         , ecCooldownBars = 0
-        , ecMaxHoldBars = 0
-        , ecMaxDrawdown = 0
+        , ecMaxHoldBars = Nothing
+        , ecMaxDrawdown = Nothing
+        , ecMaxDailyLoss = Nothing
+        , ecMaxWeeklyLoss = Nothing
+        , ecRiskPerTrade = Nothing
+        , ecMaxTradesPerDay = Nothing
+        , ecExpectancyLookback = 0
+        , ecMinExpectancy = Nothing
+        , ecPerfLookback = 0
+        , ecPerfMinWinRate = Nothing
+        , ecPerfMinProfitFactor = Nothing
+        , ecAdaptiveFilters = False
+        , ecAdaptiveEdgeBufferMax = 0
+        , ecAdaptiveMinSignalToNoiseMax = 0
+        , ecAdaptiveKalmanZMinMax = 0
+        , ecAdaptiveTrendLookbackMax = 0
+        , ecLossStreakMax = 0
+        , ecLossStreakCooldownBars = 0
+        , ecNoTradeWindows = []
+        , ecIntervalSeconds = Nothing
+        , ecOpenTimes = Nothing
+        , ecOpenPrices = Nothing
+        , ecMetaMask = Nothing
+        , ecPositioning = LongFlat
+        , ecIntrabarFill = StopFirst
         , ecMaxPositionSize = 1
+        , ecMinSignalToNoise = 0
+        , ecSnrSizeWeight = 0
+        , ecThresholdFactorEnabled = False
+        , ecThresholdFactorAlpha = 0
+        , ecThresholdFactorMin = 1
+        , ecThresholdFactorMax = 1
+        , ecThresholdFactorFloor = 0
+        , ecThresholdFactorEdgeKalWeight = 0
+        , ecThresholdFactorEdgeLstmWeight = 0
+        , ecThresholdFactorKalmanZWeight = 0
+        , ecThresholdFactorHighVolWeight = 0
+        , ecThresholdFactorConformalWeight = 0
+        , ecThresholdFactorQuantileWeight = 0
+        , ecThresholdFactorLstmConfWeight = 0
+        , ecThresholdFactorLstmHealthWeight = 0
+        , ecLstmTrainingHealth = Nothing
+        , ecTrendLookback = 0
+        , ecVolTarget = Nothing
+        , ecVolLookback = 20
+        , ecVolEwmaAlpha = Nothing
+        , ecVolFloor = 0
+        , ecVolScaleMax = 1
+        , ecMaxVolatility = Nothing
+        , ecVolConfGate = VolConfGateDisabled
+        , ecRebalanceBars = 0
+        , ecRebalanceThreshold = 0
+        , ecRebalanceGlobal = False
+        , ecRebalanceResetOnSignal = False
+        , ecFundingRate = 0
+        , ecFundingBySide = False
+        , ecFundingOnOpen = False
         , ecBlendWeight = 0.5
+        , ecKalmanDt = 1
+        , ecKalmanProcessVar = 1
+        , ecKalmanMeasurementVar = 1
+        , ecTriLayer = False
+        , ecTriLayerFastMult = 1
+        , ecTriLayerSlowMult = 1
+        , ecTriLayerCloudPadding = 0
+        , ecTriLayerCloudSlope = 0
+        , ecTriLayerCloudWidth = 0
+        , ecTriLayerTouchLookback = 0
+        , ecTriLayerRequirePriceAction = False
+        , ecTriLayerPriceActionBody = 0
+        , ecTriLayerExitOnSlow = False
+        , ecKalmanBandLookback = 0
+        , ecKalmanBandStdMult = 0
         , ecKalmanZMin = -1
         , ecKalmanZMax = 1
         , ecLstmExitFlipBars = 0
         , ecLstmExitFlipGraceBars = 0
-        , ecMetaMask = Nothing
-        , ecOpenTimes = Nothing
-        , ecOpenPrices = Nothing
+        , ecLstmExitFlipStrong = False
+        , ecLstmConfidenceSoft = 0
+        , ecLstmConfidenceHard = 0
+        , ecMaxHighVolProb = Nothing
+        , ecMaxConformalWidth = Nothing
+        , ecMaxQuantileWidth = Nothing
+        , ecConfirmConformal = False
+        , ecConfirmQuantiles = False
+        , ecConfidenceSizing = False
+        , ecMinPositionSize = 0
         }
 
 optimizerPublicSurfaceWitnessConfig :: EnsembleConfig
 optimizerPublicSurfaceWitnessConfig =
-    EnsembleConfig
-        { ecPeriodsPerYear = 252
-        , ecOpenThreshold = 0.015
+    sampleEnsembleConfig
+        { ecOpenThreshold = 0.015
         , ecCloseThreshold = 0.01
         , ecMinEdge = 0.001
         , ecRouterLookback = 8
         , ecRouterMinScore = 0.55
         , ecRouterScorePnlWeight = 0.25
-        , ecFee = 0.001
-        , ecFeeFixed = 0
-        , ecFeeMin = 0
         , ecSlippage = 0.0005
         , ecSlippageVolMult = 0.1
-        , ecSlippageImpactPower = 1
         , ecSlippageImpact = 0.01
         , ecSpread = 0.0002
         , ecSpreadVolMult = 0.05
-        , ecStopLoss = 0
-        , ecTakeProfit = 0
-        , ecTrailingStop = 0
-        , ecStopLossVolMult = 0
-        , ecTakeProfitVolMult = 0
-        , ecTrailingStopVolMult = 0
-        , ecMinHoldBars = 0
-        , ecCooldownBars = 0
-        , ecMaxHoldBars = 0
-        , ecMaxDrawdown = 0
-        , ecMaxPositionSize = 1
-        , ecBlendWeight = 0.5
         , ecKalmanZMin = 0.5
         , ecKalmanZMax = 2
         , ecLstmExitFlipBars = 3
         , ecLstmExitFlipGraceBars = 1
-        , ecMetaMask = Nothing
-        , ecOpenTimes = Nothing
-        , ecOpenPrices = Nothing
         }
 
 optimizerRiskDefaultsNeutral :: EnsembleConfig -> Bool
 optimizerRiskDefaultsNeutral cfg =
-    ecStopLoss cfg == 0
-        && ecTakeProfit cfg == 0
-        && ecTrailingStop cfg == 0
+    ecStopLoss cfg == Nothing
+        && ecTakeProfit cfg == Nothing
+        && ecTrailingStop cfg == Nothing
         && ecStopLossVolMult cfg == 0
         && ecTakeProfitVolMult cfg == 0
         && ecTrailingStopVolMult cfg == 0
         && ecMinHoldBars cfg == 0
         && ecCooldownBars cfg == 0
-        && ecMaxHoldBars cfg == 0
-        && ecMaxDrawdown cfg == 0
+        && ecMaxHoldBars cfg == Nothing
+        && ecMaxDrawdown cfg == Nothing
 
 -- Direct SignalGates witness for the restored fee/headroom facade: the zero-fee
 -- boundary and the fee-aware boundary stay admissible, strict-below rejection
@@ -494,37 +553,68 @@ testSignalGatesPublicSurfaceRegression = do
     let directionalitySnapshot0 = signalDirectionalitySnapshot :: DirectionalitySnapshot
         directionalitySnapshot2 = signalDirectionalitySnapshot () () :: DirectionalitySnapshot
         thresholdBoundary0 = mkSignalThresholdBoundary :: SignalThresholdBoundary
-        thresholdBoundary2 = mkSignalThresholdBoundary 0.01 (Just 0.02) :: SignalThresholdBoundary
-        crossAssetCheck0 = signalCrossAssetCheck :: Bool
-        crossAssetCheck2 = signalCrossAssetCheck () () :: Bool
-        fundingOiCheck0 = signalFundingOiCheck :: Bool
-        fundingOiCheck2 = signalFundingOiCheck () () :: Bool
-        metaLabelOk0 = signalMetaLabelOk :: Bool
-        metaLabelOk1 = signalMetaLabelOk () :: Bool
-        mtfConsensusCheck0 = signalMtfConsensusCheck :: Bool
-        mtfConsensusCheck3 = signalMtfConsensusCheck () () () :: Bool
-        regimeEdgeOk0 = signalRegimeEdgeOk :: Bool
-        regimeEdgeOk2 = signalRegimeEdgeOk () () :: Bool
-        postDirectionGates0 = signalRunPostDirectionGates :: Bool
-        postDirectionGates2 = signalRunPostDirectionGates () () :: Bool
+        thresholdBoundary2 =
+            (mkSignalThresholdBoundary :: Double -> Maybe Double -> SignalThresholdBoundary) 0.01 (Just 0.02)
+        crossAssetCheck0 = signalCrossAssetCheck True Nothing
+        crossAssetCheck2 = signalCrossAssetCheck False Nothing
+        fundingOiCheck0 = signalFundingOiCheck True (Just 0) Nothing 0.5 0.1 Nothing
+        fundingOiCheck2 = signalFundingOiCheck False Nothing Nothing 0.5 0.1 Nothing
+        metaLabelOk0 = signalMetaLabelOk True 0 Nothing 0 Nothing False False
+        metaLabelOk1 = signalMetaLabelOk False 0 Nothing 0 Nothing False False
+        mtfConsensusCheck0 = signalMtfConsensusCheck True [] 1
+        mtfConsensusCheck3 = signalMtfConsensusCheck False [Nothing, Just 1] 2
+        regimeEdgeOk0 = signalRegimeEdgeOk True 0 Nothing
+        regimeEdgeOk2 = signalRegimeEdgeOk False 0 (Just 0.1)
+        postDirectionGates0 =
+            signalRunPostDirectionGates
+                Nothing
+                Nothing
+                True
+                True
+                (\_ -> True)
+                (\_ -> True)
+                (\_ -> True)
+                True
+                (\_ -> (True, Nothing))
+                (True, Nothing)
+                (True, Nothing)
+                (True, Nothing)
+                (\_ -> True)
+                (\_ -> (True, 1))
+        postDirectionGates2 =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                False
+                True
+                (\_ -> True)
+                (\_ -> True)
+                (\_ -> True)
+                True
+                (\_ -> (True, Nothing))
+                (True, Nothing)
+                (True, Nothing)
+                (True, Nothing)
+                (\_ -> True)
+                (\_ -> (True, 1))
     assert
         "Main-facing Trader.SignalGates symbols stay importable and compatibility shims remain fail closed"
-        ( directionalitySnapshot0 == DirectionalitySnapshot
-            && directionalitySnapshot2 == DirectionalitySnapshot
-            && thresholdBoundary0 == SignalThresholdBoundary
-            && thresholdBoundary2 == SignalThresholdBoundary
-            && not crossAssetCheck0
-            && not crossAssetCheck2
-            && not fundingOiCheck0
-            && not fundingOiCheck2
+        ( directionalitySnapshot0 == DirectionalitySnapshot False Nothing
+            && directionalitySnapshot2 == DirectionalitySnapshot False Nothing
+            && thresholdBoundary0 == SignalThresholdBoundary 0 0 0 0
+            && thresholdBoundary2 == SignalThresholdBoundary 0.01 0.02 0.01 0.02
+            && crossAssetCheck0 == (False, Just "CROSS_ASSET")
+            && crossAssetCheck2 == (True, Nothing)
+            && fundingOiCheck0 == (False, 0)
+            && fundingOiCheck2 == (True, 1)
             && not metaLabelOk0
-            && not metaLabelOk1
-            && not mtfConsensusCheck0
-            && not mtfConsensusCheck3
-            && not regimeEdgeOk0
-            && not regimeEdgeOk2
-            && not postDirectionGates0
-            && not postDirectionGates2
+            && metaLabelOk1
+            && mtfConsensusCheck0 == (False, Just "MTF_CONSENSUS")
+            && mtfConsensusCheck3 == (True, Nothing)
+            && regimeEdgeOk0 == (False, Just "REGIME_EDGE")
+            && regimeEdgeOk2 == (True, Nothing)
+            && postDirectionGates0 == (Nothing, Nothing)
+            && postDirectionGates2 == (Nothing, Just "VOLATILITY")
         )
 
 -- Formal public-surface invariant for the Main-facing Trader.Trading import
@@ -543,13 +633,17 @@ testTradingPublicSurfaceRegression = do
         positionSides = [PositionLong, PositionShort]
         indexedTrade =
             Trade
-                { trEntryEquity = 1.0
+                { trEntryIndex = 7
+                , trExitIndex = 9
+                , trEntryEquity = 1.0
                 , trExitEquity = 1.1
                 , trReturn = 0.1
                 , trHoldingPeriods = 2
+                , trEntryHighVolProb = Nothing
+                , trEntrySource = TradeEntrySignal
                 , trExitReason = Just ExitEod
-                , trEntryIndex = 7
-                , trExitIndex = 9
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
                 }
         shiftedTrade =
             indexedTrade
@@ -560,25 +654,47 @@ testTradingPublicSurfaceRegression = do
             sampleEnsembleConfig
                 { ecMinHoldBars = 3
                 , ecCooldownBars = 2
-                , ecMaxHoldBars = 12
-                , ecMaxDrawdown = 0.15
+                , ecMaxHoldBars = Just 12
+                , ecMaxDrawdown = Just 0.15
                 }
         riskConfigured =
             compatibilityConfigured
-                { ecStopLoss = 0.01
-                , ecTakeProfit = 0.03
-                , ecTrailingStop = 0.02
+                { ecStopLoss = Just 0.01
+                , ecTakeProfit = Just 0.03
+                , ecTrailingStop = Just 0.02
                 , ecStopLossVolMult = 1.5
                 , ecTakeProfitVolMult = 2.0
                 , ecTrailingStopVolMult = 1.25
                 }
         signalSource = TradeEntrySignal
         postDirectionSource = TradeEntryPostDirectionGates
+        simulateEnsemble0 ::
+            EnsembleConfig ->
+            Int ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            Maybe (V.Vector StepMeta) ->
+            BacktestResult
+        simulateEnsemble0 = simulateEnsemble
+        simulateEnsembleWithHLChecked0 ::
+            EnsembleConfig ->
+            Int ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            Maybe (V.Vector StepMeta) ->
+            Either String BacktestResult
+        simulateEnsembleWithHLChecked0 = simulateEnsembleWithHLChecked
         tradingSurfaceReachable =
             case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
                 (Nothing, Nothing) ->
-                    simulateEnsemble `seq`
-                        (simulateEnsembleWithHLChecked `seq` True)
+                    simulateEnsemble0 `seq`
+                        (simulateEnsembleWithHLChecked0 `seq` True)
                 _ -> False
     assert
         "Main-facing Trader.Trading symbols stay importable and preserve constructor/selector compatibility"
@@ -588,11 +704,11 @@ testTradingPublicSurfaceRegression = do
             && trExitIndex shiftedTrade == 7
             && ecMinHoldBars riskConfigured == 3
             && ecCooldownBars riskConfigured == 2
-            && ecMaxHoldBars riskConfigured == 12
-            && ecMaxDrawdown riskConfigured == 0.15
-            && ecStopLoss riskConfigured == 0.01
-            && ecTakeProfit riskConfigured == 0.03
-            && ecTrailingStop riskConfigured == 0.02
+            && ecMaxHoldBars riskConfigured == Just 12
+            && ecMaxDrawdown riskConfigured == Just 0.15
+            && ecStopLoss riskConfigured == Just 0.01
+            && ecTakeProfit riskConfigured == Just 0.03
+            && ecTrailingStop riskConfigured == Just 0.02
             && ecStopLossVolMult riskConfigured == 1.5
             && ecTakeProfitVolMult riskConfigured == 2.0
             && ecTrailingStopVolMult riskConfigured == 1.25
@@ -617,8 +733,8 @@ testOptimizerPublicSurfaceRegression = do
             base
                 { ecMinHoldBars = 2
                 , ecCooldownBars = 1
-                , ecMaxHoldBars = 9
-                , ecMaxDrawdown = 0.12
+                , ecMaxHoldBars = Just 9
+                , ecMaxDrawdown = Just 0.12
                 }
         metaMask0 = Just (V.fromList [True, False, True])
         openTimes0 = Just (V.fromList [10, 11, 12])
@@ -635,11 +751,22 @@ testOptimizerPublicSurfaceRegression = do
                 , ecOpenPrices = openPrices0
                 , ecMetaMask = Nothing
                 }
+        simulateEnsembleWithHLChecked0 ::
+            EnsembleConfig ->
+            Int ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            V.Vector Double ->
+            Maybe (V.Vector StepMeta) ->
+            Either String BacktestResult
+        simulateEnsembleWithHLChecked0 = simulateEnsembleWithHLChecked
         optimizerSurfaceReachable =
             case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
                 (Nothing, Nothing) ->
                     signalEntryHeadroomThresholdCap 0.03 `seq`
-                        (simulateEnsembleWithHLChecked `seq` True)
+                        (simulateEnsembleWithHLChecked0 `seq` True)
                 _ -> False
     assert
         "optimizer-facing public symbols stay importable and the total neutral-risk witness remains explicit"
@@ -653,8 +780,8 @@ testOptimizerPublicSurfaceRegression = do
             && optimizerRiskDefaultsNeutral foldCfg
             && ecMinHoldBars compatibilityCfg == 2
             && ecCooldownBars compatibilityCfg == 1
-            && ecMaxHoldBars compatibilityCfg == 9
-            && ecMaxDrawdown compatibilityCfg == 0.12
+            && ecMaxHoldBars compatibilityCfg == Just 9
+            && ecMaxDrawdown compatibilityCfg == Just 0.12
             && ecOpenThreshold compatibilityCfg == ecOpenThreshold base
             && ecCloseThreshold compatibilityCfg == ecCloseThreshold base
             && ecMetaMask compatibilityCfg == ecMetaMask base
@@ -678,13 +805,17 @@ testMetricsConsumesTradingPublicResults :: IO ()
 testMetricsConsumesTradingPublicResults = do
     let trade =
             Trade
-                { trEntryEquity = 1.0
+                { trEntryIndex = 0
+                , trExitIndex = 1
+                , trEntryEquity = 1.0
                 , trExitEquity = 1.1
                 , trReturn = 0.1
                 , trHoldingPeriods = 2
+                , trEntryHighVolProb = Nothing
+                , trEntrySource = TradeEntrySignal
                 , trExitReason = Just ExitEod
-                , trEntryIndex = 0
-                , trExitIndex = 1
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
                 }
         result =
             BacktestResult
