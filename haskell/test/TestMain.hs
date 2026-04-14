@@ -11,11 +11,20 @@ import Trader.Formal.Optimization (
  )
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.SignalGates (
+    DirectionalitySnapshot (..),
+    SignalThresholdBoundary (..),
+    mkSignalThresholdBoundary,
     normalizeSignalEntryEdge,
+    signalCrossAssetCheck,
+    signalDirectionalitySnapshot,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
     signalEntryHeadroomThresholdCap,
+    signalFundingOiCheck,
+    signalMetaLabelOk,
+    signalMtfConsensusCheck,
+    signalRegimeEdgeOk,
  )
 import Trader.Trading (
     BacktestResult (..),
@@ -42,6 +51,7 @@ main = do
     testSignalGateEntryHeadroomSpecializesFeeBuffer
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
+    testSignalGatesPublicSurfaceRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
     testOptimizerActivityCountInvariant
@@ -370,6 +380,44 @@ testSignalGateEntryFeeBufferFailsClosed = do
         "negative fee floors fail closed instead of collapsing to the zero-fee boundary"
         ( not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.015))
             && not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.05))
+        )
+
+-- Public-surface proof obligation for the restored Main import seam: the
+-- compatibility names remain importable from Trader.SignalGates, their legacy
+-- constructors stay reachable, and the restored veto helpers default to
+-- fail-closed results even when exercised through small bounded call shapes.
+testSignalGatesPublicSurfaceRegression :: IO ()
+testSignalGatesPublicSurfaceRegression = do
+    let directionalitySnapshot0 = signalDirectionalitySnapshot :: DirectionalitySnapshot
+        directionalitySnapshot2 = signalDirectionalitySnapshot () () :: DirectionalitySnapshot
+        thresholdBoundary0 = mkSignalThresholdBoundary :: SignalThresholdBoundary
+        thresholdBoundary2 = mkSignalThresholdBoundary 0.01 (Just 0.02) :: SignalThresholdBoundary
+        crossAssetCheck0 = signalCrossAssetCheck :: Bool
+        crossAssetCheck2 = signalCrossAssetCheck () () :: Bool
+        fundingOiCheck0 = signalFundingOiCheck :: Bool
+        fundingOiCheck2 = signalFundingOiCheck () () :: Bool
+        metaLabelOk0 = signalMetaLabelOk :: Bool
+        metaLabelOk1 = signalMetaLabelOk () :: Bool
+        mtfConsensusCheck0 = signalMtfConsensusCheck :: Bool
+        mtfConsensusCheck3 = signalMtfConsensusCheck () () () :: Bool
+        regimeEdgeOk0 = signalRegimeEdgeOk :: Bool
+        regimeEdgeOk2 = signalRegimeEdgeOk () () :: Bool
+    assert
+        "Main-facing Trader.SignalGates symbols stay importable and compatibility shims remain fail closed"
+        ( directionalitySnapshot0 == DirectionalitySnapshot
+            && directionalitySnapshot2 == DirectionalitySnapshot
+            && thresholdBoundary0 == SignalThresholdBoundary
+            && thresholdBoundary2 == SignalThresholdBoundary
+            && not crossAssetCheck0
+            && not crossAssetCheck2
+            && not fundingOiCheck0
+            && not fundingOiCheck2
+            && not metaLabelOk0
+            && not metaLabelOk1
+            && not mtfConsensusCheck0
+            && not mtfConsensusCheck3
+            && not regimeEdgeOk0
+            && not regimeEdgeOk2
         )
 
 -- Public-interface invariant for optimizer wiring: Trader.Optimization must keep

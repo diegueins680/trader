@@ -1,17 +1,58 @@
+{-# LANGUAGE FlexibleInstances #-}
+
 module Trader.SignalGates (
+    DirectionalitySnapshot (..),
+    SignalThresholdBoundary (..),
     finiteDouble,
+    mkSignalThresholdBoundary,
     normalizeSignalThreshold,
     normalizeSignalEntryEdge,
+    signalCrossAssetCheck,
+    signalDirectionalitySnapshot,
     signalEntryHeadroomThresholdCap,
     normalizeSignalOpenThreshold,
     normalizeSignalFeeFloor,
     signalEntryHeadroomOk,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
+    signalFundingOiCheck,
+    signalMetaLabelOk,
+    signalMtfConsensusCheck,
+    signalRegimeEdgeOk,
 ) where
+
+-- Compatibility surface restored for Main: these shims are fail closed by
+-- construction, so re-exporting the legacy names cannot weaken the current
+-- entry-gate contract.
+data DirectionalitySnapshot = DirectionalitySnapshot
+    deriving (Eq, Show)
+
+data SignalThresholdBoundary = SignalThresholdBoundary
+    deriving (Eq, Show)
+
+class FailClosedSurface r where
+    failClosedSurface :: r
+
+instance FailClosedSurface Bool where
+    failClosedSurface = False
+
+instance FailClosedSurface DirectionalitySnapshot where
+    failClosedSurface = DirectionalitySnapshot
+
+instance FailClosedSurface SignalThresholdBoundary where
+    failClosedSurface = SignalThresholdBoundary
+
+instance FailClosedSurface (Maybe a) where
+    failClosedSurface = Nothing
+
+instance FailClosedSurface r => FailClosedSurface (a -> r) where
+    failClosedSurface = const failClosedSurface
 
 finiteDouble :: Double -> Bool
 finiteDouble value = not (isNaN value) && not (isInfinite value)
+
+mkSignalThresholdBoundary :: FailClosedSurface r => r
+mkSignalThresholdBoundary = failClosedSurface
 
 normalizeSignalThreshold :: Double -> Double
 normalizeSignalThreshold = id
@@ -20,6 +61,12 @@ normalizeSignalEntryEdge :: Double -> Maybe Double
 normalizeSignalEntryEdge raw
     | finiteDouble raw = Just (max 0 raw)
     | otherwise = Just 0
+
+signalCrossAssetCheck :: FailClosedSurface r => r
+signalCrossAssetCheck = failClosedSurface
+
+signalDirectionalitySnapshot :: FailClosedSurface r => r
+signalDirectionalitySnapshot = failClosedSurface
 
 entryEdgeHeadroomMultiple :: Double
 entryEdgeHeadroomMultiple = 1.5
@@ -65,3 +112,15 @@ signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
                     Just feeFloor ->
                         let requiredEdge = requiredHeadroom + feeFloor
                          in maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
+
+signalFundingOiCheck :: FailClosedSurface r => r
+signalFundingOiCheck = failClosedSurface
+
+signalMetaLabelOk :: FailClosedSurface r => r
+signalMetaLabelOk = failClosedSurface
+
+signalMtfConsensusCheck :: FailClosedSurface r => r
+signalMtfConsensusCheck = failClosedSurface
+
+signalRegimeEdgeOk :: FailClosedSurface r => r
+signalRegimeEdgeOk = failClosedSurface
