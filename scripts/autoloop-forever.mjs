@@ -404,6 +404,10 @@ function listWorktreeBranches() {
   return branches;
 }
 
+function remoteBranchStillExists(remoteRef) {
+  return splitNonEmptyLines(runCommand("git", ["branch", "-r", "--list", remoteRef], { trimOutput: false })).length > 0;
+}
+
 function pruneMergedRefsOnBaseBranch(baseBranch) {
   runCommand("git", ["worktree", "prune"], { capture: false });
   const localBranches = splitNonEmptyLines(
@@ -422,10 +426,15 @@ function pruneMergedRefsOnBaseBranch(baseBranch) {
   for (const candidate of candidates) {
     if (candidate.remoteRef) {
       try {
-        runCommand("git", ["push", "origin", "--delete", candidate.shortName], { capture: false });
+        runCommand("git", ["push", "origin", "--delete", candidate.shortName]);
         prunedRemoteBranches.push(candidate.shortName);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        runCommand("git", ["fetch", "origin", "--prune"], { capture: false });
+        if (!remoteBranchStillExists(candidate.remoteRef)) {
+          prunedRemoteBranches.push(candidate.shortName);
+          continue;
+        }
         if (!isIgnorablePruneError(message)) {
           pruneErrors.push({ branch: candidate.shortName, scope: "remote", error: message });
         }

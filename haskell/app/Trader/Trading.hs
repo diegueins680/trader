@@ -22,10 +22,10 @@ module Trader.Trading (
     tradeEntrySourceCode,
 ) where
 
+import qualified Data.Aeson as Aeson
 import Data.Char (toUpper)
 import Data.Int (Int64)
 import Data.Maybe (isNothing)
-import qualified Data.Aeson as Aeson
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Trader.Duration (TimeWindow)
