@@ -33,7 +33,7 @@ import qualified Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
-import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix)
+import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, mapAccumL, sortOn, stripPrefix)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Ord
@@ -5840,6 +5840,114 @@ mergeBotSnapshots snaps =
             Aeson.Object o -> KM.lookup "symbol" o >>= AT.parseMaybe parseJSON
             _ -> Nothing
 
+parseTradeEntrySourceCode :: String -> Maybe TradeEntrySource
+parseTradeEntrySourceCode raw =
+    case map toLower (trim raw) of
+        "signal" -> Just TradeEntrySignal
+        "adopted" -> Just TradeEntryAdopted
+        "post_direction_gates" -> Just TradeEntryPostDirectionGates
+        "post-direction-gates" -> Just TradeEntryPostDirectionGates
+        "postdirectiongates" -> Just TradeEntryPostDirectionGates
+        _ -> Nothing
+
+tradeFromSnapshotValue :: Aeson.Value -> Maybe Trade
+tradeFromSnapshotValue =
+    AT.parseMaybe $
+        Aeson.withObject "Trade" $ \o -> do
+            entryEquity <- o Aeson..: "entryEquity"
+            exitEquity <- o Aeson..: "exitEquity"
+            mReturn <- o Aeson..:? "return"
+            holdingPeriods <- fromMaybe 0 <$> (o Aeson..:? "holdingPeriods")
+            entryHighVolProb <- o Aeson..:? "entryHighVolProb"
+            entrySourceRaw <- o Aeson..:? "entrySource"
+            exitReasonRaw <- o Aeson..:? "exitReason"
+            entryIp <- o Aeson..:? "entryIp"
+            exitIp <- o Aeson..:? "exitIp"
+            let entrySource = fromMaybe TradeEntrySignal (entrySourceRaw >>= parseTradeEntrySourceCode)
+                tradeReturn =
+                    case mReturn of
+                        Just r | isFiniteDouble r -> r
+                        _ ->
+                            if isFiniteDouble entryEquity && isFiniteDouble exitEquity && entryEquity > 0
+                                then exitEquity / entryEquity - 1
+                                else 0
+                exitReason = exitReasonRaw >>= exitReasonFromCode
+            pure
+                Trade
+                    { trEntryIndex = 0
+                    , trExitIndex = max 1 holdingPeriods
+                    , trEntryEquity = entryEquity
+                    , trExitEquity = exitEquity
+                    , trReturn = tradeReturn
+                    , trHoldingPeriods = holdingPeriods
+                    , trEntryHighVolProb = entryHighVolProb
+                    , trEntrySource = entrySource
+                    , trExitReason = exitReason
+                    , trEntryIp = entryIp
+                    , trExitIp = exitIp
+                    }
+
+reindexRestoredTrades :: [Trade] -> [Trade]
+reindexRestoredTrades trades =
+    snd (mapAccumL reindex 0 trades)
+  where
+    reindex idx tr =
+        let hold = max 1 (trHoldingPeriods tr)
+            entryIdx = idx
+            exitIdx = idx + hold
+         in (exitIdx + 1, tr{trEntryIndex = entryIdx, trExitIndex = exitIdx})
+
+restoredTradeMemoryLimit :: Args -> Int
+restoredTradeMemoryLimit args =
+    let perfLookback = max 0 (argPerfLookback args)
+        expectancyLookback = max 0 (argExpectancyLookback args)
+        lossStreakMax = max 0 (argLossStreakMax args)
+        adaptiveBudget = max perfLookback expectancyLookback
+        rawLimit = maximum [50, 4 * max 1 adaptiveBudget, 4 * max 1 lossStreakMax]
+     in clampInt 50 1000 rawLimit
+
+botSnapshotMatchesTradeMemoryContext :: Args -> String -> Aeson.Value -> Bool
+botSnapshotMatchesTradeMemoryContext args sym statusValue =
+    case statusValue of
+        Aeson.Object o ->
+            let getText key = KM.lookup key o >>= AT.parseMaybe parseJSON
+                expectedSymbol = normalizeSymbol sym
+                expectedInterval = argInterval args
+                expectedMarket = marketCode (argBinanceMarket args)
+                expectedMethod = methodCode (argMethod args)
+             in getText "symbol" == Just expectedSymbol
+                    && getText "interval" == Just expectedInterval
+                    && getText "market" == Just expectedMarket
+                    && getText "method" == Just expectedMethod
+        _ -> False
+
+restoreTradeMemoryFromSnapshotMaybe :: Maybe FilePath -> TenantKey -> Args -> String -> IO [Trade]
+restoreTradeMemoryFromSnapshotMaybe mDir tenantKey args sym = do
+    mSnap <- readBotStatusSnapshotMaybe mDir tenantKey sym
+    let restored =
+            case mSnap of
+                Nothing -> []
+                Just snap ->
+                    if not (botSnapshotMatchesTradeMemoryContext args sym (bssStatus snap))
+                        then []
+                        else case bssStatus snap of
+                            Aeson.Object o ->
+                                case KM.lookup "trades" o of
+                                    Just (Aeson.Array tradesV) ->
+                                        let parsed = mapMaybe tradeFromSnapshotValue (V.toList tradesV)
+                                         in reindexRestoredTrades (takeLast (restoredTradeMemoryLimit args) parsed)
+                                    _ -> []
+                            _ -> []
+    pure restored
+
+lossStreakFromTrades :: [Trade] -> Int
+lossStreakFromTrades trades =
+    length
+        ( takeWhile
+            (\tr -> let r = trReturn tr in isNaN r || isInfinite r || r <= 0)
+            (reverse trades)
+        )
+
 data BotOp = BotOp
     { boIndex :: !Int
     , boSide :: !String
@@ -6766,7 +6874,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
             preflight <- preflightBotStart mOps argsFinal settings sym
             case preflight of
                 Left e -> throwIO (userError e)
-                Right () -> initBotState mOps tenantKey argsFinal settings comboUuidFinal originIp sym
+                Right () -> initBotState mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp sym
     r <- try (doStart args) :: IO (Either SomeException BotState)
     case r of
         Left ex -> do
@@ -7133,8 +7241,8 @@ botGetStateFor ctrl tenantKey symRaw = do
         Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
         _ -> pure Nothing
 
-initBotState :: Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> String -> IO BotState
-initBotState mOps tenantKey args settings mComboUuid originIp sym = do
+initBotState :: Maybe FilePath -> Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> String -> IO BotState
+initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym = do
     let lookback = argLookback args
     now <- getTimestampMs
     env <- makeBinanceEnv mOps args
@@ -7161,6 +7269,16 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                                 )
                     else pure pos
             else pure 0
+    restoredTrades <- restoreTradeMemoryFromSnapshotMaybe mBotStateDir tenantKey args sym
+    when (not (null restoredTrades)) $
+        putStrLn
+            ( printf
+                "Restored %d closed trades of performance memory for %s (%s, %s)."
+                (length restoredTrades)
+                sym
+                (marketCode (argBinanceMarket args))
+                (argInterval args)
+            )
     let initBars = clampInt 2 1000 (max 2 (resolveBarsForBinance args))
     ks <- fetchKlines env sym (argInterval args) initBars
     when (length ks < 2) $ throwIO (userError "Not enough klines to start bot")
@@ -7307,14 +7425,43 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
             Left err -> throwIO (userError err)
             Right sig -> pure sig
 
+    let restoredPerfStats = computeBotPerfStats (argPerfLookback argsWithKeys) restoredTrades
+        (restoredPerfStatsForAdaptive, _restoredPerfMode) =
+            selectPerfStatsForPerfGate argsWithKeys latest0Raw restoredPerfStats restoredTrades
+        restoredAdjustments = computeAdaptiveAdjustments argsWithKeys restoredPerfStatsForAdaptive
+        restoredLossStreak = lossStreakFromTrades restoredTrades
+        argsStartSignal = applyBotAdjustments restoredAdjustments args
+
+    latestStartRaw <-
+        if null restoredTrades
+            then pure latest0Raw
+            else
+                case computeLatestSignal
+                    argsStartSignal
+                    lookback
+                    featureInputs
+                    mLstmCtx
+                    mKalmanCtx
+                    Nothing
+                    ( Just
+                        PredHistory
+                            { phKalman = kalPred0
+                            , phLstm = lstmPred0
+                            , phMeta = Nothing
+                            , phLstmHealth = Nothing
+                            }
+                    ) of
+                    Left err -> throwIO (userError err)
+                    Right sig -> pure sig
+
     let
         -- Startup decision:
         -- - Adopted positions are kept only if the open-threshold signal still agrees.
         -- - Otherwise, entry uses openThreshold via lsChosenDir.
         allowShort = argPositioning args == LongShort
-        chosenDir = lsChosenDir latest0Raw
-        volConfHoldActive = "VOL_CONF_GATE_HOLD" `isInfixOf` lsAction latest0Raw
-        closeDir = lsCloseDir latest0Raw
+        chosenDir = lsChosenDir latestStartRaw
+        volConfHoldActive = "VOL_CONF_GATE_HOLD" `isInfixOf` lsAction latestStartRaw
+        closeDir = lsCloseDir latestStartRaw
 
         desiredPosSignal =
             if startPos0 /= 0 && volConfHoldActive
@@ -7345,14 +7492,14 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
         latest =
             case (startPos0, desiredPosSignal) of
                 (1, 0) ->
-                    if lsChosenDir latest0Raw /= Just (-1)
-                        then latest0Raw{lsChosenDir = Just (-1), lsAction = "FLAT (close)"}
-                        else latest0Raw
+                    if lsChosenDir latestStartRaw /= Just (-1)
+                        then latestStartRaw{lsChosenDir = Just (-1), lsAction = "FLAT (close)"}
+                        else latestStartRaw
                 (-1, 0) ->
-                    if lsChosenDir latest0Raw /= Just 1
-                        then latest0Raw{lsChosenDir = Just 1, lsAction = "FLAT (close)"}
-                        else latest0Raw
-                _ -> latest0Raw
+                    if lsChosenDir latestStartRaw /= Just 1
+                        then latestStartRaw{lsChosenDir = Just 1, lsAction = "FLAT (close)"}
+                        else latestStartRaw
+                _ -> latestStartRaw
 
         baseEq = 1.0
         eq0 = V.replicate n baseEq
@@ -7603,10 +7750,10 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 , botPositions = pos2
                 , botOps = ops2
                 , botOrders = orders2
-                , botTrades = []
-                , botPerfStats = emptyBotPerfStats (argPerfLookback argsWithKeys)
-                , botAdjustments = emptyBotAdjustments
-                , botLossStreak = 0
+                , botTrades = restoredTrades
+                , botPerfStats = restoredPerfStats
+                , botAdjustments = restoredAdjustments
+                , botLossStreak = restoredLossStreak
                 , botOpenTrade = openTrade2
                 , botCooldownLeft = 0
                 , botLatestSignal = latest

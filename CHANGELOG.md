@@ -1,4 +1,5 @@
 ## Unreleased
+- Bot/Live Trading: restore closed-trade performance memory from the latest saved bot snapshot on bot restart when the symbol, market, interval, and method still match, so rolling expectancy/win-rate/profit-factor gates, adaptive filter tightening, loss-streak tracking, and the first post-restart decision resume from prior wins and losses instead of resetting to an empty session.
 - Trading: fail closed on negative fresh-entry fee floors by requiring the round-trip fee floor consumed by `signalEntryFeeBufferOk` to stay finite and non-negative, so corrupted negative fee inputs can no longer relax the marginal-entry gate back to the zero-fee boundary.
 - Trading/Formal: update `FORMAL_METHODS.md` and bounded Haskell regressions so negative fee floors are rejected both at the pure `SignalGates` contract and through the `mkEntryGateState` fresh-entry integration witness.
 - Observability: extend `haskell/scripts/review_bot_day.py` with interval-aware cutoff freshness diagnostics, per-symbol stale-snapshot detection, and a compact latest pre-cutoff `latestSignal.action` census in both JSON and markdown output.
