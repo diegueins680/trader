@@ -10,13 +10,19 @@
     "build:haskell": "cd haskell && CABAL_DIR=$(cd .. && pwd)/.cabal cabal build",
     "build:web": "npm --workspaces=false --prefix haskell/web run build",
     "lint": "npm run lint:haskell && npm run lint:web",
-    "lint:haskell": "cd haskell && hlint app test",
+    "lint:haskell": "cd haskell && hlint app test bench",
     "lint:web": "npm --workspaces=false --prefix haskell/web run typecheck",
+    "smoke": "bash scripts/verify.sh smoke",
     "test": "npm run test:haskell && npm run test:web && npm run test:autoloop",
     "test:autoloop": "node --test test/autoloop.test.mjs",
     "test:haskell": "cd haskell && CABAL_DIR=$(cd .. && pwd)/.cabal cabal test",
     "test:web": "npm --workspaces=false --prefix haskell/web run test",
-    "typecheck": "npm --workspaces=false --prefix haskell/web run typecheck"
+    "typecheck": "npm --workspaces=false --prefix haskell/web run typecheck",
+    "verify": "bash scripts/verify.sh full",
+    "verify:ci": "bash scripts/verify.sh full",
+    "verify:haskell": "bash scripts/verify.sh haskell",
+    "verify:web": "bash scripts/verify.sh web",
+    "verify:automation": "bash scripts/verify.sh automation"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

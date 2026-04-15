@@ -61,6 +61,7 @@ const ALLOWED_EDIT_PREFIXES = [
   "README.md",
   "CHANGELOG.md",
   "FORMAL_METHODS.md",
+  "docs/",
   "test/",
   "haskell/app/",
   "haskell/test/",
@@ -87,10 +88,18 @@ const BLOCKED_EDIT_PREFIXES = [
 
 const FOURMOLU_CHECK_COMMAND = "cd haskell && find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check";
 const HLINT_CHECK_COMMAND = "cd haskell && hlint app test bench";
+const VERIFY_HASKELL_COMMAND = "bash scripts/verify.sh haskell";
+const VERIFY_WEB_COMMAND = "bash scripts/verify.sh web";
+const VERIFY_AUTOMATION_COMMAND = "bash scripts/verify.sh automation";
+const VERIFY_FULL_COMMAND = "bash scripts/verify.sh full";
 
 const SAFE_VERIFICATION_COMMANDS = new Set([
   FOURMOLU_CHECK_COMMAND,
   HLINT_CHECK_COMMAND,
+  VERIFY_HASKELL_COMMAND,
+  VERIFY_WEB_COMMAND,
+  VERIFY_AUTOMATION_COMMAND,
+  VERIFY_FULL_COMMAND,
   "cd haskell && cabal build",
   "cd haskell && cabal test",
   "cd haskell && bash scripts/ci_smoke.sh",
@@ -1293,14 +1302,19 @@ function planVerificationCommands(changedPaths, suggestedCommands) {
   const needsWeb = changedPaths.some((file) => file.startsWith("haskell/web/"));
   const needsHsBuild = changedPaths.some((file) => file.startsWith("haskell/app/") || file.startsWith("haskell/test/") || file.startsWith("haskell/scripts/"));
   const needsHsTest = changedPaths.some((file) => file.startsWith("haskell/app/") || file.startsWith("haskell/test/"));
+  const needsAutomation = changedPaths.some((file) => file.startsWith("test/"));
 
   if (needsWeb) {
     planned.add("cd haskell/web && npm --workspaces=false run typecheck");
     planned.add("cd haskell/web && npm --workspaces=false run test");
     planned.add("cd haskell/web && npm --workspaces=false run build");
   }
-  if (needsHsBuild) planned.add("cd haskell && cabal build");
+  if (needsHsBuild) {
+    planned.add("cd haskell && cabal build");
+    planned.add("cd haskell && bash scripts/ci_smoke.sh");
+  }
   if (needsHsTest) planned.add("cd haskell && cabal test");
+  if (needsAutomation) planned.add("node --test test/autoloop.test.mjs");
 
   for (const command of suggestedCommands) {
     const normalized = String(command || "").trim();
