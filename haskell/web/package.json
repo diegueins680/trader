@@ -11,8 +11,8 @@
     "test": "tsc -p tsconfig.test.json --noEmit && esbuild src/app/utils.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/utils.js && esbuild src/app/formState.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/formState.js && esbuild src/app/appHelpers.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/appHelpers.js && esbuild src/lib/api.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/api.js && esbuild src/lib/deployConfig.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/deployConfig.js && node --test test/*.test.mjs"
   },
   "dependencies": {
-    "react": "^19.2.5",
-    "react-dom": "^19.2.4"
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
