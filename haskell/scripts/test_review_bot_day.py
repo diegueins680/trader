@@ -1,4 +1,5 @@
 import json
+import math
 import sys
 import tempfile
 import unittest
@@ -18,6 +19,12 @@ class ReviewBotDayTest(unittest.TestCase):
 
     def at_ms(self, iso_text: str) -> int:
         return int(datetime.fromisoformat(iso_text).timestamp() * 1000)
+
+    def prices_from_returns(self, returns: list[float], start: float = 100.0) -> list[float]:
+        prices = [start]
+        for ret in returns:
+            prices.append(prices[-1] * (1.0 + ret))
+        return prices
 
     def test_excludes_adopted_carry_with_prior_order_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -235,6 +242,43 @@ class ReviewBotDayTest(unittest.TestCase):
         self.assertTrue(snapshot["nonDirectional"])
         self.assertEqual(snapshot["regimeLeader"], "mr")
 
+    def test_directionality_snapshot_flags_chop_veto(self) -> None:
+        prices = self.prices_from_returns([0.01, -0.01, 0.01, -0.01, 0.01, -0.01, 0.01, -0.01])
+        snapshot = review_bot_day.build_directionality_snapshot(
+            prices,
+            len(prices) - 1,
+            {"trend": 0.2, "mr": 0.6, "highVol": 0.2},
+            requested_side="long",
+        )
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot["reason"], "NON_DIRECTIONAL_CHOP")
+        self.assertTrue(snapshot["nonDirectional"])
+
+    def test_directionality_snapshot_flags_malformed_hysteresis_fail_closed(self) -> None:
+        prices = self.prices_from_returns([0.018, 0.018, 0.018, -0.01, -0.01, -0.01, 0.018, 0.018, -0.01, -0.01])
+        snapshot = review_bot_day.build_directionality_snapshot(
+            prices,
+            len(prices) - 1,
+            {"trend": 0.6, "mr": 0.2, "highVol": 0.2},
+            regime_hysteresis=math.nan,
+            requested_side="long",
+        )
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot["reason"], "NON_DIRECTIONAL_MALFORMED")
+        self.assertTrue(snapshot["nonDirectional"])
+
+    def test_directionality_snapshot_keeps_additive_monotonic_trend_directional(self) -> None:
+        prices = self.prices_from_returns([0.01] * 24)
+        snapshot = review_bot_day.build_directionality_snapshot(
+            prices,
+            len(prices) - 1,
+            {"trend": 0.6, "mr": 0.2, "highVol": 0.2},
+            requested_side="long",
+        )
+        self.assertIsNotNone(snapshot)
+        self.assertIsNone(snapshot["reason"])
+        self.assertFalse(snapshot["nonDirectional"])
+
     def test_report_counts_non_directional_order_attempts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tenant_dir = Path(tmpdir)
@@ -288,6 +332,53 @@ class ReviewBotDayTest(unittest.TestCase):
         self.assertEqual(report["orderEvents"][0]["flowRoleEvidence"], "default_without_close_context")
         self.assertEqual(report["orderEvents"][0]["nonDirectionalReason"], "NON_DIRECTIONAL_MR")
         self.assertEqual(report["anomalies"]["nonDirectionalOrderAttempts"][0]["symbol"], "BNBUSDT")
+
+    def test_report_flags_weak_band_short_blocked_by_positive_zscore_on_entry_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenant_dir = Path(tmpdir)
+            prices = self.prices_from_returns([0.018, 0.018, 0.018, -0.01, -0.01, -0.01, 0.018, 0.018, -0.01, -0.01])
+            open_times = [self.at_ms(f"2026-04-04T{hour:02d}:00:00-05:00") for hour in range(len(prices))]
+            self.write_snapshot(
+                tenant_dir,
+                "ADAUSDT",
+                {
+                    "symbol": "ADAUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": open_times[-1],
+                    "prices": prices,
+                    "positions": [0] * len(prices),
+                    "openTimes": open_times,
+                    "equityCurve": [1.0] * len(prices),
+                    "latestSignal": {"volatility": 0.2, "regimes": {"trend": 0.6, "mr": 0.2, "highVol": 0.2}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [
+                        {
+                            "atMs": open_times[-1] + 30_000,
+                            "index": len(prices) - 1,
+                            "opSide": "SELL",
+                            "openTime": open_times[-1],
+                            "order": {
+                                "executedQty": 0,
+                                "message": "Order sent.",
+                                "quantity": 10.0,
+                                "sent": True,
+                                "status": "NEW",
+                                "symbol": "ADAUSDT",
+                            },
+                            "price": prices[-1],
+                        }
+                    ],
+                },
+            )
+
+            report = review_bot_day.build_report("2026-04-04", "America/Guayaquil", tenant_dir)
+
+        self.assertEqual(report["summary"]["sameDayOrderEvents"], 1)
+        self.assertEqual(report["summary"]["nonDirectionalOrderAttempts"], 1)
+        self.assertEqual(report["orderEvents"][0]["flowRole"], "entry_or_add")
+        self.assertEqual(report["orderEvents"][0]["nonDirectionalReason"], "NON_DIRECTIONAL_WEAK_BAND")
+        self.assertEqual(report["anomalies"]["nonDirectionalOrderAttempts"][0]["symbol"], "ADAUSDT")
 
     def test_excludes_adopted_close_and_flatten_events_from_non_directional_attempts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

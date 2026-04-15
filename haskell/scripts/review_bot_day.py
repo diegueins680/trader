@@ -12,6 +12,12 @@ Regime labels use explicit 24-bar diagnostics:
 - `trend-up` / `trend-down` when efficiency >= 0.45 and |z| >= 1.0
 - `chop` when efficiency <= 0.25
 - `range-drift` otherwise
+
+The low-directionality veto follows the live 24-bar additive-return contract:
+- malformed efficiency or weak-band hysteresis fail closed
+- `chop` vetoes at efficiency <= 0.25
+- weak-band MR vetoes at efficiency <= 0.40 when MR dominates by hysteresis gap
+- weak-band entry/add flow must also satisfy side-aware signed zScore confirmation
 """
 
 from __future__ import annotations
@@ -59,6 +65,9 @@ BINANCE_CODE_RE = re.compile(r"binance code\s+(-?\d+)(?:\s*[:/]\s*(.*))?", re.IG
 DIRECTIONALITY_CHOP_EFFICIENCY_MAX = 0.25
 DIRECTIONALITY_MR_EFFICIENCY_MAX = 0.40
 DIRECTIONALITY_REGIME_HYSTERESIS = 0.05
+DIRECTIONALITY_WEAK_BAND_ZSCORE_MIN = 0.75
+DIRECTIONALITY_EFFICIENCY_TOL = 1e-12
+DIRECTIONALITY_REGIME_MASS_TOL = 1e-3
 
 INTERVAL_UNITS_MS = {
     "m": 60_000,
@@ -220,9 +229,11 @@ def classify_regime(prices: list[float], idx: int, window_bars: int = 24) -> dic
             "efficiency": 0.0,
             "zScore": 0.0,
         }
-    net = window[-1] / window[0] - 1 if window[0] else 0.0
+    net = sum(returns)
     path = sum(abs(ret) for ret in returns)
     efficiency = 0.0 if path == 0 else abs(net) / path
+    if math.isfinite(efficiency) and -DIRECTIONALITY_EFFICIENCY_TOL <= efficiency <= 1.0 + DIRECTIONALITY_EFFICIENCY_TOL:
+        efficiency = max(0.0, min(1.0, efficiency))
     mean = sum(returns) / len(returns)
     variance = sum((ret - mean) ** 2 for ret in returns) / max(1, len(returns) - 1)
     realized_vol = math.sqrt(variance)
@@ -275,13 +286,39 @@ def normalized_regimes(value: Any) -> dict[str, float] | None:
     trend = float_or_none(value.get("trend"))
     mr = float_or_none(value.get("mr"))
     high_vol = float_or_none(value.get("highVol"))
-    if trend is None and mr is None and high_vol is None:
+    probs = [trend, mr, high_vol]
+    if any(prob is None for prob in probs):
+        return None
+    probs_f = [float(prob) for prob in probs if prob is not None]
+    if any(prob < 0.0 or prob > 1.0 for prob in probs_f):
+        return None
+    total = sum(probs_f)
+    if total <= 0.0 or abs(total - 1.0) > DIRECTIONALITY_REGIME_MASS_TOL:
         return None
     return {
-        "trend": trend if trend is not None else 0.0,
-        "mr": mr if mr is not None else 0.0,
-        "highVol": high_vol if high_vol is not None else 0.0,
+        "trend": probs_f[0],
+        "mr": probs_f[1],
+        "highVol": probs_f[2],
     }
+
+
+def normalized_requested_side(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw in {"long", "buy"}:
+        return "long"
+    if raw in {"short", "sell"}:
+        return "short"
+    return None
+
+
+def weak_band_confirmation_ok(z_score: float | None, requested_side: str | None) -> bool:
+    if requested_side is None or z_score is None or not math.isfinite(z_score):
+        return False
+    if requested_side == "long":
+        return z_score >= DIRECTIONALITY_WEAK_BAND_ZSCORE_MIN
+    if requested_side == "short":
+        return z_score <= -DIRECTIONALITY_WEAK_BAND_ZSCORE_MIN
+    return False
 
 
 def build_directionality_snapshot(
@@ -289,11 +326,13 @@ def build_directionality_snapshot(
     idx: int,
     regimes: dict[str, Any] | None,
     regime_hysteresis: float = DIRECTIONALITY_REGIME_HYSTERESIS,
+    requested_side: str | None = None,
 ) -> dict[str, Any] | None:
     regime = classify_regime(prices, idx)
     if regime["label"] == "insufficient":
         return None
     normalized = normalized_regimes(regimes)
+    requested_side = normalized_requested_side(requested_side)
     regime_leader = None
     regime_gap = None
     mr_dominant = False
@@ -303,14 +342,23 @@ def build_directionality_snapshot(
             regime_leader = ranked[0][0]
         if len(ranked) >= 2:
             regime_gap = ranked[0][1] - ranked[1][1]
-        mr_dominant = regime_leader == "mr" and regime_gap is not None and regime_gap >= max(0.0, regime_hysteresis)
+        mr_dominant = regime_leader == "mr" and regime_gap is not None and regime_gap >= regime_hysteresis
 
     efficiency = regime["efficiency"]
     reason = None
-    if efficiency <= DIRECTIONALITY_CHOP_EFFICIENCY_MAX:
+    if not math.isfinite(efficiency) or efficiency < -DIRECTIONALITY_EFFICIENCY_TOL or efficiency > 1.0 + DIRECTIONALITY_EFFICIENCY_TOL:
+        reason = "NON_DIRECTIONAL_MALFORMED"
+    elif efficiency <= DIRECTIONALITY_CHOP_EFFICIENCY_MAX:
         reason = "NON_DIRECTIONAL_CHOP"
-    elif efficiency <= DIRECTIONALITY_MR_EFFICIENCY_MAX and mr_dominant:
-        reason = "NON_DIRECTIONAL_MR"
+    elif efficiency <= DIRECTIONALITY_MR_EFFICIENCY_MAX:
+        if not math.isfinite(regime_hysteresis) or regime_hysteresis < 0.0:
+            reason = "NON_DIRECTIONAL_MALFORMED"
+        elif normalized is None:
+            reason = "NON_DIRECTIONAL_MALFORMED"
+        elif mr_dominant:
+            reason = "NON_DIRECTIONAL_MR"
+        elif requested_side is not None and not weak_band_confirmation_ok(float_or_none(regime["zScore"]), requested_side):
+            reason = "NON_DIRECTIONAL_WEAK_BAND"
 
     return {
         "lookbackBars": regime["lookbackBars"],
@@ -378,6 +426,15 @@ def open_side_to_order_side(side: Any) -> str | None:
         return "BUY"
     if side_text == "short":
         return "SELL"
+    return None
+
+
+def order_side_to_position_side(value: Any) -> str | None:
+    order_side = normalized_order_side(value)
+    if order_side == "BUY":
+        return "long"
+    if order_side == "SELL":
+        return "short"
     return None
 
 
@@ -941,13 +998,23 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             order = order_event.get("order") or {}
             order_idx_raw = order_event.get("index")
             order_idx = int(order_idx_raw) if isinstance(order_idx_raw, (int, float)) else None
-            directionality = None
-            if isinstance(order_event.get("directionality"), dict):
-                directionality = order_event.get("directionality")
-            elif order_idx is not None:
-                directionality = build_directionality_snapshot(prices, order_idx, latest_regimes)
+            stored_directionality = order_event.get("directionality") if isinstance(order_event.get("directionality"), dict) else None
             auth_failure = classify_binance_auth_failure(order.get("message")) if order.get("sent") is not True else None
             flow_role = classify_order_event_flow_role(snapshot, order_event, order_idx)
+            directionality = None
+            if flow_role["flowRole"] == "entry_or_add" and order_idx is not None:
+                directionality = build_directionality_snapshot(
+                    prices,
+                    order_idx,
+                    latest_regimes,
+                    requested_side=order_side_to_position_side(order_event.get("opSide")) if flow_role["flowRole"] == "entry_or_add" else None,
+                )
+                if directionality is None:
+                    directionality = stored_directionality
+            elif stored_directionality is not None:
+                directionality = stored_directionality
+            elif order_idx is not None:
+                directionality = build_directionality_snapshot(prices, order_idx, latest_regimes)
             order_row = {
                 "symbol": snapshot.symbol,
                 "atLocal": local_iso(at_ms, tz),
