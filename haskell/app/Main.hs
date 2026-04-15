@@ -7270,7 +7270,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                     else pure pos
             else pure 0
     restoredTrades <- restoreTradeMemoryFromSnapshotMaybe mBotStateDir tenantKey args sym
-    when (not (null restoredTrades)) $
+    unless (null restoredTrades) $
         putStrLn
             ( printf
                 "Restored %d closed trades of performance memory for %s (%s, %s)."
@@ -23467,7 +23467,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             metaLabelMinConfidence = clamp01 (argMetaLabelMinConfidence args)
             metaLabelRequireBand = argMetaLabelRequireBand args
             regimeBankEnabled = argRegimeParameterBank args
-            regimeBankHysteresis = clamp01 (argRegimeBankHysteresis args)
+            regimeBankHysteresisRaw = argRegimeBankHysteresis args
+            regimeBankHysteresis = clamp01 regimeBankHysteresisRaw
             regimeTrendOpenMult = max 0 (argRegimeTrendOpenMult args)
             regimeMrOpenMult = max 0 (argRegimeMrOpenMult args)
             regimeHighVolOpenMult = max 0 (argRegimeHighVolOpenMult args)
@@ -24611,10 +24612,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     _ -> False
                                )
                     else snrScale > 0
-            directionalitySnapshot =
-                signalDirectionalitySnapshot regimeBankHysteresis mRegimes pricesV t
-            nonDirectionalCheck _ =
-                case directionalitySnapshot of
+            directionalitySnapshotFor dir =
+                signalDirectionalitySnapshot regimeBankHysteresisRaw mRegimes pricesV t dir
+            nonDirectionalCheck dir =
+                case directionalitySnapshotFor dir of
                     Just snap | dsNonDirectional snap -> (False, dsReason snap)
                     _ -> (True, Nothing)
             blendDir = blendNext >>= directionPrice openThrAdj
@@ -25817,7 +25818,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 , lsKalmanDir = kalDir
                 , lsLstmNext = mLstmNext
                 , lsSizingNext = sizingNext
-                , lsDirectionality = directionalitySnapshot
+                , lsDirectionality = chosenDir0 >>= directionalitySnapshotFor
                 , lsLstmDir = lstmDir
                 , lsChosenDir = chosenDir
                 , lsCloseDir = closeDir

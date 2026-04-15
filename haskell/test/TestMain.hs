@@ -12,6 +12,8 @@ import Trader.Formal.Optimization (
     verifyFormalOptimization,
  )
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
+import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
+import Trader.Predictors (RegimeProbs (..))
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -62,10 +64,12 @@ main = do
     testSignalGateEntryHeadroomSpecializesFeeBuffer
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
+    testSignalDirectionalityLiveSemanticsRegression
     testSignalGatesPublicSurfaceRegression
     testTradingPublicSurfaceRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
+    testOrderExecutionFillSanitizationInvariant
     testOptimizerActivityCountInvariant
     testOptimizerPublicSurfaceRegression
     testMetricsConsumesTradingPublicResults
@@ -77,6 +81,27 @@ assert message condition =
 assertMonotoneNonIncreasing :: String -> [Bool] -> IO ()
 assertMonotoneNonIncreasing message values =
     assert message (and (zipWith (\left right -> left || not right) values (drop 1 values)))
+
+pricesFromReturns :: [Double] -> V.Vector Double
+pricesFromReturns returns =
+    V.fromList (scanl (\price ret -> price * (1 + ret)) 100 returns)
+
+directionalitySnapshot4Args ::
+    Double ->
+    Maybe RegimeProbs ->
+    V.Vector Double ->
+    Int ->
+    Maybe DirectionalitySnapshot
+directionalitySnapshot4Args = signalDirectionalitySnapshot
+
+directionalitySnapshot5Args ::
+    Double ->
+    Maybe RegimeProbs ->
+    V.Vector Double ->
+    Int ->
+    Int ->
+    Maybe DirectionalitySnapshot
+directionalitySnapshot5Args = signalDirectionalitySnapshot
 
 sampleEnsembleConfig :: EnsembleConfig
 sampleEnsembleConfig =
@@ -443,6 +468,42 @@ testTradingEntryGateMalformedNoReopen = do
                 [negativeFeeState, malformedFeeState, malformedEdgeState]
         )
 
+-- Execution-quantity guardrail: malformed or non-positive fills must fail
+-- closed, and reduce-only fills must never reopen or increase exposure.
+testOrderExecutionFillSanitizationInvariant :: IO ()
+testOrderExecutionFillSanitizationInvariant = do
+    let invalidQtys = [0, -1, 0 / 0, 1 / 0, negate (1 / 0)]
+        invalidQtyNoOp prevPos prevSize isBuy =
+            all
+                (\qty -> applyExecutedQuantity prevPos prevSize isBuy qty == (prevPos, prevSize, 0, 0))
+                invalidQtys
+        reduceOnlySamples =
+            [ (1, 2, -1, (1, 2, 0, 0))
+            , (1, 2, 0 / 0, (1, 2, 0, 0))
+            , (1, 2, 5, (0, 0, 2, 0))
+            , (-1, 2, 5, (0, 0, 2, 0))
+            , (0, 2, 5, (0, 0, 0, 0))
+            ]
+        reduceOnlyInvariant (prevPos, prevSize, qty, expected@(posNew, sizeNew, closeQty, openQty)) =
+            applyReduceOnlyExecutedQuantity prevPos prevSize qty == expected
+                && openQty == 0
+                && sizeNew >= 0
+                && closeQty >= 0
+                && sizeNew <= max 0 prevSize
+                && closeQty <= max 0 prevSize
+                && (posNew == 0 || posNew == signum prevPos)
+    assert
+        "non-positive or malformed executed quantities stay fail closed and leave position state unchanged"
+        ( invalidQtyNoOp 1 2 True
+            && invalidQtyNoOp 1 2 False
+            && invalidQtyNoOp (-1) 2 True
+            && invalidQtyNoOp (-1) 2 False
+            && invalidQtyNoOp 0 0 True
+        )
+    assert
+        "reduce-only fills only close existing exposure and never reopen a position"
+        (all reduceOnlyInvariant reduceOnlySamples)
+
 -- Formal optimization regression: the restored activity helper stays total,
 -- dominates both raw activity sources after clamping, and the RoiView
 -- projection stays locked to the helper across bounded negative/positive
@@ -552,6 +613,13 @@ testSignalGatesPublicSurfaceRegression :: IO ()
 testSignalGatesPublicSurfaceRegression = do
     let directionalitySnapshot0 = signalDirectionalitySnapshot :: DirectionalitySnapshot
         directionalitySnapshot2 = signalDirectionalitySnapshot () () :: DirectionalitySnapshot
+        directionalitySnapshot4 =
+            directionalitySnapshot4Args
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                (V.fromList [100, 101, 102, 103])
+                3 ::
+                Maybe DirectionalitySnapshot
         thresholdBoundary0 = mkSignalThresholdBoundary :: SignalThresholdBoundary
         thresholdBoundary2 =
             (mkSignalThresholdBoundary :: Double -> Maybe Double -> SignalThresholdBoundary) 0.01 (Just 0.02)
@@ -601,6 +669,7 @@ testSignalGatesPublicSurfaceRegression = do
         "Main-facing Trader.SignalGates symbols stay importable and compatibility shims remain fail closed"
         ( directionalitySnapshot0 == DirectionalitySnapshot False Nothing
             && directionalitySnapshot2 == DirectionalitySnapshot False Nothing
+            && directionalitySnapshot4 == Just (DirectionalitySnapshot False Nothing)
             && thresholdBoundary0 == SignalThresholdBoundary 0 0 0 0
             && thresholdBoundary2 == SignalThresholdBoundary 0.01 0.02 0.01 0.02
             && crossAssetCheck0 == (False, Just "CROSS_ASSET")
@@ -616,6 +685,57 @@ testSignalGatesPublicSurfaceRegression = do
             && postDirectionGates0 == (Nothing, Nothing)
             && postDirectionGates2 == (Nothing, Just "VOLATILITY")
         )
+
+testSignalDirectionalityLiveSemanticsRegression :: IO ()
+testSignalDirectionalityLiveSemanticsRegression = do
+    let chopPrices = pricesFromReturns [0.01, -0.01, 0.01, -0.01, 0.01, -0.01, 0.01, -0.01]
+        weakBandPrices =
+            pricesFromReturns [0.018, 0.018, 0.018, -0.01, -0.01, -0.01, 0.018, 0.018, -0.01, -0.01]
+        trendPrices = pricesFromReturns (replicate 24 0.01)
+        chopSnapshot =
+            directionalitySnapshot5Args
+                0.05
+                (Just (RegimeProbs 0.2 0.6 0.2))
+                chopPrices
+                (V.length chopPrices - 1)
+                1 ::
+                Maybe DirectionalitySnapshot
+        weakBandShortSnapshot =
+            directionalitySnapshot5Args
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                weakBandPrices
+                (V.length weakBandPrices - 1)
+                (-1) ::
+                Maybe DirectionalitySnapshot
+        malformedHysteresisSnapshot =
+            directionalitySnapshot5Args
+                (-0.01)
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                weakBandPrices
+                (V.length weakBandPrices - 1)
+                1 ::
+                Maybe DirectionalitySnapshot
+        monotonicTrendSnapshot =
+            directionalitySnapshot5Args
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                trendPrices
+                (V.length trendPrices - 1)
+                1 ::
+                Maybe DirectionalitySnapshot
+    assert
+        "directionality chop windows are vetoed at efficiency <= 0.25"
+        (chopSnapshot == Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_CHOP")))
+    assert
+        "weak-band shorts are blocked when the signed additive-path zScore confirms the opposite side"
+        (weakBandShortSnapshot == Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_WEAK_BAND")))
+    assert
+        "malformed regime-bank hysteresis fails closed on the weak-band live path"
+        (malformedHysteresisSnapshot == Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_MALFORMED")))
+    assert
+        "additive monotonic trends remain directional instead of misclassifying clean trends as malformed"
+        (monotonicTrendSnapshot == Just (DirectionalitySnapshot False Nothing))
 
 -- Formal public-surface invariant for the Main-facing Trader.Trading import
 -- seam: a downstream module importing `PositionSide(..)` can still case-analyze

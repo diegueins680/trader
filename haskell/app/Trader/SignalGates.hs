@@ -24,7 +24,11 @@ module Trader.SignalGates (
 ) where
 
 import qualified Data.Aeson as Aeson
+import Data.List (sortOn)
 import Data.Maybe (catMaybes, fromMaybe)
+import qualified Data.Ord
+import qualified Data.Vector as V
+import Trader.Predictors.Types (RegimeProbs (..))
 
 -- Compatibility surface restored for Main: these shims are fail closed by
 -- construction, so re-exporting the legacy names cannot weaken the current
@@ -128,8 +132,193 @@ signalCrossAssetCheck enabled crossAssetDirRaw
             Just _ -> (True, Nothing)
             Nothing -> (False, Just "CROSS_ASSET")
 
-signalDirectionalitySnapshot :: (FailClosedSurface r) => r
-signalDirectionalitySnapshot = failClosedSurface
+class SignalDirectionalitySurface r where
+    signalDirectionalitySnapshot :: r
+
+instance SignalDirectionalitySurface DirectionalitySnapshot where
+    signalDirectionalitySnapshot = failClosedSurface
+
+instance SignalDirectionalitySurface (a -> b -> DirectionalitySnapshot) where
+    signalDirectionalitySnapshot = const (const failClosedSurface)
+
+instance SignalDirectionalitySurface (Double -> Maybe RegimeProbs -> V.Vector Double -> Int -> Maybe DirectionalitySnapshot) where
+    signalDirectionalitySnapshot regimeBankHysteresis mRegimes pricesV t =
+        signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t Nothing
+
+instance SignalDirectionalitySurface (Double -> Maybe RegimeProbs -> V.Vector Double -> Int -> Int -> Maybe DirectionalitySnapshot) where
+    signalDirectionalitySnapshot regimeBankHysteresis mRegimes pricesV t chosenDir =
+        signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t (Just chosenDir)
+
+directionalityLookbackBars :: Int
+directionalityLookbackBars = 24
+
+directionalityChopEfficiencyMax :: Double
+directionalityChopEfficiencyMax = 0.25
+
+directionalityMrEfficiencyMax :: Double
+directionalityMrEfficiencyMax = 0.40
+
+directionalityWeakBandZMin :: Double
+directionalityWeakBandZMin = 0.75
+
+directionalityEfficiencyTol :: Double
+directionalityEfficiencyTol = 1e-12
+
+directionalityRegimeMassTol :: Double
+directionalityRegimeMassTol = 1e-3
+
+malformedDirectionalitySnapshot :: DirectionalitySnapshot
+malformedDirectionalitySnapshot =
+    DirectionalitySnapshot
+        { dsNonDirectional = True
+        , dsReason = Just "NON_DIRECTIONAL_MALFORMED"
+        }
+
+mkDirectionalitySnapshot :: Maybe String -> DirectionalitySnapshot
+mkDirectionalitySnapshot mReason =
+    DirectionalitySnapshot
+        { dsNonDirectional = maybe False (const True) mReason
+        , dsReason = mReason
+        }
+
+signalDirectionalitySnapshotImpl ::
+    Double ->
+    Maybe RegimeProbs ->
+    V.Vector Double ->
+    Int ->
+    Maybe Int ->
+    Maybe DirectionalitySnapshot
+signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t mChosenDir =
+    case directionalityWindowMetrics pricesV t of
+        Nothing -> Just malformedDirectionalitySnapshot
+        Just metrics ->
+            let eff0 = wmEfficiency metrics
+                eff
+                    | efficiencyMalformed eff0 = Nothing
+                    | otherwise = Just (clamp01 eff0)
+                weakBand = maybe False (<= directionalityMrEfficiencyMax) eff
+                hysteresisOk = finiteDouble regimeBankHysteresis && regimeBankHysteresis >= 0
+                mRegimeSummary =
+                    if weakBand
+                        then directionalityRegimeSummary regimeBankHysteresis mRegimes
+                        else Nothing
+                mReason =
+                    case eff of
+                        Nothing -> Just "NON_DIRECTIONAL_MALFORMED"
+                        Just efficiency
+                            | efficiency <= directionalityChopEfficiencyMax -> Just "NON_DIRECTIONAL_CHOP"
+                            | efficiency <= directionalityMrEfficiencyMax ->
+                                if not hysteresisOk
+                                    then Just "NON_DIRECTIONAL_MALFORMED"
+                                    else case mRegimeSummary of
+                                        Nothing -> Just "NON_DIRECTIONAL_MALFORMED"
+                                        Just regimeSummary
+                                            | drsMrDominant regimeSummary -> Just "NON_DIRECTIONAL_MR"
+                                            | not (directionalityWeakBandConfirmed (wmZScore metrics) mChosenDir) ->
+                                                Just "NON_DIRECTIONAL_WEAK_BAND"
+                                            | otherwise -> Nothing
+                            | otherwise -> Nothing
+             in Just (mkDirectionalitySnapshot mReason)
+
+data DirectionalityWindowMetrics = DirectionalityWindowMetrics
+    { wmEfficiency :: !Double
+    , wmZScore :: !Double
+    }
+
+directionalityWindowMetrics :: V.Vector Double -> Int -> Maybe DirectionalityWindowMetrics
+directionalityWindowMetrics pricesV t =
+    let start = max 1 (t - directionalityLookbackBars + 1)
+     in case traverse (returnAt pricesV) [start .. t] of
+            Nothing -> Nothing
+            Just [] -> Nothing
+            Just returns ->
+                let net = sum returns
+                    path = sum (map abs returns)
+                    efficiency =
+                        if path <= 0
+                            then 0
+                            else abs net / path
+                    stdev = stddevList returns
+                    zScore =
+                        if stdev <= 1e-12
+                            then 0
+                            else net / (stdev * sqrt (fromIntegral (length returns)))
+                 in Just DirectionalityWindowMetrics{wmEfficiency = efficiency, wmZScore = zScore}
+
+returnAt :: V.Vector Double -> Int -> Maybe Double
+returnAt pricesV i
+    | i <= 0 || i >= V.length pricesV = Nothing
+    | otherwise =
+        let prev = pricesV V.! (i - 1)
+            next = pricesV V.! i
+         in if prev == 0 || not (finiteDouble prev) || not (finiteDouble next)
+                then Nothing
+                else
+                    let ret = next / prev - 1
+                     in if finiteDouble ret then Just ret else Nothing
+
+meanList :: [Double] -> Double
+meanList xs =
+    if null xs then 0 else sum xs / fromIntegral (length xs)
+
+stddevList :: [Double] -> Double
+stddevList xs =
+    case xs of
+        [] -> 0
+        [_] -> 0
+        _ ->
+            let mu = meanList xs
+                var = sum (map (\x -> (x - mu) ** 2) xs) / fromIntegral (length xs - 1)
+             in sqrt (max 0 var)
+
+efficiencyMalformed :: Double -> Bool
+efficiencyMalformed efficiency =
+    not (finiteDouble efficiency)
+        || efficiency < negate directionalityEfficiencyTol
+        || efficiency > 1 + directionalityEfficiencyTol
+
+directionalityWeakBandConfirmed :: Double -> Maybe Int -> Bool
+directionalityWeakBandConfirmed zScore mChosenDir
+    | not (finiteDouble zScore) = False
+    | otherwise =
+        case mChosenDir of
+            Just dir | dir > 0 -> zScore >= directionalityWeakBandZMin
+            Just dir | dir < 0 -> zScore <= negate directionalityWeakBandZMin
+            _ -> False
+
+data DirectionalityRegimeSummary = DirectionalityRegimeSummary
+    { drsMrDominant :: !Bool
+    }
+
+directionalityRegimeSummary :: Double -> Maybe RegimeProbs -> Maybe DirectionalityRegimeSummary
+directionalityRegimeSummary regimeBankHysteresis mRegimes = do
+    regimes <- mRegimes
+    validRegimes <- validateRegimes regimes
+    let ranked = sortOn (Data.Ord.Down . snd) validRegimes
+        mrDominant =
+            case ranked of
+                (("MR", pMr) : (_, p2) : _) -> pMr - p2 >= regimeBankHysteresis
+                _ -> False
+    pure DirectionalityRegimeSummary{drsMrDominant = mrDominant}
+
+validateRegimes :: RegimeProbs -> Maybe [(String, Double)]
+validateRegimes regimes =
+    let entries =
+            [ ("TREND", rpTrend regimes)
+            , ("MR", rpMR regimes)
+            , ("HIGH_VOL", rpHighVol regimes)
+            ]
+        probs = map snd entries
+        total = sum probs
+        validProb p = finiteDouble p && p >= 0 && p <= 1
+     in if all validProb probs
+            && total > 0
+            && abs (total - 1) <= directionalityRegimeMassTol
+            then Just entries
+            else Nothing
+
+clamp01 :: Double -> Double
+clamp01 = max 0 . min 1
 
 entryEdgeHeadroomMultiple :: Double
 entryEdgeHeadroomMultiple = 1.5
