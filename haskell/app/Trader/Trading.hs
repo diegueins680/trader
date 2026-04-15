@@ -22,12 +22,12 @@ module Trader.Trading (
     tradeEntrySourceCode,
 ) where
 
+import Control.Applicative ((<|>))
+import qualified Data.Aeson as Aeson
 import Data.Char (toUpper)
 import Data.Int (Int64)
 import Data.List (foldl')
 import Data.Maybe (isJust, isNothing)
-import Control.Applicative ((<|>))
-import qualified Data.Aeson as Aeson
 import qualified Data.Maybe as Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -2523,7 +2523,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             , brPositionChanges = changes
                             , brTrades = reverse tradesRev'
                             }
-
 
 defaultOpenThreshold :: Double
 defaultOpenThreshold = 0.01
