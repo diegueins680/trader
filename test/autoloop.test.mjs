@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  buildAutoloopScratchBranchCandidates,
   buildBranchMergeCandidates,
   buildActionsRunsApiPath,
   buildForceWithLeaseFlag,
@@ -106,6 +107,39 @@ test("buildBranchMergeCandidates ignores autoloop recovery branches", () => {
   assert.equal(isAutoloopRecoveryBranch("refs/heads/autoloop/recovery/main/cycle-41"), true);
   assert.equal(isAutoloopRecoveryBranch("origin/autoloop/checkpoint/main/main-2026"), true);
   assert.equal(isAutoloopRecoveryBranch("feature/live-fix"), false);
+});
+
+test("buildAutoloopScratchBranchCandidates keeps only autoloop recovery and checkpoint refs", () => {
+  const candidates = buildAutoloopScratchBranchCandidates({
+    baseBranch: "main",
+    localBranches: [
+      "main",
+      "feature/live-fix",
+      "autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      "autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+    ],
+    remoteBranches: [
+      "origin/main",
+      "origin/autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      "origin/autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+      "origin/feature/live-fix",
+    ],
+  });
+
+  assert.deepEqual(candidates, [
+    {
+      shortName: "autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+      ref: "autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+      localRef: "autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+      remoteRef: "origin/autoloop/checkpoint/main/main-2026-04-10t09-28-48-000z",
+    },
+    {
+      shortName: "autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      ref: "autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      localRef: "autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+      remoteRef: "origin/autoloop/recovery/main/cycle-41-2026-04-10t09-34-23-000z",
+    },
+  ]);
 });
 
 test("parseJsonResponse rejects invalid JSON", () => {
@@ -462,10 +496,13 @@ test("autoloop script repairs the latest remote branch head before proposing new
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /let failureContext = await inspectLatestRemoteBranchFailureContext\(\);/);
   assert.match(script, /Latest remote \$\{failureContext\.branchName\} commit \$\{failureContext\.headSha\} has failing GitHub Actions\./);
+  assert.match(script, /logFailureRepairContext\("Repairing latest failing GitHub Actions", failureContext\);/);
   assert.match(script, /async function inspectLatestRemoteBranchFailureContext\(\)/);
   assert.match(script, /const latestHeadSha = readRemoteBranchHead\(LOOP_BRANCH\) \|\| readRemoteBranchHead\(BASE_BRANCH\);/);
   assert.match(script, /const ci = pollGitHubActionsForHead\(latestHeadSha, LOOP_BRANCH, \{ requireWorkflowRun: false \}\);/);
   assert.match(script, /changedPaths: listCommitChangedPaths\(latestHeadSha\),/);
+  assert.match(script, /function logFailureRepairContext\(prefix, failureContext\)/);
+  assert.match(script, /console\.log\(`\$\{prefix\} for \$\{branchName\} @ \$\{headSha\}\$\{runUrl\} \$\{logState\}`\);/);
 });
 
 test("autoloop script auto-heals formatting-only CI failures on editable Haskell files", async () => {
@@ -616,7 +653,11 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /const BASE_BRANCH = normalizeGitBranchShortName\(process\.env\.AUTOLOOP_BASE_BRANCH \|\| "main"\) \|\| "main";/);
   assert.match(script, /const branchSweep = await reconcileUnmergedBranchesOntoBaseBranch\(\);/);
   assert.match(script, /runCommand\("git", \["fetch", "origin", "--prune"\], \{ capture: false \}\);/);
-  assert.match(script, /buildBranchMergeCandidates\(\{ localBranches, remoteBranches, baseBranch: BASE_BRANCH \}\)/);
+  assert.match(
+    script,
+    /buildBranchMergeCandidates\(\{\s*localBranches,\s*remoteBranches,\s*baseBranch: BASE_BRANCH,\s*\}\)/,
+  );
+  assert.match(script, /buildAutoloopScratchBranchCandidates\(\{/);
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
   assert.match(script, /function buildMergeCommitMessage\(shortName = "", branchRef = ""\)/);
@@ -627,7 +668,9 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /runCommand\("git", \["rebase", remoteRef\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["rebase", "--abort"\], \{ capture: false \}\)/);
   assert.match(script, /outcome: "rebased"/);
-  assert.match(script, /runCommand\("git", \["merge", "--no-ff", "-m", mergeMessage, branchRef\], \{ capture: false \}\)/);
+  assert.match(script, /const mergeArgs = \["merge", "--no-ff", "-m", mergeMessage, branchRef\];/);
+  assert.match(script, /runCommand\("git", mergeArgs, \{ capture: false \}\)/);
+  assert.doesNotMatch(script, /"-s", "ours"/);
   assert.match(script, /runCommand\("git", \["restore", "--source=HEAD", "--staged", "--worktree", "--", \.\.\.conflicts\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["commit", "-m", conflictMessage\], \{ capture: false \}\)/);
   assert.match(script, /runCommand\("git", \["push", "origin", `\$\{BASE_BRANCH\}:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
@@ -635,8 +678,11 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /runCommand\("git", \["worktree", "prune"\], \{ capture: false \}\);/);
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--merged", baseBranch\], \{ trimOutput: false \}\)/);
+  assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)"\], \{ trimOutput: false \}\)/);
+  assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)"\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["worktree", "list", "--porcelain"\], \{ trimOutput: false \}\)/);
   assert.match(script, /const worktreeBranches = listWorktreeBranches\(\);/);
+  assert.match(script, /scratchCandidateBranches: pruneResult\.scratchCandidateBranches/);
   assert.match(script, /if \(worktreeBranches\.has\(candidate\.shortName\)\) \{/);
   assert.match(script, /skippedWorktreeBranches\.push\(candidate\.shortName\);/);
   assert.match(script, /runCommand\("git", \["push", "origin", "--delete", candidate\.shortName\], \{ capture: false \}\)/);
