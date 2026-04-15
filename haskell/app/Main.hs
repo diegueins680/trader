@@ -7435,24 +7435,23 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
     latestStartRaw <-
         if null restoredTrades
             then pure latest0Raw
-            else
-                case computeLatestSignal
-                    argsStartSignal
-                    lookback
-                    featureInputs
-                    mLstmCtx
-                    mKalmanCtx
-                    Nothing
-                    ( Just
-                        PredHistory
-                            { phKalman = kalPred0
-                            , phLstm = lstmPred0
-                            , phMeta = Nothing
-                            , phLstmHealth = Nothing
-                            }
-                    ) of
-                    Left err -> throwIO (userError err)
-                    Right sig -> pure sig
+            else case computeLatestSignal
+                argsStartSignal
+                lookback
+                featureInputs
+                mLstmCtx
+                mKalmanCtx
+                Nothing
+                ( Just
+                    PredHistory
+                        { phKalman = kalPred0
+                        , phLstm = lstmPred0
+                        , phMeta = Nothing
+                        , phLstmHealth = Nothing
+                        }
+                ) of
+                Left err -> throwIO (userError err)
+                Right sig -> pure sig
 
     let
         -- Startup decision:
