@@ -24612,8 +24612,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     _ -> False
                                )
                     else snrScale > 0
-            directionalitySnapshotFor dir =
-                signalDirectionalitySnapshot regimeBankHysteresisRaw mRegimes pricesV t dir
+            directionalitySnapshotFor =
+                signalDirectionalitySnapshot regimeBankHysteresisRaw mRegimes pricesV t
             nonDirectionalCheck dir =
                 case directionalitySnapshotFor dir of
                     Just snap | dsNonDirectional snap -> (False, dsReason snap)

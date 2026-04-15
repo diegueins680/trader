@@ -25,7 +25,7 @@ module Trader.SignalGates (
 
 import qualified Data.Aeson as Aeson
 import Data.List (sortOn)
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust)
 import qualified Data.Ord
 import qualified Data.Vector as V
 import Trader.Predictors.Types (RegimeProbs (..))
@@ -177,7 +177,7 @@ malformedDirectionalitySnapshot =
 mkDirectionalitySnapshot :: Maybe String -> DirectionalitySnapshot
 mkDirectionalitySnapshot mReason =
     DirectionalitySnapshot
-        { dsNonDirectional = maybe False (const True) mReason
+        { dsNonDirectional = isJust mReason
         , dsReason = mReason
         }
 
@@ -286,8 +286,8 @@ directionalityWeakBandConfirmed zScore mChosenDir
             Just dir | dir < 0 -> zScore <= negate directionalityWeakBandZMin
             _ -> False
 
-data DirectionalityRegimeSummary = DirectionalityRegimeSummary
-    { drsMrDominant :: !Bool
+newtype DirectionalityRegimeSummary = DirectionalityRegimeSummary
+    { drsMrDominant :: Bool
     }
 
 directionalityRegimeSummary :: Double -> Maybe RegimeProbs -> Maybe DirectionalityRegimeSummary
