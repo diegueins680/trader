@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { execFileSync, spawn } from "node:child_process";
 import {
+  buildAutoloopScratchBranchCandidates,
   buildBranchMergeCandidates,
   isAutoloopRecoveryBranch,
   normalizeGitBranchShortName,
@@ -301,9 +302,7 @@ function mergeRefOntoBaseBranch(branchRef, shortName = normalizeGitBranchShortNa
   const headBefore = runCommand("git", ["rev-parse", "HEAD"]);
   const mergeMessage = buildMergeCommitMessage(shortName, branchRef);
   const conflictMessage = buildConflictResolutionCommitMessage(shortName, branchRef);
-  const mergeArgs = isAutoloopRecoveryBranch(shortName)
-    ? ["merge", "-s", "ours", "--no-ff", "-m", mergeMessage, branchRef]
-    : ["merge", "--no-ff", "-m", mergeMessage, branchRef];
+  const mergeArgs = ["merge", "--no-ff", "-m", mergeMessage, branchRef];
 
   try {
     runCommand("git", mergeArgs, { capture: false });
@@ -419,15 +418,33 @@ function pruneMergedRefsOnBaseBranch(baseBranch) {
     localBranches,
     remoteBranches,
     baseBranch,
-    includeRecoveryBranches: true,
   });
+  const allLocalBranches = splitNonEmptyLines(
+    runCommand("git", ["branch", "--format=%(refname:short)"], { trimOutput: false }),
+  );
+  const allRemoteBranches = splitNonEmptyLines(
+    runCommand("git", ["branch", "-r", "--format=%(refname:short)"], { trimOutput: false }),
+  );
+  const scratchCandidates = buildAutoloopScratchBranchCandidates({
+    localBranches: allLocalBranches,
+    remoteBranches: allRemoteBranches,
+    baseBranch,
+  });
+  const candidatesByShortName = new Map();
+  for (const candidate of [...candidates, ...scratchCandidates]) {
+    if (!candidate?.shortName || candidatesByShortName.has(candidate.shortName)) continue;
+    candidatesByShortName.set(candidate.shortName, candidate);
+  }
+  const combinedCandidates = Array.from(candidatesByShortName.values()).sort((left, right) =>
+    left.shortName.localeCompare(right.shortName),
+  );
   const worktreeBranches = listWorktreeBranches();
   const prunedLocalBranches = [];
   const prunedRemoteBranches = [];
   const skippedWorktreeBranches = [];
   const pruneErrors = [];
 
-  for (const candidate of candidates) {
+  for (const candidate of combinedCandidates) {
     if (candidate.remoteRef) {
       try {
         runCommand("git", ["push", "origin", "--delete", candidate.shortName], { capture: false });
@@ -462,7 +479,8 @@ function pruneMergedRefsOnBaseBranch(baseBranch) {
   }
 
   return {
-    candidateBranches: candidates.map((candidate) => candidate.shortName),
+    candidateBranches: combinedCandidates.map((candidate) => candidate.shortName),
+    scratchCandidateBranches: scratchCandidates.map((candidate) => candidate.shortName),
     prunedLocalBranches,
     prunedRemoteBranches,
     skippedWorktreeBranches,
@@ -491,7 +509,6 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       localBranches,
       remoteBranches,
       baseBranch: BASE_BRANCH,
-      includeRecoveryBranches: true,
     });
 
     const mergedBranches = [];
@@ -527,6 +544,7 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       pushRetried: pushResult.retried,
       retrySyncOutcome: pushResult.retrySync?.outcome ?? null,
       pruneCandidateBranches: pruneResult.candidateBranches,
+      scratchCandidateBranches: pruneResult.scratchCandidateBranches,
       prunedLocalBranches: pruneResult.prunedLocalBranches,
       prunedRemoteBranches: pruneResult.prunedRemoteBranches,
       skippedWorktreeBranches: pruneResult.skippedWorktreeBranches,

@@ -160,6 +160,7 @@ async function main() {
       failureContext: summarizeFailureContext(failureContext),
       message: `Latest remote ${failureContext.branchName} commit ${failureContext.headSha} has failing GitHub Actions.`,
     });
+    logFailureRepairContext("Repairing latest failing GitHub Actions", failureContext);
   }
   for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
     await updateStatus({ phase: "reset-branch", iteration, failureContext: summarizeFailureContext(failureContext) });
@@ -358,6 +359,7 @@ async function main() {
       ci,
       failureContext: summarizeFailureContext(failureContext),
     });
+    logFailureRepairContext("GitHub Actions failed; re-entering repair loop", failureContext);
   }
 
   throw new Error(`Autoloop exhausted ${MAX_ITERATIONS} iteration(s) without a green CI result.`);
@@ -367,6 +369,14 @@ function clampInt(raw, fallback, min, max) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(n)));
+}
+
+function logFailureRepairContext(prefix, failureContext) {
+  const branchName = failureContext?.branchName || LOOP_BRANCH;
+  const headSha = failureContext?.headSha || "unknown";
+  const runUrl = failureContext?.runUrl ? ` (${failureContext.runUrl})` : "";
+  const logState = String(failureContext?.failedLog || "").trim() ? "with failed log context." : "without failed log context.";
+  console.log(`${prefix} for ${branchName} @ ${headSha}${runUrl} ${logState}`);
 }
 
 function readBooleanEnv(raw) {

@@ -300,6 +300,33 @@ export function buildBranchMergeCandidates(
     }));
 }
 
+export function buildAutoloopScratchBranchCandidates({ localBranches = [], remoteBranches = [], baseBranch = "main" } = {}) {
+  const base = normalizeGitBranchShortName(baseBranch || "main");
+  const localByShortName = new Map();
+  const remoteByShortName = new Map();
+
+  for (const branch of localBranches) {
+    const shortName = normalizeGitBranchShortName(branch);
+    if (!shortName || shortName === base || !isAutoloopRecoveryBranch(shortName)) continue;
+    localByShortName.set(shortName, String(branch).trim());
+  }
+
+  for (const branch of remoteBranches) {
+    const shortName = normalizeGitBranchShortName(branch);
+    if (!shortName || shortName === base || !isAutoloopRecoveryBranch(shortName)) continue;
+    remoteByShortName.set(shortName, String(branch).trim());
+  }
+
+  return uniqueStrings([...localByShortName.keys(), ...remoteByShortName.keys()])
+    .sort((left, right) => left.localeCompare(right))
+    .map((shortName) => ({
+      shortName,
+      ref: localByShortName.get(shortName) || remoteByShortName.get(shortName) || shortName,
+      localRef: localByShortName.get(shortName) || "",
+      remoteRef: remoteByShortName.get(shortName) || "",
+    }));
+}
+
 export function prepareShellCommand(command) {
   const normalized = String(command ?? "").trim();
   const needsGhcup =
