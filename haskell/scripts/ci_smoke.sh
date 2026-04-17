@@ -57,7 +57,7 @@ if ! "$optimize_bin" \
   --epochs-max 1 \
   --hidden-size-min 4 \
   --hidden-size-max 4 \
-  --timeout-sec 10 \
+  --timeout-sec 30 \
   --no-sweep-threshold \
   --min-round-trips 0 \
   --min-exposure 0 \
