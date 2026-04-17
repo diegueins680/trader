@@ -6372,13 +6372,32 @@ comboPollSecondsFromEnv = do
             Just n | n >= 5 -> n
             _ -> 30
 
-topComboBotCountFromEnv :: IO Int
-topComboBotCountFromEnv = do
-    raw <- lookupEnv "TRADER_BOT_TOP_COMBO_BOTS"
+readBoundedIntEnv :: String -> Int -> Int -> Int -> IO Int
+readBoundedIntEnv name minValue maxValue fallback = do
+    raw <- lookupEnv name
     pure $
         case raw >>= readMaybe of
-            Just n | n >= 0 -> min 200 n
-            _ -> 50
+            Just n | n >= minValue -> min maxValue n
+            _ -> fallback
+
+defaultTopComboBotCount :: Int
+defaultTopComboBotCount = 3
+
+defaultTopComboStartupBotCount :: Int
+defaultTopComboStartupBotCount = 0
+
+defaultBotAutoStartMaxBots :: Int
+defaultBotAutoStartMaxBots = 3
+
+defaultBotAutoStartMaxStartsPerCycle :: Int
+defaultBotAutoStartMaxStartsPerCycle = 1
+
+defaultBotStartMaxSymbols :: Int
+defaultBotStartMaxSymbols = 3
+
+topComboBotCountFromEnv :: IO Int
+topComboBotCountFromEnv =
+    readBoundedIntEnv "TRADER_BOT_TOP_COMBO_BOTS" 0 200 defaultTopComboBotCount
 
 topComboStartupBotCountFromEnv :: Int -> IO Int
 topComboStartupBotCountFromEnv fallback = do
@@ -6386,7 +6405,19 @@ topComboStartupBotCountFromEnv fallback = do
     pure $
         case raw >>= readMaybe of
             Just n | n >= 0 -> min 200 n
-            _ -> fallback
+            _ -> min fallback defaultTopComboStartupBotCount
+
+botAutoStartMaxBotsFromEnv :: IO Int
+botAutoStartMaxBotsFromEnv =
+    readBoundedIntEnv "TRADER_BOT_AUTOSTART_MAX_BOTS" 0 200 defaultBotAutoStartMaxBots
+
+botAutoStartMaxStartsPerCycleFromEnv :: IO Int
+botAutoStartMaxStartsPerCycleFromEnv =
+    readBoundedIntEnv "TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE" 1 50 defaultBotAutoStartMaxStartsPerCycle
+
+botStartMaxSymbolsFromEnv :: IO Int
+botStartMaxSymbolsFromEnv =
+    readBoundedIntEnv "TRADER_BOT_START_MAX_SYMBOLS" 1 200 defaultBotStartMaxSymbols
 
 data AdoptRequirement = AdoptRequirement
     { arActive :: !Bool
@@ -7050,14 +7081,20 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                     Nothing -> do
                         let argsBase = baseArgs{argTradeOnly = True}
                             settings = defaultBotSettings argsBase
-                        topComboBotCount <- topComboBotCountFromEnv
-                        topComboStartupBotCount <- topComboStartupBotCountFromEnv topComboBotCount
+                        maxBots <- botAutoStartMaxBotsFromEnv
+                        maxStartsPerCycle <- botAutoStartMaxStartsPerCycleFromEnv
+                        topComboBotCountRaw <- topComboBotCountFromEnv
+                        let topComboBotCount = min maxBots topComboBotCountRaw
+                        topComboStartupBotCountRaw <- topComboStartupBotCountFromEnv topComboBotCount
+                        let topComboStartupBotCount = min maxBots topComboStartupBotCountRaw
                         pollSec <- comboPollSecondsFromEnv
                         let topJsonPath = tcsPath topCombosStore
                         errRef <- newIORef HM.empty
                         topErrRef <- newIORef Nothing
                         topTargetsRef <- newIORef []
                         topTargetsWarnRef <- newIORef Nothing
+                        targetCapWarnRef <- newIORef Nothing
+                        startThrottleWarnRef <- newIORef Nothing
                         targetsRef <- newIORef []
                         startupPhaseRef <- newIORef (topComboStartupBotCount /= topComboBotCount)
                         let formatList xs =
@@ -7071,6 +7108,10 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 ++ show topComboStartupBotCount
                                 ++ ", steady="
                                 ++ show topComboBotCount
+                                ++ ". Max bots="
+                                ++ show maxBots
+                                ++ ". Max starts per cycle="
+                                ++ show maxStartsPerCycle
                                 ++ ". Top combos path: "
                                 ++ topJsonPath
                             )
@@ -7114,6 +7155,11 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         )
                                             else writeIORef topTargetsWarnRef Nothing
                                         pure targets
+                            logChanged ref key msg = do
+                                prev <- readIORef ref
+                                when (prev /= Just key) $ do
+                                    writeIORef ref (Just key)
+                                    putStrLn msg
                             startSymbol argsStart sym mCombo preferFutures = do
                                 let argsSym0 = argsStart{argBinanceSymbol = Just sym}
                                     argsSym =
@@ -7219,7 +7265,20 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 let tenantMap0 = fromMaybe HM.empty (HM.lookup tenantKey mrt)
                                     argsWithKeys = argsBase
                                 (orphanSymbols, orphanRestartSymbols) <- resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0
-                                let targetSymbols = dedupeStable (targetSymbolsBase ++ orphanSymbols)
+                                let targetSymbolsAll = dedupeStable (targetSymbolsBase ++ orphanSymbols)
+                                    targetSymbols = take maxBots targetSymbolsAll
+                                    cappedTargetSymbols = drop maxBots targetSymbolsAll
+                                unless (null cappedTargetSymbols) $
+                                    logChanged
+                                        targetCapWarnRef
+                                        (intercalate "," cappedTargetSymbols)
+                                        ( "Live bot auto-start capped "
+                                            ++ show (length cappedTargetSymbols)
+                                            ++ " target(s) at TRADER_BOT_AUTOSTART_MAX_BOTS="
+                                            ++ show maxBots
+                                            ++ ": "
+                                            ++ formatList cappedTargetSymbols
+                                        )
                                 prevTargets <- readIORef targetsRef
                                 when (prevTargets /= targetSymbols) $ do
                                     writeIORef targetsRef targetSymbols
@@ -7230,7 +7289,20 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                     mapM_ (botStop botCtrl tenantKey . Just) restartSymbols
                                 mrtAfterRestart <- readMVar (bcRuntime botCtrl)
                                 let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrtAfterRestart)
-                                let missing = filter (not . (`HM.member` tenantMap)) targetSymbols
+                                let missingAll = filter (not . (`HM.member` tenantMap)) targetSymbols
+                                    missing = take maxStartsPerCycle missingAll
+                                    delayedMissing = drop maxStartsPerCycle missingAll
+                                unless (null delayedMissing) $
+                                    logChanged
+                                        startThrottleWarnRef
+                                        (intercalate "," delayedMissing)
+                                        ( "Live bot auto-start delaying "
+                                            ++ show (length delayedMissing)
+                                            ++ " start(s) until a later cycle (TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE="
+                                            ++ show maxStartsPerCycle
+                                            ++ "): "
+                                            ++ formatList delayedMissing
+                                        )
                                 mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap) (sym `elem` orphanSymbols)) missing
                                 when startupPhase $ do
                                     writeIORef startupPhaseRef False
@@ -16294,7 +16366,10 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                             if tradeEnabled && platformSupportsLiveBot (argPlatform argsBase)
                                                 then resolveOrphanOpenPositionSymbols mOps limits argsBase requestedSymbols
                                                 else pure []
-                                        let symbols = dedupeStable (requestedSymbols ++ orphanSymbols)
+                                        maxSymbols <- botStartMaxSymbolsFromEnv
+                                        let symbolsAll = dedupeStable (requestedSymbols ++ orphanSymbols)
+                                            symbols = take maxSymbols symbolsAll
+                                            deferredSymbols = drop maxSymbols symbolsAll
                                             errorMsg =
                                                 case symbolsOrErr of
                                                     Left e -> e
@@ -16330,10 +16405,22 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                                     r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid originIp params sym
                                                                     pure (sym, r)
 
-                                                let errors =
-                                                        [ object ["symbol" .= sym, "error" .= err]
-                                                        | (sym, Left err) <- results
+                                                let deferredErrors =
+                                                        [ object
+                                                            [ "symbol" .= sym
+                                                            , "error"
+                                                                .= ( "Bot start deferred: request limited to "
+                                                                        ++ show maxSymbols
+                                                                        ++ " symbol(s) by TRADER_BOT_START_MAX_SYMBOLS."
+                                                                   )
+                                                            ]
+                                                        | sym <- deferredSymbols
                                                         ]
+                                                    errors =
+                                                        deferredErrors
+                                                            ++ [ object ["symbol" .= sym, "error" .= err]
+                                                               | (sym, Left err) <- results
+                                                               ]
                                                 statuses <- forM [outcome | (_, Right outcome) <- results] $ \outcome ->
                                                     case bsoState outcome of
                                                         BotStarting rt -> pure (botStartingJson rt)
