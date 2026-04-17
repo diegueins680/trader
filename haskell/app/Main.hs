@@ -38,6 +38,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Ord
 import Data.Scientific (FPFormat (Fixed), formatScientific, toBoundedInteger)
+import qualified Data.Set as Set
 import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -2133,6 +2134,11 @@ data OpsStore = OpsStore
     , osPlatformCache :: !(IORef (HM.HashMap Text Int))
     , osSymbolCache :: !(IORef (HM.HashMap (Text, Text, Text) Int64))
     , osCommitId :: !(Maybe Int64)
+    , osPersistenceConfig :: !OpsPersistenceConfig
+    }
+
+newtype OpsPersistenceConfig = OpsPersistenceConfig
+    { opcDisabledKinds :: Set.Set Text
     }
 
 sanitizeApiParams :: ApiParams -> ApiParams
@@ -3239,6 +3245,7 @@ seedPlatforms conn = do
 
 newOpsStoreFromEnv :: IO (Maybe OpsStore)
 newOpsStoreFromEnv = do
+    persistenceConfig <- opsPersistenceConfigFromEnv
     dbUrlOrErr <- resolveDbUrl
     case dbUrlOrErr of
         Left err -> do
@@ -3279,7 +3286,33 @@ newOpsStoreFromEnv = do
                             latestRef <- newIORef maxId
                             platformCache <- newIORef HM.empty
                             symbolCache <- newIORef HM.empty
-                            pure (Just (OpsStore lock conn latestRef platformCache symbolCache mCommitId))
+                            pure (Just (OpsStore lock conn latestRef platformCache symbolCache mCommitId persistenceConfig))
+
+opsPersistenceConfigFromEnv :: IO OpsPersistenceConfig
+opsPersistenceConfigFromEnv = do
+    disabledEnv <- lookupEnv "TRADER_OPS_DISABLED_KINDS"
+    skipEnv <- lookupEnv "TRADER_OPS_SKIP_KINDS"
+    binanceRequestEnv <- lookupEnv "TRADER_BINANCE_REQUEST_OPS_ENABLED"
+    let configuredDisabled =
+            Set.fromList
+                [ T.pack token
+                | raw <- maybeToList disabledEnv ++ maybeToList skipEnv
+                , token <- splitEnvList raw
+                , not (null token)
+                ]
+        binanceRequestEnabled = readEnvBool binanceRequestEnv False
+        disabledKinds =
+            if binanceRequestEnabled
+                then configuredDisabled
+                else Set.insert "binance.request" configuredDisabled
+    pure OpsPersistenceConfig{opcDisabledKinds = disabledKinds}
+
+opsPersistenceConfigSummary :: OpsPersistenceConfig -> String
+opsPersistenceConfigSummary config =
+    "disabledKinds="
+        ++ case Set.toList (opcDisabledKinds config) of
+            [] -> "none"
+            kinds -> intercalate "," (map T.unpack kinds)
 
 backfillGitCommitsAndOps :: Connection -> IO (Either String (Int, Int64, Int64))
 backfillGitCommitsAndOps conn = do
@@ -3854,9 +3887,11 @@ opsAppendMaybe ::
 opsAppendMaybe mStore mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
     case mStore of
         Nothing -> pure ()
-        Just store -> do
-            _ <- try (opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId) :: IO (Either SomeException PersistedOperation)
-            pure ()
+        Just store
+            | Set.member kind (opcDisabledKinds (osPersistenceConfig store)) -> pure ()
+            | otherwise -> do
+                _ <- try (opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId) :: IO (Either SomeException PersistedOperation)
+                pure ()
 
 outboxEnqueue ::
     OpsStore ->
@@ -4316,15 +4351,25 @@ attachBinanceLogger :: Maybe OpsStore -> Maybe TenantKey -> BinanceEnv -> Binanc
 attachBinanceLogger mOps mTenantKey env =
     case mOps of
         Nothing -> env
-        Just store -> env{beLogger = Just (binanceOpsLogger store mTenantKey)}
+        Just store
+            | Set.member "binance.request" (opcDisabledKinds (osPersistenceConfig store)) -> env
+            | otherwise -> env{beLogger = Just (binanceOpsLogger store mTenantKey)}
 
 newBinanceEnvWithOps :: Maybe OpsStore -> BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnvWithOps mOps market baseUrl apiKey apiSecret =
     let mTenantKey = tenantKeyFromBinanceKeys (BS.unpack <$> apiKey) (BS.unpack <$> apiSecret)
      in attachBinanceLogger mOps mTenantKey <$> newBinanceEnv market baseUrl apiKey apiSecret
 
-botStatusLogIntervalMs :: Int64
-botStatusLogIntervalMs = 60000
+defaultBotStatusLogIntervalMs :: Int64
+defaultBotStatusLogIntervalMs = 5 * 60 * 1000
+
+botStatusLogIntervalMsFromEnv :: IO Int64
+botStatusLogIntervalMsFromEnv = do
+    raw <- lookupEnv "TRADER_BOT_STATUS_LOG_INTERVAL_MS"
+    pure $
+        case raw >>= readMaybe of
+            Just n | n >= 1000 -> n
+            _ -> defaultBotStatusLogIntervalMs
 
 botStatusLogMaybe :: Maybe OpsStore -> Bool -> BotState -> IO ()
 botStatusLogMaybe mOps running st = do
@@ -9203,6 +9248,7 @@ botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe 
 botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stopSig mOptimizerPending = do
     tid <- myThreadId
     sym <- botSymbol <$> readMVar stVar
+    statusLogIntervalMs <- botStatusLogIntervalMsFromEnv
     lastStatusLogRef <- newIORef 0
     st0 <- readMVar stVar
     now0 <- getTimestampMs
@@ -9212,7 +9258,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
         logStatusIfDue st = do
             now <- getTimestampMs
             lastAt <- readIORef lastStatusLogRef
-            when (now - lastAt >= botStatusLogIntervalMs) $ do
+            when (now - lastAt >= statusLogIntervalMs) $ do
                 writeIORef lastStatusLogRef now
                 botStatusLogMaybe mOps True st
 
@@ -10710,6 +10756,8 @@ runRestApi cliArgs mWebhook = do
                     ( userError
                         "Ops persistence is required in --serve mode. Set TRADER_DB_URL (or DATABASE_URL) and ensure the database is reachable."
                     )
+    for_ mOps $ \store ->
+        putStrLn ("Ops persistence: " ++ opsPersistenceConfigSummary (osPersistenceConfig store))
     mStateSyncTarget <- newStateSyncTargetFromEnv
     _ <- forkSupervisedWorker "top-combos-sync" (topCombosSyncLoop mOps mStateSyncTarget topCombosStore)
     listenKeyManager <- newListenKeyManager

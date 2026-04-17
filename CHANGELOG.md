@@ -1,4 +1,6 @@
 ## Unreleased
+- Deploy: align the Fly backend Docker builder with the repo-pinned GHC 9.4.8 toolchain so fresh Hackage indexes do not select dependencies incompatible with the obsolete GHC 8.10 image.
+- Observability/Ops: reduce production ops table growth by defaulting high-volume `binance.request` persistence off, logging `bot.status` ops snapshots every 5 minutes by default, and adding `TRADER_OPS_DISABLED_KINDS`, `TRADER_BINANCE_REQUEST_OPS_ENABLED`, and `TRADER_BOT_STATUS_LOG_INTERVAL_MS` controls.
 - Web: pin `haskell/web` `react` and `react-dom` to the same exact runtime version so fresh installs cannot ship a mismatched React pair that crashes the app at startup.
 - Trading/Observability: restore the live `Trader.SignalGates` 24-bar directionality gate behind `Main` and align `haskell/scripts/review_bot_day.py` with the same additive-return weak-band contract, including side-aware `entry_or_add` zScore vetoes for weak long/short entries.
 - Bot/Live Trading: restore closed-trade performance memory from the latest saved bot snapshot on bot restart when the symbol, market, interval, and method still match, so rolling expectancy/win-rate/profit-factor gates, adaptive filter tightening, loss-streak tracking, and the first post-restart decision resume from prior wins and losses instead of resetting to an empty session.
