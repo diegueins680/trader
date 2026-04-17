@@ -4,6 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  evaluateDisk,
+  parseArgs as parseFlyPostgresDiskArgs,
+  parseFlyChecksJson,
+} from "../scripts/check-fly-postgres-disk.mjs";
+import {
   buildAutoloopScratchBranchCandidates,
   buildBranchMergeCandidates,
   buildActionsRunsApiPath,
@@ -77,6 +82,61 @@ test("extractCodexExecLastMessage rejects streams without a completed agent mess
   assert.throws(
     () => extractCodexExecLastMessage('{"type":"turn.started"}\n{"type":"turn.completed"}'),
     /no completed agent message/i,
+  );
+});
+
+test("parseFlyChecksJson extracts Postgres disk metrics", () => {
+  const metrics = parseFlyChecksJson({
+    "machine-1": [
+      {
+        name: "pg",
+        status: "passing",
+        output:
+          "[OK] connections: 13 used, 3 reserved, 300 max\n[OK] disk-capacity: 32.0% - readonly mode will be enabled at 90.0%",
+      },
+      {
+        name: "vm",
+        status: "passing",
+        output: "[OK] checkDisk: 1.92 GB (65.8%) free space on /data/",
+      },
+    ],
+  });
+
+  assert.equal(metrics.diskCapacityPercent, 32);
+  assert.equal(metrics.readonlyThresholdPercent, 90);
+  assert.equal(metrics.freeDataPercent, 65.8);
+  assert.deepEqual(metrics.nonPassingChecks, []);
+});
+
+test("evaluateDisk fails before Postgres readonly mode", () => {
+  const warning = evaluateDisk(
+    { diskCapacityPercent: 80, readonlyThresholdPercent: 90, freeDataPercent: 20, nonPassingChecks: [] },
+    { warnPercent: 75, criticalPercent: 85 },
+  );
+  assert.equal(warning.level, "warning");
+  assert.equal(warning.exitCode, 1);
+
+  const critical = evaluateDisk(
+    { diskCapacityPercent: 86, readonlyThresholdPercent: 90, freeDataPercent: 14, nonPassingChecks: [] },
+    { warnPercent: 75, criticalPercent: 85 },
+  );
+  assert.equal(critical.level, "critical");
+  assert.equal(critical.exitCode, 2);
+});
+
+test("parseFlyPostgresDiskArgs validates alert thresholds", () => {
+  assert.deepEqual(parseFlyPostgresDiskArgs(["--app", "db", "--warn", "70", "--critical", "80"], {}), {
+    app: "db",
+    warnPercent: 70,
+    criticalPercent: 80,
+    webhookUrl: "",
+    flyctl: "flyctl",
+    json: false,
+    help: false,
+  });
+  assert.throws(
+    () => parseFlyPostgresDiskArgs(["--warn", "90", "--critical", "80"], {}),
+    /--warn must be lower than --critical/,
   );
 });
 
