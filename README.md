@@ -27,6 +27,7 @@
   - `npm run verify:automation`
   - `npm run verify`
 - Keep `haskell/web` runtime dependencies `react` and `react-dom` pinned to the exact same version before shipping web changes; patch-level drift can crash the production bundle at startup.
+- The Vite dev proxy loads both `haskell/web/.env*` and the repo-root `.env`; repo-root `TRADER_API_TOKEN` takes precedence so direct `npm run dev` matches the local helper scripts.
 - The repo now pins local tool versions with `.tool-versions` and `.nvmrc`.
 - Local autoloop and Codex environment toggles are documented in `.env.example`.
 - See `docs/ai-workflow.md` for the full bootstrap, verification, and automation workflow.

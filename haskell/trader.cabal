@@ -119,6 +119,7 @@ executable optimize-equity
                      , Trader.Optimizer.Optimize
                      , Trader.Optimizer.Random
                      , Trader.Optimization
+                     , Trader.Predictors.Types
                      , Trader.SignalGates
                      , Trader.Symbol
                      , Trader.Trading
