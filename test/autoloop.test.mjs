@@ -468,13 +468,18 @@ test("autoloop script targets the base branch directly without PR helpers", asyn
 test("autoloop script polls GitHub CI for each pushed sha before completing", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt\(process\.env\.AUTOLOOP_CI_DISCOVERY_TIMEOUT_SECONDS, 3000, 60, 7200\);/);
+  assert.match(script, /const FAILURE_DISCOVERY_TIMEOUT_SECONDS = clampInt\(\s*process\.env\.AUTOLOOP_FAILURE_DISCOVERY_TIMEOUT_SECONDS,\s*60,\s*5,\s*CI_DISCOVERY_TIMEOUT_SECONDS,\s*\);/);
   assert.match(script, /const pushedHeadSha = runGit\(\["rev-parse", "HEAD"\]\);/);
   assert.match(script, /phase: "ci-wait",\s*[\s\S]*headSha: pushedHeadSha/);
   assert.match(script, /const ci = waitForBranchCi\(pushedHeadSha, LOOP_BRANCH\);/);
-  assert.match(script, /function pollGitHubActionsForHead\(headSha, branchName, \{ requireWorkflowRun \}\)/);
+  assert.match(
+    script,
+    /function pollGitHubActionsForHead\(\s*headSha,\s*branchName,\s*\{ requireWorkflowRun, timeoutSeconds = CI_DISCOVERY_TIMEOUT_SECONDS \},\s*\)/,
+  );
   assert.match(script, /const runs = listWorkflowRunsForHead\(headSha, branchName\)\.filter\(\(run\) => run\.head_sha === headSha\);/);
   assert.match(script, /const failedRuns = runs\.filter\(/);
   assert.match(script, /const pendingRuns = runs\.filter\(/);
+  assert.match(script, /String\(Math\.min\(CI_DISCOVERY_POLL_SECONDS, remainingSeconds\)\)/);
   assert.match(script, /return \{\s*ok: true,\s*headSha,\s*branchName,\s*workflowRuns: runs,/);
 });
 
@@ -499,7 +504,10 @@ test("autoloop script repairs the latest remote branch head before proposing new
   assert.match(script, /logFailureRepairContext\("Repairing latest failing GitHub Actions", failureContext\);/);
   assert.match(script, /async function inspectLatestRemoteBranchFailureContext\(\)/);
   assert.match(script, /const latestHeadSha = readRemoteBranchHead\(LOOP_BRANCH\) \|\| readRemoteBranchHead\(BASE_BRANCH\);/);
-  assert.match(script, /const ci = pollGitHubActionsForHead\(latestHeadSha, LOOP_BRANCH, \{ requireWorkflowRun: false \}\);/);
+  assert.match(
+    script,
+    /const ci = pollGitHubActionsForHead\(latestHeadSha, LOOP_BRANCH, \{\s*requireWorkflowRun: false,\s*timeoutSeconds: FAILURE_DISCOVERY_TIMEOUT_SECONDS,\s*\}\);/,
+  );
   assert.match(script, /changedPaths: listCommitChangedPaths\(latestHeadSha\),/);
   assert.match(script, /function logFailureRepairContext\(prefix, failureContext\)/);
   assert.match(script, /console\.log\(`\$\{prefix\} for \$\{branchName\} @ \$\{headSha\}\$\{runUrl\} \$\{logState\}`\);/);

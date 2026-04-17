@@ -40,6 +40,12 @@ const RUN_MODE = process.env.AUTOLOOP_RUN_MODE || "bounded";
 const REQUESTED_BACKEND = process.env.AUTOLOOP_BACKEND || "auto";
 const CI_DISCOVERY_POLL_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_POLL_SECONDS, 30, 5, 300);
 const CI_DISCOVERY_TIMEOUT_SECONDS = clampInt(process.env.AUTOLOOP_CI_DISCOVERY_TIMEOUT_SECONDS, 3000, 60, 7200);
+const FAILURE_DISCOVERY_TIMEOUT_SECONDS = clampInt(
+  process.env.AUTOLOOP_FAILURE_DISCOVERY_TIMEOUT_SECONDS,
+  60,
+  5,
+  CI_DISCOVERY_TIMEOUT_SECONDS,
+);
 const CODEX_EXEC_TIMEOUT_MS = clampInt(process.env.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000);
 const CODEX_PATCH_TIMEOUT_MS = clampInt(
   process.env.AUTOLOOP_CODEX_PATCH_TIMEOUT_MS,
@@ -1386,8 +1392,12 @@ function collectFailedWorkflowDiagnostics(failedRuns) {
   };
 }
 
-function pollGitHubActionsForHead(headSha, branchName, { requireWorkflowRun }) {
-  const deadline = Date.now() + CI_DISCOVERY_TIMEOUT_SECONDS * 1000;
+function pollGitHubActionsForHead(
+  headSha,
+  branchName,
+  { requireWorkflowRun, timeoutSeconds = CI_DISCOVERY_TIMEOUT_SECONDS },
+) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
 
   while (true) {
     const runs = listWorkflowRunsForHead(headSha, branchName).filter((run) => run.head_sha === headSha);
@@ -1427,12 +1437,13 @@ function pollGitHubActionsForHead(headSha, branchName, { requireWorkflowRun }) {
 
       const suiteSummary = summarizeCheckSuitesForHead(headSha);
       throw new Error(
-        `No completed GitHub Actions workflow run found for branch ${branchName} and head ${headSha} after ${CI_DISCOVERY_TIMEOUT_SECONDS}s.` +
+        `No completed GitHub Actions workflow run found for branch ${branchName} and head ${headSha} after ${timeoutSeconds}s.` +
           `${suiteSummary ? ` Check suites: ${suiteSummary}.` : " Check suites: none."}`,
       );
     }
 
-    runCommand("sleep", [String(CI_DISCOVERY_POLL_SECONDS)], { capture: false });
+    const remainingSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
+    runCommand("sleep", [String(Math.min(CI_DISCOVERY_POLL_SECONDS, remainingSeconds))], { capture: false });
   }
 }
 
@@ -1444,7 +1455,10 @@ async function inspectLatestRemoteBranchFailureContext() {
   const latestHeadSha = readRemoteBranchHead(LOOP_BRANCH) || readRemoteBranchHead(BASE_BRANCH);
   if (!latestHeadSha) return null;
 
-  const ci = pollGitHubActionsForHead(latestHeadSha, LOOP_BRANCH, { requireWorkflowRun: false });
+  const ci = pollGitHubActionsForHead(latestHeadSha, LOOP_BRANCH, {
+    requireWorkflowRun: false,
+    timeoutSeconds: FAILURE_DISCOVERY_TIMEOUT_SECONDS,
+  });
   if (ci.ok) return null;
 
   return {
