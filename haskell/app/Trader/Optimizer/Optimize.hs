@@ -6,6 +6,7 @@ module Trader.Optimizer.Optimize (
     applyCloseTimingMetrics,
     closeTimingReportFromBacktest,
     applyQualityPreset,
+    kellyLiteExposureContractReason,
     normalizeObjectiveCode,
     normalizeOptionalPositiveFraction,
     objectiveScore,
@@ -372,6 +373,12 @@ valueObjectAt val key =
                 _ -> Nothing
         _ -> Nothing
 
+extractKellyLiteSummary :: Maybe Value -> Maybe (KM.KeyMap Value)
+extractKellyLiteSummary raw = do
+    v <- raw
+    bt <- valueObjectAt v "backtest"
+    valueObjectAt (Object bt) "kellyLite"
+
 coerceFloatValue :: Value -> Maybe Double
 coerceFloatValue value =
     case value of
@@ -507,6 +514,38 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
                 Right TuneEquityDdTurnover -> finalEq - pDd * maxDdN - pTurn * turnoverN
                 Left _ -> finalEq
      in baseScore - activityPenalty - exposurePenalty
+
+kellyLiteMetricFloat :: Maybe Value -> String -> Maybe Double
+kellyLiteMetricFloat raw key = do
+    report <- extractKellyLiteSummary raw
+    value <- KM.lookup (Key.fromString key) report
+    coerceFloatValue value
+
+kellyLiteExposureContractReason :: Bool -> Maybe Value -> Double -> Double -> Maybe String
+kellyLiteExposureContractReason enabled raw minReduction maxRatio
+    | not enabled = Nothing
+    | minReduction <= 0 && (maxRatio <= 0 || maxRatio >= 1) = Nothing
+    | otherwise =
+        case extractKellyLiteSummary raw of
+            Nothing -> Just "kellyLiteExposureMissing"
+            Just _ ->
+                let reduction = fromMaybe 0 (kellyLiteMetricFloat raw "exposureReduction")
+                    ratio = fromMaybe 1 (kellyLiteMetricFloat raw "exposureRatio")
+                    uncappedExposure = fromMaybe 0 (kellyLiteMetricFloat raw "uncappedExposure")
+                    ratioFilterEnabled = maxRatio > 0 && maxRatio < 1
+                 in if (minReduction > 0 || ratioFilterEnabled) && uncappedExposure <= 0
+                        then Just "kellyLiteUncappedExposure<=0"
+                        else
+                            if minReduction > 0 && reduction < minReduction
+                                then Just (printf "kellyLiteExposureReduction<%.3f" minReduction)
+                                else
+                                    if ratioFilterEnabled && ratio > maxRatio
+                                        then Just (printf "kellyLiteExposureRatio>%.3f" maxRatio)
+                                        else Nothing
+
+kellyLiteExposureFilterReason :: TrialParams -> Maybe Value -> Double -> Double -> Maybe String
+kellyLiteExposureFilterReason params =
+    kellyLiteExposureContractReason (tpKellyLiteSizing params)
 
 normalizeObjectiveCode :: String -> Either String String
 normalizeObjectiveCode raw = tuneObjectiveCode <$> parseTuneObjective raw
@@ -783,6 +822,7 @@ data OptimizerArgs = OptimizerArgs
     , oaDisableLstmPersistence :: !Bool
     , oaTopJson :: !String
     , oaQuality :: !Bool
+    , oaQualityMinTrials :: !Int
     , oaAutoHighLow :: !Bool
     , oaObjective :: !String
     , oaPenaltyMaxDrawdown :: !Double
@@ -794,6 +834,8 @@ data OptimizerArgs = OptimizerArgs
     , oaMinWinRate :: !Double
     , oaMinProfitFactor :: !Double
     , oaMinExposure :: !Double
+    , oaMinKellyLiteExposureReduction :: !Double
+    , oaMaxKellyLiteExposureRatio :: !Double
     , oaMinSharpe :: !Double
     , oaMinWfSharpeMean :: !Double
     , oaMaxWfSharpeStd :: !Double
@@ -1169,13 +1211,14 @@ applyQualityPreset args =
         minIf :: (Ord a) => a -> a -> a
         minIf = min
      in args
-            { oaTrials = maxIf (oaTrials args) 500
+            { oaTrials = maxIf (oaTrials args) (max 1 (oaQualityMinTrials args))
             , oaMinRoundTrips = maxIf (oaMinRoundTrips args) 20
             , oaOpenThresholdMax = maxIf (oaOpenThresholdMax args) 5e-2
             , oaCloseThresholdMax = maxIf (oaCloseThresholdMax args) 5e-2
             , oaMinWinRate = maxIf (oaMinWinRate args) 0.45
             , oaMinProfitFactor = maxIf (oaMinProfitFactor args) 1.1
             , oaMinExposure = maxIf (oaMinExposure args) 0.10
+            , oaMaxKellyLiteExposureRatio = minIf (oaMaxKellyLiteExposureRatio args) 0.95
             , oaMinSharpe = maxIf (oaMinSharpe args) 1.0
             , oaMinCalmar = maxIf (oaMinCalmar args) 0.8
             , oaMinWfSharpeMean = maxIf (oaMinWfSharpeMean args) 0.8
@@ -2353,11 +2396,15 @@ trialToRecord tr symbolLabel =
             case metricsWithCloseTiming of
                 Just m -> ["metrics" .= Object m]
                 Nothing -> []
+        kellyLiteField =
+            case extractKellyLiteSummary (trStdoutJson tr) of
+                Just report -> ["kellyLite" .= Object report]
+                Nothing -> []
         opsField =
             case extractOperations (trStdoutJson tr) of
                 Just ops -> ["operations" .= ops]
                 Nothing -> []
-     in object (baseFields ++ metricsField ++ opsField)
+     in object (baseFields ++ metricsField ++ kellyLiteField ++ opsField)
 
 sampleParams
     rng0
@@ -3816,6 +3863,8 @@ runOptimizer args0 = do
                                                                         minWinRate = max 0 (oaMinWinRate args)
                                                                         minProfitFactor = max 0 (oaMinProfitFactor args)
                                                                         minExposure = max 0 (oaMinExposure args)
+                                                                        minKellyLiteExposureReduction = max 0 (oaMinKellyLiteExposureReduction args)
+                                                                        maxKellyLiteExposureRatio = max 0 (oaMaxKellyLiteExposureRatio args)
                                                                         minSharpe = max 0 (oaMinSharpe args)
                                                                         minAnnualizedReturn = max 0 (oaMinAnnualizedReturn args)
                                                                         minCalmar = max 0 (oaMinCalmar args)
@@ -4108,61 +4157,67 @@ runOptimizer args0 = do
                                                                                                                                 let exposure = metricFloat (trMetrics tr0) "exposure" 0
                                                                                                                                  in if minExposure > 0 && exposure < minExposure
                                                                                                                                         then (False, Just (printf "exposure<%.3f" minExposure), Nothing)
-                                                                                                                                        else
-                                                                                                                                            let sharpe = metricFloat (trMetrics tr0) "sharpe" 0
-                                                                                                                                             in if minSharpe > 0 && sharpe < minSharpe
-                                                                                                                                                    then (False, Just (printf "sharpe<%.3f" minSharpe), Nothing)
-                                                                                                                                                    else
-                                                                                                                                                        let annRet = metricFloat (trMetrics tr0) "annualizedReturn" 0
-                                                                                                                                                            maxDd = metricFloat (trMetrics tr0) "maxDrawdown" 0
-                                                                                                                                                            maxDdN = max 0 maxDd
-                                                                                                                                                            calmar =
-                                                                                                                                                                if maxDdN <= 0
-                                                                                                                                                                    then annRet
-                                                                                                                                                                    else annRet / max 1e-12 maxDdN
-                                                                                                                                                         in if minAnnualizedReturn > 0 && annRet < minAnnualizedReturn
-                                                                                                                                                                then (False, Just (printf "annualizedReturn<%.3f" minAnnualizedReturn), Nothing)
-                                                                                                                                                                else
-                                                                                                                                                                    if minCalmar > 0 && calmar < minCalmar
-                                                                                                                                                                        then (False, Just (printf "calmar<%.3f" minCalmar), Nothing)
-                                                                                                                                                                        else
-                                                                                                                                                                            let turnover = metricFloat (trMetrics tr0) "turnover" 0
-                                                                                                                                                                             in if maxTurnover > 0 && turnover > maxTurnover
-                                                                                                                                                                                    then (False, Just (printf "turnover>%.3f" maxTurnover), Nothing)
-                                                                                                                                                                                    else
-                                                                                                                                                                                        if minWfSharpeMean > 0 || maxWfSharpeStd > 0
-                                                                                                                                                                                            then case extractWalkForwardSummary (trStdoutJson tr0) of
-                                                                                                                                                                                                Nothing -> (False, Just "walkForwardMissing", Nothing)
-                                                                                                                                                                                                Just wfSummary ->
-                                                                                                                                                                                                    let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
-                                                                                                                                                                                                        wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
-                                                                                                                                                                                                     in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
-                                                                                                                                                                                                            then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
-                                                                                                                                                                                                            else
-                                                                                                                                                                                                                if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
-                                                                                                                                                                                                                    then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
-                                                                                                                                                                                                                    else
-                                                                                                                                                                                                                        ( True
-                                                                                                                                                                                                                        , Nothing
-                                                                                                                                                                                                                        , Just
-                                                                                                                                                                                                                            ( objectiveScore
-                                                                                                                                                                                                                                metrics
-                                                                                                                                                                                                                                objective
-                                                                                                                                                                                                                                (oaPenaltyMaxDrawdown args)
-                                                                                                                                                                                                                                (oaPenaltyTurnover args)
+                                                                                                                                        else case kellyLiteExposureFilterReason
+                                                                                                                                            params
+                                                                                                                                            (trStdoutJson tr0)
+                                                                                                                                            minKellyLiteExposureReduction
+                                                                                                                                            maxKellyLiteExposureRatio of
+                                                                                                                                            Just reason -> (False, Just reason, Nothing)
+                                                                                                                                            Nothing ->
+                                                                                                                                                let sharpe = metricFloat (trMetrics tr0) "sharpe" 0
+                                                                                                                                                 in if minSharpe > 0 && sharpe < minSharpe
+                                                                                                                                                        then (False, Just (printf "sharpe<%.3f" minSharpe), Nothing)
+                                                                                                                                                        else
+                                                                                                                                                            let annRet = metricFloat (trMetrics tr0) "annualizedReturn" 0
+                                                                                                                                                                maxDd = metricFloat (trMetrics tr0) "maxDrawdown" 0
+                                                                                                                                                                maxDdN = max 0 maxDd
+                                                                                                                                                                calmar =
+                                                                                                                                                                    if maxDdN <= 0
+                                                                                                                                                                        then annRet
+                                                                                                                                                                        else annRet / max 1e-12 maxDdN
+                                                                                                                                                             in if minAnnualizedReturn > 0 && annRet < minAnnualizedReturn
+                                                                                                                                                                    then (False, Just (printf "annualizedReturn<%.3f" minAnnualizedReturn), Nothing)
+                                                                                                                                                                    else
+                                                                                                                                                                        if minCalmar > 0 && calmar < minCalmar
+                                                                                                                                                                            then (False, Just (printf "calmar<%.3f" minCalmar), Nothing)
+                                                                                                                                                                            else
+                                                                                                                                                                                let turnover = metricFloat (trMetrics tr0) "turnover" 0
+                                                                                                                                                                                 in if maxTurnover > 0 && turnover > maxTurnover
+                                                                                                                                                                                        then (False, Just (printf "turnover>%.3f" maxTurnover), Nothing)
+                                                                                                                                                                                        else
+                                                                                                                                                                                            if minWfSharpeMean > 0 || maxWfSharpeStd > 0
+                                                                                                                                                                                                then case extractWalkForwardSummary (trStdoutJson tr0) of
+                                                                                                                                                                                                    Nothing -> (False, Just "walkForwardMissing", Nothing)
+                                                                                                                                                                                                    Just wfSummary ->
+                                                                                                                                                                                                        let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
+                                                                                                                                                                                                            wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
+                                                                                                                                                                                                         in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
+                                                                                                                                                                                                                then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
+                                                                                                                                                                                                                else
+                                                                                                                                                                                                                    if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
+                                                                                                                                                                                                                        then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
+                                                                                                                                                                                                                        else
+                                                                                                                                                                                                                            ( True
+                                                                                                                                                                                                                            , Nothing
+                                                                                                                                                                                                                            , Just
+                                                                                                                                                                                                                                ( objectiveScore
+                                                                                                                                                                                                                                    metrics
+                                                                                                                                                                                                                                    objective
+                                                                                                                                                                                                                                    (oaPenaltyMaxDrawdown args)
+                                                                                                                                                                                                                                    (oaPenaltyTurnover args)
+                                                                                                                                                                                                                                )
                                                                                                                                                                                                                             )
-                                                                                                                                                                                                                        )
-                                                                                                                                                                                            else
-                                                                                                                                                                                                ( True
-                                                                                                                                                                                                , Nothing
-                                                                                                                                                                                                , Just
-                                                                                                                                                                                                    ( objectiveScore
-                                                                                                                                                                                                        metrics
-                                                                                                                                                                                                        objective
-                                                                                                                                                                                                        (oaPenaltyMaxDrawdown args)
-                                                                                                                                                                                                        (oaPenaltyTurnover args)
+                                                                                                                                                                                                else
+                                                                                                                                                                                                    ( True
+                                                                                                                                                                                                    , Nothing
+                                                                                                                                                                                                    , Just
+                                                                                                                                                                                                        ( objectiveScore
+                                                                                                                                                                                                            metrics
+                                                                                                                                                                                                            objective
+                                                                                                                                                                                                            (oaPenaltyMaxDrawdown args)
+                                                                                                                                                                                                            (oaPenaltyTurnover args)
+                                                                                                                                                                                                        )
                                                                                                                                                                                                     )
-                                                                                                                                                                                                )
                                                                                         _ -> (False, Nothing, Nothing)
                                                                                 tr =
                                                                                     tr0
@@ -4268,6 +4323,8 @@ runOptimizer args0 = do
                                                                                 minWinRate
                                                                                 minProfitFactor
                                                                                 minExposure
+                                                                                minKellyLiteExposureReduction
+                                                                                maxKellyLiteExposureRatio
                                                                                 minSharpe
                                                                                 minAnnualizedReturn
                                                                                 minCalmar
@@ -4540,13 +4597,15 @@ printTrialStatus i trials tr = do
     putStrLn (msg ++ suffix)
     hFlush stdout
 
-printNoEligible :: Int -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
-printNoEligible minRoundTrips minWinRate minProfitFactor minExposure minSharpe minAnnualizedReturn minCalmar maxTurnover minWfSharpeMean maxWfSharpeStd = do
+printNoEligible :: Int -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
+printNoEligible minRoundTrips minWinRate minProfitFactor minExposure minKellyLiteExposureReduction maxKellyLiteExposureRatio minSharpe minAnnualizedReturn minCalmar maxTurnover minWfSharpeMean maxWfSharpeStd = do
     let hints =
             ["--min-round-trips" | minRoundTrips > 0]
                 ++ ["--min-win-rate" | minWinRate > 0]
                 ++ ["--min-profit-factor" | minProfitFactor > 0]
                 ++ ["--min-exposure" | minExposure > 0]
+                ++ ["--min-kelly-lite-exposure-reduction" | minKellyLiteExposureReduction > 0]
+                ++ ["--max-kelly-lite-exposure-ratio" | maxKellyLiteExposureRatio > 0 && maxKellyLiteExposureRatio < 1]
                 ++ ["--min-sharpe" | minSharpe > 0]
                 ++ ["--min-annualized-return" | minAnnualizedReturn > 0]
                 ++ ["--min-calmar" | minCalmar > 0]
@@ -5681,9 +5740,13 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "metrics" .= metricsVal
                 , "params" .= paramsValue
                 ]
+        comboWithKelly =
+            case extractKellyLiteSummary (trStdoutJson tr) of
+                Just report -> addField "kellyLite" (Object report) combo
+                Nothing -> combo
      in case extractOperations (trStdoutJson tr) of
-            Just ops -> addField "operations" (Array (V.fromList ops)) combo
-            Nothing -> combo
+            Just ops -> addField "operations" (Array (V.fromList ops)) comboWithKelly
+            Nothing -> comboWithKelly
 
 addField :: String -> Value -> Value -> Value
 addField key value val =

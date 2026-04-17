@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import {
+  evaluateDisk,
+  parseArgs as parseFlyPostgresDiskArgs,
+  parseFlyChecksJson,
+} from "../scripts/check-fly-postgres-disk.mjs";
 import {
   buildAutoloopScratchBranchCandidates,
   buildBranchMergeCandidates,
@@ -41,6 +48,20 @@ function assertOrderedSubsequence(values, expected, label) {
   }
 }
 
+const SCORECARD_SCRIPT = fileURLToPath(new URL("../haskell/scripts/volatility_gating_scorecard.py", import.meta.url));
+
+function runScorecard(args) {
+  return spawnSync("python3", [SCORECARD_SCRIPT, ...args], {
+    encoding: "utf8",
+  });
+}
+
+async function writeScorecardJson(dir, name, payload) {
+  const filePath = path.join(dir, name);
+  await fs.writeFile(filePath, JSON.stringify(payload));
+  return filePath;
+}
+
 test("stripMarkdownFences unwraps fenced JSON", () => {
   assert.equal(stripMarkdownFences("```json\n{\"ok\":true}\n```"), "{\"ok\":true}");
   assert.equal(stripMarkdownFences("{\"ok\":true}"), "{\"ok\":true}");
@@ -77,6 +98,61 @@ test("extractCodexExecLastMessage rejects streams without a completed agent mess
   assert.throws(
     () => extractCodexExecLastMessage('{"type":"turn.started"}\n{"type":"turn.completed"}'),
     /no completed agent message/i,
+  );
+});
+
+test("parseFlyChecksJson extracts Postgres disk metrics", () => {
+  const metrics = parseFlyChecksJson({
+    "machine-1": [
+      {
+        name: "pg",
+        status: "passing",
+        output:
+          "[OK] connections: 13 used, 3 reserved, 300 max\n[OK] disk-capacity: 32.0% - readonly mode will be enabled at 90.0%",
+      },
+      {
+        name: "vm",
+        status: "passing",
+        output: "[OK] checkDisk: 1.92 GB (65.8%) free space on /data/",
+      },
+    ],
+  });
+
+  assert.equal(metrics.diskCapacityPercent, 32);
+  assert.equal(metrics.readonlyThresholdPercent, 90);
+  assert.equal(metrics.freeDataPercent, 65.8);
+  assert.deepEqual(metrics.nonPassingChecks, []);
+});
+
+test("evaluateDisk fails before Postgres readonly mode", () => {
+  const warning = evaluateDisk(
+    { diskCapacityPercent: 80, readonlyThresholdPercent: 90, freeDataPercent: 20, nonPassingChecks: [] },
+    { warnPercent: 75, criticalPercent: 85 },
+  );
+  assert.equal(warning.level, "warning");
+  assert.equal(warning.exitCode, 1);
+
+  const critical = evaluateDisk(
+    { diskCapacityPercent: 86, readonlyThresholdPercent: 90, freeDataPercent: 14, nonPassingChecks: [] },
+    { warnPercent: 75, criticalPercent: 85 },
+  );
+  assert.equal(critical.level, "critical");
+  assert.equal(critical.exitCode, 2);
+});
+
+test("parseFlyPostgresDiskArgs validates alert thresholds", () => {
+  assert.deepEqual(parseFlyPostgresDiskArgs(["--app", "db", "--warn", "70", "--critical", "80"], {}), {
+    app: "db",
+    warnPercent: 70,
+    criticalPercent: 80,
+    webhookUrl: "",
+    flyctl: "flyctl",
+    json: false,
+    help: false,
+  });
+  assert.throws(
+    () => parseFlyPostgresDiskArgs(["--warn", "90", "--critical", "80"], {}),
+    /--warn must be lower than --critical/,
   );
 });
 
@@ -741,6 +817,162 @@ test("repo root test command includes the autoloop verifier", async () => {
   assert.equal(typeof testScript, "string");
   assert.match(testScript, /\bnpm run test:autoloop\b/);
 });
+
+test("volatility scorecard fails Kelly-lite rows without material exposure reduction", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scorecard-test-"));
+  try {
+    const baseline = await writeScorecardJson(dir, "baseline.json", {
+      backtest: {
+        metrics: {
+          sharpe: 1.0,
+          maxDrawdown: 0.1,
+          avgTradeReturn: 0.01,
+          tradeCount: 100,
+          roundTrips: 100,
+        },
+      },
+    });
+    const missingReport = await writeScorecardJson(dir, "missing-report.json", {
+      params: { kellyLiteSizing: true },
+      backtest: {
+        metrics: {
+          sharpe: 1.2,
+          maxDrawdown: 0.08,
+          avgTradeReturn: 0.012,
+          tradeCount: 90,
+          roundTrips: 90,
+        },
+      },
+    });
+    const weakReduction = await writeScorecardJson(dir, "weak-reduction.json", {
+      backtest: {
+        metrics: {
+          sharpe: 1.2,
+          maxDrawdown: 0.08,
+          avgTradeReturn: 0.012,
+          tradeCount: 90,
+          roundTrips: 90,
+        },
+        kellyLite: {
+          enabled: true,
+          realizedExposure: 0.485,
+          uncappedExposure: 0.5,
+          exposureRatio: 0.97,
+          exposureReduction: 0.015,
+        },
+      },
+    });
+    const noUncappedExposure = await writeScorecardJson(dir, "no-uncapped-exposure.json", {
+      backtest: {
+        metrics: {
+          sharpe: 1.2,
+          maxDrawdown: 0.08,
+          avgTradeReturn: 0.012,
+          tradeCount: 90,
+          roundTrips: 90,
+        },
+        kellyLite: {
+          enabled: true,
+          realizedExposure: 0,
+          uncappedExposure: 0,
+          exposureRatio: 0,
+          exposureReduction: 0,
+        },
+      },
+    });
+
+    const result = runScorecard([
+      "--row",
+      `baseline=${baseline}`,
+      "--row",
+      `missing-kelly=${missingReport}`,
+      "--row",
+      `weak-kelly=${weakReduction}`,
+      "--row",
+      `no-uncapped=${noUncappedExposure}`,
+      "--min-sharpe-delta",
+      "0",
+      "--max-dd-regression",
+      "1",
+      "--min-trade-retention",
+      "0",
+      "--min-closed-trades",
+      "1",
+      "--min-kelly-lite-exposure-reduction",
+      "0.05",
+      "--max-kelly-lite-exposure-ratio",
+      "0.90",
+    ]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /missing-kelly[\s\S]*fail \(kellyLiteExposureMissing\)/);
+    assert.match(result.stdout, /weak-kelly[\s\S]*kellyLiteExposureReduction<0\.050/);
+    assert.match(result.stdout, /weak-kelly[\s\S]*kellyLiteExposureRatio>0\.900/);
+    assert.match(result.stdout, /no-uncapped[\s\S]*kellyLiteUncappedExposure<=0/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("volatility scorecard renders passing Kelly-lite exposure reductions", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scorecard-test-"));
+  try {
+    const baseline = await writeScorecardJson(dir, "baseline.json", {
+      backtest: {
+        metrics: {
+          sharpe: 1.0,
+          maxDrawdown: 0.1,
+          avgTradeReturn: 0.01,
+          tradeCount: 100,
+          roundTrips: 100,
+        },
+      },
+    });
+    const candidate = await writeScorecardJson(dir, "candidate.json", {
+      backtest: {
+        metrics: {
+          sharpe: 1.2,
+          maxDrawdown: 0.08,
+          avgTradeReturn: 0.012,
+          tradeCount: 90,
+          roundTrips: 90,
+        },
+        kellyLite: {
+          enabled: true,
+          realizedExposure: 0.4,
+          uncappedExposure: 0.5,
+          exposureRatio: 0.8,
+          exposureReduction: 0.1,
+        },
+      },
+    });
+
+    const result = runScorecard([
+      "--row",
+      `baseline=${baseline}`,
+      "--row",
+      `candidate=${candidate}`,
+      "--min-sharpe-delta",
+      "0",
+      "--max-dd-regression",
+      "1",
+      "--min-trade-retention",
+      "0",
+      "--min-closed-trades",
+      "1",
+      "--min-kelly-lite-exposure-reduction",
+      "0.05",
+      "--max-kelly-lite-exposure-ratio",
+      "0.90",
+    ]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /candidate[\s\S]*80\.0% \(0\.4000\/0\.5000, -0\.1000\)[\s\S]*pass/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("writeJsonFileAtomic creates parent directories and writes formatted JSON", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "autoloop-test-"));
   const filePath = path.join(dir, "nested", "status.json");

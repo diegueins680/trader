@@ -1,6 +1,9 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
 import Control.Monad (unless)
+import qualified Data.Aeson as Aeson
 import Data.Maybe (isNothing)
 import qualified Data.Vector as V
 import Trader.Formal.Optimization (
@@ -12,6 +15,7 @@ import Trader.Formal.Optimization (
     verifyFormalOptimization,
  )
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
+import Trader.Optimizer.Optimize (kellyLiteExposureContractReason)
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Predictors (RegimeProbs (..))
 import Trader.SignalGates (
@@ -67,11 +71,13 @@ main = do
     testSignalDirectionalityLiveSemanticsRegression
     testSignalGatesPublicSurfaceRegression
     testTradingPublicSurfaceRegression
+    testKellyLiteBacktestSizingRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
     testOrderExecutionFillSanitizationInvariant
     testOptimizerActivityCountInvariant
     testOptimizerPublicSurfaceRegression
+    testOptimizerKellyLiteExposureContractRegression
     testMetricsConsumesTradingPublicResults
 
 assert :: String -> Bool -> IO ()
@@ -217,6 +223,10 @@ sampleEnsembleConfig =
         , ecConfirmQuantiles = False
         , ecConfidenceSizing = False
         , ecMinPositionSize = 0
+        , ecKellyLiteSizing = False
+        , ecKellyLiteFraction = 0.5
+        , ecKellyLiteFloor = 0
+        , ecKellyLiteCap = 1
         }
 
 optimizerPublicSurfaceWitnessConfig :: EnsembleConfig
@@ -249,6 +259,7 @@ optimizerRiskDefaultsNeutral cfg =
         && ecTrailingStopVolMult cfg == 0
         && ecMinHoldBars cfg == 0
         && ecCooldownBars cfg == 0
+        && not (ecKellyLiteSizing cfg)
         && isNothing (ecMaxHoldBars cfg)
         && isNothing (ecMaxDrawdown cfg)
 
@@ -839,6 +850,49 @@ testTradingPublicSurfaceRegression = do
             && tradingSurfaceReachable
         )
 
+testKellyLiteBacktestSizingRegression :: IO ()
+testKellyLiteBacktestSizingRegression = do
+    let prices :: V.Vector Double
+        prices = V.fromList [100.0, 101.0, 100.0, 101.0, 102.0]
+        highs = prices
+        lows = prices
+        preds :: V.Vector Double
+        preds = V.fromList [100.0, 101.0, 102.0, 103.0]
+        noMeta :: Maybe (V.Vector StepMeta)
+        noMeta = Nothing
+        baseCfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.005
+                , ecCloseThreshold = 0.005
+                , ecFee = 0
+                , ecVolLookback = 2
+                , ecMinPositionSize = 0
+                , ecKellyLiteSizing = False
+                }
+        kellyCfg =
+            baseCfg
+                { ecKellyLiteSizing = True
+                , ecKellyLiteFraction = 0.5
+                , ecKellyLiteFloor = 0
+                , ecKellyLiteCap = 0.25
+                }
+        maxAbsPosition result =
+            maximum (0 : map abs (brPositions result))
+        uncapped =
+            simulateEnsembleWithHLChecked baseCfg 1 prices highs lows preds preds noMeta
+        capped =
+            simulateEnsembleWithHLChecked kellyCfg 1 prices highs lows preds preds noMeta
+    case (uncapped, capped) of
+        (Right uncappedResult, Right cappedResult) -> do
+            assert
+                "baseline backtest can reach full-size entries without Kelly-lite sizing"
+                (maxAbsPosition uncappedResult > 0.99)
+            assert
+                "Kelly-lite sizing is modeled in backtests and caps entries the same way live sizing does"
+                (maxAbsPosition cappedResult > 0.24 && maxAbsPosition cappedResult <= 0.250000001)
+        (Left err, _) -> ioError (userError ("baseline Kelly-lite sizing regression failed to simulate: " ++ err))
+        (_, Left err) -> ioError (userError ("capped Kelly-lite sizing regression failed to simulate: " ++ err))
+
 -- Public-interface invariant for optimizer wiring: Trader.Optimization must keep
 -- importing the canonical headroom-cap helper from Trader.SignalGates and the
 -- restored Main-facing checked simulation surface from Trader.Trading without
@@ -916,6 +970,46 @@ testOptimizerPublicSurfaceRegression = do
             && ecOpenPrices foldCfg == openPrices0
             && isNothing (ecMetaMask foldCfg)
         )
+
+-- Optimizer eligibility regression: Kelly-lite exposure contracts must reject
+-- no-op Kelly-lite rows. A zero uncapped-exposure replay previously produced a
+-- ratio of 0, which let inactive trials satisfy strict ratio ceilings.
+testOptimizerKellyLiteExposureContractRegression :: IO ()
+testOptimizerKellyLiteExposureContractRegression = do
+    let report :: Double -> Double -> Double -> Maybe Aeson.Value
+        report uncapped ratio reduction =
+            Just $
+                Aeson.object
+                    [ "backtest"
+                        Aeson..= Aeson.object
+                            [ "kellyLite"
+                                Aeson..= Aeson.object
+                                    [ "enabled" Aeson..= True
+                                    , "uncappedExposure" Aeson..= uncapped
+                                    , "exposureRatio" Aeson..= ratio
+                                    , "exposureReduction" Aeson..= reduction
+                                    ]
+                            ]
+                    ]
+        reason = kellyLiteExposureContractReason True
+    assert
+        "disabled Kelly-lite sizing bypasses the Kelly-lite exposure contract"
+        (isNothing (kellyLiteExposureContractReason False (report 0 0 0) 0.05 0.9))
+    assert
+        "inactive Kelly-lite exposure contracts do not reject rows"
+        (isNothing (reason (report 0 0 0) 0 1))
+    assert
+        "Kelly-lite rows without a report fail the optimizer contract"
+        (reason Nothing 0.05 0.9 == Just "kellyLiteExposureMissing")
+    assert
+        "Kelly-lite rows with zero uncapped exposure fail instead of passing ratio ceilings as no-op reductions"
+        (reason (report 0 0 0) 0 0.9 == Just "kellyLiteUncappedExposure<=0")
+    assert
+        "Kelly-lite rows with weak reduction fail before ratio checks"
+        (reason (report 0.5 0.97 0.015) 0.05 0.9 == Just "kellyLiteExposureReduction<0.050")
+    assert
+        "Kelly-lite rows with enough exposure reduction and ratio improvement pass"
+        (isNothing (reason (report 0.5 0.8 0.1) 0.05 0.9))
 
 -- Public-interface invariant: metrics/reporting must be able to consume the
 -- BacktestResult/Trade/ExitReason constructors re-exported by Trader.Trading.

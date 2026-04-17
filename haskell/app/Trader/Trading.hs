@@ -162,6 +162,10 @@ data EnsembleConfig = EnsembleConfig
     , ecConfirmQuantiles :: !Bool
     , ecConfidenceSizing :: !Bool
     , ecMinPositionSize :: !Double
+    , ecKellyLiteSizing :: !Bool
+    , ecKellyLiteFraction :: !Double
+    , ecKellyLiteFloor :: !Double
+    , ecKellyLiteCap :: !Double
     }
     deriving (Eq, Show)
 
@@ -721,6 +725,16 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         volConfGatePreset = ecVolConfGate cfg
                         volConfGateEnabled = volConfGatePreset /= VolConfGateDisabled
                         confidenceSizingEnabled = ecConfidenceSizing cfg && not volConfGateEnabled
+                        kellyLiteEnabled = ecKellyLiteSizing cfg
+                        kellyLiteFraction =
+                            let v = ecKellyLiteFraction cfg
+                             in if isBad v || v < 0 then 0 else v
+                        kellyLiteFloor =
+                            let v = ecKellyLiteFloor cfg
+                             in if isBad v || v < 0 then 0 else v
+                        kellyLiteCap =
+                            let v = ecKellyLiteCap cfg
+                             in if isBad v || v < kellyLiteFloor then kellyLiteFloor else v
                         volAlpha =
                             case ecVolEwmaAlpha cfg of
                                 Just a | a > 0 && not (isNaN a || isInfinite a) -> Just (max 0 (min 1 a))
@@ -1255,6 +1269,27 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 let s = risk / sl
                                                  in if isBad s || s <= 0 then 1 else s
                                         _ -> 1
+
+                        kellyLiteScaleAt :: Int -> Double -> Double
+                        kellyLiteScaleAt t edge =
+                            if not kellyLiteEnabled
+                                then 1
+                                else
+                                    let raw =
+                                            case volPerBarAt t of
+                                                Just vol
+                                                    | vol > 0 ->
+                                                        let sig2 = vol * vol
+                                                            mu = max 0 edge
+                                                         in if sig2 <= 1e-12
+                                                                then 0
+                                                                else kellyLiteFraction * (mu / sig2)
+                                                _ -> 0
+                                        scale =
+                                            if isBad raw
+                                                then 0
+                                                else raw
+                                     in max kellyLiteFloor (min kellyLiteCap scale)
 
                         scale01 :: Double -> Double -> Double -> Double
                         scale01 lo hi x =
@@ -1937,7 +1972,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         sizeScale =
                                             if isNothing desiredSide2
                                                 then 1
-                                                else volScaleAt t * riskScaleAt t * snrScaleWeighted
+                                                else volScaleAt t * riskScaleAt t * snrScaleWeighted * kellyLiteScaleAt t edgeRaw
                                         sizeScaled = baseSizeTarget * entryScale * volConfSizeMult * sizeScale
                                         sizeCapped = min maxPositionSize (max 0 sizeScaled)
                                         sizeFinal0 =

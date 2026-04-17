@@ -1,4 +1,4 @@
-FROM haskell:8.10.4 AS build
+FROM haskell:9.4.8 AS build
 
 RUN sed -i 's|deb.debian.org/debian|archive.debian.org/debian|g' /etc/apt/sources.list \
   && sed -i 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' /etc/apt/sources.list \
