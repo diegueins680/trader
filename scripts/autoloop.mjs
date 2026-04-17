@@ -168,6 +168,18 @@ async function main() {
   await updateStatus({ phase: "ready" });
 
   let failureContext = await inspectLatestRemoteBranchFailureContext();
+  if (failureContext?.pendingCi) {
+    const message = `Latest remote ${failureContext.branchName} commit ${failureContext.headSha} still has pending GitHub Actions; skipping this cycle.`;
+    await updateStatus({
+      phase: "skipped",
+      outcome: "skipped_pending_ci",
+      branch: failureContext.branchName,
+      headSha: failureContext.headSha,
+      message,
+    });
+    console.log(message);
+    return;
+  }
   if (failureContext) {
     await updateStatus({
       phase: "repair-needed",
@@ -1425,13 +1437,14 @@ function pollGitHubActionsForHead(
     }
 
     if (Date.now() >= deadline) {
-      if (!requireWorkflowRun && runs.length === 0) {
+      if (!requireWorkflowRun && (runs.length === 0 || pendingRuns.length > 0)) {
         return {
           ok: true,
           headSha,
           branchName,
-          workflowRuns: [],
-          missing: true,
+          workflowRuns: runs,
+          missing: runs.length === 0,
+          pending: pendingRuns.length > 0,
         };
       }
 
@@ -1459,6 +1472,13 @@ async function inspectLatestRemoteBranchFailureContext() {
     requireWorkflowRun: false,
     timeoutSeconds: FAILURE_DISCOVERY_TIMEOUT_SECONDS,
   });
+  if (ci.pending) {
+    return {
+      pendingCi: true,
+      branchName: LOOP_BRANCH,
+      headSha: latestHeadSha,
+    };
+  }
   if (ci.ok) return null;
 
   return {

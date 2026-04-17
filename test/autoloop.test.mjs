@@ -480,6 +480,7 @@ test("autoloop script polls GitHub CI for each pushed sha before completing", as
   assert.match(script, /const failedRuns = runs\.filter\(/);
   assert.match(script, /const pendingRuns = runs\.filter\(/);
   assert.match(script, /String\(Math\.min\(CI_DISCOVERY_POLL_SECONDS, remainingSeconds\)\)/);
+  assert.match(script, /pending: pendingRuns\.length > 0,/);
   assert.match(script, /return \{\s*ok: true,\s*headSha,\s*branchName,\s*workflowRuns: runs,/);
 });
 
@@ -508,6 +509,8 @@ test("autoloop script repairs the latest remote branch head before proposing new
     script,
     /const ci = pollGitHubActionsForHead\(latestHeadSha, LOOP_BRANCH, \{\s*requireWorkflowRun: false,\s*timeoutSeconds: FAILURE_DISCOVERY_TIMEOUT_SECONDS,\s*\}\);/,
   );
+  assert.match(script, /if \(ci\.pending\) \{\s*return \{\s*pendingCi: true,\s*branchName: LOOP_BRANCH,\s*headSha: latestHeadSha,/);
+  assert.match(script, /outcome: "skipped_pending_ci"/);
   assert.match(script, /changedPaths: listCommitChangedPaths\(latestHeadSha\),/);
   assert.match(script, /function logFailureRepairContext\(prefix, failureContext\)/);
   assert.match(script, /console\.log\(`\$\{prefix\} for \$\{branchName\} @ \$\{headSha\}\$\{runUrl\} \$\{logState\}`\);/);
