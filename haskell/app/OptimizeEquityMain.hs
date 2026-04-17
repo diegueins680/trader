@@ -74,6 +74,7 @@ optimizerArgsParser =
         <*> switch (long "disable-lstm-persistence")
         <*> strOption (long "top-json" <> value "" <> metavar "PATH")
         <*> switch (long "quality")
+        <*> option auto (long "quality-min-trials" <> value 500 <> metavar "INT")
         <*> switch (long "auto-high-low")
         <*> strOption (long "objective" <> value "roi" <> metavar "NAME")
         <*> option auto (long "penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
@@ -85,6 +86,8 @@ optimizerArgsParser =
         <*> option auto (long "min-win-rate" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "min-profit-factor" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "min-exposure" <> value 0.10 <> metavar "FLOAT")
+        <*> option auto (long "min-kelly-lite-exposure-reduction" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "max-kelly-lite-exposure-ratio" <> value 0.95 <> metavar "FLOAT")
         <*> option auto (long "min-sharpe" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "min-wf-sharpe-mean" <> value 0.8 <> metavar "FLOAT")
         <*> option auto (long "max-wf-sharpe-std" <> value 1.0 <> metavar "FLOAT")
@@ -490,6 +493,8 @@ validateArgs args = do
         Left "--perturb-scale-int must be >= 0."
     when (oaEarlyStopNoImprove args < 0) $
         Left "--early-stop-no-improve must be >= 0."
+    when (oaQualityMinTrials args < 1) $
+        Left "--quality-min-trials must be >= 1."
     unless (oaBarsDistribution args `elem` barsDistributionChoices) $
         Left
             ( "Invalid bars distribution: "
@@ -655,6 +660,10 @@ validateArgs args = do
         $ Left "--funding-oi-size-mult-min/max must be between 0 and 1."
     when (oaPKellyLiteSizing args < 0 || oaPKellyLiteSizing args > 1) $
         Left "--p-kelly-lite-sizing must be between 0 and 1."
+    when (oaMinKellyLiteExposureReduction args < 0) $
+        Left "--min-kelly-lite-exposure-reduction must be >= 0."
+    when (oaMaxKellyLiteExposureRatio args < 0) $
+        Left "--max-kelly-lite-exposure-ratio must be >= 0."
     when (oaKellyLiteFractionMin args < 0 || oaKellyLiteFractionMax args < 0) $
         Left "--kelly-lite-fraction-min/max must be >= 0."
     when (oaKellyLiteFloorMin args < 0 || oaKellyLiteFloorMax args < 0) $

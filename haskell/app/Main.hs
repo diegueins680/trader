@@ -493,6 +493,11 @@ data BacktestSummary = BacktestSummary
     , bsSpreadVolMult :: !Double
     , bsEstimatedPerSideCost :: !Double
     , bsEstimatedRoundTripCost :: !Double
+    , bsKellyLiteSizing :: !Bool
+    , bsKellyLiteFraction :: !Double
+    , bsKellyLiteFloor :: !Double
+    , bsKellyLiteCap :: !Double
+    , bsKellyLiteSizingReport :: !(Maybe KellyLiteSizingReport)
     , bsMetrics :: !BacktestMetrics
     , bsBaselines :: ![Baseline]
     , bsWalkForward :: !(Maybe WalkForwardReport)
@@ -506,6 +511,18 @@ data BacktestSummary = BacktestSummary
     , bsPositions :: ![Double]
     , bsAgreementOk :: ![Bool]
     , bsTrades :: ![Trade]
+    }
+    deriving (Eq, Show)
+
+data KellyLiteSizingReport = KellyLiteSizingReport
+    { klsrEnabled :: !Bool
+    , klsrFraction :: !Double
+    , klsrFloor :: !Double
+    , klsrCap :: !Double
+    , klsrRealizedExposure :: !Double
+    , klsrUncappedExposure :: !Double
+    , klsrExposureRatio :: !Double
+    , klsrExposureReduction :: !Double
     }
     deriving (Eq, Show)
 
@@ -7988,6 +8005,10 @@ botOptimizeAfterOperation st = do
                                 , ecConfirmQuantiles = argConfirmQuantiles args
                                 , ecConfidenceSizing = argConfidenceSizing args
                                 , ecMinPositionSize = argMinPositionSize args
+                                , ecKellyLiteSizing = argKellyLiteSizing args
+                                , ecKellyLiteFraction = argKellyLiteFraction args
+                                , ecKellyLiteFloor = argKellyLiteFloor args
+                                , ecKellyLiteCap = argKellyLiteCap args
                                 }
                         hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
                         ppy = periodsPerYear args
@@ -20915,6 +20936,16 @@ backtestSummaryJson summary =
                 , "roundTripCost" .= bsEstimatedRoundTripCost summary
                 , "breakEvenThreshold" .= breakEvenThresholdFromPerSideCost (bsEstimatedPerSideCost summary)
                 ]
+        kellyLiteJson =
+            case bsKellyLiteSizingReport summary of
+                Just report -> kellyLiteSizingReportToJson report
+                Nothing ->
+                    object
+                        [ "enabled" .= bsKellyLiteSizing summary
+                        , "fraction" .= bsKellyLiteFraction summary
+                        , "floor" .= bsKellyLiteFloor summary
+                        , "cap" .= bsKellyLiteCap summary
+                        ]
         walkForwardJson =
             case bsWalkForward summary of
                 Nothing -> Nothing
@@ -21007,6 +21038,7 @@ backtestSummaryJson summary =
             , "lstmConfidenceHard" .= bsLstmConfidenceHard summary
             , "tuning" .= tuningJson
             , "costs" .= costsJson
+            , "kellyLite" .= kellyLiteJson
             , "walkForward" .= walkForwardJson
             , "metrics" .= metricsToJson metrics
             , "sharpe" .= bmSharpe metrics
@@ -21024,6 +21056,19 @@ backtestSummaryJson summary =
             , "agreementOk" .= bsAgreementOk summary
             , "trades" .= map tradeToJson (bsTrades summary)
             ]
+
+kellyLiteSizingReportToJson :: KellyLiteSizingReport -> Aeson.Value
+kellyLiteSizingReportToJson report =
+    object
+        [ "enabled" .= klsrEnabled report
+        , "fraction" .= klsrFraction report
+        , "floor" .= klsrFloor report
+        , "cap" .= klsrCap report
+        , "realizedExposure" .= klsrRealizedExposure report
+        , "uncappedExposure" .= klsrUncappedExposure report
+        , "exposureRatio" .= klsrExposureRatio report
+        , "exposureReduction" .= klsrExposureReduction report
+        ]
 
 tradeToJson :: Trade -> Aeson.Value
 tradeToJson tr =
@@ -21216,6 +21261,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                 (bsEstimatedRoundTripCost summary)
             printFundingGuidance (argFundingRate args) (argFundingBySide args)
             putStrLn (printf "Vol/conf gate: %s" (volConfGateCode (bsVolConfGate summary)))
+            for_ (bsKellyLiteSizingReport summary) printKellyLiteSizingReport
 
             putStrLn $
                 case bsMethodUsed summary of
@@ -21296,6 +21342,20 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
 
             printLatestSignalSummary (bsLatestSignal summary)
             maybeSendOrder mWebhook args mBinanceEnv (bsLatestSignal summary)
+
+printKellyLiteSizingReport :: KellyLiteSizingReport -> IO ()
+printKellyLiteSizingReport report =
+    putStrLn
+        ( printf
+            "Kelly-lite sizing: exposure=%.4f uncapped=%.4f ratio=%.2f%% reduction=%.4f (fraction=%.3f floor=%.3f cap=%.3f)"
+            (klsrRealizedExposure report)
+            (klsrUncappedExposure report)
+            (klsrExposureRatio report * 100)
+            (klsrExposureReduction report)
+            (klsrFraction report)
+            (klsrFloor report)
+            (klsrCap report)
+        )
 
 printJsonStdout :: (ToJSON a) => a -> IO ()
 printJsonStdout v = BS.putStrLn (BL.toStrict (encode v))
@@ -22058,6 +22118,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecConfirmQuantiles = confirmQuantiles
                 , ecConfidenceSizing = argConfidenceSizing args
                 , ecMinPositionSize = argMinPositionSize args
+                , ecKellyLiteSizing = argKellyLiteSizing args
+                , ecKellyLiteFraction = argKellyLiteFraction args
+                , ecKellyLiteFloor = argKellyLiteFloor args
+                , ecKellyLiteCap = argKellyLiteCap args
                 }
 
         baseCfgTune = baseCfg{ecOpenTimes = V.fromList <$> tuneOpenTimes, ecOpenPrices = V.fromList <$> tuneOpens}
@@ -22448,8 +22512,61 @@ computeBacktestSummary args lookback series mBinanceEnv = do
 
     let metricsRaw = computeMetrics ppy backtest
         baselinesRaw = computeBaselines ppy perSideCost backtestPrices
+        kellyLiteFractionUsed =
+            let v = argKellyLiteFraction args
+             in if isFiniteDouble v && v >= 0 then v else 0
+        kellyLiteFloorUsed =
+            let v = argKellyLiteFloor args
+             in if isFiniteDouble v && v >= 0 then v else 0
+        kellyLiteCapUsed =
+            let v = argKellyLiteCap args
+             in if isFiniteDouble v && v >= kellyLiteFloorUsed then v else kellyLiteFloorUsed
 
-        walkForwardE =
+    kellyLiteSizingReport <-
+        if not (argKellyLiteSizing args)
+            then pure Nothing
+            else do
+                let uncappedBacktestE =
+                        simulateEnsembleWithHLChecked
+                            backtestCfg{ecKellyLiteSizing = False}
+                            1
+                            backtestPrices
+                            backtestHighs
+                            backtestLows
+                            kalPredUsedBacktest
+                            lstmPredUsedBacktest
+                            metaUsedBacktest
+                uncappedBacktest <-
+                    case uncappedBacktestE of
+                        Left err -> throwIO (userError ("kelly-lite uncapped exposure baseline: " ++ err))
+                        Right bt -> pure bt
+                let uncappedMetricsRaw = computeMetrics ppy uncappedBacktest
+                    realizedExposure = bmExposure metricsRaw
+                    uncappedExposure = bmExposure uncappedMetricsRaw
+                    exposureRatioRaw =
+                        if uncappedExposure <= 1e-12
+                            then 0
+                            else realizedExposure / uncappedExposure
+                    exposureRatio =
+                        if isFiniteDouble exposureRatioRaw
+                            then exposureRatioRaw
+                            else 0
+                    exposureReduction = max 0 (uncappedExposure - realizedExposure)
+                pure
+                    ( Just
+                        KellyLiteSizingReport
+                            { klsrEnabled = True
+                            , klsrFraction = kellyLiteFractionUsed
+                            , klsrFloor = kellyLiteFloorUsed
+                            , klsrCap = kellyLiteCapUsed
+                            , klsrRealizedExposure = realizedExposure
+                            , klsrUncappedExposure = uncappedExposure
+                            , klsrExposureRatio = exposureRatio
+                            , klsrExposureReduction = exposureReduction
+                            }
+                    )
+
+    let walkForwardE =
             let wfReq = max 1 (argWalkForwardFolds args)
                 stepsAll = max 0 (length backtestPrices - 1)
                 embargoBars = max 0 (argWalkForwardEmbargoBars args)
@@ -22731,6 +22848,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsSpreadVolMult = argSpreadVolMult args
             , bsEstimatedPerSideCost = perSideCost
             , bsEstimatedRoundTripCost = roundTripCost
+            , bsKellyLiteSizing = argKellyLiteSizing args
+            , bsKellyLiteFraction = kellyLiteFractionUsed
+            , bsKellyLiteFloor = kellyLiteFloorUsed
+            , bsKellyLiteCap = kellyLiteCapUsed
+            , bsKellyLiteSizingReport = kellyLiteSizingReport
             , bsMetrics = metrics
             , bsBaselines = baselines
             , bsWalkForward = walkForwardScaled

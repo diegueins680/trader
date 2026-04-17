@@ -2,6 +2,8 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function parseTimeoutMs(raw: unknown, fallback: number): number {
   const n =
@@ -50,7 +52,13 @@ function resolveUiVersion(env: Record<string, string | undefined>): string {
 }
 
 export default defineConfig(({ mode }) => {
-  const env: Record<string, string | undefined> = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
+  const webRoot = dirname(fileURLToPath(import.meta.url));
+  const envRoot = resolve(webRoot, "../..");
+  const env: Record<string, string | undefined> = {
+    ...loadEnv(mode, webRoot, ""),
+    ...loadEnv(mode, envRoot, ""),
+    ...process.env,
+  };
   const apiTarget = env.TRADER_API_TARGET || "http://127.0.0.1:8080";
   const apiToken = (env.TRADER_API_TOKEN || "").trim();
   const proxyTimeoutMs = parseTimeoutMs(env.TRADER_UI_PROXY_TIMEOUT_MS, 30 * 60 * 1000);

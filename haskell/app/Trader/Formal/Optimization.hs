@@ -677,6 +677,7 @@ optimizerCompatibilityFieldsNeutral cfg =
         && ecCooldownBars cfg == 0
         && isNothing (ecMaxHoldBars cfg)
         && isNothing (ecMaxDrawdown cfg)
+        && not (ecKellyLiteSizing cfg)
 
 optimizerSurfacePreservedFields :: EnsembleConfig -> EnsembleConfig -> Bool
 optimizerSurfacePreservedFields base updated =
@@ -705,6 +706,10 @@ optimizerSurfacePreservedFields base updated =
         , ecBlendWeight updated == ecBlendWeight base
         , ecKalmanZMin updated == ecKalmanZMin base
         , ecKalmanZMax updated == ecKalmanZMax base
+        , ecKellyLiteSizing updated == ecKellyLiteSizing base
+        , ecKellyLiteFraction updated == ecKellyLiteFraction base
+        , ecKellyLiteFloor updated == ecKellyLiteFloor base
+        , ecKellyLiteCap updated == ecKellyLiteCap base
         ]
 
 optimizerPublicSurfaceBaseConfig :: EnsembleConfig
@@ -821,6 +826,10 @@ optimizerPublicSurfaceBaseConfig =
         , ecConfirmQuantiles = False
         , ecConfidenceSizing = False
         , ecMinPositionSize = 0
+        , ecKellyLiteSizing = False
+        , ecKellyLiteFraction = 0.5
+        , ecKellyLiteFloor = 0
+        , ecKellyLiteCap = 1
         }
 
 roiViewFromMetrics :: BacktestMetrics -> RoiView

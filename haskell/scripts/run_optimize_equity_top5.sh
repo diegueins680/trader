@@ -13,15 +13,28 @@ COUNT="${COUNT:-5}"
 TRIALS="${TRIALS:-300}"
 BARS="${BARS:-1000}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
+LOOKBACK_WINDOW="${LOOKBACK_WINDOW:-7d}"
+TRADER_OPTIMIZER_MAX_POINTS="${TRADER_OPTIMIZER_MAX_POINTS:-1000}"
+export TRADER_OPTIMIZER_MAX_POINTS
 PLATFORM="${PLATFORM:-binance}"
 FUTURES="${FUTURES:-1}"
 QUALITY="${QUALITY:-1}"
+QUALITY_MIN_TRIALS="${QUALITY_MIN_TRIALS:-$TRIALS}"
 MIN_ROUND_TRIPS="${MIN_ROUND_TRIPS:-20}"
 MIN_EXPOSURE="${MIN_EXPOSURE:-0.10}"
 MIN_SHARPE="${MIN_SHARPE:-1.0}"
 MIN_CALMAR="${MIN_CALMAR:-0.8}"
 MIN_WF_SHARPE_MEAN="${MIN_WF_SHARPE_MEAN:-0.8}"
 MAX_WF_SHARPE_STD="${MAX_WF_SHARPE_STD:-1.0}"
+MIN_KELLY_LITE_EXPOSURE_REDUCTION="${MIN_KELLY_LITE_EXPOSURE_REDUCTION:-0.0}"
+MAX_KELLY_LITE_EXPOSURE_RATIO="${MAX_KELLY_LITE_EXPOSURE_RATIO:-0.95}"
+P_KELLY_LITE_SIZING="${P_KELLY_LITE_SIZING:-0.0}"
+KELLY_LITE_FRACTION_MIN="${KELLY_LITE_FRACTION_MIN:-0.5}"
+KELLY_LITE_FRACTION_MAX="${KELLY_LITE_FRACTION_MAX:-0.5}"
+KELLY_LITE_FLOOR_MIN="${KELLY_LITE_FLOOR_MIN:-0.0}"
+KELLY_LITE_FLOOR_MAX="${KELLY_LITE_FLOOR_MAX:-0.0}"
+KELLY_LITE_CAP_MIN="${KELLY_LITE_CAP_MIN:-1.0}"
+KELLY_LITE_CAP_MAX="${KELLY_LITE_CAP_MAX:-1.0}"
 TUNE_STRESS_VOL_MULT="${TUNE_STRESS_VOL_MULT:-1.25}"
 TUNE_STRESS_SHOCK="${TUNE_STRESS_SHOCK:-0.0}"
 TUNE_STRESS_WEIGHT="${TUNE_STRESS_WEIGHT:-0.2}"
@@ -82,7 +95,7 @@ while IFS= read -r line; do
   [[ -z "$line" ]] && continue
   COMBOS+=("$line")
 done < <(
-  python3 - <<'PY' "$TOP_JSON" "$COUNT" "$MIN_ROUND_TRIPS" "$MIN_EXPOSURE" "$MIN_SHARPE" "$MIN_CALMAR"
+  python3 - <<'PY' "$TOP_JSON" "$COUNT" "$MIN_ROUND_TRIPS" "$MIN_EXPOSURE" "$MIN_SHARPE" "$MIN_CALMAR" "$LOOKBACK_WINDOW" "$TRADER_OPTIMIZER_MAX_POINTS"
 import json, sys
 
 path = sys.argv[1]
@@ -91,6 +104,11 @@ min_round_trips = float(sys.argv[3])
 min_exposure = float(sys.argv[4])
 min_sharpe = float(sys.argv[5])
 min_calmar = float(sys.argv[6])
+lookback_window = sys.argv[7]
+try:
+    max_points = min(5000, max(2, int(sys.argv[8])))
+except Exception:
+    max_points = 1000
 
 
 def to_float(v, default=0.0):
@@ -98,6 +116,33 @@ def to_float(v, default=0.0):
         return float(v)
     except Exception:
         return default
+
+
+def parse_duration_seconds(raw):
+    raw = str(raw).strip()
+    if len(raw) < 2 or not raw[:-1].isdigit():
+        return None
+    unit_seconds = {
+        "s": 1,
+        "m": 60,
+        "h": 60 * 60,
+        "d": 24 * 60 * 60,
+        "w": 7 * 24 * 60 * 60,
+        "M": 30 * 24 * 60 * 60,
+    }
+    mult = unit_seconds.get(raw[-1])
+    if mult is None:
+        return None
+    return int(raw[:-1]) * mult
+
+
+def feasible_interval(interval):
+    interval_sec = parse_duration_seconds(interval)
+    lookback_sec = parse_duration_seconds(lookback_window)
+    if not interval_sec or not lookback_sec:
+        return False
+    lookback_bars = (lookback_sec + interval_sec - 1) // interval_sec
+    return lookback_bars >= 2 and lookback_bars + 3 <= max_points
 
 with open(path) as f:
     data = json.load(f)
@@ -111,6 +156,8 @@ for c in data.get("combos", []):
     sym = params.get("binanceSymbol") or params.get("symbol") or params.get("binance_symbol")
     interval = params.get("interval")
     if not sym or not interval:
+        continue
+    if not feasible_interval(interval):
         continue
     key = (sym, interval)
     if key in seen:
@@ -158,11 +205,11 @@ PY
 )
 
 if [[ ${#COMBOS[@]} -eq 0 ]]; then
-  log "No combos found in $TOP_JSON"
+  log "No combos found in $TOP_JSON for lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS"
   exit 1
 fi
 
-log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC platform=$PLATFORM futures=$FUTURES quality=$QUALITY compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR"
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
 
 run_set() {
   local label="$1"
@@ -188,6 +235,7 @@ run_set() {
       --symbol "$sym"
       --intervals "$interval"
       --platform "$PLATFORM"
+      --lookback-window "$LOOKBACK_WINDOW"
       --bars-min "$BARS"
       --bars-max "$BARS"
       --bars-auto-prob 0
@@ -199,6 +247,15 @@ run_set() {
       --min-calmar "$MIN_CALMAR"
       --min-wf-sharpe-mean "$MIN_WF_SHARPE_MEAN"
       --max-wf-sharpe-std "$MAX_WF_SHARPE_STD"
+      --min-kelly-lite-exposure-reduction "$MIN_KELLY_LITE_EXPOSURE_REDUCTION"
+      --max-kelly-lite-exposure-ratio "$MAX_KELLY_LITE_EXPOSURE_RATIO"
+      --p-kelly-lite-sizing "$P_KELLY_LITE_SIZING"
+      --kelly-lite-fraction-min "$KELLY_LITE_FRACTION_MIN"
+      --kelly-lite-fraction-max "$KELLY_LITE_FRACTION_MAX"
+      --kelly-lite-floor-min "$KELLY_LITE_FLOOR_MIN"
+      --kelly-lite-floor-max "$KELLY_LITE_FLOOR_MAX"
+      --kelly-lite-cap-min "$KELLY_LITE_CAP_MIN"
+      --kelly-lite-cap-max "$KELLY_LITE_CAP_MAX"
       --tune-stress-vol-mult "$TUNE_STRESS_VOL_MULT"
       --tune-stress-shock "$TUNE_STRESS_SHOCK"
       --tune-stress-weight "$TUNE_STRESS_WEIGHT"
@@ -231,7 +288,7 @@ run_set() {
       cmd+=(--futures)
     fi
     if [[ "$QUALITY" == "1" ]]; then
-      cmd+=(--quality)
+      cmd+=(--quality --quality-min-trials "$QUALITY_MIN_TRIALS")
     fi
 
     log "Running $label: $sym $interval (trials=$TRIALS bars=$BARS)"

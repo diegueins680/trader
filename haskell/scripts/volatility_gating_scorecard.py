@@ -38,6 +38,11 @@ class ScoreRow:
     expectancy: float
     trade_count: int
     closed_trades: int
+    kelly_lite_enabled: bool
+    kelly_lite_realized_exposure: float | None
+    kelly_lite_uncapped_exposure: float | None
+    kelly_lite_exposure_ratio: float | None
+    kelly_lite_exposure_reduction: float | None
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,8 @@ class Contract:
     min_trade_retention: float
     min_expectancy_uplift: float
     min_closed_trades: int
+    min_kelly_lite_exposure_reduction: float
+    max_kelly_lite_exposure_ratio: float
 
 
 @dataclass(frozen=True)
@@ -101,6 +108,18 @@ def parse_args() -> argparse.Namespace:
         help="Minimum closed-trade count required for a non-inconclusive row.",
     )
     parser.add_argument(
+        "--min-kelly-lite-exposure-reduction",
+        type=float,
+        default=0.0,
+        help="Minimum absolute average-exposure reduction required when a row enables Kelly-lite sizing.",
+    )
+    parser.add_argument(
+        "--max-kelly-lite-exposure-ratio",
+        type=float,
+        default=0.95,
+        help="Maximum realized/uncapped average-exposure ratio allowed when a row enables Kelly-lite sizing; set >=1 to disable.",
+    )
+    parser.add_argument(
         "--output",
         help="Optional output path. Defaults to stdout.",
     )
@@ -148,6 +167,20 @@ def maybe_int(value: Any) -> int | None:
     return int(round(as_float))
 
 
+def maybe_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        return value != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "yes", "1", "on"}:
+            return True
+        if lowered in {"false", "no", "0", "off"}:
+            return False
+    return None
+
+
 def as_mapping(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
@@ -167,6 +200,40 @@ def find_metrics(payload: Any) -> dict[str, Any]:
         if candidate is not None and metric_keys.intersection(candidate.keys()):
             return candidate
     raise ValueError("unable to locate metrics in payload")
+
+
+def find_kelly_lite(payload: Any) -> dict[str, Any] | None:
+    candidates: list[dict[str, Any] | None] = []
+    top = as_mapping(payload)
+    if top is not None:
+        backtest = as_mapping(top.get("backtest"))
+        if backtest is not None:
+            candidates.append(as_mapping(backtest.get("kellyLite")))
+        candidates.append(as_mapping(top.get("kellyLite")))
+    for candidate in candidates:
+        if candidate is not None and "enabled" in candidate:
+            return candidate
+    return None
+
+
+def find_kelly_lite_enabled(payload: Any, report: dict[str, Any] | None) -> bool:
+    candidates: list[Any] = []
+    if report is not None:
+        candidates.append(report.get("enabled"))
+    top = as_mapping(payload)
+    if top is not None:
+        backtest = as_mapping(top.get("backtest"))
+        params = as_mapping(top.get("params"))
+        if backtest is not None:
+            candidates.append(backtest.get("kellyLiteSizing"))
+        if params is not None:
+            candidates.append(params.get("kellyLiteSizing"))
+        candidates.append(top.get("kellyLiteSizing"))
+    for candidate in candidates:
+        parsed = maybe_bool(candidate)
+        if parsed is not None:
+            return parsed
+    return False
 
 
 def require_float(metrics: dict[str, Any], keys: Iterable[str], *, context: str) -> float:
@@ -190,6 +257,8 @@ def require_int(metrics: dict[str, Any], keys: Iterable[str], *, context: str) -
 def load_row(label: str, path: Path) -> ScoreRow:
     payload = load_json(path)
     metrics = find_metrics(payload)
+    kelly_lite_report = find_kelly_lite(payload)
+    kelly_lite = kelly_lite_report or {}
     context = f"{label} ({path})"
     return ScoreRow(
         label=label,
@@ -199,6 +268,11 @@ def load_row(label: str, path: Path) -> ScoreRow:
         expectancy=require_float(metrics, ["expectancy", "avgTradeReturn"], context=context),
         trade_count=require_int(metrics, ["tradeCount"], context=context),
         closed_trades=require_int(metrics, ["roundTrips", "tradeCount"], context=context),
+        kelly_lite_enabled=find_kelly_lite_enabled(payload, kelly_lite_report),
+        kelly_lite_realized_exposure=maybe_float(kelly_lite.get("realizedExposure")),
+        kelly_lite_uncapped_exposure=maybe_float(kelly_lite.get("uncappedExposure")),
+        kelly_lite_exposure_ratio=maybe_float(kelly_lite.get("exposureRatio")),
+        kelly_lite_exposure_reduction=maybe_float(kelly_lite.get("exposureReduction")),
     )
 
 
@@ -250,6 +324,27 @@ def evaluate_rows(rows: list[ScoreRow], baseline_label: str | None, contract: Co
             )
         if row.closed_trades < contract.min_closed_trades:
             reasons.append(f"closedTrades<{contract.min_closed_trades}")
+        if row.kelly_lite_enabled:
+            if (
+                row.kelly_lite_exposure_ratio is None
+                or row.kelly_lite_exposure_reduction is None
+                or row.kelly_lite_uncapped_exposure is None
+            ):
+                reasons.append("kellyLiteExposureMissing")
+            else:
+                ratio_filter_enabled = 0 < contract.max_kelly_lite_exposure_ratio < 1
+                if (
+                    (contract.min_kelly_lite_exposure_reduction > 0 or ratio_filter_enabled)
+                    and row.kelly_lite_uncapped_exposure <= 0
+                ):
+                    reasons.append("kellyLiteUncappedExposure<=0")
+                if (
+                    contract.min_kelly_lite_exposure_reduction > 0
+                    and row.kelly_lite_exposure_reduction < contract.min_kelly_lite_exposure_reduction
+                ):
+                    reasons.append(f"kellyLiteExposureReduction<{contract.min_kelly_lite_exposure_reduction:.3f}")
+                if ratio_filter_enabled and row.kelly_lite_exposure_ratio > contract.max_kelly_lite_exposure_ratio:
+                    reasons.append(f"kellyLiteExposureRatio>{contract.max_kelly_lite_exposure_ratio:.3f}")
 
         verdict = "pass" if not reasons else "fail"
         evaluated.append(
@@ -271,24 +366,42 @@ def fmt_retention(value: float | None) -> str:
     return "n/a" if value is None else pct(value, 1)
 
 
+def fmt_kelly_lite(row: ScoreRow) -> str:
+    if not row.kelly_lite_enabled:
+        return "off"
+    if (
+        row.kelly_lite_exposure_ratio is None
+        or row.kelly_lite_realized_exposure is None
+        or row.kelly_lite_uncapped_exposure is None
+        or row.kelly_lite_exposure_reduction is None
+    ):
+        return "missing"
+    return (
+        f"{pct(row.kelly_lite_exposure_ratio, 1)} "
+        f"({row.kelly_lite_realized_exposure:.4f}/{row.kelly_lite_uncapped_exposure:.4f}, "
+        f"-{row.kelly_lite_exposure_reduction:.4f})"
+    )
+
+
 def render_markdown(evaluated: list[EvaluatedRow], contract: Contract) -> str:
     lines: list[str] = []
     lines.append("## Scorecard")
     lines.append("")
     lines.append(
-        "| Row | Sharpe | Max drawdown | Expectancy/trade | Trade-count retention | Closed-trade count | Contract |"
+        "| Row | Sharpe | Max drawdown | Expectancy/trade | Trade-count retention | Closed-trade count | Kelly-lite exposure | Contract |"
     )
-    lines.append("|---|---:|---:|---:|---:|---:|---|")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---|")
     for item in evaluated:
         verdict = item.verdict if item.verdict == "baseline" else f"{item.verdict} ({'; '.join(item.reasons)})"
         lines.append(
-            "| {label} | {sharpe:.3f} | {max_dd} | {expectancy} | {retention} | {closed_trades} | {verdict} |".format(
+            "| {label} | {sharpe:.3f} | {max_dd} | {expectancy} | {retention} | {closed_trades} | {kelly_lite} | {verdict} |".format(
                 label=item.row.label,
                 sharpe=item.row.sharpe,
                 max_dd=pct(item.row.max_drawdown),
                 expectancy=pct(item.row.expectancy),
                 retention=fmt_retention(item.trade_retention),
                 closed_trades=item.row.closed_trades,
+                kelly_lite=fmt_kelly_lite(item.row),
                 verdict=verdict,
             )
         )
@@ -308,6 +421,10 @@ def render_markdown(evaluated: list[EvaluatedRow], contract: Contract) -> str:
         f"- Trade-count retention: `>= {contract.min_trade_retention * 100:.0f}%` of baseline unless expectancy/trade improves by `>= {contract.min_expectancy_uplift * 100:.0f}%`"
     )
     lines.append(f"- Closed-trade minimum: `>= {contract.min_closed_trades}`")
+    lines.append(
+        f"- Kelly-lite exposure ratio when enabled: `<= {contract.max_kelly_lite_exposure_ratio:.2f}` unless disabled with `>= 1`"
+    )
+    lines.append(f"- Kelly-lite exposure reduction when enabled: `>= {contract.min_kelly_lite_exposure_reduction:.3f}`")
     return "\n".join(lines) + "\n"
 
 
@@ -325,6 +442,8 @@ def main() -> int:
                 min_trade_retention=args.min_trade_retention,
                 min_expectancy_uplift=args.min_expectancy_uplift,
                 min_closed_trades=args.min_closed_trades,
+                min_kelly_lite_exposure_reduction=args.min_kelly_lite_exposure_reduction,
+                max_kelly_lite_exposure_ratio=args.max_kelly_lite_exposure_ratio,
             ),
         )
         output = render_markdown(
@@ -335,6 +454,8 @@ def main() -> int:
                 min_trade_retention=args.min_trade_retention,
                 min_expectancy_uplift=args.min_expectancy_uplift,
                 min_closed_trades=args.min_closed_trades,
+                min_kelly_lite_exposure_reduction=args.min_kelly_lite_exposure_reduction,
+                max_kelly_lite_exposure_ratio=args.max_kelly_lite_exposure_ratio,
             ),
         )
         if args.output:
