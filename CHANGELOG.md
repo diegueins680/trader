@@ -1,5 +1,5 @@
 ## Unreleased
-- Trading: wire the fee-aware fresh-entry buffer into the actual backtest simulator and live latest-signal decision path, so threshold/headroom-valid signals now remain flat when their modeled edge does not clear round-trip costs.
+- Trading: wire the fee-aware fresh-entry buffer into the actual backtest simulator and live latest-signal decision path after final entry-size overlays, so threshold/headroom-valid signals now remain flat when their modeled edge does not clear the sized round-trip cost floor.
 - Autoloop: make the logical-correctness loop explicitly audit the Haskell trading algorithm first, then implement backend correctness improvements with tests/formal notes and targeted verification where practical.
 - Web: make the Vite dev proxy load the repo-root `.env` as well as `haskell/web/.env*`, so direct `npm run dev` uses the same `TRADER_API_TOKEN` path as the local helper scripts.
 - Deploy: align the Fly backend Docker builder with the repo-pinned GHC 9.4.8 toolchain so fresh Hackage indexes do not select dependencies incompatible with the obsolete GHC 8.10 image.

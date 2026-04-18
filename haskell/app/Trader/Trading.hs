@@ -1905,9 +1905,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         entryEdgeHeadroomOk =
                                             not needsEntry || signalEntryHeadroomOk openThrAdj entryEdgeSample
 
-                                        entryFeeBufferOk =
-                                            not needsEntry || signalEntryFeeBufferOk openThrAdj (roundTripCostAt t desiredSize0) entryEdgeSample
-
                                         slowCrossExit =
                                             case posSide of
                                                 Just side ->
@@ -1960,7 +1957,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 || not triLayerOk
                                                 || not entryEdgeSpikeOk
                                                 || not entryEdgeHeadroomOk
-                                                || not entryFeeBufferOk
                                                 then Nothing
                                                 else desiredSide0
 
@@ -2006,10 +2002,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 then 0
                                                 else sizeCapped
 
-                                        desiredSide =
-                                            if sizeFinal0 <= 0 then Nothing else desiredSide2
+                                        entryFeeBufferOk =
+                                            not (Data.Maybe.isJust desiredSide2 && desiredSide2 /= posSide && sizeFinal0 > 0)
+                                                || signalEntryFeeBufferOk openThrAdj (roundTripCostAt t sizeFinal0) entryEdgeSample
 
-                                        desiredSize = sizeFinal0
+                                        desiredSide =
+                                            if sizeFinal0 <= 0 || not entryFeeBufferOk then Nothing else desiredSide2
+
+                                        desiredSize =
+                                            if Data.Maybe.isJust desiredSide
+                                                then sizeFinal0
+                                                else 0
 
                                         (desiredSideVolConf, desiredSizeVolConf) =
                                             applyVolConfGateBehavior

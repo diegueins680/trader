@@ -542,22 +542,36 @@ testBacktestEntryGateUsesRoundTripFeeBuffer = do
             baseCfg
                 { ecFee = 0.02
                 }
+        scaledFixedFeeCfg =
+            baseCfg
+                { ecFeeFixed = 0.001
+                , ecKellyLiteSizing = True
+                , ecKellyLiteFraction = 0
+                , ecKellyLiteFloor = 0.1
+                , ecKellyLiteCap = 0.1
+                }
         maxAbsPosition result =
             maximum (0 : map abs (brPositions result))
         noFeeResult =
             simulateEnsembleWithHLChecked baseCfg 1 prices highs lows preds preds noMeta
         highFeeResult =
             simulateEnsembleWithHLChecked highFeeCfg 1 prices highs lows preds preds noMeta
-    case (noFeeResult, highFeeResult) of
-        (Right noFee, Right highFee) -> do
+        scaledFixedFeeResult =
+            simulateEnsembleWithHLChecked scaledFixedFeeCfg 1 prices highs lows preds preds noMeta
+    case (noFeeResult, highFeeResult, scaledFixedFeeResult) of
+        (Right noFee, Right highFee, Right scaledFixedFee) -> do
             assert
                 "zero-fee backtest admits the headroom-valid non-spike entry"
                 (maxAbsPosition noFee > 0.99)
             assert
                 "high round-trip costs block the same marginal pre-fee entry in the simulator"
                 (maxAbsPosition highFee == 0 && null (brTrades highFee))
-        (Left err, _) -> ioError (userError ("zero-fee fee-buffer regression failed to simulate: " ++ err))
-        (_, Left err) -> ioError (userError ("high-fee fee-buffer regression failed to simulate: " ++ err))
+            assert
+                "fixed costs are checked against final overlay-scaled entry size"
+                (maxAbsPosition scaledFixedFee == 0 && null (brTrades scaledFixedFee))
+        (Left err, _, _) -> ioError (userError ("zero-fee fee-buffer regression failed to simulate: " ++ err))
+        (_, Left err, _) -> ioError (userError ("high-fee fee-buffer regression failed to simulate: " ++ err))
+        (_, _, Left err) -> ioError (userError ("scaled fixed-fee fee-buffer regression failed to simulate: " ++ err))
 
 -- Execution-quantity guardrail: malformed or non-positive fills must fail
 -- closed, and reduce-only fills must never reopen or increase exposure.
