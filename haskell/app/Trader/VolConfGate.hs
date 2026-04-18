@@ -11,7 +11,7 @@ module Trader.VolConfGate (
 ) where
 
 import Data.List (intercalate)
-import Data.Maybe (fromMaybe)
+
 
 data VolConfGatePreset
     = VolConfGateDisabled
@@ -93,10 +93,11 @@ volConfGateCell preset mVolatility mConfidence =
             mkVolConfGateCell VolConfGateAllowEntry 1.0
         _ ->
             case volBucket preset mVolatility of
-                VolMissing -> mkVolConfGateCell VolConfGateAllowExitOnly 0.0
+                VolMissing -> malformedVolConfGateCell
                 volB ->
-                    let confB = confidenceBucket preset mConfidence
-                     in gateCellFor preset volB confB
+                    case confidenceBucket preset mConfidence of
+                        Nothing -> malformedVolConfGateCell
+                        Just confB -> gateCellFor preset volB confB
 
 applyVolConfGateBehavior ::
     (Eq side) =>
@@ -129,11 +130,14 @@ applyVolConfGateBehavior behavior currentSide currentSize desiredSide desiredSiz
             VolConfGateBlock -> reduceOnly
             VolConfGateAllowExitOnly -> reduceOnly
 
+volatilityEvidenceMax :: Double
+volatilityEvidenceMax = 2.0
+
 volBucket :: VolConfGatePreset -> Maybe Double -> VolBucket
 volBucket preset mVolatility =
     case sanitizeFiniteMaybe mVolatility of
         Just vol
-            | vol >= 0 ->
+            | vol >= 0 && vol <= volatilityEvidenceMax ->
                 let highThreshold =
                         case preset of
                             VolConfGateV1HighVolTighter -> 1.0
@@ -146,27 +150,28 @@ volBucket preset mVolatility =
                                 then VolMedium
                                 else VolHigh
         _ ->
-            -- Negative and non-finite volatility are malformed risk inputs, so
-            -- fail closed instead of classifying them as low volatility.
+            -- Missing, negative, non-finite, and out-of-range volatility are
+            -- malformed risk inputs, so fail closed instead of classifying
+            -- them as low volatility.
             VolMissing
 
-confidenceBucket :: VolConfGatePreset -> Maybe Double -> ConfidenceBucket
+confidenceBucket :: VolConfGatePreset -> Maybe Double -> Maybe ConfidenceBucket
 confidenceBucket preset mConfidence =
     let weakThreshold =
             case preset of
                 VolConfGateV1ConfStricter -> 0.65
                 _ -> 0.60
         strongThreshold = 0.80
-        confidence =
-            -- Missing, non-finite, and out-of-range confidence are treated
-            -- as weak so malformed model outputs cannot weaken the gate.
-            fromMaybe 0.0 (sanitizeConfidenceUnitInterval mConfidence)
-     in if confidence < weakThreshold
-            then ConfidenceWeak
-            else
-                if confidence < strongThreshold
-                    then ConfidenceMedium
-                    else ConfidenceStrong
+        classify confidence =
+            if confidence < weakThreshold
+                then ConfidenceWeak
+                else
+                    if confidence < strongThreshold
+                        then ConfidenceMedium
+                        else ConfidenceStrong
+     in case mConfidence of
+            Nothing -> Just ConfidenceWeak
+            Just _ -> classify <$> sanitizeConfidenceUnitInterval mConfidence
 
 gateCellFor :: VolConfGatePreset -> VolBucket -> ConfidenceBucket -> VolConfGateCell
 gateCellFor preset volB confB =
@@ -186,7 +191,7 @@ gateCellFor preset volB confB =
                         VolConfGateV1HighVolLooser -> 0.45
                         _ -> 0.35
              in mkVolConfGateCell VolConfGateAllowEntry highStrongSize
-        (VolMissing, _) -> mkVolConfGateCell VolConfGateAllowExitOnly 0.0
+        (VolMissing, _) -> malformedVolConfGateCell
 
 isFinite :: Double -> Bool
 isFinite x = not (isNaN x || isInfinite x)
@@ -216,3 +221,6 @@ clamp lo hi x = max lo (min hi x)
 mkVolConfGateCell :: VolConfGateBehavior -> Double -> VolConfGateCell
 mkVolConfGateCell behavior sizeMult =
     VolConfGateCell behavior (clamp 0 1 (sanitizeFiniteWith 0 sizeMult))
+
+malformedVolConfGateCell :: VolConfGateCell
+malformedVolConfGateCell = mkVolConfGateCell VolConfGateAllowExitOnly 0.0

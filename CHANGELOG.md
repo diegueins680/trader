@@ -1,4 +1,6 @@
 ## Unreleased
+- Trading: fail closed on malformed volatility-confidence gate evidence by requiring enabled `Trader.VolConfGate` presets to receive present finite volatility within `[0,2]` and provided finite confidence within `[0,1]`; malformed volatility or malformed provided confidence now yields exit-only behavior instead of being normalized into an entry-permissive gate state.
+- Trading/Formal: document the volatility-confidence gate validity invariant in `FORMAL_METHODS.md` and bind it to bounded Haskell regression coverage for malformed volatility, malformed confidence, valid boundary equality, and monotonicity under stricter confidence/volatility requirements.
 - Trading: wire the fee-aware fresh-entry buffer into the actual backtest simulator and live latest-signal decision path after final entry-size overlays, so threshold/headroom-valid signals now remain flat when their modeled edge does not clear the sized round-trip cost floor.
 - Autoloop: make the logical-correctness loop explicitly audit the Haskell trading algorithm first, then implement backend correctness improvements with tests/formal notes and targeted verification where practical.
 - Web: make the Vite dev proxy load the repo-root `.env` as well as `haskell/web/.env*`, so direct `npm run dev` uses the same `TRADER_API_TOKEN` path as the local helper scripts.

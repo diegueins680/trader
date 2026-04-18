@@ -60,7 +60,13 @@ import Trader.Trading (
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
  )
-import Trader.VolConfGate (VolConfGatePreset (..))
+import Trader.VolConfGate (
+    VolConfGateBehavior (..),
+    VolConfGateCell (..),
+    VolConfGatePreset (..),
+    applyVolConfGateBehavior,
+    volConfGateCell,
+ )
 
 main :: IO ()
 main = do
@@ -75,6 +81,7 @@ main = do
     testKellyLiteBacktestSizingRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
+    testVolConfGateMalformedInputsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
     testOrderExecutionFillSanitizationInvariant
     testOptimizerActivityCountInvariant
@@ -511,6 +518,59 @@ testTradingEntryGateMalformedNoReopen = do
                 )
                 [negativeFeeState, malformedFeeState, malformedEdgeState]
         )
+
+-- Volatility-confidence gate invariant: enabled presets only admit entries
+-- from finite bounded volatility evidence and absent-or-bounded confidence
+-- evidence. Missing confidence remains weak, while malformed provided
+-- confidence and malformed/out-of-range volatility fail closed as exit-only.
+testVolConfGateMalformedInputsFailClosed :: IO ()
+testVolConfGateMalformedInputsFailClosed = do
+    let exitOnly cell = vcgBehavior cell == VolConfGateAllowExitOnly && vcgSizeMult cell == 0
+        malformedVolatilities = [Nothing, Just (-0.01), Just (0 / 0), Just (1 / 0), Just 2.000001]
+        malformedConfidences = [Just (-0.01), Just 1.000001, Just (0 / 0), Just (1 / 0)]
+        confidenceLadder =
+            map
+                (\preset -> vcgBehavior (volConfGateCell preset (Just 0.5) (Just 0.60)) == VolConfGateAllowEntry)
+                [VolConfGateV1Default, VolConfGateV1ConfStricter]
+        volatilityLadder =
+            map
+                (\preset -> vcgBehavior (volConfGateCell preset (Just 1.2) (Just 0.80)) == VolConfGateAllowEntry)
+                [VolConfGateV1HighVolLooser, VolConfGateV1Default, VolConfGateV1HighVolTighter]
+    assert
+        "vol-confidence gate preserves valid equality boundaries"
+        ( volConfGateCell VolConfGateV1Default (Just 0.5) (Just 0.60)
+            == VolConfGateCell VolConfGateAllowEntry 0.45
+            && volConfGateCell VolConfGateV1Default (Just 1.2) (Just 0.80)
+                == VolConfGateCell VolConfGateAllowEntry 0.35
+            && volConfGateCell VolConfGateV1Default (Just 2.0) (Just 1.0)
+                == VolConfGateCell VolConfGateAllowEntry 0.35
+        )
+    assert
+        "malformed volatility evidence fails closed for enabled vol-confidence presets"
+        (all (exitOnly . (\mVol -> volConfGateCell VolConfGateV1Default mVol (Just 0.8))) malformedVolatilities)
+    assert
+        "malformed provided confidence evidence fails closed instead of becoming weak hold evidence"
+        (all (exitOnly . (\mConf -> volConfGateCell VolConfGateV1Default (Just 0.4) mConf)) malformedConfidences)
+    assert
+        "missing confidence remains weak entry-blocking evidence"
+        (volConfGateCell VolConfGateV1Default (Just 0.4) Nothing == VolConfGateCell VolConfGateHold 0)
+    assert
+        "exit-only vol-confidence behavior cannot open or increase exposure"
+        ( applyVolConfGateBehavior VolConfGateAllowExitOnly Nothing 0 (Just SideLong) 1 == (Nothing, 0)
+            && applyVolConfGateBehavior VolConfGateAllowExitOnly (Just SideLong) 1 (Just SideLong) 2 == (Just SideLong, 1)
+            && applyVolConfGateBehavior VolConfGateAllowExitOnly (Just SideLong) 1 (Just SideShort) 1 == (Nothing, 0)
+        )
+    assert
+        "stricter confidence and volatility requirements are monotone on bounded witnesses"
+        ( confidenceLadder == [True, False]
+            && volatilityLadder == [True, True, False]
+        )
+    assertMonotoneNonIncreasing
+        "raising the confidence requirement cannot reopen a blocked vol-confidence entry"
+        confidenceLadder
+    assertMonotoneNonIncreasing
+        "tightening the high-volatility threshold cannot reopen a blocked vol-confidence entry"
+        volatilityLadder
 
 -- Algorithm-path regression: the fee-aware fresh-entry contract is not just a
 -- helper-level obligation. The checked simulator must reject a signal that has
