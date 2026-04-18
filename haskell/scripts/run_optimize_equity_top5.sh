@@ -13,6 +13,27 @@ COUNT="${COUNT:-5}"
 TRIALS="${TRIALS:-300}"
 BARS="${BARS:-1000}"
 ACTIVITY_RETRY_BARS="${ACTIVITY_RETRY_BARS:-700,1000}"
+OPEN_THRESHOLD_MIN="${OPEN_THRESHOLD_MIN:-5e-4}"
+OPEN_THRESHOLD_MAX="${OPEN_THRESHOLD_MAX:-2e-2}"
+CLOSE_THRESHOLD_MIN="${CLOSE_THRESHOLD_MIN:-5e-4}"
+CLOSE_THRESHOLD_MAX="${CLOSE_THRESHOLD_MAX:-2e-2}"
+MIN_HOLD_BARS_MIN="${MIN_HOLD_BARS_MIN:-2}"
+MIN_HOLD_BARS_MAX="${MIN_HOLD_BARS_MAX:-8}"
+COOLDOWN_BARS_MIN="${COOLDOWN_BARS_MIN:-1}"
+COOLDOWN_BARS_MAX="${COOLDOWN_BARS_MAX:-3}"
+MAX_HOLD_BARS_MIN="${MAX_HOLD_BARS_MIN:-24}"
+MAX_HOLD_BARS_MAX="${MAX_HOLD_BARS_MAX:-72}"
+ACTIVITY_RECOVERY="${ACTIVITY_RECOVERY:-1}"
+ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN="${ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN:-2e-4}"
+ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX="${ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX:-6e-3}"
+ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN="${ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN:-2e-4}"
+ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX="${ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX:-6e-3}"
+ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN="${ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN:-0}"
+ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX="${ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX:-3}"
+ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN="${ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN:-0}"
+ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX="${ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX:-1}"
+ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN="${ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN:-6}"
+ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX="${ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX:-24}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
 LOOKBACK_WINDOW="${LOOKBACK_WINDOW:-7d}"
 TRADER_OPTIMIZER_MAX_POINTS="${TRADER_OPTIMIZER_MAX_POINTS:-1000}"
@@ -213,7 +234,7 @@ if [[ ${#COMBOS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS activity_retry_bars=$ACTIVITY_RETRY_BARS timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS activity_retry_bars=$ACTIVITY_RETRY_BARS activity_recovery=$ACTIVITY_RECOVERY timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR open_threshold_range=$OPEN_THRESHOLD_MIN:$OPEN_THRESHOLD_MAX close_threshold_range=$CLOSE_THRESHOLD_MIN:$CLOSE_THRESHOLD_MAX min_hold_range=$MIN_HOLD_BARS_MIN:$MIN_HOLD_BARS_MAX cooldown_range=$COOLDOWN_BARS_MIN:$COOLDOWN_BARS_MAX max_hold_range=$MAX_HOLD_BARS_MIN:$MAX_HOLD_BARS_MAX activity_recovery_open_threshold_range=$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN:$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX activity_recovery_close_threshold_range=$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN:$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX activity_recovery_min_hold_range=$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX activity_recovery_cooldown_range=$ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN:$ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX activity_recovery_max_hold_range=$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
 
 should_retry_activity_bars() {
   local log_file="$1"
@@ -270,14 +291,43 @@ run_set() {
 
     local bars_attempt="$BARS"
     local attempt_index=0
+    local activity_recovery_attempt=0
     while :; do
       local suffix log json
       suffix=""
       if ((attempt_index > 0)); then
         suffix="-bars${bars_attempt}"
       fi
+      if ((activity_recovery_attempt > 0)); then
+        suffix="-activity-bars${bars_attempt}"
+      fi
       log="$out_dir/$safe$suffix.log"
       json="$out_dir/$safe$suffix.json"
+
+      local open_threshold_min="$OPEN_THRESHOLD_MIN"
+      local open_threshold_max="$OPEN_THRESHOLD_MAX"
+      local close_threshold_min="$CLOSE_THRESHOLD_MIN"
+      local close_threshold_max="$CLOSE_THRESHOLD_MAX"
+      local min_hold_bars_min="$MIN_HOLD_BARS_MIN"
+      local min_hold_bars_max="$MIN_HOLD_BARS_MAX"
+      local cooldown_bars_min="$COOLDOWN_BARS_MIN"
+      local cooldown_bars_max="$COOLDOWN_BARS_MAX"
+      local max_hold_bars_min="$MAX_HOLD_BARS_MIN"
+      local max_hold_bars_max="$MAX_HOLD_BARS_MAX"
+      local attempt_label="bars=$bars_attempt"
+      if ((activity_recovery_attempt > 0)); then
+        open_threshold_min="$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN"
+        open_threshold_max="$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX"
+        close_threshold_min="$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN"
+        close_threshold_max="$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX"
+        min_hold_bars_min="$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN"
+        min_hold_bars_max="$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX"
+        cooldown_bars_min="$ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN"
+        cooldown_bars_max="$ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX"
+        max_hold_bars_min="$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN"
+        max_hold_bars_max="$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX"
+        attempt_label="$attempt_label activity-recovery=1"
+      fi
 
       local cmd=("$bin"
         --symbol "$sym"
@@ -296,6 +346,16 @@ run_set() {
         --min-calmar "$MIN_CALMAR"
         --min-wf-sharpe-mean "$MIN_WF_SHARPE_MEAN"
         --max-wf-sharpe-std "$MAX_WF_SHARPE_STD"
+        --open-threshold-min "$open_threshold_min"
+        --open-threshold-max "$open_threshold_max"
+        --close-threshold-min "$close_threshold_min"
+        --close-threshold-max "$close_threshold_max"
+        --min-hold-bars-min "$min_hold_bars_min"
+        --min-hold-bars-max "$min_hold_bars_max"
+        --cooldown-bars-min "$cooldown_bars_min"
+        --cooldown-bars-max "$cooldown_bars_max"
+        --max-hold-bars-min "$max_hold_bars_min"
+        --max-hold-bars-max "$max_hold_bars_max"
         --min-kelly-lite-exposure-reduction "$MIN_KELLY_LITE_EXPOSURE_REDUCTION"
         --max-kelly-lite-exposure-ratio "$MAX_KELLY_LITE_EXPOSURE_RATIO"
         --p-kelly-lite-sizing "$P_KELLY_LITE_SIZING"
@@ -345,8 +405,8 @@ run_set() {
         )
       fi
 
-      log "Running $label: $sym $interval (trials=$TRIALS bars=$bars_attempt)"
-      echo "Running $label: $sym $interval (trials=$TRIALS bars=$bars_attempt)" | tee "$log"
+      log "Running $label: $sym $interval (trials=$TRIALS $attempt_label)"
+      echo "Running $label: $sym $interval (trials=$TRIALS $attempt_label)" | tee "$log"
       if "${cmd[@]}" >>"$log" 2>&1; then
         break
       fi
@@ -369,6 +429,13 @@ run_set() {
         fi
       done
 
+      if [[ -z "$next_bars" && "$ACTIVITY_RECOVERY" == "1" && "$activity_recovery_attempt" == "0" ]]; then
+        log "Retrying $label: $sym $interval with activity-recovery thresholds after activityCount-only skips at bars=$bars_attempt."
+        activity_recovery_attempt=1
+        attempt_index=$((attempt_index + 1))
+        continue
+      fi
+
       if [[ -z "$next_bars" ]]; then
         log "Run failed for $sym $interval after activityCount-only skips; no deeper retry bars remain."
         echo "Run failed for $sym $interval after activityCount-only skips; no deeper retry bars remain." | tee -a "$log"
@@ -377,6 +444,7 @@ run_set() {
 
       log "Retrying $label: $sym $interval with bars=$next_bars after activityCount-only skips at bars=$bars_attempt."
       bars_attempt="$next_bars"
+      activity_recovery_attempt=0
       attempt_index=$((attempt_index + 1))
     done
   done
@@ -421,7 +489,7 @@ for fn in sorted(os.listdir(out_dir)):
     filter_reasons = {}
     failure_reasons = {}
     for line in text.splitlines():
-        run_match = re.search(r"\(trials=\d+ bars=(\d+)\)", line)
+        run_match = re.search(r"\(trials=\d+ bars=(\d+)(?: [^)]*)?\)", line)
         if run_match:
             bars = int(run_match.group(1))
         trial_match = re.match(r"\[\s*\d+/\d+\]\s+(OK|SKIP|FAIL)\b", line)

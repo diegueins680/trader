@@ -12,6 +12,7 @@ module Trader.Optimizer.Optimize (
     objectiveScore,
     qualityPresetIntervalFields,
     qualityPresetBudget,
+    qualityPresetCeiling,
     runOptimizer,
     sampleTakeProfitPartial,
 ) where
@@ -1216,8 +1217,8 @@ applyQualityPreset args =
      in args
             { oaTrials = maxIf (oaTrials args) (max 1 (oaQualityMinTrials args))
             , oaMinRoundTrips = maxIf (oaMinRoundTrips args) 20
-            , oaOpenThresholdMax = maxIf (oaOpenThresholdMax args) 5e-2
-            , oaCloseThresholdMax = maxIf (oaCloseThresholdMax args) 5e-2
+            , oaOpenThresholdMax = qualityPresetCeiling 2e-2 5e-2 (oaOpenThresholdMax args)
+            , oaCloseThresholdMax = qualityPresetCeiling 2e-2 5e-2 (oaCloseThresholdMax args)
             , oaMinWinRate = maxIf (oaMinWinRate args) 0.45
             , oaMinProfitFactor = maxIf (oaMinProfitFactor args) 1.1
             , oaMinExposure = maxIf (oaMinExposure args) 0.10
@@ -1336,6 +1337,12 @@ qualityPresetBudget productionDefault requested rawBudget =
      in if budget >= productionDefault
             then max requested productionDefault
             else min requested budget
+
+qualityPresetCeiling :: (Eq a) => a -> a -> a -> a
+qualityPresetCeiling productionDefault qualityDefault requested =
+    if requested == productionDefault
+        then qualityDefault
+        else requested
 
 qualityPresetIntervalFields :: Maybe String -> Maybe String -> (Maybe String, Maybe String)
 qualityPresetIntervalFields rawInterval rawIntervals =

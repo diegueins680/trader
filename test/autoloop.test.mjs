@@ -840,7 +840,10 @@ test("top-combo optimizer wrapper supports no-optimization audit binaries", asyn
 test("top-combo optimizer wrapper retries activity-only short audits with deeper bars", async () => {
   const script = await fs.readFile(new URL("../haskell/scripts/run_optimize_equity_top5.sh", import.meta.url), "utf8");
   assert.match(script, /ACTIVITY_RETRY_BARS="\$\{ACTIVITY_RETRY_BARS:-700,1000\}"/);
+  assert.match(script, /ACTIVITY_RECOVERY="\$\{ACTIVITY_RECOVERY:-1\}"/);
+  assert.match(script, /ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX="\$\{ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX:-6e-3\}"/);
   assert.match(script, /activity_retry_bars=\$ACTIVITY_RETRY_BARS/);
+  assert.match(script, /activity_recovery=\$ACTIVITY_RECOVERY/);
   assert.match(script, /should_retry_activity_bars\(\)/);
   assert.match(script, /No eligible trials\./);
   assert.match(script, /activityCount</);
@@ -848,7 +851,12 @@ test("top-combo optimizer wrapper retries activity-only short audits with deeper
   assert.match(script, /\(\(retry_bars > bars_attempt\)\)/);
   assert.match(script, /--bars-min "\$bars_attempt"/);
   assert.match(script, /--bars-max "\$bars_attempt"/);
+  assert.match(script, /activity_recovery_attempt=0/);
+  assert.match(script, /--open-threshold-max "\$open_threshold_max"/);
+  assert.match(script, /--min-hold-bars-min "\$min_hold_bars_min"/);
   assert.match(script, /Retrying \$label: \$sym \$interval with bars=\$next_bars after activityCount-only skips/);
+  assert.match(script, /Retrying \$label: \$sym \$interval with activity-recovery thresholds after activityCount-only skips/);
+  assert.ok(script.includes('run_match = re.search(r"\\(trials=\\d+ bars=(\\d+)(?: [^)]*)?\\)", line)'));
   assert.match(script, /"status": status/);
   assert.match(script, /"filterReasons": filter_reasons/);
   assert.match(script, /"failureReasons": failure_reasons/);
