@@ -15,7 +15,7 @@ import Trader.Formal.Optimization (
     verifyFormalOptimization,
  )
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
-import Trader.Optimizer.Optimize (kellyLiteExposureContractReason, qualityPresetBudget)
+import Trader.Optimizer.Optimize (kellyLiteExposureContractReason, qualityPresetBudget, qualityPresetCeiling)
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Predictors (RegimeProbs (..))
 import Trader.SignalGates (
@@ -1082,6 +1082,18 @@ testOptimizerQualityBudgetRegression = do
     assert
         "quality preset preserves explicitly larger production sweeps"
         (qualityPresetBudget 50 80 50 == 80)
+    assert
+        "quality preset lifts default threshold ceilings to the quality exploration floor"
+        (qualityPresetCeiling (2e-2 :: Double) 5e-2 2e-2 == 5e-2)
+    assert
+        "quality preset honors tighter explicit activity-recovery threshold caps"
+        (qualityPresetCeiling (2e-2 :: Double) 5e-2 6e-3 == 6e-3)
+    assert
+        "quality preset preserves explicit threshold sweeps below the quality floor"
+        (qualityPresetCeiling (2e-2 :: Double) 5e-2 3e-2 == 3e-2)
+    assert
+        "quality preset preserves explicit threshold sweeps above the quality floor"
+        (qualityPresetCeiling (2e-2 :: Double) 5e-2 8e-2 == 8e-2)
 
 -- Optimizer eligibility regression: Kelly-lite exposure contracts must reject
 -- no-op Kelly-lite rows. A zero uncapped-exposure replay previously produced a
