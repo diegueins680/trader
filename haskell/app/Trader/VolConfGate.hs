@@ -12,7 +12,6 @@ module Trader.VolConfGate (
 
 import Data.List (intercalate)
 
-
 data VolConfGatePreset
     = VolConfGateDisabled
     | VolConfGateV1Default
@@ -162,13 +161,10 @@ confidenceBucket preset mConfidence =
                 VolConfGateV1ConfStricter -> 0.65
                 _ -> 0.60
         strongThreshold = 0.80
-        classify confidence =
-            if confidence < weakThreshold
-                then ConfidenceWeak
-                else
-                    if confidence < strongThreshold
-                        then ConfidenceMedium
-                        else ConfidenceStrong
+        classify confidence
+            | confidence < weakThreshold = ConfidenceWeak
+            | confidence < strongThreshold = ConfidenceMedium
+            | otherwise = ConfidenceStrong
      in case mConfidence of
             Nothing -> Just ConfidenceWeak
             Just _ -> classify <$> sanitizeConfidenceUnitInterval mConfidence

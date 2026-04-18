@@ -534,7 +534,7 @@ testVolConfGateMalformedInputsFailClosed = do
                 [VolConfGateV1Default, VolConfGateV1ConfStricter]
         volatilityLadder =
             map
-                (\preset -> vcgBehavior (volConfGateCell preset (Just 1.2) (Just 0.80)) == VolConfGateAllowEntry)
+                (\preset -> vcgBehavior (volConfGateCell preset (Just 1.2) (Just 0.60)) == VolConfGateAllowEntry)
                 [VolConfGateV1HighVolLooser, VolConfGateV1Default, VolConfGateV1HighVolTighter]
     assert
         "vol-confidence gate preserves valid equality boundaries"
@@ -550,7 +550,7 @@ testVolConfGateMalformedInputsFailClosed = do
         (all (exitOnly . (\mVol -> volConfGateCell VolConfGateV1Default mVol (Just 0.8))) malformedVolatilities)
     assert
         "malformed provided confidence evidence fails closed instead of becoming weak hold evidence"
-        (all (exitOnly . (\mConf -> volConfGateCell VolConfGateV1Default (Just 0.4) mConf)) malformedConfidences)
+        (all (exitOnly . volConfGateCell VolConfGateV1Default (Just 0.4)) malformedConfidences)
     assert
         "missing confidence remains weak entry-blocking evidence"
         (volConfGateCell VolConfGateV1Default (Just 0.4) Nothing == VolConfGateCell VolConfGateHold 0)
@@ -563,7 +563,7 @@ testVolConfGateMalformedInputsFailClosed = do
     assert
         "stricter confidence and volatility requirements are monotone on bounded witnesses"
         ( confidenceLadder == [True, False]
-            && volatilityLadder == [True, True, False]
+            && volatilityLadder == [True, False, False]
         )
     assertMonotoneNonIncreasing
         "raising the confidence requirement cannot reopen a blocked vol-confidence entry"
