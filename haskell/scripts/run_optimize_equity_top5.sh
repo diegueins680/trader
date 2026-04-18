@@ -388,7 +388,7 @@ out_dir = sys.argv[1]
 summary = []
 json_files = set()
 for fn in sorted(os.listdir(out_dir)):
-    if not fn.endswith(".json"):
+    if not fn.endswith(".json") or fn == "summary.json":
         continue
     json_files.add(fn)
     path = os.path.join(out_dir, fn)
@@ -419,15 +419,23 @@ for fn in sorted(os.listdir(out_dir)):
     bars = None
     trial_count = 0
     filter_reasons = {}
+    failure_reasons = {}
     for line in text.splitlines():
         run_match = re.search(r"\(trials=\d+ bars=(\d+)\)", line)
         if run_match:
             bars = int(run_match.group(1))
+        trial_match = re.match(r"\[\s*\d+/\d+\]\s+(OK|SKIP|FAIL)\b", line)
+        if trial_match:
+            trial_count += 1
         filter_match = re.match(r"\[\s*\d+/\d+\].*\(filter: ([^)]+)\)", line)
         if filter_match:
-            trial_count += 1
             reason = filter_match.group(1)
             filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
+        elif trial_match:
+            reason_match = re.search(r"\(([^()]*)\)\s*$", line)
+            if reason_match:
+                reason = reason_match.group(1)
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
 
     status = "noEligibleTrials" if "No eligible trials." in text else "failed"
     summary.append({
@@ -436,6 +444,7 @@ for fn in sorted(os.listdir(out_dir)):
         "bars": bars,
         "trialCount": trial_count,
         "filterReasons": filter_reasons,
+        "failureReasons": failure_reasons,
     })
 
 with open(os.path.join(out_dir, "summary.json"), "w") as f:

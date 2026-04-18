@@ -843,6 +843,7 @@ test("top-combo optimizer wrapper retries activity-only short audits with deeper
   assert.match(script, /Retrying \$label: \$sym \$interval with bars=\$next_bars after activityCount-only skips/);
   assert.match(script, /"status": status/);
   assert.match(script, /"filterReasons": filter_reasons/);
+  assert.match(script, /"failureReasons": failure_reasons/);
 });
 
 test("volatility scorecard fails Kelly-lite rows without material exposure reduction", async () => {
