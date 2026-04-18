@@ -847,6 +847,7 @@ test("top-combo optimizer wrapper retries activity-only short audits with deeper
   assert.match(script, /should_retry_activity_bars\(\)/);
   assert.match(script, /No eligible trials\./);
   assert.match(script, /activityCount</);
+  assert.ok(script.includes('diagnostic_match = re.search(r"\\(diagnostic: ([^)]+)\\)", line)'));
   assert.match(script, /for retry_bars in \$\{ACTIVITY_RETRY_BARS\/\/,\/ \}; do/);
   assert.match(script, /\(\(retry_bars > bars_attempt\)\)/);
   assert.match(script, /--bars-min "\$bars_attempt"/);
@@ -860,6 +861,7 @@ test("top-combo optimizer wrapper retries activity-only short audits with deeper
   assert.match(script, /"status": status/);
   assert.match(script, /"filterReasons": filter_reasons/);
   assert.match(script, /"failureReasons": failure_reasons/);
+  assert.match(script, /"activityDiagnostics": activity_diagnostics/);
 });
 
 test("volatility scorecard fails Kelly-lite rows without material exposure reduction", async () => {
