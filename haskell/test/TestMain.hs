@@ -15,7 +15,7 @@ import Trader.Formal.Optimization (
     verifyFormalOptimization,
  )
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
-import Trader.Optimizer.Optimize (kellyLiteExposureContractReason)
+import Trader.Optimizer.Optimize (kellyLiteExposureContractReason, qualityPresetBudget)
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Predictors (RegimeProbs (..))
 import Trader.SignalGates (
@@ -77,6 +77,7 @@ main = do
     testOrderExecutionFillSanitizationInvariant
     testOptimizerActivityCountInvariant
     testOptimizerPublicSurfaceRegression
+    testOptimizerQualityBudgetRegression
     testOptimizerKellyLiteExposureContractRegression
     testMetricsConsumesTradingPublicResults
 
@@ -970,6 +971,24 @@ testOptimizerPublicSurfaceRegression = do
             && ecOpenPrices foldCfg == openPrices0
             && isNothing (ecMetaMask foldCfg)
         )
+
+testOptimizerQualityBudgetRegression :: IO ()
+testOptimizerQualityBudgetRegression = do
+    assert
+        "quality preset keeps the production epoch floor when no tighter audit cap is requested"
+        (qualityPresetBudget 50 10 50 == 50)
+    assert
+        "quality preset honors a lower explicit audit epoch cap"
+        (qualityPresetBudget 50 10 4 == 4)
+    assert
+        "quality preset does not loosen already tighter explicit bounds"
+        (qualityPresetBudget 50 3 4 == 3)
+    assert
+        "quality preset clamps malformed nonpositive audit budgets"
+        (qualityPresetBudget 50 10 0 == 1)
+    assert
+        "quality preset preserves explicitly larger production sweeps"
+        (qualityPresetBudget 50 80 50 == 80)
 
 -- Optimizer eligibility regression: Kelly-lite exposure contracts must reject
 -- no-op Kelly-lite rows. A zero uncapped-exposure replay previously produced a

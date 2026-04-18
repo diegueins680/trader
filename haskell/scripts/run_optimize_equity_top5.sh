@@ -22,6 +22,7 @@ QUALITY="${QUALITY:-1}"
 QUALITY_MIN_TRIALS="${QUALITY_MIN_TRIALS:-$TRIALS}"
 QUALITY_MAX_EPOCHS="${QUALITY_MAX_EPOCHS:-50}"
 QUALITY_MAX_HIDDEN_SIZE="${QUALITY_MAX_HIDDEN_SIZE:-128}"
+NOOPT="${NOOPT:-0}"
 MIN_ROUND_TRIPS="${MIN_ROUND_TRIPS:-20}"
 MIN_EXPOSURE="${MIN_EXPOSURE:-0.10}"
 MIN_SHARPE="${MIN_SHARPE:-1.0}"
@@ -211,7 +212,7 @@ if [[ ${#COMBOS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
 
 run_set() {
   local label="$1"
@@ -219,10 +220,17 @@ run_set() {
   local out_dir="$OUT_ROOT/$label"
 
   mkdir -p "$out_dir"
-  (cd "$workdir/haskell" && cabal build optimize-equity trader-hs >/dev/null)
 
-  local bin
-  bin="$(cd "$workdir/haskell" && cabal list-bin optimize-equity)"
+  local bin trader_bin
+  if [[ "$NOOPT" == "1" ]]; then
+    (cd "$workdir/haskell" && cabal build optimize-equity trader-hs --disable-optimization >/dev/null)
+    bin="$(cd "$workdir/haskell" && cabal list-bin optimize-equity --disable-optimization)"
+    trader_bin="$(cd "$workdir/haskell" && cabal list-bin trader-hs --disable-optimization)"
+  else
+    (cd "$workdir/haskell" && cabal build optimize-equity trader-hs >/dev/null)
+    bin="$(cd "$workdir/haskell" && cabal list-bin optimize-equity)"
+    trader_bin="$(cd "$workdir/haskell" && cabal list-bin trader-hs)"
+  fi
 
   for line in "${COMBOS[@]}"; do
     local sym interval safe log json
@@ -243,6 +251,7 @@ run_set() {
       --bars-auto-prob 0
       --trials "$TRIALS"
       --timeout-sec "$TIMEOUT_SEC"
+      --binary "$trader_bin"
       --min-round-trips "$MIN_ROUND_TRIPS"
       --min-exposure "$MIN_EXPOSURE"
       --min-sharpe "$MIN_SHARPE"
