@@ -1,18 +1,18 @@
 ## Formal fee-aware entry gate contract
 
-`signalEntryHeadroomThresholdCap`, `normalizeSignalEntryEdge`, and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry normalization boundary, canonical optimizer headroom-cap witness, and marginal-entry veto.
+`normalizeSignalOpenThreshold`, `signalEntryHeadroomThresholdCap`, `normalizeSignalEntryEdge`, and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry threshold boundary, canonical optimizer headroom-cap witness, raw-edge normalization boundary, and marginal-entry veto.
 
 `BacktestResult`, `EnsembleConfig`, `StepMeta`, `IntrabarFill`, `Positioning`, `simulateEnsembleVWithHLChecked`, `ExitReason`, and `Trade`, as exported from `haskell/app/Trader/Trading.hs`, are treated as the stable public simulation/result/CLI surface consumed by `Trader.App.Args`, `Trader.Optimization`, `Trader.Metrics`, and related optimizer code.
 
 Clauses:
 
-1. Let `requiredHeadroom = 1.5 * normalizeSignalThreshold openThreshold` and `requiredEdge = requiredHeadroom + roundTripFeeFloor`. An entry is admissible only when the fee floor is finite and non-negative, the edge sample is explicit (`Just`) and finite, and `edge >= requiredEdge`; this explicit-edge obligation still applies when `requiredEdge == 0`.
+1. Let `threshold = normalizeSignalThreshold openThreshold`, `requiredHeadroom = 1.5 * threshold`, and `requiredEdge = requiredHeadroom + roundTripFeeFloor`. An entry is admissible only when the raw open threshold is finite and non-negative, the normalized threshold is finite and non-negative, the fee floor is finite and non-negative, the edge sample is explicit (`Just`) and finite, and `edge >= requiredEdge`; this explicit-edge obligation still applies when `requiredEdge == 0`.
 2. `signalEntryHeadroomOk openThreshold` remains the zero-fee specialization `signalEntryFeeBufferOk openThreshold 0`.
 3. For fixed `openThreshold` and edge, admissibility is monotone non-increasing as any valid `roundTripFeeFloor` rises.
 4. For fixed `openThreshold` and fee floor, admissibility is monotone non-increasing as raw edge falls.
-5. Missing edges, negative fee floors, non-finite fee floors, or malformed edge samples presented directly to `signalEntryEdgeSpikeOk`, `signalEntryHeadroomOk`, or `signalEntryFeeBufferOk` are fail-closed.
-6. Once a state is blocked at fee floor `f`, it remains blocked for every valid `f' >= f`; malformed fee data also cannot reopen the entry.
-7. In `mkEntryGateState`, the spike, headroom, and fee-buffer checks are consulted only when `needsEntry` is true, each check receives the same `entryEdge` sample computed once as `normalizeSignalEntryEdge edgeRaw`, `normalizeSignalEntryEdge` preserves finite non-negative inputs and collapses negative or non-finite raw edges to `Just 0`, and the three booleans are combined conjunctively before `desiredSide1` can keep a fresh entry alive.
+5. Missing edges, negative open thresholds, non-finite open thresholds, negative fee floors, non-finite fee floors, or malformed edge samples presented directly to `signalEntryEdgeSpikeOk`, `signalEntryHeadroomOk`, or `signalEntryFeeBufferOk` are fail-closed.
+6. Once a state is blocked at fee floor `f`, it remains blocked for every valid `f' >= f`; malformed fee data and malformed or negative threshold data also cannot reopen the entry.
+7. In `mkEntryGateState`, the spike, headroom, and fee-buffer checks are consulted only when `needsEntry` is true, each threshold-consuming check must pass through `normalizeSignalOpenThreshold`, each check receives the same `entryEdge` sample computed once as `normalizeSignalEntryEdge edgeRaw`, `normalizeSignalEntryEdge` preserves finite non-negative inputs and collapses negative or non-finite raw edges to `Just 0`, and the three booleans are combined conjunctively before `desiredSide1` can keep a fresh entry alive.
 8. Deploy-config normalization in `haskell/web/src/lib/deployConfig.ts` is non-interfering with trading admissibility: blank or missing Fly host inputs may normalize to the default `fly.dev`, malformed Fly app/host overrides are rejected instead of being coerced into a fallback target, and the resulting `apiFallbackUrl` synthesis does not feed `signalEntryHeadroomOk`, `signalEntryFeeBufferOk`, `signalEntryEdgeSpikeOk`, or the fresh-entry conjunction.
 9. Every CLI, optimizer, or metrics consumer must be able to import `signalEntryHeadroomThresholdCap` through `Trader.SignalGates` and `IntrabarFill(..)`, `Positioning(..)`, `BacktestResult`, `EnsembleConfig`, `StepMeta`, `simulateEnsembleVWithHLChecked`, `ExitReason`, and `Trade` through `Trader.Trading`; restoring those exports is a visibility-only repair and does not alter fresh-entry gating, optimizer candidate generation, ensemble simulation behavior, trade construction, exit classification, or backtest aggregation behavior.
 10. For any raw edge sample, `signalEntryHeadroomThresholdCap` applies the same fail-closed normalization boundary as `normalizeSignalEntryEdge` and returns the maximum open-threshold witness compatible with the headroom gate; malformed or negative raw edges collapse to cap `0`.
@@ -20,11 +20,11 @@ Clauses:
 
 Bounded executable obligations:
 
-- `testSignalGateEntryHeadroom` preserves the legacy headroom boundary cases.
+- `testSignalGateEntryHeadroomSpecializesFeeBuffer` preserves the legacy headroom boundary cases, including the valid zero-threshold explicit-edge boundary and the zero-fee specialization.
 - `testSignalGateEntryFeeBuffer` covers equality-at-boundary acceptance, strict-below-boundary rejection, zero-threshold-with-fees behavior, missing-edge fail-closed behavior, the zero-threshold zero-fee explicit-edge corner, and the zero-fee specialization.
 - `testSignalGateEntryFeeBufferMonotoneFees` witnesses monotone non-increasing admissibility as `roundTripFeeFloor` rises and the once-blocked-stays-blocked ladder.
 - `testSignalGateEntryFeeBufferMonotoneEdge` witnesses monotone non-increasing admissibility as raw edge falls under a fixed fee floor.
-- `testSignalGateEntryFeeBufferFailsClosed` covers negative and non-finite fee floors, non-finite open thresholds, and non-finite edges.
+- `testSignalGateEntryFeeBufferFailsClosed` covers negative and non-finite open thresholds, negative and non-finite fee floors, non-finite edges, and negative edge samples.
 - `testNormalizeSignalEntryEdgeFailClosedRegression` witnesses that the restored public `normalizeSignalEntryEdge` helper preserves valid fresh-entry edges, collapses negative or non-finite raw edges to the shared `Just 0` sample, and keeps the Trading conjunction fail closed when that shared sample is reused.
 - `testTradingEntryGateFailClosedMonotone` and `testTradingEntryGateMalformedNoReopen` extend the `mkEntryGateState` witness so negative or non-finite per-side fees cannot reopen a blocked fresh entry after shared edge normalization.
 - `testSignalGateEntryEdgeSpike` covers equality-at-cap acceptance, zero-threshold zero-edge acceptance, zero-threshold positive-edge rejection, and malformed threshold/edge fail-closed behavior for the independent spike veto in the same entry-only conjunction.
@@ -36,6 +36,8 @@ Bounded executable obligations:
 
 Proof sketch:
 
+- `normalizeSignalOpenThreshold` is the threshold-validity boundary for fresh entries: negative or non-finite raw thresholds return `Nothing`, and malformed normalized thresholds would also be rejected by the finite non-negative obligation before any required-edge comparison can be made.
+- Because `signalEntryEdgeSpikeOk`, `signalEntryHeadroomOk`, and `signalEntryFeeBufferOk` case-analyze that boundary and map `Nothing` to `False`, a negative `--open-threshold` or legacy `--threshold` cannot collapse to a zero deadband, reduce required edge, or reopen a blocked fresh entry.
 - Restoring the public `normalizeSignalEntryEdge` symbol is a visibility-only repair: the helper remains the single raw-edge normalization boundary used by `mkEntryGateState`, preserving finite non-negative samples and collapsing every negative or non-finite raw edge to `Just 0`.
 - `IntrabarFill` and `Positioning` remain passive public enums on the `Trader.Trading` seam, so restoring them for `Trader.App.Args` changes only symbol visibility and does not feed `mkEntryGateState` or `simulateEnsembleVWithHLChecked`.
 - `signalEntryHeadroomThresholdCap` is derived from that same normalized non-negative edge sample and `entryEdgeHeadroomMultiple`, so the optimizer can enumerate the maximum admissible open-threshold witness for each observed edge without changing `signalEntryHeadroomOk` or the underlying gate contract.
