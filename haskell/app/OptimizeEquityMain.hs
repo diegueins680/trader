@@ -75,6 +75,8 @@ optimizerArgsParser =
         <*> strOption (long "top-json" <> value "" <> metavar "PATH")
         <*> switch (long "quality")
         <*> option auto (long "quality-min-trials" <> value 500 <> metavar "INT")
+        <*> option auto (long "quality-max-epochs" <> value 50 <> metavar "INT")
+        <*> option auto (long "quality-max-hidden-size" <> value 128 <> metavar "INT")
         <*> switch (long "auto-high-low")
         <*> strOption (long "objective" <> value "roi" <> metavar "NAME")
         <*> option auto (long "penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
@@ -495,6 +497,10 @@ validateArgs args = do
         Left "--early-stop-no-improve must be >= 0."
     when (oaQualityMinTrials args < 1) $
         Left "--quality-min-trials must be >= 1."
+    when (oaQualityMaxEpochs args < 1) $
+        Left "--quality-max-epochs must be >= 1."
+    when (oaQualityMaxHiddenSize args < 1) $
+        Left "--quality-max-hidden-size must be >= 1."
     unless (oaBarsDistribution args `elem` barsDistributionChoices) $
         Left
             ( "Invalid bars distribution: "
