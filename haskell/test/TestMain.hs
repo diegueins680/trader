@@ -75,6 +75,7 @@ main = do
     testKellyLiteBacktestSizingRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
+    testBacktestEntryGateUsesRoundTripFeeBuffer
     testOrderExecutionFillSanitizationInvariant
     testOptimizerActivityCountInvariant
     testOptimizerPublicSurfaceRegression
@@ -510,6 +511,53 @@ testTradingEntryGateMalformedNoReopen = do
                 )
                 [negativeFeeState, malformedFeeState, malformedEdgeState]
         )
+
+-- Algorithm-path regression: the fee-aware fresh-entry contract is not just a
+-- helper-level obligation. The checked simulator must reject a signal that has
+-- enough threshold headroom and is below the spike cap when its edge is still
+-- below the modeled round-trip cost buffer.
+testBacktestEntryGateUsesRoundTripFeeBuffer :: IO ()
+testBacktestEntryGateUsesRoundTripFeeBuffer = do
+    let prices :: V.Vector Double
+        prices = V.fromList [100.0, 100.0, 100.0]
+        highs = prices
+        lows = prices
+        preds :: V.Vector Double
+        preds = V.fromList [102.0, 102.0]
+        noMeta :: Maybe (V.Vector StepMeta)
+        noMeta = Nothing
+        baseCfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.01
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecFeeFixed = 0
+                , ecFeeMin = 0
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0
+                }
+        highFeeCfg =
+            baseCfg
+                { ecFee = 0.02
+                }
+        maxAbsPosition result =
+            maximum (0 : map abs (brPositions result))
+        noFeeResult =
+            simulateEnsembleWithHLChecked baseCfg 1 prices highs lows preds preds noMeta
+        highFeeResult =
+            simulateEnsembleWithHLChecked highFeeCfg 1 prices highs lows preds preds noMeta
+    case (noFeeResult, highFeeResult) of
+        (Right noFee, Right highFee) -> do
+            assert
+                "zero-fee backtest admits the headroom-valid non-spike entry"
+                (maxAbsPosition noFee > 0.99)
+            assert
+                "high round-trip costs block the same marginal pre-fee entry in the simulator"
+                (maxAbsPosition highFee == 0 && null (brTrades highFee))
+        (Left err, _) -> ioError (userError ("zero-fee fee-buffer regression failed to simulate: " ++ err))
+        (_, Left err) -> ioError (userError ("high-fee fee-buffer regression failed to simulate: " ++ err))
 
 -- Execution-quantity guardrail: malformed or non-positive fills must fail
 -- closed, and reduce-only fills must never reopen or increase exposure.

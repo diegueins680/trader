@@ -305,6 +305,7 @@ import Trader.SignalGates (
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
     signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
     signalFundingOiCheck,
     signalMetaLabelOk,
@@ -25587,10 +25588,11 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodBanditRouter -> routerDirGated
             entryEdgeHeadroomOk = signalEntryHeadroomOk openThrAdj edgeForMethod
             entryEdgeSpikeOk = signalEntryEdgeSpikeOk openThrAdj edgeForMethod
+            entryFeeBufferOk = signalEntryFeeBufferOk openThrAdj roundTripCost edgeForMethod
             chosenDirBase1 =
                 case chosenDirBase of
                     Just dir
-                        | entryEdgeHeadroomOk && entryEdgeSpikeOk -> Just dir
+                        | entryEdgeHeadroomOk && entryEdgeSpikeOk && entryFeeBufferOk -> Just dir
                     Just _ -> Nothing
                     Nothing -> Nothing
             mEntryEdgeReason =
@@ -25598,6 +25600,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     Just _
                         | not entryEdgeSpikeOk -> Just "EDGE_SPIKE"
                         | not entryEdgeHeadroomOk -> Just "EDGE_HEADROOM"
+                        | not entryFeeBufferOk -> Just "EDGE_FEE_BUFFER"
                     _ -> Nothing
             (chosenDir0, pairsOverlayActive, mPairsOverlayReason) =
                 if not pairsStatArbEnabled

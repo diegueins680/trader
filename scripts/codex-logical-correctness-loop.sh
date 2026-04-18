@@ -206,9 +206,10 @@ You are Codex working inside this repository:
 ${ROOT_DIR}
 
 Task:
-Detect anything that could be made more logical and correct.
+Audit the Haskell trading algorithm and detect anything that could be made more logical and correct.
 
 Instructions:
+- Start with the backend trading algorithm: signal gates, predictors, optimizer behavior, position/risk management, market-state inference, backtest/live parity, and cost/risk accounting.
 - Audit logic, correctness, edge cases, invariants, broken assumptions, bad state transitions, stale conditionals, wrong defaults, incorrect parsing/typing, and likely CI/runtime correctness issues.
 - Prefer concrete, actionable findings over vague suggestions.
 - Do NOT modify files in this step.
@@ -228,10 +229,11 @@ You are Codex working inside this repository:
 ${ROOT_DIR}
 
 Task:
-Implement fixes for all of the logic/correctness issues listed below.
+Implement fixes for all of the trading-algorithm logic/correctness issues listed below.
 
 Requirements:
 - Make the smallest robust changes that fix the issues.
+- Keep the implementation centered on backend Haskell trading correctness unless the finding explicitly proves another file is required.
 - Run relevant local verification where practical.
 - Update tests/docs/changelog if warranted.
 - Do NOT commit or push in this step.

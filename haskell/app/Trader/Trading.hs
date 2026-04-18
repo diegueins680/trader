@@ -810,6 +810,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             let cost = costPerSideTotal t size
                              in eq * (1 - cost)
 
+                        costPerSideRate :: Int -> Double -> Double
+                        costPerSideRate t size =
+                            let s = max 0 (abs size)
+                             in if s <= 0
+                                    then 0
+                                    else costPerSideTotal t s / s
+
+                        roundTripCostAt :: Int -> Double -> Double
+                        roundTripCostAt t size =
+                            min 0.999999 (2 * costPerSideRate t size)
+
                         clampSignedFrac :: Double -> Double
                         clampSignedFrac x =
                             let cap = 0.999999
@@ -1886,8 +1897,16 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 (True, Just side) -> cloudOkAt t side && priceActionOkAt t side
                                                 _ -> True
 
-                                        edgeSpikeOk =
-                                            not needsEntry || signalEntryEdgeSpikeOk openThrAdj (Just (max 0 edgeRaw))
+                                        entryEdgeSample = Just (max 0 edgeRaw)
+
+                                        entryEdgeSpikeOk =
+                                            not needsEntry || signalEntryEdgeSpikeOk openThrAdj entryEdgeSample
+
+                                        entryEdgeHeadroomOk =
+                                            not needsEntry || signalEntryHeadroomOk openThrAdj entryEdgeSample
+
+                                        entryFeeBufferOk =
+                                            not needsEntry || signalEntryFeeBufferOk openThrAdj (roundTripCostAt t desiredSize0) entryEdgeSample
 
                                         slowCrossExit =
                                             case posSide of
@@ -1934,7 +1953,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         kalmanExit = slowCrossExit || kalmanBandExit
 
                                         desiredSide1 =
-                                            if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk || not edgeSpikeOk
+                                            if not trendOk
+                                                || not volOk
+                                                || not snrOk
+                                                || not volTargetReady
+                                                || not triLayerOk
+                                                || not entryEdgeSpikeOk
+                                                || not entryEdgeHeadroomOk
+                                                || not entryFeeBufferOk
                                                 then Nothing
                                                 else desiredSide0
 

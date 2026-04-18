@@ -712,6 +712,14 @@ test("bounded autoloop reports the required lifecycle phases in order", async ()
   );
 });
 
+test("logical-correctness loop starts with a backend trading algorithm audit", async () => {
+  const script = await fs.readFile(new URL("../scripts/codex-logical-correctness-loop.sh", import.meta.url), "utf8");
+  assert.match(script, /Audit the Haskell trading algorithm and detect anything that could be made more logical and correct\./);
+  assert.match(script, /Start with the backend trading algorithm: signal gates, predictors, optimizer behavior, position\/risk management, market-state inference, backtest\/live parity, and cost\/risk accounting\./);
+  assert.match(script, /Implement fixes for all of the trading-algorithm logic\/correctness issues listed below\./);
+  assert.match(script, /Keep the implementation centered on backend Haskell trading correctness unless the finding explicitly proves another file is required\./);
+});
+
 test("autoloop forever script auto-snapshots recoverable dirty cycles before blocking", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop-forever.mjs", import.meta.url), "utf8");
   assert.match(script, /const dirtyRecovery = await tryAutoSnapshotDirtyCycle\(\);/);
