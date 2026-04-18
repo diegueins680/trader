@@ -823,6 +823,8 @@ data OptimizerArgs = OptimizerArgs
     , oaTopJson :: !String
     , oaQuality :: !Bool
     , oaQualityMinTrials :: !Int
+    , oaQualityMaxEpochs :: !Int
+    , oaQualityMaxHiddenSize :: !Int
     , oaAutoHighLow :: !Bool
     , oaObjective :: !String
     , oaPenaltyMaxDrawdown :: !Double
@@ -1228,8 +1230,8 @@ applyQualityPreset args =
                     else min 1.0 (oaMaxWfSharpeStd args)
             , oaMinSignalToNoiseMin = maxIf (oaMinSignalToNoiseMin args) 0.2
             , oaMinSignalToNoiseMax = maxIf (oaMinSignalToNoiseMax args) 1.0
-            , oaEpochsMax = maxIf (oaEpochsMax args) 50
-            , oaHiddenSizeMax = maxIf (oaHiddenSizeMax args) 128
+            , oaEpochsMax = maxIf (oaEpochsMax args) (max 1 (oaQualityMaxEpochs args))
+            , oaHiddenSizeMax = maxIf (oaHiddenSizeMax args) (max 1 (oaQualityMaxHiddenSize args))
             , oaLrMax = maxIf (oaLrMax args) 5e-2
             , oaBacktestRatio = minIf (oaBacktestRatio args) 0.10
             , oaTuneRatio = minIf (oaTuneRatio args) 0.15
@@ -1237,7 +1239,6 @@ applyQualityPreset args =
             , oaTuneStressWeight = maxIf (oaTuneStressWeight args) 0.2
             , oaObjective = objective'
             , oaPenaltyTurnover = maxIf (oaPenaltyTurnover args) 0.1
-            , oaBarsMax = min (oaBarsMax args) 0
             , oaAutoHighLow = True
             , oaWalkForwardFoldsMin = maxIf (oaWalkForwardFoldsMin args) 3
             , oaWalkForwardFoldsMax = maxIf (oaWalkForwardFoldsMax args) (oaWalkForwardFoldsMin args)

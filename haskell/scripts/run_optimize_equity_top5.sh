@@ -20,6 +20,8 @@ PLATFORM="${PLATFORM:-binance}"
 FUTURES="${FUTURES:-1}"
 QUALITY="${QUALITY:-1}"
 QUALITY_MIN_TRIALS="${QUALITY_MIN_TRIALS:-$TRIALS}"
+QUALITY_MAX_EPOCHS="${QUALITY_MAX_EPOCHS:-50}"
+QUALITY_MAX_HIDDEN_SIZE="${QUALITY_MAX_HIDDEN_SIZE:-128}"
 MIN_ROUND_TRIPS="${MIN_ROUND_TRIPS:-20}"
 MIN_EXPOSURE="${MIN_EXPOSURE:-0.10}"
 MIN_SHARPE="${MIN_SHARPE:-1.0}"
@@ -209,7 +211,7 @@ if [[ ${#COMBOS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
 
 run_set() {
   local label="$1"
@@ -288,7 +290,12 @@ run_set() {
       cmd+=(--futures)
     fi
     if [[ "$QUALITY" == "1" ]]; then
-      cmd+=(--quality --quality-min-trials "$QUALITY_MIN_TRIALS")
+      cmd+=(
+        --quality
+        --quality-min-trials "$QUALITY_MIN_TRIALS"
+        --quality-max-epochs "$QUALITY_MAX_EPOCHS"
+        --quality-max-hidden-size "$QUALITY_MAX_HIDDEN_SIZE"
+      )
     fi
 
     log "Running $label: $sym $interval (trials=$TRIALS bars=$BARS)"
