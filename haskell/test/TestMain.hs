@@ -65,6 +65,7 @@ import Trader.VolConfGate (VolConfGatePreset (..))
 main :: IO ()
 main = do
     testSignalGateEntryBoundaryWitness
+    testSignalGateEntryEdgeSpikeCapRegression
     testSignalGateEntryHeadroomSpecializesFeeBuffer
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
@@ -74,6 +75,7 @@ main = do
     testKellyLiteBacktestSizingRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
+    testBacktestEntryGateUsesRoundTripFeeBuffer
     testOrderExecutionFillSanitizationInvariant
     testOptimizerActivityCountInvariant
     testOptimizerPublicSurfaceRegression
@@ -288,6 +290,35 @@ testSignalGateEntryBoundaryWitness = do
         "direct signal-gate admissibility is monotone non-increasing as the fee floor rises"
         feeLadder
 
+-- The spike veto is a maximum-edge sanity cap, not a minimum-edge headroom
+-- check: exact cap equality is admissible, strict-above-cap edges are blocked,
+-- and malformed thresholds or edges fail closed.
+testSignalGateEntryEdgeSpikeCapRegression :: IO ()
+testSignalGateEntryEdgeSpikeCapRegression = do
+    let smallThreshold = 0.01
+        etcThreshold = 0.460518
+    assert
+        "fresh-entry spike veto admits exact equality at both active caps"
+        ( signalEntryEdgeSpikeOk smallThreshold (Just 0.04)
+            && signalEntryEdgeSpikeOk etcThreshold (Just 0.5)
+        )
+    assert
+        "fresh-entry spike veto blocks strict-above-cap and ETC-style absurd edges"
+        ( not (signalEntryEdgeSpikeOk smallThreshold (Just 0.0400001))
+            && not (signalEntryEdgeSpikeOk etcThreshold (Just 0.5000001))
+            && not (signalEntryEdgeSpikeOk etcThreshold (Just 0.895))
+        )
+    assert
+        "malformed and negative spike-gate inputs fail closed"
+        ( not (signalEntryEdgeSpikeOk (-0.01) (Just 0))
+            && not (signalEntryEdgeSpikeOk (0 / 0) (Just 0))
+            && not (signalEntryEdgeSpikeOk (1 / 0) (Just 0))
+            && not (signalEntryEdgeSpikeOk smallThreshold Nothing)
+            && not (signalEntryEdgeSpikeOk smallThreshold (Just (-0.001)))
+            && not (signalEntryEdgeSpikeOk smallThreshold (Just (0 / 0)))
+            && not (signalEntryEdgeSpikeOk smallThreshold (Just (1 / 0)))
+        )
+
 -- Bounded executable proof obligation for the restored helper surface: the
 -- zero-fee headroom gate is exactly the fee-buffer gate specialized at zero
 -- round-trip fees, equality at the computed boundary stays admissible, and
@@ -355,15 +386,15 @@ testNormalizeSignalEntryEdgeFailClosedRegression = do
             && entryEdge nanState == nanEdge
         )
     assert
-        "restored edge normalization still fails closed on the fresh-entry path"
+        "normalized zero edges stay blocked by the fresh-entry minimum-edge gates"
         ( needsEntry negativeState
-            && not (edgeSpikeOk negativeState)
+            && edgeSpikeOk negativeState
             && not (edgeHeadroomOk negativeState)
             && not (feeBufferOk negativeState)
             && not (entryGatesOk negativeState)
             && isNothing (desiredSide1 negativeState)
             && needsEntry nanState
-            && not (edgeSpikeOk nanState)
+            && edgeSpikeOk nanState
             && not (edgeHeadroomOk nanState)
             && not (feeBufferOk nanState)
             && not (entryGatesOk nanState)
@@ -374,7 +405,8 @@ testNormalizeSignalEntryEdgeFailClosedRegression = do
 -- tightening malformed-fee handling. These executable obligations pin four
 -- properties: entry-only vetoes do not run when no fresh entry is needed,
 -- fresh-entry spike/headroom/fee-buffer checks all read the same non-negative,
--- finite edge sample and fail closed on negative or non-finite fee/edge inputs,
+-- finite edge sample while the minimum-edge gates fail closed on negative or
+-- non-finite fee/edge inputs,
 -- equality at the required boundary stays admissible, and admissibility is monotone
 -- non-increasing as raw edge falls or the fee floor rises.
 
@@ -479,6 +511,67 @@ testTradingEntryGateMalformedNoReopen = do
                 )
                 [negativeFeeState, malformedFeeState, malformedEdgeState]
         )
+
+-- Algorithm-path regression: the fee-aware fresh-entry contract is not just a
+-- helper-level obligation. The checked simulator must reject a signal that has
+-- enough threshold headroom and is below the spike cap when its edge is still
+-- below the modeled round-trip cost buffer.
+testBacktestEntryGateUsesRoundTripFeeBuffer :: IO ()
+testBacktestEntryGateUsesRoundTripFeeBuffer = do
+    let prices :: V.Vector Double
+        prices = V.fromList [100.0, 100.0, 100.0]
+        highs = prices
+        lows = prices
+        preds :: V.Vector Double
+        preds = V.fromList [102.0, 102.0]
+        noMeta :: Maybe (V.Vector StepMeta)
+        noMeta = Nothing
+        baseCfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.01
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecFeeFixed = 0
+                , ecFeeMin = 0
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0
+                }
+        highFeeCfg =
+            baseCfg
+                { ecFee = 0.02
+                }
+        scaledFixedFeeCfg =
+            baseCfg
+                { ecFeeFixed = 0.001
+                , ecKellyLiteSizing = True
+                , ecKellyLiteFraction = 0
+                , ecKellyLiteFloor = 0.1
+                , ecKellyLiteCap = 0.1
+                }
+        maxAbsPosition result =
+            maximum (0 : map abs (brPositions result))
+        noFeeResult =
+            simulateEnsembleWithHLChecked baseCfg 1 prices highs lows preds preds noMeta
+        highFeeResult =
+            simulateEnsembleWithHLChecked highFeeCfg 1 prices highs lows preds preds noMeta
+        scaledFixedFeeResult =
+            simulateEnsembleWithHLChecked scaledFixedFeeCfg 1 prices highs lows preds preds noMeta
+    case (noFeeResult, highFeeResult, scaledFixedFeeResult) of
+        (Right noFee, Right highFee, Right scaledFixedFee) -> do
+            assert
+                "zero-fee backtest admits the headroom-valid non-spike entry"
+                (maxAbsPosition noFee > 0.99)
+            assert
+                "high round-trip costs block the same marginal pre-fee entry in the simulator"
+                (maxAbsPosition highFee == 0 && null (brTrades highFee))
+            assert
+                "fixed costs are checked against final overlay-scaled entry size"
+                (maxAbsPosition scaledFixedFee == 0 && null (brTrades scaledFixedFee))
+        (Left err, _, _) -> ioError (userError ("zero-fee fee-buffer regression failed to simulate: " ++ err))
+        (_, Left err, _) -> ioError (userError ("high-fee fee-buffer regression failed to simulate: " ++ err))
+        (_, _, Left err) -> ioError (userError ("scaled fixed-fee fee-buffer regression failed to simulate: " ++ err))
 
 -- Execution-quantity guardrail: malformed or non-positive fills must fail
 -- closed, and reduce-only fills must never reopen or increase exposure.

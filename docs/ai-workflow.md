@@ -88,6 +88,8 @@ Logical-correctness loop:
 scripts/codex-logical-correctness-loop.sh
 ```
 
+Each cycle starts with a backend Haskell trading-algorithm audit before it asks Codex to implement the selected logic/correctness improvement.
+
 ## Scope guidance
 
 - If you touch `haskell/app`, `haskell/test`, or `haskell/scripts`, run `npm run verify:haskell`.

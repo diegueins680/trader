@@ -305,6 +305,7 @@ import Trader.SignalGates (
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
     signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
     signalFundingOiCheck,
     signalMetaLabelOk,
@@ -25700,6 +25701,21 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             (chosenDirVolConf, sizeFinal1) =
                 applyVolConfGateBehavior volConfBehavior Nothing 0 chosenDir2 sizeFinal0
 
+            entryFeeBufferOk =
+                case chosenDirVolConf of
+                    Just _
+                        | sizeFinal1 > 0 ->
+                            signalEntryFeeBufferOk
+                                openThrAdj
+                                (estimatedRoundTripCost args (max 1e-6 sizeFinal1) volPerBar)
+                                edgeForMethod
+                    _ -> True
+
+            mEntryFeeBufferReason =
+                case chosenDirVolConf of
+                    Just _ | sizeFinal1 > 0 && not entryFeeBufferOk -> Just "EDGE_FEE_BUFFER"
+                    _ -> Nothing
+
             volConfGateReason =
                 if isNothing chosenDir2
                     then Nothing
@@ -25713,11 +25729,14 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 case chosenDirVolConf of
                     Nothing -> (Nothing, Nothing)
                     Just _ ->
-                        if sizeFinal1 <= 0
-                            then (Nothing, Just "MIN_SIZE")
-                            else (chosenDirVolConf, Nothing)
+                        if not entryFeeBufferOk
+                            then (Nothing, Nothing)
+                            else
+                                if sizeFinal1 <= 0
+                                    then (Nothing, Just "MIN_SIZE")
+                                    else (chosenDirVolConf, Nothing)
 
-            gateReasonFinal = mPostGateReason <|> volConfGateReason <|> mSizeGateReason <|> gateReasonForMethod
+            gateReasonFinal = mPostGateReason <|> mEntryFeeBufferReason <|> volConfGateReason <|> mSizeGateReason <|> gateReasonForMethod
 
             action =
                 let downAction =
