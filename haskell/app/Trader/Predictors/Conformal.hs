@@ -10,7 +10,7 @@ import Data.Maybe (fromMaybe, listToMaybe)
 
 data ConformalModel = ConformalModel
     { cmAlpha :: !Double
-    , cmRadius :: !Double -- quantile of |residual|
+    , cmRadius :: !Double -- quantile of |residual|, or Infinity when unavailable
     , cmCount :: !Int
     }
     deriving (Eq, Show)
@@ -18,26 +18,24 @@ data ConformalModel = ConformalModel
 fitConformal :: Double -> [Double] -> ConformalModel
 fitConformal alpha absResiduals =
     let alpha' = clampAlpha alpha
-        cleaned = filter (\v -> isFinite v && v >= 0) absResiduals
-        count = length cleaned
-     in if null cleaned
-            then ConformalModel{cmAlpha = alpha', cmRadius = 0, cmCount = 0}
-            else
+     in case admissibleResiduals absResiduals of
+            Nothing -> unavailableConformal alpha'
+            Just cleaned ->
                 let q = conformalRadius alpha' cleaned
-                 in ConformalModel{cmAlpha = alpha', cmRadius = q, cmCount = count}
+                 in ConformalModel{cmAlpha = alpha', cmRadius = q, cmCount = length cleaned}
 
 clampAlpha :: Double -> Double
 clampAlpha a = min 0.999999 (max 1e-6 a)
 
 predictInterval :: ConformalModel -> Double -> (Double, Double, Maybe Double)
 predictInterval cm mu =
-    let lo = mu - cmRadius cm
-        hi = mu + cmRadius cm
-        sigma =
-            if cmCount cm <= 0
-                then Nothing
-                else sigmaFromInterval (cmAlpha cm) lo hi
-     in (lo, hi, sigma)
+    let radius = cmRadius cm
+     in if cmCount cm <= 0 || not (isFinite mu) || not (isAdmissibleResidual radius)
+            then unavailableInterval
+            else
+                let lo = mu - radius
+                    hi = mu + radius
+                 in (lo, hi, sigmaFromInterval (cmAlpha cm) lo hi)
 
 {- | Approximate sigma from a symmetric interval [lo, hi] assuming it corresponds
 to a Normal (mu, sigma) with central coverage (1 - alpha).
@@ -50,6 +48,26 @@ sigmaFromInterval alpha lo hi =
      in if not (isFinite width) || width <= 0 || not (isFinite z) || z <= 0
             then Nothing
             else Just (width / (2 * z))
+
+admissibleResiduals :: [Double] -> Maybe [Double]
+admissibleResiduals xs
+    | null xs = Nothing
+    | all isAdmissibleResidual xs = Just xs
+    | otherwise = Nothing
+
+isAdmissibleResidual :: Double -> Bool
+isAdmissibleResidual v = isFinite v && v >= 0
+
+unavailableConformal :: Double -> ConformalModel
+unavailableConformal alpha =
+    ConformalModel
+        { cmAlpha = alpha
+        , cmRadius = 1 / 0
+        , cmCount = 0
+        }
+
+unavailableInterval :: (Double, Double, Maybe Double)
+unavailableInterval = (negate (1 / 0), 1 / 0, Nothing)
 
 conformalRadius :: Double -> [Double] -> Double
 conformalRadius alpha xs =
