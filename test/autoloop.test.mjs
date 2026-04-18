@@ -818,6 +818,17 @@ test("repo root test command includes the autoloop verifier", async () => {
   assert.match(testScript, /\bnpm run test:autoloop\b/);
 });
 
+test("top-combo optimizer wrapper supports no-optimization audit binaries", async () => {
+  const script = await fs.readFile(new URL("../haskell/scripts/run_optimize_equity_top5.sh", import.meta.url), "utf8");
+  assert.match(script, /NOOPT="\$\{NOOPT:-0\}"/);
+  assert.match(script, /noopt=\$NOOPT/);
+  assert.match(script, /if \[\[ "\$NOOPT" == "1" \]\]; then/);
+  assert.match(script, /cabal build optimize-equity trader-hs --disable-optimization/);
+  assert.match(script, /cabal list-bin optimize-equity --disable-optimization/);
+  assert.match(script, /cabal list-bin trader-hs --disable-optimization/);
+  assert.match(script, /--binary "\$trader_bin"/);
+});
+
 test("volatility scorecard fails Kelly-lite rows without material exposure reduction", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scorecard-test-"));
   try {
