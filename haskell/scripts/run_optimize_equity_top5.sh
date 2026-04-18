@@ -488,6 +488,7 @@ for fn in sorted(os.listdir(out_dir)):
     trial_count = 0
     filter_reasons = {}
     failure_reasons = {}
+    activity_diagnostics = {}
     for line in text.splitlines():
         run_match = re.search(r"\(trials=\d+ bars=(\d+)(?: [^)]*)?\)", line)
         if run_match:
@@ -499,6 +500,10 @@ for fn in sorted(os.listdir(out_dir)):
         if filter_match:
             reason = filter_match.group(1)
             filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
+            diagnostic_match = re.search(r"\(diagnostic: ([^)]+)\)", line)
+            if diagnostic_match:
+                diagnostic = diagnostic_match.group(1)
+                activity_diagnostics[diagnostic] = activity_diagnostics.get(diagnostic, 0) + 1
         elif trial_match:
             reason_match = re.search(r"\(([^()]*)\)\s*$", line)
             if reason_match:
@@ -513,6 +518,7 @@ for fn in sorted(os.listdir(out_dir)):
         "trialCount": trial_count,
         "filterReasons": filter_reasons,
         "failureReasons": failure_reasons,
+        "activityDiagnostics": activity_diagnostics,
     })
 
 with open(os.path.join(out_dir, "summary.json"), "w") as f:
