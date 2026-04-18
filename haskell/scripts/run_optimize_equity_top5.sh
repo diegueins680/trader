@@ -12,6 +12,7 @@ fi
 COUNT="${COUNT:-5}"
 TRIALS="${TRIALS:-300}"
 BARS="${BARS:-1000}"
+ACTIVITY_RETRY_BARS="${ACTIVITY_RETRY_BARS:-700,1000}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
 LOOKBACK_WINDOW="${LOOKBACK_WINDOW:-7d}"
 TRADER_OPTIMIZER_MAX_POINTS="${TRADER_OPTIMIZER_MAX_POINTS:-1000}"
@@ -212,7 +213,35 @@ if [[ ${#COMBOS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS activity_retry_bars=$ACTIVITY_RETRY_BARS timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
+
+should_retry_activity_bars() {
+  local log_file="$1"
+  python3 - "$log_file" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+try:
+    text = open(path, encoding="utf-8").read()
+except OSError:
+    sys.exit(1)
+
+if "No eligible trials." not in text:
+    sys.exit(1)
+
+trial_lines = [line for line in text.splitlines() if re.match(r"\[\s*\d+/\d+\]", line)]
+if not trial_lines:
+    sys.exit(1)
+
+for line in trial_lines:
+    match = re.search(r"\(filter: ([^)]+)\)", line)
+    if not match or not match.group(1).startswith("activityCount<"):
+        sys.exit(1)
+
+sys.exit(0)
+PY
+}
 
 run_set() {
   local label="$1"
@@ -233,96 +262,135 @@ run_set() {
   fi
 
   for line in "${COMBOS[@]}"; do
-    local sym interval safe log json
+    local sym interval safe
     sym="$(awk '{print $1}' <<<"$line")"
     interval="$(awk '{print $2}' <<<"$line")"
     safe="${sym}-${interval}"
     safe="${safe//\//_}"
-    log="$out_dir/$safe.log"
-    json="$out_dir/$safe.json"
 
-    local cmd=("$bin"
-      --symbol "$sym"
-      --intervals "$interval"
-      --platform "$PLATFORM"
-      --lookback-window "$LOOKBACK_WINDOW"
-      --bars-min "$BARS"
-      --bars-max "$BARS"
-      --bars-auto-prob 0
-      --trials "$TRIALS"
-      --timeout-sec "$TIMEOUT_SEC"
-      --binary "$trader_bin"
-      --min-round-trips "$MIN_ROUND_TRIPS"
-      --min-exposure "$MIN_EXPOSURE"
-      --min-sharpe "$MIN_SHARPE"
-      --min-calmar "$MIN_CALMAR"
-      --min-wf-sharpe-mean "$MIN_WF_SHARPE_MEAN"
-      --max-wf-sharpe-std "$MAX_WF_SHARPE_STD"
-      --min-kelly-lite-exposure-reduction "$MIN_KELLY_LITE_EXPOSURE_REDUCTION"
-      --max-kelly-lite-exposure-ratio "$MAX_KELLY_LITE_EXPOSURE_RATIO"
-      --p-kelly-lite-sizing "$P_KELLY_LITE_SIZING"
-      --kelly-lite-fraction-min "$KELLY_LITE_FRACTION_MIN"
-      --kelly-lite-fraction-max "$KELLY_LITE_FRACTION_MAX"
-      --kelly-lite-floor-min "$KELLY_LITE_FLOOR_MIN"
-      --kelly-lite-floor-max "$KELLY_LITE_FLOOR_MAX"
-      --kelly-lite-cap-min "$KELLY_LITE_CAP_MIN"
-      --kelly-lite-cap-max "$KELLY_LITE_CAP_MAX"
-      --tune-stress-vol-mult "$TUNE_STRESS_VOL_MULT"
-      --tune-stress-shock "$TUNE_STRESS_SHOCK"
-      --tune-stress-weight "$TUNE_STRESS_WEIGHT"
-      --walk-forward-embargo-bars-min "$WF_EMBARGO_MIN"
-      --walk-forward-embargo-bars-max "$WF_EMBARGO_MAX"
-      --method-weight-regime-switch "$METHOD_WEIGHT_REGIME_SWITCH"
-      --method-weight-bandit-router "$METHOD_WEIGHT_BANDIT_ROUTER"
-      --router-score-pnl-weight-min "$ROUTER_SCORE_PNL_WEIGHT_MIN"
-      --router-score-pnl-weight-max "$ROUTER_SCORE_PNL_WEIGHT_MAX"
-      --router-lookback-min "$ROUTER_LOOKBACK_MIN"
-      --router-lookback-max "$ROUTER_LOOKBACK_MAX"
-      --router-min-score-min "$ROUTER_MIN_SCORE_MIN"
-      --router-min-score-max "$ROUTER_MIN_SCORE_MAX"
-      --p-confidence-sizing "$P_CONFIDENCE_SIZING"
-      --p-cost-aware-edge "$P_COST_AWARE_EDGE"
-      --p-disable-risk-per-trade "$P_DISABLE_RISK_PER_TRADE"
-      --stop-vol-mult-min "$STOP_VOL_MULT_MIN"
-      --stop-vol-mult-max "$STOP_VOL_MULT_MAX"
-      --tp-vol-mult-min "$TP_VOL_MULT_MIN"
-      --tp-vol-mult-max "$TP_VOL_MULT_MAX"
-      --trail-vol-mult-min "$TRAIL_VOL_MULT_MIN"
-      --trail-vol-mult-max "$TRAIL_VOL_MULT_MAX"
-      --p-disable-stop-vol-mult "$P_DISABLE_STOP_VOL_MULT"
-      --p-disable-tp-vol-mult "$P_DISABLE_TP_VOL_MULT"
-      --p-disable-trail-vol-mult "$P_DISABLE_TRAIL_VOL_MULT"
-      --top-json "$json"
-    )
+    local bars_attempt="$BARS"
+    local attempt_index=0
+    while :; do
+      local suffix log json
+      suffix=""
+      if ((attempt_index > 0)); then
+        suffix="-bars${bars_attempt}"
+      fi
+      log="$out_dir/$safe$suffix.log"
+      json="$out_dir/$safe$suffix.json"
 
-    if [[ "$FUTURES" == "1" ]]; then
-      cmd+=(--futures)
-    fi
-    if [[ "$QUALITY" == "1" ]]; then
-      cmd+=(
-        --quality
-        --quality-min-trials "$QUALITY_MIN_TRIALS"
-        --quality-max-epochs "$QUALITY_MAX_EPOCHS"
-        --quality-max-hidden-size "$QUALITY_MAX_HIDDEN_SIZE"
+      local cmd=("$bin"
+        --symbol "$sym"
+        --intervals "$interval"
+        --platform "$PLATFORM"
+        --lookback-window "$LOOKBACK_WINDOW"
+        --bars-min "$bars_attempt"
+        --bars-max "$bars_attempt"
+        --bars-auto-prob 0
+        --trials "$TRIALS"
+        --timeout-sec "$TIMEOUT_SEC"
+        --binary "$trader_bin"
+        --min-round-trips "$MIN_ROUND_TRIPS"
+        --min-exposure "$MIN_EXPOSURE"
+        --min-sharpe "$MIN_SHARPE"
+        --min-calmar "$MIN_CALMAR"
+        --min-wf-sharpe-mean "$MIN_WF_SHARPE_MEAN"
+        --max-wf-sharpe-std "$MAX_WF_SHARPE_STD"
+        --min-kelly-lite-exposure-reduction "$MIN_KELLY_LITE_EXPOSURE_REDUCTION"
+        --max-kelly-lite-exposure-ratio "$MAX_KELLY_LITE_EXPOSURE_RATIO"
+        --p-kelly-lite-sizing "$P_KELLY_LITE_SIZING"
+        --kelly-lite-fraction-min "$KELLY_LITE_FRACTION_MIN"
+        --kelly-lite-fraction-max "$KELLY_LITE_FRACTION_MAX"
+        --kelly-lite-floor-min "$KELLY_LITE_FLOOR_MIN"
+        --kelly-lite-floor-max "$KELLY_LITE_FLOOR_MAX"
+        --kelly-lite-cap-min "$KELLY_LITE_CAP_MIN"
+        --kelly-lite-cap-max "$KELLY_LITE_CAP_MAX"
+        --tune-stress-vol-mult "$TUNE_STRESS_VOL_MULT"
+        --tune-stress-shock "$TUNE_STRESS_SHOCK"
+        --tune-stress-weight "$TUNE_STRESS_WEIGHT"
+        --walk-forward-embargo-bars-min "$WF_EMBARGO_MIN"
+        --walk-forward-embargo-bars-max "$WF_EMBARGO_MAX"
+        --method-weight-regime-switch "$METHOD_WEIGHT_REGIME_SWITCH"
+        --method-weight-bandit-router "$METHOD_WEIGHT_BANDIT_ROUTER"
+        --router-score-pnl-weight-min "$ROUTER_SCORE_PNL_WEIGHT_MIN"
+        --router-score-pnl-weight-max "$ROUTER_SCORE_PNL_WEIGHT_MAX"
+        --router-lookback-min "$ROUTER_LOOKBACK_MIN"
+        --router-lookback-max "$ROUTER_LOOKBACK_MAX"
+        --router-min-score-min "$ROUTER_MIN_SCORE_MIN"
+        --router-min-score-max "$ROUTER_MIN_SCORE_MAX"
+        --p-confidence-sizing "$P_CONFIDENCE_SIZING"
+        --p-cost-aware-edge "$P_COST_AWARE_EDGE"
+        --p-disable-risk-per-trade "$P_DISABLE_RISK_PER_TRADE"
+        --stop-vol-mult-min "$STOP_VOL_MULT_MIN"
+        --stop-vol-mult-max "$STOP_VOL_MULT_MAX"
+        --tp-vol-mult-min "$TP_VOL_MULT_MIN"
+        --tp-vol-mult-max "$TP_VOL_MULT_MAX"
+        --trail-vol-mult-min "$TRAIL_VOL_MULT_MIN"
+        --trail-vol-mult-max "$TRAIL_VOL_MULT_MAX"
+        --p-disable-stop-vol-mult "$P_DISABLE_STOP_VOL_MULT"
+        --p-disable-tp-vol-mult "$P_DISABLE_TP_VOL_MULT"
+        --p-disable-trail-vol-mult "$P_DISABLE_TRAIL_VOL_MULT"
+        --top-json "$json"
       )
-    fi
 
-    log "Running $label: $sym $interval (trials=$TRIALS bars=$BARS)"
-    echo "Running $label: $sym $interval (trials=$TRIALS bars=$BARS)" | tee "$log"
-    if ! "${cmd[@]}" >>"$log" 2>&1; then
-      log "Run failed for $sym $interval; continuing."
-      echo "Run failed for $sym $interval; continuing." | tee -a "$log"
-    fi
+      if [[ "$FUTURES" == "1" ]]; then
+        cmd+=(--futures)
+      fi
+      if [[ "$QUALITY" == "1" ]]; then
+        cmd+=(
+          --quality
+          --quality-min-trials "$QUALITY_MIN_TRIALS"
+          --quality-max-epochs "$QUALITY_MAX_EPOCHS"
+          --quality-max-hidden-size "$QUALITY_MAX_HIDDEN_SIZE"
+        )
+      fi
+
+      log "Running $label: $sym $interval (trials=$TRIALS bars=$bars_attempt)"
+      echo "Running $label: $sym $interval (trials=$TRIALS bars=$bars_attempt)" | tee "$log"
+      if "${cmd[@]}" >>"$log" 2>&1; then
+        break
+      fi
+
+      log "Run failed for $sym $interval at bars=$bars_attempt; checking retry eligibility."
+      echo "Run failed for $sym $interval at bars=$bars_attempt; checking retry eligibility." | tee -a "$log"
+
+      if ! should_retry_activity_bars "$log"; then
+        log "Run failed for $sym $interval; continuing."
+        echo "Run failed for $sym $interval; continuing." | tee -a "$log"
+        break
+      fi
+
+      local next_bars=""
+      local retry_bars
+      for retry_bars in ${ACTIVITY_RETRY_BARS//,/ }; do
+        if [[ "$retry_bars" =~ ^[0-9]+$ ]] && ((retry_bars > bars_attempt)); then
+          next_bars="$retry_bars"
+          break
+        fi
+      done
+
+      if [[ -z "$next_bars" ]]; then
+        log "Run failed for $sym $interval after activityCount-only skips; no deeper retry bars remain."
+        echo "Run failed for $sym $interval after activityCount-only skips; no deeper retry bars remain." | tee -a "$log"
+        break
+      fi
+
+      log "Retrying $label: $sym $interval with bars=$next_bars after activityCount-only skips at bars=$bars_attempt."
+      bars_attempt="$next_bars"
+      attempt_index=$((attempt_index + 1))
+    done
   done
 
   python3 - <<'PY' "$out_dir"
-import json, os, sys
+import json, os, re, sys
 
 out_dir = sys.argv[1]
 summary = []
+json_files = set()
 for fn in sorted(os.listdir(out_dir)):
     if not fn.endswith(".json"):
         continue
+    json_files.add(fn)
     path = os.path.join(out_dir, fn)
     try:
         data = json.load(open(path))
@@ -331,11 +399,44 @@ for fn in sorted(os.listdir(out_dir)):
         metrics = top.get("metrics") or {}
         summary.append({
             "file": fn,
+            "status": "ok",
             "finalEquity": top.get("finalEquity"),
             "annualizedReturn": metrics.get("annualizedReturn"),
         })
     except Exception as e:
-        summary.append({"file": fn, "error": str(e)})
+        summary.append({"file": fn, "status": "error", "error": str(e)})
+
+for fn in sorted(os.listdir(out_dir)):
+    if not fn.endswith(".log") or fn[:-4] + ".json" in json_files:
+        continue
+    path = os.path.join(out_dir, fn)
+    try:
+        text = open(path, encoding="utf-8").read()
+    except Exception as e:
+        summary.append({"file": fn, "status": "error", "error": str(e)})
+        continue
+
+    bars = None
+    trial_count = 0
+    filter_reasons = {}
+    for line in text.splitlines():
+        run_match = re.search(r"\(trials=\d+ bars=(\d+)\)", line)
+        if run_match:
+            bars = int(run_match.group(1))
+        filter_match = re.match(r"\[\s*\d+/\d+\].*\(filter: ([^)]+)\)", line)
+        if filter_match:
+            trial_count += 1
+            reason = filter_match.group(1)
+            filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
+
+    status = "noEligibleTrials" if "No eligible trials." in text else "failed"
+    summary.append({
+        "file": fn,
+        "status": status,
+        "bars": bars,
+        "trialCount": trial_count,
+        "filterReasons": filter_reasons,
+    })
 
 with open(os.path.join(out_dir, "summary.json"), "w") as f:
     json.dump(summary, f, indent=2)

@@ -324,7 +324,10 @@ entryEdgeHeadroomMultiple :: Double
 entryEdgeHeadroomMultiple = 1.5
 
 entryEdgeSpikeMultiple :: Double
-entryEdgeSpikeMultiple = 1.7
+entryEdgeSpikeMultiple = 4.0
+
+entryEdgeSpikeCredibleCap :: Double
+entryEdgeSpikeCredibleCap = 0.5
 
 signalEntryHeadroomThresholdCap :: Double -> Double
 signalEntryHeadroomThresholdCap rawEdge =
@@ -350,8 +353,8 @@ signalEntryEdgeSpikeOk openThreshold edgeForMethod =
     case normalizeSignalOpenThreshold openThreshold of
         Nothing -> False
         Just threshold ->
-            let requiredEdge = entryEdgeSpikeMultiple * threshold
-             in maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
+            let spikeCap = min (entryEdgeSpikeMultiple * threshold) entryEdgeSpikeCredibleCap
+             in maybe False (\edge -> finiteDouble edge && edge >= 0 && edge <= spikeCap) edgeForMethod
 
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
 signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =

@@ -829,6 +829,22 @@ test("top-combo optimizer wrapper supports no-optimization audit binaries", asyn
   assert.match(script, /--binary "\$trader_bin"/);
 });
 
+test("top-combo optimizer wrapper retries activity-only short audits with deeper bars", async () => {
+  const script = await fs.readFile(new URL("../haskell/scripts/run_optimize_equity_top5.sh", import.meta.url), "utf8");
+  assert.match(script, /ACTIVITY_RETRY_BARS="\$\{ACTIVITY_RETRY_BARS:-700,1000\}"/);
+  assert.match(script, /activity_retry_bars=\$ACTIVITY_RETRY_BARS/);
+  assert.match(script, /should_retry_activity_bars\(\)/);
+  assert.match(script, /No eligible trials\./);
+  assert.match(script, /activityCount</);
+  assert.match(script, /for retry_bars in \$\{ACTIVITY_RETRY_BARS\/\/,\/ \}; do/);
+  assert.match(script, /\(\(retry_bars > bars_attempt\)\)/);
+  assert.match(script, /--bars-min "\$bars_attempt"/);
+  assert.match(script, /--bars-max "\$bars_attempt"/);
+  assert.match(script, /Retrying \$label: \$sym \$interval with bars=\$next_bars after activityCount-only skips/);
+  assert.match(script, /"status": status/);
+  assert.match(script, /"filterReasons": filter_reasons/);
+});
+
 test("volatility scorecard fails Kelly-lite rows without material exposure reduction", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "scorecard-test-"));
   try {

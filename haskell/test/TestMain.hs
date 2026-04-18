@@ -65,6 +65,7 @@ import Trader.VolConfGate (VolConfGatePreset (..))
 main :: IO ()
 main = do
     testSignalGateEntryBoundaryWitness
+    testSignalGateEntryEdgeSpikeCapRegression
     testSignalGateEntryHeadroomSpecializesFeeBuffer
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
@@ -288,6 +289,35 @@ testSignalGateEntryBoundaryWitness = do
         "direct signal-gate admissibility is monotone non-increasing as the fee floor rises"
         feeLadder
 
+-- The spike veto is a maximum-edge sanity cap, not a minimum-edge headroom
+-- check: exact cap equality is admissible, strict-above-cap edges are blocked,
+-- and malformed thresholds or edges fail closed.
+testSignalGateEntryEdgeSpikeCapRegression :: IO ()
+testSignalGateEntryEdgeSpikeCapRegression = do
+    let smallThreshold = 0.01
+        etcThreshold = 0.460518
+    assert
+        "fresh-entry spike veto admits exact equality at both active caps"
+        ( signalEntryEdgeSpikeOk smallThreshold (Just 0.04)
+            && signalEntryEdgeSpikeOk etcThreshold (Just 0.5)
+        )
+    assert
+        "fresh-entry spike veto blocks strict-above-cap and ETC-style absurd edges"
+        ( not (signalEntryEdgeSpikeOk smallThreshold (Just 0.0400001))
+            && not (signalEntryEdgeSpikeOk etcThreshold (Just 0.5000001))
+            && not (signalEntryEdgeSpikeOk etcThreshold (Just 0.895))
+        )
+    assert
+        "malformed and negative spike-gate inputs fail closed"
+        ( not (signalEntryEdgeSpikeOk (-0.01) (Just 0))
+            && not (signalEntryEdgeSpikeOk (0 / 0) (Just 0))
+            && not (signalEntryEdgeSpikeOk (1 / 0) (Just 0))
+            && not (signalEntryEdgeSpikeOk smallThreshold Nothing)
+            && not (signalEntryEdgeSpikeOk smallThreshold (Just (-0.001)))
+            && not (signalEntryEdgeSpikeOk smallThreshold (Just (0 / 0)))
+            && not (signalEntryEdgeSpikeOk smallThreshold (Just (1 / 0)))
+        )
+
 -- Bounded executable proof obligation for the restored helper surface: the
 -- zero-fee headroom gate is exactly the fee-buffer gate specialized at zero
 -- round-trip fees, equality at the computed boundary stays admissible, and
@@ -355,15 +385,15 @@ testNormalizeSignalEntryEdgeFailClosedRegression = do
             && entryEdge nanState == nanEdge
         )
     assert
-        "restored edge normalization still fails closed on the fresh-entry path"
+        "normalized zero edges stay blocked by the fresh-entry minimum-edge gates"
         ( needsEntry negativeState
-            && not (edgeSpikeOk negativeState)
+            && edgeSpikeOk negativeState
             && not (edgeHeadroomOk negativeState)
             && not (feeBufferOk negativeState)
             && not (entryGatesOk negativeState)
             && isNothing (desiredSide1 negativeState)
             && needsEntry nanState
-            && not (edgeSpikeOk nanState)
+            && edgeSpikeOk nanState
             && not (edgeHeadroomOk nanState)
             && not (feeBufferOk nanState)
             && not (entryGatesOk nanState)
@@ -374,7 +404,8 @@ testNormalizeSignalEntryEdgeFailClosedRegression = do
 -- tightening malformed-fee handling. These executable obligations pin four
 -- properties: entry-only vetoes do not run when no fresh entry is needed,
 -- fresh-entry spike/headroom/fee-buffer checks all read the same non-negative,
--- finite edge sample and fail closed on negative or non-finite fee/edge inputs,
+-- finite edge sample while the minimum-edge gates fail closed on negative or
+-- non-finite fee/edge inputs,
 -- equality at the required boundary stays admissible, and admissibility is monotone
 -- non-increasing as raw edge falls or the fee floor rises.
 
