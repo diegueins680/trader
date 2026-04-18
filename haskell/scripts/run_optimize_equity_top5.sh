@@ -43,6 +43,25 @@ NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK="${NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_
 NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH="${NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH:-0.0}"
 NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER="${NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER:-0.0}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
+NEUTRAL_RECOVERY_TIMEOUT_SEC="${NEUTRAL_RECOVERY_TIMEOUT_SEC:-}"
+if [[ -z "$NEUTRAL_RECOVERY_TIMEOUT_SEC" ]]; then
+  NEUTRAL_RECOVERY_TIMEOUT_SEC="$(python3 - "$TIMEOUT_SEC" <<'PY'
+import math
+import sys
+
+try:
+    timeout = float(sys.argv[1])
+except (IndexError, ValueError):
+    timeout = 60.0
+
+recovery_timeout = max(timeout, 90.0)
+if math.isfinite(recovery_timeout) and recovery_timeout.is_integer():
+    print(int(recovery_timeout))
+else:
+    print(recovery_timeout)
+PY
+)"
+fi
 LOOKBACK_WINDOW="${LOOKBACK_WINDOW:-7d}"
 TRADER_OPTIMIZER_MAX_POINTS="${TRADER_OPTIMIZER_MAX_POINTS:-1000}"
 export TRADER_OPTIMIZER_MAX_POINTS
@@ -247,7 +266,7 @@ if [[ ${#COMBOS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS activity_retry_bars=$ACTIVITY_RETRY_BARS activity_recovery=$ACTIVITY_RECOVERY neutral_recovery=$NEUTRAL_RECOVERY timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR open_threshold_range=$OPEN_THRESHOLD_MIN:$OPEN_THRESHOLD_MAX close_threshold_range=$CLOSE_THRESHOLD_MIN:$CLOSE_THRESHOLD_MAX min_hold_range=$MIN_HOLD_BARS_MIN:$MIN_HOLD_BARS_MAX cooldown_range=$COOLDOWN_BARS_MIN:$COOLDOWN_BARS_MAX max_hold_range=$MAX_HOLD_BARS_MIN:$MAX_HOLD_BARS_MAX activity_recovery_open_threshold_range=$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN:$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX activity_recovery_close_threshold_range=$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN:$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX activity_recovery_min_hold_range=$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX activity_recovery_cooldown_range=$ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN:$ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX activity_recovery_max_hold_range=$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX method_weights=$METHOD_WEIGHT_11:$METHOD_WEIGHT_10:$METHOD_WEIGHT_01:$METHOD_WEIGHT_EDGE_BLEND:$METHOD_WEIGHT_EDGE_PICK:$METHOD_WEIGHT_REGIME_SWITCH:$METHOD_WEIGHT_BANDIT_ROUTER neutral_recovery_method_weights=$NEUTRAL_RECOVERY_METHOD_WEIGHT_11:$NEUTRAL_RECOVERY_METHOD_WEIGHT_10:$NEUTRAL_RECOVERY_METHOD_WEIGHT_01:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_BLEND:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK:$NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH:$NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS activity_retry_bars=$ACTIVITY_RETRY_BARS activity_recovery=$ACTIVITY_RECOVERY neutral_recovery=$NEUTRAL_RECOVERY timeout=$TIMEOUT_SEC neutral_recovery_timeout=$NEUTRAL_RECOVERY_TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR open_threshold_range=$OPEN_THRESHOLD_MIN:$OPEN_THRESHOLD_MAX close_threshold_range=$CLOSE_THRESHOLD_MIN:$CLOSE_THRESHOLD_MAX min_hold_range=$MIN_HOLD_BARS_MIN:$MIN_HOLD_BARS_MAX cooldown_range=$COOLDOWN_BARS_MIN:$COOLDOWN_BARS_MAX max_hold_range=$MAX_HOLD_BARS_MIN:$MAX_HOLD_BARS_MAX activity_recovery_open_threshold_range=$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN:$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX activity_recovery_close_threshold_range=$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN:$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX activity_recovery_min_hold_range=$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX activity_recovery_cooldown_range=$ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN:$ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX activity_recovery_max_hold_range=$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX method_weights=$METHOD_WEIGHT_11:$METHOD_WEIGHT_10:$METHOD_WEIGHT_01:$METHOD_WEIGHT_EDGE_BLEND:$METHOD_WEIGHT_EDGE_PICK:$METHOD_WEIGHT_REGIME_SWITCH:$METHOD_WEIGHT_BANDIT_ROUTER neutral_recovery_method_weights=$NEUTRAL_RECOVERY_METHOD_WEIGHT_11:$NEUTRAL_RECOVERY_METHOD_WEIGHT_10:$NEUTRAL_RECOVERY_METHOD_WEIGHT_01:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_BLEND:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK:$NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH:$NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
 
 should_retry_activity_bars() {
   local log_file="$1"
@@ -386,6 +405,7 @@ run_set() {
       local method_weight_edge_pick="$METHOD_WEIGHT_EDGE_PICK"
       local method_weight_regime_switch="$METHOD_WEIGHT_REGIME_SWITCH"
       local method_weight_bandit_router="$METHOD_WEIGHT_BANDIT_ROUTER"
+      local timeout_sec="$TIMEOUT_SEC"
       local attempt_label="bars=$bars_attempt"
       if ((activity_recovery_attempt > 0)); then
         open_threshold_min="$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN"
@@ -408,7 +428,8 @@ run_set() {
         method_weight_edge_pick="$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK"
         method_weight_regime_switch="$NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH"
         method_weight_bandit_router="$NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER"
-        attempt_label="$attempt_label neutral-recovery=1"
+        timeout_sec="$NEUTRAL_RECOVERY_TIMEOUT_SEC"
+        attempt_label="$attempt_label neutral-recovery=1 timeout=$timeout_sec"
       fi
 
       local cmd=("$bin"
@@ -420,7 +441,7 @@ run_set() {
         --bars-max "$bars_attempt"
         --bars-auto-prob 0
         --trials "$TRIALS"
-        --timeout-sec "$TIMEOUT_SEC"
+        --timeout-sec "$timeout_sec"
         --binary "$trader_bin"
         --min-round-trips "$MIN_ROUND_TRIPS"
         --min-exposure "$MIN_EXPOSURE"

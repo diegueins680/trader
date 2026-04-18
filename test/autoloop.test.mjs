@@ -843,11 +843,13 @@ test("top-combo optimizer wrapper retries activity-only short audits with deeper
   assert.match(script, /ACTIVITY_RECOVERY="\$\{ACTIVITY_RECOVERY:-1\}"/);
   assert.match(script, /ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX="\$\{ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX:-6e-3\}"/);
   assert.match(script, /NEUTRAL_RECOVERY="\$\{NEUTRAL_RECOVERY:-1\}"/);
+  assert.match(script, /NEUTRAL_RECOVERY_TIMEOUT_SEC="\$\{NEUTRAL_RECOVERY_TIMEOUT_SEC:-\}"/);
   assert.match(script, /NEUTRAL_RECOVERY_METHOD_WEIGHT_10="\$\{NEUTRAL_RECOVERY_METHOD_WEIGHT_10:-0\.0\}"/);
   assert.match(script, /NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK="\$\{NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK:-1\.0\}"/);
   assert.match(script, /activity_retry_bars=\$ACTIVITY_RETRY_BARS/);
   assert.match(script, /activity_recovery=\$ACTIVITY_RECOVERY/);
   assert.match(script, /neutral_recovery=\$NEUTRAL_RECOVERY/);
+  assert.match(script, /neutral_recovery_timeout=\$NEUTRAL_RECOVERY_TIMEOUT_SEC/);
   assert.match(script, /should_retry_activity_bars\(\)/);
   assert.match(script, /should_retry_neutral_recovery\(\)/);
   assert.match(script, /No eligible trials\./);
@@ -864,6 +866,8 @@ test("top-combo optimizer wrapper retries activity-only short audits with deeper
   assert.match(script, /activity_recovery_attempt=0/);
   assert.match(script, /--open-threshold-max "\$open_threshold_max"/);
   assert.match(script, /--min-hold-bars-min "\$min_hold_bars_min"/);
+  assert.match(script, /timeout_sec="\$NEUTRAL_RECOVERY_TIMEOUT_SEC"/);
+  assert.match(script, /--timeout-sec "\$timeout_sec"/);
   assert.match(script, /--method-weight-edge-pick "\$method_weight_edge_pick"/);
   assert.match(script, /--method-weight-regime-switch "\$method_weight_regime_switch"/);
   assert.match(script, /Retrying \$label: \$sym \$interval with bars=\$next_bars after activityCount-only skips/);
