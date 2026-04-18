@@ -34,6 +34,14 @@ ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN="${ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN:-0}"
 ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX="${ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX:-1}"
 ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN="${ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN:-6}"
 ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX="${ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX:-24}"
+NEUTRAL_RECOVERY="${NEUTRAL_RECOVERY:-1}"
+NEUTRAL_RECOVERY_METHOD_WEIGHT_11="${NEUTRAL_RECOVERY_METHOD_WEIGHT_11:-0.0}"
+NEUTRAL_RECOVERY_METHOD_WEIGHT_10="${NEUTRAL_RECOVERY_METHOD_WEIGHT_10:-0.0}"
+NEUTRAL_RECOVERY_METHOD_WEIGHT_01="${NEUTRAL_RECOVERY_METHOD_WEIGHT_01:-0.0}"
+NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_BLEND="${NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_BLEND:-1.0}"
+NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK="${NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK:-1.0}"
+NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH="${NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH:-0.0}"
+NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER="${NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER:-0.0}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-60}"
 LOOKBACK_WINDOW="${LOOKBACK_WINDOW:-7d}"
 TRADER_OPTIMIZER_MAX_POINTS="${TRADER_OPTIMIZER_MAX_POINTS:-1000}"
@@ -65,6 +73,11 @@ TUNE_STRESS_SHOCK="${TUNE_STRESS_SHOCK:-0.0}"
 TUNE_STRESS_WEIGHT="${TUNE_STRESS_WEIGHT:-0.2}"
 WF_EMBARGO_MIN="${WF_EMBARGO_MIN:-1}"
 WF_EMBARGO_MAX="${WF_EMBARGO_MAX:-3}"
+METHOD_WEIGHT_11="${METHOD_WEIGHT_11:-0.25}"
+METHOD_WEIGHT_10="${METHOD_WEIGHT_10:-4.0}"
+METHOD_WEIGHT_01="${METHOD_WEIGHT_01:-0.1}"
+METHOD_WEIGHT_EDGE_BLEND="${METHOD_WEIGHT_EDGE_BLEND:-0.0}"
+METHOD_WEIGHT_EDGE_PICK="${METHOD_WEIGHT_EDGE_PICK:-0.0}"
 METHOD_WEIGHT_REGIME_SWITCH="${METHOD_WEIGHT_REGIME_SWITCH:-1.0}"
 METHOD_WEIGHT_BANDIT_ROUTER="${METHOD_WEIGHT_BANDIT_ROUTER:-0.0}"
 ROUTER_SCORE_PNL_WEIGHT_MIN="${ROUTER_SCORE_PNL_WEIGHT_MIN:-0.25}"
@@ -234,7 +247,7 @@ if [[ ${#COMBOS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS activity_retry_bars=$ACTIVITY_RETRY_BARS activity_recovery=$ACTIVITY_RECOVERY timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR open_threshold_range=$OPEN_THRESHOLD_MIN:$OPEN_THRESHOLD_MAX close_threshold_range=$CLOSE_THRESHOLD_MIN:$CLOSE_THRESHOLD_MAX min_hold_range=$MIN_HOLD_BARS_MIN:$MIN_HOLD_BARS_MAX cooldown_range=$COOLDOWN_BARS_MIN:$COOLDOWN_BARS_MAX max_hold_range=$MAX_HOLD_BARS_MIN:$MAX_HOLD_BARS_MAX activity_recovery_open_threshold_range=$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN:$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX activity_recovery_close_threshold_range=$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN:$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX activity_recovery_min_hold_range=$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX activity_recovery_cooldown_range=$ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN:$ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX activity_recovery_max_hold_range=$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS activity_retry_bars=$ACTIVITY_RETRY_BARS activity_recovery=$ACTIVITY_RECOVERY neutral_recovery=$NEUTRAL_RECOVERY timeout=$TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR open_threshold_range=$OPEN_THRESHOLD_MIN:$OPEN_THRESHOLD_MAX close_threshold_range=$CLOSE_THRESHOLD_MIN:$CLOSE_THRESHOLD_MAX min_hold_range=$MIN_HOLD_BARS_MIN:$MIN_HOLD_BARS_MAX cooldown_range=$COOLDOWN_BARS_MIN:$COOLDOWN_BARS_MAX max_hold_range=$MAX_HOLD_BARS_MIN:$MAX_HOLD_BARS_MAX activity_recovery_open_threshold_range=$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN:$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX activity_recovery_close_threshold_range=$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN:$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX activity_recovery_min_hold_range=$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX activity_recovery_cooldown_range=$ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN:$ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX activity_recovery_max_hold_range=$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX method_weights=$METHOD_WEIGHT_11:$METHOD_WEIGHT_10:$METHOD_WEIGHT_01:$METHOD_WEIGHT_EDGE_BLEND:$METHOD_WEIGHT_EDGE_PICK:$METHOD_WEIGHT_REGIME_SWITCH:$METHOD_WEIGHT_BANDIT_ROUTER neutral_recovery_method_weights=$NEUTRAL_RECOVERY_METHOD_WEIGHT_11:$NEUTRAL_RECOVERY_METHOD_WEIGHT_10:$NEUTRAL_RECOVERY_METHOD_WEIGHT_01:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_BLEND:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK:$NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH:$NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
 
 should_retry_activity_bars() {
   local log_file="$1"
@@ -259,6 +272,54 @@ for line in trial_lines:
     match = re.search(r"\(filter: ([^)]+)\)", line)
     if not match or not match.group(1).startswith("activityCount<"):
         sys.exit(1)
+
+sys.exit(0)
+PY
+}
+
+should_retry_neutral_recovery() {
+  local log_file="$1"
+  python3 - "$log_file" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+try:
+    text = open(path, encoding="utf-8").read()
+except OSError:
+    sys.exit(1)
+
+if "No eligible trials." not in text:
+    sys.exit(1)
+
+trial_lines = [line for line in text.splitlines() if re.match(r"\[\s*\d+/\d+\]", line)]
+if not trial_lines:
+    sys.exit(1)
+
+neutral_diagnostic_count = 0
+for line in trial_lines:
+    filter_match = re.search(r"\(filter: ([^)]+)\)", line)
+    if filter_match:
+        if not filter_match.group(1).startswith("activityCount<"):
+            sys.exit(1)
+
+        diagnostic_match = re.search(r"\(diagnostic: ([^)]+)\)", line)
+        if not diagnostic_match:
+            sys.exit(1)
+
+        diagnostic = diagnostic_match.group(1)
+        latest_match = re.search(r"(?:^| )latest=([^ ]+)", diagnostic)
+        if "activity=0/" not in diagnostic or not latest_match or "NEUTRAL" not in latest_match.group(1):
+            sys.exit(1)
+        neutral_diagnostic_count += 1
+        continue
+
+    reason_match = re.search(r"\(([^()]*)\)\s*$", line)
+    if not reason_match or not reason_match.group(1).startswith("timeout>"):
+        sys.exit(1)
+
+if neutral_diagnostic_count == 0:
+    sys.exit(1)
 
 sys.exit(0)
 PY
@@ -292,6 +353,7 @@ run_set() {
     local bars_attempt="$BARS"
     local attempt_index=0
     local activity_recovery_attempt=0
+    local neutral_recovery_attempt=0
     while :; do
       local suffix log json
       suffix=""
@@ -300,6 +362,9 @@ run_set() {
       fi
       if ((activity_recovery_attempt > 0)); then
         suffix="-activity-bars${bars_attempt}"
+      fi
+      if ((neutral_recovery_attempt > 0)); then
+        suffix="-neutral-bars${bars_attempt}"
       fi
       log="$out_dir/$safe$suffix.log"
       json="$out_dir/$safe$suffix.json"
@@ -314,6 +379,13 @@ run_set() {
       local cooldown_bars_max="$COOLDOWN_BARS_MAX"
       local max_hold_bars_min="$MAX_HOLD_BARS_MIN"
       local max_hold_bars_max="$MAX_HOLD_BARS_MAX"
+      local method_weight_11="$METHOD_WEIGHT_11"
+      local method_weight_10="$METHOD_WEIGHT_10"
+      local method_weight_01="$METHOD_WEIGHT_01"
+      local method_weight_edge_blend="$METHOD_WEIGHT_EDGE_BLEND"
+      local method_weight_edge_pick="$METHOD_WEIGHT_EDGE_PICK"
+      local method_weight_regime_switch="$METHOD_WEIGHT_REGIME_SWITCH"
+      local method_weight_bandit_router="$METHOD_WEIGHT_BANDIT_ROUTER"
       local attempt_label="bars=$bars_attempt"
       if ((activity_recovery_attempt > 0)); then
         open_threshold_min="$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN"
@@ -327,6 +399,16 @@ run_set() {
         max_hold_bars_min="$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN"
         max_hold_bars_max="$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX"
         attempt_label="$attempt_label activity-recovery=1"
+      fi
+      if ((neutral_recovery_attempt > 0)); then
+        method_weight_11="$NEUTRAL_RECOVERY_METHOD_WEIGHT_11"
+        method_weight_10="$NEUTRAL_RECOVERY_METHOD_WEIGHT_10"
+        method_weight_01="$NEUTRAL_RECOVERY_METHOD_WEIGHT_01"
+        method_weight_edge_blend="$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_BLEND"
+        method_weight_edge_pick="$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK"
+        method_weight_regime_switch="$NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH"
+        method_weight_bandit_router="$NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER"
+        attempt_label="$attempt_label neutral-recovery=1"
       fi
 
       local cmd=("$bin"
@@ -370,8 +452,13 @@ run_set() {
         --tune-stress-weight "$TUNE_STRESS_WEIGHT"
         --walk-forward-embargo-bars-min "$WF_EMBARGO_MIN"
         --walk-forward-embargo-bars-max "$WF_EMBARGO_MAX"
-        --method-weight-regime-switch "$METHOD_WEIGHT_REGIME_SWITCH"
-        --method-weight-bandit-router "$METHOD_WEIGHT_BANDIT_ROUTER"
+        --method-weight-11 "$method_weight_11"
+        --method-weight-10 "$method_weight_10"
+        --method-weight-01 "$method_weight_01"
+        --method-weight-edge-blend "$method_weight_edge_blend"
+        --method-weight-edge-pick "$method_weight_edge_pick"
+        --method-weight-regime-switch "$method_weight_regime_switch"
+        --method-weight-bandit-router "$method_weight_bandit_router"
         --router-score-pnl-weight-min "$ROUTER_SCORE_PNL_WEIGHT_MIN"
         --router-score-pnl-weight-max "$ROUTER_SCORE_PNL_WEIGHT_MAX"
         --router-lookback-min "$ROUTER_LOOKBACK_MIN"
@@ -414,6 +501,13 @@ run_set() {
       log "Run failed for $sym $interval at bars=$bars_attempt; checking retry eligibility."
       echo "Run failed for $sym $interval at bars=$bars_attempt; checking retry eligibility." | tee -a "$log"
 
+      if [[ "$NEUTRAL_RECOVERY" == "1" && "$activity_recovery_attempt" != "0" && "$neutral_recovery_attempt" == "0" ]] && should_retry_neutral_recovery "$log"; then
+        log "Retrying $label: $sym $interval with neutral-recovery method weights after neutral activity diagnostics at bars=$bars_attempt."
+        neutral_recovery_attempt=1
+        attempt_index=$((attempt_index + 1))
+        continue
+      fi
+
       if ! should_retry_activity_bars "$log"; then
         log "Run failed for $sym $interval; continuing."
         echo "Run failed for $sym $interval; continuing." | tee -a "$log"
@@ -445,6 +539,7 @@ run_set() {
       log "Retrying $label: $sym $interval with bars=$next_bars after activityCount-only skips at bars=$bars_attempt."
       bars_attempt="$next_bars"
       activity_recovery_attempt=0
+      neutral_recovery_attempt=0
       attempt_index=$((attempt_index + 1))
     done
   done

@@ -13,6 +13,7 @@ module Trader.Optimizer.Optimize (
     qualityPresetIntervalFields,
     qualityPresetBudget,
     qualityPresetCeiling,
+    qualityPresetWeightFloor,
     runOptimizer,
     sampleTakeProfitPartial,
 ) where
@@ -1291,7 +1292,7 @@ applyQualityPreset args =
             , oaWalkForwardFoldsMax = maxIf (oaWalkForwardFoldsMax args) (oaWalkForwardFoldsMin args)
             , oaWalkForwardEmbargoBarsMin = maxIf (oaWalkForwardEmbargoBarsMin args) 1
             , oaWalkForwardEmbargoBarsMax = maxIf (oaWalkForwardEmbargoBarsMax args) 3
-            , oaMethodWeightRegimeSwitch = maxIf (oaMethodWeightRegimeSwitch args) 1.0
+            , oaMethodWeightRegimeSwitch = qualityPresetWeightFloor 1.0 (oaMethodWeightRegimeSwitch args)
             , oaMethodWeightBanditRouter = maxIf (oaMethodWeightBanditRouter args) 0.0
             , oaPConfidenceSizing = maxIf (oaPConfidenceSizing args) 0.85
             , oaPDisableRiskPerTrade = minIf (oaPDisableRiskPerTrade args) 0.3
@@ -1388,6 +1389,12 @@ qualityPresetCeiling productionDefault qualityDefault requested =
     if requested == productionDefault
         then qualityDefault
         else requested
+
+qualityPresetWeightFloor :: (Eq a, Num a, Ord a) => a -> a -> a
+qualityPresetWeightFloor qualityDefault requested =
+    if requested == 0
+        then 0
+        else max requested qualityDefault
 
 qualityPresetIntervalFields :: Maybe String -> Maybe String -> (Maybe String, Maybe String)
 qualityPresetIntervalFields rawInterval rawIntervals =
