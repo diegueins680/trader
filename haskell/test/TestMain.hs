@@ -916,11 +916,8 @@ testTradingPublicSurfaceRegression = do
             Either String BacktestResult
         simulateEnsembleWithHLChecked0 = simulateEnsembleWithHLChecked
         tradingSurfaceReachable =
-            case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
-                (Nothing, Nothing) ->
-                    simulateEnsemble0 `seq`
-                        (simulateEnsembleWithHLChecked0 `seq` True)
-                _ -> False
+            simulateEnsemble0 `seq`
+                (simulateEnsembleWithHLChecked0 `seq` True)
     assert
         "Main-facing Trader.Trading symbols stay importable and preserve constructor/selector compatibility"
         ( map positionSideCode [SideLong, SideShort] == ["long", "short"]
@@ -1031,11 +1028,8 @@ testOptimizerPublicSurfaceRegression = do
             Either String BacktestResult
         simulateEnsembleWithHLChecked0 = simulateEnsembleWithHLChecked
         optimizerSurfaceReachable =
-            case (Nothing :: Maybe EnsembleConfig, Nothing :: Maybe StepMeta) of
-                (Nothing, Nothing) ->
-                    signalEntryHeadroomThresholdCap 0.03 `seq`
-                        (simulateEnsembleWithHLChecked0 `seq` True)
-                _ -> False
+            signalEntryHeadroomThresholdCap 0.03 `seq`
+                (simulateEnsembleWithHLChecked0 `seq` True)
     assert
         "optimizer-facing public symbols stay importable and the total neutral-risk witness remains explicit"
         ( optimizerSurfaceReachable
