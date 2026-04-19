@@ -361,6 +361,7 @@ import Trader.VolConfGate (
     applyVolConfGateBehavior,
     volConfGateCell,
     volConfGateCode,
+    volConfStatefulCloseDirection,
  )
 
 firstJust :: [Maybe a] -> Maybe a
@@ -25836,9 +25837,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     then vcgSizeMult volConfCell
                     else 1
             closeDir =
-                case volConfBehavior of
-                    VolConfGateHold -> Nothing
-                    _ -> closeDirBase
+                volConfStatefulCloseDirection volConfBehavior chosenDir2 closeDirBase
 
             baseSize =
                 case method of

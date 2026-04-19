@@ -67,6 +67,7 @@ import Trader.VolConfGate (
     VolConfGatePreset (..),
     applyVolConfGateBehavior,
     volConfGateCell,
+    volConfStatefulCloseDirection,
  )
 
 main :: IO ()
@@ -561,6 +562,14 @@ testVolConfGateMalformedInputsFailClosed = do
         ( applyVolConfGateBehavior VolConfGateAllowExitOnly Nothing 0 (Just SideLong) 1 == (Nothing, 0)
             && applyVolConfGateBehavior VolConfGateAllowExitOnly (Just SideLong) 1 (Just SideLong) 2 == (Just SideLong, 1)
             && applyVolConfGateBehavior VolConfGateAllowExitOnly (Just SideLong) 1 (Just SideShort) 1 == (Nothing, 0)
+        )
+    assert
+        "stateful live close direction preserves reduce-only same-side evidence without reopening entries"
+        ( isNothing (volConfStatefulCloseDirection VolConfGateAllowEntry (Just SideLong) Nothing)
+            && isNothing (volConfStatefulCloseDirection VolConfGateHold (Just SideLong) (Just SideShort))
+            && volConfStatefulCloseDirection VolConfGateBlock (Just SideLong) Nothing == Just SideLong
+            && volConfStatefulCloseDirection VolConfGateAllowExitOnly (Just SideShort) Nothing == Just SideShort
+            && volConfStatefulCloseDirection VolConfGateBlock Nothing (Just SideLong) == Just SideLong
         )
     assert
         "stricter confidence and volatility requirements are monotone on bounded witnesses"

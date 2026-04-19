@@ -8,6 +8,7 @@ module Trader.VolConfGate (
     volConfGateChoicesCsv,
     volConfGateCell,
     applyVolConfGateBehavior,
+    volConfStatefulCloseDirection,
 ) where
 
 import Data.List (intercalate)
@@ -128,6 +129,17 @@ applyVolConfGateBehavior behavior currentSide currentSize desiredSide desiredSiz
                     Nothing -> (Nothing, 0)
             VolConfGateBlock -> reduceOnly
             VolConfGateAllowExitOnly -> reduceOnly
+
+volConfStatefulCloseDirection :: VolConfGateBehavior -> Maybe side -> Maybe side -> Maybe side
+volConfStatefulCloseDirection behavior preGateDir closeDirBase =
+    case behavior of
+        VolConfGateAllowEntry -> closeDirBase
+        VolConfGateHold -> Nothing
+        VolConfGateBlock -> firstJust preGateDir closeDirBase
+        VolConfGateAllowExitOnly -> firstJust preGateDir closeDirBase
+  where
+    firstJust (Just x) _ = Just x
+    firstJust Nothing y = y
 
 volatilityEvidenceMax :: Double
 volatilityEvidenceMax = 2.0
