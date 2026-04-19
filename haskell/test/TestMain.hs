@@ -6,6 +6,7 @@ import Control.Monad (unless)
 import qualified Data.Aeson as Aeson
 import Data.Maybe (isNothing)
 import qualified Data.Vector as V
+import Trader.BotStartSemantics (botStartSymbolDisabled, queuedStartOrderErrorIssue)
 import Trader.Formal.Optimization (
     activityCountFromMetrics,
     fvrActivityCountInvariant,
@@ -86,6 +87,8 @@ main = do
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
     testVolConfGateMalformedInputsFailClosed
+    testQueuedBotStartOrderErrorStability
+    testDisabledBotStartSymbols
     testConformalCalibrationResidualsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
     testBacktestCostAttributionGrossNetConsistency
@@ -585,6 +588,30 @@ testVolConfGateMalformedInputsFailClosed = do
     assertMonotoneNonIncreasing
         "tightening the high-volatility threshold cannot reopen a blocked vol-confidence entry"
         volatilityLadder
+
+testQueuedBotStartOrderErrorStability :: IO ()
+testQueuedBotStartOrderErrorStability = do
+    assert
+        "queued bot starts ignore below-threshold transient order errors"
+        ( isNothing (queuedStartOrderErrorIssue Nothing 1)
+            && isNothing (queuedStartOrderErrorIssue (Just 0) 1)
+            && isNothing (queuedStartOrderErrorIssue (Just 3) 1)
+            && isNothing (queuedStartOrderErrorIssue (Just 3) 0)
+        )
+    assert
+        "queued bot starts still block order errors that reach the configured halt limit"
+        ( queuedStartOrderErrorIssue (Just 3) 3 == Just "order errors=3 reached maxOrderErrors"
+            && queuedStartOrderErrorIssue (Just 3) 4 == Just "order errors=4 reached maxOrderErrors"
+        )
+
+testDisabledBotStartSymbols :: IO ()
+testDisabledBotStartSymbols =
+    assert
+        "disabled bot-start symbols are matched case-insensitively and ignore spacing"
+        ( botStartSymbolDisabled ["MATICUSDT"] "maticusdt"
+            && botStartSymbolDisabled ["MATIC USDT"] "MATICUSDT"
+            && not (botStartSymbolDisabled ["MATICUSDT"] "BTCUSDT")
+        )
 
 -- Conformal calibration invariant: malformed or empty residual evidence must
 -- fail closed as unavailable instead of being filtered into an overconfident

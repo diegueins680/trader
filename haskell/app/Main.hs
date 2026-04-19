@@ -183,7 +183,9 @@ import Trader.Binance (
  )
 import Trader.BinanceIntervals (binanceIntervals)
 import Trader.BotStartSemantics (
+    botStartSymbolDisabled,
     botTradeEnabledFromApi,
+    queuedStartOrderErrorIssue,
     shouldClearPositionOriginOnStart,
     shouldPersistPositionOriginOnSwitch,
     shouldPreserveProvidedComboOnActiveAdopt,
@@ -1493,8 +1495,17 @@ data StateSyncTarget = StateSyncTarget
     , sstLastError :: !(IORef (Maybe String))
     }
 
-stateSyncTimeoutMicros :: Int
-stateSyncTimeoutMicros = 5 * 1000000
+defaultStateSyncTimeoutSec :: Int
+defaultStateSyncTimeoutSec = 15
+
+stateSyncTimeoutMicrosFromEnv :: IO Int
+stateSyncTimeoutMicrosFromEnv = do
+    timeoutEnv <- lookupEnv "TRADER_STATE_SYNC_TIMEOUT_SEC"
+    let timeoutSec =
+            case timeoutEnv >>= readMaybe of
+                Just n | n >= 1 -> clampInt 1 300 n
+                _ -> defaultStateSyncTimeoutSec
+    pure (timeoutSec * 1000000)
 
 newStateSyncTargetFromEnv :: IO (Maybe StateSyncTarget)
 newStateSyncTargetFromEnv = do
@@ -1517,6 +1528,7 @@ newStateSyncTargetFromEnv = do
                             manager <- newManager tlsManagerSettings
                             errRef <- newIORef Nothing
                             authHeaders <- resolveStateSyncAuthHeaders
+                            timeoutMicros <- stateSyncTimeoutMicrosFromEnv
                             let req =
                                     req0
                                         { method = "POST"
@@ -1525,7 +1537,7 @@ newStateSyncTargetFromEnv = do
                                                 : ("X-Tenant-Key", TE.encodeUtf8 tenantKey)
                                                 : authHeaders
                                                 ++ requestHeaders req0
-                                        , responseTimeout = responseTimeoutMicro stateSyncTimeoutMicros
+                                        , responseTimeout = responseTimeoutMicro timeoutMicros
                                         }
                             pure (Just StateSyncTarget{sstUrl = url', sstRequest = req, sstManager = manager, sstLastError = errRef})
         _ -> pure Nothing
@@ -1582,17 +1594,10 @@ syncTopCombosMaybe mTarget contents =
                     if not (isTopCombosPayload val)
                         then recordStateSyncError target "Invalid top-combos.json payload (missing combos array)."
                         else do
-                            let payload = mkStateSyncTopCombosPayload val
-                                compactPayload = mkStateSyncTopCombosPayload (compactTopCombosPayloadForSync val)
+                            let payload = mkStateSyncTopCombosPayload (compactTopCombosPayloadForSync val)
                             outcome <- sendStateSyncPayload target payload
                             case outcome of
                                 Right _ -> clearStateSyncError target
-                                Left "HTTP 413"
-                                    | payload /= compactPayload -> do
-                                        compactOutcome <- sendStateSyncPayload target compactPayload
-                                        case compactOutcome of
-                                            Right _ -> clearStateSyncError target
-                                            Left err -> recordStateSyncError target err
                                 Left err -> recordStateSyncError target err
 
 mkStateSyncTopCombosPayload :: Aeson.Value -> StateSyncPayload
@@ -5110,8 +5115,8 @@ botStateStabilityIssue st =
                 case botError st of
                     Just err -> Just ("status error: " ++ err)
                     Nothing
-                        | botConsecutiveOrderErrors st > 0 ->
-                            Just ("order errors=" ++ show (botConsecutiveOrderErrors st))
+                        | Just issue <- queuedStartOrderErrorIssue (argMaxOrderErrors args) (botConsecutiveOrderErrors st) ->
+                            Just issue
                         | not (finite dd && finite dl && finite wl) ->
                             Just "risk metrics are not finite"
                         | maybe False (dd >=) (argMaxDrawdown args) ->
@@ -6504,6 +6509,21 @@ defaultBotStartMaxSymbols = 3
 defaultBotStartQueueMaxWaitSeconds :: Int
 defaultBotStartQueueMaxWaitSeconds = 1800
 
+defaultBotDisabledSymbols :: [String]
+defaultBotDisabledSymbols = ["MATICUSDT"]
+
+botDisabledSymbolsFromEnv :: IO [String]
+botDisabledSymbolsFromEnv = do
+    raw <- lookupEnv "TRADER_BOT_DISABLED_SYMBOLS"
+    pure $
+        dedupeStable $
+            map normalizeSymbol $
+                maybe defaultBotDisabledSymbols splitEnvList raw
+
+filterBotDisabledSymbols :: [String] -> [String] -> [String]
+filterBotDisabledSymbols disabled =
+    filter (not . botStartSymbolDisabled disabled)
+
 topComboBotCountFromEnv :: IO Int
 topComboBotCountFromEnv =
     readBoundedIntEnv "TRADER_BOT_TOP_COMBO_BOTS" 0 200 defaultTopComboBotCount
@@ -6732,14 +6752,15 @@ dedupeTopComboTargets targets =
                 (HM.empty, [])
                 targets
 
-topCombosTopTargets :: Int -> TopCombosExport -> [(String, TopCombo)]
-topCombosTopTargets topN export =
+topCombosTopTargets :: [String] -> Int -> TopCombosExport -> [(String, TopCombo)]
+topCombosTopTargets disabledSymbols topN export =
     let sorted = sortOn topComboTradePriorityKey (tceCombos export)
         targets =
             [ (normalizeSymbol sym, combo)
             | combo <- sorted
             , Just sym <- [topComboSymbol combo]
             , not (null sym)
+            , not (botStartSymbolDisabled disabledSymbols sym)
             ]
      in take topN (dedupeTopComboTargets targets)
 
@@ -7305,6 +7326,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                     Nothing -> do
                         let argsBase = baseArgs{argTradeOnly = True}
                             settings = defaultBotSettings argsBase
+                        disabledSymbols <- botDisabledSymbolsFromEnv
                         maxBots <- botAutoStartMaxBotsFromEnv
                         maxStartsPerCycle <- botAutoStartMaxStartsPerCycleFromEnv
                         topComboBotCountRaw <- topComboBotCountFromEnv
@@ -7319,6 +7341,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         topTargetsWarnRef <- newIORef Nothing
                         targetCapWarnRef <- newIORef Nothing
                         startThrottleWarnRef <- newIORef Nothing
+                        disabledTargetsWarnRef <- newIORef Nothing
                         targetsRef <- newIORef []
                         startupPhaseRef <- newIORef (topComboStartupBotCount /= topComboBotCount)
                         let formatList xs =
@@ -7361,7 +7384,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                 putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
                                                 readIORef topTargetsRef
                                     Right export -> do
-                                        let targets = topCombosTopTargets topComboTargetCount export
+                                        let targets = topCombosTopTargets disabledSymbols topComboTargetCount export
                                             targetCount = length targets
                                         writeIORef topTargetsRef targets
                                         writeIORef topErrRef Nothing
@@ -7484,7 +7507,16 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                             HM.empty
                                             topTargets
                                     topSymbols = map fst topTargets
-                                    targetSymbolsBase = dedupeStable (baseSymbols ++ topSymbols)
+                                    disabledBaseSymbols = filter (botStartSymbolDisabled disabledSymbols) baseSymbols
+                                    targetSymbolsBase = dedupeStable (filterBotDisabledSymbols disabledSymbols baseSymbols ++ topSymbols)
+                                unless (null disabledBaseSymbols) $
+                                    logChanged
+                                        disabledTargetsWarnRef
+                                        (intercalate "," disabledBaseSymbols)
+                                        ( "Live bot auto-start skipped disabled symbol(s): "
+                                            ++ formatList disabledBaseSymbols
+                                            ++ ". Override TRADER_BOT_DISABLED_SYMBOLS to change this list."
+                                        )
                                 mrt <- readMVar (bcRuntime botCtrl)
                                 let tenantMap0 = fromMaybe HM.empty (HM.lookup tenantKey mrt)
                                     argsWithKeys = argsBase
@@ -12739,7 +12771,6 @@ defaultOptimizerSymbols =
     , "XRPUSDT"
     , "ADAUSDT"
     , "DOGEUSDT"
-    , "MATICUSDT"
     , "AVAXUSDT"
     , "LINKUSDT"
     , "DOTUSDT"
@@ -14627,7 +14658,7 @@ handleStateSyncImport ::
     Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStore req respond = do
+handleStateSyncImport reqLimits mOps _mStateSyncTarget mBotStateDir topCombosStore req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid state sync payload: "
     case payloadOrErr of
         Left resp -> respond resp
@@ -14712,7 +14743,9 @@ handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStor
                                                     Left err ->
                                                         pure (False, Left (jsonError status500 ("Failed to write top combos: " ++ err)))
                                                     Right _ -> do
-                                                        persistTopCombosMaybe mStateSyncTarget topJsonPath
+                                                        -- Inbound state-sync imports are already the remote leg; do not
+                                                        -- synchronously re-post them to the configured state-sync target.
+                                                        persistTopCombosMaybe Nothing topJsonPath
                                                         pure (True, Right (mkTopStats action incomingGeneratedAt localGeneratedAt))
                                             else pure (False, Right (mkTopStats "kept" incomingGeneratedAt localGeneratedAt))
 
@@ -16586,18 +16619,25 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                 case symbolsOrErr of
                                                     Left _ -> []
                                                     Right syms -> syms
+                                        disabledSymbols <- botDisabledSymbolsFromEnv
+                                        let disabledRequestedSymbols = filter (botStartSymbolDisabled disabledSymbols) requestedSymbols
+                                            requestedSymbolsAllowed = filterBotDisabledSymbols disabledSymbols requestedSymbols
                                         orphanSymbols <-
                                             if tradeEnabled && platformSupportsLiveBot (argPlatform argsBase)
-                                                then resolveOrphanOpenPositionSymbols mOps limits argsBase requestedSymbols
+                                                then resolveOrphanOpenPositionSymbols mOps limits argsBase requestedSymbolsAllowed
                                                 else pure []
                                         maxSymbols <- botStartMaxSymbolsFromEnv
-                                        let symbolsAll = dedupeStable (requestedSymbols ++ orphanSymbols)
+                                        let disabledOrphanSymbols = filter (botStartSymbolDisabled disabledSymbols) orphanSymbols
+                                            disabledStartSymbols = dedupeStable (disabledRequestedSymbols ++ disabledOrphanSymbols)
+                                            orphanSymbolsAllowed = filterBotDisabledSymbols disabledSymbols orphanSymbols
+                                            symbolsAll = dedupeStable (requestedSymbolsAllowed ++ orphanSymbolsAllowed)
                                             symbols = take maxSymbols symbolsAll
                                             deferredSymbols = drop maxSymbols symbolsAll
                                             errorMsg =
-                                                case symbolsOrErr of
-                                                    Left e -> e
-                                                    Right _ -> "bot/start requires binanceSymbol or botSymbols"
+                                                case (disabledStartSymbols, symbolsOrErr) of
+                                                    (_ : _, _) -> "bot/start symbols disabled for live starts: " ++ intercalate ", " disabledStartSymbols
+                                                    (_, Left e) -> e
+                                                    (_, Right _) -> "bot/start requires binanceSymbol or botSymbols"
                                         if null symbols
                                             then respond (jsonError status400 errorMsg)
                                             else do
@@ -16642,9 +16682,12 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                         | sym <- deferredSymbols
                                                         ]
                                                     errors =
-                                                        [ object ["symbol" .= sym, "error" .= err]
-                                                        | (sym, Left err) <- results
+                                                        [ object ["symbol" .= sym, "error" .= ("symbol is disabled for live bot starts" :: String)]
+                                                        | sym <- disabledStartSymbols
                                                         ]
+                                                            ++ [ object ["symbol" .= sym, "error" .= err]
+                                                               | (sym, Left err) <- results
+                                                               ]
                                                 unless (null deferredSymbols) $
                                                     void $
                                                         forkIO $
