@@ -1,8 +1,13 @@
 module Trader.TechnicalAnalysis.Strategies (
+    GatedStrategyCandidate (..),
     OhlcvSeries (..),
     Regime (..),
     StrategyCandidate (..),
+    TechnicalAnalysisGateInputs (..),
     TradeBias (..),
+    admitStrategyCandidate,
+    admittedStrategyCandidates,
+    candidateRewardEdge,
     momentumReversionCandidate,
     regimeSelector,
     strategyCandidates,
@@ -10,8 +15,24 @@ module Trader.TechnicalAnalysis.Strategies (
     volumeConfirmedBreakoutCandidate,
 ) where
 
+import Data.Maybe (catMaybes, mapMaybe)
 import qualified Data.Vector as V
+import Trader.SignalGates (
+    finiteDouble,
+    normalizeSignalEntryEdge,
+    signalEntryEdgeSpikeOk,
+    signalEntryFeeBufferOk,
+    signalEntryHeadroomOk,
+ )
 import Trader.TechnicalAnalysis.Indicators
+import Trader.VolConfGate (
+    VolConfGateBehavior,
+    VolConfGatePreset,
+    applyVolConfGateBehavior,
+    vcgBehavior,
+    vcgSizeMult,
+    volConfGateCell,
+ )
 
 data OhlcvSeries = OhlcvSeries
     { ohlcvOpen :: !(V.Vector Double)
@@ -40,6 +61,23 @@ data StrategyCandidate = StrategyCandidate
     }
     deriving (Eq, Show)
 
+data TechnicalAnalysisGateInputs = TechnicalAnalysisGateInputs
+    { tagFeePerSide :: !Double
+    , tagMinConfidence :: !Double
+    , tagCurrentBias :: !(Maybe TradeBias)
+    , tagVolatility :: !(Maybe Double)
+    , tagVolConfGate :: !VolConfGatePreset
+    }
+    deriving (Eq, Show)
+
+data GatedStrategyCandidate = GatedStrategyCandidate
+    { gscCandidate :: !StrategyCandidate
+    , gscEntryEdge :: !Double
+    , gscVolConfBehavior :: !VolConfGateBehavior
+    , gscSizeMultiplier :: !Double
+    }
+    deriving (Eq, Show)
+
 strategyCandidates :: OhlcvSeries -> [StrategyCandidate]
 strategyCandidates series =
     catMaybes
@@ -47,6 +85,52 @@ strategyCandidates series =
         , momentumReversionCandidate series
         , volumeConfirmedBreakoutCandidate series
         ]
+
+admittedStrategyCandidates :: TechnicalAnalysisGateInputs -> OhlcvSeries -> [GatedStrategyCandidate]
+admittedStrategyCandidates inputs series =
+    mapMaybe (admitStrategyCandidate inputs) (strategyCandidates series)
+
+admitStrategyCandidate :: TechnicalAnalysisGateInputs -> StrategyCandidate -> Maybe GatedStrategyCandidate
+admitStrategyCandidate inputs candidate = do
+    bias <- directionalBias (scBias candidate)
+    edge <- candidateRewardEdge candidate
+    require (confidenceOk (tagMinConfidence inputs) (scConfidence candidate))
+    require (riskFrameOk candidate)
+    require (entryGatesOk inputs bias edge)
+    let currentBias = tagCurrentBias inputs >>= directionalBias
+        currentSize = if currentBias == Just bias then 1 else 0
+        volConfCell = volConfGateCell (tagVolConfGate inputs) (tagVolatility inputs) (Just (scConfidence candidate))
+        (gatedBias, gatedSize) =
+            applyVolConfGateBehavior
+                (vcgBehavior volConfCell)
+                currentBias
+                currentSize
+                (Just bias)
+                1
+    require (gatedBias == Just bias && gatedSize > 0)
+    pure
+        GatedStrategyCandidate
+            { gscCandidate = candidate
+            , gscEntryEdge = edge
+            , gscVolConfBehavior = vcgBehavior volConfCell
+            , gscSizeMultiplier = vcgSizeMult volConfCell
+            }
+
+candidateRewardEdge :: StrategyCandidate -> Maybe Double
+candidateRewardEdge candidate = do
+    bias <- directionalBias (scBias candidate)
+    entry <- positiveFinite (scEntryPrice candidate)
+    target <- positiveFinite (scTakeProfitPrice candidate)
+    case bias of
+        BiasLong ->
+            if target > entry
+                then Just ((target - entry) / entry)
+                else Nothing
+        BiasShort ->
+            if target < entry
+                then Just ((entry - target) / entry)
+                else Nothing
+        BiasFlat -> Nothing
 
 regimeSelector :: OhlcvSeries -> Maybe Regime
 regimeSelector series = do
@@ -88,7 +172,7 @@ trendFollowingCandidate series = do
                 && adxValue adxNow >= 20
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
-        baseConfidence = clamp01 (((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3
+        baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
      in if longTrend
             then
                 Just
@@ -146,7 +230,7 @@ momentumReversionCandidate series = do
                 && rocNow > 0
                 && macdValue macdNow <= macdSignal macdNow
                 && nearUpperEnvelope
-        baseConfidence = clamp01 ((abs (50 - rsiNow) / 50) + (abs (50 - stochasticNow) / 50) + min 1 (abs rocNow / 5)) / 3
+        baseConfidence = clamp01 (((abs (50 - rsiNow) / 50) + (abs (50 - stochasticNow) / 50) + min 1 (abs rocNow / 5)) / 3)
      in if longSetup
             then
                 Just
@@ -197,7 +281,7 @@ volumeConfirmedBreakoutCandidate series = do
         longBreakout = closeNow > donchianUpper donchianNow && obvUp && adUp && vptUp && cmfNow > 0 && mfiNow >= 50
         shortBreakout = closeNow < donchianLower donchianNow && not obvUp && not adUp && not vptUp && cmfNow < 0 && mfiNow <= 50
         breakoutDistance = max 0 (safeDivide (abs (closeNow - midChannel donchianNow)) closeNow)
-        baseConfidence = clamp01 ((if obvUp == adUp then 1 else 0.5) + min 1 (abs cmfNow) + min 1 breakoutDistance * 10) / 3
+        baseConfidence = clamp01 (((if obvUp == adUp then 1 else 0.5) + min 1 (abs cmfNow) + min 1 (breakoutDistance * 10)) / 3)
      in if longBreakout
             then
                 Just
@@ -257,14 +341,59 @@ safeDivide :: Double -> Double -> Double
 safeDivide _ 0 = 0
 safeDivide numerator denominator = numerator / denominator
 
+entryOpenThreshold :: Double
+entryOpenThreshold = 0.01
+
+entryGatesOk :: TechnicalAnalysisGateInputs -> TradeBias -> Double -> Bool
+entryGatesOk inputs bias edge
+    | (tagCurrentBias inputs >>= directionalBias) == Just bias = True
+    | otherwise =
+        let roundTripFee = 2 * tagFeePerSide inputs
+            normalizedEdge = normalizeSignalEntryEdge edge
+         in signalEntryEdgeSpikeOk entryOpenThreshold normalizedEdge
+                && signalEntryHeadroomOk entryOpenThreshold normalizedEdge
+                && signalEntryFeeBufferOk entryOpenThreshold roundTripFee normalizedEdge
+
+riskFrameOk :: StrategyCandidate -> Bool
+riskFrameOk candidate =
+    ( case scBias candidate of
+        BiasLong ->
+            positiveFinite (scEntryPrice candidate) >>= \entry ->
+                positiveFinite (scStopPrice candidate) >>= \stop ->
+                    positiveFinite (scTakeProfitPrice candidate) >>= \target ->
+                        Just (stop < entry && target > entry)
+        BiasShort ->
+            positiveFinite (scEntryPrice candidate) >>= \entry ->
+                positiveFinite (scStopPrice candidate) >>= \stop ->
+                    positiveFinite (scTakeProfitPrice candidate) >>= \target ->
+                        Just (stop > entry && target < entry)
+        BiasFlat -> Just False
+    )
+        == Just True
+
+positiveFinite :: Maybe Double -> Maybe Double
+positiveFinite (Just value)
+    | finiteDouble value && value > 0 = Just value
+positiveFinite _ = Nothing
+
+confidenceOk :: Double -> Double -> Bool
+confidenceOk minConfidence confidence =
+    finiteDouble minConfidence
+        && finiteDouble confidence
+        && confidence >= clamp01 minConfidence
+        && confidence <= 1
+
+directionalBias :: TradeBias -> Maybe TradeBias
+directionalBias BiasLong = Just BiasLong
+directionalBias BiasShort = Just BiasShort
+directionalBias BiasFlat = Nothing
+
+require :: Bool -> Maybe ()
+require True = Just ()
+require False = Nothing
+
 clamp01 :: Double -> Double
 clamp01 = max 0 . min 1
 
 midChannel :: DonchianChannel -> Double
 midChannel channel = (donchianUpper channel + donchianLower channel) / 2
-
-catMaybes :: [Maybe a] -> [a]
-catMaybes = foldr step []
-  where
-    step (Just value) acc = value : acc
-    step Nothing acc = acc
