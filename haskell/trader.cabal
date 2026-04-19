@@ -101,7 +101,9 @@ executable trader-hs
                      , postgresql-simple >=0.6 && <0.7
                      , uuid
                      , vector >=0.12
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  -- Main.hs is large enough that GHC 9.4 optimized builds stall locally/CI;
+  -- the production Docker image already builds this executable at -O0.
+  ghc-options:         -O0 -threaded -rtsopts -with-rtsopts=-N
 
 executable optimize-equity
   hs-source-dirs:      app
