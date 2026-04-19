@@ -92,6 +92,7 @@ main = do
     testDisabledBotStartSymbols
     testConformalCalibrationResidualsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
+    testBacktestFreshEntrySizingBoundsFailClosed
     testBacktestCostAttributionGrossNetConsistency
     testOrderExecutionFillSanitizationInvariant
     testCoinbaseOrderInfoDecodeInvariant
@@ -740,6 +741,92 @@ testBacktestEntryGateUsesRoundTripFeeBuffer = do
         (Left err, _, _) -> ioError (userError ("zero-fee fee-buffer regression failed to simulate: " ++ err))
         (_, Left err, _) -> ioError (userError ("high-fee fee-buffer regression failed to simulate: " ++ err))
         (_, _, Left err) -> ioError (userError ("scaled fixed-fee fee-buffer regression failed to simulate: " ++ err))
+
+-- Fresh-entry sizing-validity regression: malformed cap/floor evidence must
+-- fail closed before a new position can open, while valid zero and minimum
+-- equality boundaries remain explicit and valid cap tightening cannot increase
+-- realized exposure.
+testBacktestFreshEntrySizingBoundsFailClosed :: IO ()
+testBacktestFreshEntrySizingBoundsFailClosed = do
+    let prices :: V.Vector Double
+        prices = V.fromList [100.0, 100.0, 100.0]
+        highs = prices
+        lows = prices
+        preds :: V.Vector Double
+        preds = V.fromList [102.0, 102.0]
+        noMeta :: Maybe (V.Vector StepMeta)
+        noMeta = Nothing
+        positiveInfinity = 1 / 0
+        baseCfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.01
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecFeeFixed = 0
+                , ecFeeMin = 0
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0
+                }
+        requireResult label cfg =
+            case simulateEnsembleWithHLChecked cfg 1 prices highs lows preds preds noMeta of
+                Right result -> pure result
+                Left err -> ioError (userError (label ++ " sizing regression failed to simulate: " ++ err))
+        maxAbsPosition result = maximum (0 : map abs (brPositions result))
+        entryAdmissible result = maxAbsPosition result > 0 && not (null (brTrades result))
+        flat result = maxAbsPosition result == 0 && null (brTrades result)
+    validZeroFloor <- requireResult "valid zero-floor" baseCfg
+    validZeroCap <- requireResult "valid zero-cap" baseCfg{ecMaxPositionSize = 0, ecMinPositionSize = 0}
+    validMinEquality <- requireResult "valid min-equality" baseCfg{ecMaxPositionSize = 0.5, ecMinPositionSize = 0.5}
+    validCapBelowMin <- requireResult "valid cap-below-min" baseCfg{ecMaxPositionSize = 0.25, ecMinPositionSize = 0.5}
+    invalidMaxResults <-
+        mapM
+            (requireResult "invalid max-position-size")
+            [ baseCfg{ecMaxPositionSize = -0.1}
+            , baseCfg{ecMaxPositionSize = 0 / 0}
+            , baseCfg{ecMaxPositionSize = positiveInfinity}
+            ]
+    invalidMinResults <-
+        mapM
+            (requireResult "invalid min-position-size")
+            [ baseCfg{ecMinPositionSize = -0.1}
+            , baseCfg{ecMinPositionSize = 0 / 0}
+            , baseCfg{ecMinPositionSize = positiveInfinity}
+            ]
+    capResults <-
+        mapM
+            (requireResult "valid cap ladder")
+            [ baseCfg{ecMaxPositionSize = 1.0}
+            , baseCfg{ecMaxPositionSize = 0.5}
+            , baseCfg{ecMaxPositionSize = 0.0}
+            ]
+    let capExposures = map maxAbsPosition capResults
+    assert
+        "valid zero floor remains entry-permissive when the cap and edge are valid"
+        (entryAdmissible validZeroFloor && maxAbsPosition validZeroFloor > 0.99)
+    assert
+        "valid zero cap remains an explicit no-entry boundary"
+        (flat validZeroCap)
+    assertNear
+        "valid minimum-size equality remains admissible"
+        0.5
+        (maxAbsPosition validMinEquality)
+        1e-12
+    assert
+        "a valid cap below the valid minimum floor blocks fresh entry"
+        (flat validCapBelowMin)
+    assert
+        "negative or non-finite max position-size caps fail closed on fresh entries"
+        (all flat invalidMaxResults)
+    assert
+        "negative or non-finite min position-size floors fail closed on fresh entries"
+        (all flat invalidMinResults)
+    assert
+        "tightening valid caps cannot increase realized fresh-entry exposure"
+        ( and (zipWith (>=) capExposures (drop 1 capExposures))
+            && capExposures == [1.0, 0.5, 0.0]
+        )
 
 -- Cost-attribution proof: the simulator reports gross/net surfaces and realized
 -- component costs that close the accounting identity for the exact run.

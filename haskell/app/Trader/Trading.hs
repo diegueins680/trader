@@ -710,8 +710,18 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                 Just v | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
                                 _ -> Nothing
                         noTradeWindows' = noTradeWindows
-                        maxPositionSize = max 0 (ecMaxPositionSize cfg)
-                        minPositionSize = max 0 (ecMinPositionSize cfg)
+                        validPositionSizeBound raw = finiteDouble raw && raw >= 0
+                        positionSizeBoundsOk =
+                            validPositionSizeBound (ecMaxPositionSize cfg)
+                                && validPositionSizeBound (ecMinPositionSize cfg)
+                        maxPositionSize =
+                            if positionSizeBoundsOk
+                                then ecMaxPositionSize cfg
+                                else 0
+                        minPositionSize =
+                            if positionSizeBoundsOk
+                                then ecMinPositionSize cfg
+                                else 0
                         rebalanceBars = max 0 (ecRebalanceBars cfg)
                         rebalanceThreshold = max 0 (ecRebalanceThreshold cfg)
                         rebalanceGlobal = ecRebalanceGlobal cfg

@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading: fail closed on malformed fresh-entry position-size bounds by requiring max/min sizing caps to be finite and non-negative before a new backtest entry can open; valid zero caps/floors and valid minimum-size equality remain supported, and tighter valid caps cannot increase realized entry exposure.
 - Bot/Live Trading: reconcile Coinbase live market orders with parsed order status, filled base size, executed quote value, and a bounded order-id lookup before updating bot position state, so successful Coinbase fills no longer look like unknown unfilled live orders.
 - Autoloop: reject patch/diff marker payloads in model file-change `content` before writing files, so malformed patch plans fail cleanly instead of corrupting tracked source files with apply-patch text.
 - Autoloop: reject prose edit-instruction payloads in model file-change `content`, so replacement instructions cannot be written into source files as if they were complete file contents.
