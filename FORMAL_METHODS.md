@@ -22,6 +22,31 @@ Proof sketch:
 - Valid zero residuals satisfy the same finite non-negative admissibility predicate, so the zero boundary remains legal while still preventing sigma confidence from being synthesized from a non-positive interval width.
 - For valid evidence and fixed `mu`, `predictInterval` computes `[mu - radius, mu + radius]`; the width is exactly `2 * radius`. Because `conformalRadius` selects from sorted finite non-negative residuals, increasing the selected residual quantile cannot narrow the interval.
 
+## Formal quantile interval admissibility contract
+
+`predictQuantiles` and `sigmaFromQ1090` in `haskell/app/Trader/Predictors/Quantile.hs` are treated as the fail-closed quantile interval boundary for quantile-derived confidence and trading gates.
+
+Clauses:
+
+1. A quantile prediction interval is admissible only when the model exposes one positive consistent feature dimension, the input feature vector has that same length, and the raw q10, q50, and q90 predictions are finite.
+2. Lower and upper quantile evidence must be ordered. The boundary `q10 <= q90` is admissible, including equality; inverted evidence `q10 > q90` is unavailable and must not be repaired by sorting.
+3. Empty model evidence, inconsistent model dimensions, feature-length mismatch, non-finite raw quantile predictions, or inverted lower/upper evidence must return `Nothing` from `predictQuantiles`, so corrupted quantile evidence cannot emit a tight or directionally misleading usable interval.
+4. Once admissibility is proven, q50 may be clamped into `[q10, q90]` for downstream interval consistency while the unclamped q50 forecast remains observable in the returned tuple.
+5. `sigmaFromQ1090` may return a sigma estimate only for positive finite interval width. Valid equality at `q10 == q90` keeps the interval admissible but leaves sigma unavailable.
+6. For fixed finite q50 evidence and ordered finite bounds, widening the quantile spread cannot narrow the emitted interval; increasing `q90 - q10` also cannot decrease a positive sigma estimate.
+
+Bounded executable obligations:
+
+- The Haskell regression harness for this invariant should cover empty or dimension-invalid quantile models, non-finite q10/q50/q90 predictions, inverted q10/q90 evidence, the valid equality boundary with unavailable sigma, and monotone non-narrowing as the ordered q10/q90 spread widens.
+
+Proof sketch:
+
+- The model-dimension check is the first evidence boundary: every quantile head must expose the same positive feature dimension and the forecast vector must match it, otherwise no raw prediction is trusted.
+- `admissibleQuantilePrediction` is the raw-output validity boundary: it rejects the entire interval when any raw quantile is `NaN` or infinite, so malformed q50 evidence cannot be hidden by clamping and malformed q10/q90 evidence cannot define finite bounds.
+- The ordered-bound guard rejects `q10 > q90` instead of sorting the pair. Therefore a crossing quantile model cannot reverse directionality or synthesize a usable interval from contradictory lower/upper evidence.
+- Equality at `q10 == q90` satisfies the ordered-bound predicate and produces a zero-width interval with `Nothing` sigma because `sigmaFromQ1090` requires positive width. This preserves the valid deterministic boundary without creating false confidence from zero spread.
+- After admissibility, the returned lower and upper bounds are exactly the raw q10 and q90 values, so interval width is exactly `q90 - q10`. Widening ordered bounds can only preserve or increase that width, and sigma is width divided by a positive constant when width is positive.
+
 ## Formal fee-aware entry gate contract
 
 `normalizeSignalOpenThreshold`, `signalEntryHeadroomThresholdCap`, `normalizeSignalEntryEdge`, and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry threshold boundary, canonical optimizer headroom-cap witness, raw-edge normalization boundary, and marginal-entry veto.

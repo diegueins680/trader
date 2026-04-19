@@ -63,10 +63,20 @@ predictQuantiles qm x =
                 let q10Raw = predictLin (qm10 qm) x
                     q50Raw = predictLin (qm50 qm) x
                     q90Raw = predictLin (qm90 qm) x
-                    (lo, hi) = if q10Raw <= q90Raw then (q10Raw, q90Raw) else (q90Raw, q10Raw)
-                    q50Clamped = min hi (max lo q50Raw)
-                    sigma = sigmaFromQ1090 lo hi
-                 in Just (lo, q50Clamped, hi, q50Raw, sigma)
+                 in admissibleQuantilePrediction q10Raw q50Raw q90Raw
+
+admissibleQuantilePrediction ::
+    Double ->
+    Double ->
+    Double ->
+    Maybe (Double, Double, Double, Double, Maybe Double)
+admissibleQuantilePrediction q10Raw q50Raw q90Raw
+    | not (all isFinite [q10Raw, q50Raw, q90Raw]) = Nothing
+    | q10Raw > q90Raw = Nothing
+    | otherwise =
+        let q50Clamped = min q90Raw (max q10Raw q50Raw)
+            sigma = sigmaFromQ1090 q10Raw q90Raw
+         in Just (q10Raw, q50Clamped, q90Raw, q50Raw, sigma)
 
 predictLin :: LinModel -> [Double] -> Double
 predictLin m x = dot (lmW m) x + lmB m
