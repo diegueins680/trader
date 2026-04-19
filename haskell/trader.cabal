@@ -64,6 +64,8 @@ executable trader-hs
                      , Trader.Symbol
                      , Trader.TopCombosStore
                      , Trader.S3
+                     , Trader.TechnicalAnalysis.Indicators
+                     , Trader.TechnicalAnalysis.Strategies
                      , Trader.Text
                      , Trader.Trading
                      , Trader.VolConfGate
@@ -257,6 +259,9 @@ test-suite trader-tests
                      , Trader.Test.Cors
                      , Trader.TopCombosStore
                      , Trader.Test.ApiRoutes
+                     , Trader.TechnicalAnalysis.Indicators
+                     , Trader.TechnicalAnalysis.Strategies
+                     , Trader.Test.TechnicalAnalysis
                      , Trader.Text
                      , Trader.Trading
                      , Trader.VolConfGate
