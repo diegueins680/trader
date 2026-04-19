@@ -38,6 +38,7 @@ import Trader.SignalGates (
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
  )
+import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
 import Trader.Trading (
     BacktestCostAttribution (..),
     BacktestResult (..),
@@ -101,6 +102,7 @@ main = do
     testOptimizerQualityBudgetRegression
     testOptimizerKellyLiteExposureContractRegression
     testMetricsConsumesTradingPublicResults
+    runTechnicalAnalysisTests
 
 assert :: String -> Bool -> IO ()
 assert message condition =
