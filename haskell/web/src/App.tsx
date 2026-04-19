@@ -3988,6 +3988,7 @@ export function App() {
     return botStatusBySymbol.get(target) ?? null;
   }, [botEntriesWithSymbol, botSelectedSymbol, botStatusBySymbol]);
   const botStartErrors = useMemo(() => (isBotStatusMulti(bot.status) ? bot.status.errors ?? [] : []), [bot.status]);
+  const botStartQueued = useMemo(() => (isBotStatusMulti(bot.status) ? bot.status.queued ?? [] : []), [bot.status]);
   const botRunningCharts = useMemo(() => {
     if (botSelectedStatus?.running) {
       const selectedKey = normalizeSymbolKey(botSelectedStatus.symbol);
@@ -8910,6 +8911,11 @@ export function App() {
                   {botStartErrors.length > 0 ? (
                     <div className="hint" style={{ marginBottom: 10, color: "rgba(239, 68, 68, 0.9)", whiteSpace: "pre-wrap" }}>
                       {botStartErrors.map((err) => `${err.symbol}: ${err.error}`).join("\n")}
+                    </div>
+                  ) : null}
+                  {botStartQueued.length > 0 ? (
+                    <div className="hint" style={{ marginBottom: 10, color: "rgba(245, 158, 11, 0.95)", whiteSpace: "pre-wrap" }}>
+                      {botStartQueued.map((entry) => `${entry.symbol}: ${entry.message}`).join("\n")}
                     </div>
                   ) : null}
 	                  <div className="pillRow" style={{ marginBottom: 10 }}>
