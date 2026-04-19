@@ -794,6 +794,9 @@ test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", 
   assert.match(script, /if \(!isRetryableCodexExecError\(err\) \|\| attempt >= CODEX_RETRY_MAX_ATTEMPTS\) throw err;/);
   assert.match(script, /await sleep\(delayMs\);/);
   assert.match(script, /function isRetryableCodexExecError\(err\)/);
+  assert.match(script, /Model returned invalid JSON/);
+  assert.match(script, /function isModelJsonParseError\(err\)/);
+  assert.match(script, /Patch plan returned invalid JSON after retry/);
   assert.match(script, /callModelJson\(\{ prompt, maxOutputTokens: 12000, timeoutMs: CODEX_PATCH_TIMEOUT_MS \}\)/);
   assert.match(script, /parseJsonResponse\(extractCodexExecLastMessage\(rawEvents\)\)/);
   assert.doesNotMatch(script, /--output-last-message/);

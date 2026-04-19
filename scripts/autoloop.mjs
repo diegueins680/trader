@@ -253,7 +253,21 @@ async function main() {
 
       const editableFiles = await readEditableFiles(idea.filesNeeded);
       await updateStatus({ phase: "plan-patch", iteration, idea: summarizeIdea(idea) });
-      const plan = await requestPatchPlan(repoContext, idea, editableFiles, failureContext);
+      let plan;
+      try {
+        plan = await requestPatchPlan(repoContext, idea, editableFiles, failureContext);
+      } catch (err) {
+        if (!isModelJsonParseError(err)) throw err;
+        const message = `Patch plan returned invalid JSON after retry: ${err instanceof Error ? err.message : String(err)}`;
+        await updateStatus({
+          phase: "complete",
+          iteration,
+          outcome: "no_patch_plan",
+          message,
+        });
+        console.log(message);
+        return;
+      }
       if (plan.noChange) {
         await updateStatus({
           phase: "complete",
@@ -503,9 +517,14 @@ function runBash(command, opts = {}) {
 
 function isRetryableCodexExecError(err) {
   const message = err instanceof Error ? err.message : String(err);
-  return /(ETIMEDOUT|ECONNRESET|stream disconnected before completion|idle timeout waiting for websocket|Reconnecting\.\.\.)/i.test(
+  return /(ETIMEDOUT|ECONNRESET|stream disconnected before completion|idle timeout waiting for websocket|Reconnecting\.\.\.|Model returned invalid JSON)/i.test(
     message,
   );
+}
+
+function isModelJsonParseError(err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return /Model returned invalid JSON/i.test(message);
 }
 
 function sleep(ms) {
