@@ -341,6 +341,7 @@ import Trader.TopCombosStore (
     writeTopCombosValue,
  )
 import Trader.Trading (
+    BacktestCostAttribution (..),
     BacktestResult (..),
     EnsembleConfig (..),
     IntrabarFill (..),
@@ -349,6 +350,7 @@ import Trader.Trading (
     StepMeta (..),
     Trade (..),
     TradeEntrySource (..),
+    emptyBacktestCostAttribution,
     exitReasonFromCode,
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
@@ -495,6 +497,7 @@ data BacktestSummary = BacktestSummary
     , bsSpreadVolMult :: !Double
     , bsEstimatedPerSideCost :: !Double
     , bsEstimatedRoundTripCost :: !Double
+    , bsCostAttribution :: !BacktestCostAttribution
     , bsKellyLiteSizing :: !Bool
     , bsKellyLiteFraction :: !Double
     , bsKellyLiteFloor :: !Double
@@ -5692,6 +5695,7 @@ botBacktestResultFromState st =
             , brAgreementOk = []
             , brAgreementValid = []
             , brPositionChanges = posChanges
+            , brCostAttribution = emptyBacktestCostAttribution eq
             , brTrades = botTrades st
             }
 
@@ -21139,6 +21143,19 @@ scaleTradeEquity factor tr =
         , trExitEquity = trExitEquity tr * factor
         }
 
+scaleBacktestCostAttribution :: Double -> BacktestCostAttribution -> BacktestCostAttribution
+scaleBacktestCostAttribution factor attribution =
+    attribution
+        { bcaGrossEquityCurve = map (* factor) (bcaGrossEquityCurve attribution)
+        , bcaNetEquityCurve = map (* factor) (bcaNetEquityCurve attribution)
+        , bcaRealizedFeeCost = bcaRealizedFeeCost attribution * factor
+        , bcaRealizedSlippageCost = bcaRealizedSlippageCost attribution * factor
+        , bcaRealizedSpreadCost = bcaRealizedSpreadCost attribution * factor
+        , bcaRealizedFundingCost = bcaRealizedFundingCost attribution * factor
+        , bcaRealizedTotalCost = bcaRealizedTotalCost attribution * factor
+        , bcaConsistencyResidual = bcaConsistencyResidual attribution * factor
+        }
+
 scaleWalkForwardReport :: Double -> WalkForwardReport -> WalkForwardReport
 scaleWalkForwardReport factor report =
     let scaleFold fold0 =
@@ -21210,6 +21227,7 @@ backtestSummaryJson summary =
                 , "perSideCost" .= bsEstimatedPerSideCost summary
                 , "roundTripCost" .= bsEstimatedRoundTripCost summary
                 , "breakEvenThreshold" .= breakEvenThresholdFromPerSideCost (bsEstimatedPerSideCost summary)
+                , "attribution" .= costAttributionToJson (bsCostAttribution summary)
                 ]
         kellyLiteJson =
             case bsKellyLiteSizingReport summary of
@@ -21313,6 +21331,7 @@ backtestSummaryJson summary =
             , "lstmConfidenceHard" .= bsLstmConfidenceHard summary
             , "tuning" .= tuningJson
             , "costs" .= costsJson
+            , "costAttribution" .= costAttributionToJson (bsCostAttribution summary)
             , "kellyLite" .= kellyLiteJson
             , "walkForward" .= walkForwardJson
             , "metrics" .= metricsToJson metrics
@@ -21330,6 +21349,35 @@ backtestSummaryJson summary =
             , "positions" .= bsPositions summary
             , "agreementOk" .= bsAgreementOk summary
             , "trades" .= map tradeToJson (bsTrades summary)
+            ]
+
+costAttributionToJson :: BacktestCostAttribution -> Aeson.Value
+costAttributionToJson attribution =
+    let curveSummary curve =
+            let initial = case curve of
+                    [] -> 1
+                    x : _ -> x
+                final = case curve of
+                    [] -> initial
+                    _ -> last curve
+                totalReturn = if initial == 0 then 0 else final / initial - 1
+             in object
+                    [ "finalEquity" .= final
+                    , "totalReturn" .= totalReturn
+                    , "equityCurve" .= curve
+                    ]
+     in object
+            [ "gross" .= curveSummary (bcaGrossEquityCurve attribution)
+            , "net" .= curveSummary (bcaNetEquityCurve attribution)
+            , "realized"
+                .= object
+                    [ "fee" .= bcaRealizedFeeCost attribution
+                    , "slippage" .= bcaRealizedSlippageCost attribution
+                    , "spread" .= bcaRealizedSpreadCost attribution
+                    , "funding" .= bcaRealizedFundingCost attribution
+                    , "total" .= bcaRealizedTotalCost attribution
+                    ]
+            , "consistencyResidual" .= bcaConsistencyResidual attribution
             ]
 
 kellyLiteSizingReportToJson :: KellyLiteSizingReport -> Aeson.Value
@@ -22947,6 +22995,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         walkForwardScaled = fmap (scaleWalkForwardReport initialBalance) walkForward
         equityCurveScaled = map (* initialBalance) (brEquityCurve backtest)
         tradesScaled = map (scaleTradeEquity initialBalance) (brTrades backtest)
+        costAttribution = scaleBacktestCostAttribution initialBalance (brCostAttribution backtest)
 
         argsForSignal
             | argOptimizeOperations args =
@@ -23123,6 +23172,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsSpreadVolMult = argSpreadVolMult args
             , bsEstimatedPerSideCost = perSideCost
             , bsEstimatedRoundTripCost = roundTripCost
+            , bsCostAttribution = costAttribution
             , bsKellyLiteSizing = argKellyLiteSizing args
             , bsKellyLiteFraction = kellyLiteFractionUsed
             , bsKellyLiteFloor = kellyLiteFloorUsed
@@ -23266,6 +23316,7 @@ baselineSimLongFlat perSideCost prices wantLong =
             , brAgreementOk = replicate stepCount True
             , brAgreementValid = replicate stepCount True
             , brPositionChanges = changesFinal'
+            , brCostAttribution = emptyBacktestCostAttribution (reverse eqRev')
             , brTrades = reverse tradesRev'
             }
 

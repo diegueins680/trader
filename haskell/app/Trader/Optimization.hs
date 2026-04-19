@@ -31,7 +31,7 @@ import Trader.Formal.Optimization (
 import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.SignalGates (signalEntryHeadroomThresholdCap)
-import Trader.Trading (BacktestResult (..), EnsembleConfig (..), StepMeta (..), simulateEnsembleVWithHLChecked)
+import Trader.Trading (BacktestResult (..), EnsembleConfig (..), StepMeta (..), emptyBacktestCostAttribution, simulateEnsembleVWithHLChecked)
 
 data TuneObjective
     = TuneFinalEquity
@@ -2586,6 +2586,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 , brAgreementOk = []
                 , brAgreementValid = []
                 , brPositionChanges = 0
+                , brCostAttribution = emptyBacktestCostAttribution [1]
                 , brTrades = []
                 }
         emptyMetrics = computeMetrics ppy emptyBacktest
