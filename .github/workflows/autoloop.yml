@@ -27,6 +27,7 @@ concurrency:
 permissions:
   contents: write
   actions: read
+  pull-requests: read
 
 jobs:
   autoloop:
