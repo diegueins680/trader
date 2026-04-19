@@ -2,7 +2,9 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Trader.Trading (
+    BacktestCostAttribution (..),
     BacktestResult (..),
+    emptyBacktestCostAttribution,
     EnsembleConfig (..),
     StepMeta (..),
     IntrabarFill (..),
@@ -356,6 +358,89 @@ data Trade = Trade
     }
     deriving (Eq, Show)
 
+data BacktestCostAttribution = BacktestCostAttribution
+    { bcaGrossEquityCurve :: [Double]
+    , bcaNetEquityCurve :: [Double]
+    , bcaRealizedFeeCost :: !Double
+    , bcaRealizedSlippageCost :: !Double
+    , bcaRealizedSpreadCost :: !Double
+    , bcaRealizedFundingCost :: !Double
+    , bcaRealizedTotalCost :: !Double
+    , bcaConsistencyResidual :: !Double
+    }
+    deriving (Eq, Show)
+
+data CostTotals = CostTotals
+    { ctFeeCost :: !Double
+    , ctSlippageCost :: !Double
+    , ctSpreadCost :: !Double
+    , ctFundingCost :: !Double
+    }
+    deriving (Eq, Show)
+
+emptyCostTotals :: CostTotals
+emptyCostTotals = CostTotals 0 0 0 0
+
+addCostTotals :: CostTotals -> CostTotals -> CostTotals
+addCostTotals left right =
+    CostTotals
+        { ctFeeCost = ctFeeCost left + ctFeeCost right
+        , ctSlippageCost = ctSlippageCost left + ctSlippageCost right
+        , ctSpreadCost = ctSpreadCost left + ctSpreadCost right
+        , ctFundingCost = ctFundingCost left + ctFundingCost right
+        }
+
+scaleCostTotals :: Double -> CostTotals -> CostTotals
+scaleCostTotals factor totals =
+    CostTotals
+        { ctFeeCost = factor * ctFeeCost totals
+        , ctSlippageCost = factor * ctSlippageCost totals
+        , ctSpreadCost = factor * ctSpreadCost totals
+        , ctFundingCost = factor * ctFundingCost totals
+        }
+
+costTotalsTotal :: CostTotals -> Double
+costTotalsTotal totals =
+    ctFeeCost totals
+        + ctSlippageCost totals
+        + ctSpreadCost totals
+        + ctFundingCost totals
+
+finiteCost :: Double -> Double
+finiteCost x = if isNaN x || isInfinite x then 0 else x
+
+costAttributionFromTotals :: [Double] -> [CostTotals] -> BacktestCostAttribution
+costAttributionFromTotals netCurve0 cumulativeCosts0 =
+    let netCurve = map finiteCost netCurve0
+        fallbackCost = case cumulativeCosts0 of
+            [] -> emptyCostTotals
+            _ -> last cumulativeCosts0
+        costsAligned = take (length netCurve) (cumulativeCosts0 ++ repeat fallbackCost)
+        grossCurve = zipWith (\net costs -> net + costTotalsTotal costs) netCurve costsAligned
+        finalNet = case netCurve of
+            [] -> 1
+            _ -> last netCurve
+        finalCosts = case costsAligned of
+            [] -> emptyCostTotals
+            _ -> last costsAligned
+        totalCost = costTotalsTotal finalCosts
+        finalGross = case grossCurve of
+            [] -> finalNet + totalCost
+            _ -> last grossCurve
+     in BacktestCostAttribution
+            { bcaGrossEquityCurve = grossCurve
+            , bcaNetEquityCurve = netCurve
+            , bcaRealizedFeeCost = ctFeeCost finalCosts
+            , bcaRealizedSlippageCost = ctSlippageCost finalCosts
+            , bcaRealizedSpreadCost = ctSpreadCost finalCosts
+            , bcaRealizedFundingCost = ctFundingCost finalCosts
+            , bcaRealizedTotalCost = totalCost
+            , bcaConsistencyResidual = finalGross - totalCost - finalNet
+            }
+
+emptyBacktestCostAttribution :: [Double] -> BacktestCostAttribution
+emptyBacktestCostAttribution netCurve = costAttributionFromTotals netCurve []
+
 data OpenTrade = OpenTrade
     { otEntryIndex :: !Int
     , otRebalanceAnchor :: !Int
@@ -387,6 +472,7 @@ data BacktestResult = BacktestResult
     , brAgreementOk :: [Bool]
     , brAgreementValid :: [Bool]
     , brPositionChanges :: Int
+    , brCostAttribution :: BacktestCostAttribution
     }
     deriving (Eq, Show)
 
@@ -783,11 +869,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         LongShort -> Just SideShort
                         stepCount = n - 1
 
-                        costPerSideTotal :: Int -> Double -> Double
-                        costPerSideTotal t size =
+                        costPerSideBreakdown :: Int -> Double -> CostTotals
+                        costPerSideBreakdown t size =
                             let s = max 0 (abs size)
                              in if s <= 0
-                                    then 0
+                                    then emptyCostTotals
                                     else
                                         let vol = Data.Maybe.fromMaybe 0 (volPerBarAt t)
                                             feeRate = max 0 (ecFee cfg)
@@ -800,15 +886,30 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             spreadBase = max 0 (ecSpread cfg)
                                             spreadVol = max 0 (ecSpreadVolMult cfg) * max 0 vol
                                             spreadTotal = spreadBase + spreadVol
-                                            perNotional = feeRate + slipBase + slipVol + impactRate + spreadTotal / 2
-                                            total0 = perNotional * s + feeFixed
-                                            total1 = if feeMin > 0 then max feeMin total0 else total0
-                                         in min 0.999999 (max 0 total1)
+                                            feeCost0 = feeRate * s + feeFixed
+                                            slipCost0 = (slipBase + slipVol + impactRate) * s
+                                            spreadCost0 = (spreadTotal / 2) * s
+                                            total0 = feeCost0 + slipCost0 + spreadCost0
+                                            feeCost1 = if feeMin > 0 && total0 < feeMin then feeCost0 + (feeMin - total0) else feeCost0
+                                            total1 = feeCost1 + slipCost0 + spreadCost0
+                                            total = min 0.999999 (max 0 total1)
+                                            scale = if total1 <= 0 then 0 else total / total1
+                                         in CostTotals
+                                                { ctFeeCost = feeCost1 * scale
+                                                , ctSlippageCost = slipCost0 * scale
+                                                , ctSpreadCost = spreadCost0 * scale
+                                                , ctFundingCost = 0
+                                                }
 
-                        applyCost :: Int -> Double -> Double -> Double
-                        applyCost t eq size =
-                            let cost = costPerSideTotal t size
-                             in eq * (1 - cost)
+                        costPerSideTotal :: Int -> Double -> Double
+                        costPerSideTotal t size = costTotalsTotal (costPerSideBreakdown t size)
+
+                        applyCostWithTotals :: Int -> Double -> Double -> CostTotals -> (Double, CostTotals)
+                        applyCostWithTotals t eq size totals =
+                            let costRates = costPerSideBreakdown t size
+                                costRate = costTotalsTotal costRates
+                                realized = scaleCostTotals eq costRates
+                             in (eq * (1 - costRate), addCostTotals totals realized)
 
                         costPerSideRate :: Int -> Double -> Double
                         costPerSideRate t size =
@@ -826,10 +927,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             let cap = 0.999999
                              in max (-cap) (min cap x)
 
-                        applyFunding :: Double -> Double -> PositionSide -> Double
-                        applyFunding eq size side =
+                        applyFundingWithTotals :: Double -> Double -> PositionSide -> CostTotals -> (Double, CostTotals)
+                        applyFundingWithTotals eq size side totals =
                             if fundingPerBar == 0
-                                then eq
+                                then (eq, totals)
                                 else
                                     let s = max 0 (abs size)
                                         signedRate =
@@ -837,7 +938,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 then fundingPerBar * s * sideSign side
                                                 else fundingPerBar * s
                                         rate = clampSignedFrac signedRate
-                                     in eq * (1 - rate)
+                                        realized = CostTotals 0 0 0 (eq * rate)
+                                     in (eq * (1 - rate), addCostTotals totals realized)
 
                         barHigh t1 =
                             let h = highsV V.! t1
@@ -1428,7 +1530,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             then (Nothing, 0)
                                             else (Just side, size0)
 
-                        stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, agreeValidAcc, changes, openTrade, tradesAcc, dead, cooldownLeft, lossStreak, riskState0, factorOpenPrev, factorClosePrev) t =
+                        stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, agreeValidAcc, changes, openTrade, tradesAcc, costTotals, costAcc, dead, cooldownLeft, lossStreak, riskState0, factorOpenPrev, factorClosePrev) t =
                             if dead
                                 then
                                     ( Nothing
@@ -1441,6 +1543,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                     , changes
                                     , Nothing
                                     , tradesAcc
+                                    , costTotals
+                                    , costTotals : costAcc
                                     , True
                                     , 0
                                     , lossStreak
@@ -2160,43 +2264,45 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 && rebalanceDelta > 0
                                                 && rebalanceDelta >= rebalanceThreshold
 
-                                        (posAfterSwitch, posSizeAfterSwitch, equityAfterSwitch, changes', openTrade', tradesAcc') =
+                                        (posAfterSwitch, posSizeAfterSwitch, equityAfterSwitch, costTotalsAfterSwitch, changes', openTrade', tradesAcc') =
                                             if desiredSideFinal == posSide
                                                 then
                                                     if rebalanceOk
                                                         then
-                                                            let eqRebalance = applyCost t equity rebalanceDelta
-                                                             in (posSide, desiredSizeFinal, eqRebalance, changes + 1, openTradeUpdated, tradesAcc)
-                                                        else (posSide, posSize, equity, changes, openTradeUpdated, tradesAcc)
+                                                            let (eqRebalance, costTotalsRebalance) = applyCostWithTotals t equity rebalanceDelta costTotals
+                                                             in (posSide, desiredSizeFinal, eqRebalance, costTotalsRebalance, changes + 1, openTradeUpdated, tradesAcc)
+                                                        else (posSide, posSize, equity, costTotals, changes, openTradeUpdated, tradesAcc)
                                                 else case desiredSideFinal of
                                                     Nothing ->
-                                                        let eqExit = applyCost t equity posSize
+                                                        let (eqExit, costTotalsExit) = applyCostWithTotals t equity posSize costTotals
                                                             tradesAcc1 =
                                                                 case openTradeFlip of
                                                                     Nothing -> tradesAcc
                                                                     Just ot -> closeTradeAt t switchExitReason eqExit ot : tradesAcc
-                                                         in (Nothing, 0, eqExit, changes + 1, Nothing, tradesAcc1)
+                                                         in (Nothing, 0, eqExit, costTotalsExit, changes + 1, Nothing, tradesAcc1)
                                                     Just desiredSideFinal' ->
                                                         case posSide of
                                                             Nothing ->
-                                                                let eqEntry = applyCost t equity desiredSizeFinal
+                                                                let (eqEntry, costTotalsEntry) = applyCostWithTotals t equity desiredSizeFinal costTotals
                                                                  in ( Just desiredSideFinal'
                                                                     , desiredSizeFinal
                                                                     , eqEntry
+                                                                    , costTotalsEntry
                                                                     , changes + 1
                                                                     , Just (openTradeFor desiredSideFinal' eqEntry baseSizeTarget)
                                                                     , tradesAcc
                                                                     )
                                                             Just _ ->
-                                                                let eqExit = applyCost t equity posSize
+                                                                let (eqExit, costTotalsExit) = applyCostWithTotals t equity posSize costTotals
                                                                     tradesAcc1 =
                                                                         case openTradeFlip of
                                                                             Nothing -> tradesAcc
                                                                             Just ot -> closeTradeAt t ExitSignal eqExit ot : tradesAcc
-                                                                    eqEntry = applyCost t eqExit desiredSizeFinal
+                                                                    (eqEntry, costTotalsEntry) = applyCostWithTotals t eqExit desiredSizeFinal costTotalsExit
                                                                  in ( Just desiredSideFinal'
                                                                     , desiredSizeFinal
                                                                     , eqEntry
+                                                                    , costTotalsEntry
                                                                     , changes + 1
                                                                     , Just (openTradeFor desiredSideFinal' eqEntry baseSizeTarget)
                                                                     , tradesAcc1
@@ -2211,7 +2317,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                          in if isBad eq1 then equityAfterSwitch else eq1
                                                 _ -> equityAfterSwitch
 
-                                        (posFinal, posSizeFinal, equityFinal0, changesFinal, openTradeFinal, tradesFinal) =
+                                        (posFinal, posSizeFinal, equityFinal0, costTotalsFinal0, changesFinal, openTradeFinal, tradesFinal) =
                                             case (posAfterSwitch, openTrade') of
                                                 (Just SideLong, Just ot0) ->
                                                     let otHeld = ot0{otHoldingPeriods = otHoldingPeriods ot0 + 1}
@@ -2264,7 +2370,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             (Just (exitPx, reason), _trailUsed) ->
                                                                 let factor = markToMarket SideLong prev exitPx
                                                                     exitEq0 = equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
-                                                                    exitEq = applyCost t exitEq0 posSizeAfterSwitch
+                                                                    (exitEq, costTotalsExit) = applyCostWithTotals t exitEq0 posSizeAfterSwitch costTotalsAfterSwitch
                                                                     tr =
                                                                         Trade
                                                                             { trEntryIndex = otEntryIndex otHeld
@@ -2279,10 +2385,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
                                                                             }
-                                                                 in (Nothing, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
+                                                                 in (Nothing, 0, exitEq, costTotalsExit, changes' + 1, Nothing, tr : tradesAcc')
                                                             (Nothing, trail1) ->
                                                                 let otCont = otHeld{otTrail = trail1}
-                                                                 in (Just SideLong, posSizeAfterSwitch, equityAtClose, changes', Just otCont, tradesAcc')
+                                                                 in (Just SideLong, posSizeAfterSwitch, equityAtClose, costTotalsAfterSwitch, changes', Just otCont, tradesAcc')
                                                 (Just SideShort, Just ot0) ->
                                                     let otHeld = ot0{otHoldingPeriods = otHoldingPeriods ot0 + 1}
                                                         entryPx = otEntryPrice ot0
@@ -2334,7 +2440,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             (Just (exitPx, reason), _trailUsed) ->
                                                                 let factor = markToMarket SideShort prev exitPx
                                                                     exitEq0 = equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
-                                                                    exitEq = applyCost t exitEq0 posSizeAfterSwitch
+                                                                    (exitEq, costTotalsExit) = applyCostWithTotals t exitEq0 posSizeAfterSwitch costTotalsAfterSwitch
                                                                     tr =
                                                                         Trade
                                                                             { trEntryIndex = otEntryIndex otHeld
@@ -2349,23 +2455,23 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
                                                                             }
-                                                                 in (Nothing, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
+                                                                 in (Nothing, 0, exitEq, costTotalsExit, changes' + 1, Nothing, tr : tradesAcc')
                                                             (Nothing, trail1) ->
                                                                 let otCont = otHeld{otTrail = trail1}
-                                                                 in (Just SideShort, posSizeAfterSwitch, equityAtClose, changes', Just otCont, tradesAcc')
-                                                _ -> (posAfterSwitch, posSizeAfterSwitch, equityAtClose, changes', openTrade', tradesAcc')
+                                                                 in (Just SideShort, posSizeAfterSwitch, equityAtClose, costTotalsAfterSwitch, changes', Just otCont, tradesAcc')
+                                                _ -> (posAfterSwitch, posSizeAfterSwitch, equityAtClose, costTotalsAfterSwitch, changes', openTrade', tradesAcc')
 
                                         (fundingSide, fundingSize) =
                                             if fundingOnOpen
                                                 then (posSideStart, posSizeStart)
                                                 else (posFinal, posSizeFinal)
 
-                                        equityFinal =
+                                        (equityFinal, costTotalsFinalFunding) =
                                             case fundingSide of
-                                                Just side -> applyFunding equityFinal0 fundingSize side
-                                                _ -> equityFinal0
+                                                Just side -> applyFundingWithTotals equityFinal0 fundingSize side costTotalsFinal0
+                                                _ -> (equityFinal0, costTotalsFinal0)
 
-                                        (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, dead2) =
+                                        (posFinal2, posSizeFinal2, equityFinal2, costTotalsFinal2, changesFinal2, openTradeFinal2, tradesFinal2, dead2) =
                                             if isBad equityFinal || equityFinal <= 0
                                                 then
                                                     let exitEq = if isBad equityFinal then 0 else max 0 equityFinal
@@ -2388,13 +2494,13 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                 , trExitIp = Nothing
                                                                                 }
                                                                      in (tr : tradesFinal, changesFinal + 1)
-                                                     in (Nothing, 0, exitEq, changesOut, Nothing, tradesOut, True)
-                                                else (posFinal, posSizeFinal, equityFinal, changesFinal, openTradeFinal, tradesFinal, False)
+                                                     in (Nothing, 0, exitEq, costTotalsFinalFunding, changesOut, Nothing, tradesOut, True)
+                                                else (posFinal, posSizeFinal, equityFinal, costTotalsFinalFunding, changesFinal, openTradeFinal, tradesFinal, False)
 
                                         -- Re-check risk after the bar and flatten at close if limits are breached.
-                                        (posFinal3, posSizeFinal3, equityFinal3, changesFinal3, openTradeFinal3, tradesFinal3, haltReason2) =
+                                        (posFinal3, posSizeFinal3, equityFinal3, costTotalsFinal3, changesFinal3, openTradeFinal3, tradesFinal3, haltReason2) =
                                             if dead2 || Data.Maybe.isJust haltReason1
-                                                then (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, haltReason1)
+                                                then (posFinal2, posSizeFinal2, equityFinal2, costTotalsFinal2, changesFinal2, openTradeFinal2, tradesFinal2, haltReason1)
                                                 else
                                                     let peakEqAfter = max peakEq1 equityFinal2
                                                         drawdownAfter =
@@ -2426,18 +2532,18 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                     | maybe False (\lim -> maybe False (< lim) expectancyAfter) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
                                                                     | otherwise -> Nothing
                                                      in case riskHaltReason2 of
-                                                            Nothing -> (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Nothing)
+                                                            Nothing -> (posFinal2, posSizeFinal2, equityFinal2, costTotalsFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Nothing)
                                                             Just r ->
                                                                 if isNothing posFinal2
-                                                                    then (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Just r)
+                                                                    then (posFinal2, posSizeFinal2, equityFinal2, costTotalsFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Just r)
                                                                     else
-                                                                        let eqExit = applyCost t equityFinal2 posSizeFinal2
+                                                                        let (eqExit, costTotalsExit) = applyCostWithTotals t equityFinal2 posSizeFinal2 costTotalsFinal2
                                                                             tradesAcc1 =
                                                                                 case openTradeFinal2 of
                                                                                     Nothing -> tradesFinal2
                                                                                     Just ot -> closeTradeAt (t + 1) r eqExit ot : tradesFinal2
                                                                             changesOut = changesFinal2 + 1
-                                                                         in (Nothing, 0, eqExit, changesOut, Nothing, tradesAcc1, Just r)
+                                                                         in (Nothing, 0, eqExit, costTotalsExit, changesOut, Nothing, tradesAcc1, Just r)
 
                                         exitedToFlat =
                                             isNothing posFinal3 && (Data.Maybe.isJust posAfterSwitch || Data.Maybe.isJust posSide)
@@ -2516,6 +2622,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         , changesFinal3
                                         , openTradeFinal3
                                         , tradesFinal3
+                                        , costTotalsFinal3
+                                        , costTotalsFinal3 : costAcc
                                         , dead2
                                         , cooldownNext2
                                         , lossStreakNext
@@ -2524,7 +2632,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         , factorCloseNext
                                         )
 
-                        (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, agreeValidRev, changes, openTrade, tradesRev, _deadFinal, _cooldownFinal, _lossStreakFinal, _riskFinal, _factorOpenFinal, _factorCloseFinal) =
+                        (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, agreeValidRev, changes, openTrade, tradesRev, finalCostTotals, costRev, _deadFinal, _cooldownFinal, _lossStreakFinal, _riskFinal, _factorOpenFinal, _factorCloseFinal) =
                             foldl'
                                 stepFn
                                 ( Nothing :: Maybe PositionSide
@@ -2537,6 +2645,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                 , 0 :: Int
                                 , Nothing :: Maybe OpenTrade
                                 , []
+                                , emptyCostTotals
+                                , [emptyCostTotals]
                                 , False
                                 , 0 :: Int
                                 , 0 :: Int
@@ -2554,11 +2664,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                 )
                                 [0 .. stepCount - 1]
 
-                        (eqRev', tradesRev') =
+                        (eqRev', tradesRev', costRev') =
                             case openTrade of
-                                Nothing -> (eqRev, tradesRev)
+                                Nothing -> (eqRev, tradesRev, costRev)
                                 Just ot ->
-                                    let exitEq = applyCost (max 0 (stepCount - 1)) finalEq finalPosSize
+                                    let (exitEq, finalCostTotals') = applyCostWithTotals (max 0 (stepCount - 1)) finalEq finalPosSize finalCostTotals
                                         tr =
                                             Trade
                                                 { trEntryIndex = otEntryIndex ot
@@ -2577,8 +2687,13 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             case eqRev of
                                                 [] -> [exitEq]
                                                 (_ : rest) -> exitEq : rest
-                                     in (eqRev1, tr : tradesRev)
+                                        costRev1 =
+                                            case costRev of
+                                                [] -> [finalCostTotals']
+                                                (_ : rest) -> finalCostTotals' : rest
+                                     in (eqRev1, tr : tradesRev, costRev1)
                         eqCurve = reverse eqRev'
+                        costCurve = reverse costRev'
                      in BacktestResult
                             { brEquityCurve = eqCurve
                             , brPositions = reverse posRev
@@ -2586,6 +2701,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             , brAgreementValid = reverse agreeValidRev
                             , brPositionChanges = changes
                             , brTrades = reverse tradesRev'
+                            , brCostAttribution = costAttributionFromTotals eqCurve costCurve
                             }
 
 defaultOpenThreshold :: Double

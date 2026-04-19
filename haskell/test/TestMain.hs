@@ -37,6 +37,7 @@ import Trader.SignalGates (
     signalRunPostDirectionGates,
  )
 import Trader.Trading (
+    BacktestCostAttribution (..),
     BacktestResult (..),
     EnsembleConfig (..),
     ExitReason (..),
@@ -49,6 +50,7 @@ import Trader.Trading (
     desiredSide1,
     edgeHeadroomOk,
     edgeSpikeOk,
+    emptyBacktestCostAttribution,
     entryEdge,
     entryGatesOk,
     exitReasonFromCode,
@@ -86,6 +88,7 @@ main = do
     testVolConfGateMalformedInputsFailClosed
     testConformalCalibrationResidualsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
+    testBacktestCostAttributionGrossNetConsistency
     testOrderExecutionFillSanitizationInvariant
     testOptimizerActivityCountInvariant
     testOptimizerPublicSurfaceRegression
@@ -648,6 +651,10 @@ testConformalCalibrationResidualsFailClosed = do
 -- helper-level obligation. The checked simulator must reject a signal that has
 -- enough threshold headroom and is below the spike cap when its edge is still
 -- below the modeled round-trip cost buffer.
+assertNear :: String -> Double -> Double -> Double -> IO ()
+assertNear message expected actual tolerance =
+    assert message (abs (expected - actual) <= tolerance)
+
 testBacktestEntryGateUsesRoundTripFeeBuffer :: IO ()
 testBacktestEntryGateUsesRoundTripFeeBuffer = do
     let prices :: V.Vector Double
@@ -704,6 +711,53 @@ testBacktestEntryGateUsesRoundTripFeeBuffer = do
         (Left err, _, _) -> ioError (userError ("zero-fee fee-buffer regression failed to simulate: " ++ err))
         (_, Left err, _) -> ioError (userError ("high-fee fee-buffer regression failed to simulate: " ++ err))
         (_, _, Left err) -> ioError (userError ("scaled fixed-fee fee-buffer regression failed to simulate: " ++ err))
+
+-- Cost-attribution proof: the simulator reports gross/net surfaces and realized
+-- component costs that close the accounting identity for the exact run.
+testBacktestCostAttributionGrossNetConsistency :: IO ()
+testBacktestCostAttributionGrossNetConsistency = do
+    let prices :: V.Vector Double
+        prices = V.fromList [100.0, 100.0, 100.0]
+        preds :: V.Vector Double
+        preds = V.fromList [102.0, 102.0]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.01
+                , ecFee = 0.001
+                , ecSlippage = 0.0005
+                , ecSpread = 0.001
+                , ecFundingRate = 0.0252
+                , ecFundingBySide = False
+                , ecFundingOnOpen = False
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0
+                }
+        result = simulateEnsembleWithHLChecked cfg 1 prices prices prices preds preds (Nothing :: Maybe (V.Vector StepMeta))
+    case result of
+        Left err -> ioError (userError ("cost-attribution backtest failed to simulate: " ++ err))
+        Right bt -> do
+            let attribution = brCostAttribution bt
+                grossCurve = bcaGrossEquityCurve attribution
+                netCurve = bcaNetEquityCurve attribution
+                finalGross = last grossCurve
+                finalNet = last netCurve
+                totalCost = bcaRealizedTotalCost attribution
+                componentTotal =
+                    bcaRealizedFeeCost attribution
+                        + bcaRealizedSlippageCost attribution
+                        + bcaRealizedSpreadCost attribution
+                        + bcaRealizedFundingCost attribution
+            assert "cost attribution exposes the same net curve as the backtest result" (netCurve == brEquityCurve bt)
+            assert "gross and net cost-attribution curves align per bar" (length grossCurve == length netCurve && length netCurve == length (brEquityCurve bt))
+            assert "fee/slippage/spread/funding realized costs are surfaced" $
+                bcaRealizedFeeCost attribution > 0
+                    && bcaRealizedSlippageCost attribution > 0
+                    && bcaRealizedSpreadCost attribution > 0
+                    && bcaRealizedFundingCost attribution > 0
+            assertNear "realized component costs sum to total realized cost" totalCost componentTotal 1e-12
+            assertNear "gross minus realized costs equals net equity" finalNet (finalGross - totalCost) 1e-12
+            assertNear "reported consistency residual stays near zero" 0 (bcaConsistencyResidual attribution) 1e-12
 
 -- Execution-quantity guardrail: malformed or non-positive fills must fail
 -- closed, and reduce-only fills must never reopen or increase exposure.
@@ -1298,6 +1352,7 @@ testMetricsConsumesTradingPublicResults = do
                 , brAgreementOk = [True]
                 , brAgreementValid = [True]
                 , brPositionChanges = 1
+                , brCostAttribution = emptyBacktestCostAttribution [1.0, 1.1]
                 }
         metrics = computeMetrics 252 result
     assert
