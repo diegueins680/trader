@@ -1,3 +1,27 @@
+## Formal conformal calibration contract
+
+`fitConformal` and `predictInterval` in `haskell/app/Trader/Predictors/Conformal.hs` are treated as the fail-closed calibration boundary for conformal prediction intervals and any confidence or trading gate derived from those intervals.
+
+Clauses:
+
+1. A conformal calibration residual sample is admissible only when the sample is non-empty and every absolute residual is finite and non-negative.
+2. Empty calibration evidence, negative residuals, `NaN`, positive infinity, negative infinity, or a residual list containing any malformed sample produces an unavailable conformal model with `cmCount == 0` and an unbounded prediction interval.
+3. An unavailable conformal model, a malformed model radius, or a malformed point forecast must return `(-Infinity, Infinity, Nothing)` from `predictInterval`, so malformed calibration evidence cannot emit artificially tight interval bounds or a positive sigma-derived confidence estimate.
+4. Valid zero residual samples remain admissible. They may produce a zero-width interval around a finite point forecast, but `sigmaFromInterval` remains unavailable for non-positive interval width.
+5. For a fixed finite point forecast and valid non-empty calibration evidence, interval width is `2 * cmRadius`, so widening the selected conformal residual quantile is monotone non-decreasing in the produced interval width.
+
+Bounded executable obligations:
+
+- The Haskell test suite is the bounded regression harness for this invariant. It must cover empty calibration evidence, malformed residual evidence including mixed valid/malformed samples, valid zero residual evidence, no sigma for unavailable or zero-width intervals, and monotone widening as the selected conformal residual quantile rises.
+
+Proof sketch:
+
+- `admissibleResiduals` is the calibration validity boundary: it rejects the whole sample when the list is empty or any residual is negative, `NaN`, or infinite. Therefore malformed residuals cannot be silently dropped to leave a smaller, overconfident empirical quantile.
+- `fitConformal` only calls `conformalRadius` after that boundary has proven the sample non-empty and every residual finite and non-negative. The selected radius is therefore a quantile over admissible evidence only.
+- On rejected evidence, `fitConformal` returns an unavailable model with `cmCount == 0` and an infinite radius. `predictInterval` maps unavailable models, malformed radii, and malformed point forecasts to an unbounded interval with `Nothing` sigma, which is conservative for downstream hold-style gates.
+- Valid zero residuals satisfy the same finite non-negative admissibility predicate, so the zero boundary remains legal while still preventing sigma confidence from being synthesized from a non-positive interval width.
+- For valid evidence and fixed `mu`, `predictInterval` computes `[mu - radius, mu + radius]`; the width is exactly `2 * radius`. Because `conformalRadius` selects from sorted finite non-negative residuals, increasing the selected residual quantile cannot narrow the interval.
+
 ## Formal fee-aware entry gate contract
 
 `normalizeSignalOpenThreshold`, `signalEntryHeadroomThresholdCap`, `normalizeSignalEntryEdge`, and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry threshold boundary, canonical optimizer headroom-cap witness, raw-edge normalization boundary, and marginal-entry veto.
