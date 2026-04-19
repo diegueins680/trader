@@ -1,10 +1,11 @@
 module Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests) where
 
 import Control.Monad (unless)
-import Data.Maybe (catMaybes, isNothing)
+import Data.Maybe (catMaybes, isJust, isNothing)
 import qualified Data.Vector as V
 import Trader.TechnicalAnalysis.Indicators
 import Trader.TechnicalAnalysis.Strategies
+import Trader.VolConfGate (VolConfGatePreset (..))
 
 runTechnicalAnalysisTests :: IO ()
 runTechnicalAnalysisTests = do
@@ -15,6 +16,8 @@ runTechnicalAnalysisTests = do
     testRegimeSelectorFindsTrend
     testTrendCandidateFailsClosedOnShortSeries
     testBreakoutCandidateCanTriggerLong
+    testCandidateConfidenceUsesAverageBeforeClamp
+    testGatedCandidateAdmissionHonorsRiskGates
 
 assert :: String -> Bool -> IO ()
 assert message condition =
@@ -72,17 +75,66 @@ testTrendCandidateFailsClosedOnShortSeries = do
 
 testBreakoutCandidateCanTriggerLong :: IO ()
 testBreakoutCandidateCanTriggerLong = do
-    let base = [100 + fromIntegral i * 0.2 | i <- [0 .. 58]]
-        closes = V.fromList (base ++ [120, 123, 126, 130, 135, 140])
-        highs = V.map (+ 0.5) closes
-        lows = V.map (subtract 1.5) closes
-        opens = V.map (subtract 0.3) closes
-        volumes = V.fromList ([1000 + fromIntegral i * 5 | i <- [0 .. 58]] ++ [2000, 2200, 2400, 2600, 2800, 3000])
-        series = OhlcvSeries opens highs lows closes volumes
-        candidate = volumeConfirmedBreakoutCandidate series
+    let candidate = volumeConfirmedBreakoutCandidate breakoutSeries
     assert
         "volumeConfirmedBreakoutCandidate can produce a long breakout candidate on synthetic breakout data"
         ( case candidate of
             Just signal -> scBias signal == BiasLong
             Nothing -> False
         )
+
+testCandidateConfidenceUsesAverageBeforeClamp :: IO ()
+testCandidateConfidenceUsesAverageBeforeClamp = do
+    let candidate = volumeConfirmedBreakoutCandidate breakoutSeries
+    assert
+        "breakout confidence is averaged before clamping"
+        ( case candidate of
+            Just signal -> scConfidence signal > 0.33 && scConfidence signal <= 1
+            Nothing -> False
+        )
+
+testGatedCandidateAdmissionHonorsRiskGates :: IO ()
+testGatedCandidateAdmissionHonorsRiskGates = do
+    let candidate =
+            StrategyCandidate
+                { scFamily = "test"
+                , scName = "manual-risk-gated-candidate"
+                , scBias = BiasLong
+                , scConfidence = 0.8
+                , scEntryPrice = Just 100
+                , scStopPrice = Just 98
+                , scTakeProfitPrice = Just 103
+                , scReason = "synthetic candidate"
+                }
+        inputs =
+            TechnicalAnalysisGateInputs
+                { tagFeePerSide = 0.001
+                , tagMinConfidence = 0.60
+                , tagCurrentBias = Nothing
+                , tagVolatility = Just 0.4
+                , tagVolConfGate = VolConfGateDisabled
+                }
+        admitted = admitStrategyCandidate inputs candidate
+        highFeeInputs = inputs{tagFeePerSide = 0.02}
+        malformedVolInputs = inputs{tagVolatility = Nothing, tagVolConfGate = VolConfGateV1Default}
+        weakCandidate = candidate{scConfidence = 0.3}
+    assert "valid candidate passes TA admission gates" (isJust admitted)
+    assert
+        "candidate reward edge is available for fee/headroom gates"
+        ( case candidateRewardEdge candidate of
+            Just edge -> abs (edge - 0.03) < 1e-12
+            Nothing -> False
+        )
+    assert "high fees block new TA entries" (isNothing (admitStrategyCandidate highFeeInputs candidate))
+    assert "malformed volatility blocks non-disabled volume/confidence gates" (isNothing (admitStrategyCandidate malformedVolInputs candidate))
+    assert "weak confidence blocks TA entries" (isNothing (admitStrategyCandidate inputs weakCandidate))
+
+breakoutSeries :: OhlcvSeries
+breakoutSeries =
+    let base = [100 + fromIntegral i * 0.2 | i <- [0 .. 58]]
+        closes = V.fromList (base ++ [120, 123, 126, 130, 135, 140])
+        highs = V.map (+ 0.5) closes
+        lows = V.map (subtract 1.5) closes
+        opens = V.map (subtract 0.3) closes
+        volumes = V.fromList ([1000 + fromIntegral i * 5 | i <- [0 .. 58]] ++ [2000, 2200, 2400, 2600, 2800, 3000])
+     in OhlcvSeries opens highs lows closes volumes
