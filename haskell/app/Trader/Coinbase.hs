@@ -3,25 +3,30 @@
 module Trader.Coinbase (
     CoinbaseCandle (..),
     CoinbaseAccount (..),
+    CoinbaseOrderInfo (..),
     CoinbaseEnv (..),
     coinbaseBaseUrl,
     newCoinbaseEnv,
     fetchCoinbaseAccounts,
     fetchCoinbaseAvailableBalance,
     fetchCoinbaseBaseMinSize,
+    fetchCoinbaseOrderById,
     fetchCoinbaseCandles,
     decodeCoinbaseCandles,
+    decodeCoinbaseOrderInfo,
     buildRanges,
     coinbaseCandlesCacheStats,
     normalizeCoinbaseCandles,
     placeCoinbaseMarketOrder,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Exception (throwIO)
 import qualified Control.Monad
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (FromJSON (..), Value (..), eitherDecode, encode, object, withArray, withObject, (.:), (.:?), (.=))
+import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteArray as BA
 import qualified Data.ByteArray.Encoding as BAE
@@ -31,6 +36,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Int (Int64)
 import Data.List (find, sortOn)
+import Data.Maybe (catMaybes, isNothing)
 import qualified Data.Scientific as Scientific
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -61,6 +67,15 @@ data CoinbaseAccount = CoinbaseAccount
     }
     deriving (Eq, Show)
 
+data CoinbaseOrderInfo = CoinbaseOrderInfo
+    { coiOrderId :: !(Maybe String)
+    , coiClientOrderId :: !(Maybe String)
+    , coiStatus :: !(Maybe String)
+    , coiFilledSize :: !(Maybe Double)
+    , coiExecutedValue :: !(Maybe Double)
+    }
+    deriving (Eq, Show)
+
 instance FromJSON CoinbaseAccount where
     parseJSON =
         withObject "CoinbaseAccount" $ \o -> do
@@ -68,6 +83,50 @@ instance FromJSON CoinbaseAccount where
             availVal <- o .: "available"
             avail <- parseDoubleValue availVal
             pure CoinbaseAccount{caCurrency = cur, caAvailable = avail}
+
+instance FromJSON CoinbaseOrderInfo where
+    parseJSON =
+        withObject "CoinbaseOrderInfo" $ \o -> do
+            successInfo <- parseNestedInfo o "success_response"
+            orderInfo <- parseNestedInfo o "order"
+            let nested = catMaybes [successInfo, orderInfo]
+                pickNested f = foldr ((<|>) . f) Nothing nested
+            oid <- parseMaybeStringField o ["id", "order_id"]
+            cid <- parseMaybeStringField o ["client_oid", "client_order_id"]
+            st <- parseMaybeStringField o ["status", "order_status"]
+            filled <- parseMaybeDoubleField o ["filled_size", "filledSize"]
+            executedValue <- parseMaybeDoubleField o ["executed_value", "filled_value", "filledValue", "total_value_after_fees"]
+            pure
+                CoinbaseOrderInfo
+                    { coiOrderId = oid <|> pickNested coiOrderId
+                    , coiClientOrderId = cid <|> pickNested coiClientOrderId
+                    , coiStatus = st <|> pickNested coiStatus
+                    , coiFilledSize = filled <|> pickNested coiFilledSize
+                    , coiExecutedValue = executedValue <|> pickNested coiExecutedValue
+                    }
+
+parseNestedInfo :: AT.Object -> String -> AT.Parser (Maybe CoinbaseOrderInfo)
+parseNestedInfo o key = do
+    mv <- o .:? AK.fromString key
+    case mv of
+        Nothing -> pure Nothing
+        Just v -> Just <$> parseJSON v
+
+parseMaybeStringField :: AT.Object -> [String] -> AT.Parser (Maybe String)
+parseMaybeStringField _ [] = pure Nothing
+parseMaybeStringField o (key : keys) = do
+    mv <- o .:? AK.fromString key
+    case mv of
+        Nothing -> parseMaybeStringField o keys
+        Just v -> pure (Just v)
+
+parseMaybeDoubleField :: AT.Object -> [String] -> AT.Parser (Maybe Double)
+parseMaybeDoubleField _ [] = pure Nothing
+parseMaybeDoubleField o (key : keys) = do
+    mv <- o .:? AK.fromString key
+    case mv of
+        Nothing -> parseMaybeDoubleField o keys
+        Just v -> Just <$> parseDoubleValue v
 
 coinbaseBaseUrl :: String
 coinbaseBaseUrl = "https://api.exchange.coinbase.com"
@@ -150,6 +209,19 @@ fetchCoinbaseBaseMinSize env product = do
     case AT.parseEither parseCoinbaseBaseMinSize payload of
         Left err -> throwIO (userError ("Failed to parse Coinbase product: " ++ err))
         Right minQty -> pure minQty
+
+fetchCoinbaseOrderById :: CoinbaseEnv -> String -> IO BL.ByteString
+fetchCoinbaseOrderById env orderIdRaw = do
+    let orderId = trim orderIdRaw
+        path = "/orders/" ++ orderId
+    Control.Monad.when (null orderId) $
+        throwIO (userError "Coinbase order id is empty.")
+    req0 <- parseRequest (ceBaseUrl env ++ path)
+    reqSigned <- signCoinbaseRequest env "GET" path BS.empty req0
+    let req = reqSigned{responseTimeout = responseTimeoutMicro coinbaseTimeoutMicros}
+    resp <- coinbaseHttp env "coinbase.order.get" req
+    ensure2xx "Coinbase order lookup" resp
+    pure (responseBody resp)
 
 placeCoinbaseMarketOrder :: CoinbaseEnv -> String -> String -> Maybe Double -> Maybe Double -> Maybe String -> IO BL.ByteString
 placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId = do
@@ -234,6 +306,23 @@ decodeCoinbaseCandles raw = do
     case AT.parseEither parseCoinbaseResponse v of
         Left err -> Left ("Failed to parse Coinbase candles: " ++ err)
         Right xs -> Right xs
+
+decodeCoinbaseOrderInfo :: BL.ByteString -> Maybe CoinbaseOrderInfo
+decodeCoinbaseOrderInfo raw =
+    case eitherDecode raw of
+        Left _ -> Nothing
+        Right info ->
+            if coinbaseOrderInfoEmpty info
+                then Nothing
+                else Just info
+
+coinbaseOrderInfoEmpty :: CoinbaseOrderInfo -> Bool
+coinbaseOrderInfoEmpty info =
+    isNothing (coiOrderId info)
+        && isNothing (coiClientOrderId info)
+        && isNothing (coiStatus info)
+        && isNothing (coiFilledSize info)
+        && isNothing (coiExecutedValue info)
 
 buildRanges :: Int64 -> Int64 -> Int -> [(Int64, Int64)]
 buildRanges endSec granularitySec bars =

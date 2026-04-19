@@ -1,4 +1,5 @@
 ## Unreleased
+- Bot/Live Trading: reconcile Coinbase live market orders with parsed order status, filled base size, executed quote value, and a bounded order-id lookup before updating bot position state, so successful Coinbase fills no longer look like unknown unfilled live orders.
 - Autoloop: reject patch/diff marker payloads in model file-change `content` before writing files, so malformed patch plans fail cleanly instead of corrupting tracked source files with apply-patch text.
 - Autoloop: reject prose edit-instruction payloads in model file-change `content`, so replacement instructions cannot be written into source files as if they were complete file contents.
 - Trading: add backtest cost-attribution JSON with gross/net equity surfaces, realized fee/slippage/spread/funding totals, total realized cost, and a residual proving gross minus realized costs equals net for the emitted run.
