@@ -18,6 +18,7 @@ import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Optimizer.Optimize (kellyLiteExposureContractReason, qualityPresetBudget, qualityPresetCeiling)
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Predictors (RegimeProbs (..))
+import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -82,6 +83,7 @@ main = do
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
     testVolConfGateMalformedInputsFailClosed
+    testConformalCalibrationResidualsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
     testOrderExecutionFillSanitizationInvariant
     testOptimizerActivityCountInvariant
@@ -571,6 +573,67 @@ testVolConfGateMalformedInputsFailClosed = do
     assertMonotoneNonIncreasing
         "tightening the high-volatility threshold cannot reopen a blocked vol-confidence entry"
         volatilityLadder
+
+-- Conformal calibration invariant: malformed or empty residual evidence must
+-- fail closed as unavailable instead of being filtered into an overconfident
+-- empirical interval. Valid zero residuals remain admissible, and raising the
+-- selected conformal quantile cannot narrow the interval for a fixed forecast.
+testConformalCalibrationResidualsFailClosed :: IO ()
+testConformalCalibrationResidualsFailClosed = do
+    let positiveInfinity = 1 / 0
+        negativeInfinity = negate positiveInfinity
+        unavailableIntervalShape cm mu =
+            let (lo, hi, sigma) = predictInterval cm mu
+             in isInfinite lo
+                    && lo < 0
+                    && isInfinite hi
+                    && hi > 0
+                    && isNothing sigma
+        unavailableModel cm =
+            cmCount cm == 0
+                && isInfinite (cmRadius cm)
+                && cmRadius cm > 0
+                && unavailableIntervalShape cm 1
+        malformedResidualSamples =
+            [ []
+            , [-0.01]
+            , [0.01, -0.01]
+            , [0.01, 0 / 0]
+            , [0.01, positiveInfinity]
+            , [0.01, negativeInfinity]
+            ]
+        zeroResidualModel = fitConformal 0.2 [0, 0]
+        zeroResidualInterval = predictInterval zeroResidualModel 5
+        malformedForecastInterval = predictInterval (fitConformal 0.2 [0.1, 0.2]) (0 / 0)
+        intervalWidth cm =
+            let (lo, hi, _) = predictInterval cm 10
+             in hi - lo
+        intervalWidths =
+            map
+                (intervalWidth . fitConformal 0.2)
+                [ [0.1, 0.1, 0.1]
+                , [0.1, 0.2, 0.3]
+                , [0.1, 0.2, 0.5]
+                ]
+    assert
+        "empty or malformed conformal residual evidence fails closed as unavailable"
+        (all (unavailableModel . fitConformal 0.2) malformedResidualSamples)
+    assert
+        "malformed point forecasts cannot emit finite conformal intervals"
+        ( let (lo, hi, sigma) = malformedForecastInterval
+           in isInfinite lo && lo < 0 && isInfinite hi && hi > 0 && isNothing sigma
+        )
+    assert
+        "valid zero conformal residual evidence remains admissible without synthesizing sigma"
+        ( cmCount zeroResidualModel == 2
+            && cmRadius zeroResidualModel == 0
+            && zeroResidualInterval == (5, 5, Nothing)
+        )
+    assert
+        "larger selected conformal residual quantiles cannot narrow fixed-forecast intervals"
+        ( and (zipWith (<=) intervalWidths (drop 1 intervalWidths))
+            && all (> 0) intervalWidths
+        )
 
 -- Algorithm-path regression: the fee-aware fresh-entry contract is not just a
 -- helper-level obligation. The checked simulator must reject a signal that has
