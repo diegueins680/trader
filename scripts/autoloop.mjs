@@ -1130,9 +1130,11 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     "Keep the change centered on a backend Haskell trading improvement and its formal-methods coverage.",
     "Use the selected file contents below as the complete source of truth for editing this patch-plan step.",
     "Respond in JSON with keys: noChange, title, summary, commitMessage, algorithmReviewSummary, formalMethodsSummary, verificationCommands, changes.",
-    "Each entry in changes must be an object with path, content, and optional reason.",
-    "The content field must contain the complete replacement file content for that path.",
-    "Do not put apply_patch, unified diff, patch-marker text, or prose edit instructions in content.",
+    "Each entry in changes must be an object with path plus exactly one edit mode: either content or replacements.",
+    "Use content only for small files where you can safely provide the complete replacement file content.",
+    "Use replacements for large files: an array of objects with exact find, replace, optional expectedCount, and optional reason.",
+    "Each replacements[].find string must match the current file exactly; expectedCount defaults to 1 and must match exactly.",
+    "Do not put apply_patch, unified diff, patch-marker text, or prose edit instructions in content or replacements.",
     "Do not include markdown fences or prose outside JSON.",
     "Constraints:",
     "- Only modify the provided files.",
@@ -1273,7 +1275,33 @@ function applyFileChanges(changes) {
     const abs = path.join(ROOT, change.path);
     if (change.delete) throw new Error(`Autoloop does not allow deletes: ${change.path}`);
     mkdirSync(path.dirname(abs), { recursive: true });
-    writeFileSync(abs, change.content, "utf8");
+    if (change.replacements?.length > 0) {
+      let content = readFileSync(abs, "utf8");
+      for (const replacement of change.replacements) {
+        const count = countOccurrences(content, replacement.find);
+        if (count !== replacement.expectedCount) {
+          throw new Error(
+            `Replacement for ${change.path} expected ${replacement.expectedCount} occurrence(s), found ${count}.`,
+          );
+        }
+        content = content.split(replacement.find).join(replacement.replace);
+      }
+      writeFileSync(abs, content, "utf8");
+    } else {
+      writeFileSync(abs, change.content, "utf8");
+    }
+  }
+}
+
+function countOccurrences(content, needle) {
+  if (!needle) return 0;
+  let count = 0;
+  let index = 0;
+  for (;;) {
+    index = content.indexOf(needle, index);
+    if (index === -1) return count;
+    count += 1;
+    index += needle.length;
   }
 }
 

@@ -337,6 +337,23 @@ test("normalizePatchPlan validates change entries", () => {
   });
   assert.equal(plan.changes[0]?.path, "README.md");
   assert.equal(plan.algorithmReviewSummary, "Reviewed the backend trading file and applied the threshold fix there.");
+  const replacementPlan = normalizePatchPlan({
+    noChange: false,
+    title: "Patch large file",
+    summary: "Use targeted replacements",
+    commitMessage: "Patch large file",
+    algorithmReviewSummary: "Reviewed the backend trading file.",
+    formalMethodsSummary: "The contract is unchanged.",
+    changes: [
+      {
+        path: "haskell/app/Trader/Trading.hs",
+        replacements: [{ find: "oldThreshold", replace: "newThreshold", expectedCount: 1 }],
+      },
+    ],
+  });
+  assert.deepEqual(replacementPlan.changes[0]?.replacements, [
+    { find: "oldThreshold", replace: "newThreshold", expectedCount: 1, reason: "" },
+  ]);
   assert.throws(
     () =>
       normalizePatchPlan({
@@ -435,6 +452,43 @@ test("normalizePatchPlan validates change entries", () => {
         ],
       }),
     /looks like edit instructions/,
+  );
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Ambiguous patch",
+        summary: "Ambiguous patch",
+        commitMessage: "Ambiguous patch",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
+        changes: [
+          {
+            path: "haskell/app/Trader/Trading.hs",
+            content: "module Trader.Trading where\n",
+            replacements: [{ find: "old", replace: "new" }],
+          },
+        ],
+      }),
+    /either content or replacements/,
+  );
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Bad replacement count",
+        summary: "Bad replacement count",
+        commitMessage: "Bad replacement count",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
+        changes: [
+          {
+            path: "haskell/app/Trader/Trading.hs",
+            replacements: [{ find: "old", replace: "new", expectedCount: 0 }],
+          },
+        ],
+      }),
+    /expectedCount must be a positive integer/,
   );
 });
 

@@ -191,17 +191,52 @@ export function normalizeIdeaSelection(raw) {
   };
 }
 
+function readOptionalString(raw, field) {
+  if (raw === undefined || raw === null) return "";
+  if (typeof raw !== "string") throw new Error(`${field} must be a string.`);
+  return raw;
+}
+
+function normalizeReplacement(raw, idx, changePath) {
+  if (!raw || typeof raw !== "object") throw new Error(`changes[${idx}].replacements[] must be an object.`);
+  const find = readString(raw.find, `changes[${idx}].replacements[].find`);
+  const replace = readOptionalString(raw.replace ?? "", `changes[${idx}].replacements[].replace`);
+  const expectedCount = raw.expectedCount === undefined ? 1 : Number(raw.expectedCount);
+  if (!Number.isInteger(expectedCount) || expectedCount <= 0) {
+    throw new Error(`changes[${idx}].replacements[].expectedCount must be a positive integer.`);
+  }
+  if (looksLikePatchPayload(find) || looksLikePatchPayload(replace)) {
+    throw new Error(`changes[${idx}].replacements[] for ${changePath} must not contain patch/diff payloads.`);
+  }
+  return {
+    find,
+    replace,
+    expectedCount,
+    reason: typeof raw.reason === "string" ? raw.reason.trim() : "",
+  };
+}
+
 function normalizeFileChange(raw, idx) {
   if (!raw || typeof raw !== "object") throw new Error(`changes[${idx}] must be an object.`);
   const path = sanitizeRelativePath(raw.path);
   const deleteFile = raw.delete === true;
-  const content = deleteFile ? "" : readString(raw.content ?? "", `changes[${idx}].content`);
-  if (!deleteFile && looksLikePatchPayload(content)) {
+  const hasContent = Object.prototype.hasOwnProperty.call(raw, "content");
+  const replacements = Array.isArray(raw.replacements)
+    ? raw.replacements.map((replacement) => normalizeReplacement(replacement, idx, path))
+    : [];
+  if (!deleteFile && hasContent && replacements.length > 0) {
+    throw new Error(`changes[${idx}] for ${path} must use either content or replacements, not both.`);
+  }
+  if (!deleteFile && !hasContent && replacements.length === 0) {
+    throw new Error(`changes[${idx}] for ${path} must include content or replacements.`);
+  }
+  const content = deleteFile || !hasContent ? "" : readString(raw.content ?? "", `changes[${idx}].content`);
+  if (!deleteFile && hasContent && looksLikePatchPayload(content)) {
     throw new Error(
       `changes[${idx}].content for ${path} looks like a patch/diff payload; provide complete replacement file content instead.`,
     );
   }
-  if (!deleteFile && looksLikeInstructionPayload(content, path)) {
+  if (!deleteFile && hasContent && looksLikeInstructionPayload(content, path)) {
     throw new Error(
       `changes[${idx}].content for ${path} looks like edit instructions; provide complete replacement file content instead.`,
     );
@@ -209,6 +244,7 @@ function normalizeFileChange(raw, idx) {
   return {
     path,
     delete: deleteFile,
+    replacements,
     content,
     reason: typeof raw.reason === "string" ? raw.reason.trim() : "",
   };
