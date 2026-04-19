@@ -1456,17 +1456,20 @@ testOptimizerQualityBudgetRegression = do
         "quality preset preserves explicitly larger production sweeps"
         (qualityPresetBudget 50 80 50 == 80)
     assert
-        "quality preset lifts default threshold ceilings to the quality exploration floor"
-        (qualityPresetCeiling (2e-2 :: Double) 5e-2 2e-2 == 5e-2)
+        "quality preset lifts omitted default threshold ceilings to the quality exploration floor"
+        (qualityPresetCeiling (2e-2 :: Double) 5e-2 False 2e-2 == 5e-2)
+    assert
+        "quality preset preserves explicitly requested default threshold ceilings"
+        (qualityPresetCeiling (2e-2 :: Double) 5e-2 True 2e-2 == 2e-2)
     assert
         "quality preset honors tighter explicit activity-recovery threshold caps"
-        (qualityPresetCeiling (2e-2 :: Double) 5e-2 6e-3 == 6e-3)
+        (qualityPresetCeiling (2e-2 :: Double) 5e-2 True 6e-3 == 6e-3)
     assert
         "quality preset preserves explicit threshold sweeps below the quality floor"
-        (qualityPresetCeiling (2e-2 :: Double) 5e-2 3e-2 == 3e-2)
+        (qualityPresetCeiling (2e-2 :: Double) 5e-2 True 3e-2 == 3e-2)
     assert
         "quality preset preserves explicit threshold sweeps above the quality floor"
-        (qualityPresetCeiling (2e-2 :: Double) 5e-2 8e-2 == 8e-2)
+        (qualityPresetCeiling (2e-2 :: Double) 5e-2 True 8e-2 == 8e-2)
     assert
         "quality preset preserves explicit zero method weights"
         (qualityPresetWeightFloor 1.0 (0.0 :: Double) == 0.0)

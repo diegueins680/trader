@@ -934,8 +934,10 @@ data OptimizerArgs = OptimizerArgs
     , oaPRebalanceResetOnSignal :: !Double
     , oaOpenThresholdMin :: !Double
     , oaOpenThresholdMax :: !Double
+    , oaOpenThresholdMaxExplicit :: !Bool
     , oaCloseThresholdMin :: !Double
     , oaCloseThresholdMax :: !Double
+    , oaCloseThresholdMaxExplicit :: !Bool
     , oaMinHoldBarsMin :: !Int
     , oaMinHoldBarsMax :: !Int
     , oaCooldownBarsMin :: !Int
@@ -1263,8 +1265,8 @@ applyQualityPreset args =
      in args
             { oaTrials = maxIf (oaTrials args) (max 1 (oaQualityMinTrials args))
             , oaMinRoundTrips = maxIf (oaMinRoundTrips args) 20
-            , oaOpenThresholdMax = qualityPresetCeiling 2e-2 5e-2 (oaOpenThresholdMax args)
-            , oaCloseThresholdMax = qualityPresetCeiling 2e-2 5e-2 (oaCloseThresholdMax args)
+            , oaOpenThresholdMax = qualityPresetCeiling 2e-2 5e-2 (oaOpenThresholdMaxExplicit args) (oaOpenThresholdMax args)
+            , oaCloseThresholdMax = qualityPresetCeiling 2e-2 5e-2 (oaCloseThresholdMaxExplicit args) (oaCloseThresholdMax args)
             , oaMinWinRate = maxIf (oaMinWinRate args) 0.45
             , oaMinProfitFactor = maxIf (oaMinProfitFactor args) 1.1
             , oaMinExposure = maxIf (oaMinExposure args) 0.10
@@ -1384,9 +1386,9 @@ qualityPresetBudget productionDefault requested rawBudget =
             then max requested productionDefault
             else min requested budget
 
-qualityPresetCeiling :: (Eq a) => a -> a -> a -> a
-qualityPresetCeiling productionDefault qualityDefault requested =
-    if requested == productionDefault
+qualityPresetCeiling :: (Eq a) => a -> a -> Bool -> a -> a
+qualityPresetCeiling productionDefault qualityDefault explicitlyRequested requested =
+    if not explicitlyRequested && requested == productionDefault
         then qualityDefault
         else requested
 

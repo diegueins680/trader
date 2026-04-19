@@ -2,7 +2,7 @@ module Main (main) where
 
 import Control.Monad (unless, when)
 import Data.Char (isSpace, toLower)
-import Data.List (intercalate)
+import Data.List (intercalate, isPrefixOf)
 import Data.Maybe (fromMaybe, isJust)
 import Options.Applicative
 import System.Environment (getArgs, getProgName)
@@ -35,7 +35,12 @@ parseArgs progName argv =
   where
     handleParseResult result =
         case result of
-            Success opts -> pure opts
+            Success opts ->
+                pure
+                    opts
+                        { oaOpenThresholdMaxExplicit = optionPresent "open-threshold-max"
+                        , oaCloseThresholdMaxExplicit = optionPresent "close-threshold-max"
+                        }
             Failure failure -> do
                 let (msg, _) = renderFailure failure progName
                 hPutStrLn stderr (stripTrailingSpace msg)
@@ -44,6 +49,10 @@ parseArgs progName argv =
                 msg <- execCompletion compl progName
                 putStr msg
                 exitSuccess
+    optionPresent name =
+        let flag = "--" ++ name
+            flagWithValue = flag ++ "="
+         in any (\arg -> arg == flag || flagWithValue `isPrefixOf` arg) argv
 
 optimizerArgsParser :: Parser OptimizerArgs
 optimizerArgsParser =
@@ -138,8 +147,10 @@ optimizerArgsParser =
         <*> option auto (long "p-rebalance-reset-on-signal" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "open-threshold-min" <> value 5e-4 <> metavar "FLOAT")
         <*> option auto (long "open-threshold-max" <> value 2e-2 <> metavar "FLOAT")
+        <*> pure False
         <*> option auto (long "close-threshold-min" <> value 5e-4 <> metavar "FLOAT")
         <*> option auto (long "close-threshold-max" <> value 2e-2 <> metavar "FLOAT")
+        <*> pure False
         <*> option auto (long "min-hold-bars-min" <> value 2 <> metavar "INT")
         <*> option auto (long "min-hold-bars-max" <> value 8 <> metavar "INT")
         <*> option auto (long "cooldown-bars-min" <> value 1 <> metavar "INT")
