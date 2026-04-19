@@ -7,6 +7,7 @@ import qualified Data.Aeson as Aeson
 import Data.Maybe (isNothing)
 import qualified Data.Vector as V
 import Trader.BotStartSemantics (botStartSymbolDisabled, queuedStartOrderErrorIssue)
+import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
 import Trader.Formal.Optimization (
     activityCountFromMetrics,
     fvrActivityCountInvariant,
@@ -93,6 +94,7 @@ main = do
     testBacktestEntryGateUsesRoundTripFeeBuffer
     testBacktestCostAttributionGrossNetConsistency
     testOrderExecutionFillSanitizationInvariant
+    testCoinbaseOrderInfoDecodeInvariant
     testOptimizerActivityCountInvariant
     testOptimizerPublicSurfaceRegression
     testOptimizerQualityBudgetRegression
@@ -821,6 +823,83 @@ testOrderExecutionFillSanitizationInvariant = do
     assert
         "reduce-only fills only close existing exposure and never reopen a position"
         (all reduceOnlyInvariant reduceOnlySamples)
+
+-- Coinbase live market orders must expose fill evidence to the shared
+-- execution-state reconciler; an accepted nested response without fill/status
+-- must not be promoted into a filled order by the parser.
+testCoinbaseOrderInfoDecodeInvariant :: IO ()
+testCoinbaseOrderInfoDecodeInvariant = do
+    legacyInfo <-
+        requireCoinbaseOrderInfo
+            "legacy Coinbase Exchange order response"
+            ( Aeson.object
+                [ "id" Aeson..= ("order-1" :: String)
+                , "client_oid" Aeson..= ("client-1" :: String)
+                , "status" Aeson..= ("done" :: String)
+                , "filled_size" Aeson..= ("0.125" :: String)
+                , "executed_value" Aeson..= ("8123.45" :: String)
+                ]
+            )
+    assert
+        "legacy Coinbase order response exposes id, status, filled base size, and executed quote value"
+        ( coiOrderId legacyInfo == Just "order-1"
+            && coiClientOrderId legacyInfo == Just "client-1"
+            && coiStatus legacyInfo == Just "done"
+            && coiFilledSize legacyInfo == Just 0.125
+            && coiExecutedValue legacyInfo == Just 8123.45
+        )
+
+    nestedInfo <-
+        requireCoinbaseOrderInfo
+            "nested Coinbase order response"
+            ( Aeson.object
+                [ "success" Aeson..= True
+                , "success_response"
+                    Aeson..= Aeson.object
+                        [ "order_id" Aeson..= ("order-2" :: String)
+                        , "client_order_id" Aeson..= ("client-2" :: String)
+                        ]
+                , "order"
+                    Aeson..= Aeson.object
+                        [ "status" Aeson..= ("FILLED" :: String)
+                        , "filled_size" Aeson..= ("0.25" :: String)
+                        , "filled_value" Aeson..= ("15000" :: String)
+                        ]
+                ]
+            )
+    assert
+        "nested Coinbase order response merges identifiers with detailed fill evidence"
+        ( coiOrderId nestedInfo == Just "order-2"
+            && coiClientOrderId nestedInfo == Just "client-2"
+            && coiStatus nestedInfo == Just "FILLED"
+            && coiFilledSize nestedInfo == Just 0.25
+            && coiExecutedValue nestedInfo == Just 15000
+        )
+
+    acceptedOnlyInfo <-
+        requireCoinbaseOrderInfo
+            "accepted Coinbase order response"
+            ( Aeson.object
+                [ "success" Aeson..= True
+                , "success_response"
+                    Aeson..= Aeson.object
+                        [ "order_id" Aeson..= ("order-3" :: String)
+                        , "client_order_id" Aeson..= ("client-3" :: String)
+                        ]
+                ]
+            )
+    assert
+        "accepted Coinbase response without explicit status or fill stays non-filled"
+        ( coiOrderId acceptedOnlyInfo == Just "order-3"
+            && isNothing (coiStatus acceptedOnlyInfo)
+            && isNothing (coiFilledSize acceptedOnlyInfo)
+        )
+  where
+    requireCoinbaseOrderInfo :: String -> Aeson.Value -> IO CoinbaseOrderInfo
+    requireCoinbaseOrderInfo label value =
+        case decodeCoinbaseOrderInfo (Aeson.encode value) of
+            Just info -> pure info
+            Nothing -> ioError (userError ("Failed to decode " ++ label))
 
 -- Formal optimization regression: the restored activity helper stays total,
 -- dominates both raw activity sources after clamping, and the RoiView

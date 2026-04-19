@@ -194,12 +194,15 @@ import Trader.BotStartSemantics (
 import Trader.Coinbase (
     CoinbaseCandle (..),
     CoinbaseEnv (..),
+    CoinbaseOrderInfo (..),
     coinbaseBaseUrl,
     coinbaseCandlesCacheStats,
+    decodeCoinbaseOrderInfo,
     fetchCoinbaseAccounts,
     fetchCoinbaseAvailableBalance,
     fetchCoinbaseBaseMinSize,
     fetchCoinbaseCandles,
+    fetchCoinbaseOrderById,
     newCoinbaseEnv,
     placeCoinbaseMarketOrder,
  )
@@ -18099,6 +18102,16 @@ applyOrderInfo info r =
         , aorCummulativeQuoteQty = boiCummulativeQuoteQty info <|> aorCummulativeQuoteQty r
         }
 
+applyCoinbaseOrderInfo :: CoinbaseOrderInfo -> ApiOrderResult -> ApiOrderResult
+applyCoinbaseOrderInfo info r =
+    r
+        { aorClientOrderId = coiClientOrderId info <|> aorClientOrderId r
+        , aorStatus = coiStatus info <|> aorStatus r
+        , aorExecutedQty = coiFilledSize info <|> aorExecutedQty r
+        , aorCummulativeQuoteQty = coiExecutedValue info <|> aorCummulativeQuoteQty r
+        , aorTxHash = coiOrderId info <|> aorTxHash r
+        }
+
 lstmConfidenceScore :: Args -> LatestSignal -> Maybe Double
 lstmConfidenceScore args sig = do
     next <- lsSizingNext sig
@@ -21013,12 +21026,48 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
         case r of
             Left ex -> pure baseOut{aorMessage = "Order failed: " ++ take 240 (show ex)}
             Right body ->
-                pure
+                reconcileCoinbaseOrder
+                    body
                     baseOut
                         { aorSent = True
                         , aorResponse = Just (shortResp body)
                         , aorMessage = "Order sent."
                         }
+
+    reconcileCoinbaseOrder :: BL.ByteString -> ApiOrderResult -> IO ApiOrderResult
+    reconcileCoinbaseOrder body out0 = do
+        let mInfo = decodeCoinbaseOrderInfo body
+            out1 = maybe out0 (`applyCoinbaseOrderInfo` out0) mInfo
+            mOrderId = mInfo >>= coiOrderId
+        fetchCoinbaseFillEvidence 0 mOrderId out1
+
+    fetchCoinbaseFillEvidence :: Int -> Maybe String -> ApiOrderResult -> IO ApiOrderResult
+    fetchCoinbaseFillEvidence attempt mOrderId out
+        | hasPositiveExecutedQty out = pure out
+        | attempt >= 3 = pure out
+        | otherwise =
+            case mOrderId <|> aorTxHash out of
+                Nothing -> pure out
+                Just orderId -> do
+                    when (attempt > 0) $
+                        threadDelay (attempt * 250000)
+                    r <- try (fetchCoinbaseOrderById env orderId) :: IO (Either SomeException BL.ByteString)
+                    case r of
+                        Left _ -> pure out
+                        Right detailBody ->
+                            let outNext =
+                                    maybe out (`applyCoinbaseOrderInfo` out) (decodeCoinbaseOrderInfo detailBody)
+                                outReconciled =
+                                    if not (hasPositiveExecutedQty out) && hasPositiveExecutedQty outNext
+                                        then outNext{aorMessage = "Order sent; reconciled fill by order id."}
+                                        else outNext
+                             in fetchCoinbaseFillEvidence (attempt + 1) (Just orderId) outReconciled
+
+    hasPositiveExecutedQty :: ApiOrderResult -> Bool
+    hasPositiveExecutedQty out =
+        case aorExecutedQty out of
+            Just q -> q > 0 && not (isNaN q || isInfinite q)
+            Nothing -> False
 
     placeBuy baseBal quoteBal mBaseMinQty _baseAsset quoteAsset =
         if isLongCoinbaseSpot mBaseMinQty baseBal
