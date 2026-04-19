@@ -196,12 +196,22 @@ function normalizeFileChange(raw, idx) {
   const path = sanitizeRelativePath(raw.path);
   const deleteFile = raw.delete === true;
   const content = deleteFile ? "" : readString(raw.content ?? "", `changes[${idx}].content`);
+  if (!deleteFile && looksLikePatchPayload(content)) {
+    throw new Error(
+      `changes[${idx}].content for ${path} looks like a patch/diff payload; provide complete replacement file content instead.`,
+    );
+  }
   return {
     path,
     delete: deleteFile,
     content,
     reason: typeof raw.reason === "string" ? raw.reason.trim() : "",
   };
+}
+
+function looksLikePatchPayload(content) {
+  const trimmed = String(content ?? "").trimStart();
+  return trimmed.startsWith("*** Begin Patch") || trimmed.startsWith("diff --git ");
 }
 
 export function normalizePatchPlan(raw) {

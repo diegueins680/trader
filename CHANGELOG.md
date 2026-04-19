@@ -1,4 +1,5 @@
 ## Unreleased
+- Autoloop: reject patch/diff marker payloads in model file-change `content` before writing files, so malformed patch plans fail cleanly instead of corrupting tracked source files with apply-patch text.
 - Bot/Live Trading: keep live volatility-confidence `block` and `allow-exit-only` decisions reduce-only by carrying the pre-gate direction into the close-direction hint, so an existing same-side bot position is held/reduced like the backtester instead of being flattened just because new entries are blocked.
 - Trading: fail closed on malformed conformal calibration residual evidence by requiring `Trader.Predictors.Conformal.fitConformal` to receive a non-empty residual sample where every residual is finite and non-negative; empty samples or any negative, `NaN`, or infinite residual now produce an unavailable unbounded interval with no sigma estimate instead of a tight filtered band.
 - Trading/Formal: document the conformal-calibration validity and monotone interval-width invariant in `FORMAL_METHODS.md`, including conservative handling for empty/malformed evidence and the valid zero-residual boundary.

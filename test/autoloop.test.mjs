@@ -382,6 +382,42 @@ test("normalizePatchPlan validates change entries", () => {
       }),
     /duplicate path/,
   );
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Patch marker payload",
+        summary: "Patch marker payload",
+        commitMessage: "Patch marker payload",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
+        changes: [
+          {
+            path: "haskell/app/Trader/Trading.hs",
+            content: "*** Begin Patch\n*** Update File: haskell/app/Trader/Trading.hs\n",
+          },
+        ],
+      }),
+    /looks like a patch\/diff payload/,
+  );
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Diff payload",
+        summary: "Diff payload",
+        commitMessage: "Diff payload",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
+        changes: [
+          {
+            path: "README.md",
+            content: "diff --git a/README.md b/README.md\n",
+          },
+        ],
+      }),
+    /looks like a patch\/diff payload/,
+  );
 });
 
 test("clampText preserves short text and truncates long text", () => {
