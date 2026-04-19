@@ -1,5 +1,6 @@
 ## Unreleased
 - Autoloop: reject patch/diff marker payloads in model file-change `content` before writing files, so malformed patch plans fail cleanly instead of corrupting tracked source files with apply-patch text.
+- Autoloop: reject prose edit-instruction payloads in model file-change `content`, so replacement instructions cannot be written into source files as if they were complete file contents.
 - Trading: add backtest cost-attribution JSON with gross/net equity surfaces, realized fee/slippage/spread/funding totals, total realized cost, and a residual proving gross minus realized costs equals net for the emitted run.
 - Bot/Live Trading: prevent queued `/bot/start` requests from waiting forever on below-threshold transient order errors; halted bots and order errors that reach `--max-order-errors` still block queued starts.
 - Bot/Live Trading: skip `TRADER_BOT_DISABLED_SYMBOLS` (default `MATICUSDT`) for live auto-start and `/bot/start` batches so closed/delisted symbols do not churn the start queue.

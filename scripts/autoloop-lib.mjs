@@ -201,6 +201,11 @@ function normalizeFileChange(raw, idx) {
       `changes[${idx}].content for ${path} looks like a patch/diff payload; provide complete replacement file content instead.`,
     );
   }
+  if (!deleteFile && looksLikeInstructionPayload(content, path)) {
+    throw new Error(
+      `changes[${idx}].content for ${path} looks like edit instructions; provide complete replacement file content instead.`,
+    );
+  }
   return {
     path,
     delete: deleteFile,
@@ -212,6 +217,26 @@ function normalizeFileChange(raw, idx) {
 function looksLikePatchPayload(content) {
   const trimmed = String(content ?? "").trimStart();
   return trimmed.startsWith("*** Begin Patch") || trimmed.startsWith("diff --git ");
+}
+
+function looksLikeInstructionPayload(content, filePath) {
+  const firstLine = String(content ?? "").trimStart().split(/\r?\n/, 1)[0]?.trim() ?? "";
+  if (!firstLine) return false;
+
+  const verb = "(?:replace|add|update|modify|change|insert|delete|remove|append)";
+  const pathPattern = escapeRegExp(filePath);
+  const genericPathPattern = "[A-Za-z0-9_./-]+";
+
+  return (
+    new RegExp(`^In\\s+${pathPattern}\\s*,\\s*${verb}\\b`, "i").test(firstLine) ||
+    new RegExp(`^In\\s+${genericPathPattern}\\s*,\\s*${verb}\\b`, "i").test(firstLine) ||
+    new RegExp(`^For\\s+${genericPathPattern}\\s*,\\s*${verb}\\b`, "i").test(firstLine) ||
+    new RegExp(`^${verb}\\s+(?:this|the)\\b`, "i").test(firstLine)
+  );
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function normalizePatchPlan(raw) {

@@ -418,6 +418,24 @@ test("normalizePatchPlan validates change entries", () => {
       }),
     /looks like a patch\/diff payload/,
   );
+  assert.throws(
+    () =>
+      normalizePatchPlan({
+        noChange: false,
+        title: "Instruction payload",
+        summary: "Instruction payload",
+        commitMessage: "Instruction payload",
+        algorithmReviewSummary: "Reviewed the backend trading file.",
+        formalMethodsSummary: "The contract is unchanged.",
+        changes: [
+          {
+            path: "haskell/app/Trader/Trading.hs",
+            content: "In haskell/app/Trader/Trading.hs, replace this Kelly-lite binding block:\nold\nwith this:\nnew\n",
+          },
+        ],
+      }),
+    /looks like edit instructions/,
+  );
 });
 
 test("clampText preserves short text and truncates long text", () => {

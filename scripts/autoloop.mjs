@@ -1132,7 +1132,7 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     "Respond in JSON with keys: noChange, title, summary, commitMessage, algorithmReviewSummary, formalMethodsSummary, verificationCommands, changes.",
     "Each entry in changes must be an object with path, content, and optional reason.",
     "The content field must contain the complete replacement file content for that path.",
-    "Do not put apply_patch, unified diff, or patch-marker text in content.",
+    "Do not put apply_patch, unified diff, patch-marker text, or prose edit instructions in content.",
     "Do not include markdown fences or prose outside JSON.",
     "Constraints:",
     "- Only modify the provided files.",
