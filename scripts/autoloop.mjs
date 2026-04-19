@@ -57,6 +57,10 @@ const CODEX_RETRY_MAX_ATTEMPTS = clampInt(process.env.AUTOLOOP_CODEX_RETRY_MAX_A
 const CODEX_RETRY_BACKOFF_MS = clampInt(process.env.AUTOLOOP_CODEX_RETRY_BACKOFF_MS, 15000, 1000, 120000);
 const CODEX_REASONING_EFFORT = resolveCodexReasoningEffort(process.env.AUTOLOOP_CODEX_REASONING_EFFORT);
 const SKIP_CI_WAIT = readBooleanEnv(process.env.AUTOLOOP_SKIP_CI_WAIT);
+const AI_REVIEW_POLL_ENABLED = !readBooleanEnv(process.env.AUTOLOOP_DISABLE_AI_REVIEW_POLL);
+const AI_REVIEW_LOOKBACK_PRS = clampInt(process.env.AUTOLOOP_AI_REVIEW_LOOKBACK_PRS, 20, 1, 50);
+const AI_REVIEW_MAX_THREADS = clampInt(process.env.AUTOLOOP_AI_REVIEW_MAX_THREADS, 12, 1, 50);
+const AI_REVIEW_THREAD_MAX_CHARS = clampInt(process.env.AUTOLOOP_AI_REVIEW_THREAD_MAX_CHARS, 6000, 1000, 20000);
 const HAS_CODEX = commandExists("codex");
 const PLANNER_BACKEND = resolveAutoloopBackend(REQUESTED_BACKEND, {
   hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
@@ -148,6 +152,7 @@ let statusState = {
 
 let cachedStoredGhToken = null;
 let cachedTrackedFiles = null;
+let cachedRepoNameWithOwner = null;
 
 async function main() {
   await updateStatus({ phase: "preflight" });
@@ -195,10 +200,24 @@ async function main() {
     const failureRepairPaths = deriveFailureRepairPaths(failureContext);
     const automaticRepair = failureContext ? detectAutomaticRepair(failureContext) : null;
     let automaticRepairFailure = "";
+    let reviewFeedbackContext = null;
     let plannedPaths = [];
     let verificationCommands = [];
     let commitMessage = "";
     let planSummary = null;
+
+    if (AI_REVIEW_POLL_ENABLED) {
+      await updateStatus({ phase: "copilot-review-poll", iteration, failureContext: summarizeFailureContext(failureContext) });
+      reviewFeedbackContext = pollGitHubAiReviewFeedback();
+      if (reviewFeedbackContext?.threads?.length > 0) {
+        await updateStatus({
+          phase: "copilot-review-analysis",
+          iteration,
+          failureContext: summarizeFailureContext(failureContext),
+          reviewFeedback: summarizeReviewFeedbackContext(reviewFeedbackContext),
+        });
+      }
+    }
 
     if (automaticRepair) {
       plannedPaths = automaticRepair.changedPaths;
@@ -228,11 +247,26 @@ async function main() {
     }
 
     if (!automaticRepair || automaticRepairFailure) {
-      const repoContext = await buildRepoContext(failureRepairPaths);
+      let actionableReviewFeedbackContext = failureContext ? null : reviewFeedbackContext;
+      const reviewRepairPaths = deriveAiReviewRepairPaths(actionableReviewFeedbackContext);
+      const repoContext = await buildRepoContext(uniqueStrings([...failureRepairPaths, ...reviewRepairPaths]));
       await updateStatus({ phase: "choose-change", iteration });
-      const selectedIdea = failureContext
-        ? await requestFixIdea(repoContext, failureContext, failureRepairPaths, automaticRepairFailure)
-        : await requestIdeaSelection(repoContext);
+      let selectedIdea;
+      if (failureContext) {
+        selectedIdea = await requestFixIdea(repoContext, failureContext, failureRepairPaths, automaticRepairFailure);
+      } else if (actionableReviewFeedbackContext?.threads?.length > 0) {
+        selectedIdea = await requestReviewFeedbackSelection(repoContext, actionableReviewFeedbackContext);
+        if (selectedIdea.noChange) {
+          console.log(
+            `No actionable Copilot/Codex review feedback selected${selectedIdea.rationale ? `: ${selectedIdea.rationale}` : "."}`,
+          );
+          reviewFeedbackContext = null;
+          actionableReviewFeedbackContext = null;
+          selectedIdea = await requestIdeaSelection(repoContext);
+        }
+      } else {
+        selectedIdea = await requestIdeaSelection(repoContext);
+      }
       const idea =
         failureContext && selectedIdea.noChange
           ? buildFailureRepairIdea(failureContext, failureRepairPaths, automaticRepairFailure) || selectedIdea
@@ -255,7 +289,7 @@ async function main() {
       await updateStatus({ phase: "plan-patch", iteration, idea: summarizeIdea(idea) });
       let plan;
       try {
-        plan = await requestPatchPlan(repoContext, idea, editableFiles, failureContext);
+        plan = await requestPatchPlan(repoContext, idea, editableFiles, failureContext, actionableReviewFeedbackContext);
       } catch (err) {
         if (!isModelJsonParseError(err)) throw err;
         const message = `Patch plan returned invalid JSON after retry: ${err instanceof Error ? err.message : String(err)}`;
@@ -604,6 +638,15 @@ function summarizePlan(plan) {
   };
 }
 
+function summarizeReviewFeedbackContext(reviewFeedbackContext) {
+  if (!reviewFeedbackContext) return null;
+  return {
+    pullRequestsScanned: reviewFeedbackContext.pullRequestsScanned || 0,
+    threadCount: reviewFeedbackContext.threads?.length || 0,
+    pullRequests: uniqueStrings((reviewFeedbackContext.threads || []).map((thread) => `#${thread.prNumber} ${thread.prTitle}`)),
+  };
+}
+
 function summarizeFailureContext(failureContext) {
   if (!failureContext) return null;
   return {
@@ -714,6 +757,169 @@ function detectAutomaticRepair(failureContext) {
     verificationCommands: planVerificationCommands(hlintPaths, [HLINT_CHECK_COMMAND]),
     suggestions: hlintEntries,
   };
+}
+
+function isAiReviewAuthor(login) {
+  const normalized = String(login || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\[bot\]$/, "");
+  return normalized.includes("copilot") || normalized.includes("chatgpt-codex") || normalized === "codex";
+}
+
+function getRepoNameWithOwner() {
+  if (cachedRepoNameWithOwner !== null) return cachedRepoNameWithOwner;
+  try {
+    const response = JSON.parse(runGh(["repo", "view", "--json", "nameWithOwner"]));
+    cachedRepoNameWithOwner = String(response?.nameWithOwner || "").trim();
+  } catch {
+    cachedRepoNameWithOwner = "";
+  }
+  return cachedRepoNameWithOwner;
+}
+
+function listRecentPullRequestsForReview() {
+  const response = JSON.parse(
+    runGh(["api", `repos/:owner/:repo/pulls?state=all&sort=updated&direction=desc&per_page=${AI_REVIEW_LOOKBACK_PRS}`]),
+  );
+  return (Array.isArray(response) ? response : [])
+    .map((pr) => ({
+      number: Number(pr?.number),
+      title: String(pr?.title || "").trim(),
+      url: String(pr?.html_url || "").trim(),
+      state: String(pr?.state || "").trim(),
+      mergedAt: String(pr?.merged_at || "").trim(),
+      updatedAt: String(pr?.updated_at || "").trim(),
+    }))
+    .filter((pr) => Number.isInteger(pr.number) && pr.number > 0);
+}
+
+function fetchPullRequestReviewThreads(prSummary) {
+  const nameWithOwner = getRepoNameWithOwner();
+  const [owner, name] = nameWithOwner.split("/");
+  if (!owner || !name) return [];
+
+  const query = `
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number
+      title
+      url
+      state
+      merged
+      reviewThreads(first: 50) {
+        nodes {
+          id
+          isResolved
+          isOutdated
+          path
+          line
+          startLine
+          comments(first: 20) {
+            nodes {
+              id
+              author {
+                login
+              }
+              body
+              createdAt
+              url
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+  const response = JSON.parse(
+    runGh(["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${prSummary.number}`, "-f", `query=${query}`]),
+  );
+  const pr = response?.data?.repository?.pullRequest;
+  const threads = Array.isArray(pr?.reviewThreads?.nodes) ? pr.reviewThreads.nodes : [];
+  return threads
+    .map((thread) => normalizeAiReviewThread(prSummary, pr, thread))
+    .filter(Boolean);
+}
+
+function normalizeAiReviewThread(prSummary, pr, thread) {
+  if (thread?.isResolved || thread?.isOutdated) return null;
+  const comments = Array.isArray(thread?.comments?.nodes) ? thread.comments.nodes : [];
+  const aiComments = comments.filter((comment) => isAiReviewAuthor(comment?.author?.login));
+  if (aiComments.length === 0) return null;
+
+  let reviewPath = "";
+  try {
+    reviewPath = sanitizeRelativePath(thread?.path || "");
+  } catch {
+    return null;
+  }
+  if (!reviewPath || !allowedEditPath(reviewPath)) return null;
+
+  const comment = aiComments[0];
+  return {
+    prNumber: Number(pr?.number || prSummary.number),
+    prTitle: String(pr?.title || prSummary.title || "").trim(),
+    prUrl: String(pr?.url || prSummary.url || "").trim(),
+    prState: String(pr?.state || prSummary.state || "").trim(),
+    prMerged: Boolean(pr?.merged || prSummary.mergedAt),
+    threadId: String(thread?.id || "").trim(),
+    path: reviewPath,
+    line: Number.isFinite(Number(thread?.line)) ? Number(thread.line) : 0,
+    startLine: Number.isFinite(Number(thread?.startLine)) ? Number(thread.startLine) : 0,
+    author: String(comment?.author?.login || "").trim(),
+    commentId: String(comment?.id || "").trim(),
+    commentUrl: String(comment?.url || "").trim(),
+    createdAt: String(comment?.createdAt || "").trim(),
+    body: clampText(String(comment?.body || "").trim(), AI_REVIEW_THREAD_MAX_CHARS),
+  };
+}
+
+function pollGitHubAiReviewFeedback() {
+  if (!AI_REVIEW_POLL_ENABLED) return null;
+  try {
+    const pullRequests = listRecentPullRequestsForReview();
+    const threads = [];
+    for (const pr of pullRequests) {
+      threads.push(...fetchPullRequestReviewThreads(pr));
+      if (threads.length >= AI_REVIEW_MAX_THREADS) break;
+    }
+    return {
+      pullRequestsScanned: pullRequests.length,
+      threads: threads.slice(0, AI_REVIEW_MAX_THREADS),
+    };
+  } catch (err) {
+    console.warn(`Unable to poll GitHub Copilot/Codex review feedback: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+function deriveAiReviewRepairPaths(reviewFeedbackContext) {
+  if (!reviewFeedbackContext?.threads?.length) return [];
+  return uniqueStrings(reviewFeedbackContext.threads.map((thread) => thread.path).filter(Boolean).filter(allowedEditPath)).sort(
+    compareEditablePaths,
+  );
+}
+
+function reviewFeedbackContextText(reviewFeedbackContext) {
+  const threads = reviewFeedbackContext?.threads || [];
+  if (threads.length === 0) return "(none)";
+  return threads
+    .map((thread, idx) =>
+      [
+        `Review thread ${idx + 1}:`,
+        `PR: #${thread.prNumber} ${thread.prTitle}`,
+        `PR URL: ${thread.prUrl}`,
+        `Thread ID: ${thread.threadId}`,
+        `Comment URL: ${thread.commentUrl}`,
+        `Author: ${thread.author}`,
+        `Path: ${thread.path}${thread.line ? `:${thread.line}` : ""}`,
+        `PR state: ${thread.prState}${thread.prMerged ? " (merged)" : ""}`,
+        "Body:",
+        thread.body,
+      ].join("\n"),
+    )
+    .join("\n\n---\n\n");
 }
 
 function assertCleanWorktree() {
@@ -1088,6 +1294,33 @@ async function requestIdeaSelection(repoContext) {
   return normalizeIdeaSelection(await callModelJson({ prompt, maxOutputTokens: 2000 }));
 }
 
+async function requestReviewFeedbackSelection(repoContext, reviewFeedbackContext) {
+  const prompt = [
+    "You are selecting exactly one safe autonomous change from GitHub AI review feedback.",
+    "The feedback comes from unresolved, non-outdated Copilot/Codex pull request review threads. You must analyze whether a thread is correct before selecting it.",
+    "Respond in JSON with keys: noChange, title, rationale, algorithmReviewPath, algorithmReviewFocus, formalMethodsPath, formalMethodsFocus, filesNeeded, verificationCommands.",
+    "Constraints:",
+    "- Prefer valid review comments that identify a real correctness, reliability, test, or automation improvement.",
+    "- Do not blindly trust the review. Return noChange if every thread is incorrect, already addressed, too risky, stale, uneditable, purely stylistic, or not worth changing.",
+    "- Choose one small, high-confidence fix or improvement tied directly to one review thread.",
+    "- Touch only files from the editable file list.",
+    "- If the review changes user-visible behavior or automation behavior, include README.md and CHANGELOG.md in filesNeeded.",
+    "- algorithmReviewPath must be a reviewed editable file or another directly relevant editable file, and filesNeeded must include it.",
+    `- formalMethodsPath must be within ${FORMAL_METHODS_REVIEW_PREFIXES.join(" or ")} and filesNeeded must include it.`,
+    "- Prefer using Haskell tests or root automation tests as the formalMethodsPath when the review is about optimizer or automation behavior.",
+    `- Verification commands must be chosen from this allowlist: ${Array.from(SAFE_VERIFICATION_COMMANDS).join(" | ")}`,
+    "",
+    "GitHub AI review feedback:",
+    reviewFeedbackContextText(reviewFeedbackContext),
+    "",
+    repoContextText(repoContext),
+  ].join("\n");
+
+  return normalizeIdeaSelection(await callModelJson({ prompt, maxOutputTokens: 2400 }), {
+    algorithmReviewPrefixes: ALLOWED_EDIT_PREFIXES,
+  });
+}
+
 async function requestFixIdea(repoContext, failureContext, failureRepairPaths = [], automaticRepairFailure = "") {
   const parserFailurePaths = deriveParserFailurePaths(failureContext?.failedLog, automaticRepairFailure);
   const syntaxRepairRequired = parserFailurePaths.length > 0 && hasHaskellParserFailure(`${failureContext?.failedLog || ""}\n${automaticRepairFailure}`);
@@ -1137,16 +1370,19 @@ async function readEditableFiles(paths) {
   return out;
 }
 
-async function requestPatchPlan(_repoContext, idea, editableFiles, failureContext) {
+async function requestPatchPlan(_repoContext, idea, editableFiles, failureContext, reviewFeedbackContext = null) {
   const fileSections = editableFiles
     .map((file) => `FILE: ${file.path}\n<<<FILE\n${file.content}\nFILE;`)
     .join("\n\n");
   const parserFailurePaths = deriveParserFailurePaths(failureContext?.failedLog);
   const syntaxRepairRequired = parserFailurePaths.length > 0 && hasHaskellParserFailure(failureContext?.failedLog || "");
+  const reviewDriven = Boolean(reviewFeedbackContext?.threads?.length);
 
   const promptLines = [
     "You are implementing a single repository change.",
-    "Keep the change centered on a backend Haskell trading improvement and its formal-methods coverage.",
+    reviewDriven
+      ? "Keep the change centered on the selected GitHub AI review feedback and only implement it if the feedback is correct against the provided file contents."
+      : "Keep the change centered on a backend Haskell trading improvement and its formal-methods coverage.",
     "Use the selected file contents below as the complete source of truth for editing this patch-plan step.",
     "Respond in JSON with keys: noChange, title, summary, commitMessage, algorithmReviewSummary, formalMethodsSummary, verificationCommands, changes.",
     "Each entry in changes must be an object with path plus exactly one edit mode: either content or replacements.",
@@ -1160,11 +1396,21 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     "- Preserve unrelated content.",
     "- Keep the change minimal and focused.",
     "- If the failed CI log shows parser-level Haskell errors, first restore valid Haskell syntax/module/import/test structure in the named files before attempting formatter-only cleanup or broader semantic edits.",
-    "- Explicitly complete the required phases inside this plan: the chosen backend algorithm change, a review of the selected Haskell algorithm file, and a formal-methods review with an invariant/property/proof-sketch update.",
-    "- algorithmReviewSummary must say what backend algorithm file was reviewed and what algorithmic change or no-change decision followed.",
-    "- formalMethodsSummary must name the invariant/property/test or FORMAL_METHODS / Trader.Formal proof sketch that now covers the change.",
-    "- If behavior changes, prefer updating FORMAL_METHODS.md, haskell/app/Trader/Formal/*, or Haskell tests within the selected files.",
-    "- Prefer verification commands that exercise Haskell build/test coverage for the touched trading logic.",
+    reviewDriven
+      ? "- Explicitly complete the review-feedback phases inside this plan: validate the selected AI review comment against the current file contents, implement the smallest correct fix, and name the test/documentation/verification artifact that covers it."
+      : "- Explicitly complete the required phases inside this plan: the chosen backend algorithm change, a review of the selected Haskell algorithm file, and a formal-methods review with an invariant/property/proof-sketch update.",
+    reviewDriven
+      ? "- algorithmReviewSummary must say which reviewed file/comment was validated and what fix or no-change decision followed."
+      : "- algorithmReviewSummary must say what backend algorithm file was reviewed and what algorithmic change or no-change decision followed.",
+    reviewDriven
+      ? "- formalMethodsSummary must name the test, proof, documentation, or verification artifact that now covers the review-driven change."
+      : "- formalMethodsSummary must name the invariant/property/test or FORMAL_METHODS / Trader.Formal proof sketch that now covers the change.",
+    reviewDriven
+      ? "- If behavior changes, include the selected tests, README.md, CHANGELOG.md, or formal artifact within the provided files when they are needed to cover the review-driven change."
+      : "- If behavior changes, prefer updating FORMAL_METHODS.md, haskell/app/Trader/Formal/*, or Haskell tests within the selected files.",
+    reviewDriven
+      ? "- Prefer verification commands that exercise the touched review-driven path."
+      : "- Prefer verification commands that exercise Haskell build/test coverage for the touched trading logic.",
     "- Use ASCII unless the file already requires Unicode.",
     `- Verification commands must be chosen from this allowlist: ${Array.from(SAFE_VERIFICATION_COMMANDS).join(" | ")}`,
     idea.title ? `Selected idea: ${idea.title}` : "",
@@ -1182,6 +1428,7 @@ async function requestPatchPlan(_repoContext, idea, editableFiles, failureContex
     prompt = [
       ...promptLines,
       failureContext ? `Failed CI log excerpt:\n${clampText(failureContext.failedLog, failedLogChars)}` : "",
+      reviewFeedbackContext ? `GitHub AI review feedback being considered:\n${reviewFeedbackContextText(reviewFeedbackContext)}` : "",
       "",
       "Editable file contents:",
       fileSections,

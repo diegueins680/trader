@@ -156,7 +156,9 @@ function readScopedPath(raw, field, allowedPrefixes) {
 const ALGORITHM_REVIEW_PREFIXES = ["haskell/app/"];
 const FORMAL_METHODS_REVIEW_PREFIXES = ["FORMAL_METHODS.md", "haskell/app/Trader/Formal/", "test/", "haskell/test/"];
 
-export function normalizeIdeaSelection(raw) {
+export function normalizeIdeaSelection(raw, options = {}) {
+  const algorithmReviewPrefixes = options.algorithmReviewPrefixes || ALGORITHM_REVIEW_PREFIXES;
+  const formalMethodsReviewPrefixes = options.formalMethodsReviewPrefixes || FORMAL_METHODS_REVIEW_PREFIXES;
   const obj = raw && typeof raw === "object" ? raw : {};
   const noChange = obj.noChange === true;
   const filesNeeded = noChange
@@ -164,10 +166,10 @@ export function normalizeIdeaSelection(raw) {
     : readStringArray(obj.filesNeeded, "filesNeeded", 10).map(sanitizeRelativePath);
   const algorithmReviewPath = noChange
     ? String(obj.algorithmReviewPath ?? "").trim()
-    : readScopedPath(obj.algorithmReviewPath, "algorithmReviewPath", ALGORITHM_REVIEW_PREFIXES);
+    : readScopedPath(obj.algorithmReviewPath, "algorithmReviewPath", algorithmReviewPrefixes);
   const formalMethodsPath = noChange
     ? String(obj.formalMethodsPath ?? "").trim()
-    : readScopedPath(obj.formalMethodsPath, "formalMethodsPath", FORMAL_METHODS_REVIEW_PREFIXES);
+    : readScopedPath(obj.formalMethodsPath, "formalMethodsPath", formalMethodsReviewPrefixes);
   if (!noChange) {
     if (!filesNeeded.includes(algorithmReviewPath)) throw new Error("filesNeeded must include algorithmReviewPath.");
     if (!filesNeeded.includes(formalMethodsPath)) throw new Error("filesNeeded must include formalMethodsPath.");

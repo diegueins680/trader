@@ -236,6 +236,31 @@ migrations =
             , "CREATE INDEX IF NOT EXISTS combos_source_idx ON combos(source)"
             ]
         }
+    , Migration
+        { migVersion = 3
+        , migDescription = "ops_live_schema_columns"
+        , migStatements =
+            [ "ALTER TABLE ops ADD COLUMN IF NOT EXISTS tenant_key TEXT"
+            , "ALTER TABLE ops ADD COLUMN IF NOT EXISTS platform_id INTEGER REFERENCES platforms(id)"
+            , "ALTER TABLE ops ADD COLUMN IF NOT EXISTS symbol_id BIGINT REFERENCES platform_symbols(id)"
+            , "ALTER TABLE ops ADD COLUMN IF NOT EXISTS args_json JSONB"
+            , "ALTER TABLE ops ADD COLUMN IF NOT EXISTS result_json JSONB"
+            , "ALTER TABLE ops ADD COLUMN IF NOT EXISTS equity DOUBLE PRECISION"
+            , "ALTER TABLE ops ADD COLUMN IF NOT EXISTS git_commit_id BIGINT REFERENCES git_commits(id)"
+            , "ALTER TABLE git_commits ADD COLUMN IF NOT EXISTS committed_at_ms BIGINT"
+            , "CREATE INDEX IF NOT EXISTS ops_kind_idx ON ops(kind)"
+            , "CREATE INDEX IF NOT EXISTS ops_combo_uuid_idx ON ops(combo_uuid)"
+            , "CREATE INDEX IF NOT EXISTS ops_symbol_idx ON ops(symbol)"
+            , "CREATE INDEX IF NOT EXISTS ops_platform_idx ON ops(platform_id)"
+            , "CREATE INDEX IF NOT EXISTS ops_tenant_key_idx ON ops(tenant_key)"
+            , "CREATE INDEX IF NOT EXISTS ops_symbol_id_idx ON ops(symbol_id)"
+            , "CREATE INDEX IF NOT EXISTS ops_git_commit_id_idx ON ops(git_commit_id)"
+            , "CREATE INDEX IF NOT EXISTS git_commits_committed_at_ms_idx ON git_commits(committed_at_ms)"
+            , "CREATE INDEX IF NOT EXISTS ops_order_id_idx ON ops(order_id)"
+            , "CREATE INDEX IF NOT EXISTS ops_at_ms_idx ON ops(at_ms)"
+            , "CREATE INDEX IF NOT EXISTS ops_symbol_at_ms_idx ON ops(symbol, at_ms)"
+            ]
+        }
     ]
 
 ensureOpsDbSchema :: Connection -> IO ()

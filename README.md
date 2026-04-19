@@ -22,6 +22,7 @@
   - State sync uses compact top-combo payloads for outbound `/state/sync` writes, does not synchronously re-post inbound `/state/sync` imports to the configured sync target, and supports `TRADER_STATE_SYNC_TIMEOUT_SEC` (default 15, max 300) for slower cross-deployment sync links.
 
 ## Autoloop
+- The bounded auto-loop now polls recent GitHub pull requests for unresolved Copilot/Codex review threads before choosing a new autonomous idea. It asks the planner to validate whether each review is correct, prioritizes valid actionable review fixes, and falls back to the normal improvement selection when no review feedback is worth changing. Set `AUTOLOOP_DISABLE_AI_REVIEW_POLL=1` to disable the review pass, or tune `AUTOLOOP_AI_REVIEW_LOOKBACK_PRS`, `AUTOLOOP_AI_REVIEW_MAX_THREADS`, and `AUTOLOOP_AI_REVIEW_THREAD_MAX_CHARS` to adjust scan breadth and prompt size.
 - The repo autoloop now treats merged local branches that are still attached to Git worktrees as prune skips instead of blocking the forever runner before any bounded repair cycle starts.
 - The forever runner now prunes stale `git worktree` metadata before merged-ref cleanup, and it saves failed dirty-cycle snapshots onto dedicated `autoloop/recovery/*` or `autoloop/checkpoint/*` branches instead of writing those `WIP` rescue commits directly onto `main`.
 - The bounded autoloop now includes `hlint app test bench` in its safe verification set and can apply direct `Found:` to `Perhaps:` HLint replacements for editable Haskell files when CI fails on simple HLint-only suggestions.

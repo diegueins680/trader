@@ -322,6 +322,21 @@ test("normalizeIdeaSelection validates required fields", () => {
       }),
     /formalMethodsPath must be within/,
   );
+  const reviewIdea = normalizeIdeaSelection(
+    {
+      noChange: false,
+      title: "Handle valid automation review",
+      rationale: "The review points at a concrete autoloop behavior issue.",
+      algorithmReviewPath: "scripts/autoloop.mjs",
+      algorithmReviewFocus: "Validate the review against the autoloop planner flow.",
+      formalMethodsPath: "test/autoloop.test.mjs",
+      formalMethodsFocus: "Cover the review-driven behavior in automation tests.",
+      filesNeeded: ["scripts/autoloop.mjs", "test/autoloop.test.mjs"],
+      verificationCommands: ["bash scripts/verify.sh automation"],
+    },
+    { algorithmReviewPrefixes: ["scripts/"] },
+  );
+  assert.equal(reviewIdea.algorithmReviewPath, "scripts/autoloop.mjs");
 });
 
 test("normalizePatchPlan validates change entries", () => {
@@ -673,13 +688,43 @@ test("autoloop script feeds failed CI logs back into codex repair prompts", asyn
   assert.match(script, /failureContext = \{\s*[\s\S]*failedLog: ci\.failedLog,/);
   assert.match(
     script,
-    /const selectedIdea = failureContext\s*\?\s*await requestFixIdea\(repoContext, failureContext, failureRepairPaths, automaticRepairFailure\)/,
+    /if \(failureContext\) \{\s*selectedIdea = await requestFixIdea\(repoContext, failureContext, failureRepairPaths, automaticRepairFailure\);/,
   );
   assert.match(script, /"Failed log excerpt:",\s*clampText\(failureContext\.failedLog, 20000\)/);
   assert.match(script, /let failedLogChars = failureContext \? 18000 : 0;/);
   assert.match(script, /failureContext \? `Failed CI log excerpt:\\n\$\{clampText\(failureContext\.failedLog, failedLogChars\)\}` : ""/);
   assert.match(script, /function readFailedWorkflowRunLog\(runId\)/);
   assert.match(script, /const failedLog = clampText\(readFailedWorkflowRunLog\(runId\), 18000\);/);
+});
+
+test("autoloop polls unresolved Copilot review feedback before autonomous ideas", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  const workflow = await fs.readFile(new URL("../.github/workflows/autoloop.yml", import.meta.url), "utf8");
+
+  assert.match(script, /const AI_REVIEW_POLL_ENABLED = !readBooleanEnv\(process\.env\.AUTOLOOP_DISABLE_AI_REVIEW_POLL\);/);
+  assert.match(script, /const AI_REVIEW_LOOKBACK_PRS = clampInt\(process\.env\.AUTOLOOP_AI_REVIEW_LOOKBACK_PRS, 20, 1, 50\);/);
+  assert.match(script, /phase: "copilot-review-poll"/);
+  assert.match(script, /reviewFeedbackContext = pollGitHubAiReviewFeedback\(\);/);
+  assert.match(script, /let reviewFeedbackContext = null;[\s\S]*phase: "copilot-review-poll"[\s\S]*if \(automaticRepair\)/);
+  assert.match(script, /phase: "copilot-review-analysis"/);
+  assert.match(script, /selectedIdea = await requestReviewFeedbackSelection\(repoContext, actionableReviewFeedbackContext\);/);
+  assert.match(script, /No actionable Copilot\/Codex review feedback selected/);
+  assert.match(script, /actionableReviewFeedbackContext = null;/);
+  assert.match(script, /selectedIdea = await requestIdeaSelection\(repoContext\);/);
+  assert.match(script, /function pollGitHubAiReviewFeedback\(\)/);
+  assert.match(script, /reviewThreads\(first: 50\)/);
+  assert.match(script, /if \(thread\?\.isResolved \|\| thread\?\.isOutdated\) return null;/);
+  assert.match(script, /function isAiReviewAuthor\(login\)/);
+  assert.match(script, /normalized\.includes\("copilot"\) \|\| normalized\.includes\("chatgpt-codex"\)/);
+  assert.match(script, /function requestReviewFeedbackSelection\(repoContext, reviewFeedbackContext\)/);
+  assert.match(script, /You must analyze whether a thread is correct before selecting it\./);
+  assert.match(script, /algorithmReviewPath must be a reviewed editable file or another directly relevant editable file/);
+  assert.match(script, /algorithmReviewPrefixes: ALLOWED_EDIT_PREFIXES/);
+  assert.match(script, /function deriveAiReviewRepairPaths\(reviewFeedbackContext\)/);
+  assert.match(script, /requestPatchPlan\(repoContext, idea, editableFiles, failureContext, actionableReviewFeedbackContext\)/);
+  assert.match(script, /GitHub AI review feedback being considered/);
+  assert.match(script, /Keep the change centered on the selected GitHub AI review feedback/);
+  assert.match(workflow, /pull-requests: read/);
 });
 
 test("autoloop script repairs the latest remote branch head before proposing new work", async () => {
@@ -749,7 +794,8 @@ test("autoloop script promotes failing log paths into generic self-heal scope", 
   assert.match(script, /const PATCH_PLAN_PROMPT_MAX_CHARS = clampInt\(process\.env\.AUTOLOOP_PATCH_PLAN_MAX_CHARS, 900000, 200000, 1048576\);/);
   assert.match(script, /function parseFailureReferencedPaths\(failedLog\)/);
   assert.match(script, /function deriveFailureRepairPaths\(failureContext\)/);
-  assert.match(script, /const repoContext = await buildRepoContext\(failureRepairPaths\);/);
+  assert.match(script, /const reviewRepairPaths = deriveAiReviewRepairPaths\(actionableReviewFeedbackContext\);/);
+  assert.match(script, /const repoContext = await buildRepoContext\(uniqueStrings\(\[\.\.\.failureRepairPaths, \.\.\.reviewRepairPaths\]\)\);/);
   assert.match(script, /await requestFixIdea\(repoContext, failureContext, failureRepairPaths, automaticRepairFailure\)/);
   assert.match(script, /buildFailureRepairIdea\(failureContext, failureRepairPaths, automaticRepairFailure\) \|\| selectedIdea/);
   assert.match(script, /const editableFiles = await readEditableFiles\(idea\.filesNeeded\);/);
