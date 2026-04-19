@@ -13,6 +13,7 @@ module Trader.Optimizer.Optimize (
     qualityPresetIntervalFields,
     qualityPresetBudget,
     qualityPresetCeiling,
+    qualityPresetWeightFloor,
     runOptimizer,
     sampleTakeProfitPartial,
 ) where
@@ -33,10 +34,10 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
+import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (for_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
-import Data.List (foldl', intercalate, sort, sortOn)
+import Data.List (foldl', group, intercalate, sort, sortOn, stripPrefix)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Ord
@@ -380,6 +381,51 @@ extractKellyLiteSummary raw = do
     v <- raw
     bt <- valueObjectAt v "backtest"
     valueObjectAt (Object bt) "kellyLite"
+
+latestSignalAction :: Maybe Value -> Maybe String
+latestSignalAction raw = do
+    v <- raw
+    bt <- valueObjectAt v "backtest"
+    latest <- valueObjectAt (Object bt) "latestSignal"
+    case KM.lookup (Key.fromString "action") latest of
+        Just (String action) -> Just (T.unpack action)
+        _ -> Nothing
+
+diagnosticToken :: String -> String
+diagnosticToken raw =
+    let trimmed = trim raw
+        body =
+            case stripPrefix "HOLD (" trimmed of
+                Just rest | not (null rest) && last rest == ')' -> init rest
+                _ -> trimmed
+        tokenChar c
+            | isAlphaNum c = toUpper c
+            | otherwise = '_'
+        compacted = map head (group (map tokenChar body))
+     in reverse (dropWhile (== '_') (reverse (dropWhile (== '_') compacted)))
+
+activityFilterDiagnostic :: TrialResult -> Maybe String
+activityFilterDiagnostic tr = do
+    reason <- trFilterReason tr
+    required <- stripPrefix "activityCount<" reason
+    if null required || not (all isDigit required)
+        then Nothing
+        else
+            let roundTrips = metricInt (trMetrics tr) "roundTrips" 0
+                tradeCount = metricInt (trMetrics tr) "tradeCount" 0
+                activityCount = max roundTrips tradeCount
+                base =
+                    [ "activity=" ++ show activityCount ++ "/" ++ required
+                    , "roundTrips=" ++ show roundTrips
+                    , "tradeCount=" ++ show tradeCount
+                    ]
+                latest =
+                    case latestSignalAction (trStdoutJson tr) of
+                        Just action ->
+                            let token = diagnosticToken action
+                             in ["latest=" ++ token | not (null token)]
+                        Nothing -> []
+             in Just (unwords (base ++ latest))
 
 coerceFloatValue :: Value -> Maybe Double
 coerceFloatValue value =
@@ -1246,7 +1292,7 @@ applyQualityPreset args =
             , oaWalkForwardFoldsMax = maxIf (oaWalkForwardFoldsMax args) (oaWalkForwardFoldsMin args)
             , oaWalkForwardEmbargoBarsMin = maxIf (oaWalkForwardEmbargoBarsMin args) 1
             , oaWalkForwardEmbargoBarsMax = maxIf (oaWalkForwardEmbargoBarsMax args) 3
-            , oaMethodWeightRegimeSwitch = maxIf (oaMethodWeightRegimeSwitch args) 1.0
+            , oaMethodWeightRegimeSwitch = qualityPresetWeightFloor 1.0 (oaMethodWeightRegimeSwitch args)
             , oaMethodWeightBanditRouter = maxIf (oaMethodWeightBanditRouter args) 0.0
             , oaPConfidenceSizing = maxIf (oaPConfidenceSizing args) 0.85
             , oaPDisableRiskPerTrade = minIf (oaPDisableRiskPerTrade args) 0.3
@@ -1343,6 +1389,12 @@ qualityPresetCeiling productionDefault qualityDefault requested =
     if requested == productionDefault
         then qualityDefault
         else requested
+
+qualityPresetWeightFloor :: (Eq a, Num a, Ord a) => a -> a -> a
+qualityPresetWeightFloor qualityDefault requested =
+    if requested == 0
+        then 0
+        else max requested qualityDefault
 
 qualityPresetIntervalFields :: Maybe String -> Maybe String -> (Maybe String, Maybe String)
 qualityPresetIntervalFields rawInterval rawIntervals =
@@ -2401,6 +2453,7 @@ trialToRecord tr symbolLabel =
             , "objective" .= trObjective tr
             , "score" .= trScore tr
             , "filterReason" .= trFilterReason tr
+            , "activityDiagnostic" .= activityFilterDiagnostic tr
             , "reason" .= trReason tr
             , "elapsedSec" .= trElapsedSec tr
             , "finalEquity" .= trFinalEquity tr
@@ -4610,7 +4663,11 @@ printTrialStatus i trials tr = do
                 (Just reason, _) -> " (filter: " ++ reason ++ ")"
                 (Nothing, Just reason) -> " (" ++ reason ++ ")"
                 _ -> ""
-    putStrLn (msg ++ suffix)
+        diagnosticSuffix =
+            case activityFilterDiagnostic tr of
+                Just diagnostic -> " (diagnostic: " ++ diagnostic ++ ")"
+                Nothing -> ""
+    putStrLn (msg ++ suffix ++ diagnosticSuffix)
     hFlush stdout
 
 printNoEligible :: Int -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()

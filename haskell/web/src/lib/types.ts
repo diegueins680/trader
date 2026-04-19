@@ -568,6 +568,7 @@ export type BotStatusMulti = {
   multi: true;
   bots: BotStatusSingle[];
   errors?: Array<{ symbol: string; error: string }>;
+  queued?: Array<{ symbol: string; message: string }>;
   snapshotAtMs?: number;
 };
 

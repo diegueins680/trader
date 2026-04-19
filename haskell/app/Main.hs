@@ -5064,6 +5064,106 @@ data BotState = BotState
     , botError :: !(Maybe String)
     }
 
+data BotStartStability
+    = BotStartStable
+    | BotStartUnstable !String
+    deriving (Eq, Show)
+
+botStateDrawdown :: BotState -> Double
+botStateDrawdown st =
+    let eq = vectorLastOr 1.0 (botEquityCurve st)
+        peak = botPeakEquity st
+     in if peak > 0
+            then max 0 (1 - eq / peak)
+            else 0
+
+botStateDailyLoss :: BotState -> Double
+botStateDailyLoss st =
+    let eq = vectorLastOr 1.0 (botEquityCurve st)
+        dayStart = botDayStartEquity st
+     in if dayStart > 0
+            then max 0 (1 - eq / dayStart)
+            else 0
+
+botStateWeeklyLoss :: BotState -> Double
+botStateWeeklyLoss st =
+    let eq = vectorLastOr 1.0 (botEquityCurve st)
+        weekStart = botWeekStartEquity st
+     in if weekStart > 0
+            then max 0 (1 - eq / weekStart)
+            else 0
+
+botStateStabilityIssue :: BotState -> Maybe String
+botStateStabilityIssue st =
+    let args = botArgs st
+        dd = botStateDrawdown st
+        dl = botStateDailyLoss st
+        wl = botStateWeeklyLoss st
+        finite x = not (isNaN x || isInfinite x)
+     in case botHaltReason st of
+            Just reason -> Just ("halted (" ++ reason ++ ")")
+            Nothing ->
+                case botError st of
+                    Just err -> Just ("status error: " ++ err)
+                    Nothing
+                        | botConsecutiveOrderErrors st > 0 ->
+                            Just ("order errors=" ++ show (botConsecutiveOrderErrors st))
+                        | not (finite dd && finite dl && finite wl) ->
+                            Just "risk metrics are not finite"
+                        | maybe False (dd >=) (argMaxDrawdown args) ->
+                            Just ("drawdown " ++ printf "%.2f%%" (dd * 100) ++ " reached maxDrawdown")
+                        | maybe False (dl >=) (argMaxDailyLoss args) ->
+                            Just ("daily loss " ++ printf "%.2f%%" (dl * 100) ++ " reached maxDailyLoss")
+                        | maybe False (wl >=) (argMaxWeeklyLoss args) ->
+                            Just ("weekly loss " ++ printf "%.2f%%" (wl * 100) ++ " reached maxWeeklyLoss")
+                        | otherwise -> Nothing
+
+botRuntimeStabilityIssue :: String -> BotRuntimeState -> IO (Maybe String)
+botRuntimeStabilityIssue sym rtState =
+    case rtState of
+        BotStarting _ -> pure (Just (sym ++ " is still starting"))
+        BotRunning rt -> do
+            st <- readMVar (brStateVar rt)
+            pure (fmap (\issue -> sym ++ " is not stable: " ++ issue) (botStateStabilityIssue st))
+
+botStartTenantStability :: BotController -> TenantKey -> IO BotStartStability
+botStartTenantStability ctrl tenantKey = do
+    mrt <- readMVar (bcRuntime ctrl)
+    let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+    issues <- forM (sortOn fst (HM.toList tenantMap)) $ uncurry botRuntimeStabilityIssue
+    pure $
+        case catMaybes issues of
+            [] -> BotStartStable
+            issue : _ -> BotStartUnstable issue
+
+waitForBotStartStability :: BotController -> TenantKey -> Int -> String -> IO (Either String ())
+waitForBotStartStability ctrl tenantKey maxWaitSeconds nextSym = do
+    lastReasonRef <- newIORef Nothing
+    mDone <-
+        if maxWaitSeconds <= 0
+            then Just <$> loop lastReasonRef Nothing
+            else timeout (maxWaitSeconds * 1000000) (loop lastReasonRef Nothing)
+    case mDone of
+        Just () -> pure (Right ())
+        Nothing -> do
+            mLastReason <- readIORef lastReasonRef
+            let suffix =
+                    case mLastReason of
+                        Nothing -> ""
+                        Just reason -> "; last issue: " ++ reason
+            pure (Left ("timed out after " ++ show maxWaitSeconds ++ "s waiting for current bots to become stable" ++ suffix))
+  where
+    loop lastReasonRef previousReason = do
+        stability <- botStartTenantStability ctrl tenantKey
+        case stability of
+            BotStartStable -> pure ()
+            BotStartUnstable reason -> do
+                writeIORef lastReasonRef (Just reason)
+                when (previousReason /= Just reason) $
+                    putStrLn ("Queued bot start for " ++ nextSym ++ " waiting for stability: " ++ reason)
+                threadDelay (5 * 1000000)
+                loop lastReasonRef (Just reason)
+
 botFeatureInputs :: BotState -> FeatureInputs
 botFeatureInputs st =
     mkFeatureInputs
@@ -6396,6 +6496,9 @@ defaultBotAutoStartMaxStartsPerCycle = 1
 defaultBotStartMaxSymbols :: Int
 defaultBotStartMaxSymbols = 3
 
+defaultBotStartQueueMaxWaitSeconds :: Int
+defaultBotStartQueueMaxWaitSeconds = 1800
+
 topComboBotCountFromEnv :: IO Int
 topComboBotCountFromEnv =
     readBoundedIntEnv "TRADER_BOT_TOP_COMBO_BOTS" 0 200 defaultTopComboBotCount
@@ -6419,6 +6522,10 @@ botAutoStartMaxStartsPerCycleFromEnv =
 botStartMaxSymbolsFromEnv :: IO Int
 botStartMaxSymbolsFromEnv =
     readBoundedIntEnv "TRADER_BOT_START_MAX_SYMBOLS" 1 200 defaultBotStartMaxSymbols
+
+botStartQueueMaxWaitSecondsFromEnv :: IO Int
+botStartQueueMaxWaitSecondsFromEnv =
+    readBoundedIntEnv "TRADER_BOT_START_QUEUE_MAX_WAIT_SEC" 0 86400 defaultBotStartQueueMaxWaitSeconds
 
 data AdoptRequirement = AdoptRequirement
     { arActive :: !Bool
@@ -6810,6 +6917,117 @@ resolveAdoptionRequirementWithEnv args env sym = do
         case r of
             Left ex -> Left (snd (exceptionToHttp ex))
             Right req -> Right req
+
+logBotStartRequestOutcome :: Maybe OpsStore -> Maybe Journal -> TenantKey -> ApiParams -> BotStartOutcome -> IO ()
+logBotStartRequestOutcome mOps mJournal tenantKey params outcome =
+    when (bsoStarted outcome) $
+        case bsoState outcome of
+            BotStarting rt -> do
+                now <- getTimestampMs
+                let settings = bsrSettings rt
+                journalWriteMaybe
+                    mJournal
+                    ( object
+                        [ "type" .= ("bot.start" :: String)
+                        , "atMs" .= now
+                        , "symbol" .= bsrSymbol rt
+                        , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
+                        , "interval" .= argInterval (bsrArgs rt)
+                        , "tradeEnabled" .= bsTradeEnabled settings
+                        , "protectionOrders" .= bsProtectionOrders settings
+                        ]
+                    )
+                opsAppendMaybe
+                    mOps
+                    (Just tenantKey)
+                    "bot.start"
+                    (Just (toJSON (sanitizeApiParams params)))
+                    (Just (argsPublicJson (bsrArgs rt)))
+                    ( Just
+                        ( object
+                            [ "symbol" .= bsrSymbol rt
+                            , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
+                            , "interval" .= argInterval (bsrArgs rt)
+                            , "tradeEnabled" .= bsTradeEnabled settings
+                            , "protectionOrders" .= bsProtectionOrders settings
+                            , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
+                            , "botPollSeconds" .= bsPollSeconds settings
+                            , "botOnlineEpochs" .= bsOnlineEpochs settings
+                            , "botTrainBars" .= bsTrainBars settings
+                            , "botMaxPoints" .= bsMaxPoints settings
+                            ]
+                        )
+                    )
+                    Nothing
+                    Nothing
+                    (Just (T.pack (bsrSymbol rt)))
+                    Nothing
+            _ -> pure ()
+
+recordQueuedBotStartFailure :: Maybe OpsStore -> Maybe Journal -> TenantKey -> ApiParams -> String -> String -> IO ()
+recordQueuedBotStartFailure mOps mJournal tenantKey params sym msg = do
+    now <- getTimestampMs
+    journalWriteMaybe
+        mJournal
+        ( object
+            [ "type" .= ("bot.start_queued_failed" :: String)
+            , "atMs" .= now
+            , "symbol" .= sym
+            , "error" .= msg
+            ]
+        )
+    opsAppendMaybe
+        mOps
+        (Just tenantKey)
+        "bot.start_queued_failed"
+        (Just (toJSON (sanitizeApiParams params)))
+        Nothing
+        (Just (object ["symbol" .= sym, "error" .= msg]))
+        Nothing
+        Nothing
+        (Just (T.pack sym))
+        Nothing
+
+runQueuedBotStarts ::
+    Maybe OpsStore ->
+    Maybe Journal ->
+    TenantKey ->
+    ApiParams ->
+    BotController ->
+    [String] ->
+    (String -> IO (String, Either String BotStartOutcome)) ->
+    IO ()
+runQueuedBotStarts mOps mJournal tenantKey params botCtrl symbols startOne = do
+    maxWaitSeconds <- botStartQueueMaxWaitSecondsFromEnv
+    unless (null symbols) $
+        putStrLn ("Queued bot starts: " ++ intercalate ", " symbols)
+    let go [] = pure ()
+        go queued@(sym : rest) = do
+            stableOrErr <- waitForBotStartStability botCtrl tenantKey maxWaitSeconds sym
+            case stableOrErr of
+                Left err ->
+                    forM_ queued $ \queuedSym -> do
+                        let msg = "Queued bot start aborted: " ++ err
+                        putStrLn ("Queued bot start failed for " ++ queuedSym ++ ": " ++ msg)
+                        recordQueuedBotStartFailure mOps mJournal tenantKey params queuedSym msg
+                Right () -> do
+                    startedOrErr <- try (startOne sym) :: IO (Either SomeException (String, Either String BotStartOutcome))
+                    case startedOrErr of
+                        Left ex -> do
+                            let msg = displayException ex
+                            putStrLn ("Queued bot start failed for " ++ sym ++ ": " ++ msg)
+                            recordQueuedBotStartFailure mOps mJournal tenantKey params sym msg
+                        Right (_, Left err) -> do
+                            putStrLn ("Queued bot start failed for " ++ sym ++ ": " ++ err)
+                            recordQueuedBotStartFailure mOps mJournal tenantKey params sym err
+                        Right (_, Right outcome) ->
+                            putStrLn
+                                ( "Queued bot start "
+                                    ++ (if bsoStarted outcome then "launched " else "kept existing ")
+                                    ++ bsoSymbol outcome
+                                )
+                    go rest
+    go symbols
 
 adoptRequirementLongShortOverride :: Args -> AdoptRequirement -> Maybe Double
 adoptRequirementLongShortOverride args req
@@ -16382,46 +16600,50 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                     orphanNorm = map normalizeSymbol orphanSymbols
                                                     allowExistingFor sym = allowExistingBase || normalizeSymbol sym `elem` orphanNorm
                                                     noAdoptRequirement = AdoptRequirement False False
-                                                results <- forM symbols $ \sym -> do
-                                                    let argsSym = argsBase{argBinanceSymbol = Just sym}
-                                                        allowExisting = allowExistingFor sym
-                                                        adoptable = tradeEnabled && platformSupportsLiveBot (argPlatform argsSym)
-                                                    adoptReqOrErr <-
-                                                        if adoptable
-                                                            then resolveAdoptionRequirement mOps argsSym sym
-                                                            else pure (Right noAdoptRequirement)
-                                                    case adoptReqOrErr of
-                                                        Left err -> pure (sym, Left err)
-                                                        Right adoptReq -> do
-                                                            (argsCombo, mComboUuid) <-
-                                                                if arActive adoptReq
-                                                                    then applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey argsSym adoptReq sym
-                                                                    else do
-                                                                        when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
-                                                                            clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
-                                                                        applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                            case validateApiComputeLimits limits argsCombo of
-                                                                Left err -> pure (sym, Left err)
-                                                                Right argsOk -> do
-                                                                    r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid originIp params sym
-                                                                    pure (sym, r)
+                                                    startOne sym = do
+                                                        let argsSym = argsBase{argBinanceSymbol = Just sym}
+                                                            allowExisting = allowExistingFor sym
+                                                            adoptable = tradeEnabled && platformSupportsLiveBot (argPlatform argsSym)
+                                                        adoptReqOrErr <-
+                                                            if adoptable
+                                                                then resolveAdoptionRequirement mOps argsSym sym
+                                                                else pure (Right noAdoptRequirement)
+                                                        case adoptReqOrErr of
+                                                            Left err -> pure (sym, Left err)
+                                                            Right adoptReq -> do
+                                                                (argsCombo, mComboUuid) <-
+                                                                    if arActive adoptReq
+                                                                        then applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey argsSym adoptReq sym
+                                                                        else do
+                                                                            when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
+                                                                                clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
+                                                                            applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                case validateApiComputeLimits limits argsCombo of
+                                                                    Left err -> pure (sym, Left err)
+                                                                    Right argsOk -> do
+                                                                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid originIp params sym
+                                                                        case r of
+                                                                            Left err -> pure (sym, Left err)
+                                                                            Right outcome -> do
+                                                                                logBotStartRequestOutcome mOps mJournal tenantKey params outcome
+                                                                                pure (sym, Right outcome)
+                                                results <- forM symbols startOne
 
-                                                let deferredErrors =
+                                                let queuedStarts =
                                                         [ object
                                                             [ "symbol" .= sym
-                                                            , "error"
-                                                                .= ( "Bot start deferred: request limited to "
-                                                                        ++ show maxSymbols
-                                                                        ++ " symbol(s) by TRADER_BOT_START_MAX_SYMBOLS."
-                                                                   )
+                                                            , "message" .= ("Queued for sequential start after currently active bots are stable." :: String)
                                                             ]
                                                         | sym <- deferredSymbols
                                                         ]
                                                     errors =
-                                                        deferredErrors
-                                                            ++ [ object ["symbol" .= sym, "error" .= err]
-                                                               | (sym, Left err) <- results
-                                                               ]
+                                                        [ object ["symbol" .= sym, "error" .= err]
+                                                        | (sym, Left err) <- results
+                                                        ]
+                                                unless (null deferredSymbols) $
+                                                    void $
+                                                        forkIO $
+                                                            runQueuedBotStarts mOps mJournal tenantKey params botCtrl deferredSymbols startOne
                                                 statuses <- forM [outcome | (_, Right outcome) <- results] $ \outcome ->
                                                     case bsoState outcome of
                                                         BotStarting rt -> pure (botStartingJson rt)
@@ -16429,54 +16651,10 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                             st <- readMVar (brStateVar rt)
                                                             pure (botStatusJson st)
 
-                                                now <- getTimestampMs
-                                                forM_ [outcome | (_, Right outcome) <- results, bsoStarted outcome] $ \outcome ->
-                                                    case bsoState outcome of
-                                                        BotStarting rt -> do
-                                                            let settings = bsrSettings rt
-                                                            journalWriteMaybe
-                                                                mJournal
-                                                                ( object
-                                                                    [ "type" .= ("bot.start" :: String)
-                                                                    , "atMs" .= now
-                                                                    , "symbol" .= bsrSymbol rt
-                                                                    , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
-                                                                    , "interval" .= argInterval (bsrArgs rt)
-                                                                    , "tradeEnabled" .= bsTradeEnabled (bsrSettings rt)
-                                                                    , "protectionOrders" .= bsProtectionOrders (bsrSettings rt)
-                                                                    ]
-                                                                )
-                                                            opsAppendMaybe
-                                                                mOps
-                                                                (Just tenantKey)
-                                                                "bot.start"
-                                                                (Just (toJSON (sanitizeApiParams params)))
-                                                                (Just (argsPublicJson (bsrArgs rt)))
-                                                                ( Just
-                                                                    ( object
-                                                                        [ "symbol" .= bsrSymbol rt
-                                                                        , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
-                                                                        , "interval" .= argInterval (bsrArgs rt)
-                                                                        , "tradeEnabled" .= bsTradeEnabled settings
-                                                                        , "protectionOrders" .= bsProtectionOrders settings
-                                                                        , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
-                                                                        , "botPollSeconds" .= bsPollSeconds settings
-                                                                        , "botOnlineEpochs" .= bsOnlineEpochs settings
-                                                                        , "botTrainBars" .= bsTrainBars settings
-                                                                        , "botMaxPoints" .= bsMaxPoints settings
-                                                                        ]
-                                                                    )
-                                                                )
-                                                                Nothing
-                                                                Nothing
-                                                                (Just (T.pack (bsrSymbol rt)))
-                                                                Nothing
-                                                        _ -> pure ()
-
-                                                case (symbols, errors, statuses) of
-                                                    ([_], [], [status]) -> respond (jsonValue status202 status)
+                                                case (symbols, errors, statuses, queuedStarts) of
+                                                    ([_], [], [status], []) -> respond (jsonValue status202 status)
                                                     _ ->
-                                                        if null statuses
+                                                        if null statuses && null queuedStarts
                                                             then case errors of
                                                                 [] -> respond (jsonError status400 "Failed to start bot.")
                                                                 errs -> do
@@ -16498,11 +16676,19 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                                     payload =
                                                                         case base of
                                                                             Aeson.Object o ->
-                                                                                let o' =
+                                                                                let withErrors =
                                                                                         if null errors
                                                                                             then o
                                                                                             else KM.insert "errors" (toJSON errors) o
-                                                                                 in Aeson.Object o'
+                                                                                    withQueued =
+                                                                                        if null queuedStarts
+                                                                                            then withErrors
+                                                                                            else KM.insert "queued" (toJSON queuedStarts) withErrors
+                                                                                    withStarting =
+                                                                                        if null queuedStarts
+                                                                                            then withQueued
+                                                                                            else KM.insert "starting" (Aeson.Bool True) withQueued
+                                                                                 in Aeson.Object withStarting
                                                                             _ -> base
                                                                 respond (jsonValue status202 payload)
 
