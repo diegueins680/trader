@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading/Optimizer: distinguish omitted versus explicit threshold max caps in `optimize-equity --quality`, so default caps still widen for quality sweeps while explicit `2e-2` CLI or top-combo wrapper env overrides remain tight; wrapper run-start logs now show requested and effective threshold ranges.
 - Trading: fail closed on malformed fresh-entry position-size bounds by requiring max/min sizing caps to be finite and non-negative before a new backtest entry can open; valid zero caps/floors and valid minimum-size equality remain supported, and tighter valid caps cannot increase realized entry exposure.
 - Bot/Live Trading: reconcile Coinbase live market orders with parsed order status, filled base size, executed quote value, and a bounded order-id lookup before updating bot position state, so successful Coinbase fills no longer look like unknown unfilled live orders.
 - Autoloop: reject patch/diff marker payloads in model file-change `content` before writing files, so malformed patch plans fail cleanly instead of corrupting tracked source files with apply-patch text.

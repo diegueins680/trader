@@ -951,6 +951,8 @@ test("top-combo optimizer wrapper supports no-optimization audit binaries", asyn
 test("top-combo optimizer wrapper retries activity-only short audits with deeper bars", async () => {
   const script = await fs.readFile(new URL("../haskell/scripts/run_optimize_equity_top5.sh", import.meta.url), "utf8");
   assert.match(script, /ACTIVITY_RETRY_BARS="\$\{ACTIVITY_RETRY_BARS:-700,1000\}"/);
+  assert.match(script, /DEFAULT_OPEN_THRESHOLD_MAX="2e-2"/);
+  assert.match(script, /OPEN_THRESHOLD_MAX_WAS_SET="\$\{OPEN_THRESHOLD_MAX:\+1\}"/);
   assert.match(script, /ACTIVITY_RECOVERY="\$\{ACTIVITY_RECOVERY:-1\}"/);
   assert.match(script, /ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX="\$\{ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX:-6e-3\}"/);
   assert.match(script, /NEUTRAL_RECOVERY="\$\{NEUTRAL_RECOVERY:-1\}"/);
@@ -961,6 +963,9 @@ test("top-combo optimizer wrapper retries activity-only short audits with deeper
   assert.match(script, /activity_recovery=\$ACTIVITY_RECOVERY/);
   assert.match(script, /neutral_recovery=\$NEUTRAL_RECOVERY/);
   assert.match(script, /neutral_recovery_timeout=\$NEUTRAL_RECOVERY_TIMEOUT_SEC/);
+  assert.match(script, /quality_effective_threshold_max\(\)/);
+  assert.match(script, /open_threshold_range_requested=\$OPEN_THRESHOLD_MIN:\$OPEN_THRESHOLD_MAX/);
+  assert.match(script, /open_threshold_range_effective=\$OPEN_THRESHOLD_MIN:\$EFFECTIVE_OPEN_THRESHOLD_MAX/);
   assert.match(script, /should_retry_activity_bars\(\)/);
   assert.match(script, /should_retry_neutral_recovery\(\)/);
   assert.match(script, /No eligible trials\./);
@@ -975,7 +980,9 @@ test("top-combo optimizer wrapper retries activity-only short audits with deeper
   assert.match(script, /--bars-min "\$bars_attempt"/);
   assert.match(script, /--bars-max "\$bars_attempt"/);
   assert.match(script, /activity_recovery_attempt=0/);
-  assert.match(script, /--open-threshold-max "\$open_threshold_max"/);
+  assert.match(script, /open_threshold_max_explicit="1"/);
+  assert.match(script, /cmd\+=\(--open-threshold-max "\$open_threshold_max"\)/);
+  assert.match(script, /cmd\+=\(--close-threshold-max "\$close_threshold_max"\)/);
   assert.match(script, /--min-hold-bars-min "\$min_hold_bars_min"/);
   assert.match(script, /timeout_sec="\$NEUTRAL_RECOVERY_TIMEOUT_SEC"/);
   assert.match(script, /--timeout-sec "\$timeout_sec"/);

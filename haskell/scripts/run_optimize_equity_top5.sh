@@ -13,10 +13,14 @@ COUNT="${COUNT:-5}"
 TRIALS="${TRIALS:-300}"
 BARS="${BARS:-1000}"
 ACTIVITY_RETRY_BARS="${ACTIVITY_RETRY_BARS:-700,1000}"
+DEFAULT_OPEN_THRESHOLD_MAX="2e-2"
+DEFAULT_CLOSE_THRESHOLD_MAX="2e-2"
+OPEN_THRESHOLD_MAX_WAS_SET="${OPEN_THRESHOLD_MAX:+1}"
+CLOSE_THRESHOLD_MAX_WAS_SET="${CLOSE_THRESHOLD_MAX:+1}"
 OPEN_THRESHOLD_MIN="${OPEN_THRESHOLD_MIN:-5e-4}"
-OPEN_THRESHOLD_MAX="${OPEN_THRESHOLD_MAX:-2e-2}"
+OPEN_THRESHOLD_MAX="${OPEN_THRESHOLD_MAX:-$DEFAULT_OPEN_THRESHOLD_MAX}"
 CLOSE_THRESHOLD_MIN="${CLOSE_THRESHOLD_MIN:-5e-4}"
-CLOSE_THRESHOLD_MAX="${CLOSE_THRESHOLD_MAX:-2e-2}"
+CLOSE_THRESHOLD_MAX="${CLOSE_THRESHOLD_MAX:-$DEFAULT_CLOSE_THRESHOLD_MAX}"
 MIN_HOLD_BARS_MIN="${MIN_HOLD_BARS_MIN:-2}"
 MIN_HOLD_BARS_MAX="${MIN_HOLD_BARS_MAX:-8}"
 COOLDOWN_BARS_MIN="${COOLDOWN_BARS_MIN:-1}"
@@ -266,7 +270,21 @@ if [[ ${#COMBOS[@]} -eq 0 ]]; then
   exit 1
 fi
 
-log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS activity_retry_bars=$ACTIVITY_RETRY_BARS activity_recovery=$ACTIVITY_RECOVERY neutral_recovery=$NEUTRAL_RECOVERY timeout=$TIMEOUT_SEC neutral_recovery_timeout=$NEUTRAL_RECOVERY_TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR open_threshold_range=$OPEN_THRESHOLD_MIN:$OPEN_THRESHOLD_MAX close_threshold_range=$CLOSE_THRESHOLD_MIN:$CLOSE_THRESHOLD_MAX min_hold_range=$MIN_HOLD_BARS_MIN:$MIN_HOLD_BARS_MAX cooldown_range=$COOLDOWN_BARS_MIN:$COOLDOWN_BARS_MAX max_hold_range=$MAX_HOLD_BARS_MIN:$MAX_HOLD_BARS_MAX activity_recovery_open_threshold_range=$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN:$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX activity_recovery_close_threshold_range=$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN:$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX activity_recovery_min_hold_range=$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX activity_recovery_cooldown_range=$ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN:$ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX activity_recovery_max_hold_range=$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX method_weights=$METHOD_WEIGHT_11:$METHOD_WEIGHT_10:$METHOD_WEIGHT_01:$METHOD_WEIGHT_EDGE_BLEND:$METHOD_WEIGHT_EDGE_PICK:$METHOD_WEIGHT_REGIME_SWITCH:$METHOD_WEIGHT_BANDIT_ROUTER neutral_recovery_method_weights=$NEUTRAL_RECOVERY_METHOD_WEIGHT_11:$NEUTRAL_RECOVERY_METHOD_WEIGHT_10:$NEUTRAL_RECOVERY_METHOD_WEIGHT_01:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_BLEND:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK:$NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH:$NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
+quality_effective_threshold_max() {
+  local requested_max="$1"
+  local explicit="$2"
+  local production_default="$3"
+  if [[ "$QUALITY" == "1" && "$explicit" != "1" && "$requested_max" == "$production_default" ]]; then
+    printf '%s\n' "5e-2"
+  else
+    printf '%s\n' "$requested_max"
+  fi
+}
+
+EFFECTIVE_OPEN_THRESHOLD_MAX="$(quality_effective_threshold_max "$OPEN_THRESHOLD_MAX" "$OPEN_THRESHOLD_MAX_WAS_SET" "$DEFAULT_OPEN_THRESHOLD_MAX")"
+EFFECTIVE_CLOSE_THRESHOLD_MAX="$(quality_effective_threshold_max "$CLOSE_THRESHOLD_MAX" "$CLOSE_THRESHOLD_MAX_WAS_SET" "$DEFAULT_CLOSE_THRESHOLD_MAX")"
+
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS activity_retry_bars=$ACTIVITY_RETRY_BARS activity_recovery=$ACTIVITY_RECOVERY neutral_recovery=$NEUTRAL_RECOVERY timeout=$TIMEOUT_SEC neutral_recovery_timeout=$NEUTRAL_RECOVERY_TIMEOUT_SEC lookback_window=$LOOKBACK_WINDOW max_points=$TRADER_OPTIMIZER_MAX_POINTS platform=$PLATFORM futures=$FUTURES quality=$QUALITY quality_min_trials=$QUALITY_MIN_TRIALS quality_max_epochs=$QUALITY_MAX_EPOCHS quality_max_hidden_size=$QUALITY_MAX_HIDDEN_SIZE noopt=$NOOPT compare=$COMPARE min_round_trips=$MIN_ROUND_TRIPS min_exposure=$MIN_EXPOSURE min_sharpe=$MIN_SHARPE min_calmar=$MIN_CALMAR open_threshold_range_requested=$OPEN_THRESHOLD_MIN:$OPEN_THRESHOLD_MAX open_threshold_range_effective=$OPEN_THRESHOLD_MIN:$EFFECTIVE_OPEN_THRESHOLD_MAX close_threshold_range_requested=$CLOSE_THRESHOLD_MIN:$CLOSE_THRESHOLD_MAX close_threshold_range_effective=$CLOSE_THRESHOLD_MIN:$EFFECTIVE_CLOSE_THRESHOLD_MAX min_hold_range=$MIN_HOLD_BARS_MIN:$MIN_HOLD_BARS_MAX cooldown_range=$COOLDOWN_BARS_MIN:$COOLDOWN_BARS_MAX max_hold_range=$MAX_HOLD_BARS_MIN:$MAX_HOLD_BARS_MAX activity_recovery_open_threshold_range=$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN:$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX activity_recovery_close_threshold_range=$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN:$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX activity_recovery_min_hold_range=$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX activity_recovery_cooldown_range=$ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN:$ACTIVITY_RECOVERY_COOLDOWN_BARS_MAX activity_recovery_max_hold_range=$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MIN:$ACTIVITY_RECOVERY_MAX_HOLD_BARS_MAX method_weights=$METHOD_WEIGHT_11:$METHOD_WEIGHT_10:$METHOD_WEIGHT_01:$METHOD_WEIGHT_EDGE_BLEND:$METHOD_WEIGHT_EDGE_PICK:$METHOD_WEIGHT_REGIME_SWITCH:$METHOD_WEIGHT_BANDIT_ROUTER neutral_recovery_method_weights=$NEUTRAL_RECOVERY_METHOD_WEIGHT_11:$NEUTRAL_RECOVERY_METHOD_WEIGHT_10:$NEUTRAL_RECOVERY_METHOD_WEIGHT_01:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_BLEND:$NEUTRAL_RECOVERY_METHOD_WEIGHT_EDGE_PICK:$NEUTRAL_RECOVERY_METHOD_WEIGHT_REGIME_SWITCH:$NEUTRAL_RECOVERY_METHOD_WEIGHT_BANDIT_ROUTER p_kelly_lite_sizing=$P_KELLY_LITE_SIZING min_kelly_lite_exposure_reduction=$MIN_KELLY_LITE_EXPOSURE_REDUCTION max_kelly_lite_exposure_ratio=$MAX_KELLY_LITE_EXPOSURE_RATIO"
 
 should_retry_activity_bars() {
   local log_file="$1"
@@ -390,8 +408,10 @@ run_set() {
 
       local open_threshold_min="$OPEN_THRESHOLD_MIN"
       local open_threshold_max="$OPEN_THRESHOLD_MAX"
+      local open_threshold_max_explicit="$OPEN_THRESHOLD_MAX_WAS_SET"
       local close_threshold_min="$CLOSE_THRESHOLD_MIN"
       local close_threshold_max="$CLOSE_THRESHOLD_MAX"
+      local close_threshold_max_explicit="$CLOSE_THRESHOLD_MAX_WAS_SET"
       local min_hold_bars_min="$MIN_HOLD_BARS_MIN"
       local min_hold_bars_max="$MIN_HOLD_BARS_MAX"
       local cooldown_bars_min="$COOLDOWN_BARS_MIN"
@@ -410,8 +430,10 @@ run_set() {
       if ((activity_recovery_attempt > 0)); then
         open_threshold_min="$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MIN"
         open_threshold_max="$ACTIVITY_RECOVERY_OPEN_THRESHOLD_MAX"
+        open_threshold_max_explicit="1"
         close_threshold_min="$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MIN"
         close_threshold_max="$ACTIVITY_RECOVERY_CLOSE_THRESHOLD_MAX"
+        close_threshold_max_explicit="1"
         min_hold_bars_min="$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MIN"
         min_hold_bars_max="$ACTIVITY_RECOVERY_MIN_HOLD_BARS_MAX"
         cooldown_bars_min="$ACTIVITY_RECOVERY_COOLDOWN_BARS_MIN"
@@ -450,9 +472,7 @@ run_set() {
         --min-wf-sharpe-mean "$MIN_WF_SHARPE_MEAN"
         --max-wf-sharpe-std "$MAX_WF_SHARPE_STD"
         --open-threshold-min "$open_threshold_min"
-        --open-threshold-max "$open_threshold_max"
         --close-threshold-min "$close_threshold_min"
-        --close-threshold-max "$close_threshold_max"
         --min-hold-bars-min "$min_hold_bars_min"
         --min-hold-bars-max "$min_hold_bars_max"
         --cooldown-bars-min "$cooldown_bars_min"
@@ -500,6 +520,13 @@ run_set() {
         --p-disable-trail-vol-mult "$P_DISABLE_TRAIL_VOL_MULT"
         --top-json "$json"
       )
+
+      if [[ "$open_threshold_max_explicit" == "1" ]]; then
+        cmd+=(--open-threshold-max "$open_threshold_max")
+      fi
+      if [[ "$close_threshold_max_explicit" == "1" ]]; then
+        cmd+=(--close-threshold-max "$close_threshold_max")
+      fi
 
       if [[ "$FUTURES" == "1" ]]; then
         cmd+=(--futures)
