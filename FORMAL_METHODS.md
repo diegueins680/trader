@@ -47,6 +47,28 @@ Proof sketch:
 - Equality at `q10 == q90` satisfies the ordered-bound predicate and produces a zero-width interval with `Nothing` sigma because `sigmaFromQ1090` requires positive width. This preserves the valid deterministic boundary without creating false confidence from zero spread.
 - After admissibility, the returned lower and upper bounds are exactly the raw q10 and q90 values, so interval width is exactly `q90 - q10`. Widening ordered bounds can only preserve or increase that width, and sigma is width divided by a positive constant when width is positive.
 
+## Formal backtest cost-attribution contract
+
+The backtest JSON `costAttribution` and `costs.attribution` surfaces emitted by `haskell/app/Trader/Trading.hs` are treated as the accounting reconciliation contract for realized trading costs in one emitted simulation run.
+
+Clauses:
+
+1. For each emitted aligned equity point, `gross` is the realized-run reconciliation curve computed by adding cumulative realized costs back to `net`.
+2. The emitted consistency residual must witness the accounting identity `gross - cumulative realized costs = net`, up to the documented finite residual tolerance for the run.
+3. Realized cost totals are attributed across fee, slippage, spread, and funding buckets, and their sum defines the cumulative realized cost surface used by the reconciliation identity.
+4. The `gross` reconciliation curve is not a separately replayed no-cost counterfactual equity curve or return series. A no-cost replay would generally compound on a different capital base and can diverge from `net + cumulative realized costs`.
+5. Consumers that need no-cost performance must run or request a distinct no-cost simulation rather than interpreting the cost-attribution `gross` surface as cost-free strategy performance.
+
+Bounded executable obligations:
+
+- The backtest JSON cost-attribution residual is the bounded verification artifact for this contract: it proves the emitted run's `gross - cumulative realized costs = net` accounting identity and bounds any residual drift in the serialized output.
+
+Proof sketch:
+
+- The emitted net curve is the realized equity path after modeled costs have been applied, so realized fee, slippage, spread, and funding buckets are attributable deltas against that same run.
+- Adding cumulative realized costs back to net produces an accounting reconciliation surface for the emitted path. Subtracting those same cumulative realized costs must therefore recover net, modulo finite serialization and arithmetic residuals.
+- Because the simulator does not replay all subsequent returns on a higher no-cost capital base for this surface, the reconciliation curve cannot be treated as a cost-free counterfactual. The contract is cost attribution for the realized run, not alternate-world performance without costs.
+
 ## Formal fee-aware entry gate contract
 
 `normalizeSignalOpenThreshold`, `signalEntryHeadroomThresholdCap`, `normalizeSignalEntryEdge`, and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry threshold boundary, canonical optimizer headroom-cap witness, raw-edge normalization boundary, and marginal-entry veto.
