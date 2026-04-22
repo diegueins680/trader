@@ -4,6 +4,9 @@ import test from "node:test";
 import vm from "node:vm";
 import { transformSync } from "esbuild";
 
+const webPackageJson = readJson(new URL("../package.json", import.meta.url));
+const webPackageLock = readJson(new URL("../package-lock.json", import.meta.url));
+const rootPackageLock = readJson(new URL("../../../package-lock.json", import.meta.url));
 const cabalConfig = readFileSync(new URL("../../../.cabal/config", import.meta.url), "utf8");
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const contractsSource = readFileSync(new URL("../src/app/contracts.ts", import.meta.url), "utf8");
@@ -12,6 +15,10 @@ const frontendUtilsSource = readFileSync(new URL("../src/app/utils.ts", import.m
 const configLayoutSource = readFileSync(new URL("../src/app/configLayout.ts", import.meta.url), "utf8");
 const topCombosChartSource = readFileSync(new URL("../src/components/TopCombosChart.tsx", import.meta.url), "utf8");
 const backendBinanceIntervalsSource = readFileSync(new URL("../../app/Trader/BinanceIntervals.hs", import.meta.url), "utf8");
+
+function readJson(url) {
+  return JSON.parse(readFileSync(url, "utf8"));
+}
 
 function parseStringLiterals(source) {
   return Array.from(source.matchAll(/"([^"]+)"/g), ([, value]) => value);
@@ -78,6 +85,32 @@ function assertContainsExactly(values, expected, label) {
   );
 }
 
+function assertExactRuntimeVersionSpec(value, label) {
+  assert.equal(typeof value, "string", `${label} must be a string`);
+  assert.match(value, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, `${label} must be an exact version, not a range`);
+}
+
+function assertReactRuntimePackageContract(packageMeta, label) {
+  const deps = packageMeta.dependencies ?? {};
+  assertExactRuntimeVersionSpec(deps.react, `${label} react dependency`);
+  assertExactRuntimeVersionSpec(deps["react-dom"], `${label} react-dom dependency`);
+  assert.equal(deps.react, deps["react-dom"], `${label} must pin react and react-dom to the same runtime version`);
+}
+
+function assertReactRuntimeLockContract(lockMeta, packageEntryPath, label) {
+  const packageEntry = lockMeta.packages?.[packageEntryPath];
+  assert.ok(packageEntry, `${label} must include the package entry`);
+  assertReactRuntimePackageContract(packageEntry, label);
+
+  const modulesPrefix = packageEntryPath ? `${packageEntryPath}/node_modules` : "node_modules";
+  const reactVersion = lockMeta.packages?.[`${modulesPrefix}/react`]?.version;
+  const reactDomVersion = lockMeta.packages?.[`${modulesPrefix}/react-dom`]?.version;
+
+  assert.equal(reactVersion, packageEntry.dependencies.react, `${label} lockfile react package must match dependency pin`);
+  assert.equal(reactDomVersion, packageEntry.dependencies["react-dom"], `${label} lockfile react-dom package must match dependency pin`);
+  assert.equal(reactVersion, reactDomVersion, `${label} lockfile must install matching react and react-dom versions`);
+}
+
 const emittedUiTargetPageMap = {
   "section-api": "section-api",
   symbol: "section-market",
@@ -104,6 +137,12 @@ const configPageIds = Array.from(configLayoutModule.CONFIG_PAGE_IDS);
 const configPanelIds = Array.from(configLayoutModule.CONFIG_PANEL_IDS);
 const configPanelDefaultPage = { ...configLayoutModule.CONFIG_PANEL_DEFAULT_PAGE };
 const configTargetPageMap = { ...configLayoutModule.CONFIG_TARGET_PAGE_MAP };
+
+test("repo contract pins React runtime packages together", () => {
+  assertReactRuntimePackageContract(webPackageJson, "haskell/web/package.json");
+  assertReactRuntimeLockContract(webPackageLock, "", "haskell/web/package-lock.json");
+  assertReactRuntimeLockContract(rootPackageLock, "haskell/web", "package-lock.json workspace entry");
+});
 
 test("tracked cabal config leaves machine-specific path overrides disabled", () => {
   const activeLines = cabalConfig
