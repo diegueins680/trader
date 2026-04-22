@@ -1,4 +1,5 @@
 ## Unreleased
+- Binance/API: migrate Spot user-data stream startup from removed REST listenKey endpoints to Binance's WebSocket API `userDataStream.subscribe.signature`; Spot keep-alive and close actions now operate on the backend WebSocket session, while futures and margin keep using REST listen keys.
 - Ops/API: add an idempotent migration for existing PostgreSQL ops tables so `/api/ops` and `/api/ops/performance` can recover columns added after the original migration version was recorded instead of returning 500s on live dashboards.
 - Autoloop: poll recent GitHub pull requests for unresolved Copilot/Codex review threads before selecting a new autonomous idea, ask the planner to validate whether the feedback is correct, and prioritize implementing valid actionable review fixes while falling back to the normal improvement path when no review is worth changing.
 - Trading/Optimizer: distinguish omitted versus explicit threshold max caps in `optimize-equity --quality`, so default caps still widen for quality sweeps while explicit `2e-2` CLI or top-combo wrapper env overrides remain tight; wrapper run-start logs now show requested and effective threshold ranges.
