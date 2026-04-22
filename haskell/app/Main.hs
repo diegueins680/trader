@@ -48,7 +48,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Data.Version (showVersion)
 import Data.Word (Word64)
-import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, executeMany, execute_, query, query_, withTransaction)
+import Database.PostgreSQL.Simple (Connection, Only (..), close, connectPostgreSQL, execute, executeMany, execute_, query, query_, withTransaction)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Database.PostgreSQL.Simple.ToField (Action, toField)
 import Database.PostgreSQL.Simple.Types (PGArray (..))
@@ -57,7 +57,7 @@ import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status413, status429, status500, status502, status504, statusCode)
+import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status410, status413, status429, status500, status502, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hContentType, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
@@ -2159,13 +2159,45 @@ instance ToJSON OpsPerformanceResponse where
 
 data OpsStore = OpsStore
     { osLock :: !(MVar ())
-    , osConn :: !Connection
+    , osDbUrl :: !BS.ByteString
+    , osConn :: !(IORef Connection)
     , osLatestId :: !(IORef Int64)
     , osPlatformCache :: !(IORef (HM.HashMap Text Int))
     , osSymbolCache :: !(IORef (HM.HashMap (Text, Text, Text) Int64))
     , osCommitId :: !(Maybe Int64)
     , osPersistenceConfig :: !OpsPersistenceConfig
     }
+
+tryAny :: IO a -> IO (Either SomeException a)
+tryAny = try
+
+isOpsConnectionFailure :: SomeException -> Bool
+isOpsConnectionFailure e =
+    let msg = map toLower (displayException e)
+     in any
+            (`isInfixOf` msg)
+            [ "no connection to the server"
+            , "connection not open"
+            , "server closed the connection unexpectedly"
+            , "terminating connection"
+            , "connection refused"
+            ]
+
+withOpsConnection :: OpsStore -> (Connection -> IO a) -> IO a
+withOpsConnection store action =
+    withMVar (osLock store) $ \_ -> do
+        conn <- readIORef (osConn store)
+        result <- tryAny (action conn)
+        case result of
+            Right value -> pure value
+            Left e
+                | isOpsConnectionFailure e -> do
+                    hPutStrLn stderr ("WARN: reconnecting ops database after connection failure (" ++ displayException e ++ ")")
+                    conn' <- connectPostgreSQL (osDbUrl store)
+                    _ <- tryAny (close conn)
+                    writeIORef (osConn store) conn'
+                    action conn'
+                | otherwise -> throwIO e
 
 newtype OpsPersistenceConfig = OpsPersistenceConfig
     { opcDisabledKinds :: Set.Set Text
@@ -2881,11 +2913,11 @@ resolveTradeIdempotency store mTenantKey idempotencyKey requestHash = do
     now <- getTimestampMs
     let tenantScope = normalizeTenantScope mTenantKey
         tenantKey' = normalizeMaybeText mTenantKey
-    withMVar (osLock store) $ \_ ->
-        withTransaction (osConn store) $ do
+    withOpsConnection store $ \conn ->
+        withTransaction conn $ do
             inserted <-
                 execute
-                    (osConn store)
+                    conn
                     ( "INSERT INTO trade_requests (tenant_scope, tenant_key, idempotency_key, request_hash, status, created_at_ms, updated_at_ms) "
                         <> "VALUES (?, ?, ?, ?, 'running', ?, ?) "
                         <> "ON CONFLICT (tenant_scope, idempotency_key) DO NOTHING"
@@ -2896,7 +2928,7 @@ resolveTradeIdempotency store mTenantKey idempotencyKey requestHash = do
                 else do
                     rows <-
                         query
-                            (osConn store)
+                            conn
                             "SELECT request_hash, status, response_json::text, error_text FROM trade_requests WHERE tenant_scope = ? AND idempotency_key = ? LIMIT 1"
                             (tenantScope, idempotencyKey)
                     case rows of
@@ -2944,10 +2976,10 @@ completeTradeIdempotencySuccess store mTenantKey idempotencyKey requestHash resp
     let tenantScope = normalizeTenantScope mTenantKey
         tenantKey' = normalizeMaybeText mTenantKey
         responseText = TE.decodeUtf8 (BL.toStrict (Aeson.encode responseJson))
-    withMVar (osLock store) $ \_ ->
+    withOpsConnection store $ \conn ->
         void $
             execute
-                (osConn store)
+                conn
                 ( "UPDATE trade_requests "
                     <> "SET tenant_key = ?, request_hash = ?, status = 'done', response_json = ?::jsonb, error_text = NULL, updated_at_ms = ?, completed_at_ms = ? "
                     <> "WHERE tenant_scope = ? AND idempotency_key = ?"
@@ -2966,10 +2998,10 @@ completeTradeIdempotencyError store mTenantKey idempotencyKey requestHash errMsg
     let tenantScope = normalizeTenantScope mTenantKey
         tenantKey' = normalizeMaybeText mTenantKey
         msg = T.pack (take 4000 errMsg)
-    withMVar (osLock store) $ \_ ->
+    withOpsConnection store $ \conn ->
         void $
             execute
-                (osConn store)
+                conn
                 ( "UPDATE trade_requests "
                     <> "SET tenant_key = ?, request_hash = ?, status = 'error', response_json = NULL, error_text = ?, updated_at_ms = ?, completed_at_ms = ? "
                     <> "WHERE tenant_scope = ? AND idempotency_key = ?"
@@ -2983,10 +3015,10 @@ writeAsyncJobDb store jobType jobId payload = do
         createdAtMs = lookupJsonInt64 "createdAtMs" payload
         completedAtMs = lookupJsonInt64 "completedAtMs" payload
         payloadText = TE.decodeUtf8 (BL.toStrict (Aeson.encode payload))
-    withMVar (osLock store) $ \_ ->
+    withOpsConnection store $ \conn ->
         void $
             execute
-                (osConn store)
+                conn
                 ( "INSERT INTO async_jobs (job_id, job_type, status, payload_json, created_at_ms, completed_at_ms, updated_at_ms) "
                     <> "VALUES (?, ?, ?, ?::jsonb, ?, ?, ?) "
                     <> "ON CONFLICT (job_id) DO UPDATE SET "
@@ -3002,9 +3034,9 @@ writeAsyncJobDb store jobType jobId payload = do
 readAsyncJobDb :: OpsStore -> Text -> IO (Maybe Aeson.Value)
 readAsyncJobDb store jobId = do
     rows <-
-        withMVar (osLock store) $ \_ ->
+        withOpsConnection store $ \conn ->
             query
-                (osConn store)
+                conn
                 "SELECT payload_json::text FROM async_jobs WHERE job_id = ? LIMIT 1"
                 (Only jobId) ::
                 IO [Only Text]
@@ -3313,10 +3345,11 @@ newOpsStoreFromEnv = do
                                         (Only v : _) -> v
                                         _ -> 0
                             lock <- newMVar ()
+                            connRef <- newIORef conn
                             latestRef <- newIORef maxId
                             platformCache <- newIORef HM.empty
                             symbolCache <- newIORef HM.empty
-                            pure (Just (OpsStore lock conn latestRef platformCache symbolCache mCommitId persistenceConfig))
+                            pure (Just (OpsStore lock url connRef latestRef platformCache symbolCache mCommitId persistenceConfig))
 
 opsPersistenceConfigFromEnv :: IO OpsPersistenceConfig
 opsPersistenceConfigFromEnv = do
@@ -3848,9 +3881,8 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
         argsJson = encodeJsonTextMaybe mArgs
         resultJson = encodeJsonTextMaybe mResult
         mCommitId = osCommitId store
-    opId <- withMVar (osLock store) $ \_ ->
-        withTransaction (osConn store) $ do
-            let conn = osConn store
+    opId <- withOpsConnection store $ \conn ->
+        withTransaction conn $ do
             mPlatformId <- case mPlatform of
                 Nothing -> pure Nothing
                 Just platformCode -> resolvePlatformId store conn platformCode
@@ -3935,10 +3967,10 @@ outboxEnqueue store mTenantKey topic mEventKey payload = do
     let tenantKey' = normalizeMaybeText mTenantKey
         eventKey' = normalizeMaybeText mEventKey
         payloadJson = TE.decodeUtf8 (BL.toStrict (Aeson.encode payload))
-    withMVar (osLock store) $ \_ ->
+    withOpsConnection store $ \conn ->
         void $
             execute
-                (osConn store)
+                conn
                 ( "INSERT INTO outbox_events (tenant_key, topic, event_key, payload_json, status, attempts, next_attempt_at_ms, created_at_ms, updated_at_ms) "
                     <> "VALUES (?, ?, ?, ?::jsonb, 'pending', 0, NULL, ?, ?)"
                 )
@@ -4023,7 +4055,7 @@ opsList store mTenantKey sinceId limit mKind mSymbol mComboUuid mOrderId mFromMs
     case (mComboUuid, mComboUuid') of
         (Just _, Nothing) -> pure []
         _ -> do
-            rows <- withMVar (osLock store) $ \_ -> query (osConn store) (fromString sql) params
+            rows <- withOpsConnection store $ \conn -> query conn (fromString sql) params
             let ops = map persistedOperationFromRow rows
             pure (if isJust sinceId then ops else reverse ops)
 
@@ -4035,10 +4067,10 @@ data OpsPerformanceReady = OpsPerformanceReady
 
 opsPerformanceReady :: OpsStore -> IO OpsPerformanceReady
 opsPerformanceReady store =
-    withMVar (osLock store) $ \_ -> do
+    withOpsConnection store $ \conn -> do
         rows <-
             query
-                (osConn store)
+                conn
                 "SELECT to_regclass('public.performance_commit_deltas') IS NOT NULL, to_regclass('public.performance_combo_deltas') IS NOT NULL"
                 () ::
                 IO [(Bool, Bool)]
@@ -4066,9 +4098,9 @@ opsPerformanceCommits store mTenantKey limit = do
         finalParams = params ++ [toField limitSafe]
     if limitSafe <= 0
         then pure []
-        else withMVar (osLock store) $ \_ ->
+        else withOpsConnection store $ \conn ->
             query
-                (osConn store)
+                conn
                 (fromString sql)
                 finalParams
 
@@ -4121,9 +4153,9 @@ opsPerformanceCombos store mTenantKey limit scope order = do
         finalParams = tenantParams ++ extraTenantParams ++ [toField limitSafe]
     if limitSafe <= 0
         then pure []
-        else withMVar (osLock store) $ \_ ->
+        else withOpsConnection store $ \conn ->
             query
-                (osConn store)
+                conn
                 (fromString sql)
                 finalParams
 
@@ -4131,7 +4163,7 @@ outboxStatusValue :: OpsStore -> Maybe TenantKey -> Maybe Text -> IO Aeson.Value
 outboxStatusValue store mTenantKey mStatus = do
     now <- getTimestampMs
     (rows, mOldestPending) <-
-        withMVar (osLock store) $ \_ -> do
+        withOpsConnection store $ \conn -> do
             let tenantKey' = normalizeMaybeText mTenantKey
                 status' = normalizeMaybeText mStatus
                 whereParts =
@@ -4150,13 +4182,13 @@ outboxStatusValue store mTenantKey mStatus = do
                 params = catMaybes [toField <$> tenantKey', toField <$> status']
             grouped <-
                 query
-                    (osConn store)
+                    conn
                     (fromString ("SELECT status, COUNT(*)::bigint FROM outbox_events" <> whereSql <> " GROUP BY status"))
                     params ::
                     IO [(Text, Int64)]
             oldestRows <-
                 query
-                    (osConn store)
+                    conn
                     (fromString ("SELECT MIN(created_at_ms) FROM outbox_events" <> whereSqlOldest))
                     params ::
                     IO [Only (Maybe Int64)]
@@ -4312,9 +4344,9 @@ attachBinanceTradeOriginIps store tenantKey trades = do
         then pure trades
         else do
             rows <-
-                withMVar (osLock store) $ \_ ->
+                withOpsConnection store $ \conn ->
                     query
-                        (osConn store)
+                        conn
                         ( "SELECT id, tenant_key, kind, order_id, params_json, result_json "
                             <> "FROM ops "
                             <> "WHERE kind IN ('trade.order', 'bot.order') "
@@ -4444,7 +4476,7 @@ persistBotSnapshotMaybe mOps running st statusJson =
 
 persistBotSnapshot :: OpsStore -> Bool -> BotState -> Aeson.Value -> IO ()
 persistBotSnapshot store running st statusJson =
-    withMVar (osLock store) $ \_ -> do
+    withOpsConnection store $ \conn -> do
         let args = botArgs st
             tenantKey = botTenantKey st
             platformCodeText = normalizePlatformText (T.pack (platformCode (argPlatform args)))
@@ -4460,7 +4492,6 @@ persistBotSnapshot store running st statusJson =
             statusJsonText = encodeJsonTextMaybe (Just statusJson)
             startedAt = botStartedAtMs st
             updatedAt = botUpdatedAtMs st
-            conn = osConn store
         mPlatformId <- resolvePlatformId store conn platformCodeText
         case mPlatformId of
             Nothing -> pure ()
@@ -4608,10 +4639,9 @@ persistBinancePositionsMaybe mOps market positions =
 
 persistBinancePositions :: OpsStore -> BinanceMarket -> [FuturesPositionRisk] -> IO ()
 persistBinancePositions store market positions =
-    withMVar (osLock store) $ \_ -> do
+    withOpsConnection store $ \conn -> do
         let platformCodeText = "binance"
             marketText = normalizeMarketText (T.pack (marketCode market))
-            conn = osConn store
         now <- getTimestampMs
         mPlatformId <- resolvePlatformId store conn platformCodeText
         case mPlatformId of
@@ -4719,10 +4749,10 @@ comboParamsRowToTopCombo uuid row = do
 
 readTopComboByUuidFromDb :: OpsStore -> UUID.UUID -> IO (Maybe TopCombo)
 readTopComboByUuidFromDb store comboUuid =
-    withMVar (osLock store) $ \_ -> do
+    withOpsConnection store $ \conn -> do
         rows <-
             query
-                (osConn store)
+                conn
                 "SELECT final_equity, objective, source, score, open_threshold, close_threshold, params_json::text, metrics_json::text FROM combos WHERE combo_uuid = ?"
                 (Only comboUuid) ::
                 IO [ComboParamsRow]
@@ -4756,8 +4786,7 @@ readPositionOrigin store tenantKey args sym = do
         marketText = normalizeMarketText (T.pack (marketCode (argBinanceMarket args)))
         symbolRaw = T.pack sym
         symbolText = fromMaybe symbolRaw (sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw)
-    withMVar (osLock store) $ \_ -> do
-        let conn = osConn store
+    withOpsConnection store $ \conn -> do
         mPlatformId <- resolvePlatformId store conn platformCodeText
         case mPlatformId of
             Nothing -> pure Nothing
@@ -4776,8 +4805,7 @@ deletePositionOrigin store tenantKey args sym = do
         marketText = normalizeMarketText (T.pack (marketCode (argBinanceMarket args)))
         symbolRaw = T.pack sym
         symbolText = fromMaybe symbolRaw (sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw)
-    withMVar (osLock store) $ \_ -> do
-        let conn = osConn store
+    withOpsConnection store $ \conn -> do
         mPlatformId <- resolvePlatformId store conn platformCodeText
         case mPlatformId of
             Nothing -> pure ()
@@ -4809,8 +4837,7 @@ persistPositionOriginMaybe mOps tenantKey args sym posSign mComboUuid mOrderId a
                 mSide = positionOriginSideFromSign posSign
                 mComboUuid' = mComboUuid >>= uuidFromText
                 mOrderId' = normalizeMaybeText mOrderId
-            withMVar (osLock store) $ \_ -> do
-                let conn = osConn store
+            withOpsConnection store $ \conn -> do
                 mPlatformId <- resolvePlatformId store conn platformCodeText
                 case mPlatformId of
                     Nothing -> pure ()
@@ -14045,7 +14072,7 @@ persistTopCombosExportMaybe mOps exportOrErr =
             case exportOrErr of
                 Left err -> hPutStrLn stderr ("WARN: failed to persist top combos to DB (" ++ err ++ ")")
                 Right export -> do
-                    _ <- try (withMVar (osLock opsStore) (\_ -> persistTopCombosToDb (osConn opsStore) export)) :: IO (Either SomeException ())
+                    _ <- try (withOpsConnection opsStore (`persistTopCombosToDb` export)) :: IO (Either SomeException ())
                     pure ()
 
 fetchTopComboOperationCounts :: Connection -> [TopCombo] -> IO (M.Map UUID.UUID Int)
@@ -14159,9 +14186,9 @@ readTopCombosValueFromDbRaw store = do
         maxCombos <- optimizerMaxCombosFromEnv
         let limitSafe = max 1 maxCombos
         rows <-
-            withMVar (osLock store) $ \_ ->
+            withOpsConnection store $ \conn ->
                 query
-                    (osConn store)
+                    conn
                     ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
                         <> "params_json::text, metrics_json::text, created_at_ms, updated_at_ms "
                         <> "FROM combos "
@@ -15854,6 +15881,16 @@ retryListenKey label action = go 0 500000
                             go (n + 1) (min (delayUs * 2) 5000000)
                         else pure (Left ex)
 
+listenKeyExceptionToHttp :: BinanceMarket -> SomeException -> (Status, String)
+listenKeyExceptionToHttp market ex =
+    let (st, msg) = exceptionToHttp ex
+     in if market == MarketSpot && "listenKey HTTP 410" `isInfixOf` msg
+            then
+                ( status410
+                , "Binance Spot listenKey REST streams returned HTTP 410 Gone. Use market=futures for listenKey streams, or migrate Spot user streams to Binance WebSocket API userDataStream.subscribe."
+                )
+            else (st, msg)
+
 listenKeyStreamStopped :: ListenKeyStreamState -> IO Bool
 listenKeyStreamStopped st = isJust <$> tryReadMVar (lksStopSignal st)
 
@@ -16094,7 +16131,7 @@ handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do
                                                     r <- retryListenKey "create" (createListenKey env)
                                                     case r of
                                                         Left ex ->
-                                                            let (st, msg) = exceptionToHttp ex
+                                                            let (st, msg) = listenKeyExceptionToHttp market ex
                                                              in respond (jsonError st msg)
                                                         Right lk -> do
                                                             let keepAliveMs = 25 * 60 * 1000
@@ -16145,7 +16182,7 @@ handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req res
                                                                     when (isListenKeyMissingError msg) $ do
                                                                         _ <- stopListenKeyStreamMatching listenKeyManager tenantKey listenKey
                                                                         pure ()
-                                                                    let (respSt, respMsg) = exceptionToHttp ex
+                                                                    let (respSt, respMsg) = listenKeyExceptionToHttp market ex
                                                                      in respond (jsonError respSt respMsg)
                                                                 Right _ -> do
                                                                     now <- getTimestampMs
@@ -16164,7 +16201,7 @@ handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req res
                                                                     when (isListenKeyMissingError msg) $ do
                                                                         _ <- stopListenKeyStreamMatching listenKeyManager tenantKey listenKey
                                                                         pure ()
-                                                                    let (st, respMsg) = exceptionToHttp ex
+                                                                    let (st, respMsg) = listenKeyExceptionToHttp market ex
                                                                      in respond (jsonError st respMsg)
                                                                 Right _ -> do
                                                                     now <- getTimestampMs
@@ -16208,7 +16245,7 @@ handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respond
                                                             r <- try (closeListenKey env listenKey) :: IO (Either SomeException ())
                                                             case r of
                                                                 Left ex ->
-                                                                    let (st, msg) = exceptionToHttp ex
+                                                                    let (st, msg) = listenKeyExceptionToHttp market ex
                                                                      in respond (jsonError st msg)
                                                                 Right _ -> do
                                                                     now <- getTimestampMs
