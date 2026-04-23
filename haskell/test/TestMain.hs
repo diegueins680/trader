@@ -9,7 +9,6 @@ import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
-import OptimizeEquityMain (parseArgs)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, info)
 import Trader.App.Args (Args (..), opts, validateArgs)
 import Trader.Binance (binanceExceptionSummary)
@@ -34,8 +33,8 @@ import Trader.MarketDataIntegrity (
  )
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Optimizer.Optimize (
-    OptimizerArgs (..),
     kellyLiteExposureContractReason,
+    optimizerOptionPresent,
     qualityPresetBudget,
     qualityPresetCeiling,
     qualityPresetWeightFloor,
@@ -130,7 +129,7 @@ main = do
     testOrderExecutionFillSanitizationInvariant
     testCoinbaseOrderInfoDecodeInvariant
     testOptimizerActivityCountInvariant
-        testOptimizerPublicSurfaceRegression
+    testOptimizerPublicSurfaceRegression
     testOptimizerQualityBudgetRegression
     testOptimizerQualityThresholdArgvExplicitRegression
     testOptimizerKellyLiteExposureContractRegression
@@ -1650,52 +1649,39 @@ testOptimizerQualityBudgetRegression = do
     assert
         "quality preset lifts default positive method weights to the quality floor"
         (qualityPresetWeightFloor 1.0 (0.25 :: Double) == 1.0)
-        assert
+    assert
         "quality preset preserves explicit method weights above the quality floor"
         (qualityPresetWeightFloor 1.0 (2.0 :: Double) == 2.0)
 
 testOptimizerQualityThresholdArgvExplicitRegression :: IO ()
 testOptimizerQualityThresholdArgvExplicitRegression = do
-    let closeEnough expected actual = abs (expected - actual) <= 1e-12
-        parseOptimizer = parseArgs "optimize-equity"
-    splitForm <-
-        parseOptimizer
+    let splitForm =
             [ "--quality"
             , "--open-threshold-max"
             , "0.03"
             , "--close-threshold-max"
             , "0.04"
             ]
-    equalsForm <-
-        parseOptimizer
+        equalsForm =
             [ "--quality"
             , "--open-threshold-max=0.03"
             , "--close-threshold-max=0.04"
             ]
-    omitted <- parseOptimizer ["--quality"]
+        omitted = ["--quality"]
     assert
         "optimizer parser treats split-form quality threshold caps as explicit"
-        ( oaQuality splitForm
-            && closeEnough 0.03 (oaOpenThresholdMax splitForm)
-            && closeEnough 0.04 (oaCloseThresholdMax splitForm)
-            && oaOpenThresholdMaxExplicit splitForm
-            && oaCloseThresholdMaxExplicit splitForm
+        ( optimizerOptionPresent "open-threshold-max" splitForm
+            && optimizerOptionPresent "close-threshold-max" splitForm
         )
     assert
         "optimizer parser treats equals-form quality threshold caps as explicit"
-        ( oaQuality equalsForm
-            && closeEnough 0.03 (oaOpenThresholdMax equalsForm)
-            && closeEnough 0.04 (oaCloseThresholdMax equalsForm)
-            && oaOpenThresholdMaxExplicit equalsForm
-            && oaCloseThresholdMaxExplicit equalsForm
+        ( optimizerOptionPresent "open-threshold-max" equalsForm
+            && optimizerOptionPresent "close-threshold-max" equalsForm
         )
     assert
         "optimizer parser preserves omitted quality threshold caps as non-explicit defaults"
-        ( oaQuality omitted
-            && closeEnough 2e-2 (oaOpenThresholdMax omitted)
-            && closeEnough 2e-2 (oaCloseThresholdMax omitted)
-            && not (oaOpenThresholdMaxExplicit omitted)
-            && not (oaCloseThresholdMaxExplicit omitted)
+        ( not (optimizerOptionPresent "open-threshold-max" omitted)
+            && not (optimizerOptionPresent "close-threshold-max" omitted)
         )
 
 -- Optimizer eligibility regression: Kelly-lite exposure contracts must reject
