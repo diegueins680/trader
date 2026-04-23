@@ -904,14 +904,43 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             total0 = feeCost0 + slipCost0 + spreadCost0
                                             feeCost1 = if feeMin > 0 && total0 < feeMin then feeCost0 + (feeMin - total0) else feeCost0
                                             total1 = feeCost1 + slipCost0 + spreadCost0
-                                            total = min 0.999999 (max 0 total1)
-                                            scale = if total1 <= 0 then 0 else total / total1
-                                         in CostTotals
-                                                { ctFeeCost = feeCost1 * scale
-                                                , ctSlippageCost = slipCost0 * scale
-                                                , ctSpreadCost = spreadCost0 * scale
-                                                , ctFundingCost = 0
-                                                }
+                                            cap = 0.999999
+                                            appliedTotal
+                                                | isBad total1 = cap
+                                                | total1 <= 0 = 0
+                                                | otherwise = min cap total1
+                                            finiteNonNegative x = not (isBad x) && x >= 0
+                                            componentsFinite =
+                                                finiteNonNegative feeCost1
+                                                    && finiteNonNegative slipCost0
+                                                    && finiteNonNegative spreadCost0
+                                            proportionalAllocation =
+                                                let scale = appliedTotal / total1
+                                                    feeCost = min appliedTotal (feeCost1 * scale)
+                                                    remainingAfterFee = appliedTotal - feeCost
+                                                    slipCost = min remainingAfterFee (slipCost0 * scale)
+                                                    spreadCost = appliedTotal - feeCost - slipCost
+                                                 in CostTotals
+                                                        { ctFeeCost = feeCost
+                                                        , ctSlippageCost = slipCost
+                                                        , ctSpreadCost = spreadCost
+                                                        , ctFundingCost = 0
+                                                        }
+                                            cappedBucketAllocation
+                                                | isBad feeCost1 || feeCost1 > 0 =
+                                                    CostTotals appliedTotal 0 0 0
+                                                | isBad slipCost0 || slipCost0 > 0 =
+                                                    CostTotals 0 appliedTotal 0 0
+                                                | isBad spreadCost0 || spreadCost0 > 0 =
+                                                    CostTotals 0 0 appliedTotal 0
+                                                | otherwise =
+                                                    CostTotals appliedTotal 0 0 0
+                                         in if appliedTotal <= 0
+                                                then emptyCostTotals
+                                                else
+                                                    if componentsFinite && not (isBad total1) && total1 > 0
+                                                        then proportionalAllocation
+                                                        else cappedBucketAllocation
 
                         costPerSideTotal :: Int -> Double -> Double
                         costPerSideTotal t size = costTotalsTotal (costPerSideBreakdown t size)

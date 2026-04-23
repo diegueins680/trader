@@ -126,6 +126,7 @@ main = do
     testBacktestFreshEntrySizingBoundsFailClosed
     testBacktestPositionSizeFloorCapValidation
     testBacktestCostAttributionGrossNetConsistency
+    testBacktestCostAttributionNonFiniteComponentsRegression
     testOrderExecutionFillSanitizationInvariant
     testCoinbaseOrderInfoDecodeInvariant
     testOptimizerActivityCountInvariant
@@ -1047,6 +1048,71 @@ testBacktestCostAttributionGrossNetConsistency = do
             assertNear "realized component costs sum to total realized cost" totalCost componentTotal 1e-12
             assertNear "gross minus realized costs equals net equity" finalNet (finalGross - totalCost) 1e-12
             assertNear "reported consistency residual stays near zero" 0 (bcaConsistencyResidual attribution) 1e-12
+
+-- Regression for review thread 7: an overflowed impact component used to make
+-- the cost scaling path multiply Infinity by zero. The capped attribution path
+-- must keep the realized cost totals and simulated equity finite.
+testBacktestCostAttributionNonFiniteComponentsRegression :: IO ()
+testBacktestCostAttributionNonFiniteComponentsRegression = do
+    let prices :: V.Vector Double
+        prices = V.fromList [100.0, 100.0, 101.0, 101.0]
+        highs = prices
+        lows = prices
+        preds :: V.Vector Double
+        preds = V.fromList [102.0, 102.0, 103.0]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.01
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSlippageVolMult = 0
+                , ecSlippageImpact = 1e-9
+                , ecSlippageImpactPower = 2
+                , ecSpread = 0
+                , ecFundingRate = 0
+                , ecVolLookback = 2
+                , ecMaxPositionSize = 1e308
+                , ecMinPositionSize = 0
+                , ecRebalanceBars = 1
+                , ecRebalanceThreshold = 0.1
+                , ecKellyLiteSizing = True
+                , ecKellyLiteFraction = 1e300
+                , ecKellyLiteFloor = 1
+                , ecKellyLiteCap = 1e308
+                }
+        result = simulateEnsembleWithHLChecked cfg 1 prices highs lows preds preds (Nothing :: Maybe (V.Vector StepMeta))
+        finite x = not (isNaN x || isInfinite x)
+    case result of
+        Left err -> ioError (userError ("non-finite cost attribution regression failed to simulate: " ++ err))
+        Right bt -> do
+            let attribution = brCostAttribution bt
+                grossCurve = bcaGrossEquityCurve attribution
+                netCurve = bcaNetEquityCurve attribution
+                totalCost = bcaRealizedTotalCost attribution
+                components =
+                    [ bcaRealizedFeeCost attribution
+                    , bcaRealizedSlippageCost attribution
+                    , bcaRealizedSpreadCost attribution
+                    , bcaRealizedFundingCost attribution
+                    ]
+                componentTotal = sum components
+                costAndEquityPath =
+                    brEquityCurve bt
+                        ++ brPositions bt
+                        ++ grossCurve
+                        ++ netCurve
+                        ++ components
+                        ++ [totalCost, componentTotal, bcaConsistencyResidual attribution]
+            assert "non-finite cost intermediates do not introduce NaN or Infinity into the simulated path" (all finite costAndEquityPath)
+            assert "overflowed impact cost is deterministically capped into slippage attribution" $
+                bcaRealizedFeeCost attribution == 0
+                    && bcaRealizedSlippageCost attribution > 0.999
+                    && bcaRealizedSpreadCost attribution == 0
+                    && bcaRealizedFundingCost attribution == 0
+                    && totalCost < 2
+            assertNear "finite realized components sum to the derived applied cost" totalCost componentTotal 1e-12
+            assertNear "non-finite cost attribution keeps gross/net residual closed" 0 (bcaConsistencyResidual attribution) 1e-9
 
 -- Execution-quantity guardrail: malformed or non-positive fills must fail
 -- closed, and reduce-only fills must never reopen or increase exposure.
