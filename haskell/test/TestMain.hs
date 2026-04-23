@@ -32,7 +32,13 @@ import Trader.MarketDataIntegrity (
     mdfStale,
  )
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
-import Trader.Optimizer.Optimize (kellyLiteExposureContractReason, qualityPresetBudget, qualityPresetCeiling, qualityPresetWeightFloor)
+import Trader.Optimizer.Optimize (
+    kellyLiteExposureContractReason,
+    optimizerOptionPresent,
+    qualityPresetBudget,
+    qualityPresetCeiling,
+    qualityPresetWeightFloor,
+ )
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
@@ -125,6 +131,7 @@ main = do
     testOptimizerActivityCountInvariant
     testOptimizerPublicSurfaceRegression
     testOptimizerQualityBudgetRegression
+    testOptimizerQualityThresholdArgvExplicitRegression
     testOptimizerKellyLiteExposureContractRegression
     testMetricsConsumesTradingPublicResults
     runTechnicalAnalysisTests
@@ -1645,6 +1652,37 @@ testOptimizerQualityBudgetRegression = do
     assert
         "quality preset preserves explicit method weights above the quality floor"
         (qualityPresetWeightFloor 1.0 (2.0 :: Double) == 2.0)
+
+testOptimizerQualityThresholdArgvExplicitRegression :: IO ()
+testOptimizerQualityThresholdArgvExplicitRegression = do
+    let splitForm =
+            [ "--quality"
+            , "--open-threshold-max"
+            , "0.03"
+            , "--close-threshold-max"
+            , "0.04"
+            ]
+        equalsForm =
+            [ "--quality"
+            , "--open-threshold-max=0.03"
+            , "--close-threshold-max=0.04"
+            ]
+        omitted = ["--quality"]
+    assert
+        "optimizer parser treats split-form quality threshold caps as explicit"
+        ( optimizerOptionPresent "open-threshold-max" splitForm
+            && optimizerOptionPresent "close-threshold-max" splitForm
+        )
+    assert
+        "optimizer parser treats equals-form quality threshold caps as explicit"
+        ( optimizerOptionPresent "open-threshold-max" equalsForm
+            && optimizerOptionPresent "close-threshold-max" equalsForm
+        )
+    assert
+        "optimizer parser preserves omitted quality threshold caps as non-explicit defaults"
+        ( not (optimizerOptionPresent "open-threshold-max" omitted)
+            && not (optimizerOptionPresent "close-threshold-max" omitted)
+        )
 
 -- Optimizer eligibility regression: Kelly-lite exposure contracts must reject
 -- no-op Kelly-lite rows. A zero uncapped-exposure replay previously produced a

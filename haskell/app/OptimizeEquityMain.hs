@@ -2,7 +2,7 @@ module Main (main) where
 
 import Control.Monad (unless, when)
 import Data.Char (isSpace, toLower)
-import Data.List (intercalate, isPrefixOf)
+import Data.List (intercalate)
 import Data.Maybe (fromMaybe, isJust)
 import Options.Applicative
 import System.Environment (getArgs, getProgName)
@@ -10,7 +10,7 @@ import System.Exit (ExitCode (..), exitSuccess, exitWith)
 import System.IO (hPutStrLn, stderr)
 
 import Trader.Optimization (TuneObjective (..), tuneObjectiveCode)
-import Trader.Optimizer.Optimize (OptimizerArgs (..), normalizeObjectiveCode, runOptimizer)
+import Trader.Optimizer.Optimize (OptimizerArgs (..), normalizeObjectiveCode, optimizerOptionPresent, runOptimizer)
 
 main :: IO ()
 main = do
@@ -38,8 +38,8 @@ parseArgs progName argv =
             Success opts ->
                 pure
                     opts
-                        { oaOpenThresholdMaxExplicit = optionPresent "open-threshold-max"
-                        , oaCloseThresholdMaxExplicit = optionPresent "close-threshold-max"
+                        { oaOpenThresholdMaxExplicit = optimizerOptionPresent "open-threshold-max" argv
+                        , oaCloseThresholdMaxExplicit = optimizerOptionPresent "close-threshold-max" argv
                         }
             Failure failure -> do
                 let (msg, _) = renderFailure failure progName
@@ -49,11 +49,6 @@ parseArgs progName argv =
                 msg <- execCompletion compl progName
                 putStr msg
                 exitSuccess
-    optionPresent name =
-        let flag = "--" ++ name
-            flagWithValue = flag ++ "="
-         in any (\arg -> arg == flag || flagWithValue `isPrefixOf` arg) argv
-
 optimizerArgsParser :: Parser OptimizerArgs
 optimizerArgsParser =
     OptimizerArgs

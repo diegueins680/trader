@@ -10,6 +10,7 @@ module Trader.Optimizer.Optimize (
     normalizeObjectiveCode,
     normalizeOptionalPositiveFraction,
     objectiveScore,
+    optimizerOptionPresent,
     qualityPresetIntervalFields,
     qualityPresetBudget,
     qualityPresetCeiling,
@@ -1379,6 +1380,12 @@ applyQualityPreset args =
             , oaInterval = interval'
             , oaIntervals = intervals'
             }
+
+optimizerOptionPresent :: String -> [String] -> Bool
+optimizerOptionPresent name argv =
+    let flag = "--" ++ name
+        flagWithValue = flag ++ "="
+     in any (\arg -> arg == flag || isJust (stripPrefix flagWithValue arg)) argv
 
 qualityPresetBudget :: Int -> Int -> Int -> Int
 qualityPresetBudget productionDefault requested rawBudget =
