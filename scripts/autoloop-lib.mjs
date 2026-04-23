@@ -130,6 +130,34 @@ function readString(raw, field) {
   return value;
 }
 
+function coerceNarrativeString(raw) {
+  if (typeof raw === "string") return raw.trim();
+  if (raw === undefined || raw === null) return "";
+  if (Array.isArray(raw)) {
+    return raw.map(coerceNarrativeString).filter(Boolean).join("\n");
+  }
+  if (typeof raw === "object") {
+    for (const key of ["text", "summary", "message", "title", "value", "content"]) {
+      const value = coerceNarrativeString(raw[key]);
+      if (value) return value;
+    }
+    return Object.entries(raw)
+      .map(([key, value]) => {
+        const text = coerceNarrativeString(value);
+        return text ? `${key}: ${text}` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return String(raw).trim();
+}
+
+function readNarrativeString(raw, field) {
+  const value = coerceNarrativeString(raw);
+  if (!value) throw new Error(`${field} must not be empty.`);
+  return value;
+}
+
 function readStringArray(raw, field, maxItems = 12) {
   if (!Array.isArray(raw)) throw new Error(`${field} must be an array.`);
   if (raw.length === 0) throw new Error(`${field} must not be empty.`);
@@ -290,15 +318,15 @@ export function normalizePatchPlan(raw) {
   }
   return {
     noChange,
-    title: noChange ? String(obj.title ?? "").trim() : readString(obj.title, "title"),
-    summary: noChange ? String(obj.summary ?? "").trim() : readString(obj.summary, "summary"),
-    commitMessage: noChange ? String(obj.commitMessage ?? "").trim() : readString(obj.commitMessage, "commitMessage"),
+    title: noChange ? String(obj.title ?? "").trim() : readNarrativeString(obj.title, "title"),
+    summary: noChange ? String(obj.summary ?? "").trim() : readNarrativeString(obj.summary, "summary"),
+    commitMessage: noChange ? String(obj.commitMessage ?? "").trim() : readNarrativeString(obj.commitMessage, "commitMessage"),
     algorithmReviewSummary: noChange
       ? String(obj.algorithmReviewSummary ?? "").trim()
-      : readString(obj.algorithmReviewSummary, "algorithmReviewSummary"),
+      : readNarrativeString(obj.algorithmReviewSummary, "algorithmReviewSummary"),
     formalMethodsSummary: noChange
       ? String(obj.formalMethodsSummary ?? "").trim()
-      : readString(obj.formalMethodsSummary, "formalMethodsSummary"),
+      : readNarrativeString(obj.formalMethodsSummary, "formalMethodsSummary"),
     changes,
     verificationCommands: Array.isArray(obj.verificationCommands)
       ? obj.verificationCommands.map((item, idx) => readString(item, `verificationCommands[${idx}]`))
