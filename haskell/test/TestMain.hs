@@ -1721,33 +1721,45 @@ testOptimizerQualityBudgetRegression = do
 
 testOptimizerQualityThresholdArgvExplicitRegression :: IO ()
 testOptimizerQualityThresholdArgvExplicitRegression = do
-    let splitForm =
-            [ "--quality"
-            , "--open-threshold-max"
-            , "0.03"
-            , "--close-threshold-max"
-            , "0.04"
-            ]
-        equalsForm =
-            [ "--quality"
-            , "--open-threshold-max=0.03"
-            , "--close-threshold-max=0.04"
-            ]
+    let qualityDefaultCap = 2e-2 :: Double
+        qualityExplorationFloor = 5e-2 :: Double
+        splitOpenForm = ["--quality", "--open-threshold-max", "2e-2"]
+        equalsOpenForm = ["--quality", "--open-threshold-max=2e-2"]
+        splitCloseForm = ["--quality", "--close-threshold-max", "2e-2"]
+        equalsCloseForm = ["--quality", "--close-threshold-max=2e-2"]
         omitted = ["--quality"]
+        capAfterQuality flag argv =
+            qualityPresetCeiling
+                qualityDefaultCap
+                qualityExplorationFloor
+                (optimizerOptionPresent flag argv)
+                qualityDefaultCap
     assert
-        "optimizer parser treats split-form quality threshold caps as explicit"
-        ( optimizerOptionPresent "open-threshold-max" splitForm
-            && optimizerOptionPresent "close-threshold-max" splitForm
+        "optimizer parser treats split-form open threshold quality caps as explicit"
+        ( optimizerOptionPresent "open-threshold-max" splitOpenForm
+            && capAfterQuality "open-threshold-max" splitOpenForm == qualityDefaultCap
         )
     assert
-        "optimizer parser treats equals-form quality threshold caps as explicit"
-        ( optimizerOptionPresent "open-threshold-max" equalsForm
-            && optimizerOptionPresent "close-threshold-max" equalsForm
+        "optimizer parser treats equals-form open threshold quality caps as explicit"
+        ( optimizerOptionPresent "open-threshold-max" equalsOpenForm
+            && capAfterQuality "open-threshold-max" equalsOpenForm == qualityDefaultCap
+        )
+    assert
+        "optimizer parser treats split-form close threshold quality caps as explicit"
+        ( optimizerOptionPresent "close-threshold-max" splitCloseForm
+            && capAfterQuality "close-threshold-max" splitCloseForm == qualityDefaultCap
+        )
+    assert
+        "optimizer parser treats equals-form close threshold quality caps as explicit"
+        ( optimizerOptionPresent "close-threshold-max" equalsCloseForm
+            && capAfterQuality "close-threshold-max" equalsCloseForm == qualityDefaultCap
         )
     assert
         "optimizer parser preserves omitted quality threshold caps as non-explicit defaults"
         ( not (optimizerOptionPresent "open-threshold-max" omitted)
             && not (optimizerOptionPresent "close-threshold-max" omitted)
+            && capAfterQuality "open-threshold-max" omitted == qualityExplorationFloor
+            && capAfterQuality "close-threshold-max" omitted == qualityExplorationFloor
         )
 
 -- Optimizer eligibility regression: Kelly-lite exposure contracts must reject
