@@ -189,6 +189,12 @@ jobs:
                 return 0
               fi
 
+              if grep -qiE "overdue invoices|update your payment information" "$deploy_log"; then
+                echo "::warning::${label} Fly deploy is blocked by Fly billing state; update Fly billing information and rerun deploy. Skipping ${label} deploy for this run."
+                popd >/dev/null
+                return 0
+              fi
+
               echo "::error::${label} Fly deploy failed."
               cat "$deploy_log"
               popd >/dev/null

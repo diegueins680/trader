@@ -980,6 +980,13 @@ test("autoloop workflow requires a dedicated push token and never skips post-pus
   assert.doesNotMatch(workflow, /github\.token/);
 });
 
+test("CI Fly deploy skips external billing blockers", async () => {
+  const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  assert.match(workflow, /overdue invoices\|update your payment information/);
+  assert.match(workflow, /blocked by Fly billing state/);
+  assert.match(workflow, /Skipping \$\{label\} deploy for this run/);
+});
+
 test("repo root package exposes the autoloop verifier script", async () => {
   const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
   const pkg = JSON.parse(pkgRaw);
