@@ -1,4 +1,4 @@
-module Main (main) where
+module OptimizeEquityMain (main, parseArgs) where
 
 import Control.Monad (unless, when)
 import Data.Char (isSpace, toLower)
