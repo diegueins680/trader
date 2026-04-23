@@ -703,6 +703,7 @@ optimizerSurfacePreservedFields base updated =
         , ecTakeProfitVolMult updated == ecTakeProfitVolMult base
         , ecTrailingStopVolMult updated == ecTrailingStopVolMult base
         , ecMaxPositionSize updated == ecMaxPositionSize base
+        , ecEntryEdgeSpikeAuditOnly updated == ecEntryEdgeSpikeAuditOnly base
         , ecBlendWeight updated == ecBlendWeight base
         , ecKalmanZMin updated == ecKalmanZMin base
         , ecKalmanZMax updated == ecKalmanZMax base
@@ -765,6 +766,7 @@ optimizerPublicSurfaceBaseConfig =
         , ecPositioning = LongFlat
         , ecIntrabarFill = StopFirst
         , ecMaxPositionSize = 1
+        , ecEntryEdgeSpikeAuditOnly = False
         , ecMinSignalToNoise = 0
         , ecSnrSizeWeight = 0
         , ecThresholdFactorEnabled = False

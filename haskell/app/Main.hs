@@ -309,9 +309,13 @@ import Trader.SignalGates (
     normalizeSignalThreshold,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
+    signalEntryEdgeSpikeAuditWarning,
+    signalEntryEdgeSpikeEntryOk,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
+    signalEntryOpenThresholdFeasibilityReason,
+    signalEntryOpenThresholdFeasible,
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
@@ -416,9 +420,14 @@ data LatestSignal = LatestSignal
     , lsLstmDir :: !(Maybe Int)
     , lsChosenDir :: !(Maybe Int)
     , lsCloseDir :: !(Maybe Int)
+    , lsAuditWarnings :: ![String]
     , lsAction :: !String
     }
     deriving (Eq, Show)
+
+entryEdgeSpikeAuditOnlyForArgs :: Args -> Method -> Bool
+entryEdgeSpikeAuditOnlyForArgs args method =
+    argNormalization args /= NormNone && method == MethodLstmOnly
 
 data BacktestSummary = BacktestSummary
     { bsTrainEndRaw :: !Int
@@ -1241,6 +1250,7 @@ instance ToJSON LatestSignal where
                 , "lstmDirection" .= (if isJust (lsLstmNext s) then dirLabel (lsLstmDir s) else Nothing)
                 , "chosenDirection" .= dirLabel (lsChosenDir s)
                 , "closeDirection" .= dirLabel (lsCloseDir s)
+                , "auditWarnings" .= lsAuditWarnings s
                 , "action" .= lsAction s
                 ]
 
@@ -8270,6 +8280,7 @@ botOptimizeAfterOperation st = do
                                 , ecPositioning = argPositioning args
                                 , ecIntrabarFill = argIntrabarFill args
                                 , ecMaxPositionSize = argMaxPositionSize args
+                                , ecEntryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args (argMethod args)
                                 , ecMinEdge = minEdge
                                 , ecMinSignalToNoise = argMinSignalToNoise args
                                 , ecSnrSizeWeight = argSnrSizeWeight args
@@ -22467,6 +22478,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecPositioning = argPositioning args
                 , ecIntrabarFill = argIntrabarFill args
                 , ecMaxPositionSize = argMaxPositionSize args
+                , ecEntryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args methodForComputation
                 , ecMinEdge = minEdge
                 , ecMinSignalToNoise = argMinSignalToNoise args
                 , ecSnrSizeWeight = argSnrSizeWeight args
@@ -25916,30 +25928,39 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchDirGated
                     MethodRouter -> routerDirGated
                     MethodBanditRouter -> routerDirGated
+            entryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args method
             entryEdgeHeadroomOk = signalEntryHeadroomOk openThrAdj edgeForMethod
             entryEdgeSpikeOk = signalEntryEdgeSpikeOk openThrAdj edgeForMethod
+            entryEdgeSpikeEntryOk = signalEntryEdgeSpikeEntryOk entryEdgeSpikeAuditOnly openThrAdj edgeForMethod
+            entryEdgeSpikeAuditWarning = signalEntryEdgeSpikeAuditWarning entryEdgeSpikeAuditOnly openThrAdj edgeForMethod
+            entryOpenThresholdFeasible = signalEntryOpenThresholdFeasible openThrAdj
+            mEntryThresholdReason = signalEntryOpenThresholdFeasibilityReason openThrAdj
             chosenDirBase1 =
                 case chosenDirBase of
                     Just dir
-                        | entryEdgeHeadroomOk && entryEdgeSpikeOk -> Just dir
+                        | entryOpenThresholdFeasible && entryEdgeHeadroomOk && entryEdgeSpikeEntryOk -> Just dir
                     Just _ -> Nothing
                     Nothing -> Nothing
             mEntryEdgeReason =
-                case chosenDirBase of
-                    Just _
-                        | not entryEdgeSpikeOk -> Just "EDGE_SPIKE"
-                        | not entryEdgeHeadroomOk -> Just "EDGE_HEADROOM"
-                    _ -> Nothing
+                mEntryThresholdReason
+                    <|> case chosenDirBase of
+                        Just _
+                            | not entryEdgeSpikeEntryOk -> Just "EDGE_SPIKE"
+                            | not entryEdgeHeadroomOk -> Just "EDGE_HEADROOM"
+                        _ -> Nothing
             (chosenDir0, pairsOverlayActive, mPairsOverlayReason) =
-                if not pairsStatArbEnabled
-                    then (chosenDirBase1, False, Nothing)
-                    else case (chosenDirBase1, pairsDirRaw) of
-                        (Nothing, Just d) -> (Just d, True, Nothing)
-                        (Just d0, Just d1) ->
-                            if d0 == d1
-                                then (Just d0, True, Nothing)
-                                else (Nothing, False, Just "PAIRS_CONFLICT")
-                        (x, Nothing) -> (x, False, Nothing)
+                case () of
+                    _
+                        | not entryOpenThresholdFeasible -> (Nothing, False, mEntryThresholdReason)
+                        | not pairsStatArbEnabled -> (chosenDirBase1, False, Nothing)
+                        | otherwise ->
+                            case (chosenDirBase1, pairsDirRaw) of
+                                (Nothing, Just d) -> (Just d, True, Nothing)
+                                (Just d0, Just d1) ->
+                                    if d0 == d1
+                                        then (Just d0, True, Nothing)
+                                        else (Nothing, False, Just "PAIRS_CONFLICT")
+                                (x, Nothing) -> (x, False, Nothing)
             (chosenDir1Base, mPostGateReasonBase) =
                 signalRunPostDirectionGates
                     chosenDir0
@@ -26066,7 +26087,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
 
             gateReasonFinal = mPostGateReason <|> mEntryFeeBufferReason <|> volConfGateReason <|> mSizeGateReason <|> gateReasonForMethod
 
-            action =
+            actionBase =
                 let downAction =
                         case argPositioning args of
                             LongShort -> "SHORT"
@@ -26335,6 +26356,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (bandit_router neutral)"
+            action =
+                case (mEntryThresholdReason, chosenDir) of
+                    (Just why, Nothing) -> "HOLD (" ++ why ++ ")"
+                    _ -> actionBase
             posSizeFinal = Just sizeFinal1
             tradePosSize =
                 if volConfGateEnabled
@@ -26426,6 +26451,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 , lsLstmDir = lstmDir
                 , lsChosenDir = chosenDir
                 , lsCloseDir = closeDir
+                , lsAuditWarnings = maybeToList entryEdgeSpikeAuditWarning
                 , lsAction = action
                 }
 
@@ -26460,6 +26486,9 @@ printLatestSignalSummary sig = do
     putStrLn (printf "Open threshold:  %.3f%%" (lsOpenThreshold sig * 100))
     putStrLn (printf "Close threshold: %.3f%%" (lsCloseThreshold sig * 100))
     putStrLn (printf "Close dir:       %s" (showDir (lsCloseDir sig)))
+    case lsAuditWarnings sig of
+        [] -> pure ()
+        warnings -> putStrLn (printf "Audit warnings:  %s" (intercalate ", " warnings))
     putStrLn (printf "Action: %s" (lsAction sig))
 
 volPerBarFromSignal :: Args -> LatestSignal -> Maybe Double

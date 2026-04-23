@@ -39,6 +39,7 @@ import Trader.SignalGates (
     finiteDouble,
     normalizeSignalEntryEdge,
     normalizeSignalThreshold,
+    signalEntryEdgeSpikeEntryOk,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
@@ -103,6 +104,7 @@ data EnsembleConfig = EnsembleConfig
     , ecPositioning :: !Positioning
     , ecIntrabarFill :: !IntrabarFill
     , ecMaxPositionSize :: !Double
+    , ecEntryEdgeSpikeAuditOnly :: !Bool
     , ecMinSignalToNoise :: !Double
     , ecSnrSizeWeight :: !Double
     , ecThresholdFactorEnabled :: !Bool
@@ -2014,7 +2016,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         entryEdgeSample = Just (max 0 edgeRaw)
 
                                         entryEdgeSpikeOk =
-                                            not needsEntry || signalEntryEdgeSpikeOk openThrAdj entryEdgeSample
+                                            not needsEntry || signalEntryEdgeSpikeEntryOk (ecEntryEdgeSpikeAuditOnly cfg) openThrAdj entryEdgeSample
 
                                         entryEdgeHeadroomOk =
                                             not needsEntry || signalEntryHeadroomOk openThrAdj entryEdgeSample

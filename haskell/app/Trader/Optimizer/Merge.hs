@@ -45,6 +45,7 @@ import Text.Read (readMaybe)
 
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
+import Trader.SignalGates (signalEntryOpenThresholdFeasible)
 import Trader.Symbol (sanitizeComboSymbolForPlatform)
 
 data MergeArgs = MergeArgs
@@ -267,7 +268,7 @@ signatureKey combo =
 
 writeTopJson :: FilePath -> [Combo] -> Int -> IO ()
 writeTopJson path combos maxItems = do
-    let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) > 1) combos
+    let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) > 1 && comboOpenThresholdDeployable combo) combos
         sorted = take maxItems (sortBy compareCombos eligible)
     nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
     let comboValues = zipWith comboToValue [1 ..] sorted
@@ -310,6 +311,10 @@ comboAnnualizedReturn :: Combo -> Double
 comboAnnualizedReturn combo =
     let ann = fromMaybe (-(1 / 0)) (comboMetricDouble "annualizedReturn" combo)
      in if isNaN ann || isInfinite ann then -(1 / 0) else ann
+
+comboOpenThresholdDeployable :: Combo -> Bool
+comboOpenThresholdDeployable combo =
+    maybe True signalEntryOpenThresholdFeasible (comboOpenThreshold combo)
 
 sanitizeScore :: Double -> Double
 sanitizeScore score

@@ -152,6 +152,8 @@ executable merge-top-combos
   main-is:             MergeTopCombosMain.hs
   other-modules:       Trader.Optimizer.Json
                      , Trader.Optimizer.Merge
+                     , Trader.Predictors.Types
+                     , Trader.SignalGates
                      , Trader.Symbol
                      , Trader.Duration
   default-language:    Haskell2010
