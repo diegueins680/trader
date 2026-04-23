@@ -57,7 +57,7 @@ import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status413, status429, status500, status502, status504, statusCode)
+import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status409, status410, status413, status429, status500, status502, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hContentType, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
@@ -148,6 +148,7 @@ import Trader.Binance (
     Step (..),
     SymbolFilters (..),
     binanceBaseUrl,
+    binanceExceptionSummary,
     binanceFuturesBaseUrl,
     binanceFuturesTestnetBaseUrl,
     binanceMarketDataCacheStats,
@@ -5148,6 +5149,12 @@ botRuntimeStabilityIssue sym rtState =
             st <- readMVar (brStateVar rt)
             pure (fmap (\issue -> sym ++ " is not stable: " ++ issue) (botStateStabilityIssue st))
 
+lookupBotRuntime :: BotController -> TenantKey -> String -> IO (Maybe BotRuntimeState)
+lookupBotRuntime ctrl tenantKey sym = do
+    mrt <- readMVar (bcRuntime ctrl)
+    let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+    pure (HM.lookup (normalizeSymbol sym) tenantMap)
+
 botStartTenantStability :: BotController -> TenantKey -> IO BotStartStability
 botStartTenantStability ctrl tenantKey = do
     mrt <- readMVar (bcRuntime ctrl)
@@ -6465,8 +6472,8 @@ resolveBotSymbols args p = do
         raw =
             case symbolsReq of
                 [] ->
-                    case symbolsEnv of
-                        [] -> symbolsFallback
+                    case symbolsFallback of
+                        [] -> symbolsEnv
                         xs -> xs
                 xs -> xs
         normalized = filter (not . null) (dedupeStable (map normalizeSymbol raw))
@@ -7042,30 +7049,36 @@ runQueuedBotStarts mOps mJournal tenantKey params botCtrl symbols startOne = do
         putStrLn ("Queued bot starts: " ++ intercalate ", " symbols)
     let go [] = pure ()
         go queued@(sym : rest) = do
-            stableOrErr <- waitForBotStartStability botCtrl tenantKey maxWaitSeconds sym
-            case stableOrErr of
-                Left err ->
-                    forM_ queued $ \queuedSym -> do
-                        let msg = "Queued bot start aborted: " ++ err
-                        putStrLn ("Queued bot start failed for " ++ queuedSym ++ ": " ++ msg)
-                        recordQueuedBotStartFailure mOps mJournal tenantKey params queuedSym msg
-                Right () -> do
-                    startedOrErr <- try (startOne sym) :: IO (Either SomeException (String, Either String BotStartOutcome))
-                    case startedOrErr of
-                        Left ex -> do
-                            let msg = displayException ex
-                            putStrLn ("Queued bot start failed for " ++ sym ++ ": " ++ msg)
-                            recordQueuedBotStartFailure mOps mJournal tenantKey params sym msg
-                        Right (_, Left err) -> do
-                            putStrLn ("Queued bot start failed for " ++ sym ++ ": " ++ err)
-                            recordQueuedBotStartFailure mOps mJournal tenantKey params sym err
-                        Right (_, Right outcome) ->
-                            putStrLn
-                                ( "Queued bot start "
-                                    ++ (if bsoStarted outcome then "launched " else "kept existing ")
-                                    ++ bsoSymbol outcome
-                                )
+            existing <- lookupBotRuntime botCtrl tenantKey sym
+            case existing of
+                Just _ -> do
+                    putStrLn ("Queued bot start kept existing " ++ sym)
                     go rest
+                Nothing -> do
+                    stableOrErr <- waitForBotStartStability botCtrl tenantKey maxWaitSeconds sym
+                    case stableOrErr of
+                        Left err ->
+                            forM_ queued $ \queuedSym -> do
+                                let msg = "Queued bot start aborted: " ++ err
+                                putStrLn ("Queued bot start failed for " ++ queuedSym ++ ": " ++ msg)
+                                recordQueuedBotStartFailure mOps mJournal tenantKey params queuedSym msg
+                        Right () -> do
+                            startedOrErr <- try (startOne sym) :: IO (Either SomeException (String, Either String BotStartOutcome))
+                            case startedOrErr of
+                                Left ex -> do
+                                    let msg = displayException ex
+                                    putStrLn ("Queued bot start failed for " ++ sym ++ ": " ++ msg)
+                                    recordQueuedBotStartFailure mOps mJournal tenantKey params sym msg
+                                Right (_, Left err) -> do
+                                    putStrLn ("Queued bot start failed for " ++ sym ++ ": " ++ err)
+                                    recordQueuedBotStartFailure mOps mJournal tenantKey params sym err
+                                Right (_, Right outcome) ->
+                                    putStrLn
+                                        ( "Queued bot start "
+                                            ++ (if bsoStarted outcome then "launched " else "kept existing ")
+                                            ++ bsoSymbol outcome
+                                        )
+                            go rest
     go symbols
 
 adoptRequirementLongShortOverride :: Args -> AdoptRequirement -> Maybe Double
@@ -12720,7 +12733,7 @@ exceptionToHttp ex =
                     | isUserError io -> (status400, ioeGetErrorString io)
                 _ ->
                     case (fromException ex :: Maybe HttpException) of
-                        Just httpEx -> (status502, show httpEx)
+                        Just _ -> (status502, T.unpack (binanceExceptionSummary ex))
                         Nothing -> (status500, show ex)
   where
     internalIndicators = ["Singular matrix", "missing output bias", "argMaxAbs: empty"]
@@ -15852,18 +15865,29 @@ retryListenKey :: String -> IO a -> IO (Either SomeException a)
 retryListenKey label action = go 0 500000
   where
     maxRetries = 3 :: Int
+    safeMsg = T.unpack . binanceExceptionSummary
     go n delayUs = do
         result <- try action
         case result of
             Right v -> pure (Right v)
             Left ex ->
-                let msg = displayException ex
+                let msg = safeMsg ex
                  in if n < maxRetries && isListenKeyRetryableError msg
                         then do
                             putStrLn (printf "ListenKey %s failed (attempt %d/%d): %s; retrying..." label (n + 1) maxRetries msg)
                             threadDelay delayUs
                             go (n + 1) (min (delayUs * 2) 5000000)
                         else pure (Left ex)
+
+listenKeyExceptionToHttp :: BinanceMarket -> SomeException -> (Status, String)
+listenKeyExceptionToHttp market ex =
+    let (st, msg) = exceptionToHttp ex
+     in if market == MarketSpot && "listenKey HTTP 410" `isInfixOf` msg
+            then
+                ( status410
+                , "Binance Spot listenKey REST streams returned HTTP 410 Gone. Use market=futures for listenKey streams, or migrate Spot user streams to Binance WebSocket API userDataStream.subscribe."
+                )
+            else (st, msg)
 
 listenKeyStreamStopped :: ListenKeyStreamState -> IO Bool
 listenKeyStreamStopped st = isJust <$> tryReadMVar (lksStopSignal st)
@@ -16009,7 +16033,7 @@ listenKeyKeepAliveWorker manager tenantKey st = do
                     Left ex -> do
                         stopped' <- listenKeyStreamStopped st
                         unless stopped' $ do
-                            let msg = displayException ex
+                            let msg = T.unpack (binanceExceptionSummary ex)
                             if isListenKeyMissingError msg
                                 then do
                                     emitListenKeyStatus st "expired" (Just "listenKey expired; restart stream.")
@@ -16105,7 +16129,7 @@ handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do
                                                     r <- retryListenKey "create" (createListenKey env)
                                                     case r of
                                                         Left ex ->
-                                                            let (st, msg) = exceptionToHttp ex
+                                                            let (st, msg) = listenKeyExceptionToHttp market ex
                                                              in respond (jsonError st msg)
                                                         Right lk -> do
                                                             let keepAliveMs = 25 * 60 * 1000
@@ -16151,12 +16175,12 @@ handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req res
                                                             r <- retryListenKey "keepAlive" (keepAliveListenKey (lksEnv st) listenKey)
                                                             case r of
                                                                 Left ex -> do
-                                                                    let msg = displayException ex
+                                                                    let msg = T.unpack (binanceExceptionSummary ex)
                                                                     emitListenKeyError st msg
                                                                     when (isListenKeyMissingError msg) $ do
                                                                         _ <- stopListenKeyStreamMatching listenKeyManager tenantKey listenKey
                                                                         pure ()
-                                                                    let (respSt, respMsg) = exceptionToHttp ex
+                                                                    let (respSt, respMsg) = listenKeyExceptionToHttp market ex
                                                                      in respond (jsonError respSt respMsg)
                                                                 Right _ -> do
                                                                     now <- getTimestampMs
@@ -16171,11 +16195,11 @@ handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req res
                                                             r <- retryListenKey "keepAlive" (keepAliveListenKey env listenKey)
                                                             case r of
                                                                 Left ex -> do
-                                                                    let msg = displayException ex
+                                                                    let msg = T.unpack (binanceExceptionSummary ex)
                                                                     when (isListenKeyMissingError msg) $ do
                                                                         _ <- stopListenKeyStreamMatching listenKeyManager tenantKey listenKey
                                                                         pure ()
-                                                                    let (st, respMsg) = exceptionToHttp ex
+                                                                    let (st, respMsg) = listenKeyExceptionToHttp market ex
                                                                      in respond (jsonError st respMsg)
                                                                 Right _ -> do
                                                                     now <- getTimestampMs
@@ -16219,7 +16243,7 @@ handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respond
                                                             r <- try (closeListenKey env listenKey) :: IO (Either SomeException ())
                                                             case r of
                                                                 Left ex ->
-                                                                    let (st, msg) = exceptionToHttp ex
+                                                                    let (st, msg) = listenKeyExceptionToHttp market ex
                                                                      in respond (jsonError st msg)
                                                                 Right _ -> do
                                                                     now <- getTimestampMs
@@ -16655,9 +16679,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                         if null symbols
                                             then respond (jsonError status400 errorMsg)
                                             else do
-                                                let allowExistingBase = length requestedSymbols > 1
-                                                    orphanNorm = map normalizeSymbol orphanSymbols
-                                                    allowExistingFor sym = allowExistingBase || normalizeSymbol sym `elem` orphanNorm
+                                                let allowExistingFor _ = True
                                                     noAdoptRequirement = AdoptRequirement False False
                                                     startOne sym = do
                                                         let argsSym = argsBase{argBinanceSymbol = Just sym}

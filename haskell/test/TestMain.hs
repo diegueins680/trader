@@ -2,12 +2,16 @@
 
 module Main (main) where
 
+import Control.Exception (toException)
 import Control.Monad (unless)
 import qualified Data.Aeson as Aeson
 import Data.Maybe (isNothing)
+import qualified Data.Text as T
 import qualified Data.Vector as V
+import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, info)
 import Trader.App.Args (Args (..), opts, validateArgs)
+import Trader.Binance (binanceExceptionSummary)
 import Trader.BotStartSemantics (botStartSymbolDisabled, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
 import Trader.Formal.Optimization (
@@ -110,6 +114,7 @@ main = do
     testVolConfGateMalformedInputsFailClosed
     testQueuedBotStartOrderErrorStability
     testDisabledBotStartSymbols
+    testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
     testBacktestFreshEntrySizingBoundsFailClosed
@@ -735,6 +740,20 @@ testDisabledBotStartSymbols =
         ( botStartSymbolDisabled ["MATICUSDT"] "maticusdt"
             && botStartSymbolDisabled ["MATIC USDT"] "MATICUSDT"
             && not (botStartSymbolDisabled ["MATICUSDT"] "BTCUSDT")
+        )
+
+testBinanceExceptionSummaryRedactsSecrets :: IO ()
+testBinanceExceptionSummaryRedactsSecrets = do
+    let req =
+            (parseRequest_ "https://fapi.binance.com/fapi/v1/listenKey?listenKey=secret-listen-key")
+                { requestHeaders = [("X-MBX-APIKEY", "secret-api-key")]
+                }
+        msg = binanceExceptionSummary (toException (HttpExceptionRequest req ConnectionTimeout))
+    assert
+        "Binance exception summaries do not expose API keys or listen keys"
+        ( not ("secret-api-key" `T.isInfixOf` msg)
+            && not ("secret-listen-key" `T.isInfixOf` msg)
+            && not ("X-MBX-APIKEY" `T.isInfixOf` msg)
         )
 
 -- Conformal calibration invariant: malformed or empty residual evidence must
