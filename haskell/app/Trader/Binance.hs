@@ -47,6 +47,7 @@ module Trader.Binance (
     cancelFuturesOpenOrdersByClientPrefix,
     BinanceProxyHealth (..),
     binanceProxyHealth,
+    binanceExceptionSummary,
     binanceMarketDataCacheStats,
     createListenKey,
     keepAliveListenKey,
