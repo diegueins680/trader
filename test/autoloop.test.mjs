@@ -352,6 +352,19 @@ test("normalizePatchPlan validates change entries", () => {
   });
   assert.equal(plan.changes[0]?.path, "README.md");
   assert.equal(plan.algorithmReviewSummary, "Reviewed the backend trading file and applied the threshold fix there.");
+  const coercedPlan = normalizePatchPlan({
+    noChange: false,
+    title: { text: "Patch planner text fields" },
+    summary: ["Tolerate planner metadata arrays.", "Keep file changes validated separately."],
+    commitMessage: { message: "fix: tolerate planner text metadata" },
+    algorithmReviewSummary: { text: "Reviewed the planner normalizer." },
+    formalMethodsSummary: { text: "Covered metadata coercion in automation tests." },
+    changes: [{ path: "README.md", content: "# hi" }],
+    verificationCommands: [],
+  });
+  assert.equal(coercedPlan.title, "Patch planner text fields");
+  assert.equal(coercedPlan.summary, "Tolerate planner metadata arrays.\nKeep file changes validated separately.");
+  assert.equal(coercedPlan.commitMessage, "fix: tolerate planner text metadata");
   const replacementPlan = normalizePatchPlan({
     noChange: false,
     title: "Patch large file",
