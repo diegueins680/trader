@@ -10,11 +10,16 @@ module Trader.SignalGates (
     normalizeSignalEntryEdge,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
+    signalEntryOpenThresholdFeasibilityCap,
+    signalEntryOpenThresholdFeasibilityReason,
+    signalEntryOpenThresholdFeasible,
     signalEntryHeadroomThresholdCap,
     normalizeSignalOpenThreshold,
     normalizeSignalFeeFloor,
     signalEntryHeadroomOk,
     signalEntryEdgeSpikeOk,
+    signalEntryEdgeSpikeEntryOk,
+    signalEntryEdgeSpikeAuditWarning,
     signalEntryFeeBufferOk,
     signalFundingOiCheck,
     signalMetaLabelOk,
@@ -329,6 +334,21 @@ entryEdgeSpikeMultiple = 4.0
 entryEdgeSpikeCredibleCap :: Double
 entryEdgeSpikeCredibleCap = 0.5
 
+signalEntryOpenThresholdFeasibilityCap :: Double
+signalEntryOpenThresholdFeasibilityCap = entryEdgeSpikeCredibleCap / entryEdgeHeadroomMultiple
+
+signalEntryOpenThresholdFeasible :: Double -> Bool
+signalEntryOpenThresholdFeasible rawThreshold =
+    case normalizeSignalOpenThreshold rawThreshold of
+        Nothing -> False
+        Just threshold -> threshold <= signalEntryOpenThresholdFeasibilityCap
+
+signalEntryOpenThresholdFeasibilityReason :: Double -> Maybe String
+signalEntryOpenThresholdFeasibilityReason rawThreshold =
+    if signalEntryOpenThresholdFeasible rawThreshold
+        then Nothing
+        else Just "THRESHOLD_INFEASIBLE"
+
 signalEntryHeadroomThresholdCap :: Double -> Double
 signalEntryHeadroomThresholdCap rawEdge =
     case normalizeSignalEntryEdge rawEdge of
@@ -355,6 +375,16 @@ signalEntryEdgeSpikeOk openThreshold edgeForMethod =
         Just threshold ->
             let spikeCap = min (entryEdgeSpikeMultiple * threshold) entryEdgeSpikeCredibleCap
              in maybe False (\edge -> finiteDouble edge && edge >= 0 && edge <= spikeCap) edgeForMethod
+
+signalEntryEdgeSpikeEntryOk :: Bool -> Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeEntryOk auditOnly openThreshold edgeForMethod =
+    auditOnly || signalEntryEdgeSpikeOk openThreshold edgeForMethod
+
+signalEntryEdgeSpikeAuditWarning :: Bool -> Double -> Maybe Double -> Maybe String
+signalEntryEdgeSpikeAuditWarning auditOnly openThreshold edgeForMethod =
+    if auditOnly && not (signalEntryEdgeSpikeOk openThreshold edgeForMethod)
+        then Just "EDGE_SPIKE"
+        else Nothing
 
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
 signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =

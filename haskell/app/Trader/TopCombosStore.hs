@@ -60,6 +60,7 @@ import Text.Read (readMaybe)
 
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
+import Trader.SignalGates (signalEntryOpenThresholdFeasible)
 import qualified Trader.Symbol as Symbol
 import Trader.Text (normalizeKey, trim)
 
@@ -224,7 +225,7 @@ sanitizeTopCombosValue val =
                     let combosList = V.toList combos
                         (kept, changed) = foldl' apply ([], 0) combosList
                         apply (acc, count) comboVal =
-                            if not (comboEquityAboveOne comboVal)
+                            if not (comboEquityAboveOne comboVal) || not (comboOpenThresholdDeployable comboVal)
                                 then (acc, count + 1)
                                 else
                                     let (comboVal', updated) = sanitizeComboValue comboVal
@@ -234,6 +235,10 @@ sanitizeTopCombosValue val =
                      in (Aeson.Object o', changed)
                 _ -> (val, 0)
         _ -> (val, 0)
+
+comboOpenThresholdDeployable :: Aeson.Value -> Bool
+comboOpenThresholdDeployable val =
+    maybe True signalEntryOpenThresholdFeasible (comboMetricDouble "openThreshold" val)
 
 normalizeTopCombosPayload :: Aeson.Value -> Aeson.Value
 normalizeTopCombosPayload payload =

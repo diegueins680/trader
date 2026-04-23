@@ -6,6 +6,8 @@ import Control.Monad (unless)
 import qualified Data.Aeson as Aeson
 import Data.Maybe (isNothing)
 import qualified Data.Vector as V
+import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, info)
+import Trader.App.Args (Args (..), opts, validateArgs)
 import Trader.BotStartSemantics (botStartSymbolDisabled, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
 import Trader.Formal.Optimization (
@@ -15,6 +17,15 @@ import Trader.Formal.Optimization (
     roiViewFromMetrics,
     rvActivityCount,
     verifyFormalOptimization,
+ )
+import Trader.MarketDataIntegrity (
+    marketDataContinuationIssue,
+    marketDataFreshness,
+    marketDataStaleReason,
+    mdfAgeMs,
+    mdfFreshnessBudgetMs,
+    mdfLastCloseTimeMs,
+    mdfStale,
  )
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Optimizer.Optimize (kellyLiteExposureContractReason, qualityPresetBudget, qualityPresetCeiling, qualityPresetWeightFloor)
@@ -28,10 +39,15 @@ import Trader.SignalGates (
     normalizeSignalEntryEdge,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
+    signalEntryEdgeSpikeAuditWarning,
+    signalEntryEdgeSpikeEntryOk,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
     signalEntryHeadroomThresholdCap,
+    signalEntryOpenThresholdFeasibilityCap,
+    signalEntryOpenThresholdFeasibilityReason,
+    signalEntryOpenThresholdFeasible,
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
@@ -78,7 +94,10 @@ import Trader.VolConfGate (
 main :: IO ()
 main = do
     testSignalGateEntryBoundaryWitness
+    testSignalGateEntryThresholdFeasibilityInvariant
+    testMarketDataFreshnessAndContinuationInvariant
     testSignalGateEntryEdgeSpikeCapRegression
+    testSignalGateEntryEdgeSpikeAuditWarning
     testSignalGateEntryHeadroomSpecializesFeeBuffer
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
@@ -94,6 +113,7 @@ main = do
     testConformalCalibrationResidualsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
     testBacktestFreshEntrySizingBoundsFailClosed
+    testBacktestPositionSizeFloorCapValidation
     testBacktestCostAttributionGrossNetConsistency
     testOrderExecutionFillSanitizationInvariant
     testCoinbaseOrderInfoDecodeInvariant
@@ -111,6 +131,13 @@ assert message condition =
 assertMonotoneNonIncreasing :: String -> [Bool] -> IO ()
 assertMonotoneNonIncreasing message values =
     assert message (and (zipWith (\left right -> left || not right) values (drop 1 values)))
+
+parseAndValidateCliArgs :: [String] -> Either String Args
+parseAndValidateCliArgs argv =
+    case execParserPure defaultPrefs (info opts mempty) argv of
+        Success args -> validateArgs args
+        Failure _ -> Left "CLI parse failed unexpectedly"
+        CompletionInvoked _ -> Left "CLI completion invoked unexpectedly"
 
 pricesFromReturns :: [Double] -> V.Vector Double
 pricesFromReturns returns =
@@ -186,6 +213,7 @@ sampleEnsembleConfig =
         , ecPositioning = LongFlat
         , ecIntrabarFill = StopFirst
         , ecMaxPositionSize = 1
+        , ecEntryEdgeSpikeAuditOnly = False
         , ecMinSignalToNoise = 0
         , ecSnrSizeWeight = 0
         , ecThresholdFactorEnabled = False
@@ -311,6 +339,81 @@ testSignalGateEntryBoundaryWitness = do
         "direct signal-gate admissibility is monotone non-increasing as the fee floor rises"
         feeLadder
 
+-- The existing fresh-entry contract combines minimum edge headroom
+-- (edge >= 1.5 * openThreshold) with a spike cap (edge <= min (4 * openThreshold) 0.5).
+-- Therefore openThreshold > 1/3 has no admissible finite edge sample.
+testSignalGateEntryThresholdFeasibilityInvariant :: IO ()
+testSignalGateEntryThresholdFeasibilityInvariant = do
+    let boundary = signalEntryOpenThresholdFeasibilityCap
+        justAbove = boundary + 1e-12
+        malformedThresholds = [-0.01, 0 / 0, 1 / 0]
+    assert
+        "fresh-entry threshold feasibility cap is exactly the headroom/spike intersection"
+        (abs (boundary - (1 / 3)) <= 1e-15)
+    assert
+        "exact threshold feasibility boundary remains admissible when the edge is exactly 50%"
+        ( signalEntryOpenThresholdFeasible boundary
+            && isNothing (signalEntryOpenThresholdFeasibilityReason boundary)
+            && signalEntryHeadroomOk boundary (Just 0.5)
+            && signalEntryEdgeSpikeOk boundary (Just 0.5)
+        )
+    assert
+        "strict-above-boundary thresholds fail closed with an explicit infeasibility reason"
+        ( not (signalEntryOpenThresholdFeasible justAbove)
+            && signalEntryOpenThresholdFeasibilityReason justAbove == Just "THRESHOLD_INFEASIBLE"
+            && not (signalEntryHeadroomOk justAbove (Just 0.5))
+            && signalEntryEdgeSpikeOk justAbove (Just 0.5)
+        )
+    assert
+        "malformed thresholds fail closed under the feasibility helper"
+        ( all
+            ( \threshold ->
+                not (signalEntryOpenThresholdFeasible threshold)
+                    && signalEntryOpenThresholdFeasibilityReason threshold == Just "THRESHOLD_INFEASIBLE"
+            )
+            malformedThresholds
+        )
+
+testMarketDataFreshnessAndContinuationInvariant :: IO ()
+testMarketDataFreshnessAndContinuationInvariant = do
+    let hourMs = 60 * 60 * 1000
+        lastOpen = 1000000000
+        freshNow = lastOpen + hourMs + (30 * 60 * 1000)
+        staleNow = lastOpen + (2 * hourMs) + 1
+        fresh = marketDataFreshness "1h" freshNow lastOpen
+        stale = marketDataFreshness "1h" staleNow lastOpen
+    assert
+        "closed-bar freshness is measured from the processed candle close time, not its open time"
+        ( case fresh of
+            Just f ->
+                mdfLastCloseTimeMs f == lastOpen + hourMs
+                    && mdfAgeMs f == 30 * 60 * 1000
+                    && mdfFreshnessBudgetMs f == hourMs
+                    && not (mdfStale f)
+            Nothing -> False
+        )
+    assert
+        "market data becomes stale after one full interval without the next closed candle"
+        ( case stale of
+            Just f ->
+                mdfAgeMs f == hourMs + 1
+                    && mdfStale f
+                    && marketDataStaleReason "1h" staleNow lastOpen == Just ("STALE_MARKET_DATA ageMs=" ++ show (hourMs + 1) ++ " budgetMs=" ++ show hourMs ++ " lastCloseTimeMs=" ++ show (lastOpen + hourMs))
+            Nothing -> False
+        )
+    assert
+        "live continuation accepts exactly contiguous closed candles"
+        (isNothing (marketDataContinuationIssue "1h" lastOpen [lastOpen + hourMs, lastOpen + 2 * hourMs]))
+    assert
+        "live continuation fails closed on missing candles before a new decision can be processed"
+        (marketDataContinuationIssue "1h" lastOpen [lastOpen + 2 * hourMs] == Just ("MARKET_DATA_GAP expectedOpenTimeMs=" ++ show (lastOpen + hourMs) ++ " actualOpenTimeMs=" ++ show (lastOpen + 2 * hourMs) ++ " intervalMs=" ++ show hourMs))
+    assert
+        "malformed intervals fail closed in freshness and continuation helpers"
+        ( isNothing (marketDataFreshness "bad" staleNow lastOpen)
+            && marketDataStaleReason "bad" staleNow lastOpen == Just "MARKET_DATA_INTERVAL_INVALID interval=\"bad\""
+            && marketDataContinuationIssue "bad" lastOpen [lastOpen + hourMs] == Just "MARKET_DATA_INTERVAL_INVALID interval=\"bad\""
+        )
+
 -- The spike veto is a maximum-edge sanity cap, not a minimum-edge headroom
 -- check: exact cap equality is admissible, strict-above-cap edges are blocked,
 -- and malformed thresholds or edges fail closed.
@@ -338,6 +441,22 @@ testSignalGateEntryEdgeSpikeCapRegression = do
             && not (signalEntryEdgeSpikeOk smallThreshold (Just (-0.001)))
             && not (signalEntryEdgeSpikeOk smallThreshold (Just (0 / 0)))
             && not (signalEntryEdgeSpikeOk smallThreshold (Just (1 / 0)))
+        )
+
+testSignalGateEntryEdgeSpikeAuditWarning :: IO ()
+testSignalGateEntryEdgeSpikeAuditWarning = do
+    let openThreshold = 0.01
+        scaledEdge = Just 0.9
+    assert
+        "scaled-model spike mode preserves the audit warning without blocking entry"
+        ( not (signalEntryEdgeSpikeOk openThreshold scaledEdge)
+            && signalEntryEdgeSpikeEntryOk True openThreshold scaledEdge
+            && signalEntryEdgeSpikeAuditWarning True openThreshold scaledEdge == Just "EDGE_SPIKE"
+        )
+    assert
+        "unscaled-model spike mode remains a hard entry veto"
+        ( not (signalEntryEdgeSpikeEntryOk False openThreshold scaledEdge)
+            && isNothing (signalEntryEdgeSpikeAuditWarning False openThreshold scaledEdge)
         )
 
 -- Bounded executable proof obligation for the restored helper surface: the
@@ -677,6 +796,32 @@ testConformalCalibrationResidualsFailClosed = do
         "larger selected conformal residual quantiles cannot narrow fixed-forecast intervals"
         ( and (zipWith (<=) intervalWidths (drop 1 intervalWidths))
             && all (> 0) intervalWidths
+        )
+
+-- CLI sizing invariant: the minimum entry-size floor must never exceed the
+-- max position cap. Equality stays admissible at the boundary so the live and
+-- backtest sizing paths can enforce a tight cap without silently rejecting
+-- deliberate exact-floor configurations.
+testBacktestPositionSizeFloorCapValidation :: IO ()
+testBacktestPositionSizeFloorCapValidation = do
+    let baseArgs = ["--data", "../data/sample_prices.csv"]
+        invalid =
+            parseAndValidateCliArgs
+                (baseArgs ++ ["--min-position-size", "0.81", "--max-position-size", "0.80"])
+        equalityBoundary =
+            parseAndValidateCliArgs
+                (baseArgs ++ ["--min-position-size", "0.80", "--max-position-size", "0.80"])
+    assert
+        "CLI sizing guardrail rejects a minimum entry floor above the max position cap"
+        ( case invalid of
+            Left err -> err == "--min-position-size must be <= --max-position-size"
+            Right _ -> False
+        )
+    assert
+        "CLI sizing guardrail preserves the exact equality boundary between floor and cap"
+        ( case equalityBoundary of
+            Right args -> argMinPositionSize args == 0.8 && argMaxPositionSize args == 0.8
+            Left _ -> False
         )
 
 -- Algorithm-path regression: the fee-aware fresh-entry contract is not just a
