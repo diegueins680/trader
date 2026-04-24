@@ -21,6 +21,7 @@ import type {
   BotStatusRunning,
   BotStatusSingle,
   CoinbaseKeysStatus,
+  DecisionTrace,
   IntrabarFill,
   LatestSignal,
   Market,
@@ -74,7 +75,7 @@ import { ConfigDock, type ConfigDockProps } from "./components/ConfigDock";
 import { DataLogPanel } from "./components/DataLogPanel";
 import { InfoList, InfoPopover } from "./components/InfoPopover";
 import { PerformancePanel } from "./components/PerformancePanel";
-import { API_PORT, API_TARGET } from "./app/apiTarget";
+import { API_TARGET } from "./app/apiTarget";
 import {
   CONFIG_PAGE_IDS,
   CONFIG_PAGE_LABELS,
@@ -86,6 +87,7 @@ import {
   resolveConfigPageForTarget,
 } from "./app/configLayout";
 import { METHOD_IDS, canonicalComboSource, canonicalExchangePlatform, preferredExchangePlatform } from "./app/contracts";
+import { localApiStartHelp } from "./app/localApiStart";
 import { comboMarketValue, type ComboMarketFilter, type ComboMarketValue } from "./app/comboMarket";
 import {
   BACKTEST_TIMEOUT_MS,
@@ -174,6 +176,7 @@ import {
   summarizeOrderSizing,
 } from "./app/utils";
 import {
+  autoAdjustBarsForLookback,
   BINANCE_SYMBOL_PATTERN,
   COMMON_QUOTES,
   COMPLEX_TIPS,
@@ -239,6 +242,7 @@ import {
   isFiniteNumber,
   maxBarsForPlatform,
   maxLookbackForSplit,
+  minBarsRequiredForLookback,
   minTrainEndForTune,
   normalizeComboSymbol,
   normalizeHoldReason,
@@ -527,6 +531,32 @@ function normalizeBotStatus(status: BotStatus): BotStatus {
     return changed ? { ...status, bots } : status;
   }
   return normalizeBotStatusSingle(status);
+}
+
+function DecisionTraceBlock({ title = "Decision trace", trace }: { title?: string; trace: DecisionTrace }) {
+  return (
+    <div className="decisionBlock">
+      <div className="decisionHeader">
+        <div>
+          <div className="decisionTitle">{title}</div>
+          <div className="decisionSubtitle">{trace.summary}</div>
+        </div>
+        <span className={decisionBadgeClass(trace.outcome === "hold" ? "bad" : "ok")}>{trace.outcome}</span>
+      </div>
+      <div className="decisionGrid">
+        {trace.stages.map((stage) => (
+          <div key={stage.id} className="decisionRow">
+            <span className={decisionDotClass(stage.status)} aria-hidden="true" />
+            <div>
+              <div className="decisionLabel">{stage.label}</div>
+              <div className="decisionDetail">{stage.detail}</div>
+            </div>
+            <span className={decisionBadgeClass(stage.status)}>{decisionStatusLabel(stage.status)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function buildBotOrderOverlay(
@@ -3260,7 +3290,7 @@ export function App() {
       if (e instanceof HttpError && typeof e.payload === "string") {
         const payload = e.payload;
         if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
-          msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+          msg = localApiStartHelp();
         }
       }
       if (e instanceof HttpError && (e.status === 502 || e.status === 503)) {
@@ -3652,8 +3682,9 @@ export function App() {
     const interval = form.interval.trim();
     const intervalOk = PLATFORM_INTERVAL_SET[platform].has(interval);
     const barsRaw = Math.trunc(form.bars);
+    const minBarsRequired = minBarsRequiredForLookback(platform, interval, form.lookbackBars, form.lookbackWindow);
     const barsCap = maxBarsForPlatform(platform, form.method, apiComputeLimits);
-    const bars =
+    const normalizedBars =
       barsRaw <= 0
         ? 0
         : (() => {
@@ -3661,6 +3692,7 @@ export function App() {
             if (Number.isFinite(barsCap)) return Math.min(normalized, barsCap);
             return normalized;
           })();
+    const bars = autoAdjustBarsForLookback(barsRaw, minBarsRequired, platform, form.method, apiComputeLimits) ?? normalizedBars;
     const slippage = clamp(form.slippage, 0, 0.999999);
     const spread = clamp(form.spread, 0, 0.999999);
     const minHoldBars = clamp(Math.trunc(form.minHoldBars), 0, 1_000_000);
@@ -3775,6 +3807,19 @@ export function App() {
 
     return base;
   }, [apiComputeLimits, form]);
+
+  const autoAdjustedBars = useMemo(() => {
+    const minBarsRequired = minBarsRequiredForLookback(platform, form.interval, form.lookbackBars, form.lookbackWindow);
+    return autoAdjustBarsForLookback(form.bars, minBarsRequired, platform, form.method, apiComputeLimits);
+  }, [apiComputeLimits, form.bars, form.interval, form.lookbackBars, form.lookbackWindow, form.method, platform]);
+
+  useEffect(() => {
+    if (autoAdjustedBars == null) return;
+    setForm((prev) => {
+      const nextBars = Math.max(MIN_LOOKBACK_BARS, Math.trunc(autoAdjustedBars));
+      return nextBars === prev.bars ? prev : { ...prev, bars: nextBars };
+    });
+  }, [autoAdjustedBars]);
 
   useEffect(() => {
     if (form.method !== "router" && form.method !== "bandit_router") return;
@@ -4833,7 +4878,7 @@ export function App() {
         if (e instanceof HttpError && typeof e.payload === "string") {
           const payload = e.payload;
           if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
-            msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+            msg = localApiStartHelp();
           }
         }
         if (e instanceof HttpError && (e.status === 502 || e.status === 503)) {
@@ -4954,7 +4999,7 @@ export function App() {
         if (e instanceof HttpError && typeof e.payload === "string") {
           const payload = e.payload;
           if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
-            msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+            msg = localApiStartHelp();
           }
         }
 
@@ -5535,7 +5580,7 @@ export function App() {
         if (e instanceof HttpError && typeof e.payload === "string") {
           const payload = e.payload;
           if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
-            msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+            msg = localApiStartHelp();
           }
         }
         if (e instanceof HttpError && (e.status === 502 || e.status === 503)) {
@@ -5646,7 +5691,7 @@ export function App() {
         if (err instanceof HttpError && err.status !== 429 && typeof err.payload === "string") {
           const payload = err.payload;
           if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
-            msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+            msg = localApiStartHelp();
           }
         }
         if (err instanceof HttpError && err.status !== 429 && err.payload && typeof err.payload === "object") {
@@ -7193,9 +7238,8 @@ export function App() {
         ? "API token rejected. Update apiToken in trader-config.js."
         : "API auth required. Set apiToken in trader-config.js."
       : null;
-    const startCmd = `cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
     const downMsg = showLocalStartHelp
-      ? `Backend unreachable. Start it with: ${startCmd}`
+      ? localApiStartHelp()
       : "Backend unreachable. Configure apiBaseUrl in trader-config.js (CORS required for cross-origin) or configure CloudFront to forward `/api/*` to your API origin.";
     return firstReason(
       apiBaseError,
@@ -8957,6 +9001,7 @@ export function App() {
                         statusAgeMs={botRealtime?.statusAgeMs ?? null}
                       />
                     </Suspense>
+                    {botDisplay.decisionTrace ? <DecisionTraceBlock trace={botDisplay.decisionTrace} /> : null}
 
                     <div className="analysisDeck analysisDeckSplit">
                       <div className="analysisDeckMain">
