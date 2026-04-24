@@ -8,6 +8,19 @@ export type Positioning = "long-flat" | "long-short";
 export type IntrabarFill = "stop-first" | "take-profit-first";
 
 export type DirectionLabel = "UP" | "DOWN" | null;
+export type DecisionTraceStatus = "ok" | "warn" | "bad" | "skip";
+export type DecisionTraceStage = {
+  id: string;
+  label: string;
+  status: DecisionTraceStatus;
+  detail: string;
+};
+export type DecisionTrace = {
+  outcome: "operate" | "hold";
+  summary: string;
+  reason?: string | null;
+  stages: DecisionTraceStage[];
+};
 
 export type ApiError = { error: string; hint?: string | null; errors?: Array<{ symbol: string; error: string }> };
 
@@ -539,6 +552,7 @@ export type BotStatusRunning = {
   orders: BotOrderEvent[];
   trades: Trade[];
   latestSignal: LatestSignal;
+  decisionTrace?: DecisionTrace;
   lastOrder?: ApiOrderResult;
   error?: string;
 };

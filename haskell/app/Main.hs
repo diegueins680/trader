@@ -48,7 +48,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Data.Version (showVersion)
 import Data.Word (Word64)
-import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, executeMany, execute_, query, query_, withTransaction)
+import Database.PostgreSQL.Simple (Connection, Only (..), close, connectPostgreSQL, execute, executeMany, execute_, query, query_, withTransaction)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Database.PostgreSQL.Simple.ToField (Action, toField)
 import Database.PostgreSQL.Simple.Types (PGArray (..))
@@ -246,7 +246,17 @@ import Trader.LSTM (
  )
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (MarketModel (..), buildMarketModel, marketMeasurementAt)
-import Trader.Method (Method (..), methodCode, parseMethod, runtimeMethod, selectPredictions)
+import Trader.MarketDataIntegrity (
+    marketDataContinuationIssue,
+    marketDataFreshness,
+    marketDataStaleReason,
+    mdfAgeMs,
+    mdfFreshnessBudgetMs,
+    mdfLastCloseTimeMs,
+    mdfLastOpenTimeMs,
+    mdfStale,
+ )
+import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod, runtimeMethod, selectPredictions)
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Ops.Migrations (ensureOpsDbSchema)
@@ -322,9 +332,11 @@ import Trader.SignalGates (
     signalMtfConsensusCheck,
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
+    signalTrendSmaConfirmed,
  )
 import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
+import qualified Trader.TechnicalAnalysis.Strategies as TA
 import Trader.Text (dedupeStable, normalizeKey, trim)
 import Trader.TopCombosStore (
     ComboBacktestUpdate (..),
@@ -425,6 +437,22 @@ data LatestSignal = LatestSignal
     , lsAction :: !String
     }
     deriving (Eq, Show)
+
+data DecisionTraceStage = DecisionTraceStage
+    { dtsId :: !String
+    , dtsLabel :: !String
+    , dtsStatus :: !String
+    , dtsDetail :: !String
+    }
+    deriving (Eq, Show, Generic)
+
+data BotDecisionTrace = BotDecisionTrace
+    { bdtOutcome :: !String
+    , bdtSummary :: !String
+    , bdtReason :: !(Maybe String)
+    , bdtStages :: ![DecisionTraceStage]
+    }
+    deriving (Eq, Show, Generic)
 
 entryEdgeSpikeAuditOnlyForArgs :: Args -> Method -> Bool
 entryEdgeSpikeAuditOnlyForArgs args method =
@@ -1201,6 +1229,12 @@ instance FromJSON StateSyncPayload where
 instance ToJSON StateSyncPayload where
     toJSON = Aeson.genericToJSON (jsonOptions 3)
 
+instance ToJSON DecisionTraceStage where
+    toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+instance ToJSON BotDecisionTrace where
+    toJSON = Aeson.genericToJSON (jsonOptions 3)
+
 instance ToJSON LatestSignal where
     toJSON s =
         let regimesJson =
@@ -1249,6 +1283,7 @@ instance ToJSON LatestSignal where
                 , "kalmanDirection" .= (if isJust (lsKalmanNext s) then dirLabel (lsKalmanDir s) else Nothing)
                 , "lstmNext" .= lsLstmNext s
                 , "lstmDirection" .= (if isJust (lsLstmNext s) then dirLabel (lsLstmDir s) else Nothing)
+                , "methodNext" .= lsSizingNext s
                 , "chosenDirection" .= dirLabel (lsChosenDir s)
                 , "closeDirection" .= dirLabel (lsCloseDir s)
                 , "auditWarnings" .= lsAuditWarnings s
@@ -2170,13 +2205,45 @@ instance ToJSON OpsPerformanceResponse where
 
 data OpsStore = OpsStore
     { osLock :: !(MVar ())
-    , osConn :: !Connection
+    , osDbUrl :: !BS.ByteString
+    , osConn :: !(IORef Connection)
     , osLatestId :: !(IORef Int64)
     , osPlatformCache :: !(IORef (HM.HashMap Text Int))
     , osSymbolCache :: !(IORef (HM.HashMap (Text, Text, Text) Int64))
     , osCommitId :: !(Maybe Int64)
     , osPersistenceConfig :: !OpsPersistenceConfig
     }
+
+tryAny :: IO a -> IO (Either SomeException a)
+tryAny = try
+
+isOpsConnectionFailure :: SomeException -> Bool
+isOpsConnectionFailure e =
+    let msg = map toLower (displayException e)
+     in any
+            (`isInfixOf` msg)
+            [ "no connection to the server"
+            , "connection not open"
+            , "server closed the connection unexpectedly"
+            , "terminating connection"
+            , "connection refused"
+            ]
+
+withOpsConnection :: OpsStore -> (Connection -> IO a) -> IO a
+withOpsConnection store action =
+    withMVar (osLock store) $ \_ -> do
+        conn <- readIORef (osConn store)
+        result <- tryAny (action conn)
+        case result of
+            Right value -> pure value
+            Left e
+                | isOpsConnectionFailure e -> do
+                    hPutStrLn stderr ("WARN: reconnecting ops database after connection failure (" ++ displayException e ++ ")")
+                    conn' <- connectPostgreSQL (osDbUrl store)
+                    _ <- tryAny (close conn)
+                    writeIORef (osConn store) conn'
+                    action conn'
+                | otherwise -> throwIO e
 
 newtype OpsPersistenceConfig = OpsPersistenceConfig
     { opcDisabledKinds :: Set.Set Text
@@ -2892,11 +2959,11 @@ resolveTradeIdempotency store mTenantKey idempotencyKey requestHash = do
     now <- getTimestampMs
     let tenantScope = normalizeTenantScope mTenantKey
         tenantKey' = normalizeMaybeText mTenantKey
-    withMVar (osLock store) $ \_ ->
-        withTransaction (osConn store) $ do
+    withOpsConnection store $ \conn ->
+        withTransaction conn $ do
             inserted <-
                 execute
-                    (osConn store)
+                    conn
                     ( "INSERT INTO trade_requests (tenant_scope, tenant_key, idempotency_key, request_hash, status, created_at_ms, updated_at_ms) "
                         <> "VALUES (?, ?, ?, ?, 'running', ?, ?) "
                         <> "ON CONFLICT (tenant_scope, idempotency_key) DO NOTHING"
@@ -2907,7 +2974,7 @@ resolveTradeIdempotency store mTenantKey idempotencyKey requestHash = do
                 else do
                     rows <-
                         query
-                            (osConn store)
+                            conn
                             "SELECT request_hash, status, response_json::text, error_text FROM trade_requests WHERE tenant_scope = ? AND idempotency_key = ? LIMIT 1"
                             (tenantScope, idempotencyKey)
                     case rows of
@@ -2955,10 +3022,10 @@ completeTradeIdempotencySuccess store mTenantKey idempotencyKey requestHash resp
     let tenantScope = normalizeTenantScope mTenantKey
         tenantKey' = normalizeMaybeText mTenantKey
         responseText = TE.decodeUtf8 (BL.toStrict (Aeson.encode responseJson))
-    withMVar (osLock store) $ \_ ->
+    withOpsConnection store $ \conn ->
         void $
             execute
-                (osConn store)
+                conn
                 ( "UPDATE trade_requests "
                     <> "SET tenant_key = ?, request_hash = ?, status = 'done', response_json = ?::jsonb, error_text = NULL, updated_at_ms = ?, completed_at_ms = ? "
                     <> "WHERE tenant_scope = ? AND idempotency_key = ?"
@@ -2977,10 +3044,10 @@ completeTradeIdempotencyError store mTenantKey idempotencyKey requestHash errMsg
     let tenantScope = normalizeTenantScope mTenantKey
         tenantKey' = normalizeMaybeText mTenantKey
         msg = T.pack (take 4000 errMsg)
-    withMVar (osLock store) $ \_ ->
+    withOpsConnection store $ \conn ->
         void $
             execute
-                (osConn store)
+                conn
                 ( "UPDATE trade_requests "
                     <> "SET tenant_key = ?, request_hash = ?, status = 'error', response_json = NULL, error_text = ?, updated_at_ms = ?, completed_at_ms = ? "
                     <> "WHERE tenant_scope = ? AND idempotency_key = ?"
@@ -2994,10 +3061,10 @@ writeAsyncJobDb store jobType jobId payload = do
         createdAtMs = lookupJsonInt64 "createdAtMs" payload
         completedAtMs = lookupJsonInt64 "completedAtMs" payload
         payloadText = TE.decodeUtf8 (BL.toStrict (Aeson.encode payload))
-    withMVar (osLock store) $ \_ ->
+    withOpsConnection store $ \conn ->
         void $
             execute
-                (osConn store)
+                conn
                 ( "INSERT INTO async_jobs (job_id, job_type, status, payload_json, created_at_ms, completed_at_ms, updated_at_ms) "
                     <> "VALUES (?, ?, ?, ?::jsonb, ?, ?, ?) "
                     <> "ON CONFLICT (job_id) DO UPDATE SET "
@@ -3013,9 +3080,9 @@ writeAsyncJobDb store jobType jobId payload = do
 readAsyncJobDb :: OpsStore -> Text -> IO (Maybe Aeson.Value)
 readAsyncJobDb store jobId = do
     rows <-
-        withMVar (osLock store) $ \_ ->
+        withOpsConnection store $ \conn ->
             query
-                (osConn store)
+                conn
                 "SELECT payload_json::text FROM async_jobs WHERE job_id = ? LIMIT 1"
                 (Only jobId) ::
                 IO [Only Text]
@@ -3324,10 +3391,11 @@ newOpsStoreFromEnv = do
                                         (Only v : _) -> v
                                         _ -> 0
                             lock <- newMVar ()
+                            connRef <- newIORef conn
                             latestRef <- newIORef maxId
                             platformCache <- newIORef HM.empty
                             symbolCache <- newIORef HM.empty
-                            pure (Just (OpsStore lock conn latestRef platformCache symbolCache mCommitId persistenceConfig))
+                            pure (Just (OpsStore lock url connRef latestRef platformCache symbolCache mCommitId persistenceConfig))
 
 opsPersistenceConfigFromEnv :: IO OpsPersistenceConfig
 opsPersistenceConfigFromEnv = do
@@ -3859,9 +3927,8 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
         argsJson = encodeJsonTextMaybe mArgs
         resultJson = encodeJsonTextMaybe mResult
         mCommitId = osCommitId store
-    opId <- withMVar (osLock store) $ \_ ->
-        withTransaction (osConn store) $ do
-            let conn = osConn store
+    opId <- withOpsConnection store $ \conn ->
+        withTransaction conn $ do
             mPlatformId <- case mPlatform of
                 Nothing -> pure Nothing
                 Just platformCode -> resolvePlatformId store conn platformCode
@@ -3946,10 +4013,10 @@ outboxEnqueue store mTenantKey topic mEventKey payload = do
     let tenantKey' = normalizeMaybeText mTenantKey
         eventKey' = normalizeMaybeText mEventKey
         payloadJson = TE.decodeUtf8 (BL.toStrict (Aeson.encode payload))
-    withMVar (osLock store) $ \_ ->
+    withOpsConnection store $ \conn ->
         void $
             execute
-                (osConn store)
+                conn
                 ( "INSERT INTO outbox_events (tenant_key, topic, event_key, payload_json, status, attempts, next_attempt_at_ms, created_at_ms, updated_at_ms) "
                     <> "VALUES (?, ?, ?, ?::jsonb, 'pending', 0, NULL, ?, ?)"
                 )
@@ -4034,7 +4101,7 @@ opsList store mTenantKey sinceId limit mKind mSymbol mComboUuid mOrderId mFromMs
     case (mComboUuid, mComboUuid') of
         (Just _, Nothing) -> pure []
         _ -> do
-            rows <- withMVar (osLock store) $ \_ -> query (osConn store) (fromString sql) params
+            rows <- withOpsConnection store $ \conn -> query conn (fromString sql) params
             let ops = map persistedOperationFromRow rows
             pure (if isJust sinceId then ops else reverse ops)
 
@@ -4046,10 +4113,10 @@ data OpsPerformanceReady = OpsPerformanceReady
 
 opsPerformanceReady :: OpsStore -> IO OpsPerformanceReady
 opsPerformanceReady store =
-    withMVar (osLock store) $ \_ -> do
+    withOpsConnection store $ \conn -> do
         rows <-
             query
-                (osConn store)
+                conn
                 "SELECT to_regclass('public.performance_commit_deltas') IS NOT NULL, to_regclass('public.performance_combo_deltas') IS NOT NULL"
                 () ::
                 IO [(Bool, Bool)]
@@ -4077,9 +4144,9 @@ opsPerformanceCommits store mTenantKey limit = do
         finalParams = params ++ [toField limitSafe]
     if limitSafe <= 0
         then pure []
-        else withMVar (osLock store) $ \_ ->
+        else withOpsConnection store $ \conn ->
             query
-                (osConn store)
+                conn
                 (fromString sql)
                 finalParams
 
@@ -4132,9 +4199,9 @@ opsPerformanceCombos store mTenantKey limit scope order = do
         finalParams = tenantParams ++ extraTenantParams ++ [toField limitSafe]
     if limitSafe <= 0
         then pure []
-        else withMVar (osLock store) $ \_ ->
+        else withOpsConnection store $ \conn ->
             query
-                (osConn store)
+                conn
                 (fromString sql)
                 finalParams
 
@@ -4142,7 +4209,7 @@ outboxStatusValue :: OpsStore -> Maybe TenantKey -> Maybe Text -> IO Aeson.Value
 outboxStatusValue store mTenantKey mStatus = do
     now <- getTimestampMs
     (rows, mOldestPending) <-
-        withMVar (osLock store) $ \_ -> do
+        withOpsConnection store $ \conn -> do
             let tenantKey' = normalizeMaybeText mTenantKey
                 status' = normalizeMaybeText mStatus
                 whereParts =
@@ -4161,13 +4228,13 @@ outboxStatusValue store mTenantKey mStatus = do
                 params = catMaybes [toField <$> tenantKey', toField <$> status']
             grouped <-
                 query
-                    (osConn store)
+                    conn
                     (fromString ("SELECT status, COUNT(*)::bigint FROM outbox_events" <> whereSql <> " GROUP BY status"))
                     params ::
                     IO [(Text, Int64)]
             oldestRows <-
                 query
-                    (osConn store)
+                    conn
                     (fromString ("SELECT MIN(created_at_ms) FROM outbox_events" <> whereSqlOldest))
                     params ::
                     IO [Only (Maybe Int64)]
@@ -4323,9 +4390,9 @@ attachBinanceTradeOriginIps store tenantKey trades = do
         then pure trades
         else do
             rows <-
-                withMVar (osLock store) $ \_ ->
+                withOpsConnection store $ \conn ->
                     query
-                        (osConn store)
+                        conn
                         ( "SELECT id, tenant_key, kind, order_id, params_json, result_json "
                             <> "FROM ops "
                             <> "WHERE kind IN ('trade.order', 'bot.order') "
@@ -4455,7 +4522,7 @@ persistBotSnapshotMaybe mOps running st statusJson =
 
 persistBotSnapshot :: OpsStore -> Bool -> BotState -> Aeson.Value -> IO ()
 persistBotSnapshot store running st statusJson =
-    withMVar (osLock store) $ \_ -> do
+    withOpsConnection store $ \conn -> do
         let args = botArgs st
             tenantKey = botTenantKey st
             platformCodeText = normalizePlatformText (T.pack (platformCode (argPlatform args)))
@@ -4471,7 +4538,6 @@ persistBotSnapshot store running st statusJson =
             statusJsonText = encodeJsonTextMaybe (Just statusJson)
             startedAt = botStartedAtMs st
             updatedAt = botUpdatedAtMs st
-            conn = osConn store
         mPlatformId <- resolvePlatformId store conn platformCodeText
         case mPlatformId of
             Nothing -> pure ()
@@ -4619,10 +4685,9 @@ persistBinancePositionsMaybe mOps market positions =
 
 persistBinancePositions :: OpsStore -> BinanceMarket -> [FuturesPositionRisk] -> IO ()
 persistBinancePositions store market positions =
-    withMVar (osLock store) $ \_ -> do
+    withOpsConnection store $ \conn -> do
         let platformCodeText = "binance"
             marketText = normalizeMarketText (T.pack (marketCode market))
-            conn = osConn store
         now <- getTimestampMs
         mPlatformId <- resolvePlatformId store conn platformCodeText
         case mPlatformId of
@@ -4730,10 +4795,10 @@ comboParamsRowToTopCombo uuid row = do
 
 readTopComboByUuidFromDb :: OpsStore -> UUID.UUID -> IO (Maybe TopCombo)
 readTopComboByUuidFromDb store comboUuid =
-    withMVar (osLock store) $ \_ -> do
+    withOpsConnection store $ \conn -> do
         rows <-
             query
-                (osConn store)
+                conn
                 "SELECT final_equity, objective, source, score, open_threshold, close_threshold, params_json::text, metrics_json::text FROM combos WHERE combo_uuid = ?"
                 (Only comboUuid) ::
                 IO [ComboParamsRow]
@@ -4767,8 +4832,7 @@ readPositionOrigin store tenantKey args sym = do
         marketText = normalizeMarketText (T.pack (marketCode (argBinanceMarket args)))
         symbolRaw = T.pack sym
         symbolText = fromMaybe symbolRaw (sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw)
-    withMVar (osLock store) $ \_ -> do
-        let conn = osConn store
+    withOpsConnection store $ \conn -> do
         mPlatformId <- resolvePlatformId store conn platformCodeText
         case mPlatformId of
             Nothing -> pure Nothing
@@ -4787,8 +4851,7 @@ deletePositionOrigin store tenantKey args sym = do
         marketText = normalizeMarketText (T.pack (marketCode (argBinanceMarket args)))
         symbolRaw = T.pack sym
         symbolText = fromMaybe symbolRaw (sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw)
-    withMVar (osLock store) $ \_ -> do
-        let conn = osConn store
+    withOpsConnection store $ \conn -> do
         mPlatformId <- resolvePlatformId store conn platformCodeText
         case mPlatformId of
             Nothing -> pure ()
@@ -4820,8 +4883,7 @@ persistPositionOriginMaybe mOps tenantKey args sym posSign mComboUuid mOrderId a
                 mSide = positionOriginSideFromSign posSign
                 mComboUuid' = mComboUuid >>= uuidFromText
                 mOrderId' = normalizeMaybeText mOrderId
-            withMVar (osLock store) $ \_ -> do
-                let conn = osConn store
+            withOpsConnection store $ \conn -> do
                 mPlatformId <- resolvePlatformId store conn platformCodeText
                 case mPlatformId of
                     Nothing -> pure ()
@@ -5061,6 +5123,7 @@ data BotState = BotState
     , botOpenTrade :: !(Maybe BotOpenTrade)
     , botCooldownLeft :: !Int
     , botLatestSignal :: !LatestSignal
+    , botDecisionTrace :: !BotDecisionTrace
     , botLastOrder :: !(Maybe ApiOrderResult)
     , botHaltReason :: !(Maybe String)
     , botHaltedAtMs :: !(Maybe Int64)
@@ -5091,6 +5154,252 @@ data BotStartStability
     = BotStartStable
     | BotStartUnstable !String
     deriving (Eq, Show)
+
+trimTrailingZerosString :: String -> String
+trimTrailingZerosString s =
+    case break (== '.') s of
+        (whole, "") -> whole
+        (whole, _ : frac) ->
+            let frac' = dropWhileEnd (== '0') frac
+             in if null frac'
+                    then whole
+                    else whole ++ "." ++ frac'
+
+fmtDecisionTracePct1 :: Double -> String
+fmtDecisionTracePct1 x =
+    trimTrailingZerosString (printf "%.1f" (x * 100)) ++ "%"
+
+fmtDecisionTracePct3 :: Double -> String
+fmtDecisionTracePct3 x =
+    trimTrailingZerosString (printf "%.3f" (x * 100)) ++ "%"
+
+fmtDecisionTraceNumber :: Double -> String
+fmtDecisionTraceNumber = trimTrailingZerosString . printf "%.4f"
+
+decisionTraceDirectionLabel :: Maybe Int -> String
+decisionTraceDirectionLabel = fromMaybe "NEUTRAL" . dirLabel
+
+decisionTracePositionLabel :: Int -> String
+decisionTracePositionLabel pos
+    | pos > 0 = "LONG"
+    | pos < 0 = "SHORT"
+    | otherwise = "FLAT"
+
+decisionTraceActionReason :: String -> Maybe String
+decisionTraceActionReason action =
+    parentheticalReason
+        <|> prefixedReason "HOLD_"
+        <|> prefixedReason "EXIT_"
+        <|> prefixedReason "HALTED_"
+  where
+    parentheticalReason =
+        case dropWhile (/= '(') action of
+            '(' : rest ->
+                let reason = takeWhile (/= ')') rest
+                 in if null reason then Nothing else Just reason
+            _ -> Nothing
+    prefixedReason prefix =
+        stripPrefix prefix action >>= \reason ->
+            if null reason
+                then Nothing
+                else Just reason
+
+decisionTraceTransitionVerb :: Int -> Int -> String
+decisionTraceTransitionVerb prevPos targetPos =
+    case (prevPos, targetPos) of
+        (0, 1) -> "open LONG from FLAT"
+        (0, -1) -> "open SHORT from FLAT"
+        (1, 0) -> "close LONG to FLAT"
+        (-1, 0) -> "close SHORT to FLAT"
+        (1, -1) -> "flip LONG to SHORT"
+        (-1, 1) -> "flip SHORT to LONG"
+        (1, 1) -> "hold LONG"
+        (-1, -1) -> "hold SHORT"
+        _ -> "stay FLAT"
+
+decisionTraceOrderDetail :: ApiOrderResult -> String
+decisionTraceOrderDetail o
+    | aorSent o =
+        let sideText = fromMaybe "UNKNOWN" (aorSide o)
+            qtyText =
+                case aorQuantity o of
+                    Just qty | qty > 0 && not (isNaN qty || isInfinite qty) -> " qty " ++ fmtDecisionTraceNumber qty
+                    _ ->
+                        case aorQuoteQuantity o of
+                            Just quote | quote > 0 && not (isNaN quote || isInfinite quote) -> " quote " ++ fmtDecisionTraceNumber quote
+                            _ -> ""
+            statusText = maybe "" (" status " ++) (aorStatus o)
+            filledText =
+                case aorExecutedQty o of
+                    Just filled | filled >= 0 && not (isNaN filled || isInfinite filled) -> " filled " ++ fmtDecisionTraceNumber filled
+                    _ -> ""
+         in "Order " ++ sideText ++ qtyText ++ statusText ++ filledText ++ "."
+    | otherwise =
+        "Order not sent: " ++ aorMessage o
+
+buildBotDecisionTrace ::
+    BotSettings ->
+    Int ->
+    Int ->
+    Int ->
+    LatestSignal ->
+    Maybe ApiOrderResult ->
+    Maybe String ->
+    BotDecisionTrace
+buildBotDecisionTrace settings prevPos targetPos actualPos sig mOrder mHaltReason =
+    let tradeEnabled = bsTradeEnabled settings
+        action = lsAction sig
+        mActionReason = decisionTraceActionReason action
+        mReason = mHaltReason <|> mActionReason
+        mPartialExitFrac =
+            case lsExitSize sig of
+                Just frac
+                    | frac > 0
+                        && not (isNaN frac || isInfinite frac)
+                        && prevPos /= 0 ->
+                        Just frac
+                _ -> Nothing
+        operateWanted = isJust mPartialExitFrac || targetPos /= prevPos
+        outcome =
+            if operateWanted
+                then "operate"
+                else "hold"
+        summary
+            | Just haltReason <- mHaltReason =
+                "Bot halted: " ++ haltReason ++ "."
+            | Just frac <- mPartialExitFrac =
+                let base =
+                        if tradeEnabled
+                            then "Bot requested a partial " ++ decisionTracePositionLabel prevPos ++ " exit (" ++ fmtDecisionTracePct1 frac ++ ")."
+                            else "Bot would reduce the " ++ decisionTracePositionLabel prevPos ++ " position by " ++ fmtDecisionTracePct1 frac ++ " (trading disabled)."
+                 in base ++ " Actual side is " ++ decisionTracePositionLabel actualPos ++ "."
+            | targetPos /= prevPos =
+                let base =
+                        if tradeEnabled
+                            then "Bot intends to " ++ decisionTraceTransitionVerb prevPos targetPos ++ "."
+                            else "Bot would " ++ decisionTraceTransitionVerb prevPos targetPos ++ " (trading disabled)."
+                    actualText =
+                        if actualPos == targetPos
+                            then " Actual side is now " ++ decisionTracePositionLabel actualPos ++ "."
+                            else " Actual side is still " ++ decisionTracePositionLabel actualPos ++ "."
+                 in base ++ actualText
+            | Just reason <- mReason
+            , "HOLD" `isPrefixOf` action =
+                "Holding because " ++ reason ++ "."
+            | otherwise =
+                "Current side already matches the signal."
+        forecastDetail =
+            intercalate
+                "; "
+                ( [ "Spot " ++ fmtDecisionTraceNumber (lsCurrentPrice sig)
+                  , maybe "Kalman —" (\price -> "Kalman " ++ fmtDecisionTraceNumber price ++ " (" ++ decisionTraceDirectionLabel (lsKalmanDir sig) ++ ")") (lsKalmanNext sig)
+                  , maybe "LSTM —" (\price -> "LSTM " ++ fmtDecisionTraceNumber price ++ " (" ++ decisionTraceDirectionLabel (lsLstmDir sig) ++ ")") (lsLstmNext sig)
+                  ]
+                    ++ maybe [] (\price -> ["Method " ++ fmtDecisionTraceNumber price]) (lsSizingNext sig)
+                    ++ [ "chosen " ++ decisionTraceDirectionLabel (lsChosenDir sig)
+                       , "close " ++ decisionTraceDirectionLabel (lsCloseDir sig)
+                       ]
+                )
+        forecastStatus
+            | isJust (lsChosenDir sig) || isJust (lsCloseDir sig) = "ok"
+            | isJust (lsKalmanNext sig) || isJust (lsLstmNext sig) || isJust (lsSizingNext sig) = "warn"
+            | otherwise = "bad"
+        gatesStatus
+            | isJust mHaltReason = "bad"
+            | "HOLD" `isPrefixOf` action = "bad"
+            | "EXIT_" `isPrefixOf` action || "FLAT" `isPrefixOf` action = "warn"
+            | otherwise = "ok"
+        gatesDetail
+            | Just haltReason <- mHaltReason =
+                "Halted by " ++ haltReason ++ "."
+            | "HOLD" `isPrefixOf` action =
+                "Action " ++ action ++ "; blocked by " ++ fromMaybe "hold logic" mActionReason ++ "."
+            | "EXIT_" `isPrefixOf` action || "FLAT" `isPrefixOf` action =
+                "Action " ++ action ++ "; close control is active."
+            | otherwise =
+                "Action " ++ action ++ "; no blocking gate reason."
+        sizeStatus
+            | isJust mPartialExitFrac = "ok"
+            | targetPos /= prevPos =
+                case lsPositionSize sig of
+                    Just size
+                        | size > 0
+                            && not (isNaN size || isInfinite size) ->
+                            "ok"
+                    _ -> "bad"
+            | otherwise = "skip"
+        sizingParts =
+            [ "open " ++ fmtDecisionTracePct3 (lsOpenThreshold sig)
+            , "close " ++ fmtDecisionTracePct3 (lsCloseThreshold sig)
+            ]
+                ++ maybe [] (\confidence -> ["confidence " ++ fmtDecisionTracePct1 confidence]) (lsConfidence sig)
+                ++ maybe [] (\size -> ["entry " ++ fmtDecisionTracePct1 size]) (lsPositionSize sig)
+                ++ maybe [] (\size -> ["exit " ++ fmtDecisionTracePct1 size]) (lsExitSize sig)
+        sizingDetail = intercalate "; " sizingParts ++ "."
+        intentStatus
+            | Just _ <- mHaltReason = "bad"
+            | isJust mPartialExitFrac =
+                if not tradeEnabled
+                    then "warn"
+                    else case mOrder of
+                        Just o | aorSent o -> "ok"
+                        Just _ -> "bad"
+                        Nothing -> "warn"
+            | targetPos /= prevPos =
+                if not tradeEnabled
+                    then "warn"
+                    else case mOrder of
+                        Just o
+                            | not (aorSent o) -> "bad"
+                            | actualPos == targetPos -> "ok"
+                            | otherwise -> "warn"
+                        Nothing -> "warn"
+            | otherwise = "skip"
+        intentLead
+            | Just frac <- mPartialExitFrac =
+                "Target partial " ++ decisionTracePositionLabel prevPos ++ " exit " ++ fmtDecisionTracePct1 frac ++ "."
+            | targetPos == prevPos =
+                "No side change requested; target stays " ++ decisionTracePositionLabel targetPos ++ "."
+            | otherwise =
+                "Target " ++ decisionTracePositionLabel prevPos ++ " -> " ++ decisionTracePositionLabel targetPos ++ "."
+        intentDetail =
+            unwords
+                ( [ intentLead
+                  , "Actual " ++ decisionTracePositionLabel actualPos ++ "."
+                  , if tradeEnabled then "Trading enabled." else "Trading disabled."
+                  ]
+                    ++ case (operateWanted, mOrder) of
+                        (_, Just o) -> [decisionTraceOrderDetail o]
+                        (True, Nothing) -> ["No current order evidence."]
+                        (False, Nothing) -> []
+                )
+     in BotDecisionTrace
+            { bdtOutcome = outcome
+            , bdtSummary = summary
+            , bdtReason = mReason
+            , bdtStages =
+                [ DecisionTraceStage "forecast" "Forecast" forecastStatus forecastDetail
+                , DecisionTraceStage "gates" "Gates" gatesStatus gatesDetail
+                , DecisionTraceStage "sizing" "Sizing" sizeStatus sizingDetail
+                , DecisionTraceStage "intent" "Order intent" intentStatus intentDetail
+                ]
+            }
+
+botDecisionTraceFromState :: BotState -> BotDecisionTrace
+botDecisionTraceFromState st =
+    let currentPos = vectorLastOr 0 (botPositions st)
+        currentIndex = max 0 (V.length (botPrices st) - 1)
+        mCurrentOrder =
+            boeOrder
+                <$> lastMaybe [event | event <- botOrders st, boeIndex event == currentIndex]
+     in buildBotDecisionTrace
+            (botSettings st)
+            currentPos
+            currentPos
+            currentPos
+            (botLatestSignal st)
+            mCurrentOrder
+            (botHaltReason st)
 
 botStateDrawdown :: BotState -> Double
 botStateDrawdown st =
@@ -5574,12 +5883,31 @@ botStatusJson st =
         klineJson k =
             object
                 [ "openTime" .= kOpenTime k
+                , "closeTime" .= kCloseTime k
                 , "open" .= kOpen k
                 , "high" .= kHigh k
                 , "low" .= kLow k
                 , "close" .= kClose k
                 , "volume" .= kVolume k
                 ]
+        marketDataJson =
+            case marketDataFreshness (argInterval (botArgs st)) (botPolledAtMs st) (botLastOpenTime st) of
+                Nothing ->
+                    object
+                        [ "lastProcessedOpenTimeMs" .= botLastOpenTime st
+                        , "freshnessBudgetMs" .= Aeson.Null
+                        , "ageMs" .= Aeson.Null
+                        , "stale" .= True
+                        , "reason" .= ("MARKET_DATA_INTERVAL_INVALID" :: String)
+                        ]
+                Just freshness ->
+                    object
+                        [ "lastProcessedOpenTimeMs" .= mdfLastOpenTimeMs freshness
+                        , "lastProcessedCloseTimeMs" .= mdfLastCloseTimeMs freshness
+                        , "freshnessBudgetMs" .= mdfFreshnessBudgetMs freshness
+                        , "ageMs" .= mdfAgeMs freshness
+                        , "stale" .= mdfStale freshness
+                        ]
      in object $
             [ "running" .= True
             , "symbol" .= botSymbol st
@@ -5610,6 +5938,7 @@ botStatusJson st =
             , "lastBatchAtMs" .= botLastBatchAtMs st
             , "lastBatchSize" .= botLastBatchSize st
             , "lastBatchMs" .= botLastBatchMs st
+            , "marketData" .= marketDataJson
             , "halted" .= isJust (botHaltReason st)
             , "peakEquity" .= botPeakEquity st
             , "dayStartEquity" .= botDayStartEquity st
@@ -5630,6 +5959,7 @@ botStatusJson st =
             , "performance" .= perfJson
             , "adaptive" .= adaptiveJson
             , "latestSignal" .= botLatestSignal st
+            , "decisionTrace" .= botDecisionTrace st
             ]
                 ++ maybe [] (\o -> ["lastOrder" .= o]) (botLastOrder st)
                 ++ maybe [] (\k -> ["fetchedLastKline" .= klineJson k]) (botFetchedLastKline st)
@@ -7751,6 +8081,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
     mLstmCtx <-
         case methodForCtx of
             MethodKalmanOnly -> pure Nothing
+            m | methodIsTechnicalAnalysis m -> pure Nothing
             _ -> do
                 let normState = fitNorm (argNormalization args) closes
                     obsAll = forwardSeries normState closes
@@ -7771,6 +8102,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
     (mKalmanCtx, kalPred0) <-
         case methodForCtx of
             MethodLstmOnly -> pure (Nothing, V.replicate n nan)
+            m | methodIsTechnicalAnalysis m -> pure (Nothing, V.replicate n nan)
             _ -> do
                 let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback Nothing featureInputs
                     hmm0 = initHMMFilter predictors []
@@ -7822,6 +8154,18 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                                     predObs = predictNext lstmModel window
                                  in inverseNorm normState predObs
 
+    let startupPredHistory =
+            if methodIsTechnicalAnalysis method
+                then Nothing
+                else
+                    Just
+                        PredHistory
+                            { phKalman = kalPred0
+                            , phLstm = lstmPred0
+                            , phMeta = Nothing
+                            , phLstmHealth = Nothing
+                            }
+
     latest0Raw <-
         case computeLatestSignal
             args
@@ -7830,14 +8174,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
             mLstmCtx
             mKalmanCtx
             Nothing
-            ( Just
-                PredHistory
-                    { phKalman = kalPred0
-                    , phLstm = lstmPred0
-                    , phMeta = Nothing
-                    , phLstmHealth = Nothing
-                    }
-            ) of
+            startupPredHistory of
             Left err -> throwIO (userError err)
             Right sig -> pure sig
 
@@ -7858,14 +8195,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                 mLstmCtx
                 mKalmanCtx
                 Nothing
-                ( Just
-                    PredHistory
-                        { phKalman = kalPred0
-                        , phLstm = lstmPred0
-                        , phMeta = Nothing
-                        , phLstmHealth = Nothing
-                        }
-                ) of
+                startupPredHistory of
                 Left err -> throwIO (userError err)
                 Right sig -> pure sig
 
@@ -8141,6 +8471,8 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
             case argMaxOrderErrors args of
                 Just lim | initOrderErrors >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
                 _ -> (Nothing, Nothing)
+        decisionTrace0 =
+            buildBotDecisionTrace settings startPos0 desiredPosSignal desiredPos latest mOrder haltReason0
 
         argsStored = sanitizeArgsKeys argsWithKeys
         st0 =
@@ -8172,6 +8504,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                 , botOpenTrade = openTrade2
                 , botCooldownLeft = 0
                 , botLatestSignal = latest
+                , botDecisionTrace = decisionTrace0
                 , botLastOrder = mOrder
                 , botHaltReason = haltReason0
                 , botHaltedAtMs = haltedAt0
@@ -8421,7 +8754,13 @@ botOptimizeAfterOperation st = do
                         Left err ->
                             pure st{botError = Just ("Latest signal update failed: " ++ err)}
                         Right latest' ->
-                            pure st{botArgs = sanitizeArgsKeys args', botLatestSignal = latest', botError = Nothing}
+                            let st' =
+                                    st
+                                        { botArgs = sanitizeArgsKeys args'
+                                        , botLatestSignal = latest'
+                                        , botError = Nothing
+                                        }
+                             in pure st'{botDecisionTrace = botDecisionTraceFromState st'}
 
 argLookbackEither :: Args -> Either String Int
 argLookbackEither args =
@@ -8465,6 +8804,7 @@ botApplyOptimizerUpdate st upd = do
         method = runtimeMethod (argMethod argsWithKeys)
         ctxOk =
             case method of
+                m | methodIsTechnicalAnalysis m -> True
                 MethodBoth -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodRouter -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodKalmanOnly -> isJust mKalmanCtx'
@@ -8500,6 +8840,7 @@ botApplyOptimizerUpdate st upd = do
         hasRequiredWindow =
             case method of
                 MethodKalmanOnly -> n >= 1
+                m | methodIsTechnicalAnalysis m -> n >= 1
                 _ -> n >= lookback'
 
     if not ctxOk
@@ -8520,17 +8861,18 @@ botApplyOptimizerUpdate st upd = do
                         Left err ->
                             pure st{botError = Just ("Optimizer update skipped: " ++ err), botUpdatedAtMs = now}
                         Right latest ->
-                            pure
-                                st
-                                    { botArgs = sanitizeArgsKeys argsWithKeys
-                                    , botLookback = lookback'
-                                    , botLstmCtx = mLstmCtx'
-                                    , botKalmanCtx = mKalmanCtx'
-                                    , botComboUuid = bouComboUuid upd <|> botComboUuid st
-                                    , botLatestSignal = latest
-                                    , botUpdatedAtMs = now
-                                    , botError = Nothing
-                                    }
+                            let st' =
+                                    st
+                                        { botArgs = sanitizeArgsKeys argsWithKeys
+                                        , botLookback = lookback'
+                                        , botLstmCtx = mLstmCtx'
+                                        , botKalmanCtx = mKalmanCtx'
+                                        , botComboUuid = bouComboUuid upd <|> botComboUuid st
+                                        , botLatestSignal = latest
+                                        , botUpdatedAtMs = now
+                                        , botError = Nothing
+                                        }
+                             in pure st'{botDecisionTrace = botDecisionTraceFromState st'}
 
 rebuildLstmCtx :: Args -> Int -> V.Vector Double -> IO (Either String LstmCtx)
 rebuildLstmCtx args lookback pricesV =
@@ -9691,27 +10033,59 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
                                 newKs = filter (\k -> kOpenTime k > lastSeen) ks
                             if null newKs
                                 then do
-                                    _ <- swapMVar stVar stPolled
-                                    persistBotStatusMaybe mBotStateDir stPolled
-                                    logStatusIfDue stPolled
+                                    let mStaleReason = marketDataStaleReason (argInterval (botArgs stPolled)) t1 lastSeen
+                                        stPolled' =
+                                            case mStaleReason of
+                                                Nothing -> stPolled
+                                                Just reason ->
+                                                    let stBlocked0 =
+                                                            stPolled
+                                                                { botError = Just reason
+                                                                , botLatestSignal =
+                                                                    (botLatestSignal stPolled)
+                                                                        { lsChosenDir = Nothing
+                                                                        , lsAction = "HOLD_STALE_MARKET_DATA"
+                                                                        }
+                                                                }
+                                                     in stBlocked0{botDecisionTrace = botDecisionTraceFromState stBlocked0}
+                                    _ <- swapMVar stVar stPolled'
+                                    persistBotStatusMaybe mBotStateDir stPolled'
+                                    logStatusIfDue stPolled'
                                     sleepSec pollSec
                                     loop
-                                else do
-                                    tProc0 <- getTimestampMs
-                                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl s0 k) (pure stPolled) newKs
-                                    tProc1 <- getTimestampMs
-                                    let batchMs = max 0 (fromIntegral (tProc1 - tProc0) :: Int)
-                                        batchSize = length newKs
-                                        st1' =
-                                            st1
-                                                { botLastBatchAtMs = tProc1
-                                                , botLastBatchSize = batchSize
-                                                , botLastBatchMs = batchMs
-                                                }
-                                    _ <- swapMVar stVar st1'
-                                    persistBotStatusMaybe mBotStateDir st1'
-                                    logStatusIfDue st1'
-                                    loop
+                                else case marketDataContinuationIssue (argInterval (botArgs stPolled)) lastSeen (map kOpenTime newKs) of
+                                    Just issue -> do
+                                        let stBlocked0 =
+                                                stPolled
+                                                    { botError = Just issue
+                                                    , botLatestSignal =
+                                                        (botLatestSignal stPolled)
+                                                            { lsChosenDir = Nothing
+                                                            , lsAction = "HOLD_MARKET_DATA_GAP"
+                                                            }
+                                                    }
+                                            stBlocked = stBlocked0{botDecisionTrace = botDecisionTraceFromState stBlocked0}
+                                        _ <- swapMVar stVar stBlocked
+                                        persistBotStatusMaybe mBotStateDir stBlocked
+                                        logStatusIfDue stBlocked
+                                        sleepSec pollSec
+                                        loop
+                                    Nothing -> do
+                                        tProc0 <- getTimestampMs
+                                        st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl s0 k) (pure stPolled) newKs
+                                        tProc1 <- getTimestampMs
+                                        let batchMs = max 0 (fromIntegral (tProc1 - tProc0) :: Int)
+                                            batchSize = length newKs
+                                            st1' =
+                                                st1
+                                                    { botLastBatchAtMs = tProc1
+                                                    , botLastBatchSize = batchSize
+                                                    , botLastBatchMs = batchMs
+                                                    }
+                                        _ <- swapMVar stVar st1'
+                                        persistBotStatusMaybe mBotStateDir st1'
+                                        logStatusIfDue st1'
+                                        loop
 
         cleanup = do
             st <- readMVar stVar
@@ -10799,6 +11173,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                     if dropCount <= 0
                         then Just (normState, obsAll, lstmModel)
                         else Just (normState, drop dropCount obsAll, lstmModel)
+        decisionTrace1 =
+            buildBotDecisionTrace settings prevPos desiredPosWanted posFinal latestFinal mOrder haltReason2
 
     let st1 =
             st
@@ -10821,6 +11197,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 , botOpenTrade = openTrade2
                 , botCooldownLeft = cooldownLeftNext
                 , botLatestSignal = latest
+                , botDecisionTrace = decisionTrace1
                 , botLastOrder = mOrder <|> botLastOrder st
                 , botHaltReason = haltReason2
                 , botHaltedAtMs = haltedAt2
@@ -11130,7 +11507,12 @@ runRestApi cliArgs mWebhook = do
             Nothing ->
                 ioError
                     ( userError
-                        "Ops persistence is required in --serve mode. Set TRADER_DB_URL (or DATABASE_URL) and ensure the database is reachable."
+                        ( unlines
+                            [ "Ops persistence is required in --serve mode."
+                            , "For local development, run `bash haskell/scripts/run_api_with_db.sh`."
+                            , "Otherwise set TRADER_DB_URL (or DATABASE_URL) and ensure the database is reachable."
+                            ]
+                        )
                     )
     for_ mOps $ \store ->
         putStrLn ("Ops persistence: " ++ opsPersistenceConfigSummary (osPersistenceConfig store))
@@ -14069,7 +14451,7 @@ persistTopCombosExportMaybe mOps exportOrErr =
             case exportOrErr of
                 Left err -> hPutStrLn stderr ("WARN: failed to persist top combos to DB (" ++ err ++ ")")
                 Right export -> do
-                    _ <- try (withMVar (osLock opsStore) (\_ -> persistTopCombosToDb (osConn opsStore) export)) :: IO (Either SomeException ())
+                    _ <- try (withOpsConnection opsStore (`persistTopCombosToDb` export)) :: IO (Either SomeException ())
                     pure ()
 
 fetchTopComboOperationCounts :: Connection -> [TopCombo] -> IO (M.Map UUID.UUID Int)
@@ -14183,9 +14565,9 @@ readTopCombosValueFromDbRaw store = do
         maxCombos <- optimizerMaxCombosFromEnv
         let limitSafe = max 1 maxCombos
         rows <-
-            withMVar (osLock store) $ \_ ->
+            withOpsConnection store $ \conn ->
                 query
-                    (osConn store)
+                    conn
                     ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
                         <> "params_json::text, metrics_json::text, created_at_ms, updated_at_ms "
                         <> "FROM combos "
@@ -17346,6 +17728,10 @@ placeDexOrderForSignal args sig = do
                 MethodRegimeSwitch -> "No order: Regime switch neutral (within threshold)."
                 MethodRouter -> "No order: Router neutral (score/threshold)."
                 MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
+                MethodTaTrend -> "No order: TA trend method neutral (no admitted setup)."
+                MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
+                MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
+                MethodTaBest -> "No order: TA selector neutral (no admitted setup)."
         currentPrice = lsCurrentPrice sig
         entryScale = entryScaleForSignal args MarketSpot sig
         exitScale = maybe 1 clamp01 (lsExitSize sig)
@@ -19878,6 +20264,10 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodEdgePick -> (edgePickPred0, edgePickPred0)
                         MethodGeoBlend -> (geoBlendPred0, geoBlendPred0)
                         MethodRegimeSwitch -> (regimeSwitchPred0, regimeSwitchPred0)
+                        MethodTaTrend -> (kalPred0, kalPred0)
+                        MethodTaReversion -> (kalPred0, kalPred0)
+                        MethodTaBreakout -> (kalPred0, kalPred0)
+                        MethodTaBest -> (kalPred0, kalPred0)
                         MethodKalmanOnly -> (kalPred0, kalPred0)
                         MethodKalmanPhysicsError -> (kalPred0, kalPred0)
                         MethodLstmOnly -> (lstmPred0, lstmPred0)
@@ -20154,6 +20544,10 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodRegimeSwitch -> "No order: Regime switch neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
             MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
+            MethodTaTrend -> "No order: TA trend method neutral (no admitted setup)."
+            MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
+            MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
+            MethodTaBest -> "No order: TA selector neutral (no admitted setup)."
 
     shortErr :: SomeException -> String
     shortErr ex = take 240 (show ex)
@@ -21030,6 +21424,10 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodRegimeSwitch -> "No order: Regime switch neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
             MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
+            MethodTaTrend -> "No order: TA trend method neutral (no admitted setup)."
+            MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
+            MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
+            MethodTaBest -> "No order: TA selector neutral (no admitted setup)."
 
     lstmBlockMsg :: Maybe String
     lstmBlockMsg = snd (lstmConfidenceSizing args sig)
@@ -21745,6 +22143,10 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodRegimeSwitch -> "Backtest (regime-switched Kalman/LSTM) complete."
                     MethodRouter -> "Backtest (adaptive router: Kalman/LSTM/blend) complete."
                     MethodBanditRouter -> "Backtest (bandit router: Kalman/LSTM/blend) complete."
+                    MethodTaTrend -> "Backtest (technical-analysis trend method) complete."
+                    MethodTaReversion -> "Backtest (technical-analysis reversion method) complete."
+                    MethodTaBreakout -> "Backtest (technical-analysis breakout method) complete."
+                    MethodTaBest -> "Backtest (technical-analysis best-candidate selector) complete."
 
             Data.Foldable.for_ (bsLstmHistory summary) printLstmSummary
 
@@ -21824,14 +22226,18 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
         n = V.length pricesV
         stepCount = max 0 (n - 1)
         needsHistory = argThresholdFactorEnabled args || method == MethodRouter || method == MethodBanditRouter
+        minRowsForSignal =
+            if methodIsTechnicalAnalysis method
+                then 60
+                else lookback + 1
     when
-        (n <= lookback)
+        (n < minRowsForSignal)
         ( throwIO
             ( userError
                 ( printf
                     "Not enough data for lookback=%d (need >= %d prices, got %d). Reduce --lookback-bars/--lookback-window or increase --bars."
                     lookback
-                    (lookback + 1)
+                    minRowsForSignal
                     n
                 )
             )
@@ -21840,6 +22246,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
     mMarketModel <-
         case (method, mBinanceEnv, argBinanceSymbol args) of
             (MethodLstmOnly, _, _) -> pure Nothing
+            (m, _, _) | methodIsTechnicalAnalysis m -> pure Nothing
             (_, Just env, Just sym)
                 | platformSupportsMarketContext (argPlatform args) -> do
                     r <- try (buildMarketModel args env sym n pricesV) :: IO (Either SomeException (Maybe MarketModel))
@@ -21853,6 +22260,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
     (mLstmCtx, mLstmPredHistory, mLstmHealth) <-
         case method of
             MethodKalmanOnly -> pure (Nothing, Nothing, Nothing)
+            m | methodIsTechnicalAnalysis m -> pure (Nothing, Nothing, Nothing)
             _ -> do
                 let normState = fitNorm (argNormalization args) prices
                     obsAll = forwardSeries normState prices
@@ -21887,6 +22295,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
     (mKalmanCtx, mKalPredHistory, mMetaHistory) <-
         case method of
             MethodLstmOnly -> pure (Nothing, Nothing, Nothing)
+            m | methodIsTechnicalAnalysis m -> pure (Nothing, Nothing, Nothing)
             _ | needsHistory -> do
                 let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel featureInputs
                     hmm0 = initHMMFilter predictors []
@@ -22130,13 +22539,19 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         ++ "). Increase --bars and ensure data source has enough rows."
                     )
                 )
+    when (methodIsTechnicalAnalysis methodRequested && argOptimizeOperations args) $
+        throwIO (userError "Technical-analysis methods support fixed-method backtests and --sweep-threshold, but not --optimize-operations.")
     let initialBalance = argInitialBalance args
         backtestRatio =
             if useKalmanPhysics
                 then 0.3
                 else argBacktestRatio args
+        splitLookback =
+            if methodIsTechnicalAnalysis methodRequested
+                then 59
+                else lookback
     split <-
-        case splitTrainBacktest lookback backtestRatio prices of
+        case splitTrainBacktest splitLookback backtestRatio prices of
             Left err -> throwIO (userError err)
             Right s -> pure s
     let trainEndRaw = splitTrainEndRaw split
@@ -22161,12 +22576,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     tuneSize
                 )
             )
-    when (tuningEnabled && fitSize < lookback + 1) $
+    when (tuningEnabled && fitSize < splitLookback + 1) $
         throwIO
             ( userError
                 ( printf
                     "Fit window too small for lookback=%d (fit=%d, tune=%d). Decrease --tune-ratio, reduce --lookback-bars/--lookback-window, or increase the number of bars."
-                    lookback
+                    splitLookback
                     fitSize
                     tuneSize
                 )
@@ -22253,6 +22668,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 (Just (take predStart volumesAll))
         highsV = V.fromList highsAll
         lowsV = V.fromList lowsAll
+        volPerBarForTechnical = volPerBarFromPrices prices
+        sizeRefForTechnical = max 1e-6 (argMaxPositionSize args)
+        perSideCostForTechnical = estimatedPerSideCost args sizeRefForTechnical volPerBarForTechnical
 
         lstmCfg =
             LSTMConfig
@@ -22269,6 +22687,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     mMarketModel <-
         case (methodForComputation, mBinanceEnv, argBinanceSymbol args) of
             (MethodLstmOnly, _, _) -> pure Nothing
+            (m, _, _) | methodIsTechnicalAnalysis m -> pure Nothing
             (_, Just env, Just sym) -> do
                 r <- try (buildMarketModel args env sym predStart pricesV) :: IO (Either SomeException (Maybe MarketModel))
                 case r of
@@ -22395,6 +22814,19 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         | i <- [0 .. stepCount - 1]
                         ]
                 pure (Just (normState, obsAll, lstmModel), Just history, lstmPred, lstmPred, Nothing, Nothing, Nothing)
+            m | methodIsTechnicalAnalysis m -> do
+                let taPred =
+                        technicalPredictionsForBacktest
+                            m
+                            perSideCostForTechnical
+                            prices
+                            opensAllForBars
+                            highsAll
+                            lowsAll
+                            volumesAll
+                            predStart
+                            stepCount
+                pure (Nothing, Nothing, taPred, taPred, Nothing, Nothing, Nothing)
             MethodBoth -> runDualPredictorBacktestNoPhysics
             MethodBlend -> runDualPredictorBacktestNoPhysics
             MethodConfBlend -> runDualPredictorBacktestNoPhysics
@@ -23968,6 +24400,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method bandit_router requires both Kalman and LSTM contexts."
+            MethodTaTrend -> Right compute
+            MethodTaReversion -> Right compute
+            MethodTaBreakout -> Right compute
+            MethodTaBest -> Right compute
   where
     methodRequested = argMethod args
     method = runtimeMethod methodRequested
@@ -24323,11 +24759,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     || ( let start = n - trendLookback
                              v = V.slice start trendLookback pricesV
                              sma = V.sum v / fromIntegral trendLookback
-                          in (bad sma || bad currentPrice)
-                                || case dir of
-                                    1 -> currentPrice >= sma
-                                    (-1) -> currentPrice <= sma
-                                    _ -> True
+                          in signalTrendSmaConfirmed openThrAdj currentPrice sma dir
                        )
 
             triLayerEnabled = argTriLayer args
@@ -25010,6 +25442,19 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     Just RouterRegimeSwitch -> regimeSwitchNext
                     Just RouterEdgeBlend -> edgeBlendNext
                     Nothing -> Just currentPrice
+            taCandidate =
+                if methodIsTechnicalAnalysis method
+                    then technicalSeriesFromFeatureInputs featureInputs >>= technicalCandidateForMethod method (technicalGateInputs perSideCost)
+                    else Nothing
+            taNext = taCandidate >>= technicalPredictionFromCandidate currentPrice
+            taDirRaw = taNext >>= directionPrice openThrAdj
+            taCloseDirRaw = taNext >>= directionPrice closeThrAdj
+            taConfidence = TA.scConfidence . TA.gscCandidate <$> taCandidate
+            taPosSize = Just (maybe 0 technicalPositionSizeFromCandidate taCandidate)
+            taGateReason =
+                if methodIsTechnicalAnalysis method && isNothing taCandidate
+                    then Just "TA_NEUTRAL"
+                    else Nothing
             sizingNext =
                 case method of
                     MethodBoth -> mLstmNext
@@ -25044,6 +25489,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchNext
                     MethodRouter -> routerNext
                     MethodBanditRouter -> routerNext
+                    MethodTaTrend -> taNext
+                    MethodTaReversion -> taNext
+                    MethodTaBreakout -> taNext
+                    MethodTaBest -> taNext
             routerDirRaw = routerNext >>= directionPrice openThrAdj
             routerCloseDirRaw = routerNext >>= directionPrice closeThrAdj
             edgeFromPred pred =
@@ -25081,6 +25530,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             edgeGeoBlend = geoBlendNext >>= edgeFromPred
             edgeRegimeSwitch = regimeSwitchNext >>= edgeFromPred
             edgeRouter = routerNext >>= edgeFromPred
+            edgeTa = taNext >>= edgeFromPred
             edgeForMethod =
                 case method of
                     MethodBoth ->
@@ -25118,6 +25568,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> edgeRegimeSwitch
                     MethodRouter -> edgeRouter
                     MethodBanditRouter -> edgeRouter
+                    MethodTaTrend -> edgeTa
+                    MethodTaReversion -> edgeTa
+                    MethodTaBreakout -> edgeTa
+                    MethodTaBest -> edgeTa
             regimeLeader =
                 case mRegimes of
                     Nothing -> Nothing
@@ -25826,6 +26280,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodLstmOnly -> Nothing
                     MethodRouter -> routerConfidence
                     MethodBanditRouter -> routerConfidence
+                    MethodTaTrend -> taConfidence
+                    MethodTaReversion -> taConfidence
+                    MethodTaBreakout -> taConfidence
+                    MethodTaBest -> taConfidence
                     _ -> mConfidence
 
             volConfConfidence =
@@ -25911,6 +26369,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchCloseDirGated
                     MethodRouter -> routerCloseDirGated
                     MethodBanditRouter -> routerCloseDirGated
+                    MethodTaTrend -> taCloseDirRaw
+                    MethodTaReversion -> taCloseDirRaw
+                    MethodTaBreakout -> taCloseDirRaw
+                    MethodTaBest -> taCloseDirRaw
 
             agreeDir =
                 if kalDir == lstmDir
@@ -25950,6 +26412,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchDirGated
                     MethodRouter -> routerDirGated
                     MethodBanditRouter -> routerDirGated
+                    MethodTaTrend -> taDirRaw
+                    MethodTaReversion -> taDirRaw
+                    MethodTaBreakout -> taDirRaw
+                    MethodTaBest -> taDirRaw
             entryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args method
             entryEdgeHeadroomOk = signalEntryHeadroomOk openThrAdj edgeForMethod
             entryEdgeSpikeOk = signalEntryEdgeSpikeOk openThrAdj edgeForMethod
@@ -26362,6 +26828,38 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (regime_switch neutral)"
+                        MethodTaTrend ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (ta_trend neutral)"
+                        MethodTaReversion ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (ta_reversion neutral)"
+                        MethodTaBreakout ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (ta_breakout neutral)"
+                        MethodTaBest ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (ta_best neutral)"
                         MethodRouter ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -26417,6 +26915,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                         MethodRegimeSwitch -> regimeSwitchPosSize
                         MethodRouter -> routerPosSize
                         MethodBanditRouter -> routerPosSize
+                        MethodTaTrend -> taPosSize
+                        MethodTaReversion -> taPosSize
+                        MethodTaBreakout -> taPosSize
+                        MethodTaBest -> taPosSize
                         _ -> mPosSize
             gateReasonForMethod =
                 case method of
@@ -26448,6 +26950,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodRegimeSwitch -> regimeSwitchGateReason
                     MethodRouter -> mRouterReason <|> routerGateReason
                     MethodBanditRouter -> mRouterReason <|> routerGateReason
+                    MethodTaTrend -> taGateReason
+                    MethodTaReversion -> taGateReason
+                    MethodTaBreakout -> taGateReason
+                    MethodTaBest -> taGateReason
                     _ -> mGateReason
          in LatestSignal
                 { lsMethod = methodForReport
@@ -26505,6 +27011,9 @@ printLatestSignalSummary sig = do
     case lsLstmNext sig of
         Nothing -> putStrLn "LSTM next:   (disabled)"
         Just lstmNext -> putStrLn (printf "LSTM next:   %.4f (%s)" lstmNext (showDir (lsLstmDir sig)))
+    case (lsKalmanNext sig, lsLstmNext sig, lsSizingNext sig) of
+        (Nothing, Nothing, Just methodNext) -> putStrLn (printf "Method next: %.4f (%s)" methodNext (showDir (lsChosenDir sig)))
+        _ -> pure ()
     putStrLn (printf "Open threshold:  %.3f%%" (lsOpenThreshold sig * 100))
     putStrLn (printf "Close threshold: %.3f%%" (lsCloseThreshold sig * 100))
     putStrLn (printf "Close dir:       %s" (showDir (lsCloseDir sig)))
@@ -26542,6 +27051,186 @@ volPerBarFromPrices prices =
                     var = sum (map (\x -> (x - m) ** 2) rsClean) / fromIntegral (n - 1)
                     std = sqrt (max 0 var)
                  in if isNaN std || isInfinite std || std <= 0 then Nothing else Just std
+
+technicalGateInputs :: Double -> TA.TechnicalAnalysisGateInputs
+technicalGateInputs perSideCost =
+    TA.TechnicalAnalysisGateInputs
+        { TA.tagFeePerSide = max 0 perSideCost
+        , TA.tagMinConfidence = 0
+        , TA.tagCurrentBias = Nothing
+        , TA.tagVolatility = Nothing
+        , TA.tagVolConfGate = VolConfGateDisabled
+        }
+
+technicalSeriesFromFeatureInputs :: FeatureInputs -> Maybe TA.OhlcvSeries
+technicalSeriesFromFeatureInputs inputs =
+    technicalSeriesFromVectors
+        (fiClose inputs)
+        (fiOpen inputs)
+        (fiHigh inputs)
+        (fiLow inputs)
+        (fiVolume inputs)
+
+technicalSeriesFromVectors ::
+    V.Vector Double ->
+    Maybe (V.Vector Double) ->
+    Maybe (V.Vector Double) ->
+    Maybe (V.Vector Double) ->
+    Maybe (V.Vector Double) ->
+    Maybe TA.OhlcvSeries
+technicalSeriesFromVectors closes mOpens mHighs mLows mVolumes
+    | n <= 0 = Nothing
+    | not (V.all positiveFinite closes) = Nothing
+    | otherwise =
+        Just
+            TA.OhlcvSeries
+                { TA.ohlcvOpen = V.generate n openAt
+                , TA.ohlcvHigh = V.generate n highAt
+                , TA.ohlcvLow = V.generate n lowAt
+                , TA.ohlcvClose = closes
+                , TA.ohlcvVolume = V.generate n volumeAt
+                }
+  where
+    n = V.length closes
+    aligned mv =
+        case mv of
+            Just v
+                | V.length v == n -> Just v
+                | V.length v > n -> Just (V.drop (V.length v - n) v)
+            _ -> Nothing
+    opens = aligned mOpens
+    highs = aligned mHighs
+    lows = aligned mLows
+    volumes = aligned mVolumes
+    positiveFinite x = isFiniteDouble x && x > 0
+    finiteNonNegative x = isFiniteDouble x && x >= 0
+    cleanPositive x = if positiveFinite x then Just x else Nothing
+    cleanNonNegative x = if finiteNonNegative x then Just x else Nothing
+    valueAt mv i = fmap (V.! i) mv
+    closeAt i = closes V.! i
+    fallbackOpen i =
+        if i <= 0
+            then closeAt i
+            else closeAt (i - 1)
+    openAt i =
+        fromMaybe (fallbackOpen i) (valueAt opens i >>= cleanPositive)
+    highAt i =
+        let o = openAt i
+            c = closeAt i
+            base = max o c
+            h = fromMaybe base (valueAt highs i >>= cleanPositive)
+         in max base h
+    lowAt i =
+        let o = openAt i
+            c = closeAt i
+            base = min o c
+            l = fromMaybe base (valueAt lows i >>= cleanPositive)
+         in min base l
+    volumeAt i =
+        fromMaybe 1 (valueAt volumes i >>= cleanNonNegative)
+
+technicalSeriesPrefix :: Int -> TA.OhlcvSeries -> TA.OhlcvSeries
+technicalSeriesPrefix len series =
+    TA.OhlcvSeries
+        { TA.ohlcvOpen = V.take len (TA.ohlcvOpen series)
+        , TA.ohlcvHigh = V.take len (TA.ohlcvHigh series)
+        , TA.ohlcvLow = V.take len (TA.ohlcvLow series)
+        , TA.ohlcvClose = V.take len (TA.ohlcvClose series)
+        , TA.ohlcvVolume = V.take len (TA.ohlcvVolume series)
+        }
+
+technicalCandidateForMethod ::
+    Method ->
+    TA.TechnicalAnalysisGateInputs ->
+    TA.OhlcvSeries ->
+    Maybe TA.GatedStrategyCandidate
+technicalCandidateForMethod method inputs series =
+    case method of
+        MethodTaTrend -> TA.trendFollowingCandidate series >>= TA.admitStrategyCandidate inputs
+        MethodTaReversion -> TA.momentumReversionCandidate series >>= TA.admitStrategyCandidate inputs
+        MethodTaBreakout -> TA.volumeConfirmedBreakoutCandidate series >>= TA.admitStrategyCandidate inputs
+        MethodTaBest ->
+            listToMaybe $
+                sortOn
+                    (Data.Ord.Down . technicalCandidateRank)
+                    (TA.admittedStrategyCandidates inputs series)
+        _ -> Nothing
+
+technicalCandidateRank :: TA.GatedStrategyCandidate -> (Double, Double)
+technicalCandidateRank candidate =
+    let rawConfidence = TA.scConfidence (TA.gscCandidate candidate)
+        confidence =
+            if isFiniteDouble rawConfidence
+                then rawConfidence
+                else 0
+        edge =
+            if isFiniteDouble (TA.gscEntryEdge candidate)
+                then TA.gscEntryEdge candidate
+                else 0
+     in (confidence, edge)
+
+technicalDirectionFromCandidate :: TA.GatedStrategyCandidate -> Maybe Int
+technicalDirectionFromCandidate candidate =
+    case TA.scBias (TA.gscCandidate candidate) of
+        TA.BiasLong -> Just 1
+        TA.BiasShort -> Just (-1)
+        TA.BiasFlat -> Nothing
+
+technicalPredictionFromCandidate :: Double -> TA.GatedStrategyCandidate -> Maybe Double
+technicalPredictionFromCandidate currentPrice candidate = do
+    dir <- technicalDirectionFromCandidate candidate
+    let edge = max 0 (TA.gscEntryEdge candidate)
+        pred =
+            case dir of
+                1 -> currentPrice * (1 + edge)
+                (-1) -> currentPrice * (1 - edge)
+                _ -> currentPrice
+    if isFiniteDouble pred && pred > 0
+        then Just pred
+        else Nothing
+
+technicalPositionSizeFromCandidate :: TA.GatedStrategyCandidate -> Double
+technicalPositionSizeFromCandidate candidate =
+    let confidence = TA.scConfidence (TA.gscCandidate candidate)
+        size = confidence * TA.gscSizeMultiplier candidate
+     in if isFiniteDouble size then clamp01 size else 0
+
+technicalPredictionsForBacktest ::
+    Method ->
+    Double ->
+    [Double] ->
+    [Double] ->
+    [Double] ->
+    [Double] ->
+    [Double] ->
+    Int ->
+    Int ->
+    [Double]
+technicalPredictionsForBacktest method perSideCost closes opens highs lows volumes predStart stepCount =
+    case technicalSeriesFromVectors (V.fromList closes) (Just (V.fromList opens)) (Just (V.fromList highs)) (Just (V.fromList lows)) (Just (V.fromList volumes)) of
+        Nothing -> fallbackPredictions
+        Just series ->
+            [ technicalPredictionAt series t
+            | i <- [0 .. stepCount - 1]
+            , let t = predStart + i
+            ]
+  where
+    pricesV = V.fromList closes
+    n = V.length pricesV
+    fallbackPredictions =
+        [ if t >= 0 && t < n
+            then pricesV V.! t
+            else 0
+        | i <- [0 .. stepCount - 1]
+        , let t = predStart + i
+        ]
+    technicalPredictionAt series t
+        | t < 0 || t >= n = 0
+        | otherwise =
+            let currentPrice = pricesV V.! t
+                prefix = technicalSeriesPrefix (t + 1) series
+                candidate = technicalCandidateForMethod method (technicalGateInputs perSideCost) prefix
+             in fromMaybe currentPrice (candidate >>= technicalPredictionFromCandidate currentPrice)
 
 volPerBarFromPricesV :: V.Vector Double -> Maybe Double
 volPerBarFromPricesV = volPerBarFromPrices . V.toList
@@ -26719,7 +27408,15 @@ ensureMinPriceRows args minRows prices =
 ensureLookbackRows :: Args -> Int -> [Double] -> IO ()
 ensureLookbackRows args lookback prices =
     let n = length prices
-        minRows = lookback + 1
+        technicalMethod = methodIsTechnicalAnalysis (argMethod args)
+        minRows =
+            if technicalMethod
+                then 60
+                else lookback + 1
+        requirementLabel =
+            if technicalMethod
+                then "technical-analysis method"
+                else "lookback=" ++ show lookback
         hint =
             if prefersCsvBars args
                 then " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header), or reduce --lookback-bars/--lookback-window."
@@ -26735,8 +27432,8 @@ ensureLookbackRows args lookback prices =
                 ( userError
                     ( "Need at least "
                         ++ show minRows
-                        ++ " price rows for lookback="
-                        ++ show lookback
+                        ++ " price rows for "
+                        ++ requirementLabel
                         ++ " (got "
                         ++ show n
                         ++ ") from "
@@ -27185,6 +27882,10 @@ printMetrics method initialBalance m = do
                 MethodRegimeSwitch -> "Signal rate (Regime switch)"
                 MethodRouter -> "Signal rate (Router)"
                 MethodBanditRouter -> "Signal rate (Bandit router)"
+                MethodTaTrend -> "Signal rate (TA trend)"
+                MethodTaReversion -> "Signal rate (TA reversion)"
+                MethodTaBreakout -> "Signal rate (TA breakout)"
+                MethodTaBest -> "Signal rate (TA best)"
     putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
     putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
 
