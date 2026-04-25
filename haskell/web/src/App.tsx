@@ -138,6 +138,7 @@ import {
   STORAGE_STATE_SYNC_TARGET_KEY,
   STORAGE_STATE_SYNC_TOKEN_KEY,
   STORAGE_TOP_COMBOS_KEY,
+  STORAGE_UI_PAGE_KEY,
   TRADE_TIMEOUT_MS,
   TUNE_OBJECTIVES,
 } from "./app/constants";
@@ -340,6 +341,84 @@ const TelemetryChart = lazy(() => import("./components/TelemetryChart").then((mo
 const OptimizerCombosPanel = lazy(() =>
   import("./components/OptimizerCombosPanel").then((mod) => ({ default: mod.OptimizerCombosPanel })),
 );
+
+const OUTPUT_PAGE_IDS = [
+  "page-error",
+  "page-overview",
+  "page-live-bot",
+  "page-binance-trades",
+  "page-latest-signal",
+  "page-positions",
+  "page-orphaned-operations",
+  "page-backtest-summary",
+  "page-trade-result",
+  "page-user-data-stream",
+  "page-state-sync",
+  "page-request-preview",
+  "page-performance",
+  "page-data-log",
+  "page-combos",
+] as const;
+type OutputPageId = (typeof OUTPUT_PAGE_IDS)[number];
+type UiPageId = ConfigPageId | OutputPageId;
+
+const DEFAULT_UI_PAGE_ID: UiPageId = "section-api";
+const OUTPUT_PAGE_ID_SET = new Set<string>(OUTPUT_PAGE_IDS);
+
+const OUTPUT_PAGE_LABELS: Record<OutputPageId, string> = {
+  "page-error": "Error",
+  "page-overview": "Overview",
+  "page-live-bot": "Live bot",
+  "page-binance-trades": "Binance trades",
+  "page-latest-signal": "Latest signal",
+  "page-positions": "Positions",
+  "page-orphaned-operations": "Orphaned ops",
+  "page-backtest-summary": "Backtest",
+  "page-trade-result": "Trade result",
+  "page-user-data-stream": "User stream",
+  "page-state-sync": "State sync",
+  "page-request-preview": "Request",
+  "page-performance": "Performance",
+  "page-data-log": "Data log",
+  "page-combos": "Combos",
+};
+
+const OUTPUT_PAGE_PANEL_MAP: Record<OutputPageId, string> = {
+  "page-error": "panel-error",
+  "page-overview": "panel-overview",
+  "page-live-bot": "panel-live-bot",
+  "page-binance-trades": "panel-binance-trades",
+  "page-latest-signal": "panel-latest-signal",
+  "page-positions": "panel-positions",
+  "page-orphaned-operations": "panel-orphaned-operations",
+  "page-backtest-summary": "panel-backtest-summary",
+  "page-trade-result": "panel-trade-result",
+  "page-user-data-stream": "panel-user-data-stream",
+  "page-state-sync": "panel-state-sync",
+  "page-request-preview": "panel-request-preview",
+  "page-performance": "panel-performance",
+  "page-data-log": "panel-data-log",
+  "page-combos": "panel-combos",
+};
+
+const REQUEST_KIND_OUTPUT_PAGE: Record<RequestKind, OutputPageId> = {
+  signal: "page-latest-signal",
+  backtest: "page-backtest-summary",
+  trade: "page-trade-result",
+};
+
+const isOutputPageId = (value: unknown): value is OutputPageId =>
+  typeof value === "string" && OUTPUT_PAGE_ID_SET.has(value);
+
+const isConfigUiPageId = (value: unknown): value is ConfigPageId =>
+  typeof value === "string" && CONFIG_PAGE_IDS.includes(value as ConfigPageId);
+
+const normalizeUiPage = (value: unknown): UiPageId => {
+  if (isOutputPageId(value)) return value;
+  if (isConfigUiPageId(value)) return value;
+  const configPage = normalizeConfigPage(value);
+  return configPage ?? DEFAULT_UI_PAGE_ID;
+};
 
 type BotPanelOffset = { x: number; y: number };
 type BotPanelDragState = {
@@ -1476,7 +1555,14 @@ export function App() {
   );
   const configPageInit =
     readJson<ConfigPageId | ConfigPanelId>(STORAGE_CONFIG_PAGE_KEY) ?? readJson<ConfigPanelId>(STORAGE_CONFIG_TAB_KEY);
-  const [configPage, setConfigPage] = useState<ConfigPageId>(() => normalizeConfigPage(configPageInit));
+  const uiPageInit = readJson<UiPageId | ConfigPanelId>(STORAGE_UI_PAGE_KEY) ?? configPageInit;
+  const initialUiPage = normalizeUiPage(uiPageInit);
+  const [activePage, setActivePage] = useState<UiPageId>(() => initialUiPage);
+  const [configPage, setConfigPage] = useState<ConfigPageId>(() =>
+    isConfigUiPageId(initialUiPage) ? initialUiPage : normalizeConfigPage(configPageInit),
+  );
+  const activePageIsConfig = isConfigUiPageId(activePage);
+  const activeOutputPage = isOutputPageId(activePage) ? activePage : null;
   const [draggingConfigPanel, setDraggingConfigPanel] = useState<ConfigPanelId | null>(null);
   const [dragOverConfigPanel, setDragOverConfigPanel] = useState<ConfigPanelId | null>(null);
   const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
@@ -1503,6 +1589,12 @@ export function App() {
     backtest: null,
     trade: null,
   });
+
+  useEffect(() => {
+    if (activePage === "page-error" && !state.error) {
+      setActivePage("page-overview");
+    }
+  }, [activePage, state.error]);
 
   const [activeAsyncJob, setActiveAsyncJob] = useState<ActiveAsyncJob | null>(null);
   const activeAsyncJobRef = useRef<ActiveAsyncJob | null>(null);
@@ -2188,6 +2280,9 @@ export function App() {
     writeJson(STORAGE_CONFIG_PANEL_ORDER_KEY, configPanelOrder);
   }, [configPanelOrder]);
   useEffect(() => {
+    writeJson(STORAGE_UI_PAGE_KEY, activePage);
+  }, [activePage]);
+  useEffect(() => {
     writeJson(STORAGE_CONFIG_PAGE_KEY, configPage);
   }, [configPage]);
 
@@ -2204,11 +2299,19 @@ export function App() {
   );
   const selectConfigPage = useCallback(
     (pageId: ConfigPageId) => {
+      setActivePage(pageId);
       setConfigPage(pageId);
       setPanelOpen("panel-config", true);
       const panelId = CONFIG_PAGE_PANEL_MAP[pageId];
       setPanelOpen(panelId, true);
       setPanelOpen(pageId, true);
+    },
+    [setPanelOpen],
+  );
+  const selectOutputPage = useCallback(
+    (pageId: OutputPageId) => {
+      setActivePage(pageId);
+      setPanelOpen(OUTPUT_PAGE_PANEL_MAP[pageId], true);
     },
     [setPanelOpen],
   );
@@ -2336,10 +2439,12 @@ export function App() {
     removeLocalKey(STORAGE_CONFIG_PANEL_ORDER_KEY);
     removeLocalKey(STORAGE_CONFIG_PAGE_KEY);
     removeLocalKey(STORAGE_CONFIG_TAB_KEY);
+    removeLocalKey(STORAGE_UI_PAGE_KEY);
     removeLocalKey(STORAGE_BOT_PANEL_POS_KEY);
     removeLocalKey(STORAGE_BOT_PANEL_VISIBLE_KEY);
     setPanelPrefs({});
     setConfigPanelOrder(CONFIG_PANEL_IDS);
+    setActivePage(DEFAULT_UI_PAGE_ID);
     setConfigPage("section-api");
     setMaximizedPanelId(null);
     setBotPanelOffset({ x: 0, y: 0 });
@@ -4558,27 +4663,31 @@ export function App() {
   }, [botDisplay]);
 
   const scrollToResult = useCallback((kind: RequestKind) => {
+    selectOutputPage(REQUEST_KIND_OUTPUT_PAGE[kind]);
     const ref = kind === "signal" ? signalRef : kind === "backtest" ? backtestRef : tradeRef;
-    const el = ref.current;
-    if (!el) return;
-    const openedPanels = openPanelAncestors(el);
     const runScroll = () => {
+      const el = ref.current;
+      if (!el) return;
+      const openedPanels = openPanelAncestors(el);
       const prefersReducedMotion =
         typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
       el.scrollIntoView({ behavior, block: "start" });
+      if (openedPanels && typeof window !== "undefined") {
+        window.setTimeout(() => el.scrollIntoView({ behavior, block: "start" }), 0);
+      }
     };
-    if (openedPanels && typeof window !== "undefined") {
+    if (typeof window !== "undefined") {
       window.setTimeout(runScroll, 0);
     } else {
       runScroll();
     }
-  }, [openPanelAncestors]);
+  }, [openPanelAncestors, selectOutputPage]);
   const scrollToSection = useCallback((id?: string) => {
     if (!id || typeof document === "undefined") return;
     const targetPage = resolveConfigPageForTarget(id);
-    const shouldSwitchPage = Boolean(targetPage && targetPage !== configPage);
-    if (targetPage && targetPage !== configPage) {
+    const shouldSwitchPage = Boolean(targetPage && (targetPage !== configPage || activePage !== targetPage));
+    if (targetPage && (targetPage !== configPage || activePage !== targetPage)) {
       selectConfigPage(targetPage);
     }
 
@@ -4633,7 +4742,7 @@ export function App() {
     } else {
       runScroll();
     }
-  }, [configPage, openPanelAncestors, selectConfigPage]);
+  }, [activePage, configPage, openPanelAncestors, selectConfigPage]);
 
   useEffect(() => {
     return () => {
@@ -4919,6 +5028,7 @@ export function App() {
         }
 
         setState((s) => ({ ...s, loading: false, error: msg }));
+        selectOutputPage("page-error");
         if (showErrorToast) showToast("Request failed");
       } finally {
         if (requestId === requestSeqRef.current) {
@@ -4938,6 +5048,7 @@ export function App() {
       form.bypassCache,
       form.tradeArmed,
       scrollToResult,
+      selectOutputPage,
       showToast,
       tradeParams,
       withPlatformKeys,
@@ -6048,11 +6159,11 @@ export function App() {
     ],
   );
 
-  const opsPerformancePanelOpen = isPanelOpen("panel-performance", false);
+  const opsPerformancePanelOpen = activeOutputPage === "page-performance" && isPanelOpen("panel-performance", false);
 
   const shouldPollBotStatusOps = useMemo(
-    () => isPanelOpen("panel-live-bot", true) || botRunningCharts.length > 0,
-    [botRunningCharts.length, isPanelOpen],
+    () => activeOutputPage === "page-live-bot" && (isPanelOpen("panel-live-bot", true) || botRunningCharts.length > 0),
+    [activeOutputPage, botRunningCharts.length, isPanelOpen],
   );
 
   useEffect(() => {
@@ -8119,6 +8230,14 @@ export function App() {
     () => CONFIG_PAGE_IDS.map((pageId) => ({ id: pageId, label: CONFIG_PAGE_LABELS[pageId] })),
     [],
   );
+  const outputPageList = useMemo(
+    () =>
+      OUTPUT_PAGE_IDS.filter((pageId) => pageId !== "page-error" || Boolean(state.error)).map((pageId) => ({
+        id: pageId,
+        label: OUTPUT_PAGE_LABELS[pageId],
+      })),
+    [state.error],
+  );
   const pageIssueCounts = useMemo(() => {
     const counts: Partial<Record<ConfigPageId, number>> = {};
     for (const issue of requestIssueDetails) {
@@ -8220,9 +8339,9 @@ export function App() {
       }) as React.CSSProperties,
     [botPanelOffset],
   );
-  const combosOpen = isPanelOpen("panel-combos", true);
-  const configOpen = isPanelOpen("panel-config", true);
-  const dockLayoutClass = `dockLayout dockLayoutConfigPage${combosOpen ? "" : " dockLayoutCompactBottom"}${configOpen ? "" : " dockLayoutCompactTop"}`;
+  const combosOpen = activeOutputPage === "page-combos" && isPanelOpen("panel-combos", true);
+  const configOpen = activePageIsConfig && isPanelOpen("panel-config", true);
+  const dockLayoutClass = `dockLayout dockLayoutConfigPage${configOpen ? "" : " dockLayoutCompactTop"}`;
   const configDockProps: ConfigDockProps = {
     configOpen,
     handlePanelToggle,
@@ -8575,18 +8694,38 @@ export function App() {
                 </div>
               </div>
               <nav className="menuBar menuBarHeader" aria-label="Configuration pages">
+                <span className="jumpLabel">Config</span>
                 {configPageList.map((page) => (
                   <button
                     key={page.id}
-                    className={`menuItem${configPage === page.id ? " menuItemActive" : ""}`}
+                    className={`menuItem${activePage === page.id ? " menuItemActive" : ""}`}
                     type="button"
-                    aria-current={configPage === page.id ? "page" : undefined}
+                    aria-current={activePage === page.id ? "page" : undefined}
                     onClick={() => selectConfigPage(page.id)}
                   >
                     {page.label}
                     {pageIssueCounts[page.id] ? (
                       <span className="menuBadge" aria-label={`${pageIssueCounts[page.id]} issue${pageIssueCounts[page.id] === 1 ? "" : "s"}`}>
                         {pageIssueCounts[page.id]}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </nav>
+              <nav className="menuBar menuBarHeader" aria-label="Output pages">
+                <span className="jumpLabel">Sections</span>
+                {outputPageList.map((page) => (
+                  <button
+                    key={page.id}
+                    className={`menuItem${activePage === page.id ? " menuItemActive" : ""}`}
+                    type="button"
+                    aria-current={activePage === page.id ? "page" : undefined}
+                    onClick={() => selectOutputPage(page.id)}
+                  >
+                    {page.label}
+                    {page.id === "page-error" && state.error ? (
+                      <span className="menuBadge" aria-label="Current request error">
+                        !
                       </span>
                     ) : null}
                   </button>
@@ -8648,7 +8787,7 @@ export function App() {
               </div>
             </summary>
           </details>
-          <ConfigDock {...configDockProps} />
+          {activePageIsConfig ? <ConfigDock {...configDockProps} /> : null}
       </div>
       {botPanelVisible ? (
         <aside
@@ -8741,9 +8880,10 @@ export function App() {
           </div>
         </aside>
       ) : null}
+      {activeOutputPage ? (
       <main className="dockMain">
         <section className="resultGrid">
-          {state.error ? (
+          {activeOutputPage === "page-error" && state.error ? (
             <CollapsibleCard
               panelId="panel-error"
               open={isPanelOpen("panel-error", true)}
@@ -8768,6 +8908,7 @@ export function App() {
             </CollapsibleCard>
           ) : null}
 
+          {activeOutputPage === "page-overview" ? (
           <CollapsibleCard
             panelId="panel-overview"
             open={isPanelOpen("panel-overview", true)}
@@ -8908,7 +9049,10 @@ export function App() {
                 </div>
             </div>
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-live-bot" ? (
+            <>
           <CollapsibleCard
             panelId="panel-live-bot"
             open={isPanelOpen("panel-live-bot", true)}
@@ -9861,7 +10005,10 @@ export function App() {
               </CollapsibleCard>
             );
           })}
+            </>
+          ) : null}
 
+          {activeOutputPage === "page-binance-trades" ? (
           <CollapsibleCard
             panelId="panel-binance-trades"
             open={isPanelOpen("panel-binance-trades", true)}
@@ -9909,7 +10056,9 @@ export function App() {
               binanceTradesAnalysis={binanceTradesAnalysis}
             />
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-latest-signal" ? (
           <CollapsibleCard
             panelId="panel-latest-signal"
             open={isPanelOpen("panel-latest-signal", true)}
@@ -10128,7 +10277,9 @@ export function App() {
             </>
           )}
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-positions" ? (
           <CollapsibleCard
             panelId="panel-positions"
             open={isPanelOpen("panel-positions", true)}
@@ -10282,7 +10433,9 @@ export function App() {
                 <div className="hint">No positions loaded yet.</div>
               )}
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-orphaned-operations" ? (
           <CollapsibleCard
             panelId="panel-orphaned-operations"
             open={isPanelOpen("panel-orphaned-operations", true)}
@@ -10422,7 +10575,9 @@ export function App() {
                 <div className="hint">Load open positions above to see orphaned operations.</div>
               )}
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-backtest-summary" ? (
           <CollapsibleCard
             panelId="panel-backtest-summary"
             open={isPanelOpen("panel-backtest-summary", true)}
@@ -10987,7 +11142,9 @@ export function App() {
                 </>
               )}
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-trade-result" ? (
           <CollapsibleCard
             panelId="panel-trade-result"
             open={isPanelOpen("panel-trade-result", true)}
@@ -11158,7 +11315,9 @@ export function App() {
                 </>
               )}
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-user-data-stream" ? (
           <CollapsibleCard
             panelId="panel-user-data-stream"
             open={isPanelOpen("panel-user-data-stream", true)}
@@ -11280,7 +11439,9 @@ export function App() {
                 <div className="hint">Not running.</div>
               )}
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-state-sync" ? (
           <CollapsibleCard
             panelId="panel-state-sync"
             open={isPanelOpen("panel-state-sync", false)}
@@ -11540,7 +11701,9 @@ export function App() {
                 </details>
               ) : null}
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-request-preview" ? (
           <CollapsibleCard
             panelId="panel-request-preview"
             open={isPanelOpen("panel-request-preview", false)}
@@ -11584,7 +11747,9 @@ export function App() {
               </div>
               <pre className="code">{JSON.stringify(requestPreview, null, 2)}</pre>
           </CollapsibleCard>
+          ) : null}
 
+          {activeOutputPage === "page-performance" ? (
           <CollapsibleCard
             panelId="panel-performance"
             open={isPanelOpen("panel-performance", false)}
@@ -11608,8 +11773,10 @@ export function App() {
               fetchOpsPerformance={fetchOpsPerformance}
             />
           </CollapsibleCard>
+          ) : null}
         </section>
 
+        {activeOutputPage === "page-data-log" ? (
         <CollapsibleCard
           panelId="panel-data-log"
           open={isPanelOpen("panel-data-log", false)}
@@ -11647,8 +11814,9 @@ export function App() {
             handleDataLogScroll={handleDataLogScroll}
           />
         </CollapsibleCard>
-      </main>
-      <div className="dockBottom">
+        ) : null}
+
+        {activeOutputPage === "page-combos" ? (
         <CollapsibleCard
           panelId="panel-combos"
           open={isPanelOpen("panel-combos", true)}
@@ -11658,6 +11826,7 @@ export function App() {
           title="Optimizer Combos"
           subtitle="Browse, apply, and run optimizer payloads."
           className="combosCard"
+          style={{ marginTop: "18px" }}
         >
           {combosOpen ? (
             <Suspense fallback={<PanelFallback label="Loading optimizer combos…" />}>
@@ -11667,7 +11836,9 @@ export function App() {
             <div className="hint">Expand to load optimizer combos.</div>
           )}
         </CollapsibleCard>
-      </div>
+        ) : null}
+      </main>
+      ) : null}
     </div>
   </div>
   );

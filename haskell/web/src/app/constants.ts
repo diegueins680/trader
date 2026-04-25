@@ -16,6 +16,7 @@ export const STORAGE_PANEL_PREFS_KEY = "trader.ui.panelPrefs.v1";
 export const STORAGE_CONFIG_PANEL_ORDER_KEY = "trader.ui.configPanelOrder.v1";
 export const STORAGE_CONFIG_PAGE_KEY = "trader.ui.configPage.v1";
 export const STORAGE_CONFIG_TAB_KEY = "trader.ui.configTab.v1";
+export const STORAGE_UI_PAGE_KEY = "trader.ui.page.v1";
 export const STORAGE_DATA_LOG_KEY = "trader.ui.dataLog.v1";
 export const STORAGE_DATA_LOG_PREFS_KEY = "trader.ui.dataLogPrefs.v1";
 export const STORAGE_BOT_PANEL_POS_KEY = "trader.ui.botPanelPos.v1";
