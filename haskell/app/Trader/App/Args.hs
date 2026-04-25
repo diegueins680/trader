@@ -6,6 +6,7 @@ module Trader.App.Args (
     resolveBarsForCsv,
     resolveBarsForBinance,
     resolveBarsForPlatform,
+    normalizeBarsForLookback,
     positioningCode,
     parsePositioning,
     intrabarFillCode,
@@ -31,7 +32,7 @@ import Options.Applicative
 
 import Trader.Binance (BinanceMarket (..))
 import Trader.Duration (TimeWindow, lookbackBarsFrom, parseIntervalSeconds, parseTimeWindow)
-import Trader.Method (Method (..), methodCode, parseMethod)
+import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod)
 import Trader.Normalization (NormType (..), parseNormType)
 import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 import Trader.Platform (
@@ -1015,6 +1016,51 @@ argLookback args =
                 Left _ -> 2
                 Right n ->
                     max 2 n
+
+isDexPlatform :: Platform -> Bool
+isDexPlatform p =
+    case p of
+        PlatformUniswap -> True
+        PlatformCurve -> True
+        PlatformSushiswap -> True
+        PlatformBalancer -> True
+        PlatformPancakeswap -> True
+        PlatformOneInch -> True
+        _ -> False
+
+lookbackBarsForValidation :: Args -> Int
+lookbackBarsForValidation args =
+    let prefersCsvBars = isDexPlatform (argPlatform args) && present (argData args)
+        barsCsv = resolveBarsForCsv args
+        barsPlatform = resolveBarsForPlatform args
+     in if prefersCsvBars
+            then barsCsv
+            else case argBinanceSymbol args of
+                Just _ -> barsPlatform
+                Nothing -> barsCsv
+  where
+    present = maybe False (not . null . trim)
+
+requiredBarsForLookback :: Args -> Int
+requiredBarsForLookback args =
+    if argTradeOnly args && methodIsTechnicalAnalysis (argMethod args)
+        then 60
+        else argLookback args + 1
+
+normalizeBarsForLookback :: Args -> Args
+normalizeBarsForLookback args =
+    let hasDataSource = present (argData args) || present (argBinanceSymbol args)
+        barsForLookback = lookbackBarsForValidation args
+        requiredBars = requiredBarsForLookback args
+        canAdjustToRequirement =
+            case argPlatform args of
+                PlatformBinance -> requiredBars <= 1000
+                _ -> True
+     in if hasDataSource && barsForLookback > 0 && barsForLookback < requiredBars && canAdjustToRequirement
+            then args{argBars = Just requiredBars}
+            else args
+  where
+    present = maybe False (not . null . trim)
 
 validateArgs :: Args -> Either String Args
 validateArgs args0 = do

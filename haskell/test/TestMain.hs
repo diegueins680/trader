@@ -10,7 +10,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, info)
-import Trader.App.Args (Args (..), opts, validateArgs)
+import Trader.App.Args (Args (..), normalizeBarsForLookback, opts, validateArgs)
 import Trader.Binance (binanceExceptionSummary)
 import Trader.BotStartSemantics (botStartSymbolDisabled, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
@@ -103,6 +103,7 @@ import Trader.VolConfGate (
 
 main :: IO ()
 main = do
+    testNormalizeBarsForLookbackAutoAdjustsApiInputs
     testSignalGateEntryBoundaryWitness
     testSignalGateEntryThresholdFeasibilityInvariant
     testMarketDataFreshnessAndContinuationInvariant
@@ -151,6 +152,68 @@ parseAndValidateCliArgs argv =
         Success args -> validateArgs args
         Failure _ -> Left "CLI parse failed unexpectedly"
         CompletionInvoked _ -> Left "CLI completion invoked unexpectedly"
+
+parseCliArgs :: [String] -> Either String Args
+parseCliArgs argv =
+    case execParserPure defaultPrefs (info opts mempty) argv of
+        Success args -> Right args
+        Failure _ -> Left "CLI parse failed unexpectedly"
+        CompletionInvoked _ -> Left "CLI completion invoked unexpectedly"
+
+testNormalizeBarsForLookbackAutoAdjustsApiInputs :: IO ()
+testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
+    let parseOrFail argv =
+            case parseCliArgs argv of
+                Left err -> ioError (userError ("CLI parse failed unexpectedly: " ++ err))
+                Right args -> pure args
+
+    binanceArgs <-
+        parseOrFail
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "960"
+            , "--lookback-bars"
+            , "960"
+            ]
+    let adjustedBinanceArgs = normalizeBarsForLookback binanceArgs
+    assert
+        "API lookback normalization raises explicit exchange bars to lookback+1 when the request is otherwise feasible"
+        ( argBars adjustedBinanceArgs == Just 961
+            && case validateArgs adjustedBinanceArgs of
+                Right _ -> True
+                Left _ -> False
+        )
+
+    taArgs <-
+        parseOrFail
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--method"
+            , "ta_trend"
+            , "--bars"
+            , "20"
+            , "--lookback-bars"
+            , "10"
+            ]
+    let adjustedTaArgs = normalizeBarsForLookback taArgs{argTradeOnly = True}
+    assert
+        "trade-only TA requests are raised to the 60-bar live minimum instead of failing bot/signal/trade starts"
+        ( argBars adjustedTaArgs == Just 60
+            && case validateArgs adjustedTaArgs of
+                Right _ -> True
+                Left _ -> False
+        )
+
+    overCapArgs <-
+        parseOrFail ["--binance-symbol", "BTCUSDT", "--interval", "1m", "--bars", "500", "--lookback-bars", "1000"]
+    assert
+        "lookback normalization does not push Binance requests past the 1000-bar platform cap"
+        (argBars (normalizeBarsForLookback overCapArgs) == Just 500)
 
 pricesFromReturns :: [Double] -> V.Vector Double
 pricesFromReturns returns =

@@ -84,6 +84,7 @@ import Trader.App.Args (
     argBinanceMarket,
     argLookback,
     intrabarFillCode,
+    normalizeBarsForLookback,
     normalizeEpochMs,
     opts,
     parseIntrabarFill,
@@ -14798,7 +14799,7 @@ applyTopComboForStart base combo = do
             case barsOk of
                 Nothing -> args1
                 Just n -> args1{argBars = Just n}
-    pure args2
+    pure (normalizeBarsForLookback args2)
 
 applyTopComboForStartWithUuid :: Args -> TopCombo -> Either String (Args, Maybe Text)
 applyTopComboForStartWithUuid base combo = do
@@ -15344,12 +15345,13 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
                             Left e -> respond (jsonError status400 e)
                             Right mReqTenant -> do
                                 let args =
-                                        args0
-                                            { argTradeOnly = True
-                                            , argBinanceTrade = False
-                                            , argSweepThreshold = False
-                                            , argOptimizeOperations = False
-                                            }
+                                        normalizeBarsForLookback
+                                            args0
+                                                { argTradeOnly = True
+                                                , argBinanceTrade = False
+                                                , argSweepThreshold = False
+                                                , argOptimizeOperations = False
+                                                }
                                 case validateArgs args of
                                     Left e -> respond (jsonError status400 e)
                                     Right args1 -> do
@@ -15406,12 +15408,13 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
                             Left e -> respond (jsonError status400 e)
                             Right mReqTenant -> do
                                 let args =
-                                        args0
-                                            { argTradeOnly = True
-                                            , argBinanceTrade = False
-                                            , argSweepThreshold = False
-                                            , argOptimizeOperations = False
-                                            }
+                                        normalizeBarsForLookback
+                                            args0
+                                                { argTradeOnly = True
+                                                , argBinanceTrade = False
+                                                , argSweepThreshold = False
+                                                , argOptimizeOperations = False
+                                                }
                                 case validateArgs args of
                                     Left e -> respond (jsonError status400 e)
                                     Right args1 -> do
@@ -15465,12 +15468,13 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                             Left e -> respond (jsonError status400 e)
                             Right mReqTenant -> do
                                 let args1 =
-                                        args0
-                                            { argTradeOnly = True
-                                            , argBinanceTrade = True
-                                            , argSweepThreshold = False
-                                            , argOptimizeOperations = False
-                                            }
+                                        normalizeBarsForLookback
+                                            args0
+                                                { argTradeOnly = True
+                                                , argBinanceTrade = True
+                                                , argSweepThreshold = False
+                                                , argOptimizeOperations = False
+                                                }
                                 case validateArgs args1 of
                                     Left e -> respond (jsonError status400 e)
                                     Right args ->
@@ -15605,12 +15609,13 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                             Left e -> respond (jsonError status400 e)
                             Right mReqTenant -> do
                                 let args1 =
-                                        args0
-                                            { argTradeOnly = True
-                                            , argBinanceTrade = True
-                                            , argSweepThreshold = False
-                                            , argOptimizeOperations = False
-                                            }
+                                        normalizeBarsForLookback
+                                            args0
+                                                { argTradeOnly = True
+                                                , argBinanceTrade = True
+                                                , argSweepThreshold = False
+                                                , argOptimizeOperations = False
+                                                }
                                 case validateArgs args1 of
                                     Left e -> respond (jsonError status400 e)
                                     Right args ->
@@ -17168,7 +17173,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                 case requireTenantKey "bot/start" mTenant of
                                     Left e -> respond (jsonError status400 e)
                                     Right tenantKey -> do
-                                        let argsBase = args0{argTradeOnly = True}
+                                        let argsBase = normalizeBarsForLookback args0{argTradeOnly = True}
                                             tradeEnabled = botTradeEnabledFromApi (apBotTrade params)
                                         symbolsOrErr <- resolveBotSymbols argsBase params
                                         let requestedSymbols =
@@ -17664,7 +17669,7 @@ argsFromApi baseArgs p = do
                 , argTuneStressWeight = pick (apTuneStressWeight p) (argTuneStressWeight baseArgs)
                 }
 
-    validateArgs args
+    validateArgs (normalizeBarsForLookback args)
 
 dirLabel :: Maybe Int -> Maybe String
 dirLabel d =
