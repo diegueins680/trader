@@ -1,5 +1,89 @@
 # Trader Reports
 
+## 2026-04-25
+
+### Findings
+- Primary local data source: `haskell/.tmp/bot/tenants/binance-dc286605a9946343b18aeb2670e23ce51f6d9e0e1b37f50205f1945c6c54016a/bot-state-*.json`.
+- Re-ran the bounded review for `2026-04-25 00:00-00:39 -05` and the prior full local day `2026-04-24`. Both windows showed the same operational shape: `completedTrades=0`, `openPositionsEnteredToday=0`, `openPositionsCarriedIn=1` (`ATOMUSDT` adopted short), `sameDayOrderEvents=0`, and one held cutoff signal counted as malformed directionality before the patch.
+- The apparent malformed case was `LTCUSDT` `4h` at the `2026-04-25T00:39:00-05:00` cutoff:
+  - `action=HOLD (TREND)`
+  - measurable edge `8.40356%`
+  - open threshold `0.89595%`
+  - headroom ratio `6.25x`
+  - stored `latestSignal.regimes=null`
+  - stored `latestSignal.directionality.reason=NON_DIRECTIONAL_MALFORMED`
+- Inspecting the saved snapshot showed this was not corrupted regime data; it was an unavailable regime tuple on an LSTM-only (`method="01"`) signal. `BTCUSDT` later in the same local day showed the same shape (`regimes=null`, stored malformed directionality, inferred short side).
+- Rebuilding directionality from the saved price path plus inferred side classifies both `LTCUSDT` and `BTCUSDT` as `NON_DIRECTIONAL_WEAK_BAND`, not malformed. Their additive-path z-scores are positive (`LTCUSDT 1.07054`, `BTCUSDT 1.30107`) while the inferred side is short, so the gate should still hold them, but for weak-band opposition rather than bad input.
+
+### Research Notes
+- TensorFlow Data Validation’s anomaly taxonomy separates missing/presence problems from wrong-type/domain problems instead of collapsing them into one generic malformed bucket. Source: `https://www.tensorflow.org/tfx/data_validation/anomalies`
+- Google’s Vertex AI tabular data docs similarly distinguish missing/null values from invalid-format values, treating invalid formatted numeric/timestamp values as null or row-exclusion cases rather than the same class as absent data. Source: `https://docs.cloud.google.com/vertex-ai/docs/datasets/data-types-tabular`
+- Inference for this run: the highest-leverage improvement is not another trade-entry heuristic. It is restoring a clean invariant in the control layer: absent regime-bank evidence and malformed provided regime tuples must be reported and gated differently.
+
+### Hypotheses
+- The shared weak-band directionality gate should treat `regimes=None` as unavailable evidence, skip the MR-dominance comparison, and fall back to the signed additive-path z-score rule.
+- Truly invalid provided regime tuples must still fail closed as `NON_DIRECTIONAL_MALFORMED`.
+- The review script should canonicalize legacy stored malformed weak-band snapshots when the saved artifact only lacks regimes, otherwise daily engineering metrics will keep overstating malformed-input failures until every bot writes fresh snapshots.
+- Today’s data does not justify loosening `TREND` or `NON_DIRECTIONAL_WEAK_BAND` holds themselves; it only justifies correcting why they are labeled.
+
+### Metrics
+- Pre-fix replay for `2026-04-25T00:39:00-05:00`:
+  - `eligible=7`
+  - `above_open_threshold=2`
+  - `above_headroom=2`
+  - `malformed_directionality=1`
+  - held review candidate: `LTCUSDT`
+- Post-fix replay for the same bounded window:
+  - `eligible=7`
+  - `above_open_threshold=2`
+  - `above_headroom=2`
+  - `malformed_directionality=0`
+  - `LTCUSDT` remains held, but now `malformedDirectionality=False`
+- Pre-fix replay for the full local day `2026-04-24`:
+  - `eligible=7`
+  - `above_open_threshold=2`
+  - `above_headroom=2`
+  - `malformed_directionality=1`
+- Post-fix replay for `2026-04-24`:
+  - `eligible=7`
+  - `above_open_threshold=2`
+  - `above_headroom=2`
+  - `malformed_directionality=0`
+- Current-day replay at `2026-04-25T01:47:46.990960-05:00` after the patch:
+  - `eligible=21`
+  - `above_open_threshold=4`
+  - `above_headroom=4`
+  - `malformed_directionality=0`
+  - `completedTrades=0`
+  - `sameDayOrderEvents=0`
+
+### Changes Made
+- Updated `haskell/app/Trader/SignalGates.hs` so the weak-band gate distinguishes:
+  - unavailable regime probabilities
+  - invalid provided regime tuples
+  - valid regime tuples
+- The live gate now skips the MR comparison when regime probabilities are absent and uses the signed weak-band z-score confirmation directly; invalid provided tuples still fail closed as `NON_DIRECTIONAL_MALFORMED`.
+- Updated `haskell/scripts/review_bot_day.py` to mirror the same contract and to canonicalize legacy stored `NON_DIRECTIONAL_MALFORMED` weak-band snapshots from saved prices plus inferred side evidence.
+- Added regression coverage in:
+  - `haskell/test/TestMain.hs`
+  - `haskell/scripts/test_review_bot_day.py`
+- Updated `README.md` and `CHANGELOG.md` for the new weak-band missing-regime semantics and the review-tool canonicalization.
+
+### Validation Results
+- `python3 -m py_compile haskell/scripts/review_bot_day.py haskell/scripts/test_review_bot_day.py` passed.
+- `python3 -m unittest haskell/scripts/test_review_bot_day.py` passed (`21` tests).
+- `PATH=$HOME/.ghcup/bin:$PATH cabal test trader-tests --test-show-details=direct` passed.
+- `PATH=$HOME/.ghcup/bin:$PATH bash scripts/verify.sh haskell` passed, including `fourmolu --mode check`, `hlint`, `cabal build`, `bash scripts/ci_smoke.sh`, and `cabal test --test-show-details=direct`.
+- Replay commands run after the patch:
+  - `python3 haskell/scripts/review_bot_day.py --date 2026-04-25 --timezone America/Guayaquil --end-local 2026-04-25T00:39`
+  - `python3 haskell/scripts/review_bot_day.py --date 2026-04-24 --timezone America/Guayaquil`
+  - `python3 haskell/scripts/review_bot_day.py --date 2026-04-25 --timezone America/Guayaquil`
+
+### Remaining Risks
+- Existing saved bot-state JSON still contains the old stored `directionality.reason` until the live bot writes fresh snapshots after this code ships; the review script now compensates for that legacy artifact.
+- The live-gate contract now permits future weak-band entries without regime probabilities when the signed z-score confirms the requested side. Today’s data supports that distinction, but I did not run a broad historical backtest sweep for this semantic change.
+- No completed trades or same-day order events occurred in today’s replay windows, so this is a control-plane correctness improvement, not a realized-PnL change yet.
+
 ## 2026-04-06 (23:13 trading review)
 
 ### Findings

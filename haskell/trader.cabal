@@ -320,6 +320,7 @@ benchmark trader-bench
                      , Trader.Metrics
                      , Trader.Method
                      , Trader.MarketContext
+                     , Trader.MarketDataIntegrity
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.OrderExecution

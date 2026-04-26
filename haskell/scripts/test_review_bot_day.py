@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -25,6 +26,107 @@ class ReviewBotDayTest(unittest.TestCase):
         for ret in returns:
             prices.append(prices[-1] * (1.0 + ret))
         return prices
+
+    def test_current_day_default_end_local_uses_now(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenant_dir = Path(tmpdir)
+            self.write_snapshot(
+                tenant_dir,
+                "NOWUSDT",
+                {
+                    "symbol": "NOWUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-20T01:00:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-20T01:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {"action": "HOLD (LSTM neutral)", "volatility": 0.1, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "FUTUREUSDT",
+                {
+                    "symbol": "FUTUREUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-20T23:00:00-05:00"),
+                    "prices": [200.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-20T23:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {"action": "HOLD (EDGE_SPIKE)", "volatility": 0.1, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+
+            report = review_bot_day.build_report(
+                "2026-04-20",
+                "America/Guayaquil",
+                tenant_dir,
+                now_local=datetime.fromisoformat("2026-04-20T01:30:00-05:00"),
+            )
+
+        self.assertEqual(report["windowLocal"]["endExclusive"], "2026-04-20T01:30:00-05:00")
+        self.assertEqual(report["summary"]["snapshotsUpdatedAfterWindow"], 1)
+        self.assertEqual(report["latestActionCensus"]["eligibleSymbols"], 1)
+        self.assertEqual(report["latestActionCensus"]["updatedAfterCutoffSymbols"], ["FUTUREUSDT"])
+        self.assertEqual(report["summary"]["staleSnapshotsAtCutoff"], 0)
+
+    def test_historical_day_default_end_local_stays_midnight(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenant_dir = Path(tmpdir)
+            self.write_snapshot(
+                tenant_dir,
+                "HISTUSDT",
+                {
+                    "symbol": "HISTUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-19T23:30:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-19T23:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {"action": "HOLD (LSTM neutral)", "volatility": 0.1, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "AFTERUSDT",
+                {
+                    "symbol": "AFTERUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-20T00:30:00-05:00"),
+                    "prices": [200.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-20T00:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {"action": "HOLD (EDGE_SPIKE)", "volatility": 0.1, "regimes": {}},
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+
+            report = review_bot_day.build_report(
+                "2026-04-19",
+                "America/Guayaquil",
+                tenant_dir,
+                now_local=datetime.fromisoformat("2026-04-20T01:30:00-05:00"),
+            )
+
+        self.assertEqual(report["windowLocal"]["endExclusive"], "2026-04-20T00:00:00-05:00")
+        self.assertEqual(report["summary"]["snapshotsUpdatedAfterWindow"], 1)
+        self.assertEqual(report["latestActionCensus"]["eligibleSymbols"], 1)
+        self.assertEqual(report["latestActionCensus"]["updatedAfterCutoffSymbols"], ["AFTERUSDT"])
 
     def test_excludes_adopted_carry_with_prior_order_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -278,6 +380,29 @@ class ReviewBotDayTest(unittest.TestCase):
         self.assertIsNotNone(snapshot)
         self.assertIsNone(snapshot["reason"])
         self.assertFalse(snapshot["nonDirectional"])
+
+    def test_directionality_snapshot_uses_weak_band_confirmation_when_regimes_are_unavailable(self) -> None:
+        weak_band_prices = self.prices_from_returns([0.018, 0.018, 0.018, -0.01, -0.01, -0.01, 0.018, 0.018, -0.01, -0.01])
+        blocked_short = review_bot_day.build_directionality_snapshot(
+            weak_band_prices,
+            len(weak_band_prices) - 1,
+            None,
+            requested_side="short",
+        )
+        borderline_trend_prices = self.prices_from_returns([0.01, -0.006, 0.01, -0.006, 0.01, -0.006, 0.01, -0.006])
+        admitted_long = review_bot_day.build_directionality_snapshot(
+            borderline_trend_prices,
+            len(borderline_trend_prices) - 1,
+            None,
+            requested_side="long",
+        )
+
+        self.assertIsNotNone(blocked_short)
+        self.assertEqual(blocked_short["reason"], "NON_DIRECTIONAL_WEAK_BAND")
+        self.assertTrue(blocked_short["nonDirectional"])
+        self.assertIsNotNone(admitted_long)
+        self.assertIsNone(admitted_long["reason"])
+        self.assertFalse(admitted_long["nonDirectional"])
 
     def test_report_counts_non_directional_order_attempts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -807,6 +932,263 @@ class ReviewBotDayTest(unittest.TestCase):
         self.assertIn("`HOLD (EDGE_SPIKE)=1`", markdown)
         self.assertIn("`HOLD (LSTM neutral)=1`", markdown)
         self.assertIn("Omitted post-cutoff snapshots from the action census for: `SOLUSDT`", markdown)
+
+    def test_cutoff_latest_signal_audit_fails_closed_on_negative_threshold(self) -> None:
+        snapshot = review_bot_day.BotSnapshot(
+            path=Path("bot-state-NEGUSDT.json"),
+            status={
+                "symbol": "NEGUSDT",
+                "interval": "1h",
+                "updatedAtMs": self.at_ms("2026-04-04T10:00:00-05:00"),
+                "latestSignal": {
+                    "action": "HOLD (TREND)",
+                    "kalmanReturn": 0.04,
+                    "openThreshold": -0.01,
+                },
+            },
+        )
+
+        row = review_bot_day.build_cutoff_latest_signal_audit_row(
+            snapshot,
+            snapshot.updated_at_ms,
+            ZoneInfo("America/Guayaquil"),
+        )
+
+        self.assertIsNotNone(row)
+        self.assertTrue(row["usableEdgeSample"])
+        self.assertFalse(row["usableOpenThreshold"])
+        self.assertFalse(row["clearsOpenThreshold"])
+        self.assertFalse(row["clearsHeadroomFloor"])
+        self.assertIsNone(row["thresholdRatio"])
+        self.assertIsNone(row["headroomRatio"])
+
+    def test_cutoff_latest_signal_audit_recovers_legacy_missing_regime_malformed_directionality(self) -> None:
+        prices = self.prices_from_returns([0.018, 0.018, 0.018, -0.01, -0.01, -0.01, 0.018, 0.018, -0.01, -0.01])
+        snapshot = review_bot_day.BotSnapshot(
+            path=Path("bot-state-LTCUSDT.json"),
+            status={
+                "symbol": "LTCUSDT",
+                "interval": "4h",
+                "updatedAtMs": self.at_ms("2026-04-25T00:00:55-05:00"),
+                "prices": prices,
+                "latestSignal": {
+                    "action": "HOLD (TREND)",
+                    "currentPrice": prices[-1],
+                    "methodNext": prices[-1] * 0.95,
+                    "openThreshold": 0.01,
+                    "lstmDirection": "DOWN",
+                    "directionality": {"nonDirectional": True, "reason": "NON_DIRECTIONAL_MALFORMED"},
+                    "regimes": None,
+                },
+            },
+        )
+
+        row = review_bot_day.build_cutoff_latest_signal_audit_row(
+            snapshot,
+            snapshot.updated_at_ms,
+            ZoneInfo("America/Guayaquil"),
+        )
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["directionalityReason"], "NON_DIRECTIONAL_WEAK_BAND")
+        self.assertFalse(row["malformedDirectionality"])
+
+    def test_cutoff_latest_signal_audit_counts_measurable_edges_and_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenant_dir = Path(tmpdir)
+            self.write_snapshot(
+                tenant_dir,
+                "KALMUSDT",
+                {
+                    "symbol": "KALMUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-04T10:00:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T10:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {
+                        "action": "HOLD (Kalman neutral)",
+                        "currentPrice": 100.0,
+                        "kalmanReturn": 0.03,
+                        "methodNext": 104.0,
+                        "openThreshold": 0.02,
+                        "regimes": {},
+                    },
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "MISSUSDT",
+                {
+                    "symbol": "MISSUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-04T11:00:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T11:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {
+                        "action": "HOLD (LSTM neutral)",
+                        "currentPrice": 100.0,
+                        "kalmanReturn": None,
+                        "methodNext": 101.0,
+                        "openThreshold": 0.02,
+                        "regimes": {},
+                    },
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "MALFUSDT",
+                {
+                    "symbol": "MALFUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-04T12:00:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T12:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {
+                        "action": "HOLD (NON_DIRECTIONAL_MALFORMED)",
+                        "currentPrice": 100.0,
+                        "kalmanReturn": None,
+                        "methodNext": 110.0,
+                        "openThreshold": 0.05,
+                        "directionality": {"nonDirectional": True, "reason": "NON_DIRECTIONAL_MALFORMED"},
+                        "regimes": None,
+                    },
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "BADREGUSDT",
+                {
+                    "symbol": "BADREGUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-04T13:00:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T13:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {
+                        "action": "HOLD (TREND)",
+                        "currentPrice": 100.0,
+                        "kalmanReturn": None,
+                        "methodNext": 112.0,
+                        "openThreshold": 0.05,
+                        "regimes": {"trend": 0.8, "mr": 0.3, "highVol": -0.1},
+                    },
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "SPIKEUSDT",
+                {
+                    "symbol": "SPIKEUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-04T14:00:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T14:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {
+                        "action": "HOLD (LSTM neutral)",
+                        "currentPrice": 100.0,
+                        "kalmanReturn": None,
+                        "methodNext": 200.0,
+                        "openThreshold": 0.02,
+                        "regimes": {},
+                    },
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            self.write_snapshot(
+                tenant_dir,
+                "AFTERUSDT",
+                {
+                    "symbol": "AFTERUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-05T00:30:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-05T00:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {
+                        "action": "HOLD (TREND)",
+                        "currentPrice": 100.0,
+                        "kalmanReturn": 0.5,
+                        "methodNext": 150.0,
+                        "openThreshold": 0.01,
+                        "regimes": {},
+                    },
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+
+            report = review_bot_day.build_report("2026-04-04", "America/Guayaquil", tenant_dir)
+
+        self.assertEqual(report["summary"]["cutoffSignalsWithMeasurableEdge"], 4)
+        self.assertEqual(report["summary"]["cutoffSignalsAboveOpenThreshold"], 3)
+        self.assertEqual(report["summary"]["cutoffSignalsAboveHeadroomFloor"], 3)
+        self.assertEqual(report["summary"]["cutoffSignalsWithMalformedDirectionality"], 1)
+        self.assertEqual(report["summary"]["cutoffSignalsWithMalformedLatestSignalRegimes"], 1)
+
+        audit = report["cutoffLatestSignalAudit"]
+        self.assertEqual(audit["eligibleSymbols"], 5)
+        self.assertEqual(
+            audit["counts"],
+            {
+                "withMeasurableEdge": 4,
+                "withoutMeasurableEdge": 1,
+                "aboveOpenThreshold": 3,
+                "aboveHeadroomFloor": 3,
+                "withMalformedDirectionality": 1,
+                "withMalformedLatestSignalRegimes": 1,
+            },
+        )
+
+        rows = {row["symbol"]: row for row in audit["symbols"]}
+        self.assertEqual(rows["KALMUSDT"]["edgeSource"], "latestSignal.kalmanReturn")
+        self.assertAlmostEqual(rows["KALMUSDT"]["thresholdRatio"], 1.5)
+        self.assertAlmostEqual(rows["KALMUSDT"]["headroomRatio"], 1.0)
+        self.assertTrue(rows["KALMUSDT"]["clearsHeadroomFloor"])
+        self.assertEqual(rows["MISSUSDT"]["edgeSource"], "inferred:abs(methodNext/currentPrice-1)")
+        self.assertFalse(rows["MISSUSDT"]["clearsOpenThreshold"])
+        self.assertFalse(rows["MISSUSDT"]["clearsHeadroomFloor"])
+        self.assertTrue(rows["MALFUSDT"]["malformedDirectionality"])
+        self.assertEqual(rows["MALFUSDT"]["actionReason"], "NON_DIRECTIONAL_MALFORMED")
+        self.assertTrue(rows["BADREGUSDT"]["malformedLatestSignalRegimes"])
+        self.assertEqual(rows["BADREGUSDT"]["actionReason"], "TREND")
+        self.assertFalse(rows["SPIKEUSDT"]["usableEdgeSample"])
+        self.assertIsNone(rows["SPIKEUSDT"]["edgeSource"])
+        self.assertEqual([row["symbol"] for row in audit["strongestCandidates"][:3]], ["BADREGUSDT", "MALFUSDT", "KALMUSDT"])
+        self.assertEqual(audit["blockedSignals"][0]["symbol"], "MALFUSDT")
+        self.assertEqual(audit["blockedSignals"][1]["symbol"], "BADREGUSDT")
+
+        markdown = review_bot_day.render_markdown(report)
+        self.assertIn("## Cutoff Latest-Signal Audit", markdown)
+        self.assertIn("`usable_edge=4`", markdown)
+        self.assertIn("`above_headroom=3`", markdown)
+        self.assertIn("`malformed_directionality=1`", markdown)
+        self.assertIn("`BADREGUSDT` `1h` action `HOLD (TREND)`", markdown)
+        self.assertIn("`MALFUSDT` `1h` action `HOLD (NON_DIRECTIONAL_MALFORMED)`", markdown)
 
 
 if __name__ == "__main__":

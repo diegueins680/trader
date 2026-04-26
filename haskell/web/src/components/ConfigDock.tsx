@@ -18,8 +18,8 @@ import type { OrderSizingState, RequestIssueDetail } from "../app/utils";
 import type { health } from "../lib/api";
 import { copyText } from "../lib/clipboard";
 import { fmtPct } from "../lib/format";
-import { API_PORT } from "../app/apiTarget";
 import { defaultForm, type FormState } from "../app/formState";
+import { LOCAL_API_START_CMD, localApiStartHelp } from "../app/localApiStart";
 import { firstReason, fmtTimeMs, generateIdempotencyKey, numFromInput } from "../app/utils";
 import { COMPLEX_TIPS, CUSTOM_SYMBOL_VALUE, EQUITY_TIPS, sanitizeSymbolForPlatform } from "../app/appHelpers";
 import { PLATFORM_DEFAULT_SYMBOL, PLATFORM_LABELS, PLATFORMS, TUNE_OBJECTIVES } from "../app/constants";
@@ -729,7 +729,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
                 {apiOk === "down"
                   ? showLocalStartHelp
-                    ? `Backend unreachable.\n\nStart it with:\ncd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`
+                    ? localApiStartHelp({ multiline: true })
                     : "Backend unreachable.\n\nConfigure apiBaseUrl in trader-config.js (CORS required for cross-origin) or configure CloudFront to forward `/api/*` to your API origin."
                   : apiToken.trim()
                     ? "API auth failed.\n\nUpdate apiToken in trader-config.js (it must match the backend’s TRADER_API_TOKEN)."
@@ -741,7 +741,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                     className="btn"
                     type="button"
                     onClick={() => {
-                      void copyText(`cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`);
+                      void copyText(LOCAL_API_START_CMD);
                       showToast("Copied start command");
                     }}
                   >
@@ -3577,7 +3577,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
       <p className="footerNote">
           Backend: start with{" "}
           <span style={{ fontFamily: "var(--mono)" }}>
-            cd haskell && cabal run -v0 trader-hs -- --serve --port {API_PORT}
+            {LOCAL_API_START_CMD}
           </span>
           .{" "}
           {import.meta.env.DEV ? (

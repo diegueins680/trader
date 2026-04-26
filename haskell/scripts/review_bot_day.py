@@ -10,13 +10,14 @@ flags order-evidence gaps where the saved order event only shows an ack-like
 Regime labels use explicit 24-bar diagnostics:
 - `high-vol` when realized per-bar volatility >= 1.5%
 - `trend-up` / `trend-down` when efficiency >= 0.45 and |z| >= 1.0
-- `chop` when efficiency <= 0.25
+- `chop` when efficiency <= 0.18
 - `range-drift` otherwise
 
 The low-directionality veto follows the live 24-bar additive-return contract:
 - malformed efficiency or weak-band hysteresis fail closed
-- `chop` vetoes at efficiency <= 0.25
-- weak-band MR vetoes at efficiency <= 0.40 when MR dominates by hysteresis gap
+- `chop` vetoes at efficiency <= 0.18
+- weak-band MR vetoes at efficiency <= 0.35 when MR dominates by hysteresis gap
+- absent regime probabilities skip the MR comparison instead of being treated as malformed
 - weak-band entry/add flow must also satisfy side-aware signed zScore confirmation
 """
 
@@ -28,7 +29,7 @@ import math
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -62,10 +63,10 @@ AUTH_FAILURE_PHRASES = (
 HTTP_STATUS_RE = re.compile(r"http(?:/\d(?:\.\d)?)?\s+(\d{3})", re.IGNORECASE)
 BINANCE_CODE_RE = re.compile(r"binance code\s+(-?\d+)(?:\s*[:/]\s*(.*))?", re.IGNORECASE)
 
-DIRECTIONALITY_CHOP_EFFICIENCY_MAX = 0.25
-DIRECTIONALITY_MR_EFFICIENCY_MAX = 0.40
+DIRECTIONALITY_CHOP_EFFICIENCY_MAX = 0.18
+DIRECTIONALITY_MR_EFFICIENCY_MAX = 0.35
 DIRECTIONALITY_REGIME_HYSTERESIS = 0.05
-DIRECTIONALITY_WEAK_BAND_ZSCORE_MIN = 0.75
+DIRECTIONALITY_WEAK_BAND_ZSCORE_MIN = 0.50
 DIRECTIONALITY_EFFICIENCY_TOL = 1e-12
 DIRECTIONALITY_REGIME_MASS_TOL = 1e-3
 
@@ -106,7 +107,8 @@ def parse_args() -> argparse.Namespace:
         "--end-local",
         help=(
             "Optional local cutoff inside the target day (ISO-8601 local time, "
-            "for example 2026-04-03T23:37). When omitted, the review runs through local midnight."
+            "for example 2026-04-03T23:37). When omitted for the current local date, "
+            "the review runs through now; historical dates still run through local midnight."
         ),
     )
     parser.add_argument(
@@ -198,6 +200,23 @@ def parse_local_dt(value: str, tz: ZoneInfo) -> datetime:
     return parsed.astimezone(tz)
 
 
+def default_end_local_for_date(
+    target_date: date,
+    day_end_local: datetime,
+    tz: ZoneInfo,
+    now_local: datetime | None = None,
+) -> datetime:
+    if now_local is None:
+        now = datetime.now(tz)
+    elif now_local.tzinfo is None:
+        now = now_local.replace(tzinfo=tz)
+    else:
+        now = now_local.astimezone(tz)
+    if target_date == now.date():
+        return min(now, day_end_local)
+    return day_end_local
+
+
 def safe_pct(value: float | None) -> float | None:
     if value is None or math.isnan(value) or math.isinf(value):
         return None
@@ -242,7 +261,7 @@ def classify_regime(prices: list[float], idx: int, window_bars: int = 24) -> dic
         label = "high-vol"
     elif efficiency >= 0.45 and abs(z_score) >= 1.0:
         label = "trend-up" if net > 0 else "trend-down"
-    elif efficiency <= 0.25:
+    elif efficiency <= DIRECTIONALITY_CHOP_EFFICIENCY_MAX:
         label = "chop"
     else:
         label = "range-drift"
@@ -302,11 +321,22 @@ def normalized_regimes(value: Any) -> dict[str, float] | None:
     }
 
 
+def regime_state(value: Any) -> tuple[str, dict[str, float] | None]:
+    if value is None:
+        return "unavailable", None
+    if isinstance(value, dict) and not value:
+        return "unavailable", None
+    normalized = normalized_regimes(value)
+    if normalized is None:
+        return "invalid", None
+    return "valid", normalized
+
+
 def normalized_requested_side(value: Any) -> str | None:
     raw = str(value or "").strip().lower()
-    if raw in {"long", "buy"}:
+    if raw in {"long", "buy", "up"}:
         return "long"
-    if raw in {"short", "sell"}:
+    if raw in {"short", "sell", "down"}:
         return "short"
     return None
 
@@ -331,7 +361,7 @@ def build_directionality_snapshot(
     regime = classify_regime(prices, idx)
     if regime["label"] == "insufficient":
         return None
-    normalized = normalized_regimes(regimes)
+    regime_status, normalized = regime_state(regimes)
     requested_side = normalized_requested_side(requested_side)
     regime_leader = None
     regime_gap = None
@@ -353,7 +383,7 @@ def build_directionality_snapshot(
     elif efficiency <= DIRECTIONALITY_MR_EFFICIENCY_MAX:
         if not math.isfinite(regime_hysteresis) or regime_hysteresis < 0.0:
             reason = "NON_DIRECTIONAL_MALFORMED"
-        elif normalized is None:
+        elif regime_status == "invalid":
             reason = "NON_DIRECTIONAL_MALFORMED"
         elif mr_dominant:
             reason = "NON_DIRECTIONAL_MR"
@@ -737,6 +767,228 @@ def latest_signal_action(snapshot: BotSnapshot) -> str | None:
     return text or None
 
 
+def latest_signal_action_reason(action: Any) -> str | None:
+    if not isinstance(action, str):
+        return None
+    text = action.strip()
+    if not text:
+        return None
+    parenthetical_prefixes = ("HOLD (", "FLAT (")
+    for prefix in parenthetical_prefixes:
+        if text.startswith(prefix) and text.endswith(")") and len(text) > len(prefix) + 1:
+            reason = text[len(prefix) : -1].strip()
+            return reason or None
+    for prefix in ("HOLD_", "EXIT_", "HALTED_"):
+        if text.startswith(prefix) and len(text) > len(prefix):
+            reason = text[len(prefix) :].strip()
+            return reason or None
+    return None
+
+
+def latest_signal_open_threshold(latest_signal: dict[str, Any]) -> float | None:
+    threshold = float_or_none(latest_signal.get("openThreshold"))
+    if threshold is None or threshold < 0.0:
+        return None
+    return threshold
+
+
+def latest_signal_edge_sample(latest_signal: dict[str, Any]) -> tuple[str | None, float | None]:
+    kalman_return = float_or_none(latest_signal.get("kalmanReturn"))
+    if kalman_return is not None:
+        return "latestSignal.kalmanReturn", abs(kalman_return)
+
+    current_price = float_or_none(latest_signal.get("currentPrice"))
+    method_next = float_or_none(latest_signal.get("methodNext"))
+    if current_price is None or method_next is None or current_price <= 0.0 or method_next <= 0.0:
+        return None, None
+
+    implied_edge = abs(method_next / current_price - 1.0)
+    if not math.isfinite(implied_edge) or implied_edge > 0.5:
+        return None, None
+    return "inferred:abs(methodNext/currentPrice-1)", implied_edge
+
+
+def latest_signal_requested_side(latest_signal: dict[str, Any], action: Any) -> str | None:
+    for key in ("chosenDirection", "lstmDirection", "kalmanDirection", "closeDirection"):
+        normalized = normalized_requested_side(latest_signal.get(key))
+        if normalized is not None:
+            return normalized
+    action_text = str(action or "").strip().upper()
+    if action_text.startswith("LONG"):
+        return "long"
+    if action_text.startswith("SHORT"):
+        return "short"
+    current_price = float_or_none(latest_signal.get("currentPrice"))
+    method_next = float_or_none(latest_signal.get("methodNext"))
+    if current_price is None or method_next is None:
+        return None
+    if method_next > current_price:
+        return "long"
+    if method_next < current_price:
+        return "short"
+    return None
+
+
+def canonical_latest_signal_directionality(
+    snapshot: BotSnapshot,
+    latest_signal: dict[str, Any],
+    action: Any,
+) -> tuple[str | None, bool]:
+    raw_directionality = latest_signal.get("directionality")
+    if raw_directionality is not None and not isinstance(raw_directionality, dict):
+        return None, True
+
+    directionality_reason = (
+        raw_directionality.get("reason")
+        if isinstance(raw_directionality, dict) and isinstance(raw_directionality.get("reason"), str)
+        else None
+    )
+    raw_regimes = latest_signal.get("regimes")
+    malformed_latest_signal_regimes = raw_regimes is not None and not (
+        isinstance(raw_regimes, dict) and not raw_regimes
+    ) and normalized_regimes(raw_regimes) is None
+
+    if directionality_reason != "NON_DIRECTIONAL_MALFORMED":
+        return directionality_reason, directionality_reason == "NON_DIRECTIONAL_MALFORMED"
+
+    requested_side = latest_signal_requested_side(latest_signal, action)
+    prices = snapshot.status.get("prices")
+    idx = len(prices) - 1 if isinstance(prices, list) else -1
+    if isinstance(prices, list) and idx >= 0 and not malformed_latest_signal_regimes:
+        rebuilt = build_directionality_snapshot(prices, idx, raw_regimes, requested_side=requested_side)
+        if rebuilt is not None:
+            rebuilt_reason = rebuilt.get("reason") if isinstance(rebuilt.get("reason"), str) else None
+            return rebuilt_reason, rebuilt_reason == "NON_DIRECTIONAL_MALFORMED"
+
+    return directionality_reason, True
+
+
+def build_cutoff_latest_signal_audit_row(snapshot: BotSnapshot, end_ms: int, tz: ZoneInfo) -> dict[str, Any] | None:
+    if snapshot.updated_at_ms <= 0 or snapshot.updated_at_ms > end_ms:
+        return None
+
+    latest_signal = snapshot.status.get("latestSignal")
+    latest_signal = latest_signal if isinstance(latest_signal, dict) else {}
+    action = latest_signal_action(snapshot)
+    action_reason = latest_signal_action_reason(action)
+    edge_source, edge_magnitude = latest_signal_edge_sample(latest_signal)
+    usable_edge_sample = edge_magnitude is not None
+    open_threshold = latest_signal_open_threshold(latest_signal)
+    usable_open_threshold = open_threshold is not None
+
+    threshold_ratio = None
+    headroom_ratio = None
+    clears_open_threshold = False
+    clears_headroom_floor = False
+    if usable_edge_sample and usable_open_threshold:
+        clears_open_threshold = bool(edge_magnitude >= open_threshold)
+        clears_headroom_floor = bool(edge_magnitude >= 1.5 * open_threshold)
+        if open_threshold > 0.0:
+            threshold_ratio = edge_magnitude / open_threshold
+            headroom_ratio = edge_magnitude / (1.5 * open_threshold)
+        else:
+            clears_open_threshold = True
+            clears_headroom_floor = True
+
+    directionality_reason, malformed_directionality = canonical_latest_signal_directionality(snapshot, latest_signal, action)
+    if action_reason == "NON_DIRECTIONAL_MALFORMED":
+        malformed_directionality = True
+    raw_regimes = latest_signal.get("regimes")
+    malformed_latest_signal_regimes = raw_regimes is not None and not (
+        isinstance(raw_regimes, dict) and not raw_regimes
+    ) and normalized_regimes(raw_regimes) is None
+
+    return {
+        "symbol": snapshot.symbol,
+        "interval": snapshot.status.get("interval"),
+        "updatedAtLocal": local_iso(snapshot.updated_at_ms, tz),
+        "action": action,
+        "actionReason": action_reason,
+        "directionalityReason": directionality_reason,
+        "usableEdgeSample": usable_edge_sample,
+        "edgeSource": edge_source,
+        "edgeMagnitude": edge_magnitude,
+        "openThreshold": open_threshold,
+        "usableOpenThreshold": usable_open_threshold,
+        "thresholdRatio": threshold_ratio,
+        "headroomRatio": headroom_ratio,
+        "clearsOpenThreshold": clears_open_threshold,
+        "clearsHeadroomFloor": clears_headroom_floor,
+        "malformedDirectionality": malformed_directionality,
+        "malformedLatestSignalRegimes": malformed_latest_signal_regimes,
+    }
+
+
+def cutoff_latest_signal_is_entry_action(action: Any) -> bool:
+    if not isinstance(action, str):
+        return False
+    text = action.strip().upper()
+    return text.startswith("LONG") or text.startswith("SHORT")
+
+
+def build_cutoff_latest_signal_audit(
+    snapshots: list[BotSnapshot],
+    end_ms: int,
+    tz: ZoneInfo,
+) -> dict[str, Any]:
+    rows = [
+        row
+        for row in (build_cutoff_latest_signal_audit_row(snapshot, end_ms, tz) for snapshot in snapshots)
+        if row is not None
+    ]
+    rows.sort(key=lambda row: row["symbol"])
+
+    measurable_edges = [row for row in rows if row["usableEdgeSample"]]
+    above_open_threshold = [row for row in measurable_edges if row["clearsOpenThreshold"]]
+    above_headroom_floor = [row for row in measurable_edges if row["clearsHeadroomFloor"]]
+    malformed_directionality = [row for row in rows if row["malformedDirectionality"]]
+    malformed_regimes = [row for row in rows if row["malformedLatestSignalRegimes"]]
+
+    strongest_candidates = sorted(
+        above_headroom_floor,
+        key=lambda row: (-float(row["edgeMagnitude"]), row["symbol"]),
+    )
+
+    blocked_signals = [
+        row
+        for row in rows
+        if not cutoff_latest_signal_is_entry_action(row.get("action"))
+        and (
+            row["usableEdgeSample"]
+            or row["malformedDirectionality"]
+            or row["malformedLatestSignalRegimes"]
+        )
+    ]
+    blocked_signals.sort(
+        key=lambda row: (
+            0
+            if row["malformedDirectionality"]
+            else 1
+            if row["malformedLatestSignalRegimes"]
+            else 2
+            if row["clearsHeadroomFloor"]
+            else 3,
+            -float(row["edgeMagnitude"]) if row["edgeMagnitude"] is not None else 1.0,
+            row["symbol"],
+        )
+    )
+
+    return {
+        "eligibleSymbols": len(rows),
+        "counts": {
+            "withMeasurableEdge": len(measurable_edges),
+            "withoutMeasurableEdge": len(rows) - len(measurable_edges),
+            "aboveOpenThreshold": len(above_open_threshold),
+            "aboveHeadroomFloor": len(above_headroom_floor),
+            "withMalformedDirectionality": len(malformed_directionality),
+            "withMalformedLatestSignalRegimes": len(malformed_regimes),
+        },
+        "symbols": rows,
+        "strongestCandidates": strongest_candidates[:5],
+        "blockedSignals": blocked_signals[:5],
+    }
+
+
 def build_cutoff_snapshot_status(snapshot: BotSnapshot, end_ms: int, tz: ZoneInfo) -> dict[str, Any]:
     updated_at_ms = snapshot.updated_at_ms
     available_at_cutoff = updated_at_ms > 0 and updated_at_ms <= end_ms
@@ -894,7 +1146,13 @@ def build_open_position_at_window_end(
     return kind, position_row
 
 
-def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: str | None = None) -> dict[str, Any]:
+def build_report(
+    date_str: str,
+    tz_name: str,
+    tenant_dir: Path,
+    end_local_text: str | None = None,
+    now_local: datetime | None = None,
+) -> dict[str, Any]:
     tz = ZoneInfo(tz_name)
     target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     start_local = datetime.combine(target_date, datetime.min.time(), tz)
@@ -907,7 +1165,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             )
         end_local = requested_end_local
     else:
-        end_local = day_end_local
+        end_local = default_end_local_for_date(target_date, day_end_local, tz, now_local)
     start_ms = int(start_local.timestamp() * 1000)
     end_ms = int(end_local.timestamp() * 1000)
 
@@ -1072,6 +1330,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
     ]
     auth_failure_unknown_role_events = [row for row in auth_failure_order_events if row["flowRole"] == "unknown"]
     cutoff_freshness, stale_snapshots_at_cutoff, latest_action_census = build_cutoff_freshness(snapshots, end_ms, tz)
+    cutoff_latest_signal_audit = build_cutoff_latest_signal_audit(snapshots, end_ms, tz)
 
     compound = 1.0
     for trade in completed_trades:
@@ -1090,6 +1349,7 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
         "snapshotRangeLocal": snapshot_range_local(snapshots, tz),
         "cutoffFreshness": cutoff_freshness,
         "latestActionCensus": latest_action_census,
+        "cutoffLatestSignalAudit": cutoff_latest_signal_audit,
         "summary": {
             "completedTrades": len(completed_trades),
             "completedCompoundPct": (compound - 1.0) * 100.0 if completed_trades else 0.0,
@@ -1113,6 +1373,13 @@ def build_report(date_str: str, tz_name: str, tenant_dir: Path, end_local_text: 
             "ambiguousOpenPositionOrigins": len(ambiguous_open_positions),
             "snapshotsUpdatedAfterWindow": len(snapshots_updated_after_window),
             "staleSnapshotsAtCutoff": len(stale_snapshots_at_cutoff),
+            "cutoffSignalsWithMeasurableEdge": cutoff_latest_signal_audit["counts"]["withMeasurableEdge"],
+            "cutoffSignalsAboveOpenThreshold": cutoff_latest_signal_audit["counts"]["aboveOpenThreshold"],
+            "cutoffSignalsAboveHeadroomFloor": cutoff_latest_signal_audit["counts"]["aboveHeadroomFloor"],
+            "cutoffSignalsWithMalformedDirectionality": cutoff_latest_signal_audit["counts"]["withMalformedDirectionality"],
+            "cutoffSignalsWithMalformedLatestSignalRegimes": cutoff_latest_signal_audit["counts"][
+                "withMalformedLatestSignalRegimes"
+            ],
         },
         "completedTrades": completed_trades,
         "openPositionsEnteredToday": open_positions,
@@ -1157,6 +1424,18 @@ def humanize_duration_ms(duration_ms: int | None) -> str:
     if not parts:
         return "0s"
     return " ".join(parts[:2])
+
+
+def format_fraction_pct(value: float | None) -> str:
+    if value is None or not math.isfinite(value):
+        return "unknown"
+    return f"{value * 100.0:.5f}%"
+
+
+def format_ratio(value: float | None) -> str:
+    if value is None or not math.isfinite(value):
+        return "unknown"
+    return f"{value:.2f}x"
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -1241,6 +1520,55 @@ def render_markdown(report: dict[str, Any]) -> str:
             "- Omitted post-cutoff snapshots from the action census for: "
             + ", ".join(f"`{symbol}`" for symbol in latest_action_census["updatedAfterCutoffSymbols"])
         )
+    lines.append("")
+
+    lines.append("## Cutoff Latest-Signal Audit")
+    cutoff_latest_signal_audit = report.get("cutoffLatestSignalAudit") or {}
+    cutoff_audit_counts = cutoff_latest_signal_audit.get("counts") or {}
+    lines.append(
+        "- Cutoff entry audit counts: "
+        f"`eligible={cutoff_latest_signal_audit.get('eligibleSymbols', 0)}` "
+        f"`usable_edge={cutoff_audit_counts.get('withMeasurableEdge', 0)}` "
+        f"`edge_unavailable={cutoff_audit_counts.get('withoutMeasurableEdge', 0)}` "
+        f"`above_open_threshold={cutoff_audit_counts.get('aboveOpenThreshold', 0)}` "
+        f"`above_headroom={cutoff_audit_counts.get('aboveHeadroomFloor', 0)}` "
+        f"`malformed_directionality={cutoff_audit_counts.get('withMalformedDirectionality', 0)}` "
+        f"`malformed_regimes={cutoff_audit_counts.get('withMalformedLatestSignalRegimes', 0)}`"
+    )
+    strongest_candidates = cutoff_latest_signal_audit.get("strongestCandidates") or []
+    if strongest_candidates:
+        lines.append("- Strongest measurable cutoff candidates:")
+        for row in strongest_candidates:
+            lines.append(
+                "- "
+                f"`{row['symbol']}` `{row['interval']}` action `{row.get('action') or 'unknown'}` "
+                f"reason `{row.get('actionReason') or 'unknown'}` "
+                f"edge `{format_fraction_pct(row.get('edgeMagnitude'))}` "
+                f"source `{row.get('edgeSource') or 'unavailable'}` "
+                f"threshold `{format_fraction_pct(row.get('openThreshold'))}` "
+                f"threshold_ratio `{format_ratio(row.get('thresholdRatio'))}` "
+                f"headroom_ratio `{format_ratio(row.get('headroomRatio'))}` "
+                f"clears_threshold `{row.get('clearsOpenThreshold')}` "
+                f"clears_headroom `{row.get('clearsHeadroomFloor')}`"
+            )
+    else:
+        lines.append("- No cutoff snapshots exposed a measurable pre-entry edge sample.")
+    blocked_signals = cutoff_latest_signal_audit.get("blockedSignals") or []
+    if blocked_signals:
+        lines.append("- Held or fail-closed cutoff signals worth reviewing:")
+        for row in blocked_signals:
+            lines.append(
+                "- "
+                f"`{row['symbol']}` `{row['interval']}` action `{row.get('action') or 'unknown'}` "
+                f"reason `{row.get('actionReason') or 'unknown'}` "
+                f"edge `{format_fraction_pct(row.get('edgeMagnitude'))}` "
+                f"threshold `{format_fraction_pct(row.get('openThreshold'))}` "
+                f"headroom `{row.get('clearsHeadroomFloor')}` "
+                f"malformed_directionality `{row.get('malformedDirectionality')}` "
+                f"malformed_regimes `{row.get('malformedLatestSignalRegimes')}`"
+            )
+    else:
+        lines.append("- No held cutoff signals had a measurable edge or malformed fail-closed latest-signal inputs.")
     lines.append("")
 
     lines.append("## Completed Trades")

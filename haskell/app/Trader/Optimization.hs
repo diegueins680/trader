@@ -1780,6 +1780,10 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodGeoBlend -> 2
                 MethodRegimeSwitch -> 2
                 MethodBlend -> 2
+                MethodTaTrend -> 1
+                MethodTaReversion -> 1
+                MethodTaBreakout -> 1
+                MethodTaBest -> 1
                 MethodKalmanOnly -> 1
                 MethodKalmanPhysicsError -> 1
                 MethodLstmOnly -> 0
@@ -2011,6 +2015,10 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodEdgePick -> (edgePickV0, edgePickV0)
                 MethodGeoBlend -> (geoBlendV0, geoBlendV0)
                 MethodRegimeSwitch -> (regimeSwitchV0, regimeSwitchV0)
+                MethodTaTrend -> (kalV, kalV)
+                MethodTaReversion -> (kalV, kalV)
+                MethodTaBreakout -> (kalV, kalV)
+                MethodTaBest -> (kalV, kalV)
                 MethodKalmanOnly -> (kalV, kalV)
                 MethodKalmanPhysicsError -> (kalV, kalV)
                 MethodLstmOnly -> (lstmV, lstmV)
@@ -2511,6 +2519,42 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodTaTrend
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: taPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodTaReversion
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: taPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodTaBreakout
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: taPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodTaBest
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: taPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
 
         predSources =
             case method of
@@ -2543,6 +2587,10 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodEdgePick -> [edgePickV0]
                 MethodGeoBlend -> [geoBlendV0]
                 MethodRegimeSwitch -> [regimeSwitchV0]
+                MethodTaTrend -> [kalV]
+                MethodTaReversion -> [kalV]
+                MethodTaBreakout -> [kalV]
+                MethodTaBest -> [kalV]
                 MethodKalmanOnly -> [kalV]
                 MethodKalmanPhysicsError -> [kalV]
                 MethodLstmOnly -> [lstmV]

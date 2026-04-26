@@ -43,6 +43,7 @@ import Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
+    signalTrendSmaConfirmed,
  )
 import Trader.VolConfGate (
     VolConfGateCell (..),
@@ -1227,17 +1228,21 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                    )
                             )
 
-                        trendOkAt :: Int -> Int -> PositionSide -> Bool
-                        trendOkAt t lookback side =
+                        trendOkAt :: Int -> Int -> Double -> PositionSide -> Bool
+                        trendOkAt t lookback openThreshold side =
                             (lookback <= 1 || t < lookback - 1)
                                 || ( let start = t - lookback + 1
                                          v = V.slice start lookback pricesV
                                          sma = meanV v
                                          px = pricesV V.! t
-                                      in (isBad sma || isBad px)
-                                            || case side of
-                                                SideLong -> px >= sma
-                                                SideShort -> px <= sma
+                                      in signalTrendSmaConfirmed
+                                            openThreshold
+                                            px
+                                            sma
+                                            ( case side of
+                                                SideLong -> 1
+                                                SideShort -> -1
+                                            )
                                    )
 
                         touchCloudAt :: Int -> Bool
@@ -2010,7 +2015,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                         trendOk =
                                             case desiredSide0 of
-                                                Just side | needsEntry -> trendOkAt t trendLookbackStep side
+                                                Just side | needsEntry -> trendOkAt t trendLookbackStep openThrAdj side
                                                 _ -> True
 
                                         volOk = (not needsEntry || volOkAt t)
