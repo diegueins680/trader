@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  adjustBacktestParamsForSplit,
   buildDefaultOptimizerRunForm,
   buildOptimizerRunRequest,
   findOptionalWholeNumberFieldError,
@@ -10,6 +11,7 @@ import {
   readExactSafeInteger,
   readNonNegativeExactSafeInteger,
   sanitizeOptimizationComboOperation,
+  splitStats,
 } from "../.tmp/web-tests/appHelpers.js";
 
 function pad2(value) {
@@ -234,6 +236,48 @@ test("buildOptimizerRunRequest drops CSV-only known overrides when the effective
   assert.equal("priceColumn" in request, false);
   assert.equal("highColumn" in request, false);
   assert.equal("lowColumn" in request, false);
+});
+
+test("adjustBacktestParamsForSplit preserves holdout ratio by raising bars when the cap allows it", () => {
+  const adjusted = adjustBacktestParamsForSplit(
+    {
+      platform: "binance",
+      method: "10",
+      interval: "3m",
+      bars: 500,
+      lookbackBars: 499,
+      backtestRatio: 0.2,
+    },
+    { platform: "binance", method: "10", apiLimits: null },
+  );
+
+  assert.equal(adjusted.params.bars, 625);
+  assert.equal(adjusted.params.backtestRatio, 0.2);
+  assert.equal(adjusted.changes?.bars, 625);
+  assert.equal(adjusted.changes?.backtestRatio, undefined);
+});
+
+test("adjustBacktestParamsForSplit raises bars and lowers holdout when lookback would disable backtest", () => {
+  const adjusted = adjustBacktestParamsForSplit(
+    {
+      platform: "binance",
+      method: "10",
+      interval: "3m",
+      bars: 961,
+      lookbackBars: 960,
+      backtestRatio: 0.2,
+    },
+    { platform: "binance", method: "10", apiLimits: null },
+  );
+
+  assert.equal(adjusted.params.bars, 1000);
+  assert.equal(adjusted.changes?.bars, 1000);
+  assert.equal(adjusted.changes?.backtestRatio, adjusted.params.backtestRatio);
+  assert.ok(Math.abs(adjusted.params.backtestRatio - 0.0385) < 1e-9);
+
+  const stats = splitStats(adjusted.params.bars, adjusted.params.backtestRatio, 960, 0, false);
+  assert.equal(stats.trainOk, true);
+  assert.equal(stats.backtestOk, true);
 });
 
 test("buildOptimizerRunRequest drops exchange-only known overrides when the effective source is csv", () => {
