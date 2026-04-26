@@ -286,6 +286,13 @@ import Trader.Platform (
     poloniexIntervalSeconds,
  )
 import Trader.Poloniex (PoloniexCandle (..), fetchPoloniexCandles, poloniexBaseUrl, poloniexCandlesCacheStats)
+import Trader.PredictionMarkets (
+    PredictionMarketFetchConfig (..),
+    PredictionMarketSignal (..),
+    defaultPredictionMarketFetchConfig,
+    fetchPolymarketHerdSignal,
+    predictionMarketProbabilityForDir,
+ )
 import Trader.Predictors (
     HMMFilter (..),
     Interval (..),
@@ -424,6 +431,7 @@ data LatestSignal = LatestSignal
     , lsRegimes :: !(Maybe RegimeProbs)
     , lsQuantiles :: !(Maybe Quantiles)
     , lsConformalInterval :: !(Maybe Interval)
+    , lsPredictionMarket :: !(Maybe PredictionMarketSignal)
     , lsConfidence :: !(Maybe Double)
     , lsPositionSize :: !(Maybe Double)
     , lsExitSize :: !(Maybe Double)
@@ -830,6 +838,11 @@ data ApiParams = ApiParams
     , apConfirmQuantiles :: Maybe Bool
     , apConfidenceSizing :: Maybe Bool
     , apMinPositionSize :: Maybe Double
+    , apPredictionMarketHerd :: Maybe Bool
+    , apPredictionMarketHerdMinProbability :: Maybe Double
+    , apPredictionMarketHerdMaxBoost :: Maybe Double
+    , apPredictionMarketHerdMinVolume :: Maybe Double
+    , apPredictionMarketHerdLimit :: Maybe Int
     , apTuneStressVolMult :: Maybe Double
     , apTuneStressShock :: Maybe Double
     , apTuneStressWeight :: Maybe Double
@@ -1277,6 +1290,7 @@ instance ToJSON LatestSignal where
                 , "regimes" .= regimesJson
                 , "quantiles" .= quantilesJson
                 , "conformalInterval" .= conformalJson
+                , "predictionMarket" .= lsPredictionMarket s
                 , "confidence" .= lsConfidence s
                 , "positionSize" .= lsPositionSize s
                 , "exitSize" .= lsExitSize s
@@ -2504,6 +2518,11 @@ argsPublicJson args =
             , "kellyLiteFraction" .= argKellyLiteFraction args
             , "kellyLiteFloor" .= argKellyLiteFloor args
             , "kellyLiteCap" .= argKellyLiteCap args
+            , "predictionMarketHerd" .= argPredictionMarketHerd args
+            , "predictionMarketHerdMinProbability" .= argPredictionMarketHerdMinProbability args
+            , "predictionMarketHerdMaxBoost" .= argPredictionMarketHerdMaxBoost args
+            , "predictionMarketHerdMinVolume" .= argPredictionMarketHerdMinVolume args
+            , "predictionMarketHerdLimit" .= argPredictionMarketHerdLimit args
             , "executionMakerFirst" .= argExecutionMakerFirst args
             , "executionMakerOffsetBps" .= argExecutionMakerOffsetBps args
             , "executionMakerTimeoutSec" .= argExecutionMakerTimeoutSec args
@@ -8155,7 +8174,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                             , phLstmHealth = Nothing
                             }
 
-    latest0Raw <-
+    latest0Base <-
         case computeLatestSignal
             args
             lookback
@@ -8166,6 +8185,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
             startupPredHistory of
             Left err -> throwIO (userError err)
             Right sig -> pure sig
+    latest0Raw <- applyPredictionMarketHerdMaybe argsWithKeys (Just sym) latest0Base
 
     let restoredPerfStats = computeBotPerfStats (argPerfLookback argsWithKeys) restoredTrades
         (restoredPerfStatsForAdaptive, _restoredPerfMode) =
@@ -8186,7 +8206,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                 Nothing
                 startupPredHistory of
                 Left err -> throwIO (userError err)
-                Right sig -> pure sig
+                Right sig -> applyPredictionMarketHerdMaybe argsStartSignal (Just sym) sig
 
     let
         -- Startup decision:
@@ -10287,7 +10307,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
 
     allStates <- botGetStates ctrl (botTenantKey st)
 
-    latest0Raw <-
+    latest0Base <-
         case computeLatestSignal
             argsSignal
             lookback
@@ -10305,6 +10325,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
             ) of
             Left err -> throwIO (userError err)
             Right sig -> pure sig
+    latest0Raw <- applyPredictionMarketHerdMaybe argsSignal (Just (botSymbol st)) latest0Base
 
     let nan = 0 / 0 :: Double
         kalPred1 = V.snoc (botKalmanPredNext st) (fromMaybe nan (lsKalmanNext latest0Raw))
@@ -11954,6 +11975,11 @@ argsCacheJsonSignal args =
             , "kellyLiteFraction" .= argKellyLiteFraction args
             , "kellyLiteFloor" .= argKellyLiteFloor args
             , "kellyLiteCap" .= argKellyLiteCap args
+            , "predictionMarketHerd" .= argPredictionMarketHerd args
+            , "predictionMarketHerdMinProbability" .= argPredictionMarketHerdMinProbability args
+            , "predictionMarketHerdMaxBoost" .= argPredictionMarketHerdMaxBoost args
+            , "predictionMarketHerdMinVolume" .= argPredictionMarketHerdMinVolume args
+            , "predictionMarketHerdLimit" .= argPredictionMarketHerdLimit args
             , "executionMakerFirst" .= argExecutionMakerFirst args
             , "executionMakerOffsetBps" .= argExecutionMakerOffsetBps args
             , "executionMakerTimeoutSec" .= argExecutionMakerTimeoutSec args
@@ -17664,6 +17690,11 @@ argsFromApi baseArgs p = do
                 , argConfidenceSizing = pick (apConfidenceSizing p) (argConfidenceSizing baseArgs)
                 , argProtectionMinConfidence = pick (apProtectionMinConfidence p) (argProtectionMinConfidence baseArgs)
                 , argMinPositionSize = pick (apMinPositionSize p) (argMinPositionSize baseArgs)
+                , argPredictionMarketHerd = pick (apPredictionMarketHerd p) (argPredictionMarketHerd baseArgs)
+                , argPredictionMarketHerdMinProbability = pick (apPredictionMarketHerdMinProbability p) (argPredictionMarketHerdMinProbability baseArgs)
+                , argPredictionMarketHerdMaxBoost = pick (apPredictionMarketHerdMaxBoost p) (argPredictionMarketHerdMaxBoost baseArgs)
+                , argPredictionMarketHerdMinVolume = pick (apPredictionMarketHerdMinVolume p) (argPredictionMarketHerdMinVolume baseArgs)
+                , argPredictionMarketHerdLimit = pick (apPredictionMarketHerdLimit p) (argPredictionMarketHerdLimit baseArgs)
                 , argTuneStressVolMult = pick (apTuneStressVolMult p) (argTuneStressVolMult baseArgs)
                 , argTuneStressShock = pick (apTuneStressShock p) (argTuneStressShock baseArgs)
                 , argTuneStressWeight = pick (apTuneStressWeight p) (argTuneStressWeight baseArgs)
@@ -17677,6 +17708,85 @@ dirLabel d =
         Just 1 -> Just "UP"
         Just (-1) -> Just "DOWN"
         _ -> Nothing
+
+predictionMarketFetchConfigFromArgs :: Args -> PredictionMarketFetchConfig
+predictionMarketFetchConfigFromArgs args =
+    defaultPredictionMarketFetchConfig
+        { pmfcLimit = max 1 (argPredictionMarketHerdLimit args)
+        , pmfcMinVolume = max 0 (argPredictionMarketHerdMinVolume args)
+        }
+
+predictionMarketEntryIntent :: LatestSignal -> Bool
+predictionMarketEntryIntent sig =
+    lsAction sig == "LONG" || lsAction sig == "SHORT"
+
+applyPredictionMarketHerdMaybe :: Args -> Maybe String -> LatestSignal -> IO LatestSignal
+applyPredictionMarketHerdMaybe args mSymbol sig
+    | not (argPredictionMarketHerd args) = pure sig
+    | not (predictionMarketEntryIntent sig) = pure sig
+    | isJust (lsPredictionMarket sig) = pure sig
+    | otherwise =
+        case mSymbol <|> argBinanceSymbol args of
+            Nothing -> pure sig
+            Just sym -> do
+                r <-
+                    try
+                        ( fetchPolymarketHerdSignal
+                            (predictionMarketFetchConfigFromArgs args)
+                            sym
+                            (argInterval args)
+                        ) ::
+                        IO (Either SomeException (Maybe PredictionMarketSignal))
+                case r of
+                    Left ex -> do
+                        hPutStrLn stderr ("WARN: failed to fetch Polymarket herd signal for " ++ sym ++ ": " ++ displayException ex)
+                        pure sig
+                    Right Nothing -> pure sig
+                    Right (Just marketSignal) -> pure (applyPredictionMarketHerdSignal args marketSignal sig)
+
+applyPredictionMarketHerdSignal :: Args -> PredictionMarketSignal -> LatestSignal -> LatestSignal
+applyPredictionMarketHerdSignal args marketSignal sig =
+    case lsChosenDir sig of
+        Nothing -> sig{lsPredictionMarket = Just marketSignal}
+        Just dir ->
+            let mOppositeProb = predictionMarketProbabilityForDir (negate dir) marketSignal
+                minProbability = max 0 (min 1 (argPredictionMarketHerdMinProbability args))
+                maxBoost = max 0 (argPredictionMarketHerdMaxBoost args)
+             in case predictionMarketProbabilityForDir dir marketSignal of
+                    Just sameProb
+                        | sameProb >= minProbability && maybe True (sameProb >=) mOppositeProb ->
+                            let oppositeProb = fromMaybe (1 - sameProb) mOppositeProb
+                                alignment = max 0 (min 1 (sameProb - oppositeProb))
+                                boost = 1 + maxBoost * alignment
+                                sizeBoosted =
+                                    case lsPositionSize sig of
+                                        Just size
+                                            | size > 0 && not (isNaN size || isInfinite size) ->
+                                                Just (min (max 0 (argMaxPositionSize args)) (size * boost))
+                                        other -> other
+                                confidenceBoosted =
+                                    case lsConfidence sig of
+                                        Just c | not (isNaN c || isInfinite c) -> Just (max c sameProb)
+                                        _ -> Just sameProb
+                             in sig
+                                    { lsPredictionMarket = Just marketSignal
+                                    , lsConfidence = confidenceBoosted
+                                    , lsPositionSize = sizeBoosted
+                                    }
+                    _ ->
+                        sig
+                            { lsPredictionMarket = Just marketSignal
+                            , lsChosenDir = Nothing
+                            , lsPositionSize = Just 0
+                            , lsAction = "HOLD (PREDICTION_MARKET_HERD)"
+                            , lsAuditWarnings = appendUnique "PREDICTION_MARKET_HERD" (lsAuditWarnings sig)
+                            }
+
+appendUnique :: (Eq a) => a -> [a] -> [a]
+appendUnique x xs =
+    if x `elem` xs
+        then xs
+        else xs ++ [x]
 
 computeLatestSignalFromArgs :: Maybe OpsStore -> Args -> IO LatestSignal
 computeLatestSignalFromArgs mOps args = do
@@ -22145,7 +22255,9 @@ runTradeOnly mWebhook args lookback series mBinanceEnv = do
 runBacktestPipeline :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
 runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
     ensureRuntimeConfig args
-    summary <- computeBacktestSummary args lookback series mBinanceEnv
+    summary0 <- computeBacktestSummary args lookback series mBinanceEnv
+    latestForLiveDecision <- applyPredictionMarketHerdMaybe args (argBinanceSymbol args) (bsLatestSignal summary0)
+    let summary = summary0{bsLatestSignal = latestForLiveDecision}
     if argJson args
         then do
             let base = backtestSummaryJson summary
@@ -22516,7 +22628,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
 
     case computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel mPredHistory of
         Left err -> throwIO (userError err)
-        Right sig -> pure sig
+        Right sig -> applyPredictionMarketHerdMaybe args (argBinanceSymbol args) sig
 
 -- LSTM weight persistence (for incremental training across backtests)
 
@@ -27112,6 +27224,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 , lsRegimes = mRegimes
                 , lsQuantiles = mQuantiles
                 , lsConformalInterval = mConformal
+                , lsPredictionMarket = Nothing
                 , lsConfidence = methodConfidence
                 , lsPositionSize = posSizeFinal
                 , lsExitSize = Nothing
@@ -27148,6 +27261,18 @@ printLatestSignalSummary sig = do
     case lsConfidence sig of
         Nothing -> pure ()
         Just c -> putStrLn (printf "Confidence:  %.3f" c)
+    case lsPredictionMarket sig of
+        Nothing -> pure ()
+        Just pm -> do
+            let fmtProb label mProb =
+                    case mProb of
+                        Nothing -> label ++ " n/a"
+                        Just p -> printf "%s %.1f%%" label (p * 100)
+                marketRef =
+                    case pmsUrl pm of
+                        Just url -> T.unpack url
+                        Nothing -> T.unpack (pmsMarketQuestion pm)
+            putStrLn (printf "Polymarket:  %s / %s (%s)" (fmtProb "UP" (pmsUpProbability pm)) (fmtProb "DOWN" (pmsDownProbability pm)) marketRef)
     case lsPositionSize sig of
         Nothing -> pure ()
         Just s -> putStrLn (printf "Pos size:    %.3f" s)
