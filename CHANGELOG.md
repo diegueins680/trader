@@ -1,4 +1,5 @@
 ## Unreleased
+- Web/Optimizer: add parameter-to-ROI correlation charts to the Optimizer Combos section, scoped to the active combo filters.
 - Web: show loaded open-position and orphaned-position counts next to the Positions and Orphaned ops items in the Sections menu.
 - Trading/Bot: add opt-in `--prediction-market-herd` live entry confirmation using Polymarket crypto up/down markets for the corresponding symbol and nearest supported interval; same-side odds can boost confidence/size, while opposing or below-floor odds hold fresh entries as `PREDICTION_MARKET_HERD`.
 - Binance/API: migrate Spot user-data stream startup from removed REST listenKey endpoints to Binance's WebSocket API `userDataStream.subscribe.signature`; Spot keep-alive and close actions now operate on the backend WebSocket session, while futures and margin keep using REST listen keys.

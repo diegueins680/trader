@@ -6,6 +6,7 @@ import { clamp, fmtDurationMs, fmtTimeMs, methodLabel, numFromInput } from "../a
 import { fmtRatio } from "../lib/format";
 import type { Method, OptimizerSource, StateSyncImportResponse } from "../lib/types";
 import { InfoList, InfoPopover } from "./InfoPopover";
+import { ComboRoiCorrelationCharts } from "./ComboRoiCorrelationCharts";
 import type { OptimizationCombo } from "./TopCombosChart";
 import { TopCombosChart } from "./TopCombosChart";
 
@@ -2385,6 +2386,7 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
             </div>
           </div>
         </details>
+        <ComboRoiCorrelationCharts combos={topCombosFiltered} loading={topCombosLoading} />
         <div className="combosList">
           <TopCombosChart
             combos={deferredTopCombos}

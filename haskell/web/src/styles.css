@@ -2250,6 +2250,108 @@ body.panelMaximized .cardMaximized {
   gap: 8px;
 }
 
+.comboRoiSection {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--stroke2);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--surface-subtle);
+}
+
+.comboRoiHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.comboRoiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.comboRoiChart {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--card2);
+}
+
+.comboRoiChartHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.comboRoiParam {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.comboRoiMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.comboRoiSvg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 7 / 3;
+  min-height: 130px;
+  border-radius: 8px;
+  background: var(--chart-bg);
+}
+
+.comboRoiAxis {
+  stroke: var(--stroke2);
+  stroke-width: 1;
+}
+
+.comboRoiZeroLine {
+  stroke: rgba(148, 163, 184, 0.36);
+  stroke-dasharray: 5 5;
+  stroke-width: 1;
+}
+
+.comboRoiTrend {
+  stroke: rgba(var(--accent-rgb), 0.9);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.comboRoiPointGain {
+  fill: rgba(var(--accent-alt-rgb), 0.82);
+  stroke: rgba(255, 255, 255, 0.42);
+  stroke-width: 1;
+}
+
+.comboRoiPointLoss {
+  fill: rgba(239, 68, 68, 0.78);
+  stroke: rgba(255, 255, 255, 0.42);
+  stroke-width: 1;
+}
+
+.comboRoiAxisLabel {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
 .comboRow {
   width: 100%;
   position: relative;
