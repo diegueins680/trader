@@ -1650,6 +1650,302 @@ export type TopCombosMeta = {
 
 export type ComboOrder = "annualized-equity" | "rank" | "date-desc" | "date-asc";
 
+type OptimizerRunFormTextKey = {
+  [K in keyof OptimizerRunForm]: OptimizerRunForm[K] extends string ? K : never;
+}[keyof OptimizerRunForm];
+
+type OptimizerCorrelationPoint = {
+  x: number;
+  roi: number;
+};
+
+type OptimizerCorrelationRangeConfig = {
+  min?: OptimizerRunFormTextKey;
+  max?: OptimizerRunFormTextKey;
+  extraMin?: string;
+  extraMax?: string;
+  integer?: boolean;
+  lowerBound?: number;
+  upperBound?: number;
+  widthRatio?: number;
+};
+
+type OptimizerCorrelationStat = {
+  key: string;
+  label: string;
+  correlation: number;
+  sampleCount: number;
+  target: number;
+  xMin: number;
+  xMax: number;
+};
+
+export type OptimizerCorrelationGuess = {
+  patch: Partial<OptimizerRunForm>;
+  extras: Record<string, number>;
+  basis: string[];
+  sampleCount: number;
+  correlationCount: number;
+};
+
+const OPTIMIZER_GUESS_MIN_SAMPLES = 4;
+const OPTIMIZER_GUESS_MIN_ABS_CORRELATION = 0.18;
+const OPTIMIZER_GUESS_MAX_FIELDS = 6;
+const OPTIMIZER_GUESS_TOP_ROI_FRACTION = 0.25;
+const OPTIMIZER_GUESS_DEFAULT_WIDTH_RATIO = 0.22;
+
+const OPTIMIZER_CORRELATION_RANGE_CONFIGS: Record<string, OptimizerCorrelationRangeConfig> = {
+  bars: { min: "barsMin", max: "barsMax", integer: true, lowerBound: 1 },
+  epochs: { min: "epochsMin", max: "epochsMax", integer: true, lowerBound: 1 },
+  hiddenSize: { min: "hiddenSizeMin", max: "hiddenSizeMax", integer: true, lowerBound: 1 },
+  learningRate: { min: "lrMin", max: "lrMax", lowerBound: 1e-12, widthRatio: 0.3 },
+  patience: { max: "patienceMax", integer: true, lowerBound: 0 },
+  gradClip: { min: "gradClipMin", max: "gradClipMax", lowerBound: 0 },
+  slippage: { max: "slippageMax", lowerBound: 0 },
+  spread: { max: "spreadMax", lowerBound: 0 },
+  minHoldBars: { min: "minHoldBarsMin", max: "minHoldBarsMax", integer: true, lowerBound: 0 },
+  cooldownBars: { min: "cooldownBarsMin", max: "cooldownBarsMax", integer: true, lowerBound: 0 },
+  maxHoldBars: { min: "maxHoldBarsMin", max: "maxHoldBarsMax", integer: true, lowerBound: 0 },
+  minEdge: { min: "minEdgeMin", max: "minEdgeMax", lowerBound: 0 },
+  minSignalToNoise: { min: "minSignalToNoiseMin", max: "minSignalToNoiseMax", lowerBound: 0 },
+  edgeBuffer: { min: "edgeBufferMin", max: "edgeBufferMax", lowerBound: 0 },
+  trendLookback: { min: "trendLookbackMin", max: "trendLookbackMax", integer: true, lowerBound: 0 },
+  stopLoss: { min: "stopMin", max: "stopMax", lowerBound: 0 },
+  takeProfit: { min: "tpMin", max: "tpMax", lowerBound: 0 },
+  trailingStop: { min: "trailMin", max: "trailMax", lowerBound: 0 },
+  rebalanceCostMult: { min: "rebalanceCostMultMin", max: "rebalanceCostMultMax", lowerBound: 0 },
+  blendWeight: { min: "blendWeightMin", max: "blendWeightMax", lowerBound: 0, upperBound: 1 },
+  walkForwardFolds: { min: "walkForwardFoldsMin", max: "walkForwardFoldsMax", integer: true, lowerBound: 1 },
+  walkForwardEmbargoBars: { min: "walkForwardEmbargoBarsMin", max: "walkForwardEmbargoBarsMax", integer: true, lowerBound: 0 },
+  maxHighVolProb: { extraMin: "maxHighVolProbMin", extraMax: "maxHighVolProbMax", lowerBound: 0, upperBound: 1 },
+  maxConformalWidth: { extraMin: "maxConformalWidthMin", extraMax: "maxConformalWidthMax", lowerBound: 0 },
+  maxQuantileWidth: { extraMin: "maxQuantileWidthMin", extraMax: "maxQuantileWidthMax", lowerBound: 0 },
+  periodsPerYear: { extraMin: "periodsPerYearMin", extraMax: "periodsPerYearMax", lowerBound: 0 },
+  kalmanZMin: { extraMin: "kalmanZMinMin", extraMax: "kalmanZMinMax", lowerBound: 0 },
+  kalmanZMax: { extraMin: "kalmanZMaxMin", extraMax: "kalmanZMaxMax", lowerBound: 0 },
+  kalmanMarketTopN: { extraMin: "kalmanMarketTopNMin", extraMax: "kalmanMarketTopNMax", integer: true, lowerBound: 1 },
+  maxOrderErrors: { extraMin: "maxOeMin", extraMax: "maxOeMax", integer: true, lowerBound: 0 },
+  maxDrawdown: { extraMin: "maxDdMin", extraMax: "maxDdMax", lowerBound: 0 },
+  maxDailyLoss: { extraMin: "maxDlMin", extraMax: "maxDlMax", lowerBound: 0 },
+  thresholdFactorAlpha: { extraMin: "thresholdFactorAlphaMin", extraMax: "thresholdFactorAlphaMax", lowerBound: 0, upperBound: 1 },
+  thresholdFactorMin: { extraMin: "thresholdFactorMinMin", extraMax: "thresholdFactorMinMax", lowerBound: 0 },
+  thresholdFactorMax: { extraMin: "thresholdFactorMaxMin", extraMax: "thresholdFactorMaxMax", lowerBound: 0 },
+  thresholdFactorFloor: { extraMin: "thresholdFactorFloorMin", extraMax: "thresholdFactorFloorMax", lowerBound: 0 },
+  thresholdFactorWeight: { extraMin: "thresholdFactorWeightMin", extraMax: "thresholdFactorWeightMax" },
+  volTarget: { extraMin: "volTargetMin", extraMax: "volTargetMax", lowerBound: 0 },
+  volLookback: { extraMin: "volLookbackMin", extraMax: "volLookbackMax", integer: true, lowerBound: 1 },
+  volEwmaAlpha: { extraMin: "volEwmaAlphaMin", extraMax: "volEwmaAlphaMax", lowerBound: 0, upperBound: 1 },
+  volFloor: { extraMin: "volFloorMin", extraMax: "volFloorMax", lowerBound: 0 },
+  volScaleMax: { extraMin: "volScaleMaxMin", extraMax: "volScaleMaxMax", lowerBound: 0 },
+  maxVolatility: { extraMin: "maxVolatilityMin", extraMax: "maxVolatilityMax", lowerBound: 0 },
+  minPositionSize: { extraMin: "minPositionSizeMin", extraMax: "minPositionSizeMax", lowerBound: 0 },
+  maxPositionSize: { extraMin: "maxPositionSizeMin", extraMax: "maxPositionSizeMax", lowerBound: 0 },
+};
+
+function optimizerGuessParamNumber(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "boolean") return raw ? 1 : 0;
+  return null;
+}
+
+function optimizerGuessRoi(combo: OptimizationCombo): number | null {
+  const roi = combo.finalEquity - 1;
+  return Number.isFinite(roi) ? roi : null;
+}
+
+function optimizerGuessParamLabel(key: string): string {
+  return key
+    .replace(/^base/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function optimizerGuessPearson(points: OptimizerCorrelationPoint[]): number | null {
+  const n = points.length;
+  if (n < OPTIMIZER_GUESS_MIN_SAMPLES) return null;
+  const meanX = points.reduce((sum, p) => sum + p.x, 0) / n;
+  const meanY = points.reduce((sum, p) => sum + p.roi, 0) / n;
+  let numerator = 0;
+  let denomX = 0;
+  let denomY = 0;
+  for (const point of points) {
+    const dx = point.x - meanX;
+    const dy = point.roi - meanY;
+    numerator += dx * dy;
+    denomX += dx * dx;
+    denomY += dy * dy;
+  }
+  const denom = Math.sqrt(denomX * denomY);
+  if (denom <= 0) return null;
+  return numerator / denom;
+}
+
+function optimizerGuessMedian(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    const left = sorted[mid - 1];
+    const right = sorted[mid];
+    return left == null || right == null ? null : (left + right) / 2;
+  }
+  return sorted[mid] ?? null;
+}
+
+function clampOptimizerGuessValue(value: number, config: OptimizerCorrelationRangeConfig): number {
+  const lower = config.lowerBound;
+  const upper = config.upperBound;
+  let out = value;
+  if (lower != null) out = Math.max(lower, out);
+  if (upper != null) out = Math.min(upper, out);
+  return out;
+}
+
+function optimizerGuessRange(stat: OptimizerCorrelationStat, config: OptimizerCorrelationRangeConfig): { lo: number; hi: number } {
+  const span = Math.max(0, stat.xMax - stat.xMin);
+  const widthRatio = config.widthRatio ?? OPTIMIZER_GUESS_DEFAULT_WIDTH_RATIO;
+  const radius = config.integer ? Math.max(1, Math.round((span * widthRatio) / 2)) : Math.max(span * widthRatio * 0.5, Math.abs(stat.target) * 0.03, 1e-12);
+  let lo = clampOptimizerGuessValue(stat.target - radius, config);
+  let hi = clampOptimizerGuessValue(stat.target + radius, config);
+  lo = Math.max(stat.xMin, lo);
+  hi = Math.min(stat.xMax, hi);
+  if (config.integer) {
+    lo = Math.floor(lo);
+    hi = Math.ceil(hi);
+    if (config.lowerBound != null) {
+      lo = Math.max(config.lowerBound, lo);
+      hi = Math.max(config.lowerBound, hi);
+    }
+  }
+  if (lo > hi) [lo, hi] = [hi, lo];
+  return { lo, hi };
+}
+
+function formatOptimizerGuessNumber(value: number, integer: boolean | undefined): string {
+  if (integer) return String(Math.round(value));
+  const rounded = Math.round(value * 1e8) / 1e8;
+  return String(rounded);
+}
+
+function setOptimizerGuessPatch(
+  patch: Partial<OptimizerRunForm>,
+  key: OptimizerRunFormTextKey | undefined,
+  value: string,
+): void {
+  if (!key) return;
+  (patch as Partial<Record<OptimizerRunFormTextKey, string>>)[key] = value;
+}
+
+function optimizerSourceFromCombo(combo: OptimizationCombo): Exclude<OptimizerSource, "csv"> | null {
+  if (combo.source === "binance" || combo.source === "coinbase" || combo.source === "kraken" || combo.source === "poloniex") {
+    return combo.source;
+  }
+  const platform = combo.params.platform;
+  if (platform === "binance" || platform === "coinbase" || platform === "kraken" || platform === "poloniex") {
+    return platform;
+  }
+  return null;
+}
+
+export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): OptimizerCorrelationGuess | null {
+  const finiteCombos = combos.filter((combo) => optimizerGuessRoi(combo) != null);
+  if (finiteCombos.length < OPTIMIZER_GUESS_MIN_SAMPLES) return null;
+
+  const pointsByKey = new Map<string, OptimizerCorrelationPoint[]>();
+  for (const combo of finiteCombos) {
+    const roi = optimizerGuessRoi(combo);
+    if (roi == null) continue;
+    for (const key of Object.keys(OPTIMIZER_CORRELATION_RANGE_CONFIGS)) {
+      const value = optimizerGuessParamNumber(combo.params[key]);
+      if (value == null) continue;
+      const points = pointsByKey.get(key) ?? [];
+      points.push({ x: value, roi });
+      pointsByKey.set(key, points);
+    }
+  }
+
+  const stats: OptimizerCorrelationStat[] = [];
+  for (const [key, points] of pointsByKey) {
+    const xs = points.map((point) => point.x);
+    const xMin = Math.min(...xs);
+    const xMax = Math.max(...xs);
+    if (!(xMax > xMin)) continue;
+    const correlation = optimizerGuessPearson(points);
+    if (correlation == null || Math.abs(correlation) < OPTIMIZER_GUESS_MIN_ABS_CORRELATION) continue;
+    const topCount = Math.max(2, Math.ceil(points.length * OPTIMIZER_GUESS_TOP_ROI_FRACTION));
+    const topPoints = [...points].sort((a, b) => b.roi - a.roi).slice(0, topCount);
+    const target = optimizerGuessMedian(topPoints.map((point) => point.x));
+    if (target == null || !Number.isFinite(target)) continue;
+    stats.push({
+      key,
+      label: optimizerGuessParamLabel(key),
+      correlation,
+      sampleCount: points.length,
+      target,
+      xMin,
+      xMax,
+    });
+  }
+
+  stats.sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
+
+  const patch: Partial<OptimizerRunForm> = {
+    minRoundTrips: "3",
+    minExposure: "0.01",
+    timeoutSec: "120",
+    seedRatio: "0.55",
+    survivorFraction: "0.5",
+    perturbScaleDouble: "0.2",
+    perturbScaleInt: "4",
+  };
+  const extras: Record<string, number> = {};
+  const basis: string[] = [];
+  let correlationCount = 0;
+
+  const topCombo = [...finiteCombos].sort((a, b) => b.finalEquity - a.finalEquity)[0] ?? null;
+  if (topCombo) {
+    const source = optimizerSourceFromCombo(topCombo);
+    const symbol = typeof topCombo.params.binanceSymbol === "string" ? topCombo.params.binanceSymbol.trim().toUpperCase() : "";
+    if (source) {
+      patch.source = source;
+      patch.platforms = source;
+      if (symbol) patch.symbol = symbol;
+    }
+    if (typeof topCombo.params.interval === "string" && topCombo.params.interval.trim()) {
+      patch.intervals = topCombo.params.interval.trim();
+    }
+    if (typeof topCombo.params.normalization === "string" && topCombo.params.normalization.trim()) {
+      patch.normalizations = topCombo.params.normalization.trim();
+    }
+  }
+
+  for (const stat of stats) {
+    if (correlationCount >= OPTIMIZER_GUESS_MAX_FIELDS) break;
+    const config = OPTIMIZER_CORRELATION_RANGE_CONFIGS[stat.key];
+    if (!config) continue;
+    const { lo, hi } = optimizerGuessRange(stat, config);
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) continue;
+    const loText = formatOptimizerGuessNumber(lo, config.integer);
+    const hiText = formatOptimizerGuessNumber(hi, config.integer);
+    setOptimizerGuessPatch(patch, config.min, loText);
+    setOptimizerGuessPatch(patch, config.max, hiText);
+    if (config.extraMin) extras[config.extraMin] = config.integer ? Math.round(lo) : lo;
+    if (config.extraMax) extras[config.extraMax] = config.integer ? Math.round(hi) : hi;
+    basis.push(`${stat.label} r ${stat.correlation.toFixed(2)} -> ${loText}..${hiText}`);
+    correlationCount += 1;
+  }
+
+  if (correlationCount === 0) return null;
+  return {
+    patch,
+    extras,
+    basis,
+    sampleCount: finiteCombos.length,
+    correlationCount,
+  };
+}
+
 export type OrderSideFilter = "ALL" | "BUY" | "SELL";
 
 export type OrderLogPrefs = {

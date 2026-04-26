@@ -1,5 +1,13 @@
 import React from "react";
-import { EQUITY_TIPS, TOP_COMBOS_DISPLAY_MIN, type ComboOrder, type OptimizerRunForm, type OptimizerRunUiState, type TopCombosMeta } from "../app/appHelpers";
+import {
+  EQUITY_TIPS,
+  TOP_COMBOS_DISPLAY_MIN,
+  buildOptimizerCorrelationGuess,
+  type ComboOrder,
+  type OptimizerRunForm,
+  type OptimizerRunUiState,
+  type TopCombosMeta,
+} from "../app/appHelpers";
 import { TUNE_OBJECTIVES } from "../app/constants";
 import { comboMarketLabel, type ComboMarketFilter, type ComboMarketValue } from "../app/comboMarket";
 import { clamp, fmtDurationMs, fmtTimeMs, methodLabel, numFromInput } from "../app/utils";
@@ -19,6 +27,23 @@ type ComboFilterOptions = {
 
 type OptimizerRunExtras = { value: Record<string, unknown> | null; error: string | null };
 type ComboImportSummary = { comboCount: number; generatedAtMs: number | null; source: string | null };
+
+function mergeOptimizerGuessExtraJson(raw: string, extras: Record<string, number>): string {
+  const extraKeys = Object.keys(extras);
+  if (extraKeys.length === 0) return raw;
+  const trimmed = raw.trim();
+  let current: Record<string, unknown> = {};
+  if (trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return raw;
+      current = parsed as Record<string, unknown>;
+    } catch {
+      return raw;
+    }
+  }
+  return JSON.stringify({ ...current, ...extras }, null, 2);
+}
 
 export type OptimizerCombosPanelProps = {
   apiOk: "unknown" | "ok" | "down" | "auth";
@@ -178,6 +203,20 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
     importCombos,
     clearComboImport,
   } = props;
+
+  const optimizerCorrelationGuess = React.useMemo(
+    () => buildOptimizerCorrelationGuess(topCombosFiltered),
+    [topCombosFiltered],
+  );
+  const applyOptimizerCorrelationGuess = React.useCallback(() => {
+    if (!optimizerCorrelationGuess) return;
+    setOptimizerRunForm((prev) => ({
+      ...prev,
+      ...optimizerCorrelationGuess.patch,
+      extraJson: mergeOptimizerGuessExtraJson(prev.extraJson, optimizerCorrelationGuess.extras),
+    }));
+    setOptimizerRunDirty(true);
+  }, [optimizerCorrelationGuess, setOptimizerRunDirty, setOptimizerRunForm]);
 
   return (
   <div className="row" style={{ gridTemplateColumns: "1fr" }}>
@@ -2386,6 +2425,29 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
             </div>
           </div>
         </details>
+        <div className="pillRow" style={{ marginTop: 12, marginBottom: 8 }}>
+          <button
+            className="btnSmall"
+            type="button"
+            onClick={applyOptimizerCorrelationGuess}
+            disabled={!optimizerCorrelationGuess}
+            title={
+              optimizerCorrelationGuess
+                ? "Prefill optimizer ranges from the strongest parameter-to-ROI correlations."
+                : "More varied filtered combos are needed before correlation guesses are available."
+            }
+          >
+            Apply correlation guesses
+          </button>
+          {optimizerCorrelationGuess ? (
+            <span className="hint">
+              {optimizerCorrelationGuess.correlationCount} guided knobs from {optimizerCorrelationGuess.sampleCount} combos
+              {optimizerCorrelationGuess.basis[0] ? ` • ${optimizerCorrelationGuess.basis[0]}` : ""}
+            </span>
+          ) : (
+            <span className="hint">Need more varied filtered combos for optimizer guesses.</span>
+          )}
+        </div>
         <ComboRoiCorrelationCharts combos={topCombosFiltered} loading={topCombosLoading} />
         <div className="combosList">
           <TopCombosChart

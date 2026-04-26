@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   adjustBacktestParamsForSplit,
   buildDefaultOptimizerRunForm,
+  buildOptimizerCorrelationGuess,
   buildOptimizerRunRequest,
   findOptionalWholeNumberFieldError,
   formatDatetimeLocal,
@@ -13,6 +14,24 @@ import {
   sanitizeOptimizationComboOperation,
   splitStats,
 } from "../.tmp/web-tests/appHelpers.js";
+
+function optimizerCombo(id, finalEquity, params) {
+  return {
+    id,
+    finalEquity,
+    openThreshold: null,
+    closeThreshold: null,
+    source: "binance",
+    params: {
+      binanceSymbol: "BTCUSDT",
+      platform: "binance",
+      interval: "1h",
+      method: "10",
+      normalization: "none",
+      ...params,
+    },
+  };
+}
 
 function pad2(value) {
   return String(value).padStart(2, "0");
@@ -206,6 +225,54 @@ test("buildOptimizerRunRequest keeps invalid known source and finite-number extr
   assert.equal("timeoutSec" in request, false);
   assert.equal("backtestRatio" in request, false);
   assert.equal("tuneRatio" in request, false);
+});
+
+test("buildOptimizerCorrelationGuess narrows visible optimizer ranges from high-ROI parameter correlations", () => {
+  const combos = [
+    optimizerCombo(1, 1.01, { stopLoss: 0.02 }),
+    optimizerCombo(2, 1.02, { stopLoss: 0.04 }),
+    optimizerCombo(3, 1.03, { stopLoss: 0.06 }),
+    optimizerCombo(4, 1.08, { stopLoss: 0.1 }),
+    optimizerCombo(5, 1.1, { stopLoss: 0.12 }),
+  ];
+  const guess = buildOptimizerCorrelationGuess(combos);
+
+  assert.ok(guess);
+  assert.equal(guess.patch.source, "binance");
+  assert.equal(guess.patch.symbol, "BTCUSDT");
+  assert.equal(guess.patch.intervals, "1h");
+  assert.equal(guess.patch.minRoundTrips, "3");
+  assert.equal(guess.patch.timeoutSec, "120");
+  assert.ok(Number(guess.patch.stopMin) >= 0.09);
+  assert.ok(Number(guess.patch.stopMax) <= 0.12);
+  assert.ok(Number(guess.patch.stopMax) >= Number(guess.patch.stopMin));
+  assert.ok(guess.basis.some((item) => item.startsWith("Stop Loss r ")));
+});
+
+test("buildOptimizerCorrelationGuess emits advanced optimizer knobs through extra JSON fields", () => {
+  const combos = [
+    optimizerCombo(1, 1.01, { maxHighVolProb: 0.2 }),
+    optimizerCombo(2, 1.02, { maxHighVolProb: 0.4 }),
+    optimizerCombo(3, 1.05, { maxHighVolProb: 0.6 }),
+    optimizerCombo(4, 1.09, { maxHighVolProb: 0.8 }),
+  ];
+  const guess = buildOptimizerCorrelationGuess(combos);
+
+  assert.ok(guess);
+  assert.ok(guess.extras.maxHighVolProbMin >= 0.55);
+  assert.ok(guess.extras.maxHighVolProbMax <= 0.8);
+  assert.ok(guess.extras.maxHighVolProbMax >= guess.extras.maxHighVolProbMin);
+});
+
+test("buildOptimizerCorrelationGuess returns null when mapped parameters have no usable variation", () => {
+  const combos = [
+    optimizerCombo(1, 1.01, { stopLoss: 0.02 }),
+    optimizerCombo(2, 1.02, { stopLoss: 0.02 }),
+    optimizerCombo(3, 1.03, { stopLoss: 0.02 }),
+    optimizerCombo(4, 1.04, { stopLoss: 0.02 }),
+  ];
+
+  assert.equal(buildOptimizerCorrelationGuess(combos), null);
 });
 
 test("buildOptimizerRunRequest drops CSV-only known overrides when the effective source is exchange data", () => {
