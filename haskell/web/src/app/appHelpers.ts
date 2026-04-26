@@ -25,7 +25,7 @@ import type { OptimizationCombo, OptimizationComboOperation } from "../component
 import { defaultForm, parseDurationSeconds, platformIntervalSeconds } from "./formState";
 import type { FormState } from "./formState";
 import type { cacheStats, health } from "../lib/api";
-import { PLATFORM_DEFAULT_SYMBOL } from "./constants";
+import { PLATFORM_DEFAULT_BARS, PLATFORM_DEFAULT_SYMBOL } from "./constants";
 import { preferredExchangePlatform } from "./contracts";
 import { METHOD_TIPS } from "./methodMeta";
 import {
@@ -2074,6 +2074,52 @@ export const MIN_BACKTEST_BARS = 2;
 export const MIN_BACKTEST_RATIO = 0.01;
 export const MAX_BACKTEST_RATIO = 0.99;
 
+export function minBarsRequiredForLookback(
+  platform: Platform,
+  interval: string,
+  lookbackBarsRaw: number,
+  lookbackWindowRaw: string,
+): number | null {
+  const overrideRaw = Math.trunc(lookbackBarsRaw);
+  if (Number.isFinite(overrideRaw) && overrideRaw >= MIN_LOOKBACK_BARS) {
+    return overrideRaw + 1;
+  }
+
+  const intervalSec = platformIntervalSeconds(platform, interval.trim());
+  const windowRaw = lookbackWindowRaw.trim();
+  if (!intervalSec || !windowRaw) return null;
+
+  const windowSec = parseDurationSeconds(windowRaw);
+  if (!windowSec || windowSec <= 0) return null;
+
+  const windowBars = Math.ceil(windowSec / intervalSec);
+  if (!Number.isFinite(windowBars) || windowBars < MIN_LOOKBACK_BARS) return null;
+  return windowBars + 1;
+}
+
+export function autoAdjustBarsForLookback(
+  barsRaw: number,
+  minBarsRequired: number | null,
+  platform: Platform,
+  method: Method,
+  apiLimits: ComputeLimits | null,
+): number | null {
+  if (!Number.isFinite(minBarsRequired ?? NaN) || minBarsRequired == null) return null;
+
+  const requiredBars = Math.max(MIN_LOOKBACK_BARS, Math.trunc(minBarsRequired));
+  const barsCap = maxBarsForPlatform(platform, method, apiLimits);
+  if (Number.isFinite(barsCap) && requiredBars > barsCap) return null;
+
+  const requestedBars = Math.trunc(barsRaw);
+  if (Number.isFinite(requestedBars) && requestedBars > 0) {
+    const normalizedBars = Math.max(MIN_LOOKBACK_BARS, requestedBars);
+    return normalizedBars < requiredBars ? requiredBars : null;
+  }
+
+  const autoBars = PLATFORM_DEFAULT_BARS[platform] ?? 500;
+  return autoBars < requiredBars ? requiredBars : null;
+}
+
 export const DURATION_UNITS: Array<{ unit: string; seconds: number }> = [
   { unit: "M", seconds: 30 * 24 * 60 * 60 },
   { unit: "w", seconds: 7 * 24 * 60 * 60 },
@@ -2444,7 +2490,7 @@ export function applyComboToForm(
           ...combo,
           params: { ...combo.params, method },
         };
-  const { bars, epochs, hiddenSize } = clampComboForLimits(comboForLimits, apiLimits, nextPlatform, {
+  let { bars, epochs, hiddenSize } = clampComboForLimits(comboForLimits, apiLimits, nextPlatform, {
     bars: prev.bars,
     epochs: prev.epochs,
     hiddenSize: prev.hiddenSize,
@@ -2585,15 +2631,6 @@ export function applyComboToForm(
     }
   }
 
-  if (lookbackBars >= MIN_LOOKBACK_BARS && bars > 0) {
-    const maxLookback = Math.max(0, bars - 1);
-    if (maxLookback < MIN_LOOKBACK_BARS) {
-      lookbackBars = 0;
-    } else if (lookbackBars >= maxLookback) {
-      lookbackBars = maxLookback;
-    }
-  }
-
   if (lookbackBars < MIN_LOOKBACK_BARS) {
     const intervalSec = platformIntervalSeconds(nextPlatform, interval);
     if (intervalSec) {
@@ -2604,6 +2641,10 @@ export function applyComboToForm(
       }
     }
   }
+
+  const minBarsRequired = minBarsRequiredForLookback(nextPlatform, interval, lookbackBars, lookbackWindow);
+  const adjustedBars = autoAdjustBarsForLookback(bars, minBarsRequired, nextPlatform, method, apiLimits);
+  if (adjustedBars != null) bars = adjustedBars;
 
   const liveOrdersSupported = nextPlatform === "binance" || nextPlatform === "coinbase";
 

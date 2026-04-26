@@ -47,8 +47,8 @@ module Trader.Binance (
     cancelFuturesOpenOrdersByClientPrefix,
     BinanceProxyHealth (..),
     binanceProxyHealth,
-    binanceExceptionSummary,
     binanceMarketDataCacheStats,
+    binanceExceptionSummary,
     createListenKey,
     keepAliveListenKey,
     closeListenKey,
@@ -69,6 +69,7 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isSpace, toLower)
+import Data.Foldable (traverse_)
 import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, isPrefixOf, isSuffixOf, sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -90,6 +91,7 @@ import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insertCache, newTtlCacheWithMaxEntries)
+import Trader.Duration (parseIntervalSeconds)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
 import Trader.Text (normalizeKey)
 
@@ -156,6 +158,7 @@ data OrderSide = Buy | Sell deriving (Eq, Show)
 
 data Kline = Kline
     { kOpenTime :: !Int64
+    , kCloseTime :: !(Maybe Int64)
     , kOpen :: !Double
     , kHigh :: !Double
     , kLow :: !Double
@@ -563,7 +566,20 @@ instance FromJSON Kline where
                 low <- parseDoubleText lowTxt
                 close <- parseDoubleText closeTxt
                 volume <- parseDoubleText volumeTxt
-                pure Kline{kOpenTime = openTime, kOpen = open, kHigh = high, kLow = low, kClose = close, kVolume = volume}
+                closeTime <-
+                    if V.length arr > 6
+                        then Just <$> parseIndexInt64 6 arr
+                        else pure Nothing
+                pure
+                    Kline
+                        { kOpenTime = openTime
+                        , kCloseTime = closeTime
+                        , kOpen = open
+                        , kHigh = high
+                        , kLow = low
+                        , kClose = close
+                        , kVolume = volume
+                        }
       where
         parseIndexInt64 i a =
             case a V.!? i of
@@ -769,6 +785,7 @@ fetchKlinesRaw :: BinanceEnv -> String -> String -> Int -> IO [Kline]
 fetchKlinesRaw env symbol interval limit = do
     let maxPerRequest = 1000
         wanted = max 1 limit
+        fetchWanted = wanted + 1
         path =
             case beMarket env of
                 MarketSpot -> "/api/v3/klines"
@@ -809,9 +826,57 @@ fetchKlinesRaw env symbol interval limit = do
                         then pure acc'
                         else go remaining' (Just nextEnd) acc'
 
-    if wanted <= maxPerRequest
-        then fetchBatch Nothing wanted
-        else go wanted Nothing []
+    raw <-
+        if fetchWanted <= maxPerRequest
+            then fetchBatch Nothing fetchWanted
+            else go fetchWanted Nothing []
+    now <- getTimestampMs
+    case normalizeClosedKlines interval now raw of
+        Left err -> throwIO (userError err)
+        Right closed -> pure (takeLastKlines wanted closed)
+
+normalizeClosedKlines :: String -> Int64 -> [Kline] -> Either String [Kline]
+normalizeClosedKlines interval now ks = do
+    intervalMs <-
+        case parseIntervalSeconds interval of
+            Just sec | sec > 0 -> Right (fromIntegral sec * 1000)
+            _ -> Left ("Invalid kline interval: " ++ show interval)
+    let sorted = sortOn kOpenTime ks
+    validateKlineShapes sorted
+    validateStrictKlineOpenTimes sorted
+    pure (filter (klineIsClosed intervalMs now) sorted)
+
+klineIsClosed :: Int64 -> Int64 -> Kline -> Bool
+klineIsClosed intervalMs now k =
+    let closeTime = fromMaybe (kOpenTime k + intervalMs - 1) (kCloseTime k)
+     in closeTime < now
+
+validateKlineShapes :: [Kline] -> Either String ()
+validateKlineShapes =
+    traverse_ validate
+  where
+    finite x = not (isNaN x || isInfinite x)
+    validate k
+        | not (all finite [kOpen k, kHigh k, kLow k, kClose k, kVolume k]) =
+            Left ("Invalid kline numeric payload at openTime=" ++ show (kOpenTime k))
+        | kVolume k < 0 =
+            Left ("Invalid kline negative volume at openTime=" ++ show (kOpenTime k))
+        | kHigh k < max (kOpen k) (kClose k) || kHigh k < kLow k || kLow k > min (kOpen k) (kClose k) =
+            Left ("Invalid kline OHLC relationship at openTime=" ++ show (kOpenTime k))
+        | otherwise = Right ()
+
+validateStrictKlineOpenTimes :: [Kline] -> Either String ()
+validateStrictKlineOpenTimes ks =
+    case [kOpenTime b | (a, b) <- zip ks (drop 1 ks), kOpenTime a >= kOpenTime b] of
+        bad : _ -> Left ("Invalid duplicate/non-increasing kline openTime=" ++ show bad)
+        [] -> Right ()
+
+takeLastKlines :: Int -> [Kline] -> [Kline]
+takeLastKlines n xs
+    | n <= 0 = []
+    | otherwise =
+        let dropCount = length xs - n
+         in if dropCount <= 0 then xs else drop dropCount xs
 
 fetchCloses :: BinanceEnv -> String -> String -> Int -> IO [Double]
 fetchCloses env symbol interval limit = do

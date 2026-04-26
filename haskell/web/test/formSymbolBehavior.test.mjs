@@ -4,10 +4,12 @@ import { buildSync } from "esbuild";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  autoAdjustBarsForLookback,
   applyComboToForm,
   buildDefaultOptimizerRunForm,
   formApplySignature,
   invalidSymbolsForPlatform,
+  minBarsRequiredForLookback,
   parseSymbolsInput,
   sanitizeSymbolForPlatform,
 } from "../.tmp/web-tests/appHelpers.js";
@@ -502,6 +504,44 @@ test("applyComboToForm only accepts exact safe integers for integer-backed combo
       `${field}: unsafe combo integers should be inert`,
     );
   }
+});
+
+test("applyComboToForm raises explicit bars to satisfy a lookback override instead of shrinking the lookback", () => {
+  const prev = {
+    ...defaultForm,
+    interval: "3m",
+    bars: 500,
+    lookbackBars: 960,
+  };
+  const combo = buildComboFromForm(prev, { bars: 500, interval: "3m" });
+
+  const next = applyComboToForm(prev, combo, null);
+
+  assert.equal(next.lookbackBars, 960);
+  assert.equal(next.bars, 961);
+});
+
+test("applyComboToForm raises auto/default bars when lookback window exceeds the exchange default", () => {
+  const prev = {
+    ...defaultForm,
+    interval: "3m",
+    bars: 0,
+    lookbackBars: 0,
+    lookbackWindow: "2d",
+  };
+  const combo = buildComboFromForm(prev, { bars: 0, interval: "3m" });
+
+  const next = applyComboToForm(prev, combo, null);
+
+  assert.equal(next.lookbackWindow, "2d");
+  assert.equal(next.bars, 961);
+});
+
+test("lookback bar auto-adjust only raises bars when the current/default bars are insufficient", () => {
+  const minBarsRequired = minBarsRequiredForLookback("binance", "3m", 0, "2d");
+  assert.equal(minBarsRequired, 961);
+  assert.equal(autoAdjustBarsForLookback(0, minBarsRequired, "binance", defaultForm.method, null), 961);
+  assert.equal(autoAdjustBarsForLookback(1200, minBarsRequired, "binance", defaultForm.method, null), null);
 });
 
 test("training hyperparameters preserve their emitted bounds across combo apply and restore", () => {

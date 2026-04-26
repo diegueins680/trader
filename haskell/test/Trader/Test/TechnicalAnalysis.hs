@@ -3,6 +3,7 @@ module Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests) where
 import Control.Monad (unless)
 import Data.Maybe (catMaybes, isJust, isNothing)
 import qualified Data.Vector as V
+import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod)
 import Trader.TechnicalAnalysis.Indicators
 import Trader.TechnicalAnalysis.Strategies
 import Trader.VolConfGate (VolConfGatePreset (..))
@@ -18,6 +19,7 @@ runTechnicalAnalysisTests = do
     testBreakoutCandidateCanTriggerLong
     testCandidateConfidenceUsesAverageBeforeClamp
     testGatedCandidateAdmissionHonorsRiskGates
+    testTechnicalAnalysisMethodsParse
 
 assert :: String -> Bool -> IO ()
 assert message condition =
@@ -128,6 +130,22 @@ testGatedCandidateAdmissionHonorsRiskGates = do
     assert "high fees block new TA entries" (isNothing (admitStrategyCandidate highFeeInputs candidate))
     assert "malformed volatility blocks non-disabled volume/confidence gates" (isNothing (admitStrategyCandidate malformedVolInputs candidate))
     assert "weak confidence blocks TA entries" (isNothing (admitStrategyCandidate inputs weakCandidate))
+
+testTechnicalAnalysisMethodsParse :: IO ()
+testTechnicalAnalysisMethodsParse = do
+    let cases =
+            [ ("ta_trend", MethodTaTrend)
+            , ("technical-reversion", MethodTaReversion)
+            , ("volume_breakout", MethodTaBreakout)
+            , ("technical_analysis", MethodTaBest)
+            ]
+    mapM_
+        ( \(raw, expected) ->
+            assert
+                ("parseMethod recognizes " ++ raw)
+                (parseMethod raw == Right expected && methodIsTechnicalAnalysis expected && not (null (methodCode expected)))
+        )
+        cases
 
 breakoutSeries :: OhlcvSeries
 breakoutSeries =

@@ -57,6 +57,7 @@ import Trader.SignalGates (
     signalMtfConsensusCheck,
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
+    signalTrendSmaConfirmed,
  )
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
 import Trader.Trading (
@@ -107,6 +108,7 @@ main = do
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
     testSignalDirectionalityLiveSemanticsRegression
+    testSignalTrendConfirmationSlack
     testSignalGatesPublicSurfaceRegression
     testTradingPublicSurfaceRegression
     testKellyLiteBacktestSizingRegression
@@ -121,6 +123,7 @@ main = do
     testBacktestFreshEntrySizingBoundsFailClosed
     testBacktestPositionSizeFloorCapValidation
     testBacktestCostAttributionGrossNetConsistency
+    testBacktestCostAttributionZeroCostsStayZero
     testOrderExecutionFillSanitizationInvariant
     testCoinbaseOrderInfoDecodeInvariant
     testOptimizerActivityCountInvariant
@@ -202,7 +205,16 @@ testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
         )
 
     overCapArgs <-
-        parseOrFail ["--binance-symbol", "BTCUSDT", "--interval", "1m", "--bars", "500", "--lookback-bars", "1000"]
+        parseOrFail
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "1m"
+            , "--bars"
+            , "500"
+            , "--lookback-bars"
+            , "1000"
+            ]
     assert
         "lookback normalization does not push Binance requests past the 1000-bar platform cap"
         (argBars (normalizeBarsForLookback overCapArgs) == Just 500)
@@ -1104,6 +1116,53 @@ testBacktestCostAttributionGrossNetConsistency = do
             assertNear "gross minus realized costs equals net equity" finalNet (finalGross - totalCost) 1e-12
             assertNear "reported consistency residual stays near zero" 0 (bcaConsistencyResidual attribution) 1e-12
 
+-- Zero-cost edge case: when fees, slippage, spread, and funding are all
+-- disabled, cost attribution must not invent realized costs or a gross/net gap.
+testBacktestCostAttributionZeroCostsStayZero :: IO ()
+testBacktestCostAttributionZeroCostsStayZero = do
+    let prices :: V.Vector Double
+        prices = V.fromList [100.0, 100.0, 100.0]
+        preds :: V.Vector Double
+        preds = V.fromList [102.0, 102.0]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.01
+                , ecFee = 0
+                , ecFeeFixed = 0
+                , ecFeeMin = 0
+                , ecSlippage = 0
+                , ecSlippageVolMult = 0
+                , ecSlippageImpact = 0
+                , ecSpread = 0
+                , ecSpreadVolMult = 0
+                , ecFundingRate = 0
+                , ecFundingBySide = False
+                , ecFundingOnOpen = False
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0
+                }
+        result = simulateEnsembleWithHLChecked cfg 1 prices prices prices preds preds (Nothing :: Maybe (V.Vector StepMeta))
+        curvesNear left right =
+            length left == length right
+                && and (zipWith (\x y -> abs (x - y) <= 1e-12) left right)
+    case result of
+        Left err -> ioError (userError ("zero-cost cost-attribution backtest failed to simulate: " ++ err))
+        Right bt -> do
+            let attribution = brCostAttribution bt
+                grossCurve = bcaGrossEquityCurve attribution
+                netCurve = bcaNetEquityCurve attribution
+                resultCurve = brEquityCurve bt
+            assert "zero-cost attribution keeps gross and net curves identical" (curvesNear grossCurve netCurve)
+            assert "zero-cost attribution keeps reported net curve aligned with the backtest result" (curvesNear netCurve resultCurve)
+            assert "zero-cost attribution reports no realized fee/slippage/spread/funding/total" $
+                bcaRealizedFeeCost attribution == 0
+                    && bcaRealizedSlippageCost attribution == 0
+                    && bcaRealizedSpreadCost attribution == 0
+                    && bcaRealizedFundingCost attribution == 0
+                    && bcaRealizedTotalCost attribution == 0
+            assertNear "zero-cost attribution leaves no consistency residual" 0 (bcaConsistencyResidual attribution) 1e-12
+
 -- Execution-quantity guardrail: malformed or non-positive fills must fail
 -- closed, and reduce-only fills must never reopen or increase exposure.
 testOrderExecutionFillSanitizationInvariant :: IO ()
@@ -1402,6 +1461,8 @@ testSignalGatesPublicSurfaceRegression = do
 testSignalDirectionalityLiveSemanticsRegression :: IO ()
 testSignalDirectionalityLiveSemanticsRegression = do
     let chopPrices = pricesFromReturns [0.01, -0.01, 0.01, -0.01, 0.01, -0.01, 0.01, -0.01]
+        borderlineTrendPrices =
+            pricesFromReturns [0.01, -0.006, 0.01, -0.006, 0.01, -0.006, 0.01, -0.006]
         weakBandPrices =
             pricesFromReturns [0.018, 0.018, 0.018, -0.01, -0.01, -0.01, 0.018, 0.018, -0.01, -0.01]
         trendPrices = pricesFromReturns (replicate 24 0.01)
@@ -1421,6 +1482,30 @@ testSignalDirectionalityLiveSemanticsRegression = do
                 (V.length weakBandPrices - 1)
                 (-1) ::
                 Maybe DirectionalitySnapshot
+        weakBandShortWithoutRegimesSnapshot =
+            directionalitySnapshot5Args
+                0.05
+                Nothing
+                weakBandPrices
+                (V.length weakBandPrices - 1)
+                (-1) ::
+                Maybe DirectionalitySnapshot
+        borderlineTrendSnapshot =
+            directionalitySnapshot5Args
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                borderlineTrendPrices
+                (V.length borderlineTrendPrices - 1)
+                1 ::
+                Maybe DirectionalitySnapshot
+        borderlineTrendWithoutRegimesSnapshot =
+            directionalitySnapshot5Args
+                0.05
+                Nothing
+                borderlineTrendPrices
+                (V.length borderlineTrendPrices - 1)
+                1 ::
+                Maybe DirectionalitySnapshot
         malformedHysteresisSnapshot =
             directionalitySnapshot5Args
                 (-0.01)
@@ -1438,17 +1523,36 @@ testSignalDirectionalityLiveSemanticsRegression = do
                 1 ::
                 Maybe DirectionalitySnapshot
     assert
-        "directionality chop windows are vetoed at efficiency <= 0.25"
+        "deeply choppy windows stay vetoed under the relaxed efficiency floor"
         (chopSnapshot == Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_CHOP")))
     assert
         "weak-band shorts are blocked when the signed additive-path zScore confirms the opposite side"
         (weakBandShortSnapshot == Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_WEAK_BAND")))
+    assert
+        "missing weak-band regime probabilities no longer masquerade as malformed when zScore evidence is enough to classify the side"
+        (weakBandShortWithoutRegimesSnapshot == Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_WEAK_BAND")))
+    assert
+        "borderline weak-band longs can pass once the relaxed z-score floor confirms direction"
+        (borderlineTrendSnapshot == Just (DirectionalitySnapshot False Nothing))
+    assert
+        "missing regime probabilities do not fail closed as malformed when the weak-band zScore still confirms direction"
+        (borderlineTrendWithoutRegimesSnapshot == Just (DirectionalitySnapshot False Nothing))
     assert
         "malformed regime-bank hysteresis fails closed on the weak-band live path"
         (malformedHysteresisSnapshot == Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_MALFORMED")))
     assert
         "additive monotonic trends remain directional instead of misclassifying clean trends as malformed"
         (monotonicTrendSnapshot == Just (DirectionalitySnapshot False Nothing))
+
+testSignalTrendConfirmationSlack :: IO ()
+testSignalTrendConfirmationSlack =
+    assert
+        "trend confirmation allows a bounded open-threshold slack around the SMA while still rejecting larger counter-trend drifts"
+        ( signalTrendSmaConfirmed 0.02 99.2 100 1
+            && signalTrendSmaConfirmed 0.02 100.8 100 (-1)
+            && not (signalTrendSmaConfirmed 0.02 98.9 100 1)
+            && not (signalTrendSmaConfirmed 0.02 101.1 100 (-1))
+        )
 
 -- Formal public-surface invariant for the Main-facing Trader.Trading import
 -- seam: a downstream module importing `PositionSide(..)` can still case-analyze

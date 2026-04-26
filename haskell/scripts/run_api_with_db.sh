@@ -199,8 +199,23 @@ EOF
   exit 1
 fi
 
+env_bool_enabled() {
+  case "${1:-}" in
+    1 | true | TRUE | True | yes | YES | Yes | on | ON | On)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 run_api_once() {
-  "$CABAL_BIN_RESOLVED" run -v0 trader-hs -- --serve --port "${TRADER_API_PORT:-8080}" --platform binance --futures
+  local args=(--serve --port "${TRADER_API_PORT:-8080}" --platform binance --futures)
+  if env_bool_enabled "${TRADER_BINANCE_LIVE:-false}"; then
+    args+=(--binance-live)
+  fi
+  "$CABAL_BIN_RESOLVED" run -v0 trader-hs -- "${args[@]}"
 }
 
 restart_on_exit="${TRADER_API_RESTART_ON_EXIT:-0}"

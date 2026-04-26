@@ -1,6 +1,7 @@
 module Trader.Method (
     Method (..),
     methodCode,
+    methodIsTechnicalAnalysis,
     parseMethod,
     runtimeMethod,
     selectPredictions,
@@ -59,6 +60,10 @@ data Method
     | MethodRegimeSwitch
     | MethodRouter
     | MethodBanditRouter
+    | MethodTaTrend
+    | MethodTaReversion
+    | MethodTaBreakout
+    | MethodTaBest
     deriving (Eq, Show)
 
 methodCode :: Method -> String
@@ -96,6 +101,19 @@ methodCode m =
         MethodRegimeSwitch -> "regime_switch"
         MethodRouter -> "router"
         MethodBanditRouter -> "bandit_router"
+        MethodTaTrend -> "ta_trend"
+        MethodTaReversion -> "ta_reversion"
+        MethodTaBreakout -> "ta_breakout"
+        MethodTaBest -> "ta_best"
+
+methodIsTechnicalAnalysis :: Method -> Bool
+methodIsTechnicalAnalysis m =
+    case runtimeMethod m of
+        MethodTaTrend -> True
+        MethodTaReversion -> True
+        MethodTaBreakout -> True
+        MethodTaBest -> True
+        _ -> False
 
 parseMethod :: String -> Either String Method
 parseMethod raw =
@@ -295,11 +313,41 @@ parseMethod raw =
         "ucb_router" -> Right MethodBanditRouter
         "ucb-router" -> Right MethodBanditRouter
         "ucbrouter" -> Right MethodBanditRouter
+        "ta_trend" -> Right MethodTaTrend
+        "ta-trend" -> Right MethodTaTrend
+        "tatrend" -> Right MethodTaTrend
+        "technical_trend" -> Right MethodTaTrend
+        "technical-trend" -> Right MethodTaTrend
+        "trend_following" -> Right MethodTaTrend
+        "trend-following" -> Right MethodTaTrend
+        "ta_reversion" -> Right MethodTaReversion
+        "ta-reversion" -> Right MethodTaReversion
+        "tareversion" -> Right MethodTaReversion
+        "technical_reversion" -> Right MethodTaReversion
+        "technical-reversion" -> Right MethodTaReversion
+        "momentum_reversion" -> Right MethodTaReversion
+        "momentum-reversion" -> Right MethodTaReversion
+        "mean_reversion" -> Right MethodTaReversion
+        "mean-reversion" -> Right MethodTaReversion
+        "ta_breakout" -> Right MethodTaBreakout
+        "ta-breakout" -> Right MethodTaBreakout
+        "tabreakout" -> Right MethodTaBreakout
+        "technical_breakout" -> Right MethodTaBreakout
+        "technical-breakout" -> Right MethodTaBreakout
+        "volume_breakout" -> Right MethodTaBreakout
+        "volume-breakout" -> Right MethodTaBreakout
+        "ta_best" -> Right MethodTaBest
+        "ta-best" -> Right MethodTaBest
+        "tabest" -> Right MethodTaBest
+        "ta" -> Right MethodTaBest
+        "technical" -> Right MethodTaBest
+        "technical_analysis" -> Right MethodTaBest
+        "technical-analysis" -> Right MethodTaBest
         other ->
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, kalman_physics_error, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
+                    ++ " (expected 11|both, 10|kalman, kalman_physics_error, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router, ta_trend, ta_reversion, ta_breakout, ta_best)"
                 )
 
 runtimeMethod :: Method -> Method
@@ -315,6 +363,10 @@ selectPredictions m blendWeight kalPred lstmPred =
         MethodKalmanOnly -> (kalPred, kalPred)
         MethodKalmanPhysicsError -> (kalPred, kalPred)
         MethodLstmOnly -> (lstmPred, lstmPred)
+        MethodTaTrend -> (kalPred, kalPred)
+        MethodTaReversion -> (kalPred, kalPred)
+        MethodTaBreakout -> (kalPred, kalPred)
+        MethodTaBest -> (kalPred, kalPred)
         MethodRegimeSwitch -> (regimeSwitched, regimeSwitched)
         MethodRouter -> (kalPred, lstmPred)
         MethodBanditRouter -> (kalPred, lstmPred)

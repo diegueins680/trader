@@ -21,6 +21,7 @@ module Trader.SignalGates (
     signalEntryEdgeSpikeEntryOk,
     signalEntryEdgeSpikeAuditWarning,
     signalEntryFeeBufferOk,
+    signalTrendSmaConfirmed,
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
@@ -158,13 +159,13 @@ directionalityLookbackBars :: Int
 directionalityLookbackBars = 24
 
 directionalityChopEfficiencyMax :: Double
-directionalityChopEfficiencyMax = 0.25
+directionalityChopEfficiencyMax = 0.18
 
 directionalityMrEfficiencyMax :: Double
-directionalityMrEfficiencyMax = 0.40
+directionalityMrEfficiencyMax = 0.35
 
 directionalityWeakBandZMin :: Double
-directionalityWeakBandZMin = 0.75
+directionalityWeakBandZMin = 0.5
 
 directionalityEfficiencyTol :: Double
 directionalityEfficiencyTol = 1e-12
@@ -203,10 +204,10 @@ signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t mChosen
                     | otherwise = Just (clamp01 eff0)
                 weakBand = maybe False (<= directionalityMrEfficiencyMax) eff
                 hysteresisOk = finiteDouble regimeBankHysteresis && regimeBankHysteresis >= 0
-                mRegimeSummary =
+                weakBandRegimeContext =
                     if weakBand
-                        then directionalityRegimeSummary regimeBankHysteresis mRegimes
-                        else Nothing
+                        then directionalityRegimeContext regimeBankHysteresis mRegimes
+                        else DirectionalityRegimeUnavailable
                 mReason =
                     case eff of
                         Nothing -> Just "NON_DIRECTIONAL_MALFORMED"
@@ -215,10 +216,14 @@ signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t mChosen
                             | efficiency <= directionalityMrEfficiencyMax ->
                                 if not hysteresisOk
                                     then Just "NON_DIRECTIONAL_MALFORMED"
-                                    else case mRegimeSummary of
-                                        Nothing -> Just "NON_DIRECTIONAL_MALFORMED"
-                                        Just regimeSummary
+                                    else case weakBandRegimeContext of
+                                        DirectionalityRegimeInvalid -> Just "NON_DIRECTIONAL_MALFORMED"
+                                        DirectionalityRegimeAvailable regimeSummary
                                             | drsMrDominant regimeSummary -> Just "NON_DIRECTIONAL_MR"
+                                            | not (directionalityWeakBandConfirmed (wmZScore metrics) mChosenDir) ->
+                                                Just "NON_DIRECTIONAL_WEAK_BAND"
+                                            | otherwise -> Nothing
+                                        DirectionalityRegimeUnavailable
                                             | not (directionalityWeakBandConfirmed (wmZScore metrics) mChosenDir) ->
                                                 Just "NON_DIRECTIONAL_WEAK_BAND"
                                             | otherwise -> Nothing
@@ -295,16 +300,25 @@ newtype DirectionalityRegimeSummary = DirectionalityRegimeSummary
     { drsMrDominant :: Bool
     }
 
-directionalityRegimeSummary :: Double -> Maybe RegimeProbs -> Maybe DirectionalityRegimeSummary
-directionalityRegimeSummary regimeBankHysteresis mRegimes = do
-    regimes <- mRegimes
-    validRegimes <- validateRegimes regimes
-    let ranked = sortOn (Data.Ord.Down . snd) validRegimes
-        mrDominant =
-            case ranked of
-                (("MR", pMr) : (_, p2) : _) -> pMr - p2 >= regimeBankHysteresis
-                _ -> False
-    pure DirectionalityRegimeSummary{drsMrDominant = mrDominant}
+data DirectionalityRegimeContext
+    = DirectionalityRegimeUnavailable
+    | DirectionalityRegimeInvalid
+    | DirectionalityRegimeAvailable !DirectionalityRegimeSummary
+
+directionalityRegimeContext :: Double -> Maybe RegimeProbs -> DirectionalityRegimeContext
+directionalityRegimeContext regimeBankHysteresis mRegimes =
+    case mRegimes of
+        Nothing -> DirectionalityRegimeUnavailable
+        Just regimes ->
+            case validateRegimes regimes of
+                Nothing -> DirectionalityRegimeInvalid
+                Just validRegimes ->
+                    let ranked = sortOn (Data.Ord.Down . snd) validRegimes
+                        mrDominant =
+                            case ranked of
+                                (("MR", pMr) : (_, p2) : _) -> pMr - p2 >= regimeBankHysteresis
+                                _ -> False
+                     in DirectionalityRegimeAvailable DirectionalityRegimeSummary{drsMrDominant = mrDominant}
 
 validateRegimes :: RegimeProbs -> Maybe [(String, Double)]
 validateRegimes regimes =
@@ -397,6 +411,27 @@ signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
                     Just feeFloor ->
                         let requiredEdge = requiredHeadroom + feeFloor
                          in maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
+
+trendConfirmationSlackMultiple :: Double
+trendConfirmationSlackMultiple = 0.5
+
+trendConfirmationSlackCap :: Double
+trendConfirmationSlackCap = 0.01
+
+signalTrendSmaConfirmed :: Double -> Double -> Double -> Int -> Bool
+signalTrendSmaConfirmed openThreshold currentPrice sma dir
+    | not (finiteDouble currentPrice && finiteDouble sma) = True
+    | otherwise =
+        let slackFrac =
+                case normalizeSignalOpenThreshold openThreshold of
+                    Just threshold -> min trendConfirmationSlackCap (trendConfirmationSlackMultiple * threshold)
+                    Nothing -> 0
+            lowerBound = sma * (1 - slackFrac)
+            upperBound = sma * (1 + slackFrac)
+         in case dir of
+                d | d > 0 -> currentPrice >= lowerBound
+                d | d < 0 -> currentPrice <= upperBound
+                _ -> True
 
 signalFundingOiCheck :: Bool -> Maybe Double -> Maybe Double -> Double -> Double -> Maybe Double -> (Bool, Double)
 signalFundingOiCheck enabled fundingCap volCap sizeMult fundingPressure oiVolProxy

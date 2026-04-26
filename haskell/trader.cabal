@@ -37,6 +37,7 @@ executable trader-hs
                      , Trader.Metrics
                      , Trader.Method
                      , Trader.MarketContext
+                     , Trader.MarketDataIntegrity
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.Optimizer.Common
@@ -232,6 +233,7 @@ test-suite trader-tests
                      , Trader.Metrics
                      , Trader.Method
                      , Trader.MarketContext
+                     , Trader.MarketDataIntegrity
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.OrderExecution
@@ -318,6 +320,7 @@ benchmark trader-bench
                      , Trader.Metrics
                      , Trader.Method
                      , Trader.MarketContext
+                     , Trader.MarketDataIntegrity
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.OrderExecution

@@ -117,3 +117,34 @@ FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate p
 - Next owner/consumer: trader-firm-cto
 no-existing-data-validation-seam
 FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-15 --vol-conf-gate proof slice
+
+### 2026-04-22 11:33 America/Guayaquil — vol-conf-gate proof
+- Scope: one exact proof command for callable `--vol-conf-gate <preset>` slice.
+- Command output: git status flagged haskell/app/Main.hs and haskell/test/TestMain.hs modified.
+- app/Trader/App/Args.hs exposes VolConfGatePreset, parseVolConfGatePreset, argVolConfGate, and `--vol-conf-gate` option/help (lines 56-57, 219, 867-872).
+- app/Main.hs carries VolConfGatePreset in state and emits `vol_conf_gate` + `confidence` fields (lines 409, 459, 1234, 1247).
+- No `test/TestMain.hs` grep hits for this slice in the proof output.
+- Next owner/consumer: trader-firm-execution via /Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md
+data-not-blocking
+FINAL_STATUS: done — reports/trader-firm-data.md appended with one-command --vol-conf-gate proof evidence
+
+## Finished result — 2026-04-22 17:01 America/Guayaquil — `--vol-conf-gate <preset>`
+- Scope: one exact proof command for the callable slice only.
+- `git status --porcelain=v1` flagged `haskell/app/Main.hs` and `haskell/test/TestMain.hs` modified.
+- `app/Trader/App/Args.hs:56-57,219,867-872` exposes `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring.
+- `app/Main.hs:409,459,1234,1247` carries the preset and emits `vol_conf_gate` plus `confidence`.
+- No `test/TestMain.hs` grep hits surfaced in the exact first-40-line proof slice.
+- Next owner/consumer: /Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md
+data-not-blocking
+FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-22 17:01 --vol-conf-gate proof slice
+
+## 2026-04-22 21:57 America/Guayaquil — vol-conf-gate proof
+- Scope: `--vol-conf-gate <preset>` callable slice only.
+- Proof command run from `haskell/` exactly as requested.
+- Dirty file in slice evidence: `haskell/app/Main.hs`.
+- CLI evidence: `app/Trader/App/Args.hs:867-872` defines `--vol-conf-gate` via `parseVolConfGatePreset` with preset help text.
+- Main-path evidence: `app/Main.hs:413`, `468`, `1243`, `1256` carry `VolConfGatePreset` and emit `vol_conf_gate` plus `confidence`.
+- Test-path evidence: no `vol-conf-gate`/`VolConfGatePreset` hits surfaced from `test/TestMain.hs` in the proof output.
+- Next owner/consumer: `trader-firm-execution` via `/Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md`
+- data-not-blocking
+FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate proof evidence

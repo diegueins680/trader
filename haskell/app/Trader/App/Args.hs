@@ -647,7 +647,7 @@ opts = do
             ( long "method"
                 <> value MethodBoth
                 <> showDefaultWith methodCode
-                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, conf_pick=confidence winner-take-all, conformal_clip=clip blended return to conformal/quantile band, cost_pick=cost-aware winner-take-all, harmonic_blend=harmonic-return blend, disagreement_guard=disagreement-aware model pick, median_blend=median-robust blend, neutral_guard=neutral-on-disagreement guard, risk_parity_blend=inverse-edge risk-parity blend, consensus_boost=consensus-strength guard, anchor_blend=disagreement-aware anchor blend, tension_gate=partial-neutral conflict gate, entropy_blend=uncertainty-aware blend shrink, coherence_gate=coherence-aware conflict gate, divergence_gate=shrink blend when model returns diverge, fractal_blend=signed-root nonlinear blend, phase_cancel=anti-phase cancellation gate, softmax_blend=softmax edge-weighted blend, smooth_softmax_blend=EMA-smoothed softmax blend, hedge_blend=online Hedge-style exp-weights blend, net_softmax_blend=post-cost softmax edge-weighted blend, edge_blend=edge-weighted blend, edge_pick=edge winner-take-all, geo_blend=geometric blend, regime_switch=volatility/z-score model switch, router=adaptive model selection, bandit_router=UCB-style adaptive router, kalman_physics_error=Kalman state+physics-error model (latest 1000 bars, train 700/test 300), 10|kalman=Kalman only, 01|lstm=LSTM only"
+                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, conf_pick=confidence winner-take-all, conformal_clip=clip blended return to conformal/quantile band, cost_pick=cost-aware winner-take-all, harmonic_blend=harmonic-return blend, disagreement_guard=disagreement-aware model pick, median_blend=median-robust blend, neutral_guard=neutral-on-disagreement guard, risk_parity_blend=inverse-edge risk-parity blend, consensus_boost=consensus-strength guard, anchor_blend=disagreement-aware anchor blend, tension_gate=partial-neutral conflict gate, entropy_blend=uncertainty-aware blend shrink, coherence_gate=coherence-aware conflict gate, divergence_gate=shrink blend when model returns diverge, fractal_blend=signed-root nonlinear blend, phase_cancel=anti-phase cancellation gate, softmax_blend=softmax edge-weighted blend, smooth_softmax_blend=EMA-smoothed softmax blend, hedge_blend=online Hedge-style exp-weights blend, net_softmax_blend=post-cost softmax edge-weighted blend, edge_blend=edge-weighted blend, edge_pick=edge winner-take-all, geo_blend=geometric blend, regime_switch=volatility/z-score model switch, router=adaptive model selection, bandit_router=UCB-style adaptive router, ta_trend=EMA/ADX/Aroon/ATR trend-following, ta_reversion=RSI/Stochastic/ROC/MACD envelope reversion, ta_breakout=Donchian plus volume-flow breakout, ta_best=best admitted TA setup, kalman_physics_error=Kalman state+physics-error model (latest 1000 bars, train 700/test 300), 10|kalman=Kalman only, 01|lstm=LSTM only"
             )
     argPositioning <-
         option
@@ -657,7 +657,7 @@ opts = do
                 <> showDefaultWith positioningCode
                 <> help "Positioning: long-flat (default), long-only/long (alias), or long-short (backtests/signals allowed; futures-only when trading/live)"
             )
-    argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01/blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch/router/bandit_router), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
+    argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01/blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch/router/bandit_router), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split; TA methods are fixed-method and can use --sweep-threshold)")
     argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
     argTradeOnly <- switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     argFee <- option auto (long "fee" <> value 0.0008 <> help "Fee applied when switching position")
@@ -1047,6 +1047,12 @@ requiredBarsForLookback args =
         then 60
         else argLookback args + 1
 
+requiredBarsForLookbackLabel :: Args -> String
+requiredBarsForLookbackLabel args =
+    if argTradeOnly args && methodIsTechnicalAnalysis (argMethod args)
+        then "technical-analysis method"
+        else "lookback=" ++ show (argLookback args)
+
 normalizeBarsForLookback :: Args -> Args
 normalizeBarsForLookback args =
     let hasDataSource = present (argData args) || present (argBinanceSymbol args)
@@ -1064,16 +1070,7 @@ normalizeBarsForLookback args =
 
 validateArgs :: Args -> Either String Args
 validateArgs args0 = do
-    let isDexPlatform p =
-            case p of
-                PlatformUniswap -> True
-                PlatformCurve -> True
-                PlatformSushiswap -> True
-                PlatformBalancer -> True
-                PlatformPancakeswap -> True
-                PlatformOneInch -> True
-                _ -> False
-        normalizeDelimitedSymbol delim raw =
+    let normalizeDelimitedSymbol delim raw =
             let normalized = map toUpper (trim raw)
              in map (normalizeDelimiter delim) normalized
         normalizeDelimiter delim c
@@ -1242,7 +1239,7 @@ validateArgs args0 = do
                 then ensure "--bars must be between 2 and 1000 for Binance data" (barsPlatform >= 2 && barsPlatform <= 1000)
                 else ensure "--bars must be >= 2 for exchange data" (barsPlatform >= 2)
 
-    lookback <-
+    _ <-
         case argLookbackBars args of
             Just n -> do
                 ensure "--lookback-bars must be >= 2" (n >= 2)
@@ -1257,22 +1254,20 @@ validateArgs args0 = do
                         pure n
 
     let hasDataSource = present (argData args) || present (argBinanceSymbol args)
-        prefersCsvBars = isDex && present (argData args)
-        barsForLookback =
-            if prefersCsvBars
-                then barsCsv
-                else case argBinanceSymbol args of
-                    Just _ -> barsPlatform
-                    Nothing -> barsCsv
+        barsForLookback = lookbackBarsForValidation args
+        requiredBarsCount = requiredBarsForLookback args
+        requiredBarsLabel = requiredBarsForLookbackLabel args
     when (hasDataSource && barsForLookback > 0) $
         ensure
-            ( "--bars must be >= lookback+1 (need at least "
-                ++ show (lookback + 1)
-                ++ " bars for lookback="
-                ++ show lookback
+            ( "--bars must be >= "
+                ++ show requiredBarsCount
+                ++ " (need at least "
+                ++ show requiredBarsCount
+                ++ " bars for "
+                ++ requiredBarsLabel
                 ++ ")"
             )
-            (barsForLookback > lookback)
+            (barsForLookback >= requiredBarsCount)
 
     let finiteRequired =
             [ ("--lr", argLr args)
@@ -1443,6 +1438,8 @@ validateArgs args0 = do
             ( argMethod args == MethodKalmanPhysicsError
                 && (argOptimizeOperations args || argSweepThreshold args)
             )
+    ensure "--method ta_trend/ta_reversion/ta_breakout/ta_best cannot be used with --optimize-operations" $
+        not (methodIsTechnicalAnalysis (argMethod args) && argOptimizeOperations args)
     ensure "--fee must be >= 0" (argFee args >= 0)
     ensure "--slippage must be >= 0" (argSlippage args >= 0)
     ensure "--spread must be >= 0" (argSpread args >= 0)
