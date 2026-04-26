@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading/Bot: add opt-in `--prediction-market-herd` live entry confirmation using Polymarket crypto up/down markets for the corresponding symbol and nearest supported interval; same-side odds can boost confidence/size, while opposing or below-floor odds hold fresh entries as `PREDICTION_MARKET_HERD`.
 - Web: split the UI into explicit Config and Sections pages so clicking a menu item renders only the selected page/section, including output views such as Overview, Live bot, Backtest, Data log, and Optimizer Combos.
 - API/Bot Start: auto-raise request `bars` on the server when the configured lookback needs more exchange history than the current explicit/default bar count, including live `bot/start` requests that inherit top-combo `bars`, so feasible starts no longer fail with `--bars must be >= lookback+1`.
 - Trading/Observability: distinguish missing weak-band regime probabilities from malformed regime tuples in the shared 24-bar directionality gate, so absent regime data now falls back to signed z-score confirmation while invalid provided tuples still fail closed as `NON_DIRECTIONAL_MALFORMED`.

@@ -274,6 +274,11 @@ data Args = Args
     , argKellyLiteFraction :: Double
     , argKellyLiteFloor :: Double
     , argKellyLiteCap :: Double
+    , argPredictionMarketHerd :: Bool
+    , argPredictionMarketHerdMinProbability :: Double
+    , argPredictionMarketHerdMaxBoost :: Double
+    , argPredictionMarketHerdMinVolume :: Double
+    , argPredictionMarketHerdLimit :: Int
     , argExecutionMakerFirst :: Bool
     , argExecutionMakerOffsetBps :: Double
     , argExecutionMakerTimeoutSec :: Double
@@ -989,6 +994,16 @@ opts = do
     argKellyLiteFraction <- option auto (long "kelly-lite-fraction" <> value 0.5 <> showDefault <> help "Fraction applied to Kelly-lite size scale")
     argKellyLiteFloor <- option auto (long "kelly-lite-floor" <> value 0 <> showDefault <> help "Lower bound for Kelly-lite size scale")
     argKellyLiteCap <- option auto (long "kelly-lite-cap" <> value 1 <> showDefault <> help "Upper bound for Kelly-lite size scale")
+    argPredictionMarketHerd <-
+        defaultOffSwitch
+            "prediction-market-herd"
+            "no-prediction-market-herd"
+            "Use Polymarket crypto up/down odds as an opt-in live entry confirmation and confidence boost."
+            "Disable prediction-market herd confirmation."
+    argPredictionMarketHerdMinProbability <- option auto (long "prediction-market-herd-min-probability" <> value 0.5 <> showDefault <> help "Minimum same-side Polymarket probability required to keep an entry when --prediction-market-herd is enabled")
+    argPredictionMarketHerdMaxBoost <- option auto (long "prediction-market-herd-max-boost" <> value 0.25 <> showDefault <> help "Maximum fractional entry-size boost from same-side Polymarket herd evidence")
+    argPredictionMarketHerdMinVolume <- option auto (long "prediction-market-herd-min-volume" <> value 0 <> showDefault <> help "Minimum Polymarket market volume required for herd evidence")
+    argPredictionMarketHerdLimit <- option auto (long "prediction-market-herd-limit" <> value 50 <> showDefault <> help "Maximum Polymarket search events to inspect for herd evidence")
     argTuneStressVolMult <- option auto (long "tune-stress-vol-mult" <> value 1.0 <> help "Stress volatility multiplier for tune scoring (1 disables)")
     argTuneStressShock <- option auto (long "tune-stress-shock" <> value 0.0 <> help "Stress shock added to returns for tune scoring (0 disables)")
     argTuneStressWeight <- option auto (long "tune-stress-weight" <> value 0.0 <> help "Penalty weight for stress scenario in tune scoring (0 disables)")
@@ -1353,6 +1368,9 @@ validateArgs args0 = do
             , ("--kelly-lite-fraction", argKellyLiteFraction args)
             , ("--kelly-lite-floor", argKellyLiteFloor args)
             , ("--kelly-lite-cap", argKellyLiteCap args)
+            , ("--prediction-market-herd-min-probability", argPredictionMarketHerdMinProbability args)
+            , ("--prediction-market-herd-max-boost", argPredictionMarketHerdMaxBoost args)
+            , ("--prediction-market-herd-min-volume", argPredictionMarketHerdMinVolume args)
             , ("--kalman-z-min", argKalmanZMin args)
             , ("--kalman-z-max", argKalmanZMax args)
             , ("--tune-stress-vol-mult", argTuneStressVolMult args)
@@ -1673,6 +1691,10 @@ validateArgs args0 = do
     ensure "--kelly-lite-fraction must be >= 0" (argKellyLiteFraction args >= 0)
     ensure "--kelly-lite-floor must be >= 0" (argKellyLiteFloor args >= 0)
     ensure "--kelly-lite-cap must be >= --kelly-lite-floor" (argKellyLiteCap args >= argKellyLiteFloor args)
+    ensure "--prediction-market-herd-min-probability must be between 0 and 1" (argPredictionMarketHerdMinProbability args >= 0 && argPredictionMarketHerdMinProbability args <= 1)
+    ensure "--prediction-market-herd-max-boost must be >= 0" (argPredictionMarketHerdMaxBoost args >= 0)
+    ensure "--prediction-market-herd-min-volume must be >= 0" (argPredictionMarketHerdMinVolume args >= 0)
+    ensure "--prediction-market-herd-limit must be >= 1" (argPredictionMarketHerdLimit args >= 1)
     ensure "--tune-stress-vol-mult must be > 0" (argTuneStressVolMult args > 0)
     ensure "--tune-stress-weight must be >= 0" (argTuneStressWeight args >= 0)
 

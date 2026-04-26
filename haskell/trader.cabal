@@ -59,6 +59,7 @@ executable trader-hs
                      , Trader.Predictors.Conformal
                      , Trader.Predictors.HMM
                      , Trader.Platform
+                     , Trader.PredictionMarkets
                      , Trader.SensorVariance
                      , Trader.SignalGates
                      , Trader.Split
@@ -255,6 +256,7 @@ test-suite trader-tests
                      , Trader.Predictors.Conformal
                      , Trader.Predictors.HMM
                      , Trader.Platform
+                     , Trader.PredictionMarkets
                      , Trader.SensorVariance
                      , Trader.SignalGates
                      , Trader.Split
