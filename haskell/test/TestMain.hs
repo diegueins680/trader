@@ -9,7 +9,7 @@ import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
-import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, info)
+import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
 import Trader.App.Args (Args (..), normalizeBarsForLookback, opts, validateArgs)
 import Trader.Binance (binanceExceptionSummary)
 import Trader.BotStartSemantics (botStartSymbolDisabled, queuedStartOrderErrorIssue)
@@ -1838,38 +1838,78 @@ testOptimizerQualityThresholdArgvExplicitRegression = do
         splitCloseForm = ["--quality", "--close-threshold-max", "2e-2"]
         equalsCloseForm = ["--quality", "--close-threshold-max=2e-2"]
         omitted = ["--quality"]
-        capAfterQuality flag argv =
-            qualityPresetCeiling
-                qualityDefaultCap
-                qualityExplorationFloor
-                (optimizerOptionPresent flag argv)
-                qualityDefaultCap
+        parser =
+            (,,,,)
+                <$> switch (long "quality")
+                <*> option auto (long "open-threshold-max" <> value qualityDefaultCap)
+                <*> option auto (long "close-threshold-max" <> value qualityDefaultCap)
+                <*> pure False
+                <*> pure False
+        parseQualityThresholdArgs argv =
+            case execParserPure defaultPrefs (info parser mempty) argv of
+                Success (qualityEnabled, openCap, closeCap, _, _) ->
+                    Right
+                        ( qualityEnabled
+                        , openCap
+                        , closeCap
+                        , optimizerOptionPresent "open-threshold-max" argv
+                        , optimizerOptionPresent "close-threshold-max" argv
+                        )
+                Failure _ -> Left "optimizer quality threshold parser failed unexpectedly"
+                CompletionInvoked _ -> Left "optimizer quality threshold completion invoked unexpectedly"
+        effectiveOpenCap (_, openCap, _, openExplicit, _) =
+            qualityPresetCeiling qualityDefaultCap qualityExplorationFloor openExplicit openCap
+        effectiveCloseCap (_, _, closeCap, _, closeExplicit) =
+            qualityPresetCeiling qualityDefaultCap qualityExplorationFloor closeExplicit closeCap
     assert
-        "optimizer parser treats split-form open threshold quality caps as explicit"
-        ( optimizerOptionPresent "open-threshold-max" splitOpenForm
-            && capAfterQuality "open-threshold-max" splitOpenForm == qualityDefaultCap
+        "optimizer execParserPure treats split-form open threshold quality caps as explicit"
+        ( case parseQualityThresholdArgs splitOpenForm of
+            Right parsed@(True, openCap, closeCap, True, False) ->
+                openCap == qualityDefaultCap
+                    && closeCap == qualityDefaultCap
+                    && effectiveOpenCap parsed == qualityDefaultCap
+                    && effectiveCloseCap parsed == qualityExplorationFloor
+            _ -> False
         )
     assert
-        "optimizer parser treats equals-form open threshold quality caps as explicit"
-        ( optimizerOptionPresent "open-threshold-max" equalsOpenForm
-            && capAfterQuality "open-threshold-max" equalsOpenForm == qualityDefaultCap
+        "optimizer execParserPure treats equals-form open threshold quality caps as explicit"
+        ( case parseQualityThresholdArgs equalsOpenForm of
+            Right parsed@(True, openCap, closeCap, True, False) ->
+                openCap == qualityDefaultCap
+                    && closeCap == qualityDefaultCap
+                    && effectiveOpenCap parsed == qualityDefaultCap
+                    && effectiveCloseCap parsed == qualityExplorationFloor
+            _ -> False
         )
     assert
-        "optimizer parser treats split-form close threshold quality caps as explicit"
-        ( optimizerOptionPresent "close-threshold-max" splitCloseForm
-            && capAfterQuality "close-threshold-max" splitCloseForm == qualityDefaultCap
+        "optimizer execParserPure treats split-form close threshold quality caps as explicit"
+        ( case parseQualityThresholdArgs splitCloseForm of
+            Right parsed@(True, openCap, closeCap, False, True) ->
+                openCap == qualityDefaultCap
+                    && closeCap == qualityDefaultCap
+                    && effectiveOpenCap parsed == qualityExplorationFloor
+                    && effectiveCloseCap parsed == qualityDefaultCap
+            _ -> False
         )
     assert
-        "optimizer parser treats equals-form close threshold quality caps as explicit"
-        ( optimizerOptionPresent "close-threshold-max" equalsCloseForm
-            && capAfterQuality "close-threshold-max" equalsCloseForm == qualityDefaultCap
+        "optimizer execParserPure treats equals-form close threshold quality caps as explicit"
+        ( case parseQualityThresholdArgs equalsCloseForm of
+            Right parsed@(True, openCap, closeCap, False, True) ->
+                openCap == qualityDefaultCap
+                    && closeCap == qualityDefaultCap
+                    && effectiveOpenCap parsed == qualityExplorationFloor
+                    && effectiveCloseCap parsed == qualityDefaultCap
+            _ -> False
         )
     assert
-        "optimizer parser preserves omitted quality threshold caps as non-explicit defaults"
-        ( not (optimizerOptionPresent "open-threshold-max" omitted)
-            && not (optimizerOptionPresent "close-threshold-max" omitted)
-            && capAfterQuality "open-threshold-max" omitted == qualityExplorationFloor
-            && capAfterQuality "close-threshold-max" omitted == qualityExplorationFloor
+        "optimizer execParserPure preserves omitted quality threshold caps as non-explicit defaults"
+        ( case parseQualityThresholdArgs omitted of
+            Right parsed@(True, openCap, closeCap, False, False) ->
+                openCap == qualityDefaultCap
+                    && closeCap == qualityDefaultCap
+                    && effectiveOpenCap parsed == qualityExplorationFloor
+                    && effectiveCloseCap parsed == qualityExplorationFloor
+            _ -> False
         )
 
 -- Optimizer eligibility regression: Kelly-lite exposure contracts must reject
