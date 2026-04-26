@@ -40,6 +40,14 @@ import Trader.Optimizer.Optimize (
     qualityPresetWeightFloor,
  )
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
+import Trader.PredictionMarkets (
+    PredictionMarketEvent (..),
+    PredictionMarketMarket (..),
+    PredictionMarketSignal (..),
+    nearestPredictionMarketInterval,
+    predictionMarketProbabilityForDir,
+    selectPredictionMarketSignal,
+ )
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
 import Trader.SignalGates (
@@ -113,6 +121,7 @@ main = do
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
     testSignalDirectionalityLiveSemanticsRegression
+    testPredictionMarketHerdSelection
     testSignalGatesPublicSurfaceRegression
     testTradingPublicSurfaceRegression
     testKellyLiteBacktestSizingRegression
@@ -575,6 +584,44 @@ testSignalGateEntryHeadroomSpecializesFeeBuffer = do
                 | edgeForMethod <- malformedEdges
                 ]
         )
+
+testPredictionMarketHerdSelection :: IO ()
+testPredictionMarketHerdSelection = do
+    let btcMarket =
+            PredictionMarketMarket
+                { pmmId = Just "btc-15m"
+                , pmmSlug = Just "bitcoin-up-or-down-15m"
+                , pmmQuestion = "Bitcoin Up or Down - 15 minutes"
+                , pmmEndDate = Just "2026-01-01T00:15:00Z"
+                , pmmActive = True
+                , pmmClosed = False
+                , pmmVolume = Just 10000
+                , pmmVolume24hr = Just 4000
+                , pmmOutcomes = ["Up", "Down"]
+                , pmmOutcomePrices = [0.68, 0.32]
+                }
+        btcEvent =
+            PredictionMarketEvent
+                { pmeSlug = Just "bitcoin-up-or-down-15m"
+                , pmeTitle = "Bitcoin Up or Down"
+                , pmeEndDate = Just "2026-01-01T00:15:00Z"
+                , pmeVolume = Just 10000
+                , pmeVolume24hr = Just 4000
+                , pmeMarkets = [btcMarket]
+                }
+        mSignal = selectPredictionMarketSignal "BTCUSDT" "5m" [btcEvent]
+    case mSignal of
+        Nothing -> assert "BTC Polymarket herd signal should be selected" False
+        Just signal -> do
+            assert "5m exchange interval maps to nearest 15m prediction market interval" (pmsInterval signal == "15m")
+            assert "UP probability is read from the matching outcome" (predictionMarketProbabilityForDir 1 signal == Just 0.68)
+            assert "DOWN probability is read from the matching outcome" (predictionMarketProbabilityForDir (-1) signal == Just 0.32)
+    assert
+        "unrelated symbols do not reuse the BTC herd market"
+        (isNothing (selectPredictionMarketSignal "ETHUSDT" "5m" [btcEvent]))
+    assert
+        "nearest prediction market interval rounds supported exchange intervals conservatively"
+        (nearestPredictionMarketInterval "5m" == ("15m", 900) && nearestPredictionMarketInterval "1h" == ("1h", 3600))
 
 -- Regression for the restored public helper surface: fresh-entry gating keeps a
 -- single normalized non-negative edge sample, and malformed raw edges still
