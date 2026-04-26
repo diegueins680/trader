@@ -8208,6 +8208,21 @@ export function App() {
       })),
     [state.error],
   );
+  const outputPageBadges = useMemo((): Partial<Record<OutputPageId, { label: string; ariaLabel: string }>> => {
+    if (!binancePositionsUi.response) return {};
+    const positionsCount = binancePositionsList.length;
+    const orphanedCount = orphanPositions.length;
+    return {
+      "page-positions": {
+        label: String(positionsCount),
+        ariaLabel: `${positionsCount} open position${positionsCount === 1 ? "" : "s"}`,
+      },
+      "page-orphaned-operations": {
+        label: String(orphanedCount),
+        ariaLabel: `${orphanedCount} orphaned position${orphanedCount === 1 ? "" : "s"}`,
+      },
+    };
+  }, [binancePositionsList.length, binancePositionsUi.response, orphanPositions.length]);
   const pageIssueCounts = useMemo(() => {
     const counts: Partial<Record<ConfigPageId, number>> = {};
     for (const issue of requestIssueDetails) {
@@ -8684,22 +8699,30 @@ export function App() {
               </nav>
               <nav className="menuBar menuBarHeader" aria-label="Output pages">
                 <span className="jumpLabel">Sections</span>
-                {outputPageList.map((page) => (
-                  <button
-                    key={page.id}
-                    className={`menuItem${activePage === page.id ? " menuItemActive" : ""}`}
-                    type="button"
-                    aria-current={activePage === page.id ? "page" : undefined}
-                    onClick={() => selectOutputPage(page.id)}
-                  >
-                    {page.label}
-                    {page.id === "page-error" && state.error ? (
-                      <span className="menuBadge" aria-label="Current request error">
-                        !
-                      </span>
-                    ) : null}
-                  </button>
-                ))}
+                {outputPageList.map((page) => {
+                  const badge = outputPageBadges[page.id];
+                  return (
+                    <button
+                      key={page.id}
+                      className={`menuItem${activePage === page.id ? " menuItemActive" : ""}`}
+                      type="button"
+                      aria-current={activePage === page.id ? "page" : undefined}
+                      onClick={() => selectOutputPage(page.id)}
+                    >
+                      {page.label}
+                      {badge ? (
+                        <span className="menuBadge" aria-label={badge.ariaLabel}>
+                          {badge.label}
+                        </span>
+                      ) : null}
+                      {page.id === "page-error" && state.error ? (
+                        <span className="menuBadge" aria-label="Current request error">
+                          !
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
               </nav>
               <div className="headerTools">
                 <div className="menuBar menuBarHeader menuBarActions" aria-label="Layout actions">
