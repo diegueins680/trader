@@ -1,4 +1,5 @@
 import type {
+  ApiParams,
   ApiBinancePositionsResponse,
   ApiBinanceTradesResponse,
   ApiTradeResponse,
@@ -25,6 +26,7 @@ import type { OptimizationCombo, OptimizationComboOperation } from "../component
 import { defaultForm, parseDurationSeconds, platformIntervalSeconds } from "./formState";
 import type { FormState } from "./formState";
 import type { cacheStats, health } from "../lib/api";
+import { fmtPct } from "../lib/format";
 import { PLATFORM_DEFAULT_BARS, PLATFORM_DEFAULT_SYMBOL } from "./constants";
 import { preferredExchangePlatform } from "./contracts";
 import { METHOD_TIPS } from "./methodMeta";
@@ -2327,6 +2329,23 @@ export type TuneRatioBounds = {
   maxRatio: number;
 };
 
+export type BacktestSplitAdjustmentChanges = {
+  bars?: number;
+  backtestRatio?: number;
+  message: string;
+};
+
+export type BacktestSplitAdjustment = {
+  params: ApiParams;
+  changes: BacktestSplitAdjustmentChanges | null;
+};
+
+export type BacktestSplitAdjustmentOptions = {
+  platform: Platform;
+  method: Method;
+  apiLimits: ComputeLimits | null;
+};
+
 export const RATIO_ROUND_DIGITS = 3;
 export const RATIO_ROUND_FACTOR = 10 ** RATIO_ROUND_DIGITS;
 
@@ -2424,6 +2443,142 @@ export function minTrainEndForTune(minTrainBars: number, tuneRatio: number, tuni
 export function ratioForTrainEnd(bars: number, trainEnd: number): number {
   const raw = 1 - (trainEnd + 0.5) / Math.max(1, bars);
   return clamp(raw, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
+}
+
+function splitStatsValid(stats: SplitStats): boolean {
+  return stats.trainOk && stats.backtestOk && stats.tuneOk && stats.fitOk;
+}
+
+function adjustedBacktestRatioForBars(
+  bars: number,
+  preferredRatio: number,
+  lookbackBars: number,
+  tuneRatio: number,
+  tuningEnabled: boolean,
+): number | null {
+  const current = splitStats(bars, preferredRatio, lookbackBars, tuneRatio, tuningEnabled);
+  if (splitStatsValid(current)) return preferredRatio;
+
+  const minTrainBars = lookbackBars + 1;
+  const maxTrainEnd = Math.max(0, bars - MIN_BACKTEST_BARS);
+  const minTrainEnd = minTrainEndForTune(minTrainBars, tuneRatio, tuningEnabled, maxTrainEnd);
+  if (minTrainEnd > maxTrainEnd) return null;
+
+  let targetTrainEnd = current.trainEndRaw;
+  if (!current.trainOk || !current.tuneOk || !current.fitOk) targetTrainEnd = minTrainEnd;
+  if (!current.backtestOk) targetTrainEnd = maxTrainEnd;
+  targetTrainEnd = clamp(Math.trunc(targetTrainEnd), minTrainEnd, maxTrainEnd);
+
+  const candidateTrainEnds = Array.from(new Set([targetTrainEnd, minTrainEnd, maxTrainEnd]));
+  for (const trainEnd of candidateTrainEnds) {
+    const ratio = ratioForTrainEnd(bars, trainEnd);
+    const stats = splitStats(bars, ratio, lookbackBars, tuneRatio, tuningEnabled);
+    if (splitStatsValid(stats)) return ratio;
+  }
+
+  return null;
+}
+
+function buildBacktestSplitAdjustment(
+  params: ApiParams,
+  requestedBars: number,
+  requestedRatio: number,
+  adjustedBars: number,
+  adjustedRatio: number,
+): BacktestSplitAdjustment {
+  const barsChanged = adjustedBars !== requestedBars;
+  const ratioChanged = Math.abs(adjustedRatio - requestedRatio) >= 1e-9;
+  if (!barsChanged && !ratioChanged) return { params, changes: null };
+
+  const changes: BacktestSplitAdjustmentChanges = {
+    message:
+      barsChanged && ratioChanged
+        ? `Adjusted bars to ${adjustedBars} and backtest ratio to ${fmtPct(adjustedRatio, 1)} to satisfy the split.`
+        : barsChanged
+          ? `Adjusted bars to ${adjustedBars} to satisfy the split.`
+          : `Adjusted backtest ratio to ${fmtPct(adjustedRatio, 1)} to satisfy the split.`,
+  };
+  if (barsChanged) changes.bars = adjustedBars;
+  if (ratioChanged) changes.backtestRatio = adjustedRatio;
+
+  return {
+    params: { ...params, bars: adjustedBars, backtestRatio: adjustedRatio },
+    changes,
+  };
+}
+
+export function adjustBacktestParamsForSplit(
+  params: ApiParams,
+  options: BacktestSplitAdjustmentOptions,
+): BacktestSplitAdjustment {
+  const platformValue = params.platform ?? options.platform;
+  const method = params.method ?? options.method;
+  const interval = params.interval ?? "";
+  const intervalSec = platformIntervalSeconds(platformValue, interval);
+  const overrideBars = Math.trunc(params.lookbackBars ?? 0);
+  const windowRaw = (params.lookbackWindow ?? "").trim();
+  const windowSec = windowRaw ? parseDurationSeconds(windowRaw) : null;
+  const windowBars = windowSec && windowSec > 0 && intervalSec ? Math.ceil(windowSec / intervalSec) : null;
+  const lookbackBars = overrideBars >= MIN_LOOKBACK_BARS ? overrideBars : windowBars;
+  if (lookbackBars == null || lookbackBars < MIN_LOOKBACK_BARS) return { params, changes: null };
+
+  const barsRaw = Math.trunc(params.bars ?? 0);
+  if (!Number.isFinite(barsRaw) || barsRaw <= 0) return { params, changes: null };
+
+  const barsCapRaw = maxBarsForPlatform(platformValue, method, options.apiLimits);
+  const barsCap = Number.isFinite(barsCapRaw) ? Math.max(MIN_LOOKBACK_BARS, Math.trunc(barsCapRaw)) : Number.POSITIVE_INFINITY;
+  const bars = Math.min(Math.max(MIN_LOOKBACK_BARS, barsRaw), barsCap);
+  const backtestRatioRaw =
+    typeof params.backtestRatio === "number" && Number.isFinite(params.backtestRatio) ? params.backtestRatio : 0.2;
+  const backtestRatio = clamp(backtestRatioRaw, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
+  const tuneRatio = typeof params.tuneRatio === "number" && Number.isFinite(params.tuneRatio) ? clamp(params.tuneRatio, 0, 0.99) : 0;
+  const tuningEnabled = Boolean(params.optimizeOperations || params.sweepThreshold);
+
+  const current = splitStats(bars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
+  if (splitStatsValid(current)) {
+    return buildBacktestSplitAdjustment(params, barsRaw, backtestRatioRaw, bars, backtestRatio);
+  }
+
+  const minTrainBars = lookbackBars + 1;
+  const maxTrainEndForBars = Math.max(0, bars - MIN_BACKTEST_BARS);
+  const tuneRatioSafe = clamp(tuneRatio, 0, 0.99);
+  const minTrainEndSearchCap = tuningEnabled
+    ? Math.max(
+        maxTrainEndForBars,
+        minTrainBars,
+        Math.ceil(minTrainBars / Math.max(1e-6, 1 - tuneRatioSafe)) + 2,
+        tuneRatioSafe > 0 ? Math.ceil(MIN_BACKTEST_BARS / tuneRatioSafe) + 2 : minTrainBars,
+      )
+    : maxTrainEndForBars;
+  const minTrainEnd = minTrainEndForTune(minTrainBars, tuneRatio, tuningEnabled, minTrainEndSearchCap);
+  const minBarsForTrain = Math.ceil(minTrainEnd / Math.max(1e-6, 1 - backtestRatio));
+  const minBarsForBacktest = Math.ceil(MIN_BACKTEST_BARS / Math.max(1e-6, backtestRatio));
+  let candidateBars = Math.max(bars, minTrainBars + MIN_BACKTEST_BARS, minBarsForTrain, minBarsForBacktest);
+  if (candidateBars > barsCap) candidateBars = barsCap;
+
+  if (candidateBars > bars) {
+    let adjustedBars = candidateBars;
+    const preserveRatioSearchLimit = Number.isFinite(barsCap) ? barsCap : candidateBars + 1000;
+    while (adjustedBars <= preserveRatioSearchLimit) {
+      const stats = splitStats(adjustedBars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
+      if (splitStatsValid(stats)) {
+        return buildBacktestSplitAdjustment(params, barsRaw, backtestRatioRaw, adjustedBars, backtestRatio);
+      }
+      adjustedBars += 1;
+    }
+
+    const adjustedRatio = adjustedBacktestRatioForBars(candidateBars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
+    if (adjustedRatio != null) {
+      return buildBacktestSplitAdjustment(params, barsRaw, backtestRatioRaw, candidateBars, adjustedRatio);
+    }
+  }
+
+  const adjustedRatio = adjustedBacktestRatioForBars(bars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
+  if (adjustedRatio != null) {
+    return buildBacktestSplitAdjustment(params, barsRaw, backtestRatioRaw, bars, adjustedRatio);
+  }
+
+  return { params, changes: null };
 }
 
 export function clampComboForLimits(
