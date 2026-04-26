@@ -612,6 +612,18 @@ function normalizeBotStatus(status: BotStatus): BotStatus {
   return normalizeBotStatusSingle(status);
 }
 
+function botStatusLatestPosition(status: BotStatusSingle): number | null {
+  const source = status.running ? status : status.snapshot ?? null;
+  if (!source) return null;
+  const last = source.positions[source.positions.length - 1];
+  return typeof last === "number" && Number.isFinite(last) ? last : null;
+}
+
+function botStatusHasActivePosition(status: BotStatusSingle): boolean {
+  const position = botStatusLatestPosition(status);
+  return position != null && Math.abs(position) > 0.001;
+}
+
 function DecisionTraceBlock({ title = "Decision trace", trace }: { title?: string; trace: DecisionTrace }) {
   return (
     <div className="decisionBlock">
@@ -4065,7 +4077,16 @@ export function App() {
           const symbol = botStatusSymbol(status);
           return symbol ? { symbol, status } : null;
         })
-        .filter((entry): entry is { symbol: string; status: BotStatusSingle } => Boolean(entry)),
+        .filter((entry): entry is { symbol: string; status: BotStatusSingle } => Boolean(entry))
+        .sort((a, b) => {
+          const activeCmp = Number(botStatusHasActivePosition(b.status)) - Number(botStatusHasActivePosition(a.status));
+          if (activeCmp !== 0) return activeCmp;
+          const runningCmp = Number(b.status.running) - Number(a.status.running);
+          if (runningCmp !== 0) return runningCmp;
+          const startingCmp = Number(!b.status.running && b.status.starting === true) - Number(!a.status.running && a.status.starting === true);
+          if (startingCmp !== 0) return startingCmp;
+          return a.symbol.localeCompare(b.symbol);
+        }),
     [botEntries],
   );
   const botEntriesStarting = useMemo(() => {
