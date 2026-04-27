@@ -187,6 +187,7 @@ import Trader.BinanceIntervals (binanceIntervals)
 import Trader.BotStartSemantics (
     botStartSymbolDisabled,
     botTradeEnabledFromApi,
+    prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
     shouldClearPositionOriginOnStart,
     shouldPersistPositionOriginOnSwitch,
@@ -7885,7 +7886,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                 let tenantMap0 = fromMaybe HM.empty (HM.lookup tenantKey mrt)
                                     argsWithKeys = argsBase
                                 (orphanSymbols, orphanRestartSymbols) <- resolveOrphanOpenPositionActions mOps argsWithKeys tenantMap0
-                                let targetSymbolsAll = dedupeStable (targetSymbolsBase ++ orphanSymbols)
+                                let targetSymbolsAll = prioritizeBotStartSymbols targetSymbolsBase orphanSymbols
                                     targetSymbols = take maxBots targetSymbolsAll
                                     cappedTargetSymbols = drop maxBots targetSymbolsAll
                                 unless (null cappedTargetSymbols) $
@@ -9463,6 +9464,12 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     lookbackEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOW"
                                     backtestEnv <- lookupEnv "TRADER_OPTIMIZER_BACKTEST_RATIO"
                                     tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
+                                    minRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_ROUND_TRIPS"
+                                    minExposureEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_EXPOSURE"
+                                    minSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_SHARPE"
+                                    minCalmarEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_CALMAR"
+                                    minWfSharpeMeanEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_WF_SHARPE_MEAN"
+                                    maxWfSharpeStdEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_WF_SHARPE_STD"
                                     maxPointsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
                                     symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
                                     intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
@@ -9501,6 +9508,26 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                             case tuneEnv >>= readMaybe of
                                                 Just n -> clamp01 n
                                                 _ -> 0.25
+                                        readNonNegativeInt raw fallback =
+                                            case raw >>= readMaybe of
+                                                Just n | n >= 0 -> n
+                                                _ -> fallback
+                                        readNonNegativeDouble raw fallback =
+                                            case raw >>= readMaybe of
+                                                Just n | n >= 0 && isFiniteDouble n -> n
+                                                _ -> fallback
+                                        minRoundTrips :: Int
+                                        minRoundTrips = readNonNegativeInt minRoundTripsEnv 3
+                                        minExposure :: Double
+                                        minExposure = clamp01 (readNonNegativeDouble minExposureEnv 0.02)
+                                        minSharpe :: Double
+                                        minSharpe = readNonNegativeDouble minSharpeEnv 0.2
+                                        minCalmar :: Double
+                                        minCalmar = readNonNegativeDouble minCalmarEnv 0.2
+                                        minWfSharpeMean :: Double
+                                        minWfSharpeMean = readNonNegativeDouble minWfSharpeMeanEnv 0
+                                        maxWfSharpeStd :: Double
+                                        maxWfSharpeStd = readNonNegativeDouble maxWfSharpeStdEnv 0
                                         objectiveAllowed =
                                             [ "annualized-equity"
                                             , "roi"
@@ -9544,11 +9571,15 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         else do
                                             putStrLn
                                                 ( printf
-                                                    "Auto optimizer enabled: symbols=%d intervals=%d everySec=%d trials=%d"
+                                                    "Auto optimizer enabled: symbols=%d intervals=%d everySec=%d trials=%d minRoundTrips=%d minExposure=%.4f minSharpe=%.4f minCalmar=%.4f"
                                                     (length symbols)
                                                     (length intervals)
                                                     everySec
                                                     trials
+                                                    minRoundTrips
+                                                    minExposure
+                                                    minSharpe
+                                                    minCalmar
                                                 )
                                             let sleepSec s = threadDelay (max 1 s * 1000000)
 
@@ -9614,6 +9645,18 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     , "binance"
                                                                                     , "--objective"
                                                                                     , objective
+                                                                                    , "--min-round-trips"
+                                                                                    , show minRoundTrips
+                                                                                    , "--min-exposure"
+                                                                                    , show minExposure
+                                                                                    , "--min-sharpe"
+                                                                                    , show minSharpe
+                                                                                    , "--min-calmar"
+                                                                                    , show minCalmar
+                                                                                    , "--min-wf-sharpe-mean"
+                                                                                    , show minWfSharpeMean
+                                                                                    , "--max-wf-sharpe-std"
+                                                                                    , show maxWfSharpeStd
                                                                                     , "--binary"
                                                                                     , exePath
                                                                                     , "--disable-lstm-persistence"
@@ -17217,7 +17260,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                         let disabledOrphanSymbols = filter (botStartSymbolDisabled disabledSymbols) orphanSymbols
                                             disabledStartSymbols = dedupeStable (disabledRequestedSymbols ++ disabledOrphanSymbols)
                                             orphanSymbolsAllowed = filterBotDisabledSymbols disabledSymbols orphanSymbols
-                                            symbolsAll = dedupeStable (requestedSymbolsAllowed ++ orphanSymbolsAllowed)
+                                            symbolsAll = prioritizeBotStartSymbols requestedSymbolsAllowed orphanSymbolsAllowed
                                             symbols = take maxSymbols symbolsAll
                                             deferredSymbols = drop maxSymbols symbolsAll
                                             errorMsg =

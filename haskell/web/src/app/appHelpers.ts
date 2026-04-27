@@ -1131,6 +1131,18 @@ export function positionSideInfo(positionAmt: number, positionSide?: string | nu
   return { dir, label, key };
 }
 
+export function isOpenBinancePosition(position: ApiBinancePositionsResponse["positions"][number]): boolean {
+  return positionSideInfo(position.positionAmt, position.positionSide).dir !== 0;
+}
+
+export function buildOpenBinancePositionSymbolSet(positions: ApiBinancePositionsResponse["positions"]): Set<string> {
+  const out = new Set<string>();
+  for (const position of positions) {
+    if (isOpenBinancePosition(position)) out.add(normalizeSymbolKey(position.symbol));
+  }
+  return out;
+}
+
 export type ListenKeyStreamStatus = "disconnected" | "connecting" | "connected" | "stopped";
 
 export type ListenKeyStreamStatusPayload = { status?: string; message?: string; atMs?: number };

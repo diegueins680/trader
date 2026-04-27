@@ -1,6 +1,7 @@
 module Trader.BotStartSemantics (
     botTradeEnabledFromApi,
     botStartSymbolDisabled,
+    prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
     shouldResolveOriginComboOnAutoStart,
     shouldClearPositionOriginOnStart,
@@ -11,14 +12,23 @@ module Trader.BotStartSemantics (
 import Data.Char (isSpace, toUpper)
 import Data.Maybe (fromMaybe, isJust)
 
+import Trader.Text (dedupeStable)
+
 botTradeEnabledFromApi :: Maybe Bool -> Bool
 botTradeEnabledFromApi = fromMaybe True
+
+normalizeStartSymbol :: String -> String
+normalizeStartSymbol = map toUpper . filter (not . isSpace)
 
 botStartSymbolDisabled :: [String] -> String -> Bool
 botStartSymbolDisabled disabled sym =
     normalizeStartSymbol sym `elem` map normalizeStartSymbol disabled
-  where
-    normalizeStartSymbol = map toUpper . filter (not . isSpace)
+
+prioritizeBotStartSymbols :: [String] -> [String] -> [String]
+prioritizeBotStartSymbols regularSymbols orphanSymbols =
+    filter (not . null) $
+        dedupeStable $
+            map normalizeStartSymbol (orphanSymbols ++ regularSymbols)
 
 queuedStartOrderErrorIssue :: Maybe Int -> Int -> Maybe String
 queuedStartOrderErrorIssue mMaxOrderErrors orderErrors

@@ -12,7 +12,7 @@ import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parse
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
 import Trader.App.Args (Args (..), normalizeBarsForLookback, opts, validateArgs)
 import Trader.Binance (binanceExceptionSummary)
-import Trader.BotStartSemantics (botStartSymbolDisabled, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (botStartSymbolDisabled, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
 import Trader.Formal.Optimization (
     activityCountFromMetrics,
@@ -129,6 +129,7 @@ main = do
     testTradingEntryGateMalformedNoReopen
     testVolConfGateMalformedInputsFailClosed
     testQueuedBotStartOrderErrorStability
+    testPrioritizeOrphanBotStartSymbols
     testDisabledBotStartSymbols
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
@@ -850,6 +851,15 @@ testQueuedBotStartOrderErrorStability = do
         ( queuedStartOrderErrorIssue (Just 3) 3 == Just "order errors=3 reached maxOrderErrors"
             && queuedStartOrderErrorIssue (Just 3) 4 == Just "order errors=4 reached maxOrderErrors"
         )
+
+testPrioritizeOrphanBotStartSymbols :: IO ()
+testPrioritizeOrphanBotStartSymbols = do
+    assert
+        "bot starts put orphaned-position symbols before normal requested targets"
+        (prioritizeBotStartSymbols ["BTCUSDT", "ETHUSDT"] ["SOLUSDT", "BTCUSDT"] == ["SOLUSDT", "BTCUSDT", "ETHUSDT"])
+    assert
+        "bot start priority de-duplicates using normalized symbols"
+        (prioritizeBotStartSymbols ["ethusdt", " SOLUSDT "] ["btc usdt", "ethusdt"] == ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
 
 testDisabledBotStartSymbols :: IO ()
 testDisabledBotStartSymbols =

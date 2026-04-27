@@ -200,6 +200,7 @@ import {
   adjustBacktestParamsForSplit,
   applyComboToForm,
   backtestTradePhase,
+  buildOpenBinancePositionSymbolSet,
   binanceTradeKey,
   binanceTradeSideLabel,
   botStatusKey,
@@ -237,6 +238,7 @@ import {
   inferBinancePositionOpenTime,
   inferPeriodsPerYear,
   invalidSymbolsForPlatform,
+  isOpenBinancePosition,
   isBinanceKeysStatus,
   isLikelyBinanceCloseFill,
   isBotStatusMulti,
@@ -621,6 +623,24 @@ function botStatusLatestPosition(status: BotStatusSingle): number | null {
 function botStatusHasActivePosition(status: BotStatusSingle): boolean {
   const position = botStatusLatestPosition(status);
   return position != null && Math.abs(position) > 0.001;
+}
+
+function compareBotSymbolEntries(
+  openPositionSymbolKeys: ReadonlySet<string>,
+  a: { symbol: string; status: BotStatusSingle },
+  b: { symbol: string; status: BotStatusSingle },
+): number {
+  const openPositionCmp =
+    Number(openPositionSymbolKeys.has(normalizeSymbolKey(b.symbol))) -
+    Number(openPositionSymbolKeys.has(normalizeSymbolKey(a.symbol)));
+  if (openPositionCmp !== 0) return openPositionCmp;
+  const activeCmp = Number(botStatusHasActivePosition(b.status)) - Number(botStatusHasActivePosition(a.status));
+  if (activeCmp !== 0) return activeCmp;
+  const runningCmp = Number(b.status.running) - Number(a.status.running);
+  if (runningCmp !== 0) return runningCmp;
+  const startingCmp = Number(!b.status.running && b.status.starting === true) - Number(!a.status.running && a.status.starting === true);
+  if (startingCmp !== 0) return startingCmp;
+  return a.symbol.localeCompare(b.symbol);
 }
 
 function DecisionTraceBlock({ title = "Decision trace", trace }: { title?: string; trace: DecisionTrace }) {
@@ -4095,6 +4115,10 @@ export function App() {
     () => (isBotStatusMulti(bot.status) ? bot.status.bots : [bot.status as BotStatusSingle]),
     [bot.status],
   );
+  const openPositionSymbolKeys = useMemo(
+    () => buildOpenBinancePositionSymbolSet(binancePositionsUi.response?.positions ?? []),
+    [binancePositionsUi.response?.positions],
+  );
   const botEntriesWithSymbolLive = useMemo(
     () =>
       botEntries
@@ -4103,16 +4127,8 @@ export function App() {
           return symbol ? { symbol, status } : null;
         })
         .filter((entry): entry is { symbol: string; status: BotStatusSingle } => Boolean(entry))
-        .sort((a, b) => {
-          const activeCmp = Number(botStatusHasActivePosition(b.status)) - Number(botStatusHasActivePosition(a.status));
-          if (activeCmp !== 0) return activeCmp;
-          const runningCmp = Number(b.status.running) - Number(a.status.running);
-          if (runningCmp !== 0) return runningCmp;
-          const startingCmp = Number(!b.status.running && b.status.starting === true) - Number(!a.status.running && a.status.starting === true);
-          if (startingCmp !== 0) return startingCmp;
-          return a.symbol.localeCompare(b.symbol);
-        }),
-    [botEntries],
+        .sort((a, b) => compareBotSymbolEntries(openPositionSymbolKeys, a, b)),
+    [botEntries, openPositionSymbolKeys],
   );
   const botEntriesStarting = useMemo(() => {
     if ("starting" in bot.status && bot.status.starting === true) return true;
@@ -4136,8 +4152,12 @@ export function App() {
   const botEntriesShrank =
     botEntriesCacheRef.current && botEntriesWithSymbolLive.length < botEntriesCacheRef.current.entries.length;
   const botEntriesUseCache = botEntriesCacheFresh && (botEntriesWithSymbolLive.length === 0 || botEntriesShrank);
-  const botEntriesWithSymbol =
+  const botEntriesWithSymbolRaw =
     botEntriesUseCache && botEntriesCacheRef.current ? botEntriesCacheRef.current.entries : botEntriesWithSymbolLive;
+  const botEntriesWithSymbol = useMemo(
+    () => [...botEntriesWithSymbolRaw].sort((a, b) => compareBotSymbolEntries(openPositionSymbolKeys, a, b)),
+    [botEntriesWithSymbolRaw, openPositionSymbolKeys],
+  );
   const botRunningEntries = useMemo(
     () =>
       botEntriesWithSymbol.filter(
@@ -6550,7 +6570,7 @@ export function App() {
   const binancePositionsList = useMemo(() => {
     const raw = binancePositionsUi.response?.positions ?? [];
     return raw
-      .filter((pos) => positionSideInfo(pos.positionAmt, pos.positionSide).dir !== 0)
+      .filter(isOpenBinancePosition)
       .sort((a, b) => a.symbol.localeCompare(b.symbol));
   }, [binancePositionsUi.response?.positions]);
   const binancePositionsCharts = useMemo(() => {

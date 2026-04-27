@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   adjustBacktestParamsForSplit,
+  buildOpenBinancePositionSymbolSet,
   buildDefaultOptimizerRunForm,
   buildOptimizerCorrelationGuess,
   buildOptimizerRunRequest,
   findOptionalWholeNumberFieldError,
   formatDatetimeLocal,
   parseDatetimeLocal,
+  isOpenBinancePosition,
   positionSideInfo,
   readExactSafeInteger,
   readNonNegativeExactSafeInteger,
@@ -419,4 +421,19 @@ test("positionSideInfo treats zero/dust amounts as flat before stale side metada
 test("positionSideInfo suppresses non-finite amounts before stale side metadata", () => {
   assert.deepEqual(positionSideInfo(Number.NaN, "LONG"), { dir: 0, label: "FLAT", key: "FLAT" });
   assert.deepEqual(positionSideInfo(Number.POSITIVE_INFINITY, "SHORT"), { dir: 0, label: "FLAT", key: "FLAT" });
+});
+
+test("open Binance position helpers ignore flat dust and normalize symbols", () => {
+  const positions = [
+    { symbol: " btcusdt ", positionAmt: 0, entryPrice: 0, markPrice: 0, unrealizedPnl: 0, positionSide: "LONG" },
+    { symbol: "ethusdt", positionAmt: 1e-13, entryPrice: 0, markPrice: 0, unrealizedPnl: 0, positionSide: "SHORT" },
+    { symbol: "filusdt", positionAmt: 3, entryPrice: 0, markPrice: 0, unrealizedPnl: 0, positionSide: "BOTH" },
+    { symbol: "atomusdt", positionAmt: -2, entryPrice: 0, markPrice: 0, unrealizedPnl: 0, positionSide: null },
+  ];
+
+  assert.equal(isOpenBinancePosition(positions[0]), false);
+  assert.equal(isOpenBinancePosition(positions[1]), false);
+  assert.equal(isOpenBinancePosition(positions[2]), true);
+  assert.equal(isOpenBinancePosition(positions[3]), true);
+  assert.deepEqual([...buildOpenBinancePositionSymbolSet(positions)].sort(), ["ATOMUSDT", "FILUSDT"]);
 });
