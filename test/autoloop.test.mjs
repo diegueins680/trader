@@ -1061,7 +1061,34 @@ test("top-combo optimizer wrapper retries activity-only short audits with deeper
   assert.match(script, /"status": status/);
   assert.match(script, /"filterReasons": filter_reasons/);
   assert.match(script, /"failureReasons": failure_reasons/);
-  assert.match(script, /"activityDiagnostics": activity_diagnostics/);
+    assert.match(script, /"activityDiagnostics": activity_diagnostics/);
+});
+
+test("top-combo optimizer wrapper centralizes quality-mode threshold max logging", async () => {
+  const script = await fs.readFile(new URL("../haskell/scripts/run_optimize_equity_top5.sh", import.meta.url), "utf8");
+  const readAssignedValue = (name) => {
+    const match = script.match(new RegExp(`^${name}="([^"]*)"$`, "m"));
+    assert.ok(match, `expected ${name} assignment`);
+    return match[1];
+  };
+
+  const qualityDefault = readAssignedValue("QUALITY_DEFAULT_THRESHOLD_MAX");
+  const productionDefault = readAssignedValue("DEFAULT_OPEN_THRESHOLD_MAX");
+  const loggedEffectiveThresholdMax = ({ requestedMax, explicit, quality = "1" }) =>
+    quality === "1" && explicit !== "1" && requestedMax === productionDefault ? qualityDefault : requestedMax;
+
+  assert.match(script, /QUALITY_DEFAULT_THRESHOLD_MAX="5e-2"/);
+  assert.match(script, /local quality_default="\$4"/);
+  assert.match(
+    script,
+    /EFFECTIVE_OPEN_THRESHOLD_MAX="\$\(quality_effective_threshold_max "\$OPEN_THRESHOLD_MAX" "\$OPEN_THRESHOLD_MAX_WAS_SET" "\$DEFAULT_OPEN_THRESHOLD_MAX" "\$QUALITY_DEFAULT_THRESHOLD_MAX"\)"/,
+  );
+  assert.match(
+    script,
+    /EFFECTIVE_CLOSE_THRESHOLD_MAX="\$\(quality_effective_threshold_max "\$CLOSE_THRESHOLD_MAX" "\$CLOSE_THRESHOLD_MAX_WAS_SET" "\$DEFAULT_CLOSE_THRESHOLD_MAX" "\$QUALITY_DEFAULT_THRESHOLD_MAX"\)"/,
+  );
+  assert.equal(loggedEffectiveThresholdMax({ requestedMax: productionDefault, explicit: "" }), qualityDefault);
+  assert.equal(loggedEffectiveThresholdMax({ requestedMax: productionDefault, explicit: "1" }), productionDefault);
 });
 
 test("volatility scorecard fails Kelly-lite rows without material exposure reduction", async () => {
