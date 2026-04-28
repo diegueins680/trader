@@ -9470,6 +9470,13 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     minCalmarEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_CALMAR"
                                     minWfSharpeMeanEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_WF_SHARPE_MEAN"
                                     maxWfSharpeStdEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_WF_SHARPE_STD"
+                                    discoveryRecoveryEnabledEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_ENABLED"
+                                    discoveryRecoveryTrialsEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS"
+                                    discoveryRecoveryTimeoutEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TIMEOUT_SEC"
+                                    discoveryRecoveryMinRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_ROUND_TRIPS"
+                                    discoveryRecoveryMinExposureEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EXPOSURE"
+                                    discoveryRecoveryMinSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_SHARPE"
+                                    discoveryRecoveryMinCalmarEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_CALMAR"
                                     maxPointsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
                                     symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
                                     intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
@@ -9491,7 +9498,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         timeoutSec =
                                             case timeoutEnv >>= readMaybe of
                                                 Just n | n >= 1 -> n
-                                                _ -> 45
+                                                _ -> 90
                                         maxPointsCap :: Int
                                         maxPointsCap = 5000
                                         maxPoints :: Int
@@ -9528,6 +9535,20 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         minWfSharpeMean = readNonNegativeDouble minWfSharpeMeanEnv 0
                                         maxWfSharpeStd :: Double
                                         maxWfSharpeStd = readNonNegativeDouble maxWfSharpeStdEnv 0
+                                        discoveryRecoveryEnabled = readEnvBool discoveryRecoveryEnabledEnv True
+                                        discoveryRecoveryTrials :: Int
+                                        discoveryRecoveryTrials =
+                                            max 1 (readNonNegativeInt discoveryRecoveryTrialsEnv 30)
+                                        discoveryRecoveryTimeoutSec :: Int
+                                        discoveryRecoveryTimeoutSec = max 1 (readNonNegativeInt discoveryRecoveryTimeoutEnv (max timeoutSec 120))
+                                        discoveryRecoveryMinRoundTrips :: Int
+                                        discoveryRecoveryMinRoundTrips = readNonNegativeInt discoveryRecoveryMinRoundTripsEnv (min minRoundTrips 1)
+                                        discoveryRecoveryMinExposure :: Double
+                                        discoveryRecoveryMinExposure = clamp01 (readNonNegativeDouble discoveryRecoveryMinExposureEnv (min minExposure 0.005))
+                                        discoveryRecoveryMinSharpe :: Double
+                                        discoveryRecoveryMinSharpe = readNonNegativeDouble discoveryRecoveryMinSharpeEnv (min minSharpe 0.1)
+                                        discoveryRecoveryMinCalmar :: Double
+                                        discoveryRecoveryMinCalmar = readNonNegativeDouble discoveryRecoveryMinCalmarEnv (min minCalmar 0.1)
                                         objectiveAllowed =
                                             [ "annualized-equity"
                                             , "roi"
@@ -9613,103 +9634,207 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     (either (const Nothing) (adoptRequirementLongShortOverride argsSym))
                                                                                     (resolveAdoptionRequirementWithEnv argsSym env sym)
                                                                             let recordsPath = optimizerTmp </> printf "optimizer-auto-%d-%016x.jsonl" (ts :: Integer) randId
+                                                                                recoveryRecordsPath = optimizerTmp </> printf "optimizer-auto-%d-%016x-recovery.jsonl" (ts :: Integer) randId
+                                                                                seed :: Int
                                                                                 seed = fromIntegral (seedId `mod` 2000000000)
-                                                                                cliArgs =
-                                                                                    [ "--data"
-                                                                                    , csvPath
-                                                                                    , "--price-column"
-                                                                                    , "close"
-                                                                                    , "--high-column"
-                                                                                    , "high"
-                                                                                    , "--low-column"
-                                                                                    , "low"
-                                                                                    , "--interval"
-                                                                                    , interval
-                                                                                    , "--lookback-window"
-                                                                                    , lookbackWindow
-                                                                                    , "--backtest-ratio"
-                                                                                    , show backtestRatio
-                                                                                    , "--tune-ratio"
-                                                                                    , show tuneRatio
-                                                                                    , "--trials"
-                                                                                    , show trials
-                                                                                    , "--timeout-sec"
-                                                                                    , show (timeoutSec :: Int)
-                                                                                    , "--seed"
-                                                                                    , show (seed :: Int)
-                                                                                    , "--output"
-                                                                                    , recordsPath
-                                                                                    , "--symbol-label"
-                                                                                    , sym
-                                                                                    , "--source-label"
-                                                                                    , "binance"
-                                                                                    , "--objective"
-                                                                                    , objective
-                                                                                    , "--min-round-trips"
-                                                                                    , show minRoundTrips
-                                                                                    , "--min-exposure"
-                                                                                    , show minExposure
-                                                                                    , "--min-sharpe"
-                                                                                    , show minSharpe
-                                                                                    , "--min-calmar"
-                                                                                    , show minCalmar
-                                                                                    , "--min-wf-sharpe-mean"
-                                                                                    , show minWfSharpeMean
-                                                                                    , "--max-wf-sharpe-std"
-                                                                                    , show maxWfSharpeStd
-                                                                                    , "--binary"
-                                                                                    , exePath
-                                                                                    , "--disable-lstm-persistence"
-                                                                                    ]
-                                                                                cliArgs' =
+                                                                                recoverySeed :: Int
+                                                                                recoverySeed = (seed + 7919) `mod` 2000000000
+                                                                                appendAdoption args =
                                                                                     case adoptOverride of
-                                                                                        Nothing -> cliArgs
-                                                                                        Just pLongShort -> cliArgs ++ ["--p-long-short", show pLongShort]
-
-                                                                            runResult <- runOptimizerProcess projectRoot recordsPath maxOutputBytes cliArgs'
-                                                                            case runResult of
-                                                                                Left (msg, out, err) -> do
-                                                                                    now <- getTimestampMs
-                                                                                    journalWriteMaybe
-                                                                                        mJournal
-                                                                                        ( object
-                                                                                            [ "type" .= ("optimizer.auto.run_failed" :: String)
-                                                                                            , "atMs" .= now
-                                                                                            , "error" .= msg
-                                                                                            , "stdout" .= out
-                                                                                            , "stderr" .= err
-                                                                                            ]
-                                                                                        )
-                                                                                Right _ -> do
-                                                                                    mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsPath maxCombos)
-                                                                                    case mergeResult of
+                                                                                        Nothing -> args
+                                                                                        Just pLongShort -> args ++ ["--p-long-short", show pLongShort]
+                                                                                mkCliArgs outPath seedVal trialsVal timeoutVal minRoundTripsVal minExposureVal minSharpeVal minCalmarVal extraArgs =
+                                                                                    appendAdoption $
+                                                                                        [ "--data"
+                                                                                        , csvPath
+                                                                                        , "--price-column"
+                                                                                        , "close"
+                                                                                        , "--high-column"
+                                                                                        , "high"
+                                                                                        , "--low-column"
+                                                                                        , "low"
+                                                                                        , "--interval"
+                                                                                        , interval
+                                                                                        , "--lookback-window"
+                                                                                        , lookbackWindow
+                                                                                        , "--backtest-ratio"
+                                                                                        , show backtestRatio
+                                                                                        , "--tune-ratio"
+                                                                                        , show tuneRatio
+                                                                                        , "--trials"
+                                                                                        , show (trialsVal :: Int)
+                                                                                        , "--timeout-sec"
+                                                                                        , show (timeoutVal :: Int)
+                                                                                        , "--seed"
+                                                                                        , show (seedVal :: Int)
+                                                                                        , "--output"
+                                                                                        , outPath
+                                                                                        , "--symbol-label"
+                                                                                        , sym
+                                                                                        , "--source-label"
+                                                                                        , "binance"
+                                                                                        , "--objective"
+                                                                                        , objective
+                                                                                        , "--min-round-trips"
+                                                                                        , show (minRoundTripsVal :: Int)
+                                                                                        , "--min-exposure"
+                                                                                        , show (minExposureVal :: Double)
+                                                                                        , "--min-sharpe"
+                                                                                        , show (minSharpeVal :: Double)
+                                                                                        , "--min-calmar"
+                                                                                        , show (minCalmarVal :: Double)
+                                                                                        , "--min-wf-sharpe-mean"
+                                                                                        , show minWfSharpeMean
+                                                                                        , "--max-wf-sharpe-std"
+                                                                                        , show maxWfSharpeStd
+                                                                                        , "--binary"
+                                                                                        , exePath
+                                                                                        , "--disable-lstm-persistence"
+                                                                                        ]
+                                                                                            ++ extraArgs
+                                                                                discoveryRecoveryArgs =
+                                                                                    [ "--open-threshold-min"
+                                                                                    , "0.00005"
+                                                                                    , "--open-threshold-max"
+                                                                                    , "0.005"
+                                                                                    , "--close-threshold-min"
+                                                                                    , "0.000001"
+                                                                                    , "--close-threshold-max"
+                                                                                    , "0.005"
+                                                                                    , "--min-hold-bars-min"
+                                                                                    , "0"
+                                                                                    , "--min-hold-bars-max"
+                                                                                    , "4"
+                                                                                    , "--cooldown-bars-min"
+                                                                                    , "0"
+                                                                                    , "--cooldown-bars-max"
+                                                                                    , "1"
+                                                                                    , "--max-hold-bars-min"
+                                                                                    , "8"
+                                                                                    , "--max-hold-bars-max"
+                                                                                    , "48"
+                                                                                    , "--min-edge-min"
+                                                                                    , "0"
+                                                                                    , "--min-edge-max"
+                                                                                    , "0.0005"
+                                                                                    , "--min-signal-to-noise-min"
+                                                                                    , "0"
+                                                                                    , "--min-signal-to-noise-max"
+                                                                                    , "0.8"
+                                                                                    , "--edge-buffer-min"
+                                                                                    , "0"
+                                                                                    , "--edge-buffer-max"
+                                                                                    , "0.00025"
+                                                                                    , "--p-confirm-conformal"
+                                                                                    , "0.1"
+                                                                                    , "--p-confirm-quantiles"
+                                                                                    , "0.1"
+                                                                                    , "--method-weight-11"
+                                                                                    , "0.25"
+                                                                                    , "--method-weight-10"
+                                                                                    , "4.0"
+                                                                                    , "--method-weight-01"
+                                                                                    , "0.1"
+                                                                                    , "--method-weight-edge-blend"
+                                                                                    , "1.0"
+                                                                                    , "--method-weight-edge-pick"
+                                                                                    , "1.0"
+                                                                                    , "--method-weight-regime-switch"
+                                                                                    , "0.0"
+                                                                                    , "--method-weight-bandit-router"
+                                                                                    , "0.0"
+                                                                                    ]
+                                                                                cliArgs = mkCliArgs recordsPath seed trials timeoutSec minRoundTrips minExposure minSharpe minCalmar []
+                                                                                recoveryCliArgs =
+                                                                                    mkCliArgs
+                                                                                        recoveryRecordsPath
+                                                                                        recoverySeed
+                                                                                        discoveryRecoveryTrials
+                                                                                        discoveryRecoveryTimeoutSec
+                                                                                        discoveryRecoveryMinRoundTrips
+                                                                                        discoveryRecoveryMinExposure
+                                                                                        discoveryRecoveryMinSharpe
+                                                                                        discoveryRecoveryMinCalmar
+                                                                                        discoveryRecoveryArgs
+                                                                                runAutoAttempt attempt recordsOut argsOut = do
+                                                                                    runResult <- runOptimizerProcess projectRoot recordsOut maxOutputBytes argsOut
+                                                                                    summary <- readOptimizerRecordsSummary recordsOut
+                                                                                    case runResult of
                                                                                         Left (msg, out, err) -> do
                                                                                             now <- getTimestampMs
                                                                                             journalWriteMaybe
                                                                                                 mJournal
                                                                                                 ( object
-                                                                                                    [ "type" .= ("optimizer.auto.merge_failed" :: String)
+                                                                                                    [ "type" .= ("optimizer.auto.run_failed" :: String)
                                                                                                     , "atMs" .= now
+                                                                                                    , "attempt" .= (attempt :: String)
                                                                                                     , "error" .= msg
                                                                                                     , "stdout" .= out
                                                                                                     , "stderr" .= err
+                                                                                                    , "recordsSummary" .= optimizerRecordsSummaryJson summary
                                                                                                     ]
                                                                                                 )
+                                                                                            pure (False, summary)
                                                                                         Right _ -> do
-                                                                                            persistTopCombosDbMaybe mOps topCombosStore
-                                                                                            opsAppendMaybe
-                                                                                                mOps
-                                                                                                Nothing
-                                                                                                "optimizer.auto.updated"
-                                                                                                Nothing
-                                                                                                (Just (object ["symbol" .= sym, "interval" .= interval]))
-                                                                                                Nothing
-                                                                                                Nothing
-                                                                                                Nothing
-                                                                                                (Just (T.pack sym))
-                                                                                                Nothing
-                                                                                    _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
-                                                                                    pure ()
+                                                                                            mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsOut maxCombos)
+                                                                                            case mergeResult of
+                                                                                                Left (msg, out, err) -> do
+                                                                                                    now <- getTimestampMs
+                                                                                                    journalWriteMaybe
+                                                                                                        mJournal
+                                                                                                        ( object
+                                                                                                            [ "type" .= ("optimizer.auto.merge_failed" :: String)
+                                                                                                            , "atMs" .= now
+                                                                                                            , "attempt" .= (attempt :: String)
+                                                                                                            , "error" .= msg
+                                                                                                            , "stdout" .= out
+                                                                                                            , "stderr" .= err
+                                                                                                            , "recordsSummary" .= optimizerRecordsSummaryJson summary
+                                                                                                            ]
+                                                                                                        )
+                                                                                                    pure (False, summary)
+                                                                                                Right _ -> do
+                                                                                                    persistTopCombosDbMaybe mOps topCombosStore
+                                                                                                    opsAppendMaybe
+                                                                                                        mOps
+                                                                                                        Nothing
+                                                                                                        "optimizer.auto.updated"
+                                                                                                        Nothing
+                                                                                                        (Just (object ["symbol" .= sym, "interval" .= interval, "attempt" .= (attempt :: String)]))
+                                                                                                        Nothing
+                                                                                                        Nothing
+                                                                                                        Nothing
+                                                                                                        (Just (T.pack sym))
+                                                                                                        Nothing
+                                                                                                    pure (True, summary)
+
+                                                                            (primaryMerged, primarySummary) <- runAutoAttempt "primary" recordsPath cliArgs
+                                                                            recoveryMerged <-
+                                                                                if discoveryRecoveryEnabled && optimizerRecordsShouldRetryDiscovery primarySummary
+                                                                                    then do
+                                                                                        now <- getTimestampMs
+                                                                                        journalWriteMaybe
+                                                                                            mJournal
+                                                                                            ( object
+                                                                                                [ "type" .= ("optimizer.auto.discovery_recovery" :: String)
+                                                                                                , "atMs" .= now
+                                                                                                , "symbol" .= sym
+                                                                                                , "interval" .= interval
+                                                                                                , "recordsSummary" .= optimizerRecordsSummaryJson primarySummary
+                                                                                                , "minRoundTrips" .= discoveryRecoveryMinRoundTrips
+                                                                                                , "minExposure" .= discoveryRecoveryMinExposure
+                                                                                                , "trials" .= discoveryRecoveryTrials
+                                                                                                , "timeoutSec" .= discoveryRecoveryTimeoutSec
+                                                                                                ]
+                                                                                            )
+                                                                                        fst <$> runAutoAttempt "discovery-recovery" recoveryRecordsPath recoveryCliArgs
+                                                                                    else pure False
+                                                                            when primaryMerged $ do
+                                                                                _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
+                                                                                pure ()
+                                                                            when recoveryMerged $ do
+                                                                                _ <- try (removeFile recoveryRecordsPath) :: IO (Either SomeException ())
+                                                                                pure ()
                                                                             sleepSec everySec
                                                                             loop
                                                         _ -> do
@@ -14378,6 +14503,91 @@ readLastOptimizerRecord path = do
                                 case Aeson.eitherDecodeStrict' lastLine of
                                     Left err -> pure (Left ("Failed to parse optimizer record: " ++ err))
                                     Right val -> pure (Right val)
+
+data OptimizerRecordsSummary = OptimizerRecordsSummary
+    { orsRecords :: !Int
+    , orsEligible :: !Int
+    , orsActivityFiltered :: !Int
+    , orsExposureFiltered :: !Int
+    , orsOpenThresholdFiltered :: !Int
+    , orsTimeouts :: !Int
+    }
+    deriving (Eq, Show)
+
+emptyOptimizerRecordsSummary :: OptimizerRecordsSummary
+emptyOptimizerRecordsSummary =
+    OptimizerRecordsSummary
+        { orsRecords = 0
+        , orsEligible = 0
+        , orsActivityFiltered = 0
+        , orsExposureFiltered = 0
+        , orsOpenThresholdFiltered = 0
+        , orsTimeouts = 0
+        }
+
+optimizerRecordsSummaryJson :: OptimizerRecordsSummary -> Aeson.Value
+optimizerRecordsSummaryJson s =
+    object
+        [ "records" .= orsRecords s
+        , "eligible" .= orsEligible s
+        , "activityFiltered" .= orsActivityFiltered s
+        , "exposureFiltered" .= orsExposureFiltered s
+        , "openThresholdFiltered" .= orsOpenThresholdFiltered s
+        , "timeouts" .= orsTimeouts s
+        ]
+
+optimizerRecordsShouldRetryDiscovery :: OptimizerRecordsSummary -> Bool
+optimizerRecordsShouldRetryDiscovery s =
+    orsRecords s > 0
+        && orsEligible s == 0
+        && ( orsActivityFiltered s > 0
+                || orsExposureFiltered s > 0
+                || orsOpenThresholdFiltered s > 0
+                || orsTimeouts s > 0
+           )
+
+readOptimizerRecordsSummary :: FilePath -> IO OptimizerRecordsSummary
+readOptimizerRecordsSummary path = do
+    exists <- doesFileExist path
+    if not exists
+        then pure emptyOptimizerRecordsSummary
+        else do
+            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+            case contentsOrErr of
+                Left _ -> pure emptyOptimizerRecordsSummary
+                Right contents ->
+                    pure $
+                        foldl'
+                            addLine
+                            emptyOptimizerRecordsSummary
+                            (filter (not . BS.null) (BS.lines (BL.toStrict contents)))
+  where
+    addLine acc line =
+        case Aeson.eitherDecodeStrict' line of
+            Right (Aeson.Object obj) -> addRecord acc obj
+            _ -> acc
+    addRecord acc obj =
+        let eligible = fromMaybe False (KM.lookup (AK.fromString "eligible") obj >>= AT.parseMaybe Aeson.parseJSON)
+            reason =
+                fromMaybe
+                    ""
+                    ( (KM.lookup (AK.fromString "filterReason") obj >>= AT.parseMaybe Aeson.parseJSON)
+                        <|> (KM.lookup (AK.fromString "reason") obj >>= AT.parseMaybe Aeson.parseJSON)
+                    )
+            records' = orsRecords acc + 1
+            eligible' = orsEligible acc + if eligible then 1 else 0
+            activity' = orsActivityFiltered acc + if "activityCount<" `isPrefixOf` reason then 1 else 0
+            exposure' = orsExposureFiltered acc + if "exposure<" `isPrefixOf` reason then 1 else 0
+            openThreshold' = orsOpenThresholdFiltered acc + if "openThreshold>" `isPrefixOf` reason then 1 else 0
+            timeouts' = orsTimeouts acc + if "timeout>" `isPrefixOf` reason then 1 else 0
+         in acc
+                { orsRecords = records'
+                , orsEligible = eligible'
+                , orsActivityFiltered = activity'
+                , orsExposureFiltered = exposure'
+                , orsOpenThresholdFiltered = openThreshold'
+                , orsTimeouts = timeouts'
+                }
 
 writeKlinesCsv :: FilePath -> [Kline] -> IO ()
 writeKlinesCsv path ks = do
