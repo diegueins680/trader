@@ -1843,10 +1843,24 @@ testOptimizerQualityThresholdArgvExplicitRegression :: IO ()
 testOptimizerQualityThresholdArgvExplicitRegression = do
     let qualityDefaultCap = 2e-2 :: Double
         qualityExplorationFloor = 5e-2 :: Double
+        explicitOpenCap = 6e-3 :: Double
+        explicitCloseCap = 8e-3 :: Double
         splitOpenForm = ["--quality", "--open-threshold-max", "2e-2"]
         equalsOpenForm = ["--quality", "--open-threshold-max=2e-2"]
         splitCloseForm = ["--quality", "--close-threshold-max", "2e-2"]
         equalsCloseForm = ["--quality", "--close-threshold-max=2e-2"]
+        splitBothForm =
+            [ "--quality"
+            , "--open-threshold-max"
+            , "6e-3"
+            , "--close-threshold-max"
+            , "8e-3"
+            ]
+        equalsBothForm =
+            [ "--quality"
+            , "--open-threshold-max=6e-3"
+            , "--close-threshold-max=8e-3"
+            ]
         omitted = ["--quality"]
         parser =
             (,,,,)
@@ -1909,6 +1923,26 @@ testOptimizerQualityThresholdArgvExplicitRegression = do
                     && closeCap == qualityDefaultCap
                     && effectiveOpenCap parsed == qualityExplorationFloor
                     && effectiveCloseCap parsed == qualityDefaultCap
+            _ -> False
+        )
+    assert
+        "optimizer execParserPure preserves split-form dual explicit quality caps exactly as requested"
+        ( case parseQualityThresholdArgs splitBothForm of
+            Right parsed@(True, openCap, closeCap, True, True) ->
+                openCap == explicitOpenCap
+                    && closeCap == explicitCloseCap
+                    && effectiveOpenCap parsed == explicitOpenCap
+                    && effectiveCloseCap parsed == explicitCloseCap
+            _ -> False
+        )
+    assert
+        "optimizer execParserPure preserves equals-form dual explicit quality caps exactly as requested"
+        ( case parseQualityThresholdArgs equalsBothForm of
+            Right parsed@(True, openCap, closeCap, True, True) ->
+                openCap == explicitOpenCap
+                    && closeCap == explicitCloseCap
+                    && effectiveOpenCap parsed == explicitOpenCap
+                    && effectiveCloseCap parsed == explicitCloseCap
             _ -> False
         )
     assert
