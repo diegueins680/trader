@@ -15,7 +15,7 @@ services:
       - key: TRADER_MULTI_USER
         value: "true"
       - key: TRADER_OPTIMIZER_ENABLED
-        value: "false"
+        value: "true"
       - key: TRADER_TOP_COMBOS_BACKTEST_ENABLED
         value: "false"
       - key: TRADER_BOT_AUTOSTART

@@ -1570,10 +1570,18 @@ test("normalizeFormState preserves restored fraction validation and precedence",
   assert.equal(precedenceState.fractionError, "Order quote fraction must be <= 1 (use 0 to disable).");
   assert.equal(precedenceState.blockingError, null);
 });
-test("defaultForm uses safe trade defaults", () => {
-assert.equal(defaultForm.binanceLive, false);
-assert.equal(defaultForm.tradeArmed, false);
+test("defaultForm uses live armed trade presets", () => {
+assert.equal(defaultForm.binanceLive, true);
+assert.equal(defaultForm.tradeArmed, true);
 assert.equal(defaultForm.botAdoptExistingPosition, true);
+assert.equal(defaultForm.orderQuote, 0);
+assert.equal(defaultForm.orderQuantity, 0);
+assert.equal(defaultForm.orderQuoteFraction, 1);
+assert.equal(defaultForm.maxOrderQuote, 0);
+const state = summarizeOrderSizing(defaultForm);
+assert.equal(state.effective, "orderQuoteFraction");
+assert.equal(state.statusLabel, "Using quote fraction");
+assert.equal(state.effectiveLabel, "Fraction 100.00%");
 });
 test("normalizeFormState keeps restored enums and downstream-clamped fields inside their finite domains", () => {
 const methodIds = [

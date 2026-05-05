@@ -3311,7 +3311,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                   Arm trading
                 </label>
               </div>
-              <div className="hint">Trading is disabled by default. Only arm it when you’re ready.</div>
+              <div className="hint">Default preset uses live armed trading. Disable either control before running for paper/test mode.</div>
               {form.market === "margin" ? <div className="hint">Live orders are required for margin (forced on).</div> : null}
 
               {confirmLive ? (
@@ -3545,7 +3545,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               className="btn btnDanger"
               disabled={state.loading || !form.tradeArmed || Boolean(tradeDisabledReason)}
               onClick={() => run("trade")}
-              title={tradeDisabledReason ?? (form.binanceLive ? "LIVE order mode enabled" : "Test order mode (default)")}
+              title={tradeDisabledReason ?? (form.binanceLive ? "LIVE order mode enabled" : "Test order mode enabled")}
             >
               {state.loading && state.lastKind === "trade" ? "Trading…" : "Trade (uses latest signal)"}
             </button>

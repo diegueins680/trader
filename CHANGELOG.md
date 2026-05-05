@@ -1,4 +1,6 @@
 ## Unreleased
+- Web/Trade: default new trade forms to live armed trading and quote-fraction sizing with `orderQuoteFraction=1`, `orderQuote=0`, and `orderQuantity=0`, matching the Live Bot & Trade preset.
+- Deploy: enable the backend auto optimizer in checked-in Fly and Render deployment configs; Fly also enables scheduled top-combo rechecks with the documented 15-minute optimizer cadence and 30-day exchange history window so production combos keep refreshing without external imports.
 - Web/Optimizer: add parameter-to-ROI correlation charts to the Optimizer Combos section, scoped to the active combo filters, plus correlation-guided optimizer guesses that prefill run ranges and advanced extra JSON knobs from the strongest ROI relationships.
 - Web: show loaded open-position and orphaned-position counts next to the Positions and Orphaned ops items in the Sections menu.
 - Web/Live Bot: order Live Bot symbol selectors with symbols that have currently open Binance futures positions before flat symbols, then keep the existing active/running/startup ordering.

@@ -8,7 +8,7 @@ This repo includes `render.yaml` for a zero-cost API deployment on Render.
 - Health check at `/health`
 - Auto-generated `TRADER_API_TOKEN`
 - Low-resource defaults for smaller instances:
-  - `TRADER_OPTIMIZER_ENABLED=false`
+  - `TRADER_OPTIMIZER_ENABLED=true`
   - `TRADER_TOP_COMBOS_BACKTEST_ENABLED=false`
   - `TRADER_BOT_AUTOSTART=false`
   - `TRADER_API_MAX_EPOCHS=30`
