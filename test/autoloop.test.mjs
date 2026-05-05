@@ -684,16 +684,20 @@ test("autoloop script polls GitHub CI for each pushed sha before completing", as
   assert.match(script, /const pushedHeadSha = runGit\(\["rev-parse", "HEAD"\]\);/);
   assert.match(script, /phase: "ci-wait",\s*[\s\S]*headSha: pushedHeadSha/);
   assert.match(script, /const ci = waitForBranchCi\(pushedHeadSha, LOOP_BRANCH\);/);
+  assert.match(script, /function selectLatestWorkflowRunsByWorkflow\(runs\)/);
+  assert.match(script, /function workflowRunIdentity\(run\)/);
   assert.match(
     script,
     /function pollGitHubActionsForHead\(\s*headSha,\s*branchName,\s*\{ requireWorkflowRun, timeoutSeconds = CI_DISCOVERY_TIMEOUT_SECONDS \},\s*\)/,
   );
   assert.match(script, /const runs = listWorkflowRunsForHead\(headSha, branchName\)\.filter\(\(run\) => run\.head_sha === headSha\);/);
-  assert.match(script, /const failedRuns = runs\.filter\(/);
-  assert.match(script, /const pendingRuns = runs\.filter\(/);
+  assert.match(script, /const latestRuns = selectLatestWorkflowRunsByWorkflow\(runs\);/);
+  assert.match(script, /const failedRuns = latestRuns\.filter\(/);
+  assert.match(script, /const pendingRuns = latestRuns\.filter\(/);
   assert.match(script, /String\(Math\.min\(CI_DISCOVERY_POLL_SECONDS, remainingSeconds\)\)/);
   assert.match(script, /pending: pendingRuns\.length > 0,/);
-  assert.match(script, /return \{\s*ok: true,\s*headSha,\s*branchName,\s*workflowRuns: runs,/);
+  assert.match(script, /return \{\s*ok: true,\s*headSha,\s*branchName,\s*workflowRuns: latestRuns,/);
+  assert.match(script, /missing: latestRuns\.length === 0,/);
 });
 
 test("autoloop script feeds failed CI logs back into codex repair prompts", async () => {
@@ -804,7 +808,7 @@ test("autoloop script auto-heals hlint-only CI failures on editable Haskell file
 test("autoloop script promotes failing log paths into generic self-heal scope", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
   assert.match(script, /const MAX_EDITABLE_FILE_BYTES = clampInt\(process\.env\.AUTOLOOP_MAX_FILE_BYTES, 1000000, 4000, 5000000\);/);
-  assert.match(script, /const PATCH_PLAN_PROMPT_MAX_CHARS = clampInt\(process\.env\.AUTOLOOP_PATCH_PLAN_MAX_CHARS, 900000, 200000, 1048576\);/);
+  assert.match(script, /const PATCH_PLAN_PROMPT_MAX_CHARS = clampInt\(process\.env\.AUTOLOOP_PATCH_PLAN_MAX_CHARS, 2000000, 200000, 3000000\);/);
   assert.match(script, /function parseFailureReferencedPaths\(failedLog\)/);
   assert.match(script, /function deriveFailureRepairPaths\(failureContext\)/);
   assert.match(script, /const reviewRepairPaths = deriveAiReviewRepairPaths\(actionableReviewFeedbackContext\);/);

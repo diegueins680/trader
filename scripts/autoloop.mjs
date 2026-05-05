@@ -32,7 +32,7 @@ const LOOP_BRANCH = BASE_BRANCH;
 const MAX_ITERATIONS = clampInt(process.env.AUTOLOOP_MAX_ITERATIONS, 2, 1, 5);
 const MAX_EDITABLE_FILE_BYTES = clampInt(process.env.AUTOLOOP_MAX_FILE_BYTES, 1000000, 4000, 5000000);
 const MAX_EDITABLE_FILES = clampInt(process.env.AUTOLOOP_MAX_FILES, 120, 20, 300);
-const PATCH_PLAN_PROMPT_MAX_CHARS = clampInt(process.env.AUTOLOOP_PATCH_PLAN_MAX_CHARS, 900000, 200000, 1048576);
+const PATCH_PLAN_PROMPT_MAX_CHARS = clampInt(process.env.AUTOLOOP_PATCH_PLAN_MAX_CHARS, 2000000, 200000, 3000000);
 const DRY_RUN = process.argv.includes("--dry-run");
 const STATUS_FILE = resolveOptionalPath(process.env.AUTOLOOP_STATUS_FILE);
 const RUN_ID = process.env.AUTOLOOP_RUN_ID || "";
@@ -1699,6 +1699,31 @@ function collectFailedWorkflowDiagnostics(failedRuns) {
   };
 }
 
+function workflowRunIdentity(run) {
+  if (run?.workflow_id) return `workflow:${run.workflow_id}`;
+  if (run?.path) return `path:${run.path}`;
+  if (run?.name) return `name:${run.name}`;
+  return `run:${run?.id || ""}`;
+}
+
+function workflowRunTimestamp(run) {
+  const raw = run?.run_started_at || run?.updated_at || run?.created_at || "";
+  const time = Date.parse(raw);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function selectLatestWorkflowRunsByWorkflow(runs) {
+  const latest = new Map();
+  const newestFirst = [...runs].sort(
+    (a, b) => workflowRunTimestamp(b) - workflowRunTimestamp(a) || Number(b?.id || 0) - Number(a?.id || 0),
+  );
+  for (const run of newestFirst) {
+    const key = workflowRunIdentity(run);
+    if (!latest.has(key)) latest.set(key, run);
+  }
+  return Array.from(latest.values());
+}
+
 function pollGitHubActionsForHead(
   headSha,
   branchName,
@@ -1708,7 +1733,8 @@ function pollGitHubActionsForHead(
 
   while (true) {
     const runs = listWorkflowRunsForHead(headSha, branchName).filter((run) => run.head_sha === headSha);
-    const failedRuns = runs.filter(
+    const latestRuns = selectLatestWorkflowRunsByWorkflow(runs);
+    const failedRuns = latestRuns.filter(
       (run) => run.status === "completed" && isFailedWorkflowConclusion(run.conclusion),
     );
     if (failedRuns.length > 0) {
@@ -1716,29 +1742,29 @@ function pollGitHubActionsForHead(
         ok: false,
         headSha,
         branchName,
-        workflowRuns: runs,
+        workflowRuns: latestRuns,
         ...collectFailedWorkflowDiagnostics(failedRuns),
       };
     }
 
-    const pendingRuns = runs.filter((run) => run.status !== "completed");
-    if (runs.length > 0 && pendingRuns.length === 0) {
+    const pendingRuns = latestRuns.filter((run) => run.status !== "completed");
+    if (latestRuns.length > 0 && pendingRuns.length === 0) {
       return {
         ok: true,
         headSha,
         branchName,
-        workflowRuns: runs,
+        workflowRuns: latestRuns,
       };
     }
 
     if (Date.now() >= deadline) {
-      if (!requireWorkflowRun && (runs.length === 0 || pendingRuns.length > 0)) {
+      if (!requireWorkflowRun && (latestRuns.length === 0 || pendingRuns.length > 0)) {
         return {
           ok: true,
           headSha,
           branchName,
-          workflowRuns: runs,
-          missing: runs.length === 0,
+          workflowRuns: latestRuns,
+          missing: latestRuns.length === 0,
           pending: pendingRuns.length > 0,
         };
       }
