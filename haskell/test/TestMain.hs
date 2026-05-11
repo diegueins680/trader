@@ -719,6 +719,7 @@ sampleEnsembleConfig =
         , ecKellyLiteFraction = 0.5
         , ecKellyLiteFloor = 0
         , ecKellyLiteCap = 1
+        , ecEntryEdgeSpikeConsecutive = 0
         }
 
 optimizerPublicSurfaceWitnessConfig :: EnsembleConfig

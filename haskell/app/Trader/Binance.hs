@@ -52,6 +52,7 @@ module Trader.Binance (
     createListenKey,
     keepAliveListenKey,
     closeListenKey,
+    futuresPositionRiskLeverageSane,
 ) where
 
 import Control.Applicative ((<|>))
@@ -1837,6 +1838,11 @@ instance FromJSON FuturesPositionRisk where
                 , fprMarginType = marginType
                 , fprPositionSide = positionSide
                 }
+
+futuresPositionRiskLeverageSane :: FuturesPositionRisk -> Bool
+futuresPositionRiskLeverageSane fpr =
+    let lev = fprLeverage fpr
+     in not (isNaN lev || isInfinite lev) && lev > 0 && lev <= 125
 
 fetchFuturesPositionRisks :: BinanceEnv -> IO [FuturesPositionRisk]
 fetchFuturesPositionRisks env = do

@@ -10,6 +10,9 @@ module Trader.SignalGates (
     normalizeSignalEntryEdge,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
+    directionalityWeakBandConfirmed,
+    directionalityWeakBandConfirmedWithPrediction,
+    signalDirectionalitySnapshotImplWithPrediction,
     signalEntryOpenThresholdFeasibilityCap,
     signalEntryOpenThresholdFeasibilityReason,
     signalEntryOpenThresholdFeasible,
@@ -20,6 +23,9 @@ module Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryEdgeSpikeEntryOk,
     signalEntryEdgeSpikeAuditWarning,
+    signalEntryEdgeSpikeOkInterval,
+    signalEntryEdgeSpikeEntryOkInterval,
+    signalEntryEdgeSpikeAuditWarningInterval,
     signalEntryEdgeSpikeConsecutiveOk,
     signalEntryFeeBufferOk,
     signalTrendSmaConfirmed,
@@ -573,3 +579,28 @@ signalPredictionSanityOk currentPrice (Just predVal)
     | predVal < currentPrice * 0.01 = (False, Just "MODEL_ANOMALY")
     | predVal > currentPrice * 100 = (False, Just "MODEL_ANOMALY")
     | otherwise = (True, Nothing)
+
+directionalityWeakBandConfirmedWithPrediction :: Double -> Maybe Int -> Maybe Double -> Double -> Bool
+directionalityWeakBandConfirmedWithPrediction zScore mChosenDir _ _ =
+    directionalityWeakBandConfirmed zScore mChosenDir
+
+signalDirectionalitySnapshotImplWithPrediction ::
+    Double ->
+    Maybe RegimeProbs ->
+    V.Vector Double ->
+    Int ->
+    Maybe Int ->
+    Maybe Double ->
+    Double ->
+    Maybe DirectionalitySnapshot
+signalDirectionalitySnapshotImplWithPrediction regimeBankHysteresis mRegimes pricesV t mChosenDir _ _ =
+    signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t mChosenDir
+
+signalEntryEdgeSpikeOkInterval :: String -> Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeOkInterval _ = signalEntryEdgeSpikeOk
+
+signalEntryEdgeSpikeEntryOkInterval :: String -> Bool -> Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeEntryOkInterval _ = signalEntryEdgeSpikeEntryOk
+
+signalEntryEdgeSpikeAuditWarningInterval :: String -> Bool -> Double -> Maybe Double -> Maybe String
+signalEntryEdgeSpikeAuditWarningInterval _ = signalEntryEdgeSpikeAuditWarning
