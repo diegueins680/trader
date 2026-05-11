@@ -70,7 +70,7 @@ optimizerArgsParser =
         <*> option auto (long "perturb-scale-double" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "perturb-scale-int" <> value 2 <> metavar "INT")
         <*> option auto (long "early-stop-no-improve" <> value 0 <> metavar "INT")
-        <*> option auto (long "timeout-sec" <> value 60.0 <> metavar "FLOAT")
+        <*> option auto (long "timeout-sec" <> value 90.0 <> metavar "FLOAT")
         <*> strOption (long "output" <> value "" <> metavar "PATH")
         <*> switch (long "append")
         <*> strOption (long "binary" <> value "" <> metavar "PATH")

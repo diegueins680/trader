@@ -872,7 +872,7 @@ opts = do
         option
             (eitherReader parseVolConfGatePreset)
             ( long "vol-conf-gate"
-                <> value VolConfGateDisabled
+                <> value VolConfGateV1Default
                 <> showDefaultWith (const "disabled")
                 <> metavar "PRESET"
                 <> help ("Frozen volatility/confidence gate preset. Choices: " ++ volConfGateChoicesCsv)
@@ -1442,6 +1442,7 @@ validateArgs args0 = do
     ensure "--kalman-measurement-var must be > 0" (argKalmanMeasurementVar args > 0)
     ensure "--kalman-market-top-n must be >= 0" (argKalmanMarketTopN args >= 0)
     ensure "--open-threshold/--threshold must be >= 0" (argOpenThreshold args >= 0)
+    ensure "--open-threshold/--threshold must be <= 1" (argOpenThreshold args <= 1)
     ensure "--close-threshold must be >= 0" (argCloseThreshold args >= 0)
     ensure "--router-lookback must be >= 2" (argRouterLookback args >= 2)
     ensure "--router-min-score must be between 0 and 1" (argRouterMinScore args >= 0 && argRouterMinScore args <= 1)
@@ -1568,6 +1569,7 @@ validateArgs args0 = do
     ensure "--edge-buffer must be >= 0" (argEdgeBuffer args >= 0)
     ensure "--trend-lookback must be >= 0" (argTrendLookback args >= 0)
     ensure "--max-position-size must be >= 0" (argMaxPositionSize args >= 0)
+    ensure "--max-position-size must be <= 10" (argMaxPositionSize args <= 10)
     let volTargetEnabled = maybe False (> 0) (argVolTarget args)
     case argVolTarget args of
         Nothing -> pure ()

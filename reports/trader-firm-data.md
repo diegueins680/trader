@@ -81,7 +81,7 @@ no-existing-data-validation-seam
 FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-13 18:55 --vol-conf-gate proof slice
 
 ## Finished result — 2026-04-14 03:47 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; requested first-40-line slice returned.
+- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
 - `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted `M haskell/app/Main.hs` and `M haskell/test/TestMain.hs`.
 - `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring.
 - `app/Main.hs:358,387,437,1194,1207` threads the preset, emits `vol_conf_gate`, and logs `confidence`.
@@ -91,7 +91,7 @@ no-existing-data-validation-seam
 FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-14 03:47 --vol-conf-gate proof slice
 
 ## Finished result — 2026-04-14 12:13 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; requested first-40-line slice returned.
+- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
 - `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted no change lines for the three target files.
 - `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and CLI parser/help wiring for `--vol-conf-gate`.
 - `app/Main.hs:358,387,437,1194,1207` threads the preset, emits `vol_conf_gate`, and logs `confidence`; `app/Main.hs:7253` surfaced `realizedR`.
@@ -109,7 +109,7 @@ no-existing-data-validation-seam — next owner/consumer: trader-firm-cto
 FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate proof evidence from app/Trader/App/Args.hs and app/Main.hs
 
 ## Finished result — 2026-04-15 12:57 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; requested first-40-line slice returned.
+- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
 - `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted `M haskell/app/Main.hs` and `M haskell/test/TestMain.hs`.
 - `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and CLI parser/help wiring for `--vol-conf-gate`.
 - `app/Main.hs:358,387,437,1194,1207` threads the preset, emits `vol_conf_gate`, and logs `confidence`; `app/Main.hs:1393,4565,4579` surfaced `unrealizedPnl`/`pnl_unrealized` fields in the exact slice.
@@ -148,3 +148,14 @@ FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-22 17:0
 - Next owner/consumer: `trader-firm-execution` via `/Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md`
 - data-not-blocking
 FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate proof evidence
+
+## Finished result — 2026-05-10 22:15 America/Guayaquil — `--vol-conf-gate <preset>`
+- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
+- `git status --porcelain=v1` flagged `haskell/app/Trader/App/Args.hs` and `haskell/test/TestMain.hs` modified.
+- `app/Trader/App/Args.hs:57-58,220,873-878` exposes `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring; `Args.hs:857` surfaces realized-vol sizing via `--vol-lookback`.
+- `app/Main.hs:400,430,502,1288,1302,1490` carries the preset, emits `vol_conf_gate`, logs `confidence`, and includes `unrealizedPnl`.
+- `app/Trader/VolConfGate.hs` fail-safe verified: missing volatility or confidence maps to `malformedVolConfGateCell` (`AllowExitOnly 0.0`).
+- No `test/TestMain.hs` grep hits for this slice in the proof output.
+- Next owner/consumer: `trader-firm-execution` via `/Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md`
+data-not-blocking
+FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-05-10 --vol-conf-gate proof slice

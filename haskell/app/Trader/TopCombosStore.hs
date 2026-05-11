@@ -1,10 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Trader.TopCombosStore (
+    ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
     applyComboUpdates,
+    applyComboUpdatesWithStats,
     compactTopCombosPayloadForSync,
     comboFinalEquityValue,
     comboIdentityKey,
@@ -947,5 +949,38 @@ applyComboUpdates now updates val =
                         combosOut = Aeson.Array (V.fromList (reverse updatedCombos))
                         o' = KM.insert (AK.fromString "combos") combosOut (KM.insert (AK.fromString "generatedAtMs") (toJSON now) o)
                     Right (Aeson.Object o', updatedCount)
+                _ -> Left "Top combos JSON missing combos array."
+        _ -> Left "Top combos JSON root must be an object."
+
+data ComboBacktestApplyStats = ComboBacktestApplyStats
+    { cbasUpdatedCount :: !Int
+    , cbasPrunedCount :: !Int
+    , cbasPrunedKeys :: ![BS.ByteString]
+    }
+    deriving (Eq, Show)
+
+applyComboUpdatesWithStats :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
+applyComboUpdatesWithStats now updates val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup (AK.fromString "combos") o of
+                Just (Aeson.Array combos) -> do
+                    let combosList = V.toList combos
+                        (updatedCombos, updatedCount, prunedCount, prunedKeys) = foldl' applyOne ([], 0, 0, []) combosList
+                        applyOne (acc, updCount, pruneCount, pKeys) comboVal =
+                            case comboIdentityKey comboVal >>= (`HM.lookup` updates) of
+                                Nothing -> (comboVal : acc, updCount, pruneCount, pKeys)
+                                Just upd ->
+                                    let updated = updateComboWithBacktest upd comboVal
+                                        mEquity = comboFinalEquityValue updated
+                                     in if maybe True (> 1.0) mEquity
+                                            then (updated : acc, updCount + 1, pruneCount, pKeys)
+                                            else case comboIdentityKey comboVal of
+                                                Nothing -> (acc, updCount + 1, pruneCount + 1, pKeys)
+                                                Just k -> (acc, updCount + 1, pruneCount + 1, k : pKeys)
+                        combosOut = Aeson.Array (V.fromList (reverse updatedCombos))
+                        o' = KM.insert (AK.fromString "combos") combosOut (KM.insert (AK.fromString "generatedAtMs") (toJSON now) o)
+                        stats = ComboBacktestApplyStats updatedCount prunedCount (reverse prunedKeys)
+                    Right (Aeson.Object o', stats)
                 _ -> Left "Top combos JSON missing combos array."
         _ -> Left "Top combos JSON root must be an object."

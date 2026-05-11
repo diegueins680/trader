@@ -20,11 +20,13 @@ module Trader.SignalGates (
     signalEntryEdgeSpikeOk,
     signalEntryEdgeSpikeEntryOk,
     signalEntryEdgeSpikeAuditWarning,
+    signalEntryEdgeSpikeConsecutiveOk,
     signalEntryFeeBufferOk,
     signalTrendSmaConfirmed,
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
+    signalPredictionSanityOk,
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
 ) where
@@ -400,6 +402,16 @@ signalEntryEdgeSpikeAuditWarning auditOnly openThreshold edgeForMethod =
         then Just "EDGE_SPIKE"
         else Nothing
 
+-- | Circuit-breaker variant: after 3 consecutive edge-spike warnings,
+-- treat audit-only mode as blocking. This prevents severely miscalibrated
+-- LSTM models from generating infinite permissive audit warnings.
+signalEntryEdgeSpikeConsecutiveOk :: Int -> Bool -> Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeConsecutiveOk consecutiveWarnings auditOnly openThreshold edgeForMethod =
+    let ok = signalEntryEdgeSpikeOk openThreshold edgeForMethod
+     in if auditOnly && not ok && consecutiveWarnings >= 3
+            then False
+            else ok || auditOnly
+
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
 signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
     case normalizeSignalOpenThreshold openThreshold of
@@ -552,3 +564,12 @@ chooseReason :: [Maybe String] -> Maybe String
 chooseReason [] = Nothing
 chooseReason (Nothing : rest) = chooseReason rest
 chooseReason (reason : _) = reason
+
+signalPredictionSanityOk :: Double -> Maybe Double -> (Bool, Maybe String)
+signalPredictionSanityOk _currentPrice Nothing = (True, Nothing)
+signalPredictionSanityOk currentPrice (Just predVal)
+    | isNaN predVal = (False, Just "MODEL_ANOMALY")
+    | predVal < 0 = (False, Just "MODEL_ANOMALY")
+    | predVal < currentPrice * 0.01 = (False, Just "MODEL_ANOMALY")
+    | predVal > currentPrice * 100 = (False, Just "MODEL_ANOMALY")
+    | otherwise = (True, Nothing)

@@ -148,6 +148,7 @@ main = do
     testTakeProfitRejectsLowerBoundValidation
     testTakeProfitRejectsUpperBoundValidation
     testTrailingStopRejectsLowerBoundValidation
+    testMaxPositionSizeRejectsAbsurdUpperBound
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -501,6 +502,18 @@ testTrailingStopRejectsLowerBoundValidation =
     assert
         "trailing-stop rejects the exact lower bound"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--trailing-stop", "0"] == Left "--trailing-stop must be > 0 and < 1")
+
+testMaxPositionSizeRejectsAbsurdUpperBound :: IO ()
+testMaxPositionSizeRejectsAbsurdUpperBound = do
+    assert
+        "max-position-size rejects 10.01 (absurd upper bound)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "10.01"] == Left "--max-position-size must be <= 10")
+    assert
+        "max-position-size accepts exactly 10"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "10"] of
+            Right args -> argMaxPositionSize args == 10
+            Left _ -> False
+        )
 
 testExchangeDataLongShortBacktestAllowed :: IO ()
 testExchangeDataLongShortBacktestAllowed = do

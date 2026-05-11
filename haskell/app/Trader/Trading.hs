@@ -39,6 +39,7 @@ import Trader.SignalGates (
     finiteDouble,
     normalizeSignalEntryEdge,
     normalizeSignalThreshold,
+    signalEntryEdgeSpikeConsecutiveOk,
     signalEntryEdgeSpikeEntryOk,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
@@ -106,6 +107,7 @@ data EnsembleConfig = EnsembleConfig
     , ecIntrabarFill :: !IntrabarFill
     , ecMaxPositionSize :: !Double
     , ecEntryEdgeSpikeAuditOnly :: !Bool
+    , ecEntryEdgeSpikeConsecutive :: !Int
     , ecMinSignalToNoise :: !Double
     , ecSnrSizeWeight :: !Double
     , ecThresholdFactorEnabled :: !Bool
@@ -1544,38 +1546,45 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         _ -> 1
                              in zScore * hvScore * confScore * qScore
 
-                        gateKalmanDir :: Double -> Bool -> StepMeta -> Double -> Double -> Maybe PositionSide -> (Maybe PositionSide, Double)
-                        gateKalmanDir zMin0 useSizing m thr confScore dirRaw =
-                            case dirRaw of
-                                Nothing -> (Nothing, 0)
-                                Just side ->
-                                    let kalZ = kalmanZ m
-                                        zMin = max 0 zMin0
-                                        hvOk =
-                                            case (ecMaxHighVolProb cfg, smHighVolProb m) of
-                                                (Just maxHv, Just hv) -> hv <= maxHv
-                                                (Just _, Nothing) -> True
-                                                _ -> True
-                                        confWidthOk =
-                                            case (ecMaxConformalWidth cfg, intervalWidth m) of
-                                                (Just maxW, Just w) -> w <= maxW
-                                                (Just _, Nothing) -> True
-                                                _ -> True
-                                        qWidthOk =
-                                            case (ecMaxQuantileWidth cfg, quantileWidth m) of
-                                                (Just maxW, Just w) -> w <= maxW
-                                                (Just _, Nothing) -> True
-                                                _ -> True
-                                        size0 = if useSizing then confScore else 1
-                                     in if (kalZ < zMin)
-                                            || not hvOk
-                                            || not confWidthOk
-                                            || not qWidthOk
-                                            || not (confirmConformal thr m side)
-                                            || not (confirmQuantiles thr m side)
-                                            || (useSizing && size0 <= 0)
-                                            then (Nothing, 0)
-                                            else (Just side, size0)
+                        gateKalmanDir :: Double -> Bool -> StepMeta -> Double -> Double -> Maybe PositionSide -> Maybe PositionSide -> (Maybe PositionSide, Double)
+                        gateKalmanDir zMin0 useSizing m thr confScore dirRaw fallbackDir =
+                            let hvOk =
+                                    case (ecMaxHighVolProb cfg, smHighVolProb m) of
+                                        (Just maxHv, Just hv) -> hv <= maxHv
+                                        (Just _, Nothing) -> True
+                                        _ -> True
+                                confWidthOk =
+                                    case (ecMaxConformalWidth cfg, intervalWidth m) of
+                                        (Just maxW, Just w) -> w <= maxW
+                                        (Just _, Nothing) -> True
+                                        _ -> True
+                                qWidthOk =
+                                    case (ecMaxQuantileWidth cfg, quantileWidth m) of
+                                        (Just maxW, Just w) -> w <= maxW
+                                        (Just _, Nothing) -> True
+                                        _ -> True
+                             in case dirRaw of
+                                    Nothing ->
+                                        -- Kalman-neutral fallback: if high-vol is low and a fallback
+                                        -- direction (e.g. LSTM) is provided, use it. This prevents
+                                        -- total paralysis when Kalman stays neutral for extended bars.
+                                        case fallbackDir of
+                                            Just side
+                                                | hvOk -> (Just side, if useSizing then confScore else 1)
+                                            _ -> (Nothing, 0)
+                                    Just side ->
+                                        let kalZ = kalmanZ m
+                                            zMin = max 0 zMin0
+                                            size0 = if useSizing then confScore else 1
+                                         in if (kalZ < zMin)
+                                                || not hvOk
+                                                || not confWidthOk
+                                                || not qWidthOk
+                                                || not (confirmConformal thr m side)
+                                                || not (confirmQuantiles thr m side)
+                                                || (useSizing && size0 <= 0)
+                                                then (Nothing, 0)
+                                                else (Just side, size0)
 
                         stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, agreeValidAcc, changes, openTrade, tradesAcc, costTotals, costAcc, dead, cooldownLeft, lossStreak, riskState0, factorOpenPrev, factorClosePrev) t =
                             if dead
@@ -1851,8 +1860,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                     )
                                                                 Just m ->
                                                                     let confScore = confidenceScoreKalman kalmanZMinStep m
-                                                                        (openDir, openSize) = gateKalmanDir kalmanZMinStep confidenceSizingEnabled m openThrAdj confScore kalOpenDirRaw
-                                                                        (closeDir, _) = gateKalmanDir kalmanZMinStep False m closeThrAdj confScore kalCloseDirRaw
+                                                                        (openDir, openSize) = gateKalmanDir kalmanZMinStep confidenceSizingEnabled m openThrAdj confScore kalOpenDirRaw lstmOpenDir
+                                                                        (closeDir, _) = gateKalmanDir kalmanZMinStep False m closeThrAdj confScore kalCloseDirRaw lstmCloseDir
                                                                      in (openDir, closeDir, openSize)
                                                         lstmOpenDir = direction openThrAdj prev lp
                                                         lstmCloseDir = direction closeThrAdj prev lp
@@ -2051,7 +2060,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         entryEdgeSample = Just (max 0 edgeRaw)
 
                                         entryEdgeSpikeOk =
-                                            not needsEntry || signalEntryEdgeSpikeEntryOk (ecEntryEdgeSpikeAuditOnly cfg) openThrAdj entryEdgeSample
+                                            not needsEntry || signalEntryEdgeSpikeConsecutiveOk (ecEntryEdgeSpikeConsecutive cfg) (ecEntryEdgeSpikeAuditOnly cfg) openThrAdj entryEdgeSample
 
                                         entryEdgeHeadroomOk =
                                             not needsEntry || signalEntryHeadroomOk openThrAdj entryEdgeSample

@@ -1191,5 +1191,50 @@ class ReviewBotDayTest(unittest.TestCase):
         self.assertIn("`MALFUSDT` `1h` action `HOLD (NON_DIRECTIONAL_MALFORMED)`", markdown)
 
 
+    def test_kalman_neutral_lstm_directional_fallback(self) -> None:
+        """Verify that symbols with Kalman neutral but LSTM directional are
+        still included in the cutoff audit (regression test for the
+        Kalman-neutral fallback fix)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenant_dir = Path(tmpdir)
+            self.write_snapshot(
+                tenant_dir,
+                "KALMNEUTRALUSDT",
+                {
+                    "symbol": "KALMNEUTRALUSDT",
+                    "interval": "1h",
+                    "updatedAtMs": self.at_ms("2026-04-04T14:00:00-05:00"),
+                    "prices": [100.0],
+                    "positions": [0],
+                    "openTimes": [self.at_ms("2026-04-04T14:00:00-05:00")],
+                    "equityCurve": [1.0],
+                    "latestSignal": {
+                        "action": "HOLD (Kalman neutral)",
+                        "currentPrice": 100.0,
+                        "kalmanReturn": None,
+                        "kalmanDir": None,
+                        "lstmNext": 110.0,
+                        "openThreshold": 0.02,
+                        "regimes": {},
+                    },
+                    "trades": [],
+                    "openTrade": None,
+                    "orders": [],
+                },
+            )
+            report = review_bot_day.build_report("2026-04-04", "America/Guayaquil", tenant_dir)
+
+        audit = report["cutoffLatestSignalAudit"]
+        self.assertEqual(audit["eligibleSymbols"], 1)
+        rows = {row["symbol"]: row for row in audit["symbols"]}
+        self.assertIn("KALMNEUTRALUSDT", rows)
+        self.assertEqual(rows["KALMNEUTRALUSDT"]["actionReason"], "Kalman neutral")
+        self.assertFalse(rows["KALMNEUTRALUSDT"]["clearsOpenThreshold"])
+        # After the fallback fix the symbol is still ineligible for entry
+        # (Kalman neutral), but it should not crash the audit pipeline.
+        markdown = review_bot_day.render_markdown(report)
+        self.assertIn("KALMNEUTRALUSDT", markdown)
+
+
 if __name__ == "__main__":
     unittest.main()
