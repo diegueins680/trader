@@ -168,7 +168,7 @@ directionalityLookbackBars :: Int
 directionalityLookbackBars = 24
 
 directionalityChopEfficiencyMax :: Double
-directionalityChopEfficiencyMax = 0.18
+directionalityChopEfficiencyMax = 0.08
 
 directionalityMrEfficiencyMax :: Double
 directionalityMrEfficiencyMax = 0.35
@@ -369,10 +369,10 @@ entryEdgeHeadroomMultiple :: Double
 entryEdgeHeadroomMultiple = 1.5
 
 entryEdgeSpikeMultiple :: Double
-entryEdgeSpikeMultiple = 4.0
+entryEdgeSpikeMultiple = 1000.0
 
 entryEdgeSpikeCredibleCap :: Double
-entryEdgeSpikeCredibleCap = 0.5
+entryEdgeSpikeCredibleCap = 5.0
 
 signalEntryOpenThresholdFeasibilityCap :: Double
 signalEntryOpenThresholdFeasibilityCap = entryEdgeSpikeCredibleCap / entryEdgeHeadroomMultiple

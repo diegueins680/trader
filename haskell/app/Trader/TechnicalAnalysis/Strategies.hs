@@ -164,12 +164,12 @@ trendFollowingCandidate series = do
     let longTrend =
             regimeNow == RegimeTrend
                 && fastNow > slowNow
-                && adxValue adxNow >= 20
+                && adxValue adxNow >= 10
                 && aroonUp aroonNow > aroonDown aroonNow
         shortTrend =
             regimeNow == RegimeTrend
                 && fastNow < slowNow
-                && adxValue adxNow >= 20
+                && adxValue adxNow >= 10
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
         baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
@@ -342,7 +342,7 @@ safeDivide _ 0 = 0
 safeDivide numerator denominator = numerator / denominator
 
 entryOpenThreshold :: Double
-entryOpenThreshold = 0.01
+entryOpenThreshold = 0.001
 
 entryGatesOk :: TechnicalAnalysisGateInputs -> TradeBias -> Double -> Bool
 entryGatesOk inputs bias edge
