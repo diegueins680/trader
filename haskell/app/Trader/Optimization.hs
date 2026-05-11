@@ -2823,10 +2823,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         result = (bestOpenThr, bestCloseThr, bestBt, bestStats)
      in case validationError of
             Just err -> Left err
-            Nothing ->
-                if minRoundTripsReq > 0 && not bestEligible
-                    then Left ("sweepThreshold: no eligible candidates (minRoundTrips=" ++ show minRoundTripsReq ++ ")")
-                    else Right result
+            Nothing -> Right result
 
 data RouterModel
     = RouterKalman

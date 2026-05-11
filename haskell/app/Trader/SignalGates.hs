@@ -42,6 +42,7 @@ import Data.List (sortOn)
 import Data.Maybe (catMaybes, fromMaybe, isJust)
 import qualified Data.Ord
 import qualified Data.Vector as V
+import Trader.Duration (parseIntervalSeconds)
 import Trader.Predictors.Types (RegimeProbs (..))
 
 -- Compatibility surface restored for Main: these shims are fail closed by
@@ -203,6 +204,23 @@ signalDirectionalitySnapshotImpl ::
     Maybe Int ->
     Maybe DirectionalitySnapshot
 signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t mChosenDir =
+    signalDirectionalitySnapshotImpl'
+        regimeBankHysteresis
+        mRegimes
+        pricesV
+        t
+        mChosenDir
+        directionalityWeakBandConfirmed
+
+signalDirectionalitySnapshotImpl' ::
+    Double ->
+    Maybe RegimeProbs ->
+    V.Vector Double ->
+    Int ->
+    Maybe Int ->
+    (Double -> Maybe Int -> Bool) ->
+    Maybe DirectionalitySnapshot
+signalDirectionalitySnapshotImpl' regimeBankHysteresis mRegimes pricesV t mChosenDir weakBandCheck =
     case directionalityWindowMetrics pricesV t of
         Nothing -> Just malformedDirectionalitySnapshot
         Just metrics ->
@@ -228,11 +246,11 @@ signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t mChosen
                                         DirectionalityRegimeInvalid -> Just "NON_DIRECTIONAL_MALFORMED"
                                         DirectionalityRegimeAvailable regimeSummary
                                             | drsMrDominant regimeSummary -> Just "NON_DIRECTIONAL_MR"
-                                            | not (directionalityWeakBandConfirmed (wmZScore metrics) mChosenDir) ->
+                                            | not (weakBandCheck (wmZScore metrics) mChosenDir) ->
                                                 Just "NON_DIRECTIONAL_WEAK_BAND"
                                             | otherwise -> Nothing
                                         DirectionalityRegimeUnavailable
-                                            | not (directionalityWeakBandConfirmed (wmZScore metrics) mChosenDir) ->
+                                            | not (weakBandCheck (wmZScore metrics) mChosenDir) ->
                                                 Just "NON_DIRECTIONAL_WEAK_BAND"
                                             | otherwise -> Nothing
                             | otherwise -> Nothing
@@ -408,9 +426,10 @@ signalEntryEdgeSpikeAuditWarning auditOnly openThreshold edgeForMethod =
         then Just "EDGE_SPIKE"
         else Nothing
 
--- | Circuit-breaker variant: after 3 consecutive edge-spike warnings,
--- treat audit-only mode as blocking. This prevents severely miscalibrated
--- LSTM models from generating infinite permissive audit warnings.
+{- | Circuit-breaker variant: after 3 consecutive edge-spike warnings,
+treat audit-only mode as blocking. This prevents severely miscalibrated
+LSTM models from generating infinite permissive audit warnings.
+-}
 signalEntryEdgeSpikeConsecutiveOk :: Int -> Bool -> Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeConsecutiveOk consecutiveWarnings auditOnly openThreshold edgeForMethod =
     let ok = signalEntryEdgeSpikeOk openThreshold edgeForMethod
@@ -581,8 +600,16 @@ signalPredictionSanityOk currentPrice (Just predVal)
     | otherwise = (True, Nothing)
 
 directionalityWeakBandConfirmedWithPrediction :: Double -> Maybe Int -> Maybe Double -> Double -> Bool
-directionalityWeakBandConfirmedWithPrediction zScore mChosenDir _ _ =
-    directionalityWeakBandConfirmed zScore mChosenDir
+directionalityWeakBandConfirmedWithPrediction zScore mChosenDir mPrediction _currentPrice =
+    case mPrediction of
+        Nothing -> directionalityWeakBandConfirmed zScore mChosenDir
+        Just predVal
+            | not (finiteDouble predVal) -> directionalityWeakBandConfirmed zScore mChosenDir
+            | otherwise ->
+                case mChosenDir of
+                    Just dir | dir > 0 && predVal > 0 -> True
+                    Just dir | dir < 0 && predVal < 0 -> True
+                    _ -> directionalityWeakBandConfirmed zScore mChosenDir
 
 signalDirectionalitySnapshotImplWithPrediction ::
     Double ->
@@ -593,14 +620,46 @@ signalDirectionalitySnapshotImplWithPrediction ::
     Maybe Double ->
     Double ->
     Maybe DirectionalitySnapshot
-signalDirectionalitySnapshotImplWithPrediction regimeBankHysteresis mRegimes pricesV t mChosenDir _ _ =
-    signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t mChosenDir
+signalDirectionalitySnapshotImplWithPrediction regimeBankHysteresis mRegimes pricesV t mChosenDir mPrediction currentPrice =
+    signalDirectionalitySnapshotImpl'
+        regimeBankHysteresis
+        mRegimes
+        pricesV
+        t
+        mChosenDir
+        (\zScore mDir -> directionalityWeakBandConfirmedWithPrediction zScore mDir mPrediction currentPrice)
+
+{- | Scale the edge-spike cap by interval duration so longer intervals allow
+proportionally larger per-bar edges. Empty or unparseable intervals fall
+back to the interval-agnostic cap.
+-}
+intervalEdgeSpikeMultiplier :: String -> Double
+intervalEdgeSpikeMultiplier interval =
+    case parseIntervalSeconds interval of
+        Nothing -> 1.0
+        Just sec
+            | sec <= 300 -> 1.0
+            | sec <= 3600 -> 1.1
+            | sec <= 14400 -> 1.2
+            | sec <= 43200 -> 1.4
+            | sec <= 86400 -> 1.5
+            | otherwise -> 2.0
 
 signalEntryEdgeSpikeOkInterval :: String -> Double -> Maybe Double -> Bool
-signalEntryEdgeSpikeOkInterval _ = signalEntryEdgeSpikeOk
+signalEntryEdgeSpikeOkInterval interval openThreshold edgeForMethod =
+    case normalizeSignalOpenThreshold openThreshold of
+        Nothing -> False
+        Just threshold ->
+            let mult = intervalEdgeSpikeMultiplier interval
+                spikeCap = min (entryEdgeSpikeMultiple * threshold * mult) (entryEdgeSpikeCredibleCap * mult)
+             in maybe False (\edge -> finiteDouble edge && edge >= 0 && edge <= spikeCap) edgeForMethod
 
 signalEntryEdgeSpikeEntryOkInterval :: String -> Bool -> Double -> Maybe Double -> Bool
-signalEntryEdgeSpikeEntryOkInterval _ = signalEntryEdgeSpikeEntryOk
+signalEntryEdgeSpikeEntryOkInterval interval auditOnly openThreshold edgeForMethod =
+    auditOnly || signalEntryEdgeSpikeOkInterval interval openThreshold edgeForMethod
 
 signalEntryEdgeSpikeAuditWarningInterval :: String -> Bool -> Double -> Maybe Double -> Maybe String
-signalEntryEdgeSpikeAuditWarningInterval _ = signalEntryEdgeSpikeAuditWarning
+signalEntryEdgeSpikeAuditWarningInterval interval auditOnly openThreshold edgeForMethod =
+    if auditOnly && not (signalEntryEdgeSpikeOkInterval interval openThreshold edgeForMethod)
+        then Just "EDGE_SPIKE"
+        else Nothing

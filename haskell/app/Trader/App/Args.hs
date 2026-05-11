@@ -1470,10 +1470,14 @@ validateArgs args0 = do
     ensure "--spread-vol-mult must be >= 0" (argSpreadVolMult args >= 0)
     case argStopLoss args of
         Nothing -> pure ()
-        Just v -> ensure "--stop-loss must be > 0 and < 1" (v > 0 && v < 1)
+        Just v -> do
+            ensure "--stop-loss must be > 0 and < 1" (v > 0 && v < 1)
+            ensure "--stop-loss must be >= 0.0001 (0.01%)" (v >= 0.0001)
     case argTakeProfit args of
         Nothing -> pure ()
-        Just v -> ensure "--take-profit must be > 0 and < 1" (v > 0 && v < 1)
+        Just v -> do
+            ensure "--take-profit must be > 0 and < 1" (v > 0 && v < 1)
+            ensure "--take-profit must be >= 0.0001 (0.01%)" (v >= 0.0001)
     case argTrailingStop args of
         Nothing -> pure ()
         Just v -> ensure "--trailing-stop must be > 0 and < 1" (v > 0 && v < 1)

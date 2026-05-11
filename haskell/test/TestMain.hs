@@ -145,6 +145,8 @@ main = do
     testMaxDrawdownRejectsLowerBoundValidation
     testFuturesPositionRiskLeverageSaneCap
     testStopLossRejectsLowerBoundValidation
+    testStopLossRejectsAbsurdlyTightStop
+    testTakeProfitRejectsAbsurdlyTightValue
     testTakeProfitRejectsLowerBoundValidation
     testTakeProfitRejectsUpperBoundValidation
     testTrailingStopRejectsLowerBoundValidation
@@ -484,6 +486,18 @@ testStopLossRejectsLowerBoundValidation =
     assert
         "stop-loss rejects the exact lower bound"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--stop-loss", "0"] == Left "--stop-loss must be > 0 and < 1")
+
+testStopLossRejectsAbsurdlyTightStop :: IO ()
+testStopLossRejectsAbsurdlyTightStop =
+    assert
+        "stop-loss rejects absurdly tight values below 0.01%"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--stop-loss", "0.00001"] == Left "--stop-loss must be >= 0.0001 (0.01%)")
+
+testTakeProfitRejectsAbsurdlyTightValue :: IO ()
+testTakeProfitRejectsAbsurdlyTightValue =
+    assert
+        "take-profit rejects absurdly tight values below 0.01%"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--take-profit", "0.00001"] == Left "--take-profit must be >= 0.0001 (0.01%)")
 
 testTakeProfitRejectsLowerBoundValidation :: IO ()
 testTakeProfitRejectsLowerBoundValidation =
