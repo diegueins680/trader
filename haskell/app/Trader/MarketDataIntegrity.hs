@@ -3,9 +3,11 @@ module Trader.MarketDataIntegrity (
     marketDataFreshness,
     marketDataStaleReason,
     marketDataContinuationIssue,
+    isTransientMarketDataError,
 ) where
 
 import Data.Int (Int64)
+import Data.List (isPrefixOf)
 import Trader.Duration (parseIntervalSeconds)
 
 data MarketDataFreshness = MarketDataFreshness
@@ -75,3 +77,11 @@ intervalMsFrom interval =
 invalidIntervalReason :: String -> String
 invalidIntervalReason interval =
     "MARKET_DATA_INTERVAL_INVALID interval=" ++ show interval
+
+{- | Returns True for transient market-data issues that should not block
+queued bot starts (the bot is in a safe HOLD state and the condition
+is self-healing).
+-}
+isTransientMarketDataError :: String -> Bool
+isTransientMarketDataError err =
+    any (`isPrefixOf` err) ["MARKET_DATA_GAP", "STALE_MARKET_DATA"]

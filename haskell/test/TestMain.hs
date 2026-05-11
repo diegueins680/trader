@@ -3,15 +3,19 @@
 module Main (main) where
 
 import Control.Exception (toException)
-import Control.Monad (unless)
+import Control.Monad (forM_, unless)
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as AK
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
-import Trader.App.Args (Args (..), normalizeBarsForLookback, opts, validateArgs)
-import Trader.Binance (binanceExceptionSummary)
+import Trader.App.Args (Args (..), normalizeBarsForLookback, opts, parsePositioning, validateArgs)
+import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
+import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BotStartSemantics (botStartSymbolDisabled, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
 import Trader.Formal.Optimization (
@@ -22,7 +26,9 @@ import Trader.Formal.Optimization (
     rvActivityCount,
     verifyFormalOptimization,
  )
+import Trader.MarketContext (fitLinearRange)
 import Trader.MarketDataIntegrity (
+    isTransientMarketDataError,
     marketDataContinuationIssue,
     marketDataFreshness,
     marketDataStaleReason,
@@ -31,7 +37,9 @@ import Trader.MarketDataIntegrity (
     mdfLastCloseTimeMs,
     mdfStale,
  )
+import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
+import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
 import Trader.Optimizer.Optimize (
     kellyLiteExposureContractReason,
     optimizerOptionPresent,
@@ -40,6 +48,7 @@ import Trader.Optimizer.Optimize (
     qualityPresetWeightFloor,
  )
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
+import Trader.Platform (Platform (..))
 import Trader.PredictionMarkets (
     PredictionMarketEvent (..),
     PredictionMarketMarket (..),
@@ -53,13 +62,19 @@ import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictIn
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
+    directionalityWeakBandConfirmed,
+    directionalityWeakBandConfirmedWithPrediction,
     mkSignalThresholdBoundary,
     normalizeSignalEntryEdge,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
+    signalDirectionalitySnapshotImplWithPrediction,
     signalEntryEdgeSpikeAuditWarning,
+    signalEntryEdgeSpikeAuditWarningInterval,
     signalEntryEdgeSpikeEntryOk,
+    signalEntryEdgeSpikeEntryOkInterval,
     signalEntryEdgeSpikeOk,
+    signalEntryEdgeSpikeOkInterval,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
     signalEntryHeadroomThresholdCap,
@@ -69,10 +84,17 @@ import Trader.SignalGates (
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
+    signalPredictionSanityOk,
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
  )
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
+import Trader.TopCombosStore (
+    ComboBacktestApplyStats (..),
+    ComboBacktestUpdate (..),
+    applyComboUpdatesWithStats,
+    comboIdentityKey,
+ )
 import Trader.Trading (
     BacktestCostAttribution (..),
     BacktestResult (..),
@@ -112,6 +134,24 @@ import Trader.VolConfGate (
 main :: IO ()
 main = do
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
+    testRiskPerTradeRejectsUpperBoundValidation
+    testRiskPerTradeRejectsLowerBoundValidation
+    testRiskPerTradeRequiresStopDefinition
+    testMaxWeeklyLossRejectsUpperBoundValidation
+    testMaxWeeklyLossRejectsLowerBoundValidation
+    testMaxDailyLossRejectsUpperBoundValidation
+    testMaxDailyLossRejectsLowerBoundValidation
+    testMaxDrawdownRejectsUpperBoundValidation
+    testMaxDrawdownRejectsLowerBoundValidation
+    testFuturesPositionRiskLeverageSaneCap
+    testStopLossRejectsLowerBoundValidation
+    testTakeProfitRejectsLowerBoundValidation
+    testTakeProfitRejectsUpperBoundValidation
+    testTrailingStopRejectsLowerBoundValidation
+    testExchangeDataLongShortBacktestAllowed
+    testPositioningShortAliasRejected
+    testTenantResolutionScopesMixedApiKeys
+    testMarketLinearFit
     testSignalGateEntryBoundaryWitness
     testSignalGateEntryThresholdFeasibilityInvariant
     testMarketDataFreshnessAndContinuationInvariant
@@ -120,15 +160,21 @@ main = do
     testSignalGateEntryHeadroomSpecializesFeeBuffer
     testNormalizeSignalEntryEdgeFailClosedRegression
     testSignalGateEntryFeeBufferFailsClosed
+    testSignalGateIntervalAwareEdgeSpikeCap
+    testSignalGatePredictionSanityInvariant
+    testSignalGatePredictionAwareWeakBand
     testSignalDirectionalityLiveSemanticsRegression
+    testSignalDirectionalityPredictionAwareLiveSemantics
     testPredictionMarketHerdSelection
     testSignalGatesPublicSurfaceRegression
+    testSignalGateVolTargetPrecedesCloud
     testTradingPublicSurfaceRegression
     testKellyLiteBacktestSizingRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
     testVolConfGateMalformedInputsFailClosed
     testQueuedBotStartOrderErrorStability
+    testQueuedBotStartIgnoresTransientMarketDataErrors
     testPrioritizeOrphanBotStartSymbols
     testDisabledBotStartSymbols
     testBinanceExceptionSummaryRedactsSecrets
@@ -139,12 +185,15 @@ main = do
     testBacktestCostAttributionGrossNetConsistency
     testBacktestCostAttributionNonFiniteComponentsRegression
     testOrderExecutionFillSanitizationInvariant
+    testOrderExecutionCorruptedInputInvariant
     testCoinbaseOrderInfoDecodeInvariant
     testOptimizerActivityCountInvariant
+    testSweepThresholdMinRoundTripsFallback
     testOptimizerPublicSurfaceRegression
     testOptimizerQualityBudgetRegression
     testOptimizerQualityThresholdArgvExplicitRegression
     testOptimizerKellyLiteExposureContractRegression
+    testTopComboBacktestPrunesRoiLosers
     testMetricsConsumesTradingPublicResults
     runTechnicalAnalysisTests
 
@@ -155,6 +204,15 @@ assert message condition =
 assertMonotoneNonIncreasing :: String -> [Bool] -> IO ()
 assertMonotoneNonIncreasing message values =
     assert message (and (zipWith (\left right -> left || not right) values (drop 1 values)))
+
+topCombosCount :: Aeson.Value -> Int
+topCombosCount val =
+    case val of
+        Aeson.Object obj ->
+            case KM.lookup (AK.fromString "combos") obj of
+                Just (Aeson.Array combos) -> V.length combos
+                _ -> -1
+        _ -> -1
 
 parseAndValidateCliArgs :: [String] -> Either String Args
 parseAndValidateCliArgs argv =
@@ -169,6 +227,60 @@ parseCliArgs argv =
         Success args -> Right args
         Failure _ -> Left "CLI parse failed unexpectedly"
         CompletionInvoked _ -> Left "CLI completion invoked unexpectedly"
+
+testTopComboBacktestPrunesRoiLosers :: IO ()
+testTopComboBacktestPrunesRoiLosers = do
+    let combo =
+            Aeson.object
+                [ "rank" Aeson..= (1 :: Int)
+                , "finalEquity" Aeson..= (1.25 :: Double)
+                , "objective" Aeson..= ("roi" :: String)
+                , "score" Aeson..= (2.0 :: Double)
+                , "openThreshold" Aeson..= (0.01 :: Double)
+                , "closeThreshold" Aeson..= (0.005 :: Double)
+                , "params"
+                    Aeson..= Aeson.object
+                        [ "symbol" Aeson..= ("BTCUSDT" :: String)
+                        , "interval" Aeson..= ("1h" :: String)
+                        , "method" Aeson..= ("both" :: String)
+                        ]
+                , "metrics"
+                    Aeson..= Aeson.object
+                        [ "finalEquity" Aeson..= (1.25 :: Double)
+                        , "annualizedReturn" Aeson..= (0.3 :: Double)
+                        ]
+                ]
+        payload =
+            Aeson.object
+                [ "generatedAtMs" Aeson..= (1 :: Int)
+                , "source" Aeson..= ("test" :: String)
+                , "combos" Aeson..= [combo]
+                ]
+        losingMetrics =
+            Aeson.object
+                [ "finalEquity" Aeson..= (1.0 :: Double)
+                , "annualizedReturn" Aeson..= (0.0 :: Double)
+                ]
+        update =
+            ComboBacktestUpdate
+                { cbuMetrics = losingMetrics
+                , cbuFinalEquity = Just 1.0
+                , cbuScore = Just 0
+                , cbuOperations = Nothing
+                }
+    case comboIdentityKey combo of
+        Nothing -> assert "top-combo fixture has a stable identity key" False
+        Just key ->
+            case applyComboUpdatesWithStats 2 (HM.singleton key update) payload of
+                Left err -> assert ("top-combo backtest update succeeds: " ++ err) False
+                Right (updatedPayload, stats) -> do
+                    assert
+                        "top-combo backtest prunes refreshed combos that no longer clear finalEquity > 1"
+                        ( topCombosCount updatedPayload == 0
+                            && cbasUpdatedCount stats == 1
+                            && cbasPrunedCount stats == 1
+                            && cbasPrunedKeys stats == [key]
+                        )
 
 testNormalizeBarsForLookbackAutoAdjustsApiInputs :: IO ()
 testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
@@ -224,6 +336,235 @@ testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
     assert
         "lookback normalization does not push Binance requests past the 1000-bar platform cap"
         (argBars (normalizeBarsForLookback overCapArgs) == Just 500)
+
+testRiskPerTradeRejectsUpperBoundValidation :: IO ()
+testRiskPerTradeRejectsUpperBoundValidation = do
+    let rejectedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--risk-per-trade"
+            , "1"
+            , "--stop-loss"
+            , "0.02"
+            ]
+        acceptedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--risk-per-trade"
+            , "0.01"
+            , "--stop-loss"
+            , "0.02"
+            ]
+    assert
+        "risk-per-trade rejects the exact upper bound while preserving valid stop-backed sizing inputs"
+        ( parseAndValidateCliArgs rejectedArgs == Left "--risk-per-trade must be > 0 and < 1"
+            && case parseAndValidateCliArgs acceptedArgs of
+                Right _ -> True
+                Left _ -> False
+        )
+
+testRiskPerTradeRejectsLowerBoundValidation :: IO ()
+testRiskPerTradeRejectsLowerBoundValidation = do
+    let rejectedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--risk-per-trade"
+            , "0"
+            , "--stop-loss"
+            , "0.02"
+            ]
+        acceptedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--risk-per-trade"
+            , "0.01"
+            , "--stop-loss"
+            , "0.02"
+            ]
+    assert
+        "risk-per-trade rejects the exact lower bound while preserving valid stop-backed sizing inputs"
+        ( parseAndValidateCliArgs rejectedArgs == Left "--risk-per-trade must be > 0 and < 1"
+            && case parseAndValidateCliArgs acceptedArgs of
+                Right _ -> True
+                Left _ -> False
+        )
+
+testRiskPerTradeRequiresStopDefinition :: IO ()
+testRiskPerTradeRequiresStopDefinition = do
+    assert
+        "risk-per-trade without a fixed or volatility stop is rejected"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--risk-per-trade", "0.01"] == Left "--risk-per-trade requires --stop-loss or --stop-loss-vol-mult")
+    assert
+        "risk-per-trade with a fixed stop is accepted"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--risk-per-trade", "0.01", "--stop-loss", "0.02"] of
+            Right args -> argRiskPerTrade args == Just 0.01
+            Left _ -> False
+        )
+    assert
+        "risk-per-trade with a volatility stop is accepted"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--risk-per-trade", "0.01", "--stop-loss-vol-mult", "1.5"] of
+            Right args -> argRiskPerTrade args == Just 0.01
+            Left _ -> False
+        )
+
+testMaxWeeklyLossRejectsUpperBoundValidation :: IO ()
+testMaxWeeklyLossRejectsUpperBoundValidation =
+    assert
+        "max-weekly-loss rejects the exact upper bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-weekly-loss", "1"] == Left "--max-weekly-loss must be > 0 and < 1")
+
+testMaxWeeklyLossRejectsLowerBoundValidation :: IO ()
+testMaxWeeklyLossRejectsLowerBoundValidation =
+    assert
+        "max-weekly-loss rejects the exact lower bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-weekly-loss", "0"] == Left "--max-weekly-loss must be > 0 and < 1")
+
+testMaxDailyLossRejectsUpperBoundValidation :: IO ()
+testMaxDailyLossRejectsUpperBoundValidation =
+    assert
+        "max-daily-loss rejects the exact upper bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-daily-loss", "1"] == Left "--max-daily-loss must be > 0 and < 1")
+
+testMaxDailyLossRejectsLowerBoundValidation :: IO ()
+testMaxDailyLossRejectsLowerBoundValidation =
+    assert
+        "max-daily-loss rejects the exact lower bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-daily-loss", "0"] == Left "--max-daily-loss must be > 0 and < 1")
+
+testMaxDrawdownRejectsUpperBoundValidation :: IO ()
+testMaxDrawdownRejectsUpperBoundValidation =
+    assert
+        "max-drawdown rejects the exact upper bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-drawdown", "1"] == Left "--max-drawdown must be > 0 and < 1")
+
+testMaxDrawdownRejectsLowerBoundValidation :: IO ()
+testMaxDrawdownRejectsLowerBoundValidation =
+    assert
+        "max-drawdown rejects the exact lower bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-drawdown", "0"] == Left "--max-drawdown must be > 0 and < 1")
+
+testFuturesPositionRiskLeverageSaneCap :: IO ()
+testFuturesPositionRiskLeverageSaneCap = do
+    let ok = FuturesPositionRisk{fprSymbol = "BTCUSDT", fprPositionAmt = 1, fprEntryPrice = 50000, fprMarkPrice = 51000, fprUnrealizedProfit = 0, fprLiquidationPrice = Nothing, fprBreakEvenPrice = Nothing, fprLeverage = 125, fprMarginType = Nothing, fprPositionSide = Nothing}
+        tooHigh = ok{fprLeverage = 151}
+        zero = ok{fprLeverage = 0}
+        nan = ok{fprLeverage = 0 / 0}
+    assert "futuresPositionRiskLeverageSane accepts 125x" (futuresPositionRiskLeverageSane ok)
+    assert "futuresPositionRiskLeverageSane rejects 151x" (not (futuresPositionRiskLeverageSane tooHigh))
+    assert "futuresPositionRiskLeverageSane rejects 0x" (not (futuresPositionRiskLeverageSane zero))
+    assert "futuresPositionRiskLeverageSane rejects NaN" (not (futuresPositionRiskLeverageSane nan))
+
+testStopLossRejectsLowerBoundValidation :: IO ()
+testStopLossRejectsLowerBoundValidation =
+    assert
+        "stop-loss rejects the exact lower bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--stop-loss", "0"] == Left "--stop-loss must be > 0 and < 1")
+
+testTakeProfitRejectsLowerBoundValidation :: IO ()
+testTakeProfitRejectsLowerBoundValidation =
+    assert
+        "take-profit rejects the exact lower bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--take-profit", "0"] == Left "--take-profit must be > 0 and < 1")
+
+testTakeProfitRejectsUpperBoundValidation :: IO ()
+testTakeProfitRejectsUpperBoundValidation =
+    assert
+        "take-profit rejects the exact upper bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--take-profit", "1"] == Left "--take-profit must be > 0 and < 1")
+
+testTrailingStopRejectsLowerBoundValidation :: IO ()
+testTrailingStopRejectsLowerBoundValidation =
+    assert
+        "trailing-stop rejects the exact lower bound"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--trailing-stop", "0"] == Left "--trailing-stop must be > 0 and < 1")
+
+testExchangeDataLongShortBacktestAllowed :: IO ()
+testExchangeDataLongShortBacktestAllowed = do
+    assert
+        "Coinbase exchange-data backtests allow long-short without futures"
+        ( case parseAndValidateCliArgs ["--platform", "coinbase", "--symbol", "BTC-USD", "--positioning", "long-short"] of
+            Right args -> argPositioning args == LongShort
+            Left _ -> False
+        )
+    assert
+        "Binance spot exchange-data backtests allow long-short without futures"
+        ( case parseAndValidateCliArgs ["--platform", "binance", "--symbol", "BTCUSDT", "--positioning", "long-short"] of
+            Right args -> argPositioning args == LongShort
+            Left _ -> False
+        )
+    assert
+        "placing long-short exchange orders still requires futures"
+        ( parseAndValidateCliArgs ["--platform", "binance", "--symbol", "BTCUSDT", "--positioning", "long-short", "--binance-trade"]
+            == Left "--positioning long-short requires --futures when trading"
+        )
+
+testPositioningShortAliasRejected :: IO ()
+testPositioningShortAliasRejected =
+    assert
+        "positioning parser rejects the unsupported short alias instead of widening it to long-short"
+        ( case parsePositioning "short" of
+            Left _ -> True
+            Right _ -> False
+        )
+
+testTenantResolutionScopesMixedApiKeys :: IO ()
+testTenantResolutionScopesMixedApiKeys = do
+    let bKey = Just "binance-key"
+        bSecret = Just "binance-secret"
+        cKey = Just "coinbase-key"
+        cSecret = Just "coinbase-secret"
+        cPass = Just "coinbase-pass"
+    case (tenantKeyFromBinanceKeys bKey bSecret, tenantKeyFromCoinbaseKeys cKey cSecret cPass) of
+        (Just binanceTenant, Just coinbaseTenant) -> do
+            assert
+                "unscoped mixed API keys require an explicit platform or tenant"
+                ( case resolveTenantKeyFromParams Nothing bKey bSecret cKey cSecret cPass of
+                    Left _ -> True
+                    Right _ -> False
+                )
+            assert
+                "Coinbase scope selects the Coinbase tenant"
+                (resolveTenantKeyFromPlatformParams PlatformCoinbase Nothing bKey bSecret cKey cSecret cPass == Right (Just coinbaseTenant))
+            assert
+                "Binance scope selects the Binance tenant"
+                (resolveTenantKeyFromPlatformParams PlatformBinance Nothing bKey bSecret cKey cSecret cPass == Right (Just binanceTenant))
+            assert
+                "explicit Coinbase tenant matches mixed credentials when unscoped"
+                (resolveTenantKeyFromParams (Just (T.unpack coinbaseTenant)) bKey bSecret cKey cSecret cPass == Right (Just coinbaseTenant))
+        _ -> assert "tenant derivation for test credentials succeeds" False
+
+testMarketLinearFit :: IO ()
+testMarketLinearFit = do
+    let xs = V.generate 100 (fromIntegral :: Int -> Double)
+        ys = V.map (\x -> 2 + 3 * x) xs
+        (a, b, var) = fitLinearRange xs ys 0 100
+    assertNear "market linear fit intercept" 2 a 1e-9
+    assertNear "market linear fit beta" 3 b 1e-9
+    assert "market linear fit residual variance stays near zero" (var < 1e-9)
 
 pricesFromReturns :: [Double] -> V.Vector Double
 pricesFromReturns returns =
@@ -852,6 +1193,20 @@ testQueuedBotStartOrderErrorStability = do
             && queuedStartOrderErrorIssue (Just 3) 4 == Just "order errors=4 reached maxOrderErrors"
         )
 
+testQueuedBotStartIgnoresTransientMarketDataErrors :: IO ()
+testQueuedBotStartIgnoresTransientMarketDataErrors = do
+    assert
+        "MARKET_DATA_GAP is treated as transient and does not block queued bot starts"
+        (isTransientMarketDataError "MARKET_DATA_GAP expectedOpenTimeMs=1 actualOpenTimeMs=2 intervalMs=3")
+    assert
+        "STALE_MARKET_DATA is treated as transient and does not block queued bot starts"
+        (isTransientMarketDataError "STALE_MARKET_DATA ageMs=100 budgetMs=50 lastCloseTimeMs=200")
+    assert
+        "other errors are not treated as transient market-data errors"
+        ( not (isTransientMarketDataError "UNKNOWN_ERROR")
+            && not (isTransientMarketDataError "MARKET_DATA_INTERVAL_INVALID interval=bad")
+        )
+
 testPrioritizeOrphanBotStartSymbols :: IO ()
 testPrioritizeOrphanBotStartSymbols = do
     assert
@@ -1035,6 +1390,35 @@ testBacktestEntryGateUsesRoundTripFeeBuffer = do
         (Left err, _, _) -> ioError (userError ("zero-fee fee-buffer regression failed to simulate: " ++ err))
         (_, Left err, _) -> ioError (userError ("high-fee fee-buffer regression failed to simulate: " ++ err))
         (_, _, Left err) -> ioError (userError ("scaled fixed-fee fee-buffer regression failed to simulate: " ++ err))
+
+testSweepThresholdMinRoundTripsFallback :: IO ()
+testSweepThresholdMinRoundTripsFallback = do
+    let prices :: [Double]
+        prices = [100.0, 100.0, 100.0, 100.0, 100.0]
+        preds :: [Double]
+        preds = [100.0, 100.0, 100.0, 100.0]
+        cfg =
+            (defaultTuneConfig 252)
+                { tcMinRoundTrips = 999
+                , tcWalkForwardFolds = 1
+                }
+        baseCfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0
+                }
+        result = sweepThresholdWithHLWith cfg MethodBoth baseCfg prices prices prices preds preds (Nothing :: Maybe [StepMeta])
+    case result of
+        Left err -> assert ("sweep-threshold falls back instead of failing every candidate on minRoundTrips: " ++ err) False
+        Right (_openThr, _closeThr, bt, stats) ->
+            assert
+                "sweep-threshold returns a usable fallback below an over-strict activity floor"
+                (bmRoundTrips (computeMetrics 252 bt) < tcMinRoundTrips cfg && tsFoldCount stats > 0)
 
 -- Fresh-entry sizing-validity regression: malformed cap/floor evidence must
 -- fail closed before a new position can open, while valid zero and minimum
@@ -1270,6 +1654,48 @@ testOrderExecutionFillSanitizationInvariant = do
         "reduce-only fills only close existing exposure and never reopen a position"
         (all reduceOnlyInvariant reduceOnlySamples)
 
+testOrderExecutionCorruptedInputInvariant :: IO ()
+testOrderExecutionCorruptedInputInvariant = do
+    let eps = 1e-9
+        maxSanitizedMagnitude = 1.7976931348623157e308 / 4
+        prevPositions = [-2, -1, 0, 1, 2, minBound, maxBound]
+        prevSizes = [negate (1 / 0), -1e308, -1, -5e-10, 0 / 0, 0, 5e-10, 1e-9, 1e-8, 0.5, 2, 1e307, 1e308, 1 / 0]
+        executedQtys = [negate (1 / 0), -1e308, -1, -5e-10, 0 / 0, 0, 5e-10, 1e-9, 1e-8, 0.5, 3, 1e307, 1e308, 1 / 0]
+        finite x = not (isNaN x || isInfinite x)
+        sanitizeMagnitude x
+            | not (finite x) || x <= 0 = 0
+            | otherwise = min maxSanitizedMagnitude x
+        sanitizeExecutedQty x =
+            let qty = sanitizeMagnitude x
+             in if qty <= eps then 0 else qty
+        sanitizePrevSigned prevPos prevSize =
+            let prevSign = signum prevPos
+                prevSize' = sanitizeMagnitude prevSize
+             in if prevSign == 0 then 0 else fromIntegral prevSign * prevSize'
+        signedExposure pos size = fromIntegral pos * size
+        finiteNonNegative x = finite x && x >= 0
+        closeEnough expected actual =
+            abs (expected - actual) <= max eps (abs expected * 1e-12)
+        caseLabel prevPos prevSize isBuy qtyRaw =
+            "prevPos=" ++ show prevPos ++ " prevSize=" ++ show prevSize ++ " isBuy=" ++ show isBuy ++ " qtyRaw=" ++ show qtyRaw
+    forM_ prevPositions $ \prevPos ->
+        forM_ prevSizes $ \prevSize ->
+            forM_ [False, True] $ \isBuy ->
+                forM_ executedQtys $ \qtyRaw -> do
+                    let label = caseLabel prevPos prevSize isBuy qtyRaw
+                        (posNew, sizeNew, closeQty, openQty) = applyExecutedQuantity prevPos prevSize isBuy qtyRaw
+                        prevSigned = sanitizePrevSigned prevPos prevSize
+                        qty = sanitizeExecutedQty qtyRaw
+                        expectedSigned = prevSigned + if isBuy then qty else negate qty
+                        actualSigned = signedExposure posNew sizeNew
+                    assert (label ++ " size stays finite and non-negative") (finiteNonNegative sizeNew)
+                    assert (label ++ " closeQty stays finite and non-negative") (finiteNonNegative closeQty)
+                    assert (label ++ " openQty stays finite and non-negative") (finiteNonNegative openQty)
+                    assert (label ++ " position stays normalized") (posNew `elem` [-1, 0, 1])
+                    assert (label ++ " closeQty is bounded by sanitized prior size") (closeQty <= abs prevSigned + eps)
+                    assert (label ++ " openQty is bounded by sanitized executed qty") (openQty <= qty + eps)
+                    assert (label ++ " signed exposure is conserved after sanitization") (closeEnough expectedSigned actualSigned)
+
 -- Coinbase live market orders must expose fill evidence to the shared
 -- execution-state reconciler; an accepted nested response without fill/status
 -- must not be promoted into a filled order by the parser.
@@ -1447,6 +1873,67 @@ testSignalGateEntryFeeBufferFailsClosed = do
             && not (signalEntryFeeBufferOk 0.01 (-0.001) (Just 0.05))
         )
 
+-- Interval-aware edge spike cap proof obligation: higher timeframes should
+-- allow larger edges. 1m (base) cap = 0.5, 1d (~24h) cap = sqrt(24)*0.5 ≈ 2.45
+-- clamped to 2.0. With openThreshold = 0.20, 4*threshold = 0.80, so the cap
+-- dominates: 1d allows 0.60 edge, 1m rejects it.
+testSignalGateIntervalAwareEdgeSpikeCap :: IO ()
+testSignalGateIntervalAwareEdgeSpikeCap = do
+    let openThreshold = 0.20
+        edge = Just 0.60
+    assert
+        "1d interval allows larger edges than 1m"
+        ( signalEntryEdgeSpikeOkInterval "1d" openThreshold edge
+            && not (signalEntryEdgeSpikeOkInterval "1m" openThreshold edge)
+        )
+    assert
+        "legacy signalEntryEdgeSpikeOk delegates to interval-agnostic behavior"
+        (signalEntryEdgeSpikeOk openThreshold edge == signalEntryEdgeSpikeOkInterval "" openThreshold edge)
+
+-- Model sanity invariant proof obligation: predictions outside [0.01x, 100x]
+-- currentPrice must be rejected with MODEL_ANOMALY reason.
+testSignalGatePredictionSanityInvariant :: IO ()
+testSignalGatePredictionSanityInvariant = do
+    let currentPrice = 92.41
+        goodPred = Just 92.48
+        lowPred = Just 0.01
+        highPred = Just 10000.0
+        nanPred = Just (0 / 0)
+        negPred = Just (-1.0)
+    assert
+        "sane prediction passes"
+        (fst (signalPredictionSanityOk currentPrice goodPred))
+    assert
+        "prediction below 0.01x fails closed"
+        (not (fst (signalPredictionSanityOk currentPrice lowPred)) && snd (signalPredictionSanityOk currentPrice lowPred) == Just "MODEL_ANOMALY")
+    assert
+        "prediction above 100x fails closed"
+        (not (fst (signalPredictionSanityOk currentPrice highPred)))
+    assert
+        "NaN prediction fails closed"
+        (not (fst (signalPredictionSanityOk currentPrice nanPred)))
+    assert
+        "negative prediction fails closed"
+        (not (fst (signalPredictionSanityOk currentPrice negPred)))
+    assert
+        "missing prediction passes"
+        (fst (signalPredictionSanityOk currentPrice Nothing))
+
+-- Prediction-aware weak-band confirmation proof obligation: when predicted
+-- return and historical z-score agree with the chosen direction, the check
+-- should relax to absolute z-score threshold.
+testSignalGatePredictionAwareWeakBand :: IO ()
+testSignalGatePredictionAwareWeakBand = do
+    assert
+        "agreeing prediction relaxes weak-band veto"
+        (directionalityWeakBandConfirmedWithPrediction 0.6 (Just 1) (Just 0.05) 100.0)
+    assert
+        "disagreeing prediction falls back to legacy behavior"
+        (not (directionalityWeakBandConfirmedWithPrediction 0.6 (Just (-1)) (Just 0.05) 100.0))
+    assert
+        "missing prediction falls back to legacy behavior"
+        (directionalityWeakBandConfirmedWithPrediction 0.6 (Just 1) Nothing 100.0 == directionalityWeakBandConfirmed 0.6 (Just 1))
+
 -- Public-surface proof obligation for the restored Main import seam: the
 -- compatibility names remain importable from Trader.SignalGates, including
 -- signalRunPostDirectionGates, their legacy constructors stay reachable, and
@@ -1529,6 +2016,28 @@ testSignalGatesPublicSurfaceRegression = do
             && postDirectionGates2 == (Nothing, Just "VOLATILITY")
         )
 
+testSignalGateVolTargetPrecedesCloud :: IO ()
+testSignalGateVolTargetPrecedesCloud = do
+    let result =
+            signalRunPostDirectionGates
+                (Just 1)
+                Nothing
+                True
+                False
+                (const True)
+                (const False)
+                (const True)
+                True
+                (const (True, Nothing))
+                (True, Nothing)
+                (True, Nothing)
+                (True, Nothing)
+                (const True)
+                (const (True, 1))
+    assert
+        "vol-target readiness takes precedence over Kalman cloud vetoes"
+        (result == (Nothing, Just "VOL_TARGET"))
+
 testSignalDirectionalityLiveSemanticsRegression :: IO ()
 testSignalDirectionalityLiveSemanticsRegression = do
     let chopPrices = pricesFromReturns [0.01, -0.01, 0.01, -0.01, 0.01, -0.01, 0.01, -0.01]
@@ -1579,6 +2088,52 @@ testSignalDirectionalityLiveSemanticsRegression = do
     assert
         "additive monotonic trends remain directional instead of misclassifying clean trends as malformed"
         (monotonicTrendSnapshot == Just (DirectionalitySnapshot False Nothing))
+
+-- Prediction-aware directionality snapshot: when predicted return agrees with
+-- chosen direction and historical z-score, the weak-band veto should relax.
+testSignalDirectionalityPredictionAwareLiveSemantics :: IO ()
+testSignalDirectionalityPredictionAwareLiveSemantics = do
+    let weakBandPrices =
+            pricesFromReturns [0.018, 0.018, 0.018, -0.01, -0.01, -0.01, 0.018, 0.018, -0.01, -0.01]
+        weakBandShortSnapshotLegacy =
+            signalDirectionalitySnapshotImplWithPrediction
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                weakBandPrices
+                (V.length weakBandPrices - 1)
+                (Just (-1))
+                Nothing
+                0 ::
+                Maybe DirectionalitySnapshot
+        weakBandShortSnapshotAgree =
+            signalDirectionalitySnapshotImplWithPrediction
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                weakBandPrices
+                (V.length weakBandPrices - 1)
+                (Just (-1))
+                (Just (-0.05))
+                100.0 ::
+                Maybe DirectionalitySnapshot
+        weakBandShortSnapshotDisagree =
+            signalDirectionalitySnapshotImplWithPrediction
+                0.05
+                (Just (RegimeProbs 0.6 0.2 0.2))
+                weakBandPrices
+                (V.length weakBandPrices - 1)
+                (Just (-1))
+                (Just 0.05)
+                100.0 ::
+                Maybe DirectionalitySnapshot
+    assert
+        "legacy path without prediction falls back to weak-band veto"
+        (weakBandShortSnapshotLegacy == Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_WEAK_BAND")))
+    assert
+        "agreeing prediction relaxes weak-band veto for same-direction signals"
+        (weakBandShortSnapshotAgree == Just (DirectionalitySnapshot False Nothing))
+    assert
+        "disagreeing prediction falls back to legacy weak-band veto"
+        (weakBandShortSnapshotDisagree == Just (DirectionalitySnapshot True (Just "NON_DIRECTIONAL_WEAK_BAND")))
 
 -- Formal public-surface invariant for the Main-facing Trader.Trading import
 -- seam: a downstream module importing `PositionSide(..)` can still case-analyze

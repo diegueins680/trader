@@ -249,6 +249,7 @@ import Trader.LSTM (
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (MarketModel (..), buildMarketModel, marketMeasurementAt)
 import Trader.MarketDataIntegrity (
+    isTransientMarketDataError,
     marketDataContinuationIssue,
     marketDataFreshness,
     marketDataStaleReason,
@@ -329,9 +330,13 @@ import Trader.SignalGates (
     normalizeSignalThreshold,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
+    signalDirectionalitySnapshotImplWithPrediction,
     signalEntryEdgeSpikeAuditWarning,
+    signalEntryEdgeSpikeAuditWarningInterval,
     signalEntryEdgeSpikeEntryOk,
+    signalEntryEdgeSpikeEntryOkInterval,
     signalEntryEdgeSpikeOk,
+    signalEntryEdgeSpikeOkInterval,
     signalEntryFeeBufferOk,
     signalEntryHeadroomOk,
     signalEntryOpenThresholdFeasibilityReason,
@@ -339,6 +344,7 @@ import Trader.SignalGates (
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
+    signalPredictionSanityOk,
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
     signalTrendSmaConfirmed,
@@ -348,10 +354,11 @@ import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
 import qualified Trader.TechnicalAnalysis.Strategies as TA
 import Trader.Text (dedupeStable, normalizeKey, trim)
 import Trader.TopCombosStore (
+    ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
-    applyComboUpdates,
+    applyComboUpdatesWithStats,
     comboIdentityKey,
     comboMetricDouble,
     comboPerformanceKey,
@@ -5176,6 +5183,12 @@ data BotStartStability
     | BotStartUnstable !String
     deriving (Eq, Show)
 
+data BotStartWaitResult
+    = BotStartWaitStable
+    | BotStartWaitSkip !String
+    | BotStartWaitAbort !String
+    deriving (Eq, Show)
+
 trimTrailingZerosString :: String -> String
 trimTrailingZerosString s =
     case break (== '.') s of
@@ -5457,7 +5470,9 @@ botStateStabilityIssue st =
             Just reason -> Just ("halted (" ++ reason ++ ")")
             Nothing ->
                 case botError st of
-                    Just err -> Just ("status error: " ++ err)
+                    Just err
+                        | isTransientMarketDataError err -> Nothing
+                        | otherwise -> Just ("status error: " ++ err)
                     Nothing
                         | Just issue <- queuedStartOrderErrorIssue (argMaxOrderErrors args) (botConsecutiveOrderErrors st) ->
                             Just issue
@@ -5489,33 +5504,50 @@ botStartTenantStability ctrl tenantKey = do
             [] -> BotStartStable
             issue : _ -> BotStartUnstable issue
 
-waitForBotStartStability :: BotController -> TenantKey -> Int -> String -> IO (Either String ())
-waitForBotStartStability ctrl tenantKey maxWaitSeconds nextSym = do
+waitForBotStartStability :: BotController -> TenantKey -> Int -> Int -> Int -> String -> IO BotStartWaitResult
+waitForBotStartStability ctrl tenantKey maxWaitSeconds maxRetries perSymbolMaxWaitSeconds nextSym = do
+    startMs <- getTimestampMs
     lastReasonRef <- newIORef Nothing
     mDone <-
         if maxWaitSeconds <= 0
-            then Just <$> loop lastReasonRef Nothing
-            else timeout (maxWaitSeconds * 1000000) (loop lastReasonRef Nothing)
+            then Just <$> loop lastReasonRef Nothing 0 startMs
+            else timeout (maxWaitSeconds * 1000000) (loop lastReasonRef Nothing 0 startMs)
     case mDone of
-        Just () -> pure (Right ())
+        Just result -> pure result
         Nothing -> do
             mLastReason <- readIORef lastReasonRef
             let suffix =
                     case mLastReason of
                         Nothing -> ""
                         Just reason -> "; last issue: " ++ reason
-            pure (Left ("timed out after " ++ show maxWaitSeconds ++ "s waiting for current bots to become stable" ++ suffix))
+            pure (BotStartWaitAbort ("timed out after " ++ show maxWaitSeconds ++ "s waiting for current bots to become stable" ++ suffix))
   where
-    loop lastReasonRef previousReason = do
+    loop lastReasonRef previousReason attempts startMs = do
         stability <- botStartTenantStability ctrl tenantKey
         case stability of
-            BotStartStable -> pure ()
+            BotStartStable -> pure BotStartWaitStable
             BotStartUnstable reason -> do
                 writeIORef lastReasonRef (Just reason)
                 when (previousReason /= Just reason) $
                     putStrLn ("Queued bot start for " ++ nextSym ++ " waiting for stability: " ++ reason)
-                threadDelay (5 * 1000000)
-                loop lastReasonRef (Just reason)
+                nowMs <- getTimestampMs
+                let elapsedSec = fromIntegral (nowMs - startMs) / 1000.0 :: Double
+                    attempts' = attempts + 1
+                if attempts' >= maxRetries || floor elapsedSec >= perSymbolMaxWaitSeconds
+                    then
+                        pure
+                            ( BotStartWaitSkip
+                                ( "skipped after "
+                                    ++ show attempts'
+                                    ++ " attempts and "
+                                    ++ show (floor elapsedSec :: Int)
+                                    ++ "s; last issue: "
+                                    ++ reason
+                                )
+                            )
+                    else do
+                        threadDelay (5 * 1000000)
+                        loop lastReasonRef (Just reason) attempts' startMs
 
 botFeatureInputs :: BotState -> FeatureInputs
 botFeatureInputs st =
@@ -6857,13 +6889,13 @@ readBoundedIntEnv name minValue maxValue fallback = do
             _ -> fallback
 
 defaultTopComboBotCount :: Int
-defaultTopComboBotCount = 3
+defaultTopComboBotCount = 22
 
 defaultTopComboStartupBotCount :: Int
 defaultTopComboStartupBotCount = 0
 
 defaultBotAutoStartMaxBots :: Int
-defaultBotAutoStartMaxBots = 3
+defaultBotAutoStartMaxBots = 22
 
 defaultBotAutoStartMaxStartsPerCycle :: Int
 defaultBotAutoStartMaxStartsPerCycle = 1
@@ -6874,8 +6906,14 @@ defaultBotStartMaxSymbols = 3
 defaultBotStartQueueMaxWaitSeconds :: Int
 defaultBotStartQueueMaxWaitSeconds = 1800
 
+defaultBotStartQueueMaxRetries :: Int
+defaultBotStartQueueMaxRetries = 5
+
+defaultBotStartQueuePerSymbolMaxWaitSeconds :: Int
+defaultBotStartQueuePerSymbolMaxWaitSeconds = 60
+
 defaultBotDisabledSymbols :: [String]
-defaultBotDisabledSymbols = ["MATICUSDT"]
+defaultBotDisabledSymbols = []
 
 botDisabledSymbolsFromEnv :: IO [String]
 botDisabledSymbolsFromEnv = do
@@ -6916,6 +6954,14 @@ botStartMaxSymbolsFromEnv =
 botStartQueueMaxWaitSecondsFromEnv :: IO Int
 botStartQueueMaxWaitSecondsFromEnv =
     readBoundedIntEnv "TRADER_BOT_START_QUEUE_MAX_WAIT_SEC" 0 86400 defaultBotStartQueueMaxWaitSeconds
+
+botStartQueueMaxRetriesFromEnv :: IO Int
+botStartQueueMaxRetriesFromEnv =
+    readBoundedIntEnv "TRADER_BOT_START_QUEUE_MAX_RETRIES" 0 100 defaultBotStartQueueMaxRetries
+
+botStartQueuePerSymbolMaxWaitSecondsFromEnv :: IO Int
+botStartQueuePerSymbolMaxWaitSecondsFromEnv =
+    readBoundedIntEnv "TRADER_BOT_START_QUEUE_PER_SYM_MAX_WAIT_SEC" 0 3600 defaultBotStartQueuePerSymbolMaxWaitSeconds
 
 data AdoptRequirement = AdoptRequirement
     { arActive :: !Bool
@@ -7390,18 +7436,25 @@ runQueuedBotStarts ::
     IO ()
 runQueuedBotStarts mOps mJournal tenantKey params botCtrl symbols startOne = do
     maxWaitSeconds <- botStartQueueMaxWaitSecondsFromEnv
+    maxRetries <- botStartQueueMaxRetriesFromEnv
+    perSymbolMaxWait <- botStartQueuePerSymbolMaxWaitSecondsFromEnv
     unless (null symbols) $
         putStrLn ("Queued bot starts: " ++ intercalate ", " symbols)
     let go [] = pure ()
         go queued@(sym : rest) = do
-            stableOrErr <- waitForBotStartStability botCtrl tenantKey maxWaitSeconds sym
-            case stableOrErr of
-                Left err ->
+            waitResult <- waitForBotStartStability botCtrl tenantKey maxWaitSeconds maxRetries perSymbolMaxWait sym
+            case waitResult of
+                BotStartWaitAbort err ->
                     forM_ queued $ \queuedSym -> do
                         let msg = "Queued bot start aborted: " ++ err
                         putStrLn ("Queued bot start failed for " ++ queuedSym ++ ": " ++ msg)
                         recordQueuedBotStartFailure mOps mJournal tenantKey params queuedSym msg
-                Right () -> do
+                BotStartWaitSkip reason -> do
+                    let msg = "Queued bot start skipped: " ++ reason
+                    putStrLn ("Queued bot start skipped for " ++ sym ++ ": " ++ msg)
+                    recordQueuedBotStartFailure mOps mJournal tenantKey params sym msg
+                    go rest
+                BotStartWaitStable -> do
                     startedOrErr <- try (startOne sym) :: IO (Either SomeException (String, Either String BotStartOutcome))
                     case startedOrErr of
                         Left ex -> do
@@ -9992,7 +10045,7 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                           ]
                                                                             ++ maybe [] (\v -> ["objective" .= v]) (tcObjectiveLabel combo)
                                                                         )
-                                                                    pure (Just (key, update))
+                                                                    pure (Just (key, topComboUuid combo, update))
 
     baseValOrErr <- readTopCombosValueWithDbFallback (tcbcOps ctx) (tcbcStore ctx)
     case baseValOrErr of
@@ -10021,12 +10074,13 @@ backtestTopCombosOnce topNRaw ctx = do
                                                     pure False
                                                 Right latestVal -> do
                                                     now <- getTimestampMs
-                                                    let updateMap = HM.fromList updates
-                                                    case applyComboUpdates now updateMap latestVal of
+                                                    let updateMap = HM.fromList [(key, update) | (key, _, update) <- updates]
+                                                        uuidByKey = HM.fromList [(key, comboUuid) | (key, comboUuid, _) <- updates]
+                                                    case applyComboUpdatesWithStats now updateMap latestVal of
                                                         Left err -> do
                                                             recordError "optimizer.combos.backtest_failed" err Nothing Nothing
                                                             pure False
-                                                        Right (updatedVal, updatedCount) ->
+                                                        Right (updatedVal, ComboBacktestApplyStats{cbasUpdatedCount = updatedCount, cbasPrunedCount = prunedCount, cbasPrunedKeys = prunedKeys}) ->
                                                             if updatedCount <= 0
                                                                 then do
                                                                     recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
@@ -10038,10 +10092,23 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                             recordError "optimizer.combos.backtest_failed" err Nothing Nothing
                                                                             pure False
                                                                         Right _ -> do
+                                                                            let prunedUuids = mapMaybe (`HM.lookup` uuidByKey) prunedKeys
+                                                                            prunedDbCount <-
+                                                                                if null prunedUuids
+                                                                                    then pure 0
+                                                                                    else do
+                                                                                        pruneResult <- pruneTopCombosFromDbMaybe mOps prunedUuids
+                                                                                        case pruneResult of
+                                                                                            Left err -> do
+                                                                                                recordError "optimizer.combos.prune_failed" err Nothing Nothing
+                                                                                                pure 0
+                                                                                            Right n -> pure n
                                                                             persistTopCombosMaybe (tcbcStateSync ctx) topJsonPath
                                                                             recordEvent
                                                                                 "optimizer.combos.backtest_updated"
                                                                                 [ "updated" .= updatedCount
+                                                                                , "pruned" .= prunedCount
+                                                                                , "prunedDb" .= prunedDbCount
                                                                                 , "topN" .= topN
                                                                                 , "path" .= topJsonPath
                                                                                 ]
@@ -11620,8 +11687,9 @@ runRestApi cliArgs mWebhook = do
         port = max 1 (argPort baseArgs)
         settings =
             Warp.setHost bindHost $
-                Warp.setTimeout timeoutSec $
-                    Warp.setPort port Warp.defaultSettings
+                Warp.setOnException (\_ ex -> case fromException ex :: Maybe AsyncException of Just _ -> pure (); Nothing -> hPutStrLn stderr ("Warp exception: " ++ displayException ex)) $
+                    Warp.setTimeout timeoutSec $
+                        Warp.setPort port Warp.defaultSettings
     putStrLn (printf "Build: %s%s" (biVersion buildInfo) (maybe "" (\c -> " (" ++ take 12 c ++ ")") (biCommit buildInfo)))
     putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHostStr port)
     putStrLn
@@ -14722,6 +14790,31 @@ persistTopCombosExportMaybe mOps exportOrErr =
                     _ <- try (withOpsConnection opsStore (`persistTopCombosToDb` export)) :: IO (Either SomeException ())
                     pure ()
 
+pruneTopCombosFromDbMaybe :: Maybe OpsStore -> [Text] -> IO (Either String Int64)
+pruneTopCombosFromDbMaybe mOps comboUuidTexts =
+    case mOps of
+        Nothing -> pure (Right 0)
+        Just opsStore -> do
+            let comboUuids =
+                    dedupeStable
+                        [ comboUuid
+                        | comboUuidText <- comboUuidTexts
+                        , Just comboUuid <- [uuidFromText comboUuidText]
+                        ]
+            if null comboUuids
+                then pure (Right 0)
+                else do
+                    result <-
+                        try
+                            ( withOpsConnection opsStore $ \conn ->
+                                execute conn "DELETE FROM combos WHERE combo_uuid = ANY(?)" (Only (PGArray comboUuids))
+                            ) ::
+                            IO (Either SomeException Int64)
+                    pure $
+                        case result of
+                            Left e -> Left ("Failed to prune backtested top combos from the database: " ++ show e)
+                            Right deletedCount -> Right deletedCount
+
 fetchTopComboOperationCounts :: Connection -> [TopCombo] -> IO (M.Map UUID.UUID Int)
 fetchTopComboOperationCounts conn combos =
     let comboUuids =
@@ -16451,12 +16544,28 @@ mkSseEvent eventName payload =
         dataLines = map ("data: " <>) payloadLines
      in BS.intercalate "\n" (("event: " <> eventName) : dataLines) <> "\n\n"
 
-listenKeyStatusPayload :: String -> Maybe String -> Int64 -> BS.ByteString
-listenKeyStatusPayload status message atMs =
+listenKeyResponseFromState :: ListenKeyStreamState -> ApiListenKeyResponse
+listenKeyResponseFromState st =
+    ApiListenKeyResponse
+        { alrListenKey = lksListenKey st
+        , alrMarket = marketCode (lksMarket st)
+        , alrTestnet = lksTestnet st
+        , alrWsUrl = lksWsUrl st
+        , alrKeepAliveMs = lksKeepAliveMs st
+        }
+
+listenKeyStatusPayload :: ApiListenKeyResponse -> String -> Maybe String -> Int64 -> BS.ByteString
+listenKeyStatusPayload info status message atMs =
     BL.toStrict $
         encode $
             object
                 ( ["status" .= status, "atMs" .= atMs]
+                    ++ [ "listenKey" .= alrListenKey info
+                       , "market" .= alrMarket info
+                       , "testnet" .= alrTestnet info
+                       , "wsUrl" .= alrWsUrl info
+                       , "keepAliveMs" .= alrKeepAliveMs info
+                       ]
                     ++ maybe [] (\msg -> ["message" .= msg]) message
                 )
 
@@ -16489,7 +16598,7 @@ listenKeyEventToSse evt =
 emitListenKeyStatus :: ListenKeyStreamState -> String -> Maybe String -> IO ()
 emitListenKeyStatus st status message = do
     now <- getTimestampMs
-    let payload = listenKeyStatusPayload status message now
+    let payload = listenKeyStatusPayload (listenKeyResponseFromState st) status message now
     logListenKey st ("status=" ++ status ++ maybe "" (" msg=" ++) message)
     writeIORef (lksStatusRef st) (Just payload)
     writeChan (lksChan st) (ListenKeyStreamStatus payload)
@@ -16600,47 +16709,83 @@ stopListenKeyStreamMatching manager tenantKey listenKey =
                 pure (HM.delete tenantKey streams, True)
             _ -> pure (streams, False)
 
+createListenKeyStream :: ListenKeyManager -> TenantKey -> BinanceEnv -> BinanceMarket -> Bool -> String -> Int -> ListenKeyStreamMode -> IO ListenKeyStream
+createListenKeyStream manager tenantKey env market testnet listenKey keepAliveMs streamMode = do
+    chan <- newChan
+    stopSignal <- newEmptyMVar
+    statusRef <- newIORef Nothing
+    keepAliveRef <- newIORef Nothing
+    lastEventRef <- newIORef Nothing
+    let wsUrl =
+            case streamMode of
+                ListenKeyRestListenKey -> binanceUserStreamWsUrl market testnet listenKey
+                ListenKeySpotWsApi -> binanceSpotWsApiUrl testnet
+        state =
+            ListenKeyStreamState
+                { lksEnv = env
+                , lksTenantKey = tenantKey
+                , lksMarket = market
+                , lksTestnet = testnet
+                , lksListenKey = listenKey
+                , lksStreamMode = streamMode
+                , lksWsUrl = wsUrl
+                , lksKeepAliveMs = keepAliveMs
+                , lksChan = chan
+                , lksStopSignal = stopSignal
+                , lksStatusRef = statusRef
+                , lksKeepAliveAtRef = keepAliveRef
+                , lksLastEventRef = lastEventRef
+                }
+    emitListenKeyStatus state "connecting" Nothing
+    wsThread <- forkIO (listenKeyWsWorker state)
+    keepAliveThread <- forkIO (listenKeyKeepAliveWorker manager tenantKey state)
+    pure
+        ListenKeyStream
+            { lksState = state
+            , lksWsThread = wsThread
+            , lksKeepAliveThread = keepAliveThread
+            }
+
 startListenKeyStream :: ListenKeyManager -> TenantKey -> BinanceEnv -> BinanceMarket -> Bool -> String -> Int -> ListenKeyStreamMode -> IO ListenKeyStream
 startListenKeyStream manager tenantKey env market testnet listenKey keepAliveMs streamMode =
     modifyMVar (lkmState manager) $ \streams -> do
         Data.Foldable.for_
             (HM.lookup tenantKey streams)
             stopListenKeyStreamInternal
-        chan <- newChan
-        stopSignal <- newEmptyMVar
-        statusRef <- newIORef Nothing
-        keepAliveRef <- newIORef Nothing
-        lastEventRef <- newIORef Nothing
-        let wsUrl =
-                case streamMode of
-                    ListenKeyRestListenKey -> binanceUserStreamWsUrl market testnet listenKey
-                    ListenKeySpotWsApi -> binanceSpotWsApiUrl testnet
-            state =
-                ListenKeyStreamState
-                    { lksEnv = env
-                    , lksTenantKey = tenantKey
-                    , lksMarket = market
-                    , lksTestnet = testnet
-                    , lksListenKey = listenKey
-                    , lksStreamMode = streamMode
-                    , lksWsUrl = wsUrl
-                    , lksKeepAliveMs = keepAliveMs
-                    , lksChan = chan
-                    , lksStopSignal = stopSignal
-                    , lksStatusRef = statusRef
-                    , lksKeepAliveAtRef = keepAliveRef
-                    , lksLastEventRef = lastEventRef
-                    }
-        emitListenKeyStatus state "connecting" Nothing
-        wsThread <- forkIO (listenKeyWsWorker state)
-        keepAliveThread <- forkIO (listenKeyKeepAliveWorker manager tenantKey state)
-        let stream =
-                ListenKeyStream
-                    { lksState = state
-                    , lksWsThread = wsThread
-                    , lksKeepAliveThread = keepAliveThread
-                    }
+        stream <- createListenKeyStream manager tenantKey env market testnet listenKey keepAliveMs streamMode
         pure (HM.insert tenantKey stream streams, stream)
+
+restartExpiredListenKeyStream :: ListenKeyManager -> TenantKey -> ListenKeyStreamState -> IO ()
+restartExpiredListenKeyStream manager tenantKey oldState =
+    case lksStreamMode oldState of
+        ListenKeySpotWsApi -> pure ()
+        ListenKeyRestListenKey -> do
+            emitListenKeyStatus oldState "expired" (Just "listenKey expired; restarting stream.")
+            result <- retryListenKey "recreate" (createListenKey (lksEnv oldState))
+            case result of
+                Left ex -> do
+                    emitListenKeyError oldState ("Failed to restart expired listenKey: " ++ displayException ex)
+                    _ <- stopListenKeyStreamMatching manager tenantKey (lksListenKey oldState)
+                    pure ()
+                Right newListenKey -> do
+                    newStream <-
+                        createListenKeyStream
+                            manager
+                            tenantKey
+                            (lksEnv oldState)
+                            (lksMarket oldState)
+                            (lksTestnet oldState)
+                            newListenKey
+                            (lksKeepAliveMs oldState)
+                            (lksStreamMode oldState)
+                    replaced <-
+                        modifyMVar (lkmState manager) $ \streams ->
+                            case HM.lookup tenantKey streams of
+                                Just current | lksListenKey (lksState current) == lksListenKey oldState -> do
+                                    stopListenKeyStreamInternal current
+                                    pure (HM.insert tenantKey newStream streams, True)
+                                _ -> pure (streams, False)
+                    unless replaced (stopListenKeyStreamInternal newStream)
 
 parseListenKeyWsUrl :: String -> Either String (Bool, String, Int, String)
 parseListenKeyWsUrl raw = do
@@ -16808,8 +16953,7 @@ listenKeyKeepAliveWorker manager tenantKey st = do
                                     let msg = displayException ex
                                     if isListenKeyMissingError msg
                                         then do
-                                            emitListenKeyStatus st "expired" (Just "listenKey expired; restart stream.")
-                                            _ <- stopListenKeyStreamMatching manager tenantKey (lksListenKey st)
+                                            _ <- forkIO (restartExpiredListenKeyStream manager tenantKey st)
                                             pure ()
                                         else emitListenKeyError st ("Keep-alive failed: " ++ msg)
                             Right _ -> do
@@ -16833,10 +16977,13 @@ handleBinanceListenKeyStream manager req respond =
                     respond $
                         Wai.responseStream status200 listenKeyStreamHeaders $ \write flush -> do
                             chan <- dupChan (lksChan st)
-                            let handleSendError :: IOException -> IO Bool
-                                handleSendError ex = do
-                                    logListenKey st ("SSE send failed: " ++ displayException ex)
-                                    pure False
+                            let handleSendError :: SomeException -> IO Bool
+                                handleSendError ex =
+                                    case fromException ex :: Maybe AsyncException of
+                                        Just asyncEx -> throwIO asyncEx
+                                        Nothing -> do
+                                            logListenKey st ("SSE send failed: " ++ displayException ex)
+                                            pure False
                                 send payload =
                                     (write (byteString payload) >> flush >> pure True)
                                         `catch` handleSendError
@@ -16974,7 +17121,7 @@ handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req res
                                                                             let msg = displayException ex
                                                                             emitListenKeyError st msg
                                                                             when (isListenKeyMissingError msg) $ do
-                                                                                _ <- stopListenKeyStreamMatching listenKeyManager tenantKey listenKey
+                                                                                _ <- forkIO (restartExpiredListenKeyStream listenKeyManager tenantKey st)
                                                                                 pure ()
                                                                             let (respSt, respMsg) = listenKeyExceptionToHttp market ex
                                                                              in respond (jsonError respSt respMsg)
@@ -25508,7 +25655,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                             , mWhy
                             )
 
-            (mLstmNext, lstmDir) =
+            (mLstmNextRaw, lstmDirRaw) =
                 case mLstmCtxSafe of
                     Nothing -> (Nothing, Nothing)
                     Just (normState, obsAll, lstmModel) ->
@@ -25520,6 +25667,16 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                         lstmNextObs = predictNext lstmModel window
                                         lstmNext = inverseNorm normState lstmNextObs
                                      in (Just lstmNext, directionPrice openThrAdj lstmNext)
+            -- Model sanity invariant: reject LSTM predictions outside [0.01x, 100x] currentPrice.
+            -- This catches corrupted models (e.g. AAVEUSDT outputting ~1.0 vs spot ~92.41).
+            (mLstmNext, lstmDir) =
+                case mLstmNextRaw of
+                    Nothing -> (Nothing, Nothing)
+                    Just lstmNext ->
+                        let (sanityOk, _mSanityReason) = signalPredictionSanityOk currentPrice (Just lstmNext)
+                         in if sanityOk
+                                then (mLstmNextRaw, lstmDirRaw)
+                                else (Nothing, Nothing)
 
             blendNext =
                 case (mKalNext, mLstmNext) of
@@ -26196,8 +26353,14 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     _ -> False
                                )
                     else snrScale > 0
-            directionalitySnapshotFor =
-                signalDirectionalitySnapshot regimeBankHysteresisRaw mRegimes pricesV t
+            mPredictedReturn =
+                case method of
+                    MethodLstmOnly -> mLstmNext >>= \p -> Just (p - currentPrice)
+                    MethodKalmanOnly -> mKalNext >>= \p -> Just (p - currentPrice)
+                    MethodKalmanPhysicsError -> mKalNext >>= \p -> Just (p - currentPrice)
+                    _ -> blendNext >>= \p -> Just (p - currentPrice)
+            directionalitySnapshotFor dir =
+                signalDirectionalitySnapshotImplWithPrediction regimeBankHysteresisRaw mRegimes pricesV t (Just dir) mPredictedReturn currentPrice
             nonDirectionalCheck dir =
                 case directionalitySnapshotFor dir of
                     Just snap | dsNonDirectional snap -> (False, dsReason snap)
@@ -26926,9 +27089,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaBest -> taDirRaw
             entryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args method
             entryEdgeHeadroomOk = signalEntryHeadroomOk openThrAdj edgeForMethod
-            entryEdgeSpikeOk = signalEntryEdgeSpikeOk openThrAdj edgeForMethod
-            entryEdgeSpikeEntryOk = signalEntryEdgeSpikeEntryOk entryEdgeSpikeAuditOnly openThrAdj edgeForMethod
-            entryEdgeSpikeAuditWarning = signalEntryEdgeSpikeAuditWarning entryEdgeSpikeAuditOnly openThrAdj edgeForMethod
+            entryEdgeSpikeOk = signalEntryEdgeSpikeOkInterval (argInterval args) openThrAdj edgeForMethod
+            entryEdgeSpikeEntryOk = signalEntryEdgeSpikeEntryOkInterval entryEdgeSpikeAuditOnly (argInterval args) openThrAdj edgeForMethod
+            entryEdgeSpikeAuditWarning = signalEntryEdgeSpikeAuditWarningInterval entryEdgeSpikeAuditOnly (argInterval args) openThrAdj edgeForMethod
             entryOpenThresholdFeasible = signalEntryOpenThresholdFeasible openThrAdj
             mEntryThresholdReason = signalEntryOpenThresholdFeasibilityReason openThrAdj
             chosenDirBase1 =
