@@ -159,3 +159,13 @@ FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate p
 - Next owner/consumer: `trader-firm-execution` via `/Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md`
 data-not-blocking
 FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-05-10 --vol-conf-gate proof slice
+
+## Finished result — 2026-05-11 14:05 America/Guayaquil — `--vol-conf-gate <preset>`
+- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
+- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted no change lines for the three target files.
+- `app/Trader/App/Args.hs:57-58,220,873-878` exposes `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring; `Args.hs:857` surfaces realized-vol sizing via `--vol-lookback`.
+- `app/Main.hs:393,423,495,1281,1295,1483` carries the preset, emits `vol_conf_gate`, logs `confidence`, and includes `unrealizedPnl`/`pnl_unrealized`.
+- No `test/TestMain.hs` grep hits for this slice in the proof output.
+- Next owner/consumer: `trader-firm-execution` via `/Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md`
+data-not-blocking
+FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-05-11 --vol-conf-gate proof slice
