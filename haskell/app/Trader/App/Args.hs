@@ -1460,6 +1460,7 @@ validateArgs args0 = do
     ensure "--method ta_trend/ta_reversion/ta_breakout/ta_best cannot be used with --optimize-operations" $
         not (methodIsTechnicalAnalysis (argMethod args) && argOptimizeOperations args)
     ensure "--fee must be >= 0" (argFee args >= 0)
+    ensure "--fee must be <= 0.05 (5%)" (argFee args <= 0.05)
     ensure "--slippage must be >= 0" (argSlippage args >= 0)
     ensure "--spread must be >= 0" (argSpread args >= 0)
     ensure "--fee-fixed must be >= 0" (argFeeFixed args >= 0)
@@ -1480,7 +1481,9 @@ validateArgs args0 = do
             ensure "--take-profit must be >= 0.0001 (0.01%)" (v >= 0.0001)
     case argTrailingStop args of
         Nothing -> pure ()
-        Just v -> ensure "--trailing-stop must be > 0 and < 1" (v > 0 && v < 1)
+        Just v -> do
+            ensure "--trailing-stop must be > 0 and < 1" (v > 0 && v < 1)
+            ensure "--trailing-stop must be >= 0.0001 (0.01%)" (v >= 0.0001)
     ensure "--stop-loss-vol-mult must be >= 0" (argStopLossVolMult args >= 0)
     ensure "--take-profit-vol-mult must be >= 0" (argTakeProfitVolMult args >= 0)
     ensure "--trailing-stop-vol-mult must be >= 0" (argTrailingStopVolMult args >= 0)
