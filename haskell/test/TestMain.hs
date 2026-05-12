@@ -160,6 +160,7 @@ main = do
     testMaxPositionSizeRejectsNonFuturesOverFive
     testInitialBalanceRejectsZeroOrNegative
     testBacktestRatioRejectsInvalidValues
+    testOrderQuoteFractionRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -608,6 +609,21 @@ testBacktestRatioRejectsInvalidValues = do
         "backtest-ratio accepts 0.5 (valid split)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--backtest-ratio", "0.5"] of
             Right args -> argBacktestRatio args == 0.5
+            Left _ -> False
+        )
+
+testOrderQuoteFractionRejectsInvalidValues :: IO ()
+testOrderQuoteFractionRejectsInvalidValues = do
+    assert
+        "order-quote-fraction rejects 0 (no position)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "0"] == Left "--order-quote-fraction must be > 0 and <= 1")
+    assert
+        "order-quote-fraction rejects 1.1 (over-leverage)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "1.1"] == Left "--order-quote-fraction must be > 0 and <= 1")
+    assert
+        "order-quote-fraction accepts 0.5 (valid fraction)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "0.5"] of
+            Right args -> argOrderQuoteFraction args == Just 0.5
             Left _ -> False
         )
 
