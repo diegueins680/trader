@@ -158,6 +158,7 @@ main = do
     testTrailingStopRejectsLowerBoundValidation
     testMaxPositionSizeRejectsAbsurdUpperBound
     testMaxPositionSizeRejectsNonFuturesOverFive
+    testInitialBalanceRejectsZeroOrNegative
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -584,6 +585,15 @@ testMaxPositionSizeRejectsNonFuturesOverFive = do
             Right args -> argMaxPositionSize args == 6
             Left _ -> False
         )
+
+testInitialBalanceRejectsZeroOrNegative :: IO ()
+testInitialBalanceRejectsZeroOrNegative = do
+    assert
+        "initial-balance rejects zero"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--initial-balance", "0"] == Left "--initial-balance must be > 0")
+    assert
+        "initial-balance rejects negative"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--initial-balance", "-100"] == Left "--initial-balance must be > 0")
 
 testExchangeDataLongShortBacktestAllowed :: IO ()
 testExchangeDataLongShortBacktestAllowed = do
