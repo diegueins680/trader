@@ -7,6 +7,7 @@ import Control.Monad (forM_, unless)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isNothing)
 import qualified Data.Text as T
@@ -50,7 +51,7 @@ import Trader.Optimizer.Optimize (
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Platform (Platform (..))
-import Trader.ThresholdCalibration (CalibrationMethod (..), EdgeDistribution (..), ThresholdCalibration (..), calibrationReport, calibrationToJson, computeEdgeDistribution, suggestedThreshold, thresholdAtPercentile)
+import Trader.ThresholdCalibration (CalibrationMethod (..), EdgeDistribution (..), ThresholdCalibration (..), calibrationReport, calibrationToJson, calibrateThreshold, computeEdgeDistribution, suggestedThreshold, thresholdAtPercentile)
 import Trader.PredictionMarkets (
     PredictionMarketEvent (..),
     PredictionMarketMarket (..),
@@ -2681,8 +2682,8 @@ testGateTelemetryAccumulationInvariant = do
         tel2 = recordRejection rej2 tel1
         tel3 = recordRejection rej3 tel2
     assert "accumulated rejections count correctly" (gtTotalRejections tel3 == 3)
-    assert "per-gate counts track correctly" (lookup GateEdgeSpike (gtPerGateCounts tel3) == Just 2)
-    assert "per-gate counts track correctly for second gate" (lookup GateEdgeHeadroom (gtPerGateCounts tel3) == Just 1)
+    assert "per-gate counts track correctly" (Map.lookup GateEdgeSpike (gtPerGateCounts tel3) == Just 2)
+    assert "per-gate counts track correctly for second gate" (Map.lookup GateEdgeHeadroom (gtPerGateCounts tel3) == Just 1)
     assert "recent rejections bounded" (length (gtRecentRejections tel3) <= 10)
 
 testGateTelemetryBindingGateIdentification :: IO ()
