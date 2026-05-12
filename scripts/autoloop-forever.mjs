@@ -30,7 +30,7 @@ const BASE_BRANCH = normalizeGitBranchShortName(process.env.AUTOLOOP_BASE_BRANCH
 const LOOP_INTERVAL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_INTERVAL_SECONDS, 300, 15, 86400);
 const STOP_POLL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_STOP_POLL_SECONDS, 5, 1, 60);
 const STATUS_HEARTBEAT_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_STATUS_HEARTBEAT_SECONDS, 15, 5, 300);
-const CHILD_ARGS = process.argv.slice(2);
+const CHILD_ARGS = process.argv.slice(2).length > 0 ? process.argv.slice(2) : ["--method", "ta_trend", "--vol-conf-gate", "vol_conf_v1_default"];
 
 let runnerState = {
   mode: "forever",

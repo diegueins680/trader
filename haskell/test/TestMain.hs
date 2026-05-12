@@ -47,8 +47,10 @@ import Trader.Optimizer.Optimize (
     qualityPresetCeiling,
     qualityPresetWeightFloor,
  )
+import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Platform (Platform (..))
+import Trader.ThresholdCalibration (CalibrationMethod (..), EdgeDistribution (..), ThresholdCalibration (..), calibrationReport, calibrationToJson, computeEdgeDistribution, suggestedThreshold, thresholdAtPercentile)
 import Trader.PredictionMarkets (
     PredictionMarketEvent (..),
     PredictionMarketMarket (..),
@@ -201,6 +203,19 @@ main = do
     testOptimizerKellyLiteExposureContractRegression
     testTopComboBacktestPrunesRoiLosers
     testMetricsConsumesTradingPublicResults
+    testGateTelemetryEmptyInvariant
+    testGateTelemetryAccumulationInvariant
+    testGateTelemetryBindingGateIdentification
+    testGateTelemetryHistogramSorting
+    testThresholdCalibrationEmptyInputFailsClosed
+    testThresholdCalibrationDistributionAccuracy
+    testThresholdCalibrationPercentileMethod
+    testThresholdCalibrationStdDevMethod
+    testThresholdCalibrationHybridMethod
+    testThresholdCalibrationRecommendationInsufficientSample
+    testThresholdCalibrationRecommendationConservative
+    testThresholdCalibrationRecommendationAggressive
+    testThresholdCalibrationRecommendationBalanced
     runTechnicalAnalysisTests
 
 assert :: String -> Bool -> IO ()
@@ -2641,3 +2656,151 @@ testMetricsConsumesTradingPublicResults = do
             && activityCountFromMetrics metrics == 1
             && rvActivityCount (roiViewFromMetrics metrics) == 1
         )
+
+-- ============================================================================
+-- Gate Telemetry Tests
+-- Engineering invariant: If you can't measure it, you can't improve it.
+-- ============================================================================
+
+testGateTelemetryEmptyInvariant :: IO ()
+testGateTelemetryEmptyInvariant = do
+    let tel = emptyTelemetry 100
+    assert "empty telemetry has zero total bars" (gtTotalBars tel == 0)
+    assert "empty telemetry has zero total candidates" (gtTotalCandidates tel == 0)
+    assert "empty telemetry has zero total rejections" (gtTotalRejections tel == 0)
+    assert "empty telemetry has empty histogram" (null (rejectionHistogram tel))
+    assert "empty telemetry has no binding gate" (isNothing (bindingGate (gtPerGateCounts tel)))
+
+testGateTelemetryAccumulationInvariant :: IO ()
+testGateTelemetryAccumulationInvariant = do
+    let tel0 = emptyTelemetry 10
+        rej1 = GateRejection GateEdgeSpike ReasonEdgeSpike Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+        rej2 = GateRejection GateEdgeHeadroom ReasonEdgeHeadroom Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+        rej3 = GateRejection GateEdgeSpike ReasonEdgeSpike Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+        tel1 = recordRejection rej1 tel0
+        tel2 = recordRejection rej2 tel1
+        tel3 = recordRejection rej3 tel2
+    assert "accumulated rejections count correctly" (gtTotalRejections tel3 == 3)
+    assert "per-gate counts track correctly" (lookup GateEdgeSpike (gtPerGateCounts tel3) == Just 2)
+    assert "per-gate counts track correctly for second gate" (lookup GateEdgeHeadroom (gtPerGateCounts tel3) == Just 1)
+    assert "recent rejections bounded" (length (gtRecentRejections tel3) <= 10)
+
+testGateTelemetryBindingGateIdentification :: IO ()
+testGateTelemetryBindingGateIdentification = do
+    let tel0 = emptyTelemetry 100
+        rej = GateRejection GateFeeBuffer ReasonFeeBuffer Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+        tel1 = recordRejection rej tel0
+    assert "binding gate identified when single gate rejects"
+        (bindingGate (gtPerGateCounts tel1) == Just GateFeeBuffer)
+
+testGateTelemetryHistogramSorting :: IO ()
+testGateTelemetryHistogramSorting = do
+    let tel0 = emptyTelemetry 100
+        rej1 = GateRejection GateEdgeSpike ReasonEdgeSpike Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+        rej2 = GateRejection GateEdgeSpike ReasonEdgeSpike Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+        rej3 = GateRejection GateFeeBuffer ReasonFeeBuffer Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+        tel1 = recordRejection rej1 tel0
+        tel2 = recordRejection rej2 tel1
+        tel3 = recordRejection rej3 tel2
+        hist = rejectionHistogram tel3
+    assert "histogram sorted by count descending"
+        (case hist of
+            (_, _, c1) : (_, _, c2) : _ -> c1 >= c2
+            _ -> True)
+
+-- ============================================================================
+-- Threshold Calibration Tests
+-- Engineering invariant: Thresholds must be calibrated from data, not magic.
+-- ============================================================================
+
+testThresholdCalibrationEmptyInputFailsClosed :: IO ()
+testThresholdCalibrationEmptyInputFailsClosed = do
+    let result = computeEdgeDistribution ([] :: [Double])
+    assert "empty edge list returns Nothing" (isNothing result)
+
+testThresholdCalibrationDistributionAccuracy :: IO ()
+testThresholdCalibrationDistributionAccuracy = do
+    let edges = [0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.010]
+        mDist = computeEdgeDistribution edges
+    case mDist of
+        Nothing -> assert "distribution computation failed" False
+        Just dist -> do
+            assert "sample size correct" (edSampleSize dist == 10)
+            assert "min correct" (edMin dist == 0.001)
+            assert "max correct" (edMax dist == 0.010)
+            assert "median correct" (edMedian dist == 0.0055)
+            assert "p50 equals median" (edP50 dist == edMedian dist)
+
+testThresholdCalibrationPercentileMethod :: IO ()
+testThresholdCalibrationPercentileMethod = do
+    let edges = replicate 100 0.01 ++ replicate 100 0.02 ++ replicate 100 0.03
+        mCalib = calibrateThreshold edges (PercentileMethod 75)
+    case mCalib of
+        Nothing -> assert "calibration failed" False
+        Just calib -> do
+            assert "percentile method uses correct threshold"
+                (tcSuggestedThreshold calib >= 0.02 && tcSuggestedThreshold calib <= 0.03)
+            assert "headroom threshold is threshold / 1.5"
+                (abs (tcHeadroomThreshold calib - tcSuggestedThreshold calib / 1.5) < 1e-9)
+
+testThresholdCalibrationStdDevMethod :: IO ()
+testThresholdCalibrationStdDevMethod = do
+    let edges = [0.01 | _ <- [1..100 :: Int]]  -- All same = zero stddev
+        mCalib = calibrateThreshold edges (StdDevMethod 2.0)
+    case mCalib of
+        Nothing -> assert "calibration failed" False
+        Just calib -> do
+            assert "stddev method with zero stddev returns mean"
+                (tcSuggestedThreshold calib == 0.01)
+
+testThresholdCalibrationHybridMethod :: IO ()
+testThresholdCalibrationHybridMethod = do
+    let edges = [0.001, 0.005, 0.010, 0.015, 0.020]
+        mCalib = calibrateThreshold edges (HybridMethod 50 1.0)
+    case mCalib of
+        Nothing -> assert "calibration failed" False
+        Just calib -> do
+            assert "hybrid method returns non-negative threshold"
+                (tcSuggestedThreshold calib >= 0)
+            assert "hybrid method has confidence interval"
+                (fst (tcConfidenceInterval calib) <= snd (tcConfidenceInterval calib))
+
+testThresholdCalibrationRecommendationInsufficientSample :: IO ()
+testThresholdCalibrationRecommendationInsufficientSample = do
+    let edges = [0.01 | _ <- [1..10 :: Int]]
+        mCalib = calibrateThreshold edges (PercentileMethod 75)
+    case mCalib of
+        Nothing -> assert "calibration failed" False
+        Just calib -> do
+            assert "insufficient sample triggers warning"
+                (T.isInfixOf "INSUFFICIENT_SAMPLE" (tcRecommendation calib))
+
+testThresholdCalibrationRecommendationConservative :: IO ()
+testThresholdCalibrationRecommendationConservative = do
+    let edges = [0.001 * fromIntegral i | i <- [1..200 :: Int]]
+        mCalib = calibrateThreshold edges (PercentileMethod 99)
+    case mCalib of
+        Nothing -> assert "calibration failed" False
+        Just calib -> do
+            assert "conservative threshold above p95 triggers warning"
+                (T.isInfixOf "CONSERVATIVE" (tcRecommendation calib))
+
+testThresholdCalibrationRecommendationAggressive :: IO ()
+testThresholdCalibrationRecommendationAggressive = do
+    let edges = [0.001 * fromIntegral i | i <- [1..200 :: Int]]
+        mCalib = calibrateThreshold edges (PercentileMethod 10)
+    case mCalib of
+        Nothing -> assert "calibration failed" False
+        Just calib -> do
+            assert "aggressive threshold below p25 triggers warning"
+                (T.isInfixOf "AGGRESSIVE" (tcRecommendation calib))
+
+testThresholdCalibrationRecommendationBalanced :: IO ()
+testThresholdCalibrationRecommendationBalanced = do
+    let edges = [0.001 * fromIntegral i | i <- [1..200 :: Int]]
+        mCalib = calibrateThreshold edges (PercentileMethod 75)
+    case mCalib of
+        Nothing -> assert "calibration failed" False
+        Just calib -> do
+            assert "balanced threshold in IQR is recommended"
+                (T.isInfixOf "BALANCED" (tcRecommendation calib))

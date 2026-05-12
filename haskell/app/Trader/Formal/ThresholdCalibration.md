@@ -1,0 +1,68 @@
+# Formal Methods: Threshold Calibration
+
+## Module
+`Trader.ThresholdCalibration`
+
+## Purpose
+Calibrate trading thresholds from historical edge distributions instead of magic numbers.
+
+## Invariants
+
+### I1: Empty Input Fails Closed
+**Statement**: `computeEdgeDistribution [] = Nothing`
+**Proof**: Pattern match on empty list returns `Nothing`. No threshold can be computed without data.
+
+### I2: Invalid Edges Are Rejected
+**Statement**: For any edge `e` where `e < 0` or `isNaN e` or `isInfinite e`, `computeEdgeDistribution` returns `Nothing`.
+**Proof**: The `invalidEdge` predicate checks all three conditions. If ANY edge is invalid, the entire distribution is rejected.
+
+### I3: Percentile is Monotonic
+**Statement**: For all `p1 < p2`, `thresholdAtPercentile p1 dist <= thresholdAtPercentile p2 dist`.
+**Proof**: The percentile function uses a sorted list. Higher percentiles select elements at higher indices. Since the list is sorted ascending, higher indices have greater or equal values.
+
+### I4: Headroom Threshold is Proportional
+**Statement**: `tcHeadroomThreshold = tcSuggestedThreshold / 1.5`
+**Proof**: Direct construction in `calibrateThreshold`. This maintains the existing contract: `entryEdgeHeadroomMultiple = 1.5`.
+
+### I5: Confidence Interval is Valid
+**Statement**: `fst tcConfidenceInterval <= snd tcConfidenceInterval`
+**Proof**: `ciLower = threshold - 1.96 * se`, `ciUpper = threshold + 1.96 * se`. Since `se >= 0`, `ciLower <= ciUpper`.
+
+### I6: Recommendation is Categorized
+**Statement**: The recommendation is exactly one of: INSUFFICIENT_SAMPLE, CONSERVATIVE, AGGRESSIVE, BALANCED.
+**Proof**: The `rec` computation uses a cascade of `if-then-else` with mutually exclusive conditions based on sample size and percentile position.
+
+## Failure Modes
+
+### F1: Insufficient Sample Size
+**Condition**: `edSampleSize < 100`
+**Result**: Recommendation = "INSUFFICIENT_SAMPLE"
+**Action**: Collect more historical data before calibrating.
+
+### F2: Zero Standard Deviation
+**Condition**: All edges are identical
+**Result**: `edStdDev = 0`, `StdDevMethod` returns mean
+**Action**: Use `PercentileMethod` or `HybridMethod` instead.
+
+### F3: Outlier Domination
+**Condition**: Edge distribution has extreme outliers
+**Result**: `StdDevMethod` produces very high thresholds
+**Mitigation**: `HybridMethod` caps at percentile, preventing outlier explosion.
+
+## Metrics
+- `sample_size`: Number of edges used
+- `suggested_threshold`: Calibrated open threshold
+- `confidence_interval`: 95% CI for threshold
+- `recommendation`: Actionable classification
+
+## Validation
+See `test/TestMain.hs`:
+- `testThresholdCalibrationEmptyInputFailsClosed`
+- `testThresholdCalibrationDistributionAccuracy`
+- `testThresholdCalibrationPercentileMethod`
+- `testThresholdCalibrationStdDevMethod`
+- `testThresholdCalibrationHybridMethod`
+- `testThresholdCalibrationRecommendationInsufficientSample`
+- `testThresholdCalibrationRecommendationConservative`
+- `testThresholdCalibrationRecommendationAggressive`
+- `testThresholdCalibrationRecommendationBalanced`

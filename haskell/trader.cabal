@@ -27,6 +27,7 @@ executable trader-hs
                      , Trader.Duration
                      , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
+                     , Trader.GateTelemetry
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
@@ -224,6 +225,7 @@ test-suite trader-tests
                      , Trader.Duration
                      , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
+                     , Trader.GateTelemetry
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
@@ -263,6 +265,7 @@ test-suite trader-tests
                      , Trader.Symbol
                      , Trader.Test.BinanceProbe
                      , Trader.Test.Cors
+                     , Trader.ThresholdCalibration
                      , Trader.TopCombosStore
                      , Trader.Test.ApiRoutes
                      , Trader.TechnicalAnalysis.Indicators
