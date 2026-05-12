@@ -1578,6 +1578,9 @@ validateArgs args0 = do
     ensure "--trend-lookback must be >= 0" (argTrendLookback args >= 0)
     ensure "--max-position-size must be >= 0" (argMaxPositionSize args >= 0)
     ensure "--max-position-size must be <= 10" (argMaxPositionSize args <= 10)
+    let market = argBinanceMarket args
+    when (market /= MarketFutures) $
+        ensure "--max-position-size must be <= 5 for spot/margin markets" (argMaxPositionSize args <= 5)
     let volTargetEnabled = maybe False (> 0) (argVolTarget args)
     case argVolTarget args of
         Nothing -> pure ()

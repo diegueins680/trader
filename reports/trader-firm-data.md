@@ -1,171 +1,59 @@
-## Finished result — 2026-04-10 16:48 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell` and returned the requested first-40-line slice.
-- Captured output showed no `git status --porcelain=v1` change lines for `app/Trader/App/Args.hs`, `app/Main.hs`, or `test/TestMain.hs`.
-- `app/Trader/App/Args.hs:867-872` exposes `--vol-conf-gate` with `parseVolConfGatePreset` and preset choice help.
-- `app/Main.hs:1194` emits `vol_conf_gate`; `app/Main.hs:1207` emits `confidence` in runtime state logging.
-- No `test/TestMain.hs` match appeared in the proof output, so the callable preset slice shows CLI wiring and observability fields but no visible data-validation seam.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md proof block for --vol-conf-gate slice
 
-## Finished result — 2026-04-11 15:51 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell` and returned the requested first-40-line slice.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` produced no change lines for the three target files.
-- `app/Trader/App/Args.hs:867-872` shows `--vol-conf-gate` parsed via `parseVolConfGatePreset`; `app/Trader/App/Args.hs:851` exposes the related realized-vol sizing input `--vol-lookback`.
-- `app/Main.hs:1194` emits `vol_conf_gate`; `app/Main.hs:1207` emits `confidence` in logged state/output.
-- The proof slice showed no `test/TestMain.hs` matches and no callable data-validation interface for this preset path.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md proof block for --vol-conf-gate slice (2026-04-11)
+---
+## Run 2026-05-12 10:57 UTC — Data Director proof for `--vol-conf-gate <preset>`
 
-## Finished result — 2026-04-12 11:33 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted no change lines.
-- `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring.
-- `app/Main.hs:387,437,1194,1207,7253` carries the preset into runtime state, emits `vol_conf_gate`, logs `confidence`, and includes `realizedR`.
-- No `test/TestMain.hs` hits appeared in the proof output, so this callable slice still lacks a visible file-local data-validation seam.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md proof block for --vol-conf-gate slice (2026-04-12)
+Command output (first 40 lines):
+```
+ M haskell/app/Trader/App/Args.hs
+ M haskell/app/Main.hs
+ M haskell/test/TestMain.hs
+app/Trader/App/Args.hs:57:    VolConfGatePreset (..),
+app/Trader/App/Args.hs:58:    parseVolConfGatePreset,
+app/Trader/App/Args.hs:220:    , argVolConfGate :: VolConfGatePreset
+app/Trader/App/Args.hs:647:    argThresholdFactorLstmConfWeight <- option auto (long "threshold-factor-lstm-conf-weight" <> value 0 <> help "Weight for LSTM confidence feature in threshold factor")
+app/Trader/App/Args.hs:655:                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, conf_pick=confidence winner-take-all, conformal_clip=clip blended return to conformal/quantile band, cost_pick=cost-aware winner-take-all, harmonic_blend=harmonic-return blend, disagreement_guard=disagreement-aware model pick, median_blend=median-robust blend, neutral_guard=neutral-on-disagreement guard, risk_parity_blend=inverse-edge risk-parity blend, consensus_boost=consensus-strength guard, anchor_blend=disagreement-aware anchor blend, tension_gate=partial-neutral conflict gate, entropy_blend=uncertainty-aware blend shrink, coherence_gate=coherence-aware conflict gate, divergence_gate=shrink blend when model returns diverge, fractal_blend=signed-root nonlinear blend, phase_cancel=anti-phase cancellation gate, softmax_blend=softmax edge-weighted blend, smooth_softmax_blend=EMA-smoothed softmax blend, hedge_blend=online Hedge-style exp-weights blend, net_softmax_blend=post-cost softmax edge-weighted blend, edge_blend=edge-weighted blend, edge_pick=edge winner-take-all, geo_blend=geometric blend, regime_switch=volatility/z-score model switch, router=adaptive model selection, bandit_router=UCB-style adaptive router, ta_trend=EMA/ADX/Aroon/ATR trend-following, ta_reversion=RSI/Stochastic/ROC/MACD envelope reversion, ta_breakout=Donchian plus volume-flow breakout, ta_best=best admitted TA setup, kalman_physics_error=Kalman state+physics-error model (latest 1000 bars, train 700/test 300), 10|kalman=Kalman only, 01|lstm=LSTM only"
+app/Trader/App/Args.hs:788:            "Enable meta-label filtering (edge + confidence + optional interval confirmation)."
+app/Trader/App/Args.hs:791:    argMetaLabelMinConfidence <- option auto (long "meta-label-min-confidence" <> value 0 <> showDefault <> help "Minimum confidence required by the meta-label filter (0..1)")
+app/Trader/App/Args.hs:857:    argVolLookback <- option auto (long "vol-lookback" <> value 30 <> help "Lookback window for realized vol sizing (bars)")
+app/Trader/App/Args.hs:873:            (eitherReader parseVolConfGatePreset)
+app/Trader/App/Args.hs:874:            ( long "vol-conf-gate"
+app/Trader/App/Args.hs:878:                <> help ("Frozen volatility/confidence gate preset. Choices: " ++ volConfGateChoicesCsv)
+app/Trader/App/Args.hs:927:    argLstmExitFlipStrong <- switch (long "lstm-exit-flip-strong" <> help "Require strong LSTM confidence for flip exits (uses --lstm-confidence-hard)")
+app/Trader/App/Args.hs:955:    argKalmanZMax <- option auto (long "kalman-z-max" <> value 3 <> help "Z-score mapped to position size=1 when --confidence-sizing is enabled")
+app/Trader/App/Args.hs:973:            "confidence-sizing"
+app/Trader/App/Args.hs:974:            "no-confidence-sizing"
+app/Trader/App/Args.hs:975:            "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled (default on)."
+app/Trader/App/Args.hs:976:            "Disable confidence sizing for entries."
+app/Trader/App/Args.hs:980:            ( long "protection-min-confidence"
+app/Trader/App/Args.hs:983:                <> help "Min confidence required to place exchange protection orders (stop-loss / take-profit) when enabled (0 disables)."
+app/Trader/App/Args.hs:985:    argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (linear ramp to --lstm-confidence-hard; requires --confidence-sizing)")
+app/Trader/App/Args.hs:986:    argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
+app/Trader/App/Args.hs:1001:            "Use Polymarket crypto up/down odds as an opt-in live entry confirmation and confidence boost."
+app/Trader/App/Args.hs:1320:            , ("--meta-label-min-confidence", argMetaLabelMinConfidence args)
+app/Trader/App/Args.hs:1364:            , ("--protection-min-confidence", argProtectionMinConfidence args)
+app/Trader/App/Args.hs:1365:            , ("--lstm-confidence-soft", argLstmConfidenceSoft args)
+app/Trader/App/Args.hs:1366:            , ("--lstm-confidence-hard", argLstmConfidenceHard args)
+app/Trader/App/Args.hs:1556:    ensure "--meta-label-min-confidence must be between 0 and 1" (argMetaLabelMinConfidence args >= 0 && argMetaLabelMinConfidence args <= 1)
+app/Trader/App/Args.hs:1631:    ensure "--lstm-confidence-soft must be between 0 and 1" (argLstmConfidenceSoft args >= 0 && argLstmConfidenceSoft args <= 1)
+app/Trader/App/Args.hs:1632:    ensure "--lstm-confidence-hard must be between 0 and 1" (argLstmConfidenceHard args >= 0 && argLstmConfidenceHard args <= 1)
+app/Trader/App/Args.hs:1633:    ensure "--protection-min-confidence must be between 0 and 1" (argProtectionMinConfidence args >= 0 && argProtectionMinConfidence args <= 1)
+app/Trader/App/Args.hs:1635:        "--lstm-confidence-soft must be <= --lstm-confidence-hard (unless hard=0 to disable)"
+app/Main.hs:393:    VolConfGatePreset (..),
+app/Main.hs:423:    , lsVolConfGate :: !VolConfGatePreset
+app/Main.hs:495:    , bsVolConfGate :: !VolConfGatePreset
+app/Main.hs:1281:                , "vol_conf_gate" .= volConfGateCode (lsVolConfGate s)
+app/Main.hs:1295:                , "confidence" .= lsConfidence s
+app/Main.hs:1483:    , abpUnrealizedPnl :: !Double
+```
 
-## 2026-04-12 15:44 America/Guayaquil — vol-conf-gate proof
-- Scope: callable `--vol-conf-gate <preset>` slice only.
-- Proof command: `(git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs; grep -nE 'vol-conf-gate|vol_conf_gate|VolConfGatePreset|argVolConfGatePreset|confidence|realized' app/Trader/App/Args.hs app/Main.hs test/TestMain.hs || true) | sed -n '1,40p'`
-- Evidence: `app/Trader/App/Args.hs:56-57,219,867-872` exposes `VolConfGatePreset`, parser wiring, and `long "vol-conf-gate"` choices.
-- Evidence: `app/Main.hs:387,437,1194,1207` threads the preset and emits `vol_conf_gate` plus `confidence`.
-- Evidence: `app/Main.hs:7253` shows `realizedR` in the same callable slice vicinity.
-- Gap from exact proof output: no `test/TestMain.hs` hit and no explicit `--vol-conf-gate` data-validation/assertion seam surfaced.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md appended with Args.hs/Main.hs proof refs for `--vol-conf-gate <preset>`
+Findings:
+- `--vol-conf-gate` CLI option defined in Args.hs (lines 873-878)
+- `argVolConfGate :: VolConfGatePreset` in arg record (line 220)
+- Consumed in Main.hs as `lsVolConfGate` (line 423) and `bsVolConfGate` (line 495)
+- Serialized to JSON as `vol_conf_gate` (line 1281)
+- **Zero references in test/TestMain.hs** — no test coverage for this gate preset
+- No references to `realized` vol in the searched files outside `argVolLookback` help text
 
-## Finished result — 2026-04-13 03:57 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; the requested first-40-line slice returned.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` produced no change lines.
-- `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and CLI parser/help wiring for `--vol-conf-gate`.
-- `app/Main.hs:387,437,1194,1207,7253` carries the preset, emits `vol_conf_gate`, logs `confidence`, and includes `realizedR`.
-- No `test/TestMain.hs` matches appeared in the exact proof slice, so no file-local data-validation seam surfaced for this callable preset path.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-13 --vol-conf-gate proof slice
+Status: `data-not-blocking` — seam exists and is wired end-to-end (CLI → args → state → JSON), but lacks test coverage. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage) or **trader-firm-research** (validate preset behavior).
 
-## Finished result — 2026-04-13 07:47 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; the requested first-40-line slice returned.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted no change lines.
-- `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring.
-- `app/Main.hs:387,437,1194,1207,7253` carries the preset, emits `vol_conf_gate`, logs `confidence`, and includes `realizedR`.
-- No `test/TestMain.hs` matches appeared in the exact proof slice, so this callable preset path still has no visible file-local data-validation seam.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-13 07:47 --vol-conf-gate proof slice
-
-## Finished result — 2026-04-13 13:25 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; requested first-40-line slice returned.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted no change lines.
-- `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and CLI parser/help wiring.
-- `app/Main.hs:387,437,1194,1207,7253` carries the preset, emits `vol_conf_gate`, logs `confidence`, and includes `realizedR`.
-- No `test/TestMain.hs` matches appeared in the exact proof slice, so no file-local data-validation seam surfaced for this callable preset path.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-13 13:25 --vol-conf-gate proof slice
-
-## Finished result — 2026-04-13 18:55 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; requested first-40-line slice returned.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted no change lines.
-- `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring.
-- `app/Trader/App/Args.hs:1486,1557-1561` only surfaced confidence-range validation for other flags, not `--vol-conf-gate`.
-- `app/Main.hs:358,387,437,1194,1207,7253` threads the preset, emits `vol_conf_gate`, logs `confidence`, and includes `realizedR`.
-- No `test/TestMain.hs` matches appeared in the exact proof slice, so no file-local data-validation seam surfaced for this callable preset path.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-13 18:55 --vol-conf-gate proof slice
-
-## Finished result — 2026-04-14 03:47 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted `M haskell/app/Main.hs` and `M haskell/test/TestMain.hs`.
-- `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring.
-- `app/Main.hs:358,387,437,1194,1207` threads the preset, emits `vol_conf_gate`, and logs `confidence`.
-- No `test/TestMain.hs` grep hits appeared in the exact proof slice, so this callable path still exposes no visible file-local data-validation seam.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-14 03:47 --vol-conf-gate proof slice
-
-## Finished result — 2026-04-14 12:13 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted no change lines for the three target files.
-- `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and CLI parser/help wiring for `--vol-conf-gate`.
-- `app/Main.hs:358,387,437,1194,1207` threads the preset, emits `vol_conf_gate`, and logs `confidence`; `app/Main.hs:7253` surfaced `realizedR`.
-- No `test/TestMain.hs` grep hits appeared in the exact proof slice, so no file-local callable data-validation seam surfaced for this preset path.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-14 12:13 --vol-conf-gate proof slice
-
-### 2026-04-14 17:42 - vol-conf-gate proof
-- Proof command run from `haskell/`: `(git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs; grep -nE 'vol-conf-gate|vol_conf_gate|VolConfGatePreset|argVolConfGatePreset|confidence|realized' app/Trader/App/Args.hs app/Main.hs test/TestMain.hs || true) | sed -n '1,40p'`
-- `app/Trader/App/Args.hs` shows `VolConfGatePreset`, `argVolConfGate`, parser wiring, and `--vol-conf-gate` option.
-- `app/Main.hs` shows runtime/output seam via `vol_conf_gate`, `confidence`, and `realizedR`.
-- `test/TestMain.hs` showed no matching proof hits in this slice output.
-no-existing-data-validation-seam — next owner/consumer: trader-firm-cto
-FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate proof evidence from app/Trader/App/Args.hs and app/Main.hs
-
-## Finished result — 2026-04-15 12:57 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted `M haskell/app/Main.hs` and `M haskell/test/TestMain.hs`.
-- `app/Trader/App/Args.hs:56-57,219,867-872` shows `VolConfGatePreset`, `argVolConfGate`, and CLI parser/help wiring for `--vol-conf-gate`.
-- `app/Main.hs:358,387,437,1194,1207` threads the preset, emits `vol_conf_gate`, and logs `confidence`; `app/Main.hs:1393,4565,4579` surfaced `unrealizedPnl`/`pnl_unrealized` fields in the exact slice.
-- No `test/TestMain.hs` grep hits appeared in the exact proof slice, so no file-local data-validation seam surfaced for this callable preset path.
-- Next owner/consumer: trader-firm-cto
-no-existing-data-validation-seam
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-15 --vol-conf-gate proof slice
-
-### 2026-04-22 11:33 America/Guayaquil — vol-conf-gate proof
-- Scope: one exact proof command for callable `--vol-conf-gate <preset>` slice.
-- Command output: git status flagged haskell/app/Main.hs and haskell/test/TestMain.hs modified.
-- app/Trader/App/Args.hs exposes VolConfGatePreset, parseVolConfGatePreset, argVolConfGate, and `--vol-conf-gate` option/help (lines 56-57, 219, 867-872).
-- app/Main.hs carries VolConfGatePreset in state and emits `vol_conf_gate` + `confidence` fields (lines 409, 459, 1234, 1247).
-- No `test/TestMain.hs` grep hits for this slice in the proof output.
-- Next owner/consumer: trader-firm-execution via /Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md
-data-not-blocking
-FINAL_STATUS: done — reports/trader-firm-data.md appended with one-command --vol-conf-gate proof evidence
-
-## Finished result — 2026-04-22 17:01 America/Guayaquil — `--vol-conf-gate <preset>`
-- Scope: one exact proof command for the callable slice only.
-- `git status --porcelain=v1` flagged `haskell/app/Main.hs` and `haskell/test/TestMain.hs` modified.
-- `app/Trader/App/Args.hs:56-57,219,867-872` exposes `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring.
-- `app/Main.hs:409,459,1234,1247` carries the preset and emits `vol_conf_gate` plus `confidence`.
-- No `test/TestMain.hs` grep hits surfaced in the exact first-40-line proof slice.
-- Next owner/consumer: /Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md
-data-not-blocking
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-04-22 17:01 --vol-conf-gate proof slice
-
-## 2026-04-22 21:57 America/Guayaquil — vol-conf-gate proof
-- Scope: `--vol-conf-gate <preset>` callable slice only.
-- Proof command run from `haskell/` exactly as requested.
-- Dirty file in slice evidence: `haskell/app/Main.hs`.
-- CLI evidence: `app/Trader/App/Args.hs:867-872` defines `--vol-conf-gate` via `parseVolConfGatePreset` with preset help text.
-- Main-path evidence: `app/Main.hs:413`, `468`, `1243`, `1256` carry `VolConfGatePreset` and emit `vol_conf_gate` plus `confidence`.
-- Test-path evidence: no `vol-conf-gate`/`VolConfGatePreset` hits surfaced from `test/TestMain.hs` in the proof output.
-- Next owner/consumer: `trader-firm-execution` via `/Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md`
-- data-not-blocking
-FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate proof evidence
-
-## Finished result — 2026-05-10 22:15 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
-- `git status --porcelain=v1` flagged `haskell/app/Trader/App/Args.hs` and `haskell/test/TestMain.hs` modified.
-- `app/Trader/App/Args.hs:57-58,220,873-878` exposes `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring; `Args.hs:857` surfaces realized-vol sizing via `--vol-lookback`.
-- `app/Main.hs:400,430,502,1288,1302,1490` carries the preset, emits `vol_conf_gate`, logs `confidence`, and includes `unrealizedPnl`.
-- `app/Trader/VolConfGate.hs` fail-safe verified: missing volatility or confidence maps to `malformedVolConfGateCell` (`AllowExitOnly 0.0`).
-- No `test/TestMain.hs` grep hits for this slice in the proof output.
-- Next owner/consumer: `trader-firm-execution` via `/Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md`
-data-not-blocking
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-05-10 --vol-conf-gate proof slice
-
-## Finished result — 2026-05-11 14:05 America/Guayaquil — `--vol-conf-gate <preset>`
-- Proof command ran from `/Users/diegosaa/GitHub/trader/haskell`; first-40-line slice returned.
-- `git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs` emitted no change lines for the three target files.
-- `app/Trader/App/Args.hs:57-58,220,873-878` exposes `VolConfGatePreset`, `argVolConfGate`, and `--vol-conf-gate` parser/help wiring; `Args.hs:857` surfaces realized-vol sizing via `--vol-lookback`.
-- `app/Main.hs:393,423,495,1281,1295,1483` carries the preset, emits `vol_conf_gate`, logs `confidence`, and includes `unrealizedPnl`/`pnl_unrealized`.
-- No `test/TestMain.hs` grep hits for this slice in the proof output.
-- Next owner/consumer: `trader-firm-execution` via `/Users/diegosaa/.openclaw/orgs/trader-firm/artifacts/execution/2026-04-18-backtest-cost-attribution-clean-main-integration.md`
-data-not-blocking
-FINAL_STATUS: done — reports/trader-firm-data.md appended with 2026-05-11 --vol-conf-gate proof slice
+FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; no tests in TestMain.hs

@@ -6966,7 +6966,7 @@ futuresPositionSummary sym positions =
         hasLong = any (> eps) signed
         hasShort = any (< -eps) signed
         netAmt = sum signed
-        validLeverage l = l > 0 && not (isNaN l || isInfinite l)
+        validLeverage l = l > 0 && l <= 150 && not (isNaN l || isInfinite l)
         leverage = listToMaybe [fprLeverage p | p <- matches, validLeverage (fprLeverage p)]
      in FuturesPositionSummary{fpsNetAmt = netAmt, fpsHasLong = hasLong, fpsHasShort = hasShort, fpsLeverage = leverage}
 
