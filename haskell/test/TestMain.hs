@@ -861,8 +861,8 @@ testSignalGateEntryBoundaryWitness = do
         feeLadder
 
 -- The existing fresh-entry contract combines minimum edge headroom
--- (edge >= 1.5 * openThreshold) with a spike cap (edge <= min (4 * openThreshold) 0.5).
--- Therefore openThreshold > 1/3 has no admissible finite edge sample.
+-- (edge >= 1.5 * openThreshold) with a spike cap (edge <= min (1000 * openThreshold) 5.0).
+-- Therefore openThreshold > 10/3 has no admissible finite edge sample.
 testSignalGateEntryThresholdFeasibilityInvariant :: IO ()
 testSignalGateEntryThresholdFeasibilityInvariant = do
     let boundary = signalEntryOpenThresholdFeasibilityCap
@@ -870,13 +870,13 @@ testSignalGateEntryThresholdFeasibilityInvariant = do
         malformedThresholds = [-0.01, 0 / 0, 1 / 0]
     assert
         "fresh-entry threshold feasibility cap is exactly the headroom/spike intersection"
-        (abs (boundary - (1 / 3)) <= 1e-15)
+        (abs (boundary - (10 / 3)) <= 1e-15)
     assert
-        "exact threshold feasibility boundary remains admissible when the edge is exactly 50%"
+        "exact threshold feasibility boundary remains admissible when the edge is exactly the credible cap"
         ( signalEntryOpenThresholdFeasible boundary
             && isNothing (signalEntryOpenThresholdFeasibilityReason boundary)
-            && signalEntryHeadroomOk boundary (Just 0.5)
-            && signalEntryEdgeSpikeOk boundary (Just 0.5)
+            && signalEntryHeadroomOk boundary (Just 5.0)
+            && signalEntryEdgeSpikeOk boundary (Just 5.0)
         )
     assert
         "strict-above-boundary thresholds fail closed with an explicit infeasibility reason"
@@ -938,20 +938,23 @@ testMarketDataFreshnessAndContinuationInvariant = do
 -- The spike veto is a maximum-edge sanity cap, not a minimum-edge headroom
 -- check: exact cap equality is admissible, strict-above-cap edges are blocked,
 -- and malformed thresholds or edges fail closed.
+-- With entryEdgeSpikeMultiple=1000 and entryEdgeSpikeCredibleCap=5.0:
+--   - threshold=0.001 hits the multiple cap at 1.0
+--   - threshold=0.01 hits the credible cap at 5.0
 testSignalGateEntryEdgeSpikeCapRegression :: IO ()
 testSignalGateEntryEdgeSpikeCapRegression = do
-    let smallThreshold = 0.01
-        etcThreshold = 0.460518
+    let smallThreshold = 0.001
+        credibleThreshold = 0.01
     assert
         "fresh-entry spike veto admits exact equality at both active caps"
-        ( signalEntryEdgeSpikeOk smallThreshold (Just 0.04)
-            && signalEntryEdgeSpikeOk etcThreshold (Just 0.5)
+        ( signalEntryEdgeSpikeOk smallThreshold (Just 1.0)
+            && signalEntryEdgeSpikeOk credibleThreshold (Just 5.0)
         )
     assert
-        "fresh-entry spike veto blocks strict-above-cap and ETC-style absurd edges"
-        ( not (signalEntryEdgeSpikeOk smallThreshold (Just 0.0400001))
-            && not (signalEntryEdgeSpikeOk etcThreshold (Just 0.5000001))
-            && not (signalEntryEdgeSpikeOk etcThreshold (Just 0.895))
+        "fresh-entry spike veto blocks strict-above-cap and absurd edges"
+        ( not (signalEntryEdgeSpikeOk smallThreshold (Just 1.0000001))
+            && not (signalEntryEdgeSpikeOk credibleThreshold (Just 5.0000001))
+            && not (signalEntryEdgeSpikeOk credibleThreshold (Just 8.95))
         )
     assert
         "malformed and negative spike-gate inputs fail closed"
@@ -967,7 +970,7 @@ testSignalGateEntryEdgeSpikeCapRegression = do
 testSignalGateEntryEdgeSpikeAuditWarning :: IO ()
 testSignalGateEntryEdgeSpikeAuditWarning = do
     let openThreshold = 0.01
-        scaledEdge = Just 0.9
+        scaledEdge = Just 5.0000001
     assert
         "scaled-model spike mode preserves the audit warning without blocking entry"
         ( not (signalEntryEdgeSpikeOk openThreshold scaledEdge)
@@ -1968,13 +1971,16 @@ testSignalGateEntryFeeBufferFailsClosed = do
         )
 
 -- Interval-aware edge spike cap proof obligation: higher timeframes should
--- allow larger edges. 1m (base) cap = 0.5, 1d (~24h) cap = sqrt(24)*0.5 ≈ 2.45
--- clamped to 2.0. With openThreshold = 0.20, 4*threshold = 0.80, so the cap
--- dominates: 1d allows 0.60 edge, 1m rejects it.
+-- allow larger edges. With entryEdgeSpikeCredibleCap=5.0:
+--   1m cap = 5.0 * 1.0 = 5.0
+--   1d cap = 5.0 * 1.5 = 7.5
+-- With openThreshold = 0.20, the multiple cap (1000*threshold=200) dominates
+-- the credible cap, so interval scaling is visible on the credible cap.
+-- 1d allows 6.0 edge, 1m rejects it.
 testSignalGateIntervalAwareEdgeSpikeCap :: IO ()
 testSignalGateIntervalAwareEdgeSpikeCap = do
     let openThreshold = 0.20
-        edge = Just 0.60
+        edge = Just 6.0
     assert
         "1d interval allows larger edges than 1m"
         ( signalEntryEdgeSpikeOkInterval "1d" openThreshold edge
@@ -2781,7 +2787,7 @@ testThresholdCalibrationStdDevMethod = do
         Nothing -> assert "calibration failed" False
         Just calib -> do
             assert "stddev method with zero stddev returns mean"
-                (tcSuggestedThreshold calib == 0.01)
+                (abs (tcSuggestedThreshold calib - 0.01) < 1e-15)
 
 testThresholdCalibrationHybridMethod :: IO ()
 testThresholdCalibrationHybridMethod = do
