@@ -433,9 +433,7 @@ LSTM models from generating infinite permissive audit warnings.
 signalEntryEdgeSpikeConsecutiveOk :: Int -> Bool -> Double -> Maybe Double -> Bool
 signalEntryEdgeSpikeConsecutiveOk consecutiveWarnings auditOnly openThreshold edgeForMethod =
     let ok = signalEntryEdgeSpikeOk openThreshold edgeForMethod
-     in if auditOnly && not ok && consecutiveWarnings >= 3
-            then False
-            else ok || auditOnly
+     in ok || (auditOnly && consecutiveWarnings < 3)
 
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
 signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =

@@ -48,7 +48,7 @@ import qualified Data.Aeson as Aeson
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Ord (Down (..))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -187,12 +187,6 @@ instance Aeson.ToJSON GateRejection where
                     , ("zScore" Aeson..=) <$> grZScore
                     , ("confidence" Aeson..=) <$> grConfidence
                     ]
-      where
-        catMaybes = mapMaybe id
-        mapMaybe _ [] = []
-        mapMaybe f (x : xs) = case f x of
-            Just y -> y : mapMaybe f xs
-            Nothing -> mapMaybe f xs
 
 {- | Accumulated telemetry for a backtest or trading session.
 Uses strict Map for O(log n) accumulation.
@@ -261,8 +255,8 @@ maxRecentDefault = 100
 
 -- | Record a single rejection event.
 recordRejection :: GateRejection -> GateTelemetry -> GateTelemetry
-recordRejection rejection tel =
-    recordRejectionWithContext rejection maxRecentDefault tel
+recordRejection rejection =
+    recordRejectionWithContext rejection maxRecentDefault
 
 -- | Record a rejection with explicit max-recent bound.
 recordRejectionWithContext :: GateRejection -> Int -> GateTelemetry -> GateTelemetry
@@ -372,16 +366,11 @@ telemetrySummary totalBars totalCandidates totalRejections =
             if totalBars > 0
                 then fromIntegral totalCandidates / fromIntegral totalBars :: Double
                 else 0.0
-        diagnosis =
-            if totalCandidates == 0
-                then "NO_CANDIDATES" :: Text
-                else
-                    if totalRejections == totalCandidates
-                        then "ALL_REJECTED"
-                        else
-                            if rejectionRate > 0.9
-                                then "MOSTLY_REJECTED"
-                                else "NORMAL"
+        diagnosis
+            | totalCandidates == 0 = "NO_CANDIDATES" :: Text
+            | totalRejections == totalCandidates = "ALL_REJECTED"
+            | rejectionRate > 0.9 = "MOSTLY_REJECTED"
+            | otherwise = "NORMAL"
      in Aeson.object
             [ "rejectionRate" Aeson..= rejectionRate
             , "candidateRate" Aeson..= candidateRate

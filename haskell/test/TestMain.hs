@@ -2823,7 +2823,7 @@ testThresholdCalibrationHybridMethod = do
                 (tcSuggestedThreshold calib >= 0)
             assert
                 "hybrid method has confidence interval"
-                (fst (tcConfidenceInterval calib) <= snd (tcConfidenceInterval calib))
+                (uncurry (<=) (tcConfidenceInterval calib))
 
 testThresholdCalibrationRecommendationInsufficientSample :: IO ()
 testThresholdCalibrationRecommendationInsufficientSample = do

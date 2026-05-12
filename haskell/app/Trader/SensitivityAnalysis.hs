@@ -133,8 +133,8 @@ computeElasticity points (Just baseline) =
     let baseVal = spParameterValue baseline
         baseSharpe = spSharpe baseline
         deltas = [(spParameterValue p - baseVal, spSharpe p - baseSharpe) | p <- points, p /= baseline]
-        pctChangesParam = [deltaV / baseVal | (deltaV, _) <- deltas, baseVal /= 0]
-        pctChangesSharpe = [deltaS / max 0.001 baseSharpe | (_, deltaS) <- deltas, baseSharpe > 0]
+        pctChangesParam = [deltaV / baseVal | baseVal /= 0, (deltaV, _) <- deltas]
+        pctChangesSharpe = [deltaS / max 0.001 baseSharpe | baseSharpe > 0, (_, deltaS) <- deltas]
         elasticities = zipWith (/) pctChangesSharpe pctChangesParam
      in if null elasticities
             then 0

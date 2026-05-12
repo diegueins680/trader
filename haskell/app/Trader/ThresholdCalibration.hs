@@ -227,16 +227,11 @@ calibrateThreshold edges method = do
         feeBuffer = threshold + feeFloor
         ciLower = max 0 (threshold - 1.96 * edStdDev dist / sqrt (fromIntegral (edSampleSize dist)))
         ciUpper = threshold + 1.96 * edStdDev dist / sqrt (fromIntegral (edSampleSize dist))
-        rec =
-            if edSampleSize dist < 100
-                then "INSUFFICIENT_SAMPLE: Need >= 100 edges for reliable calibration (got " <> T.pack (show (edSampleSize dist)) <> ")"
-                else
-                    if threshold > edP95 dist
-                        then "CONSERVATIVE: Threshold above 95th percentile — may produce very few trades"
-                        else
-                            if threshold < edP25 dist
-                                then "AGGRESSIVE: Threshold below 25th percentile — may produce excessive trades"
-                                else "BALANCED: Threshold within interquartile range — recommended for production"
+        rec
+            | edSampleSize dist < 100 = "INSUFFICIENT_SAMPLE: Need >= 100 edges for reliable calibration (got " <> T.pack (show (edSampleSize dist)) <> ")"
+            | threshold > edP95 dist = "CONSERVATIVE: Threshold above 95th percentile — may produce very few trades"
+            | threshold < edP25 dist = "AGGRESSIVE: Threshold below 25th percentile — may produce excessive trades"
+            | otherwise = "BALANCED: Threshold within interquartile range — recommended for production"
     pure
         ThresholdCalibration
             { tcSymbol = Nothing
