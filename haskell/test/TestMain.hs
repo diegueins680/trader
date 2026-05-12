@@ -145,6 +145,7 @@ main = do
     testMaxDrawdownRejectsLowerBoundValidation
     testFuturesPositionRiskLeverageSaneCap
     testFeeRejectsAbsurdlyHighValue
+    testFeeFixedRejectsAbsurdlyHighValue
     testStopLossRejectsLowerBoundValidation
     testStopLossRejectsAbsurdlyTightStop
     testTakeProfitRejectsAbsurdlyTightValue
@@ -488,6 +489,12 @@ testFeeRejectsAbsurdlyHighValue =
     assert
         "fee rejects absurdly high values above 5%"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--fee", "0.06"] == Left "--fee must be <= 0.05 (5%)")
+
+testFeeFixedRejectsAbsurdlyHighValue :: IO ()
+testFeeFixedRejectsAbsurdlyHighValue =
+    assert
+        "fee-fixed rejects absurdly high values above 5%"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--fee-fixed", "0.06"] == Left "--fee-fixed must be <= 0.05 (5%)")
 
 testStopLossRejectsLowerBoundValidation :: IO ()
 testStopLossRejectsLowerBoundValidation =

@@ -1464,6 +1464,7 @@ validateArgs args0 = do
     ensure "--slippage must be >= 0" (argSlippage args >= 0)
     ensure "--spread must be >= 0" (argSpread args >= 0)
     ensure "--fee-fixed must be >= 0" (argFeeFixed args >= 0)
+    ensure "--fee-fixed must be <= 0.05 (5%)" (argFeeFixed args <= 0.05)
     ensure "--fee-min must be >= 0" (argFeeMin args >= 0)
     ensure "--slippage-vol-mult must be >= 0" (argSlippageVolMult args >= 0)
     ensure "--slippage-impact must be >= 0" (argSlippageImpact args >= 0)
