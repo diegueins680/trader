@@ -563,7 +563,7 @@ testMaxPositionSizeRejectsAbsurdUpperBound = do
         (parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "10.01"] == Left "--max-position-size must be <= 10")
     assert
         "max-position-size accepts exactly 10"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "10"] of
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "10", "--futures"] of
             Right args -> argMaxPositionSize args == 10
             Left _ -> False
         )
