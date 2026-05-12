@@ -157,6 +157,7 @@ main = do
     testTrailingStopRejectsAbsurdlyTightValue
     testTrailingStopRejectsLowerBoundValidation
     testMaxPositionSizeRejectsAbsurdUpperBound
+    testMaxPositionSizeRejectsNonFuturesOverFive
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -563,6 +564,24 @@ testMaxPositionSizeRejectsAbsurdUpperBound = do
         "max-position-size accepts exactly 10"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "10"] of
             Right args -> argMaxPositionSize args == 10
+            Left _ -> False
+        )
+
+testMaxPositionSizeRejectsNonFuturesOverFive :: IO ()
+testMaxPositionSizeRejectsNonFuturesOverFive = do
+    assert
+        "max-position-size rejects 6 on Binance spot (non-futures upper bound is 5)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "6"] == Left "--max-position-size must be <= 5 for spot/margin markets")
+    assert
+        "max-position-size accepts exactly 5 on Binance spot"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "5"] of
+            Right args -> argMaxPositionSize args == 5
+            Left _ -> False
+        )
+    assert
+        "max-position-size accepts 6 on Binance futures"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "6", "--futures"] of
+            Right args -> argMaxPositionSize args == 6
             Left _ -> False
         )
 
