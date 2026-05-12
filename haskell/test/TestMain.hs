@@ -159,6 +159,7 @@ main = do
     testMaxPositionSizeRejectsAbsurdUpperBound
     testMaxPositionSizeRejectsNonFuturesOverFive
     testInitialBalanceRejectsZeroOrNegative
+    testBacktestRatioRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -594,6 +595,21 @@ testInitialBalanceRejectsZeroOrNegative = do
     assert
         "initial-balance rejects negative"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--initial-balance", "-100"] == Left "--initial-balance must be > 0")
+
+testBacktestRatioRejectsInvalidValues :: IO ()
+testBacktestRatioRejectsInvalidValues = do
+    assert
+        "backtest-ratio rejects 0 (no training data)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--backtest-ratio", "0"] == Left "--backtest-ratio must be between 0 and 1")
+    assert
+        "backtest-ratio rejects 1 (no test data)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--backtest-ratio", "1"] == Left "--backtest-ratio must be between 0 and 1")
+    assert
+        "backtest-ratio accepts 0.5 (valid split)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--backtest-ratio", "0.5"] of
+            Right args -> argBacktestRatio args == 0.5
+            Left _ -> False
+        )
 
 testExchangeDataLongShortBacktestAllowed :: IO ()
 testExchangeDataLongShortBacktestAllowed = do
