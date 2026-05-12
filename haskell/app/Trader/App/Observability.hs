@@ -42,7 +42,7 @@ import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
 import Data.List (intercalate, isPrefixOf)
 import Data.Maybe (fromMaybe)
-import Data.Word (Word8, Word64)
+import Data.Word (Word64, Word8)
 import Network.HTTP.Client (
     Manager,
     Request,
@@ -67,28 +67,30 @@ import Trader.App.Runtime (splitEnvList)
 import Trader.Binance (getTimestampMs)
 import Trader.Text (trim)
 
--- | Attempt to discover the local IPv4 address by connecting to a public
--- nameserver and inspecting the socket address. Falls back to "127.0.0.1"
--- when nothing can be determined.
+{- | Attempt to discover the local IPv4 address by connecting to a public
+nameserver and inspecting the socket address. Falls back to "127.0.0.1"
+when nothing can be determined.
+-}
 getLocalIpAddress :: IO String
 getLocalIpAddress = do
     let hints = NS.defaultHints{NS.addrSocketType = NS.Stream}
     NS.getAddrInfo (Just hints) (Just "8.8.8.8") (Just "53") >>= \case
         [] -> pure "127.0.0.1"
         (addr : _) ->
-            let attempt = bracket
-                    (NS.socket (NS.addrFamily addr) NS.Stream NS.defaultProtocol)
-                    NS.close
-                    (\sock -> do
-                        NS.connect sock (NS.addrAddress addr)
-                        NS.SockAddrInet _ ip <- NS.getSocketName sock
-                        let w = fromIntegral ip :: Word64
-                            a = fromIntegral ((w `shiftR` 24) .&. 0xFF) :: Word8
-                            b = fromIntegral ((w `shiftR` 16) .&. 0xFF) :: Word8
-                            c = fromIntegral ((w `shiftR` 8) .&. 0xFF) :: Word8
-                            d = fromIntegral (w .&. 0xFF) :: Word8
-                        pure (intercalate "." (map show [a, b, c, d]))
-                    )
+            let attempt =
+                    bracket
+                        (NS.socket (NS.addrFamily addr) NS.Stream NS.defaultProtocol)
+                        NS.close
+                        ( \sock -> do
+                            NS.connect sock (NS.addrAddress addr)
+                            NS.SockAddrInet _ ip <- NS.getSocketName sock
+                            let w = fromIntegral ip :: Word64
+                                a = fromIntegral ((w `shiftR` 24) .&. 0xFF) :: Word8
+                                b = fromIntegral ((w `shiftR` 16) .&. 0xFF) :: Word8
+                                c = fromIntegral ((w `shiftR` 8) .&. 0xFF) :: Word8
+                                d = fromIntegral (w .&. 0xFF) :: Word8
+                            pure (intercalate "." (map show [a, b, c, d]))
+                        )
              in attempt `catch` \(_ :: SomeException) -> pure "127.0.0.1"
 
 data Metrics = Metrics

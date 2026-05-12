@@ -1,3 +1,7 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+
 {- |
 Module      : Trader.ThresholdCalibration
 Description : Data-driven threshold calibration from historical edge distributions
@@ -21,136 +25,146 @@ Design invariants:
 
 Engineering principle: "Don't guess — measure the distribution, then set the threshold."
 -}
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-
 module Trader.ThresholdCalibration (
     -- * Types
     EdgeDistribution (..),
     ThresholdCalibration (..),
     CalibrationMethod (..),
+
     -- * Calibration
     calibrateThreshold,
     calibrateThresholdFromEdges,
     computeEdgeDistribution,
+
     -- * Analysis
     suggestedThreshold,
     thresholdAtPercentile,
     calibrationReport,
+
     -- * JSON
     calibrationToJson,
 ) where
 
-import           Data.Aeson           (ToJSON (..), (.=))
-import qualified Data.Aeson           as Aeson
-import           Data.List            (sort)
-import           Data.Maybe           (fromMaybe)
-import           Data.Text            (Text)
-import qualified Data.Text            as T
-import           GHC.Generics         (Generic)
+import Data.Aeson (ToJSON (..), (.=))
+import qualified Data.Aeson as Aeson
+import Data.List (sort)
+import Data.Maybe (fromMaybe)
+import Data.Text (Text)
+import qualified Data.Text as T
+import GHC.Generics (Generic)
 
 -- | Method for computing the threshold from a distribution.
 data CalibrationMethod
-    = PercentileMethod !Double           -- ^ Use exact percentile (0-100)
-    | StdDevMethod !Double              -- ^ Use mean + N * stddev
-    | HybridMethod !Double !Double      -- ^ Max of percentile and stddev methods
+    = -- | Use exact percentile (0-100)
+      PercentileMethod !Double
+    | -- | Use mean + N * stddev
+      StdDevMethod !Double
+    | -- | Max of percentile and stddev methods
+      HybridMethod !Double !Double
     deriving (Eq, Show, Generic)
 
 instance ToJSON CalibrationMethod where
-    toJSON (PercentileMethod p)   = Aeson.object ["type" .= ("percentile" :: Text), "value" .= p]
-    toJSON (StdDevMethod n)       = Aeson.object ["type" .= ("stddev" :: Text), "multiplier" .= n]
-    toJSON (HybridMethod p n)     = Aeson.object ["type" .= ("hybrid" :: Text), "percentile" .= p, "stddevMult" .= n]
+    toJSON (PercentileMethod p) = Aeson.object ["type" .= ("percentile" :: Text), "value" .= p]
+    toJSON (StdDevMethod n) = Aeson.object ["type" .= ("stddev" :: Text), "multiplier" .= n]
+    toJSON (HybridMethod p n) = Aeson.object ["type" .= ("hybrid" :: Text), "percentile" .= p, "stddevMult" .= n]
 
 -- | Statistical summary of historical edge values.
 data EdgeDistribution = EdgeDistribution
-    { edSampleSize   :: !Int
-    , edMean         :: !Double
-    , edMedian       :: !Double
-    , edStdDev       :: !Double
-    , edMin          :: !Double
-    , edMax          :: !Double
-    , edP10          :: !Double
-    , edP25          :: !Double
-    , edP50          :: !Double
-    , edP75          :: !Double
-    , edP90          :: !Double
-    , edP95          :: !Double
-    , edP99          :: !Double
-    } deriving (Eq, Show, Generic)
+    { edSampleSize :: !Int
+    , edMean :: !Double
+    , edMedian :: !Double
+    , edStdDev :: !Double
+    , edMin :: !Double
+    , edMax :: !Double
+    , edP10 :: !Double
+    , edP25 :: !Double
+    , edP50 :: !Double
+    , edP75 :: !Double
+    , edP90 :: !Double
+    , edP95 :: !Double
+    , edP99 :: !Double
+    }
+    deriving (Eq, Show, Generic)
 
 instance ToJSON EdgeDistribution where
     toJSON EdgeDistribution{..} =
         Aeson.object
             [ "sampleSize" .= edSampleSize
-            , "mean"       .= edMean
-            , "median"     .= edMedian
-            , "stdDev"     .= edStdDev
-            , "min"        .= edMin
-            , "max"        .= edMax
-            , "p10"        .= edP10
-            , "p25"        .= edP25
-            , "p50"        .= edP50
-            , "p75"        .= edP75
-            , "p90"        .= edP90
-            , "p95"        .= edP95
-            , "p99"        .= edP99
+            , "mean" .= edMean
+            , "median" .= edMedian
+            , "stdDev" .= edStdDev
+            , "min" .= edMin
+            , "max" .= edMax
+            , "p10" .= edP10
+            , "p25" .= edP25
+            , "p50" .= edP50
+            , "p75" .= edP75
+            , "p90" .= edP90
+            , "p95" .= edP95
+            , "p99" .= edP99
             ]
 
 -- | Result of a threshold calibration run.
 data ThresholdCalibration = ThresholdCalibration
-    { tcSymbol            :: !(Maybe Text)
-    , tcInterval          :: !(Maybe Text)
-    , tcMethod            :: !(Maybe Text)
+    { tcSymbol :: !(Maybe Text)
+    , tcInterval :: !(Maybe Text)
+    , tcMethod :: !(Maybe Text)
     , tcCalibrationMethod :: !CalibrationMethod
-    , tcEdgeDistribution  :: !EdgeDistribution
+    , tcEdgeDistribution :: !EdgeDistribution
     , tcSuggestedThreshold :: !Double
-    , tcHeadroomThreshold  :: !Double  -- ^ threshold / 1.5 (for headroom check)
-    , tcFeeBufferThreshold :: !Double  -- ^ threshold + estimated fee floor
-    , tcConfidenceInterval :: !(Double, Double)  -- ^ (lower, upper) 95% CI
-    , tcSampleSize        :: !Int
-    , tcRecommendation    :: !Text
-    } deriving (Eq, Show, Generic)
+    , tcHeadroomThreshold :: !Double
+    -- ^ threshold / 1.5 (for headroom check)
+    , tcFeeBufferThreshold :: !Double
+    -- ^ threshold + estimated fee floor
+    , tcConfidenceInterval :: !(Double, Double)
+    -- ^ (lower, upper) 95% CI
+    , tcSampleSize :: !Int
+    , tcRecommendation :: !Text
+    }
+    deriving (Eq, Show, Generic)
 
 instance ToJSON ThresholdCalibration where
     toJSON ThresholdCalibration{..} =
         Aeson.object
-            [ "symbol"            .= tcSymbol
-            , "interval"          .= tcInterval
-            , "method"            .= tcMethod
+            [ "symbol" .= tcSymbol
+            , "interval" .= tcInterval
+            , "method" .= tcMethod
             , "calibrationMethod" .= tcCalibrationMethod
-            , "edgeDistribution"  .= tcEdgeDistribution
+            , "edgeDistribution" .= tcEdgeDistribution
             , "suggestedThreshold" .= tcSuggestedThreshold
-            , "headroomThreshold"  .= tcHeadroomThreshold
+            , "headroomThreshold" .= tcHeadroomThreshold
             , "feeBufferThreshold" .= tcFeeBufferThreshold
             , "confidenceInterval" .= ciObj tcConfidenceInterval
-            , "sampleSize"        .= tcSampleSize
-            , "recommendation"    .= tcRecommendation
+            , "sampleSize" .= tcSampleSize
+            , "recommendation" .= tcRecommendation
             ]
       where
         ciObj (lo, hi) = Aeson.object ["lower" .= lo, "upper" .= hi]
 
--- | Compute an edge distribution from a list of edge values.
--- Returns Nothing for empty input.
+{- | Compute an edge distribution from a list of edge values.
+Returns Nothing for empty input.
+-}
 computeEdgeDistribution :: [Double] -> Maybe EdgeDistribution
 computeEdgeDistribution [] = Nothing
 computeEdgeDistribution edges
     | any invalidEdge edges = Nothing
-    | otherwise = Just EdgeDistribution
-        { edSampleSize = n
-        , edMean       = mean
-        , edMedian     = percentile 50 sorted
-        , edStdDev     = stddev
-        , edMin        = head sorted
-        , edMax        = last sorted
-        , edP10        = percentile 10 sorted
-        , edP25        = percentile 25 sorted
-        , edP50        = percentile 50 sorted
-        , edP75        = percentile 75 sorted
-        , edP90        = percentile 90 sorted
-        , edP95        = percentile 95 sorted
-        , edP99        = percentile 99 sorted
-        }
+    | otherwise =
+        Just
+            EdgeDistribution
+                { edSampleSize = n
+                , edMean = mean
+                , edMedian = percentile 50 sorted
+                , edStdDev = stddev
+                , edMin = head sorted
+                , edMax = last sorted
+                , edP10 = percentile 10 sorted
+                , edP25 = percentile 25 sorted
+                , edP50 = percentile 50 sorted
+                , edP75 = percentile 75 sorted
+                , edP90 = percentile 90 sorted
+                , edP95 = percentile 95 sorted
+                , edP99 = percentile 99 sorted
+                }
   where
     n = length edges
     sorted = sort edges
@@ -162,29 +176,31 @@ computeEdgeDistribution edges
 percentile :: Double -> [Double] -> Double
 percentile p sorted
     | null sorted = 0
-    | p <= 0      = head sorted
-    | p >= 100    = last sorted
-    | otherwise   =
+    | p <= 0 = head sorted
+    | p >= 100 = last sorted
+    | otherwise =
         let idx = (p / 100.0) * fromIntegral (length sorted - 1)
             lower = floor idx
             upper = ceiling idx
             frac = idx - fromIntegral lower
          in if lower == upper
                 then sorted !! lower
-                else let a = sorted !! lower
-                         b = sorted !! upper
-                      in a + frac * (b - a)
+                else
+                    let a = sorted !! lower
+                        b = sorted !! upper
+                     in a + frac * (b - a)
 
 -- | Get the threshold value at a specific percentile from the distribution.
 thresholdAtPercentile :: Double -> EdgeDistribution -> Double
 thresholdAtPercentile p dist = case () of
-    _ | p <= 10   -> edP10 dist
-      | p <= 25   -> edP25 dist
-      | p <= 50   -> edP50 dist
-      | p <= 75   -> edP75 dist
-      | p <= 90   -> edP90 dist
-      | p <= 95   -> edP95 dist
-      | otherwise -> edP99 dist
+    _
+        | p <= 10 -> edP10 dist
+        | p <= 25 -> edP25 dist
+        | p <= 50 -> edP50 dist
+        | p <= 75 -> edP75 dist
+        | p <= 90 -> edP90 dist
+        | p <= 95 -> edP95 dist
+        | otherwise -> edP99 dist
 
 -- | Compute a suggested threshold using a calibration method.
 suggestedThreshold :: CalibrationMethod -> EdgeDistribution -> Double
@@ -195,45 +211,52 @@ suggestedThreshold (StdDevMethod n) dist =
         stddev = edStdDev dist
      in mean + n * stddev
 suggestedThreshold (HybridMethod p n) dist =
-    max (suggestedThreshold (PercentileMethod p) dist)
+    max
+        (suggestedThreshold (PercentileMethod p) dist)
         (suggestedThreshold (StdDevMethod n) dist)
 
--- | Calibrate a threshold from a list of raw edge values.
--- This is the primary entry point for calibration.
+{- | Calibrate a threshold from a list of raw edge values.
+This is the primary entry point for calibration.
+-}
 calibrateThreshold :: [Double] -> CalibrationMethod -> Maybe ThresholdCalibration
 calibrateThreshold edges method = do
     dist <- computeEdgeDistribution edges
     let threshold = suggestedThreshold method dist
         headroom = threshold / 1.5
-        feeFloor = 0.001  -- Default 0.1% round-trip estimate
+        feeFloor = 0.001 -- Default 0.1% round-trip estimate
         feeBuffer = threshold + feeFloor
         ciLower = max 0 (threshold - 1.96 * edStdDev dist / sqrt (fromIntegral (edSampleSize dist)))
         ciUpper = threshold + 1.96 * edStdDev dist / sqrt (fromIntegral (edSampleSize dist))
-        rec = if edSampleSize dist < 100
+        rec =
+            if edSampleSize dist < 100
                 then "INSUFFICIENT_SAMPLE: Need >= 100 edges for reliable calibration (got " <> T.pack (show (edSampleSize dist)) <> ")"
-                else if threshold > edP95 dist
-                    then "CONSERVATIVE: Threshold above 95th percentile — may produce very few trades"
-                    else if threshold < edP25 dist
-                        then "AGGRESSIVE: Threshold below 25th percentile — may produce excessive trades"
-                        else "BALANCED: Threshold within interquartile range — recommended for production"
-    pure ThresholdCalibration
-        { tcSymbol = Nothing
-        , tcInterval = Nothing
-        , tcMethod = Nothing
-        , tcCalibrationMethod = method
-        , tcEdgeDistribution = dist
-        , tcSuggestedThreshold = threshold
-        , tcHeadroomThreshold = headroom
-        , tcFeeBufferThreshold = feeBuffer
-        , tcConfidenceInterval = (ciLower, ciUpper)
-        , tcSampleSize = edSampleSize dist
-        , tcRecommendation = rec
-        }
+                else
+                    if threshold > edP95 dist
+                        then "CONSERVATIVE: Threshold above 95th percentile — may produce very few trades"
+                        else
+                            if threshold < edP25 dist
+                                then "AGGRESSIVE: Threshold below 25th percentile — may produce excessive trades"
+                                else "BALANCED: Threshold within interquartile range — recommended for production"
+    pure
+        ThresholdCalibration
+            { tcSymbol = Nothing
+            , tcInterval = Nothing
+            , tcMethod = Nothing
+            , tcCalibrationMethod = method
+            , tcEdgeDistribution = dist
+            , tcSuggestedThreshold = threshold
+            , tcHeadroomThreshold = headroom
+            , tcFeeBufferThreshold = feeBuffer
+            , tcConfidenceInterval = (ciLower, ciUpper)
+            , tcSampleSize = edSampleSize dist
+            , tcRecommendation = rec
+            }
 
 -- | Calibrate with full context (symbol, interval, method).
 calibrateThresholdFromEdges :: [Double] -> CalibrationMethod -> Text -> Text -> Text -> Maybe ThresholdCalibration
 calibrateThresholdFromEdges edges method sym intvl meth =
-    fmap (\tc -> tc { tcSymbol = Just sym, tcInterval = Just intvl, tcMethod = Just meth })
+    fmap
+        (\tc -> tc{tcSymbol = Just sym, tcInterval = Just intvl, tcMethod = Just meth})
         (calibrateThreshold edges method)
 
 -- | Generate a human-readable calibration report.
@@ -273,8 +296,8 @@ calibrationReport ThresholdCalibration{..} =
         ]
   where
     methodDesc (PercentileMethod p) = "Percentile (" <> T.pack (show p) <> "th)"
-    methodDesc (StdDevMethod n)     = "StdDev (mean + " <> T.pack (show n) <> " * stddev)"
-    methodDesc (HybridMethod p n)   = "Hybrid (max of percentile " <> T.pack (show p) <> " and stddev " <> T.pack (show n) <> ")"
+    methodDesc (StdDevMethod n) = "StdDev (mean + " <> T.pack (show n) <> " * stddev)"
+    methodDesc (HybridMethod p n) = "Hybrid (max of percentile " <> T.pack (show p) <> " and stddev " <> T.pack (show n) <> ")"
 
 -- | Convert calibration to compact JSON.
 calibrationToJson :: ThresholdCalibration -> Aeson.Value

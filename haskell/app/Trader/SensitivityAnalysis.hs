@@ -1,3 +1,7 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+
 {- |
 Module      : Trader.SensitivityAnalysis
 Description : Local sensitivity analysis for trading parameters
@@ -14,92 +18,94 @@ all others constant, measuring the isolated impact on trading performance.
 
 Engineering principle: "Vary one thing, measure the effect, attribute the change."
 -}
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-
 module Trader.SensitivityAnalysis (
     -- * Types
     SensitivityPoint (..),
     SensitivityReport (..),
     ParameterSpec (..),
+
     -- * Analysis
     runLocalSensitivity,
     parameterElasticity,
     mostSensitiveParameter,
+
     -- * JSON
     sensitivityReportToJson,
 ) where
 
-import           Data.Aeson   (ToJSON (..), (.=))
-import qualified Data.Aeson   as Aeson
-import           Data.List    (sortOn)
-import           Data.Ord     (Down (..))
-import           Data.Text    (Text)
-import qualified Data.Text    as T
-import           GHC.Generics (Generic)
+import Data.Aeson (ToJSON (..), (.=))
+import qualified Data.Aeson as Aeson
+import Data.List (sortOn)
+import Data.Ord (Down (..))
+import Data.Text (Text)
+import qualified Data.Text as T
+import GHC.Generics (Generic)
 
 -- | A single parameter value and its measured outcome.
 data SensitivityPoint = SensitivityPoint
     { spParameterValue :: !Double
-    , spSharpe         :: !Double
-    , spMaxDrawdown    :: !Double
-    , spTradeCount     :: !Int
-    , spWinRate        :: !Double
-    , spProfitFactor   :: !Double
-    } deriving (Eq, Show, Generic)
+    , spSharpe :: !Double
+    , spMaxDrawdown :: !Double
+    , spTradeCount :: !Int
+    , spWinRate :: !Double
+    , spProfitFactor :: !Double
+    }
+    deriving (Eq, Show, Generic)
 
 instance ToJSON SensitivityPoint where
     toJSON SensitivityPoint{..} =
         Aeson.object
             [ "parameterValue" .= spParameterValue
-            , "sharpe"         .= spSharpe
-            , "maxDrawdown"    .= spMaxDrawdown
-            , "tradeCount"     .= spTradeCount
-            , "winRate"        .= spWinRate
-            , "profitFactor"   .= spProfitFactor
+            , "sharpe" .= spSharpe
+            , "maxDrawdown" .= spMaxDrawdown
+            , "tradeCount" .= spTradeCount
+            , "winRate" .= spWinRate
+            , "profitFactor" .= spProfitFactor
             ]
 
 -- | Specification for a parameter to be analyzed.
 data ParameterSpec = ParameterSpec
-    { psName        :: !Text
+    { psName :: !Text
     , psDescription :: !Text
-    , psMin         :: !Double
-    , psMax         :: !Double
-    , psSteps       :: !Int
-    , psBaseline    :: !Double
-    } deriving (Eq, Show, Generic)
+    , psMin :: !Double
+    , psMax :: !Double
+    , psSteps :: !Int
+    , psBaseline :: !Double
+    }
+    deriving (Eq, Show, Generic)
 
 instance ToJSON ParameterSpec where
     toJSON ParameterSpec{..} =
         Aeson.object
-            [ "name"        .= psName
+            [ "name" .= psName
             , "description" .= psDescription
-            , "min"         .= psMin
-            , "max"         .= psMax
-            , "steps"       .= psSteps
-            , "baseline"    .= psBaseline
+            , "min" .= psMin
+            , "max" .= psMax
+            , "steps" .= psSteps
+            , "baseline" .= psBaseline
             ]
 
 -- | A complete sensitivity report for one parameter.
 data SensitivityReport = SensitivityReport
     { srParameter :: !ParameterSpec
-    , srPoints    :: ![SensitivityPoint]
+    , srPoints :: ![SensitivityPoint]
     , srElasticity :: !Double
     , srRecommendation :: !Text
-    } deriving (Eq, Show, Generic)
+    }
+    deriving (Eq, Show, Generic)
 
 instance ToJSON SensitivityReport where
     toJSON SensitivityReport{..} =
         Aeson.object
-            [ "parameter"      .= srParameter
-            , "points"         .= srPoints
-            , "elasticity"     .= srElasticity
+            [ "parameter" .= srParameter
+            , "points" .= srPoints
+            , "elasticity" .= srElasticity
             , "recommendation" .= srRecommendation
             ]
 
--- | Run local sensitivity analysis for a single parameter.
--- The evaluator function must run a backtest and return metrics for each parameter value.
+{- | Run local sensitivity analysis for a single parameter.
+The evaluator function must run a backtest and return metrics for each parameter value.
+-}
 runLocalSensitivity :: ParameterSpec -> (Double -> (Double, Double, Int, Double, Double)) -> SensitivityReport
 runLocalSensitivity spec evaluator =
     let stepSize = (psMax spec - psMin spec) / fromIntegral (max 1 (psSteps spec - 1))
@@ -111,15 +117,16 @@ runLocalSensitivity spec evaluator =
         baselinePoint = findBaseline points (psBaseline spec)
         elasticity = computeElasticity points baselinePoint
         rec = generateRecommendation spec points elasticity
-    in SensitivityReport spec points elasticity rec
+     in SensitivityReport spec points elasticity rec
   where
     findBaseline pts base = case filter (\p -> abs (spParameterValue p - base) < 1e-9) pts of
-        (p:_) -> Just p
-        []    -> Nothing
+        (p : _) -> Just p
+        [] -> Nothing
 
--- | Compute parameter elasticity: % change in Sharpe per % change in parameter.
--- Elasticity > 1 means the parameter is highly sensitive (small changes have large effects).
--- Elasticity < 0.1 means the parameter is inert (changes have minimal effect).
+{- | Compute parameter elasticity: % change in Sharpe per % change in parameter.
+Elasticity > 1 means the parameter is highly sensitive (small changes have large effects).
+Elasticity < 0.1 means the parameter is inert (changes have minimal effect).
+-}
 computeElasticity :: [SensitivityPoint] -> Maybe SensitivityPoint -> Double
 computeElasticity _ Nothing = 0
 computeElasticity points (Just baseline) =
@@ -137,20 +144,35 @@ computeElasticity points (Just baseline) =
 generateRecommendation :: ParameterSpec -> [SensitivityPoint] -> Double -> Text
 generateRecommendation spec points elasticity
     | elasticity > 2.0 =
-        "HIGHLY_SENSITIVE: " <> psName spec <> " has elasticity " <> T.pack (show elasticity)
-        <> ". Small changes cause large Sharpe swings. Tighten this parameter LAST after stabilizing others."
+        "HIGHLY_SENSITIVE: "
+            <> psName spec
+            <> " has elasticity "
+            <> T.pack (show elasticity)
+            <> ". Small changes cause large Sharpe swings. Tighten this parameter LAST after stabilizing others."
     | elasticity > 1.0 =
-        "SENSITIVE: " <> psName spec <> " has elasticity " <> T.pack (show elasticity)
-        <> ". Changes matter — optimize carefully with walk-forward validation."
+        "SENSITIVE: "
+            <> psName spec
+            <> " has elasticity "
+            <> T.pack (show elasticity)
+            <> ". Changes matter — optimize carefully with walk-forward validation."
     | elasticity > 0.5 =
-        "MODERATE: " <> psName spec <> " has elasticity " <> T.pack (show elasticity)
-        <> ". Tuning this parameter can improve results but is not the binding constraint."
+        "MODERATE: "
+            <> psName spec
+            <> " has elasticity "
+            <> T.pack (show elasticity)
+            <> ". Tuning this parameter can improve results but is not the binding constraint."
     | elasticity > 0.1 =
-        "LOW: " <> psName spec <> " has elasticity " <> T.pack (show elasticity)
-        <> ". This parameter has limited impact on Sharpe. Consider freezing it."
+        "LOW: "
+            <> psName spec
+            <> " has elasticity "
+            <> T.pack (show elasticity)
+            <> ". This parameter has limited impact on Sharpe. Consider freezing it."
     | otherwise =
-        "INERT: " <> psName spec <> " has elasticity " <> T.pack (show elasticity)
-        <> ". Changes to this parameter barely affect outcomes. Freeze at baseline."
+        "INERT: "
+            <> psName spec
+            <> " has elasticity "
+            <> T.pack (show elasticity)
+            <> ". Changes to this parameter barely affect outcomes. Freeze at baseline."
 
 -- | Compute elasticity for a parameter from a report.
 parameterElasticity :: SensitivityReport -> Double
@@ -160,8 +182,8 @@ parameterElasticity = srElasticity
 mostSensitiveParameter :: [SensitivityReport] -> Maybe ParameterSpec
 mostSensitiveParameter reports =
     case sortOn (Down . srElasticity) reports of
-        (r:_) -> Just (srParameter r)
-        []    -> Nothing
+        (r : _) -> Just (srParameter r)
+        [] -> Nothing
 
 -- | Convert sensitivity report to JSON.
 sensitivityReportToJson :: SensitivityReport -> Aeson.Value

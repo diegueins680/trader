@@ -7,8 +7,8 @@ import Control.Monad (forM_, unless)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
-import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -27,6 +27,7 @@ import Trader.Formal.Optimization (
     rvActivityCount,
     verifyFormalOptimization,
  )
+import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import Trader.MarketContext (fitLinearRange)
 import Trader.MarketDataIntegrity (
     isTransientMarketDataError,
@@ -48,10 +49,8 @@ import Trader.Optimizer.Optimize (
     qualityPresetCeiling,
     qualityPresetWeightFloor,
  )
-import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import Trader.OrderExecution (applyExecutedQuantity, applyReduceOnlyExecutedQuantity)
 import Trader.Platform (Platform (..))
-import Trader.ThresholdCalibration (CalibrationMethod (..), EdgeDistribution (..), ThresholdCalibration (..), calibrationReport, calibrationToJson, calibrateThreshold, computeEdgeDistribution, suggestedThreshold, thresholdAtPercentile)
 import Trader.PredictionMarkets (
     PredictionMarketEvent (..),
     PredictionMarketMarket (..),
@@ -92,6 +91,7 @@ import Trader.SignalGates (
     signalRunPostDirectionGates,
  )
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
+import Trader.ThresholdCalibration (CalibrationMethod (..), EdgeDistribution (..), ThresholdCalibration (..), calibrateThreshold, calibrationReport, calibrationToJson, computeEdgeDistribution, suggestedThreshold, thresholdAtPercentile)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
@@ -2726,7 +2726,8 @@ testGateTelemetryBindingGateIdentification = do
     let tel0 = emptyTelemetry 100
         rej = GateRejection GateFeeBuffer ReasonFeeBuffer Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
         tel1 = recordRejection rej tel0
-    assert "binding gate identified when single gate rejects"
+    assert
+        "binding gate identified when single gate rejects"
         (bindingGate (gtPerGateCounts tel1) == Just GateFeeBuffer)
 
 testGateTelemetryHistogramSorting :: IO ()
@@ -2739,10 +2740,12 @@ testGateTelemetryHistogramSorting = do
         tel2 = recordRejection rej2 tel1
         tel3 = recordRejection rej3 tel2
         hist = rejectionHistogram tel3
-    assert "histogram sorted by count descending"
-        (case hist of
+    assert
+        "histogram sorted by count descending"
+        ( case hist of
             (_, _, c1) : (_, _, c2) : _ -> c1 >= c2
-            _ -> True)
+            _ -> True
+        )
 
 -- ============================================================================
 -- Threshold Calibration Tests
@@ -2774,19 +2777,22 @@ testThresholdCalibrationPercentileMethod = do
     case mCalib of
         Nothing -> assert "calibration failed" False
         Just calib -> do
-            assert "percentile method uses correct threshold"
+            assert
+                "percentile method uses correct threshold"
                 (tcSuggestedThreshold calib >= 0.02 && tcSuggestedThreshold calib <= 0.03)
-            assert "headroom threshold is threshold / 1.5"
+            assert
+                "headroom threshold is threshold / 1.5"
                 (abs (tcHeadroomThreshold calib - tcSuggestedThreshold calib / 1.5) < 1e-9)
 
 testThresholdCalibrationStdDevMethod :: IO ()
 testThresholdCalibrationStdDevMethod = do
-    let edges = [0.01 | _ <- [1..100 :: Int]]  -- All same = zero stddev
+    let edges = [0.01 | _ <- [1 .. 100 :: Int]] -- All same = zero stddev
         mCalib = calibrateThreshold edges (StdDevMethod 2.0)
     case mCalib of
         Nothing -> assert "calibration failed" False
         Just calib -> do
-            assert "stddev method with zero stddev returns mean"
+            assert
+                "stddev method with zero stddev returns mean"
                 (abs (tcSuggestedThreshold calib - 0.01) < 1e-15)
 
 testThresholdCalibrationHybridMethod :: IO ()
@@ -2796,47 +2802,53 @@ testThresholdCalibrationHybridMethod = do
     case mCalib of
         Nothing -> assert "calibration failed" False
         Just calib -> do
-            assert "hybrid method returns non-negative threshold"
+            assert
+                "hybrid method returns non-negative threshold"
                 (tcSuggestedThreshold calib >= 0)
-            assert "hybrid method has confidence interval"
+            assert
+                "hybrid method has confidence interval"
                 (fst (tcConfidenceInterval calib) <= snd (tcConfidenceInterval calib))
 
 testThresholdCalibrationRecommendationInsufficientSample :: IO ()
 testThresholdCalibrationRecommendationInsufficientSample = do
-    let edges = [0.01 | _ <- [1..10 :: Int]]
+    let edges = [0.01 | _ <- [1 .. 10 :: Int]]
         mCalib = calibrateThreshold edges (PercentileMethod 75)
     case mCalib of
         Nothing -> assert "calibration failed" False
         Just calib -> do
-            assert "insufficient sample triggers warning"
+            assert
+                "insufficient sample triggers warning"
                 (T.isInfixOf "INSUFFICIENT_SAMPLE" (tcRecommendation calib))
 
 testThresholdCalibrationRecommendationConservative :: IO ()
 testThresholdCalibrationRecommendationConservative = do
-    let edges = [0.001 * fromIntegral i | i <- [1..200 :: Int]]
+    let edges = [0.001 * fromIntegral i | i <- [1 .. 200 :: Int]]
         mCalib = calibrateThreshold edges (PercentileMethod 99)
     case mCalib of
         Nothing -> assert "calibration failed" False
         Just calib -> do
-            assert "conservative threshold above p95 triggers warning"
+            assert
+                "conservative threshold above p95 triggers warning"
                 (T.isInfixOf "CONSERVATIVE" (tcRecommendation calib))
 
 testThresholdCalibrationRecommendationAggressive :: IO ()
 testThresholdCalibrationRecommendationAggressive = do
-    let edges = [0.001 * fromIntegral i | i <- [1..200 :: Int]]
+    let edges = [0.001 * fromIntegral i | i <- [1 .. 200 :: Int]]
         mCalib = calibrateThreshold edges (PercentileMethod 10)
     case mCalib of
         Nothing -> assert "calibration failed" False
         Just calib -> do
-            assert "aggressive threshold below p25 triggers warning"
+            assert
+                "aggressive threshold below p25 triggers warning"
                 (T.isInfixOf "AGGRESSIVE" (tcRecommendation calib))
 
 testThresholdCalibrationRecommendationBalanced :: IO ()
 testThresholdCalibrationRecommendationBalanced = do
-    let edges = [0.001 * fromIntegral i | i <- [1..200 :: Int]]
+    let edges = [0.001 * fromIntegral i | i <- [1 .. 200 :: Int]]
         mCalib = calibrateThreshold edges (PercentileMethod 75)
     case mCalib of
         Nothing -> assert "calibration failed" False
         Just calib -> do
-            assert "balanced threshold in IQR is recommended"
+            assert
+                "balanced threshold in IQR is recommended"
                 (T.isInfixOf "BALANCED" (tcRecommendation calib))
