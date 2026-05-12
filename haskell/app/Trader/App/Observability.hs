@@ -1,10 +1,13 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Trader.App.Observability (
     Journal,
     Metrics,
     Webhook,
     WebhookEvent (..),
+    getLocalIpAddress,
     incCounter,
     journalWrite,
     journalWriteMaybe,
@@ -26,18 +29,20 @@ module Trader.App.Observability (
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket, catch, try)
 import Control.Monad (when)
 import Data.Aeson (encode, object, (.=))
 import qualified Data.Aeson as Aeson
+import Data.Bits (shiftR, (.&.))
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiUpper)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
-import Data.List (isPrefixOf)
+import Data.List (intercalate, isPrefixOf)
 import Data.Maybe (fromMaybe)
+import Data.Word (Word8, Word64)
 import Network.HTTP.Client (
     Manager,
     Request,
@@ -53,6 +58,7 @@ import Network.HTTP.Client (
     responseTimeoutMicro,
  )
 import Network.HTTP.Client.TLS (tlsManagerSettings)
+import qualified Network.Socket as NS
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -60,6 +66,30 @@ import System.FilePath ((</>))
 import Trader.App.Runtime (splitEnvList)
 import Trader.Binance (getTimestampMs)
 import Trader.Text (trim)
+
+-- | Attempt to discover the local IPv4 address by connecting to a public
+-- nameserver and inspecting the socket address. Falls back to "127.0.0.1"
+-- when nothing can be determined.
+getLocalIpAddress :: IO String
+getLocalIpAddress = do
+    let hints = NS.defaultHints{NS.addrSocketType = NS.Stream}
+    NS.getAddrInfo (Just hints) (Just "8.8.8.8") (Just "53") >>= \case
+        [] -> pure "127.0.0.1"
+        (addr : _) ->
+            let attempt = bracket
+                    (NS.socket (NS.addrFamily addr) NS.Stream NS.defaultProtocol)
+                    NS.close
+                    (\sock -> do
+                        NS.connect sock (NS.addrAddress addr)
+                        NS.SockAddrInet _ ip <- NS.getSocketName sock
+                        let w = fromIntegral ip :: Word64
+                            a = fromIntegral ((w `shiftR` 24) .&. 0xFF) :: Word8
+                            b = fromIntegral ((w `shiftR` 16) .&. 0xFF) :: Word8
+                            c = fromIntegral ((w `shiftR` 8) .&. 0xFF) :: Word8
+                            d = fromIntegral (w .&. 0xFF) :: Word8
+                        pure (intercalate "." (map show [a, b, c, d]))
+                    )
+             in attempt `catch` \(_ :: SomeException) -> pure "127.0.0.1"
 
 data Metrics = Metrics
     { mtRequestsTotal :: !(IORef Int64)
@@ -270,7 +300,13 @@ webhookNotifyMaybeSync mWh ev =
 
 webhookSend :: Webhook -> WebhookEvent -> IO ()
 webhookSend wh ev = do
-    let payload = object ["content" .= weContent ev]
+    localIp <- getLocalIpAddress
+    let contentWithIp = weContent ev ++ " [ip=" ++ localIp ++ "]"
+        payload =
+            object
+                [ "content" .= contentWithIp
+                , "ip" .= localIp
+                ]
         req = (whRequest wh){requestBody = RequestBodyLBS (encode payload)}
     _ <- try (httpLbs req (whManager wh)) :: IO (Either SomeException (Response BL.ByteString))
     pure ()
