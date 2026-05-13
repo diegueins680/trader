@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-STATE_DIR="${ROOT_DIR}/.tmp/autoloop"
+STATE_DIR="${TRADER_AUTOLOOP_STATE_DIR:-/Users/diegosaa/.openclaw/orgs/trader-firm/runtime/trader-autoloop-live/.tmp/autoloop}"
 PID_FILE="${STATE_DIR}/runner.pid"
 STOP_FILE="${STATE_DIR}/stop"
 STATUS_FILE="${STATE_DIR}/status.json"
