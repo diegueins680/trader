@@ -19,6 +19,7 @@ module Trader.Trading (
     TradingEntryGateInputs (..),
     mkTradingEntryGateInputs,
     EntryGateState (..),
+    exitReasonCode,
     exitReasonFromCode,
     mkEntryGateState,
     tradeEntrySourceCode,

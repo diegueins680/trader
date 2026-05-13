@@ -382,6 +382,7 @@ import Trader.Trading (
     Trade (..),
     TradeEntrySource (..),
     emptyBacktestCostAttribution,
+    exitReasonCode,
     exitReasonFromCode,
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
@@ -22509,12 +22510,58 @@ runTradeOnly mWebhook args lookback series mBinanceEnv = do
             printCostGuidance openThr (argCloseThreshold args) perSide roundTrip
             maybeSendOrder mWebhook args mBinanceEnv signal
 
+emitBacktestTradesNdjson :: Args -> BacktestSummary -> IO ()
+emitBacktestTradesNdjson args summary = do
+    createDirectoryIfMissing True ".tmp/trader"
+    let trades = bsTrades summary
+        prices = bsBacktestPrices summary
+        positions = bsPositions summary
+        mOpenTimes = bsOpenTimes summary
+        sym = maybe "" T.pack (argBinanceSymbol args)
+        meth = T.pack (methodCode (bsMethodUsed summary))
+        vcg = T.pack (volConfGateCode (bsVolConfGate summary))
+        emitTrade tr = do
+            let ei = trEntryIndex tr
+                xi = trExitIndex tr
+                entryPrice = if ei >= 0 && ei < length prices then prices !! ei else 0.0
+                exitPrice = if xi >= 0 && xi < length prices then prices !! xi else 0.0
+                side = T.pack (if ei >= 0 && ei < length positions && positions !! ei >= 0 then "LONG" else "SHORT")
+                qty = if ei >= 0 && ei < length positions then abs (positions !! ei) else 0.0
+                pnl = trExitEquity tr - trEntryEquity tr
+                entryTime = case mOpenTimes of
+                    Just ts | ei >= 0 && ei < length ts -> T.pack (show (ts !! ei))
+                    _ -> T.pack ""
+                exitTime = case mOpenTimes of
+                    Just ts | xi >= 0 && xi < length ts -> T.pack (show (ts !! xi))
+                    _ -> T.pack ""
+                line = object
+                    [ "timestamp" .= entryTime
+                    , "symbol" .= sym
+                    , "side" .= side
+                    , "entryPrice" .= entryPrice
+                    , "exitPrice" .= exitPrice
+                    , "quantity" .= qty
+                    , "pnl" .= pnl
+                    , "pnlPercent" .= trReturn tr
+                    , "method" .= meth
+                    , "volConfGate" .= vcg
+                    , "fees" .= trFeeCost tr
+                    , "entryTime" .= entryTime
+                    , "exitTime" .= exitTime
+                    , "barsHeld" .= trHoldingPeriods tr
+                    , "exitReason" .= (maybe "" (T.pack . exitReasonCode) (trExitReason tr))
+                    , "feeCost" .= trFeeCost tr
+                    ]
+            BL.appendFile ".tmp/trader/live_trades.ndjson" (encode line <> BL.fromStrict (BS.pack "\n"))
+    mapM_ emitTrade trades
+
 runBacktestPipeline :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
 runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
     ensureRuntimeConfig args
     summary0 <- computeBacktestSummary args lookback series mBinanceEnv
     latestForLiveDecision <- applyPredictionMarketHerdMaybe args (argBinanceSymbol args) (bsLatestSignal summary0)
     let summary = summary0{bsLatestSignal = latestForLiveDecision}
+    emitBacktestTradesNdjson args summary
     if argJson args
         then do
             let base = backtestSummaryJson summary
