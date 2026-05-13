@@ -22534,24 +22534,25 @@ emitBacktestTradesNdjson args summary = do
                 exitTime = case mOpenTimes of
                     Just ts | xi >= 0 && xi < length ts -> T.pack (show (ts !! xi))
                     _ -> T.pack ""
-                line = object
-                    [ "timestamp" .= entryTime
-                    , "symbol" .= sym
-                    , "side" .= side
-                    , "entryPrice" .= entryPrice
-                    , "exitPrice" .= exitPrice
-                    , "quantity" .= qty
-                    , "pnl" .= pnl
-                    , "pnlPercent" .= trReturn tr
-                    , "method" .= meth
-                    , "volConfGate" .= vcg
-                    , "fees" .= trFeeCost tr
-                    , "entryTime" .= entryTime
-                    , "exitTime" .= exitTime
-                    , "barsHeld" .= trHoldingPeriods tr
-                    , "exitReason" .= (maybe "" (T.pack . exitReasonCode) (trExitReason tr))
-                    , "feeCost" .= trFeeCost tr
-                    ]
+                line =
+                    object
+                        [ "timestamp" .= entryTime
+                        , "symbol" .= sym
+                        , "side" .= side
+                        , "entryPrice" .= entryPrice
+                        , "exitPrice" .= exitPrice
+                        , "quantity" .= qty
+                        , "pnl" .= pnl
+                        , "pnlPercent" .= trReturn tr
+                        , "method" .= meth
+                        , "volConfGate" .= vcg
+                        , "fees" .= trFeeCost tr
+                        , "entryTime" .= entryTime
+                        , "exitTime" .= exitTime
+                        , "barsHeld" .= trHoldingPeriods tr
+                        , "exitReason" .= (maybe "" (T.pack . exitReasonCode) (trExitReason tr))
+                        , "feeCost" .= trFeeCost tr
+                        ]
             BL.appendFile ".tmp/trader/live_trades.ndjson" (encode line <> BL.fromStrict (BS.pack "\n"))
     mapM_ emitTrade trades
 
