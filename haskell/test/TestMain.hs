@@ -161,6 +161,7 @@ main = do
     testInitialBalanceRejectsZeroOrNegative
     testBacktestRatioRejectsInvalidValues
     testOrderQuoteFractionRejectsInvalidValues
+    testFromMustBeLessThanOrEqualToTo
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -624,6 +625,18 @@ testOrderQuoteFractionRejectsInvalidValues = do
         "order-quote-fraction accepts 0.5 (valid fraction)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "0.5"] of
             Right args -> argOrderQuoteFraction args == Just 0.5
+            Left _ -> False
+        )
+
+testFromMustBeLessThanOrEqualToTo :: IO ()
+testFromMustBeLessThanOrEqualToTo = do
+    assert
+        "from must be <= to rejects backwards window"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--from", "2024-01-02", "--to", "2024-01-01"] == Left "--from must be <= --to")
+    assert
+        "from must be <= to accepts valid forward window"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--from", "2024-01-01", "--to", "2024-01-02"] of
+            Right args -> argBacktestFrom args <= argBacktestTo args
             Left _ -> False
         )
 
