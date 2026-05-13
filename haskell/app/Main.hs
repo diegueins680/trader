@@ -22550,7 +22550,7 @@ emitBacktestTradesNdjson args summary = do
                         , "entryTime" .= entryTime
                         , "exitTime" .= exitTime
                         , "barsHeld" .= trHoldingPeriods tr
-                        , "exitReason" .= (maybe "" (T.pack . exitReasonCode) (trExitReason tr))
+                        , "exitReason" .= maybe "" (T.pack . exitReasonCode) (trExitReason tr)
                         , "feeCost" .= trFeeCost tr
                         ]
             BL.appendFile ".tmp/trader/live_trades.ndjson" (encode line <> BL.fromStrict (BS.pack "\n"))
