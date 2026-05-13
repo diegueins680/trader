@@ -168,6 +168,7 @@ main = do
     testLrRejectsInvalidValues
     testEpochsRejectsInvalidValues
     testGradClipRejectsInvalidValues
+    testKalmanDtRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -760,6 +761,27 @@ testGradClipRejectsInvalidValues = do
         "grad-clip accepts 1.0 (default-like)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--grad-clip", "1.0"] of
             Right args -> argGradClip args == Just 1.0
+            Left _ -> False
+        )
+
+testKalmanDtRejectsInvalidValues :: IO ()
+testKalmanDtRejectsInvalidValues = do
+    assert
+        "kalman-dt rejects 0 (too small)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-dt", "0"] == Left "--kalman-dt must be > 0")
+    assert
+        "kalman-dt rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-dt", "-1"] == Left "--kalman-dt must be > 0")
+    assert
+        "kalman-dt accepts 0.5 (positive)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-dt", "0.5"] of
+            Right args -> argKalmanDt args == 0.5
+            Left _ -> False
+        )
+    assert
+        "kalman-dt accepts 1.0 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-dt", "1.0"] of
+            Right args -> argKalmanDt args == 1.0
             Left _ -> False
         )
 
