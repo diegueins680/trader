@@ -169,6 +169,7 @@ main = do
     testEpochsRejectsInvalidValues
     testGradClipRejectsInvalidValues
     testKalmanDtRejectsInvalidValues
+    testKalmanProcessVarRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -782,6 +783,27 @@ testKalmanDtRejectsInvalidValues = do
         "kalman-dt accepts 1.0 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-dt", "1.0"] of
             Right args -> argKalmanDt args == 1.0
+            Left _ -> False
+        )
+
+testKalmanProcessVarRejectsInvalidValues :: IO ()
+testKalmanProcessVarRejectsInvalidValues = do
+    assert
+        "kalman-process-var rejects 0 (too small)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-process-var", "0"] == Left "--kalman-process-var must be > 0")
+    assert
+        "kalman-process-var rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-process-var", "-1"] == Left "--kalman-process-var must be > 0")
+    assert
+        "kalman-process-var accepts 0.5 (positive)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-process-var", "0.5"] of
+            Right args -> argKalmanProcessVar args == 0.5
+            Left _ -> False
+        )
+    assert
+        "kalman-process-var accepts 1e-5 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-process-var", "1e-5"] of
+            Right args -> argKalmanProcessVar args == 1e-5
             Left _ -> False
         )
 
