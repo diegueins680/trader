@@ -163,6 +163,7 @@ main = do
     testBacktestRatioRejectsInvalidValues
     testOrderQuoteFractionRejectsInvalidValues
     testFromMustBeLessThanOrEqualToTo
+    testValRatioRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -653,6 +654,21 @@ testFromMustBeLessThanOrEqualToTo = do
         "from must be <= to accepts valid forward window"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--from", "2024-01-01", "--to", "2024-01-02"] of
             Right args -> argBacktestFrom args <= argBacktestTo args
+            Left _ -> False
+        )
+
+testValRatioRejectsInvalidValues :: IO ()
+testValRatioRejectsInvalidValues = do
+    assert
+        "val-ratio rejects -0.1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--val-ratio", "-0.1"] == Left "--val-ratio must be >= 0 and < 1")
+    assert
+        "val-ratio rejects 1.0 (no validation data)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--val-ratio", "1.0"] == Left "--val-ratio must be >= 0 and < 1")
+    assert
+        "val-ratio accepts 0.2 (valid split)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--val-ratio", "0.2"] of
+            Right args -> argValRatio args == 0.2
             Left _ -> False
         )
 
