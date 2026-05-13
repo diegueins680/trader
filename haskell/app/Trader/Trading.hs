@@ -360,6 +360,7 @@ data Trade = Trade
     , trExitReason :: !(Maybe ExitReason)
     , trEntryIp :: !(Maybe T.Text)
     , trExitIp :: !(Maybe T.Text)
+    , trFeeCost :: !Double
     }
     deriving (Eq, Show)
 
@@ -2276,6 +2277,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trExitReason = Just why
                                                 , trEntryIp = Nothing
                                                 , trExitIp = Nothing
+                                                , trFeeCost = 0.0
                                                 }
 
                                         openTradeFor side eqEntry baseSize =
@@ -2440,6 +2442,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trExitReason = reason
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
+                                                                            , trFeeCost = 0.0
                                                                             }
                                                                  in (Nothing, 0, exitEq, costTotalsExit, changes' + 1, Nothing, tr : tradesAcc')
                                                             (Nothing, trail1) ->
@@ -2510,6 +2513,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trExitReason = reason
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
+                                                                            , trFeeCost = 0.0
                                                                             }
                                                                  in (Nothing, 0, exitEq, costTotalsExit, changes' + 1, Nothing, tr : tradesAcc')
                                                             (Nothing, trail1) ->
@@ -2548,6 +2552,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                 , trExitReason = Just ExitLiquidation
                                                                                 , trEntryIp = Nothing
                                                                                 , trExitIp = Nothing
+                                                                                , trFeeCost = 0.0
                                                                                 }
                                                                      in (tr : tradesFinal, changesFinal + 1)
                                                      in (Nothing, 0, exitEq, costTotalsFinalFunding, changesOut, Nothing, tradesOut, True)
@@ -2738,6 +2743,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trExitReason = Just ExitEod
                                                 , trEntryIp = Nothing
                                                 , trExitIp = Nothing
+                                                , trFeeCost = 0.0
                                                 }
                                         eqRev1 =
                                             case eqRev of

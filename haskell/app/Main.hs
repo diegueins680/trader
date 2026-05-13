@@ -6423,6 +6423,7 @@ tradeFromSnapshotValue =
                     , trExitReason = exitReason
                     , trEntryIp = entryIp
                     , trExitIp = exitIp
+                    , trFeeCost = 0.0
                     }
 
 reindexRestoredTrades :: [Trade] -> [Trade]
@@ -10957,6 +10958,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 , trEntryHighVolProb = botOpenEntryHighVolProb ot
                 , trEntrySource = botOpenEntrySource ot
                 , trExitReason = mExitReason >>= exitReasonFromCode
+                , trFeeCost = 0.0
                 , trEntryIp = botOpenEntryIp ot
                 , trExitIp = botTradeOriginIp st
                 }
@@ -22437,6 +22439,7 @@ tradeToJson tr =
         , "exitReason" .= trExitReason tr
         , "entryIp" .= trEntryIp tr
         , "exitIp" .= trExitIp tr
+        , "feeCost" .= trFeeCost tr
         ]
 
 baselineToJson :: Baseline -> Aeson.Value
@@ -24329,6 +24332,7 @@ baselineSimLongFlat perSideCost prices wantLong =
                 , trExitReason = Nothing
                 , trEntryIp = Nothing
                 , trExitIp = Nothing
+                , trFeeCost = 0.0
                 }
 
         stepFn (posSize, equity, eqAcc, posAcc, changes, mOpen, tradesAcc) t =
