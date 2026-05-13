@@ -167,6 +167,7 @@ main = do
     testHiddenSizeRejectsInvalidValues
     testLrRejectsInvalidValues
     testEpochsRejectsInvalidValues
+    testGradClipRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -738,6 +739,27 @@ testEpochsRejectsInvalidValues = do
         "epochs accepts 100 (large positive)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--epochs", "100"] of
             Right args -> argEpochs args == 100
+            Left _ -> False
+        )
+
+testGradClipRejectsInvalidValues :: IO ()
+testGradClipRejectsInvalidValues = do
+    assert
+        "grad-clip rejects 0 (too small)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--grad-clip", "0"] == Left "--grad-clip must be > 0")
+    assert
+        "grad-clip rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--grad-clip", "-1"] == Left "--grad-clip must be > 0")
+    assert
+        "grad-clip accepts 0.5 (positive)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--grad-clip", "0.5"] of
+            Right args -> argGradClip args == Just 0.5
+            Left _ -> False
+        )
+    assert
+        "grad-clip accepts 1.0 (default-like)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--grad-clip", "1.0"] of
+            Right args -> argGradClip args == Just 1.0
             Left _ -> False
         )
 
