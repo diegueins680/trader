@@ -159,6 +159,7 @@ main = do
     testMaxPositionSizeRejectsAbsurdUpperBound
     testMaxPositionSizeRejectsNonFuturesOverFive
     testInitialBalanceRejectsZeroOrNegative
+    testMinPositionSizeRejectsOutOfRangeValues
     testBacktestRatioRejectsInvalidValues
     testOrderQuoteFractionRejectsInvalidValues
     testFromMustBeLessThanOrEqualToTo
@@ -597,6 +598,21 @@ testInitialBalanceRejectsZeroOrNegative = do
     assert
         "initial-balance rejects negative"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--initial-balance", "-100"] == Left "--initial-balance must be > 0")
+
+testMinPositionSizeRejectsOutOfRangeValues :: IO ()
+testMinPositionSizeRejectsOutOfRangeValues = do
+    assert
+        "min-position-size rejects negative (below 0)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "-0.1"] == Left "--min-position-size must be between 0 and 1")
+    assert
+        "min-position-size rejects above 1 (exceeds 100%)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "1.1"] == Left "--min-position-size must be between 0 and 1")
+    assert
+        "min-position-size accepts 0.5 (valid boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "0.5"] of
+            Right args -> argMinPositionSize args == 0.5
+            Left _ -> False
+        )
 
 testBacktestRatioRejectsInvalidValues :: IO ()
 testBacktestRatioRejectsInvalidValues = do
