@@ -165,6 +165,7 @@ main = do
     testFromMustBeLessThanOrEqualToTo
     testValRatioRejectsInvalidValues
     testHiddenSizeRejectsInvalidValues
+    testLrRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -691,6 +692,27 @@ testHiddenSizeRejectsInvalidValues = do
         "hidden-size accepts 16 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--hidden-size", "16"] of
             Right args -> argHiddenSize args == 16
+            Left _ -> False
+        )
+
+testLrRejectsInvalidValues :: IO ()
+testLrRejectsInvalidValues = do
+    assert
+        "lr rejects 0 (too small)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--lr", "0"] == Left "--lr must be > 0")
+    assert
+        "lr rejects -0.001 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--lr", "-0.001"] == Left "--lr must be > 0")
+    assert
+        "lr accepts 0.0001 (small positive)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--lr", "0.0001"] of
+            Right args -> argLr args == 0.0001
+            Left _ -> False
+        )
+    assert
+        "lr accepts 0.001 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--lr", "0.001"] of
+            Right args -> argLr args == 0.001
             Left _ -> False
         )
 
