@@ -2,6 +2,7 @@ module Trader.TechnicalAnalysis.Strategies (
     GatedStrategyCandidate (..),
     OhlcvSeries (..),
     Regime (..),
+    RegimeScore (..),
     StrategyCandidate (..),
     TechnicalAnalysisGateInputs (..),
     TradeBias (..),
@@ -10,6 +11,7 @@ module Trader.TechnicalAnalysis.Strategies (
     candidateRewardEdge,
     momentumReversionCandidate,
     regimeSelector,
+    regimeSelectorDecomposed,
     strategyCandidates,
     trendFollowingCandidate,
     volumeConfirmedBreakoutCandidate,
@@ -44,6 +46,13 @@ data OhlcvSeries = OhlcvSeries
     deriving (Eq, Show)
 
 data Regime = RegimeTrend | RegimeRange | RegimeNeutral
+    deriving (Eq, Show)
+
+data RegimeScore = RegimeScore
+    { rsTrend :: !Double
+    , rsRange :: !Double
+    , rsNeutral :: !Double
+    }
     deriving (Eq, Show)
 
 data TradeBias = BiasLong | BiasShort | BiasFlat
@@ -132,8 +141,8 @@ candidateRewardEdge candidate = do
                 else Nothing
         BiasFlat -> Nothing
 
-regimeSelector :: OhlcvSeries -> Maybe Regime
-regimeSelector series = do
+regimeSelectorDecomposed :: OhlcvSeries -> Maybe RegimeScore
+regimeSelectorDecomposed series = do
     validateSeries series
     closeNow <- lastValue (ohlcvClose series)
     adxNow <- latestJust (adxSeries 14 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))
@@ -144,10 +153,29 @@ regimeSelector series = do
     let slope = safeDivide (fastNow - fastPrev) closeNow
         width = safeDivide (bandUpper bbNow - bandLower bbNow) closeNow
         aroonGap = abs (aroonUp aroonNow - aroonDown aroonNow)
-    if adxValue adxNow >= 25 && aroonGap >= 40 && abs slope >= 0.01
+        adxTrendScore = clamp01 ((adxValue adxNow - 15) / 20)
+        aroonTrendScore = clamp01 ((aroonGap - 20) / 40)
+        slopeTrendScore = clamp01 ((abs slope - 0.005) / 0.015)
+        trendScore = 0.40 * adxTrendScore + 0.35 * aroonTrendScore + 0.25 * slopeTrendScore
+        adxRangeScore = clamp01 ((25 - adxValue adxNow) / 15)
+        widthRangeScore = clamp01 ((0.12 - width) / 0.08)
+        rangeScore = 0.5 * adxRangeScore + 0.5 * widthRangeScore
+        maxScore = max trendScore rangeScore
+        neutralScore = max 0 (1 - maxScore)
+    pure
+        RegimeScore
+            { rsTrend = trendScore
+            , rsRange = rangeScore
+            , rsNeutral = neutralScore
+            }
+
+regimeSelector :: OhlcvSeries -> Maybe Regime
+regimeSelector series = do
+    score <- regimeSelectorDecomposed series
+    if rsTrend score >= 0.55
         then Just RegimeTrend
         else
-            if adxValue adxNow < 20 && width <= 0.08
+            if rsRange score >= 0.55
                 then Just RegimeRange
                 else Just RegimeNeutral
 
