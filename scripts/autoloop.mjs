@@ -33,6 +33,7 @@ const MAX_ITERATIONS = clampInt(process.env.AUTOLOOP_MAX_ITERATIONS, 2, 1, 5);
 const MAX_EDITABLE_FILE_BYTES = clampInt(process.env.AUTOLOOP_MAX_FILE_BYTES, 1000000, 4000, 5000000);
 const MAX_EDITABLE_FILES = clampInt(process.env.AUTOLOOP_MAX_FILES, 120, 20, 300);
 const PATCH_PLAN_PROMPT_MAX_CHARS = clampInt(process.env.AUTOLOOP_PATCH_PLAN_MAX_CHARS, 2000000, 200000, 3000000);
+const MAX_CODEX_INPUT_CHARS = clampInt(process.env.AUTOLOOP_MAX_CODEX_INPUT_CHARS, 900000, 100000, 1000000);
 const DRY_RUN = process.argv.includes("--dry-run");
 const STATUS_FILE = resolveOptionalPath(process.env.AUTOLOOP_STATUS_FILE);
 const RUN_ID = process.env.AUTOLOOP_RUN_ID || "";
@@ -1228,6 +1229,10 @@ async function callModelJsonViaCodex({ prompt, maxOutputTokens, timeoutMs }) {
     `Treat this max_output_tokens hint as advisory: ${maxOutputTokens}.`,
     prompt,
   ].join("\n\n");
+
+  if (input.length > MAX_CODEX_INPUT_CHARS) {
+    throw new Error(`Codex input exceeds ${MAX_CODEX_INPUT_CHARS} chars (${input.length}); skipping cycle.`);
+  }
 
   let lastError = null;
   for (let attempt = 1; attempt <= CODEX_RETRY_MAX_ATTEMPTS; attempt += 1) {
