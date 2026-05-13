@@ -164,6 +164,7 @@ main = do
     testOrderQuoteFractionRejectsInvalidValues
     testFromMustBeLessThanOrEqualToTo
     testValRatioRejectsInvalidValues
+    testHiddenSizeRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -669,6 +670,27 @@ testValRatioRejectsInvalidValues = do
         "val-ratio accepts 0.2 (valid split)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--val-ratio", "0.2"] of
             Right args -> argValRatio args == 0.2
+            Left _ -> False
+        )
+
+testHiddenSizeRejectsInvalidValues :: IO ()
+testHiddenSizeRejectsInvalidValues = do
+    assert
+        "hidden-size rejects 0 (too small)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--hidden-size", "0"] == Left "--hidden-size must be >= 1")
+    assert
+        "hidden-size rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--hidden-size", "-1"] == Left "--hidden-size must be >= 1")
+    assert
+        "hidden-size accepts 1 (minimum valid)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--hidden-size", "1"] of
+            Right args -> argHiddenSize args == 1
+            Left _ -> False
+        )
+    assert
+        "hidden-size accepts 16 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--hidden-size", "16"] of
+            Right args -> argHiddenSize args == 16
             Left _ -> False
         )
 
