@@ -2307,6 +2307,7 @@ testTradingPublicSurfaceRegression = do
                 , trExitReason = Just ExitEod
                 , trEntryIp = Nothing
                 , trExitIp = Nothing
+                , trFeeCost = 0.0
                 }
         shiftedTrade =
             indexedTrade
@@ -2715,6 +2716,7 @@ testMetricsConsumesTradingPublicResults = do
                 , trExitReason = Just ExitEod
                 , trEntryIp = Nothing
                 , trExitIp = Nothing
+                , trFeeCost = 0.0
                 }
         result =
             BacktestResult
