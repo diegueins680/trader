@@ -166,6 +166,7 @@ main = do
     testValRatioRejectsInvalidValues
     testHiddenSizeRejectsInvalidValues
     testLrRejectsInvalidValues
+    testEpochsRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -713,6 +714,30 @@ testLrRejectsInvalidValues = do
         "lr accepts 0.001 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--lr", "0.001"] of
             Right args -> argLr args == 0.001
+            Left _ -> False
+        )
+
+testEpochsRejectsInvalidValues :: IO ()
+testEpochsRejectsInvalidValues = do
+    assert
+        "epochs rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--epochs", "-1"] == Left "--epochs must be >= 0")
+    assert
+        "epochs accepts 0 (minimum valid)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--epochs", "0"] of
+            Right args -> argEpochs args == 0
+            Left _ -> False
+        )
+    assert
+        "epochs accepts 30 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--epochs", "30"] of
+            Right args -> argEpochs args == 30
+            Left _ -> False
+        )
+    assert
+        "epochs accepts 100 (large positive)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--epochs", "100"] of
+            Right args -> argEpochs args == 100
             Left _ -> False
         )
 
