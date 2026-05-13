@@ -25,7 +25,9 @@ const PID_FILE = path.join(STATE_DIR, "runner.pid");
 const STOP_FILE = path.join(STATE_DIR, "stop");
 const RUNNER_LOG_FILE = path.join(STATE_DIR, "runner.log");
 const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', cwd: ROOT }).trim();
-const REPO_STATUS_FILE = path.join(REPO_ROOT, ".tmp", "autoloop", "status.json");
+const REPO_STATUS_FILE = process.env.TRADER_AUTOLOOP_STATUS_FILE
+  ? path.resolve(process.env.TRADER_AUTOLOOP_STATUS_FILE)
+  : path.join("/Users/diegosaa/.openclaw/orgs/trader-firm/runtime/trader-autoloop-live", ".tmp", "autoloop", "status.json");
 const BASE_BRANCH = normalizeGitBranchShortName(process.env.AUTOLOOP_BASE_BRANCH || "main") || "main";
 const LOOP_INTERVAL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_INTERVAL_SECONDS, 300, 15, 86400);
 const STOP_POLL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_STOP_POLL_SECONDS, 5, 1, 60);
