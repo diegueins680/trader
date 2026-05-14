@@ -14,7 +14,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
-import Trader.App.Args (Args (..), argTunePenaltyTurnover, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
+import Trader.App.Args (Args (..), argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BotStartSemantics (botStartSymbolDisabled, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
@@ -176,6 +176,7 @@ main = do
     testTunePenaltyMaxDrawdownRejectsInvalidValues
     testTunePenaltyTurnoverRejectsInvalidValues
     testWalkForwardFoldsRejectsInvalidValues
+    testWalkForwardEmbargoBarsRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -957,6 +958,30 @@ testWalkForwardFoldsRejectsInvalidValues = do
         "walk-forward-folds accepts 7 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--walk-forward-folds", "7"] of
             Right args -> argWalkForwardFolds args == 7
+            Left _ -> False
+        )
+
+testWalkForwardEmbargoBarsRejectsInvalidValues :: IO ()
+testWalkForwardEmbargoBarsRejectsInvalidValues = do
+    assert
+        "walk-forward-embargo-bars rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--walk-forward-embargo-bars", "-1"] == Left "--walk-forward-embargo-bars must be >= 0")
+    assert
+        "walk-forward-embargo-bars accepts 0 (boundary/default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--walk-forward-embargo-bars", "0"] of
+            Right args -> argWalkForwardEmbargoBars args == 0
+            Left _ -> False
+        )
+    assert
+        "walk-forward-embargo-bars accepts 1 (valid)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--walk-forward-embargo-bars", "1"] of
+            Right args -> argWalkForwardEmbargoBars args == 1
+            Left _ -> False
+        )
+    assert
+        "walk-forward-embargo-bars accepts 5 (valid)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--walk-forward-embargo-bars", "5"] of
+            Right args -> argWalkForwardEmbargoBars args == 5
             Left _ -> False
         )
 
