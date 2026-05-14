@@ -78,5 +78,8 @@ haskell/package-lock.json
 # Research artifacts
 artifacts/research/*.csv
 
+# Data artifacts
+data/*USDT-*.csv
+
 # Planning artifacts
 artifacts/planning/

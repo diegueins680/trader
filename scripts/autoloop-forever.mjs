@@ -759,7 +759,9 @@ async function tryAutoCheckpointDirtyWorktree() {
   try {
     runCommand("git", ["config", "user.name", "autoloop[bot]"], { capture: false });
     runCommand("git", ["config", "user.email", "autoloop[bot]@users.noreply.github.com"], { capture: false });
+    runCommand("git", ["stash", "push", "-m", "autoloop dirty stash"], { capture: false });
     runCommand("git", ["checkout", "-b", checkpointBranch], { capture: false });
+    runCommand("git", ["stash", "pop"], { capture: false });
     runCommand("git", ["add", "-A"], { capture: false });
     runCommand("git", ["commit", "-m", analysis.commitMessage, "-m", commitBody], { capture: false });
     const commit = runCommand("git", ["rev-parse", "HEAD"]);
