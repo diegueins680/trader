@@ -171,6 +171,7 @@ main = do
     testKalmanDtRejectsInvalidValues
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
+    testKalmanMarketTopNRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -826,6 +827,30 @@ testKalmanMeasurementVarRejectsInvalidValues = do
         "kalman-measurement-var accepts 1e-3 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-measurement-var", "1e-3"] of
             Right args -> argKalmanMeasurementVar args == 1e-3
+            Left _ -> False
+        )
+
+testKalmanMarketTopNRejectsInvalidValues :: IO ()
+testKalmanMarketTopNRejectsInvalidValues = do
+    assert
+        "kalman-market-top-n rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-market-top-n", "-1"] == Left "--kalman-market-top-n must be >= 0")
+    assert
+        "kalman-market-top-n accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-market-top-n", "0"] of
+            Right args -> argKalmanMarketTopN args == 0
+            Left _ -> False
+        )
+    assert
+        "kalman-market-top-n accepts 10 (positive)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-market-top-n", "10"] of
+            Right args -> argKalmanMarketTopN args == 10
+            Left _ -> False
+        )
+    assert
+        "kalman-market-top-n accepts 50 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-market-top-n", "50"] of
+            Right args -> argKalmanMarketTopN args == 50
             Left _ -> False
         )
 
