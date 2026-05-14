@@ -43,7 +43,8 @@ import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Time.Clock.POSIX (getPOSIXTime, utcTimeToPOSIXSeconds)
+import Data.Time.Clock.POSIX (getPOSIXTime, posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
+import Data.Time.Format (defaultTimeLocale, formatTime)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Data.Version (showVersion)
@@ -22528,15 +22529,21 @@ emitBacktestTradesNdjson args summary = do
                 side = T.pack (if ei >= 0 && ei < length positions && positions !! ei >= 0 then "LONG" else "SHORT")
                 qty = if ei >= 0 && ei < length positions then abs (positions !! ei) else 0.0
                 pnl = trExitEquity tr - trEntryEquity tr
+                epochMsToIso ms =
+                    T.pack $ formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
+                        posixSecondsToUTCTime $ fromIntegral ms / 1000
                 entryTime = case mOpenTimes of
-                    Just ts | ei >= 0 && ei < length ts -> T.pack (show (ts !! ei))
+                    Just ts | ei >= 0 && ei < length ts -> epochMsToIso (ts !! ei)
                     _ -> T.pack ""
                 exitTime = case mOpenTimes of
-                    Just ts | xi >= 0 && xi < length ts -> T.pack (show (ts !! xi))
+                    Just ts | xi >= 0 && xi < length ts -> epochMsToIso (ts !! xi)
+                    _ -> T.pack ""
+                logTime = case mOpenTimes of
+                    Just ts | not (null ts) -> epochMsToIso (last ts)
                     _ -> T.pack ""
                 line =
                     object
-                        [ "timestamp" .= entryTime
+                        [ "timestamp" .= logTime
                         , "symbol" .= sym
                         , "side" .= side
                         , "entryPrice" .= entryPrice
