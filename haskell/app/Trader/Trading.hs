@@ -2748,14 +2748,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trEntryEquity = otEntryEquity ot
                                                 , trExitEquity = exitEq
                                                 , trReturn = exitEq / otEntryEquity ot - 1
-                                                                                , trHoldingPeriods = otHoldingPeriods ot
-                                                                                , trEntryHighVolProb = metaAt (otEntryIndex ot) >>= smHighVolProb
-                                                                                , trEntrySource = TradeEntrySignal
-                                                                                , trExitReason = Just ExitEod
-                                                                                , trEntryIp = Nothing
-                                                                                , trExitIp = Nothing
-                                                                                , trFeeCost = feeCost
-                                                                                }
+                                                , trHoldingPeriods = otHoldingPeriods ot
+                                                , trEntryHighVolProb = metaAt (otEntryIndex ot) >>= smHighVolProb
+                                                , trEntrySource = TradeEntrySignal
+                                                , trExitReason = Just ExitEod
+                                                , trEntryIp = Nothing
+                                                , trExitIp = Nothing
+                                                , trFeeCost = feeCost
+                                                }
                                         eqRev1 =
                                             case eqRev of
                                                 [] -> [exitEq]
