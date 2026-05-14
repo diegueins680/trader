@@ -14,7 +14,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
-import Trader.App.Args (Args (..), normalizeBarsForLookback, opts, parsePositioning, validateArgs)
+import Trader.App.Args (Args (..), normalizeBarsForLookback, opts, parsePositioning, validateArgs, argTunePenaltyTurnover)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BotStartSemantics (botStartSymbolDisabled, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
@@ -174,6 +174,7 @@ main = do
     testKalmanMarketTopNRejectsInvalidValues
     testTuneRatioRejectsInvalidValues
     testTunePenaltyMaxDrawdownRejectsInvalidValues
+    testTunePenaltyTurnoverRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -904,6 +905,30 @@ testTunePenaltyMaxDrawdownRejectsInvalidValues = do
         "tune-penalty-max-drawdown accepts 2.0 (valid)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-max-drawdown", "2.0"] of
             Right args -> argTunePenaltyMaxDrawdown args == 2.0
+            Left _ -> False
+        )
+
+testTunePenaltyTurnoverRejectsInvalidValues :: IO ()
+testTunePenaltyTurnoverRejectsInvalidValues = do
+    assert
+        "tune-penalty-turnover rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-turnover", "-1"] == Left "--tune-penalty-turnover must be >= 0")
+    assert
+        "tune-penalty-turnover accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-turnover", "0"] of
+            Right args -> argTunePenaltyTurnover args == 0
+            Left _ -> False
+        )
+    assert
+        "tune-penalty-turnover accepts 0.5 (valid)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-turnover", "0.5"] of
+            Right args -> argTunePenaltyTurnover args == 0.5
+            Left _ -> False
+        )
+    assert
+        "tune-penalty-turnover accepts 1.0 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-turnover", "1.0"] of
+            Right args -> argTunePenaltyTurnover args == 1.0
             Left _ -> False
         )
 
