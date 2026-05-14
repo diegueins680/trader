@@ -99,17 +99,18 @@ emaSeries period values
         let seedWindow = V.slice 0 period values
             seed = V.sum seedWindow / fromIntegral period
             multiplier = 2 / (fromIntegral period + 1)
-            prefix = replicate (period - 1) Nothing ++ [Just seed]
             tailValues = V.toList (V.slice period (V.length values - period) values)
-            (_, rest) =
-                foldl'
-                    ( \(prevEma, acc) price ->
-                        let nextEma = ((price - prevEma) * multiplier) + prevEma
-                         in (nextEma, acc ++ [Just nextEma])
-                    )
-                    (seed, prefix)
-                    tailValues
-         in V.fromList rest
+            rest = reverse $ foldl'
+                ( \acc price ->
+                    let prevEma = case acc of
+                            [] -> seed
+                            (e : _) -> e
+                        nextEma = ((price - prevEma) * multiplier) + prevEma
+                     in nextEma : acc
+                )
+                []
+                tailValues
+         in V.fromList $ replicate (period - 1) Nothing ++ (Just seed : map Just rest)
 
 rocSeries :: Int -> V.Vector Double -> V.Vector (Maybe Double)
 rocSeries period values
@@ -135,18 +136,18 @@ rsiSeries period values
             avgGain0 = sum (take period gains) / fromIntegral period
             avgLoss0 = sum (take period losses) / fromIntegral period
             firstRsi = rsiFromAverages avgGain0 avgLoss0
-            prefix = replicate period Nothing ++ [Just firstRsi]
             tailPairs = drop period (zip gains losses)
-            (_, _, out) =
+            (_, _, rsiAcc) =
                 foldl'
                     ( \(avgGain, avgLoss, acc) (gainValue, lossValue) ->
                         let nextGain = ((avgGain * fromIntegral (period - 1)) + gainValue) / fromIntegral period
                             nextLoss = ((avgLoss * fromIntegral (period - 1)) + lossValue) / fromIntegral period
-                         in (nextGain, nextLoss, acc ++ [Just (rsiFromAverages nextGain nextLoss)])
+                         in (nextGain, nextLoss, rsiFromAverages nextGain nextLoss : acc)
                     )
-                    (avgGain0, avgLoss0, prefix)
+                    (avgGain0, avgLoss0, [])
                     tailPairs
-         in V.fromList out
+            rest = reverse rsiAcc
+         in V.fromList $ replicate period Nothing ++ (Just firstRsi : map Just rest)
   where
     n = V.length values
 
@@ -204,17 +205,18 @@ atrSeries period highs lows closes
     | otherwise =
         let trueRanges = V.generate n trAt
             seed = V.sum (V.slice 1 period trueRanges) / fromIntegral period
-            prefix = replicate period Nothing ++ [Just seed]
             tailValues = V.toList (V.slice (period + 1) (n - period - 1) trueRanges)
-            (_, out) =
-                foldl'
-                    ( \(prevAtr, acc) trValue ->
-                        let nextAtr = ((prevAtr * fromIntegral (period - 1)) + trValue) / fromIntegral period
-                         in (nextAtr, acc ++ [Just nextAtr])
-                    )
-                    (seed, prefix)
-                    tailValues
-         in V.fromList out
+            rest = reverse $ foldl'
+                ( \acc trValue ->
+                    let prevAtr = case acc of
+                            [] -> seed
+                            (a : _) -> a
+                        nextAtr = ((prevAtr * fromIntegral (period - 1)) + trValue) / fromIntegral period
+                     in nextAtr : acc
+                )
+                []
+                tailValues
+         in V.fromList $ replicate period Nothing ++ (Just seed : map Just rest)
   where
     n = V.length closes
     trAt 0 = highs V.! 0 - lows V.! 0
@@ -242,23 +244,24 @@ adxSeries period highs lows closes
             dxSeriesValues =
                 V.generate n (dxAt atrVals smoothPlusDm smoothMinusDm)
             seedDx = averageMaybes (V.slice period period dxSeriesValues)
-            prefix = replicate (period * 2 - 1) Nothing ++ [seedDx]
             restDx = V.toList (V.slice (period * 2) (n - (period * 2)) dxSeriesValues)
-            (_, out) =
+            adxOut =
                 case seedDx of
-                    Nothing -> (0, replicate n Nothing)
+                    Nothing -> replicate n Nothing
                     Just seedValue ->
-                        foldl'
-                            ( \(prevAdx, acc) nextDx ->
-                                case nextDx of
-                                    Nothing -> (prevAdx, acc ++ [Nothing])
-                                    Just dxValue ->
-                                        let nextAdx = ((prevAdx * fromIntegral (period - 1)) + dxValue) / fromIntegral period
-                                         in (nextAdx, acc ++ [Just nextAdx])
-                            )
-                            (seedValue, prefix)
-                            restDx
-         in V.generate n (assemble atrVals smoothPlusDm smoothMinusDm (V.fromList out))
+                        let (_, adxReversed) =
+                                foldl'
+                                    ( \(prevAdx, acc) nextDx ->
+                                        case nextDx of
+                                            Nothing -> (prevAdx, Nothing : acc)
+                                            Just dxValue ->
+                                                let nextAdx = ((prevAdx * fromIntegral (period - 1)) + dxValue) / fromIntegral period
+                                                 in (nextAdx, Just nextAdx : acc)
+                                    )
+                                    (seedValue, [Just seedValue])
+                                    restDx
+                         in replicate (period * 2 - 1) Nothing ++ reverse adxReversed
+         in V.generate n (assemble atrVals smoothPlusDm smoothMinusDm (V.fromList adxOut))
   where
     n = V.length closes
     plusDmAt 0 = 0
@@ -533,17 +536,21 @@ emaSeriesFromMaybe period values
                         seed = sum (map snd seedEntries) / fromIntegral period
                         seedIndex = fst (last seedEntries)
                         multiplier = 2 / (fromIntegral period + 1)
-                        initial = replicate seedIndex Nothing ++ [Just seed]
-                        (_, out) =
+                        revAcc =
                             foldl'
-                                ( \(prevEma, acc) (_, value) ->
-                                    let nextEma = ((value - prevEma) * multiplier) + prevEma
-                                     in (nextEma, acc ++ [Just nextEma])
+                                ( \acc (_, value) ->
+                                    let prevEma = case acc of
+                                            [] -> seed
+                                            (e : _) -> e
+                                        nextEma = ((value - prevEma) * multiplier) + prevEma
+                                     in nextEma : acc
                                 )
-                                (seed, initial)
+                                []
                                 (drop period indexed)
-                        padded = out ++ replicate (V.length values - length out) Nothing
-                     in V.fromList padded
+                        out = Just seed : map Just (reverse revAcc)
+                        prefix = replicate seedIndex Nothing
+                        suffix = replicate (V.length values - seedIndex - 1 - length revAcc) Nothing
+                     in V.fromList (prefix ++ out ++ suffix)
 
 smoothedSeries :: Int -> V.Vector Double -> V.Vector (Maybe Double)
 smoothedSeries period values
@@ -551,16 +558,17 @@ smoothedSeries period values
     | n <= period = V.replicate n Nothing
     | otherwise =
         let seed = V.sum (V.slice 1 period values)
-            prefix = replicate period Nothing ++ [Just seed]
             tailValues = V.toList (V.slice (period + 1) (n - period - 1) values)
-            (_, out) =
-                foldl'
-                    ( \(prevSmooth, acc) nextValue ->
-                        let nextSmooth = prevSmooth - (prevSmooth / fromIntegral period) + nextValue
-                         in (nextSmooth, acc ++ [Just nextSmooth])
-                    )
-                    (seed, prefix)
-                    tailValues
-         in V.fromList out
+            rest = reverse $ foldl'
+                ( \acc nextValue ->
+                    let prevSmooth = case acc of
+                            [] -> seed
+                            (s : _) -> s
+                        nextSmooth = prevSmooth - (prevSmooth / fromIntegral period) + nextValue
+                     in nextSmooth : acc
+                )
+                []
+                tailValues
+         in V.fromList $ replicate period Nothing ++ (Just seed : map Just rest)
   where
     n = V.length values
