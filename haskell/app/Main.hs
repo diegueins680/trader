@@ -22530,8 +22530,10 @@ emitBacktestTradesNdjson args summary = do
                 qty = if ei >= 0 && ei < length positions then abs (positions !! ei) else 0.0
                 pnl = trExitEquity tr - trEntryEquity tr
                 epochMsToIso ms =
-                    T.pack $ formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
-                        posixSecondsToUTCTime $ fromIntegral ms / 1000
+                    T.pack $
+                        formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
+                            posixSecondsToUTCTime $
+                                fromIntegral ms / 1000
                 entryTime = case mOpenTimes of
                     Just ts | ei >= 0 && ei < length ts -> epochMsToIso (ts !! ei)
                     _ -> T.pack ""
