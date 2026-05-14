@@ -177,6 +177,7 @@ main = do
     testTunePenaltyTurnoverRejectsInvalidValues
     testWalkForwardFoldsRejectsInvalidValues
     testWalkForwardEmbargoBarsRejectsInvalidValues
+    testPatienceRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -982,6 +983,30 @@ testWalkForwardEmbargoBarsRejectsInvalidValues = do
         "walk-forward-embargo-bars accepts 5 (valid)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--walk-forward-embargo-bars", "5"] of
             Right args -> argWalkForwardEmbargoBars args == 5
+            Left _ -> False
+        )
+
+testPatienceRejectsInvalidValues :: IO ()
+testPatienceRejectsInvalidValues = do
+    assert
+        "patience rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--patience", "-1"] == Left "--patience must be >= 0")
+    assert
+        "patience accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--patience", "0"] of
+            Right args -> argPatience args == 0
+            Left _ -> False
+        )
+    assert
+        "patience accepts 5 (valid)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--patience", "5"] of
+            Right args -> argPatience args == 5
+            Left _ -> False
+        )
+    assert
+        "patience accepts 10 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--patience", "10"] of
+            Right args -> argPatience args == 10
             Left _ -> False
         )
 
