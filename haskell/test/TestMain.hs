@@ -180,6 +180,7 @@ main = do
     testPatienceRejectsInvalidValues
     testOpenThresholdRejectsInvalidValues
     testCloseThresholdRejectsInvalidValues
+    testRouterLookbackRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -1060,6 +1061,33 @@ testCloseThresholdRejectsInvalidValues = do
         "close-threshold accepts 0.01 (valid)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--close-threshold", "0.01"] of
             Right args -> argCloseThreshold args == 0.01
+            Left _ -> False
+        )
+
+testRouterLookbackRejectsInvalidValues :: IO ()
+testRouterLookbackRejectsInvalidValues = do
+    assert
+        "router-lookback rejects 1 (below minimum)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--router-lookback", "1"] == Left "--router-lookback must be >= 2")
+    assert
+        "router-lookback rejects 0 (below minimum)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--router-lookback", "0"] == Left "--router-lookback must be >= 2")
+    assert
+        "router-lookback accepts 2 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--router-lookback", "2"] of
+            Right args -> argRouterLookback args == 2
+            Left _ -> False
+        )
+    assert
+        "router-lookback accepts 10 (valid)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--router-lookback", "10"] of
+            Right args -> argRouterLookback args == 10
+            Left _ -> False
+        )
+    assert
+        "router-lookback accepts 30 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv"] of
+            Right args -> argRouterLookback args == 30
             Left _ -> False
         )
 
