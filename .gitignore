@@ -74,3 +74,6 @@ haskell/app/Trader/TestMain.hs
 haskell/cabal.project
 haskell/hie.yaml
 haskell/package-lock.json
+
+# Research artifacts
+artifacts/research/*.csv
