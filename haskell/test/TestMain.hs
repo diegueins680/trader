@@ -172,6 +172,7 @@ main = do
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
     testKalmanMarketTopNRejectsInvalidValues
+    testTuneRatioRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -851,6 +852,33 @@ testKalmanMarketTopNRejectsInvalidValues = do
         "kalman-market-top-n accepts 50 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-market-top-n", "50"] of
             Right args -> argKalmanMarketTopN args == 50
+            Left _ -> False
+        )
+
+testTuneRatioRejectsInvalidValues :: IO ()
+testTuneRatioRejectsInvalidValues = do
+    assert
+        "tune-ratio rejects -0.1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--tune-ratio", "-0.1"] == Left "--tune-ratio must be >= 0 and < 1")
+    assert
+        "tune-ratio rejects 1.0 (no tune data)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--tune-ratio", "1.0"] == Left "--tune-ratio must be >= 0 and < 1")
+    assert
+        "tune-ratio accepts 0.0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-ratio", "0.0"] of
+            Right args -> argTuneRatio args == 0.0
+            Left _ -> False
+        )
+    assert
+        "tune-ratio accepts 0.25 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-ratio", "0.25"] of
+            Right args -> argTuneRatio args == 0.25
+            Left _ -> False
+        )
+    assert
+        "tune-ratio accepts 0.5 (valid)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-ratio", "0.5"] of
+            Right args -> argTuneRatio args == 0.5
             Left _ -> False
         )
 
