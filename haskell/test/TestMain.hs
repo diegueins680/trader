@@ -173,6 +173,7 @@ main = do
     testKalmanMeasurementVarRejectsInvalidValues
     testKalmanMarketTopNRejectsInvalidValues
     testTuneRatioRejectsInvalidValues
+    testTunePenaltyMaxDrawdownRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -879,6 +880,30 @@ testTuneRatioRejectsInvalidValues = do
         "tune-ratio accepts 0.5 (valid)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-ratio", "0.5"] of
             Right args -> argTuneRatio args == 0.5
+            Left _ -> False
+        )
+
+testTunePenaltyMaxDrawdownRejectsInvalidValues :: IO ()
+testTunePenaltyMaxDrawdownRejectsInvalidValues = do
+    assert
+        "tune-penalty-max-drawdown rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-max-drawdown", "-1"] == Left "--tune-penalty-max-drawdown must be >= 0")
+    assert
+        "tune-penalty-max-drawdown accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-max-drawdown", "0"] of
+            Right args -> argTunePenaltyMaxDrawdown args == 0
+            Left _ -> False
+        )
+    assert
+        "tune-penalty-max-drawdown accepts 1.5 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-max-drawdown", "1.5"] of
+            Right args -> argTunePenaltyMaxDrawdown args == 1.5
+            Left _ -> False
+        )
+    assert
+        "tune-penalty-max-drawdown accepts 2.0 (valid)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-max-drawdown", "2.0"] of
+            Right args -> argTunePenaltyMaxDrawdown args == 2.0
             Left _ -> False
         )
 
