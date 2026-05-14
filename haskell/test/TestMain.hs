@@ -178,6 +178,7 @@ main = do
     testWalkForwardFoldsRejectsInvalidValues
     testWalkForwardEmbargoBarsRejectsInvalidValues
     testPatienceRejectsInvalidValues
+    testOpenThresholdRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -1007,6 +1008,33 @@ testPatienceRejectsInvalidValues = do
         "patience accepts 10 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--patience", "10"] of
             Right args -> argPatience args == 10
+            Left _ -> False
+        )
+
+testOpenThresholdRejectsInvalidValues :: IO ()
+testOpenThresholdRejectsInvalidValues = do
+    assert
+        "open-threshold rejects -0.1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--open-threshold", "-0.1"] == Left "--open-threshold/--threshold must be >= 0")
+    assert
+        "open-threshold rejects 1.1 (> 1)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--open-threshold", "1.1"] == Left "--open-threshold/--threshold must be <= 1")
+    assert
+        "open-threshold accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--open-threshold", "0"] of
+            Right args -> argOpenThreshold args == 0
+            Left _ -> False
+        )
+    assert
+        "open-threshold accepts 0.002 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--open-threshold", "0.002"] of
+            Right args -> argOpenThreshold args == 0.002
+            Left _ -> False
+        )
+    assert
+        "open-threshold accepts 1.0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--open-threshold", "1.0"] of
+            Right args -> argOpenThreshold args == 1.0
             Left _ -> False
         )
 
