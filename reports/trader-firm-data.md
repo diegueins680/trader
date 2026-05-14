@@ -1,4 +1,3 @@
-
 ---
 ## Run 2026-05-12 10:57 UTC — Data Director proof for `--vol-conf-gate <preset>`
 
@@ -57,3 +56,33 @@ Findings:
 Status: `data-not-blocking` — seam exists and is wired end-to-end (CLI → args → state → JSON), but lacks test coverage. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage) or **trader-firm-research** (validate preset behavior).
 
 FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; no tests in TestMain.hs
+
+---
+## Run 2026-05-14 14:55 UTC — Data Director proof for `--vol-conf-gate <preset>`
+
+Command output (first 40 lines):
+```
+app/Trader/App/Args.hs:57:    VolConfGatePreset (..),
+app/Trader/App/Args.hs:58:    parseVolConfGatePreset,
+app/Trader/App/Args.hs:220:    , argVolConfGate :: VolConfGatePreset
+app/Trader/App/Args.hs:873:            (eitherReader parseVolConfGatePreset)
+app/Trader/App/Args.hs:874:            ( long "vol-conf-gate"
+app/Trader/App/Args.hs:878:                <> help ("Frozen volatility/confidence gate preset. Choices: " ++ volConfGateChoicesCsv)
+app/Main.hs:395:    VolConfGatePreset (..),
+app/Main.hs:425:    , lsVolConfGate :: !VolConfGatePreset
+app/Main.hs:497:    , bsVolConfGate :: !VolConfGatePreset
+app/Main.hs:1283:                , "vol_conf_gate" .= volConfGateCode (lsVolConfGate s)
+app/Main.hs:1297:                , "confidence" .= lsConfidence s
+```
+
+Findings:
+- `--vol-conf-gate` CLI option defined in Args.hs (lines 873-878)
+- `argVolConfGate :: VolConfGatePreset` in arg record (line 220)
+- Consumed in Main.hs as `lsVolConfGate` (line 425) and `bsVolConfGate` (line 497)
+- Serialized to JSON as `vol_conf_gate` (line 1283)
+- **Zero references in test/TestMain.hs** — no test coverage for this gate preset
+- Working tree clean for all three files (no uncommitted changes)
+
+Status: `data-not-blocking` — seam exists and is wired end-to-end (CLI → args → state → JSON), but lacks test coverage. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage) or **trader-firm-research** (validate preset behavior).
+
+FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; no tests in TestMain.hs; working tree clean
