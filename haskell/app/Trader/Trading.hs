@@ -2265,6 +2265,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 (Just r, Just _) -> r
                                                 _ -> ExitSignal
 
+                                        tradeFeeCost entryIdx exitIdx entryEq exitEq size =
+                                            let s = max 0 (abs size)
+                                                entryRates = costPerSideBreakdown entryIdx s
+                                                exitRates = costPerSideBreakdown exitIdx s
+                                             in entryEq * ctFeeCost entryRates + exitEq * ctFeeCost exitRates
+
                                         closeTradeAt exitIndex why eqExit ot =
                                             Trade
                                                 { trEntryIndex = otEntryIndex ot
@@ -2278,7 +2284,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trExitReason = Just why
                                                 , trEntryIp = Nothing
                                                 , trExitIp = Nothing
-                                                , trFeeCost = 0.0
+                                                , trFeeCost = tradeFeeCost (otEntryIndex ot) exitIndex (otEntryEquity ot) eqExit (otBaseSize ot)
                                                 }
 
                                         openTradeFor side eqEntry baseSize =
@@ -2443,7 +2449,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trExitReason = reason
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
-                                                                            , trFeeCost = 0.0
+                                                                            , trFeeCost = tradeFeeCost (otEntryIndex otHeld) (t + 1) (otEntryEquity otHeld) exitEq (otBaseSize otHeld)
                                                                             }
                                                                  in (Nothing, 0, exitEq, costTotalsExit, changes' + 1, Nothing, tr : tradesAcc')
                                                             (Nothing, trail1) ->
@@ -2514,7 +2520,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trExitReason = reason
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
-                                                                            , trFeeCost = 0.0
+                                                                            , trFeeCost = tradeFeeCost (otEntryIndex otHeld) (t + 1) (otEntryEquity otHeld) exitEq (otBaseSize otHeld)
                                                                             }
                                                                  in (Nothing, 0, exitEq, costTotalsExit, changes' + 1, Nothing, tr : tradesAcc')
                                                             (Nothing, trail1) ->
@@ -2553,7 +2559,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                 , trExitReason = Just ExitLiquidation
                                                                                 , trEntryIp = Nothing
                                                                                 , trExitIp = Nothing
-                                                                                , trFeeCost = 0.0
+                                                                                , trFeeCost = tradeFeeCost (otEntryIndex otHeld) (t + 1) (otEntryEquity otHeld) exitEq (otBaseSize otHeld)
                                                                                 }
                                                                      in (tr : tradesFinal, changesFinal + 1)
                                                      in (Nothing, 0, exitEq, costTotalsFinalFunding, changesOut, Nothing, tradesOut, True)
@@ -2731,6 +2737,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                 Nothing -> (eqRev, tradesRev, costRev)
                                 Just ot ->
                                     let (exitEq, finalCostTotals') = applyCostWithTotals (max 0 (stepCount - 1)) finalEq finalPosSize finalCostTotals
+                                        s = max 0 (abs (otBaseSize ot))
+                                        entryRates = costPerSideBreakdown (otEntryIndex ot) s
+                                        exitRates = costPerSideBreakdown stepCount s
+                                        feeCost = otEntryEquity ot * ctFeeCost entryRates + exitEq * ctFeeCost exitRates
                                         tr =
                                             Trade
                                                 { trEntryIndex = otEntryIndex ot
@@ -2738,14 +2748,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trEntryEquity = otEntryEquity ot
                                                 , trExitEquity = exitEq
                                                 , trReturn = exitEq / otEntryEquity ot - 1
-                                                , trHoldingPeriods = otHoldingPeriods ot
-                                                , trEntryHighVolProb = metaAt (otEntryIndex ot) >>= smHighVolProb
-                                                , trEntrySource = TradeEntrySignal
-                                                , trExitReason = Just ExitEod
-                                                , trEntryIp = Nothing
-                                                , trExitIp = Nothing
-                                                , trFeeCost = 0.0
-                                                }
+                                                                                , trHoldingPeriods = otHoldingPeriods ot
+                                                                                , trEntryHighVolProb = metaAt (otEntryIndex ot) >>= smHighVolProb
+                                                                                , trEntrySource = TradeEntrySignal
+                                                                                , trExitReason = Just ExitEod
+                                                                                , trEntryIp = Nothing
+                                                                                , trExitIp = Nothing
+                                                                                , trFeeCost = feeCost
+                                                                                }
                                         eqRev1 =
                                             case eqRev of
                                                 [] -> [exitEq]
