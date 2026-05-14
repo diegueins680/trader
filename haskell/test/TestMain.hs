@@ -14,7 +14,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
-import Trader.App.Args (Args (..), normalizeBarsForLookback, opts, parsePositioning, validateArgs, argTunePenaltyTurnover)
+import Trader.App.Args (Args (..), argTunePenaltyTurnover, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BotStartSemantics (botStartSymbolDisabled, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
