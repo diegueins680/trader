@@ -147,6 +147,7 @@ main = do
     testMaxDrawdownRejectsUpperBoundValidation
     testMaxDrawdownRejectsLowerBoundValidation
     testFuturesPositionRiskLeverageSaneCap
+    testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
     testFeeFixedRejectsAbsurdlyHighValue
     testStopLossRejectsLowerBoundValidation
@@ -525,6 +526,12 @@ testFuturesPositionRiskLeverageSaneCap = do
     assert "futuresPositionRiskLeverageSane rejects 151x" (not (futuresPositionRiskLeverageSane tooHigh))
     assert "futuresPositionRiskLeverageSane rejects 0x" (not (futuresPositionRiskLeverageSane zero))
     assert "futuresPositionRiskLeverageSane rejects NaN" (not (futuresPositionRiskLeverageSane nan))
+
+testFeeRejectsNegativeValue :: IO ()
+testFeeRejectsNegativeValue =
+    assert
+        "fee rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--fee", "-0.01"] == Left "--fee must be >= 0")
 
 testFeeRejectsAbsurdlyHighValue :: IO ()
 testFeeRejectsAbsurdlyHighValue =
