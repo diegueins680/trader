@@ -150,6 +150,7 @@ main = do
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
     testFeeFixedRejectsAbsurdlyHighValue
+    testSlippageRejectsNegativeValue
     testStopLossRejectsLowerBoundValidation
     testStopLossRejectsAbsurdlyTightStop
     testTakeProfitRejectsAbsurdlyTightValue
@@ -544,6 +545,12 @@ testFeeFixedRejectsAbsurdlyHighValue =
     assert
         "fee-fixed rejects absurdly high values above 5%"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--fee-fixed", "0.06"] == Left "--fee-fixed must be <= 0.05 (5%)")
+
+testSlippageRejectsNegativeValue :: IO ()
+testSlippageRejectsNegativeValue =
+    assert
+        "slippage rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--slippage", "-0.01"] == Left "--slippage must be >= 0")
 
 testStopLossRejectsLowerBoundValidation :: IO ()
 testStopLossRejectsLowerBoundValidation =
