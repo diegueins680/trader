@@ -69,7 +69,7 @@ import Options.Applicative
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getCurrentDirectory, getFileSize, getModificationTime, listDirectory, removeFile, renameFile)
 import System.Environment (getExecutablePath, lookupEnv, setEnv)
 import System.Exit (ExitCode (..), die, exitFailure)
-import System.FilePath (isAbsolute, takeDirectory, (</>))
+import System.FilePath (isAbsolute, takeDirectory, takeFileName, (</>))
 import System.IO (Handle, IOMode (ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, hSetBinaryMode, openTempFile, stderr, stdout, withFile)
 import System.IO.Error (catchIOError, ioeGetErrorString, isUserError)
 import System.Process (CreateProcess (..), StdStream (CreatePipe), createProcess, proc, readCreateProcessWithExitCode, waitForProcess)
@@ -11208,6 +11208,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 (orderIdFromOrderResult o)
                                 now
                         webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew o)
+
+                        let liveSym = fromMaybe "BTCUSDT" (argBinanceSymbol args)
+                        when (appliedExecution && prevPos == 0 && posNew /= 0) $
+                            emitLiveTradeNdjson liveSym "OPEN" priceNew eqAfterFee
+                        when (appliedExecution && prevPos /= 0 && posNew == 0) $
+                            emitLiveTradeNdjson liveSym "CLOSE" priceNew eqAfterFee
 
                         pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
 
@@ -22518,7 +22524,7 @@ emitBacktestTradesNdjson args summary = do
         prices = bsBacktestPrices summary
         positions = bsPositions summary
         mOpenTimes = bsOpenTimes summary
-        sym = maybe "" T.pack (argBinanceSymbol args)
+        sym = fromMaybe (symbolFromDataPath (argData args)) (T.pack <$> argBinanceSymbol args)
         meth = T.pack (methodCode (bsMethodUsed summary))
         vcg = T.pack (volConfGateCode (bsVolConfGate summary))
         emitTrade tr = do
@@ -22564,6 +22570,43 @@ emitBacktestTradesNdjson args summary = do
                         ]
             BL.appendFile ".tmp/trader/live_trades.ndjson" (encode line <> BL.fromStrict (BS.pack "\n"))
     mapM_ emitTrade trades
+  where
+    symbolFromDataPath Nothing = T.pack ""
+    symbolFromDataPath (Just path) =
+        let base = takeFileName path
+            noExt = if ".csv" `isSuffixOf` base then take (length base - 4) base else base
+            upper = map toUpper noExt
+         in T.pack (takeWhile (/= '-') upper)
+
+emitLiveTradeNdjson :: String -> String -> Double -> Double -> IO ()
+emitLiveTradeNdjson sym eventType price equity = do
+    createDirectoryIfMissing True ".tmp/trader"
+    nowMs <- getTimestampMs
+    let epochMsToIso ms =
+            T.pack $
+                formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
+                    posixSecondsToUTCTime $
+                        fromIntegral ms / 1000
+        line =
+            object
+                [ "timestamp" .= epochMsToIso nowMs
+                , "symbol" .= T.pack sym
+                , "side" .= T.pack eventType
+                , "entryPrice" .= price
+                , "exitPrice" .= price
+                , "quantity" .= (0.0 :: Double)
+                , "pnl" .= (0.0 :: Double)
+                , "pnlPercent" .= (0.0 :: Double)
+                , "method" .= T.pack "live"
+                , "volConfGate" .= T.pack "live"
+                , "fees" .= (0.0 :: Double)
+                , "entryTime" .= epochMsToIso nowMs
+                , "exitTime" .= epochMsToIso nowMs
+                , "barsHeld" .= (0 :: Int)
+                , "exitReason" .= T.pack eventType
+                , "feeCost" .= (0.0 :: Double)
+                ]
+    BL.appendFile ".tmp/trader/live_trades.ndjson" (encode line <> BL.fromStrict (BS.pack "\n"))
 
 runBacktestPipeline :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
 runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
