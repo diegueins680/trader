@@ -31,7 +31,28 @@ W_ADX_VALUES = [round(x, 2) for x in [0.20, 0.30, 0.40, 0.50, 0.60]]
 T_TREND_VALUES = [round(x, 2) for x in [0.45, 0.50, 0.55, 0.60, 0.65, 0.70]]
 
 
-def run_backtest(binary: Path, data: Path, w_adx: float, t_trend: float) -> dict:
+def map_to_main_flags(w_adx: float, t_trend: float) -> dict:
+    """Map Candidate 2 conceptual params to main-branch regime-parameter-bank multipliers.
+
+    Mapping logic:
+    - t_trend: lower = easier trend detection → higher trend-open-mult, lower mr-open-mult
+    - w_adx: higher = stronger ADX regime conviction → higher size multipliers
+    """
+    trend_open_mult = max(0.5, round(1.0 + (0.75 - t_trend) * 4.0, 2))
+    mr_open_mult = max(0.5, round(1.0 + t_trend * 2.0, 2))
+    trend_size_mult = max(0.5, round(1.0 + w_adx * 2.5, 2))
+    mr_size_mult = max(0.5, round(1.0 + (0.60 - w_adx) * 1.5, 2))
+    return {
+        "regime_trend_open_mult": trend_open_mult,
+        "regime_mr_open_mult": mr_open_mult,
+        "regime_trend_size_mult": trend_size_mult,
+        "regime_mr_size_mult": mr_size_mult,
+        "regime_high_vol_open_mult": 1.0,
+        "regime_high_vol_size_mult": 1.0,
+    }
+
+
+def run_backtest(binary: Path, data: Path, w_adx: float, t_trend: float, mode: str = "candidate2") -> dict:
     """Run a single backtest and return parsed metrics."""
     cmd = [
         str(binary),
@@ -41,11 +62,27 @@ def run_backtest(binary: Path, data: Path, w_adx: float, t_trend: float) -> dict
         "--method", "ta_trend",
         "--vol-conf-gate", "vol_conf_v1_default",
         "--walk-forward-folds", "7",
-        "--regime-adx-weight", str(w_adx),
-        "--regime-trend-threshold", str(t_trend),
-        "--regime-range-threshold", "0.45",
         "--json",
     ]
+    if mode == "candidate2":
+        cmd += [
+            "--regime-adx-weight", str(w_adx),
+            "--regime-trend-threshold", str(t_trend),
+            "--regime-range-threshold", "0.45",
+        ]
+    elif mode == "main":
+        mults = map_to_main_flags(w_adx, t_trend)
+        cmd += [
+            "--regime-parameter-bank",
+            "--regime-trend-open-mult", str(mults["regime_trend_open_mult"]),
+            "--regime-mr-open-mult", str(mults["regime_mr_open_mult"]),
+            "--regime-trend-size-mult", str(mults["regime_trend_size_mult"]),
+            "--regime-mr-size-mult", str(mults["regime_mr_size_mult"]),
+            "--regime-high-vol-open-mult", str(mults["regime_high_vol_open_mult"]),
+            "--regime-high-vol-size-mult", str(mults["regime_high_vol_size_mult"]),
+        ]
+    else:
+        return {"error": f"unknown mode: {mode}", "sharpe": float("-inf")}
 
     try:
         result = subprocess.run(
@@ -162,7 +199,9 @@ def main():
     parser.add_argument("--binary", default=str(DEFAULT_BINARY), help="Path to trader-hs binary")
     parser.add_argument("--output", default="artifacts/research/regime-calibration-results.csv", help="Output CSV path")
     parser.add_argument("--dry-run", action="store_true", help="Print grid size and exit without running backtests")
-    parser.add_argument("--quick", action="store_true", help="Run a reduced 18-point grid for quick validation")
+    parser.add_argument("--quick", action="store_true", help="Run a reduced grid for quick validation")
+    parser.add_argument("--mode", choices=["candidate2", "main"], default="candidate2",
+                        help="Backtest mode: candidate2 (uses --regime-adx-weight) or main (uses --regime-*-mult)")
     args = parser.parse_args()
 
     data_path = Path(args.data)
@@ -191,6 +230,9 @@ def main():
     print(f"Data: {data_path}")
 
     if args.dry_run:
+        if args.mode == "main":
+            sample = map_to_main_flags(0.20, 0.70)
+            print(f"Main-mode sample mapping (w_adx=0.20, t_trend=0.70): {sample}")
         print("Dry run — exiting without executing backtests.")
         sys.exit(0)
 
@@ -211,7 +253,10 @@ def main():
     results = []
     for i, (w_adx, t_trend) in enumerate(grid, start=1):
         print(f"  [{i}/{len(grid)}] w_adx={w_adx} t_trend={t_trend} ... ", end="", flush=True)
-        res = run_backtest(binary_path, data_path, w_adx, t_trend)
+        if args.mode == "main":
+            mults = map_to_main_flags(w_adx, t_trend)
+            print(f"(mults: trend_open={mults['regime_trend_open_mult']}, mr_open={mults['regime_mr_open_mult']}) ", end="", flush=True)
+        res = run_backtest(binary_path, data_path, w_adx, t_trend, mode=args.mode)
         if "error" in res:
             print(f"ERROR: {res['error']}")
         else:
