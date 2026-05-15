@@ -26,12 +26,12 @@ from pathlib import Path
 DEFAULT_BINARY = Path(__file__).parent.parent / "haskell" / "dist-newstyle" / "build" / "x86_64-osx" / "ghc-9.4.8" / "trader-0.1.0.0" / "x" / "trader-hs" / "build" / "trader-hs" / "trader-hs"
 
 # Grid bounds (conservative to avoid overfit)
+# t_range dropped per t-range-redundancy-memo.md (commit 24885260)
 W_ADX_VALUES = [round(x, 2) for x in [0.20, 0.30, 0.40, 0.50, 0.60]]
 T_TREND_VALUES = [round(x, 2) for x in [0.45, 0.50, 0.55, 0.60, 0.65, 0.70]]
-T_RANGE_VALUES = [round(x, 2) for x in [0.45, 0.50, 0.55, 0.60, 0.65]]
 
 
-def run_backtest(binary: Path, data: Path, w_adx: float, t_trend: float, t_range: float) -> dict:
+def run_backtest(binary: Path, data: Path, w_adx: float, t_trend: float) -> dict:
     """Run a single backtest and return parsed metrics."""
     cmd = [
         str(binary),
@@ -43,7 +43,7 @@ def run_backtest(binary: Path, data: Path, w_adx: float, t_trend: float, t_range
         "--walk-forward-folds", "7",
         "--regime-adx-weight", str(w_adx),
         "--regime-trend-threshold", str(t_trend),
-        "--regime-range-threshold", str(t_range),
+        "--regime-range-threshold", "0.45",
         "--json",
     ]
 
@@ -181,13 +181,11 @@ def main():
     if args.quick:
         w_adx_vals = [0.30, 0.40, 0.50]
         t_trend_vals = [0.50, 0.60]
-        t_range_vals = [0.50, 0.60]
     else:
         w_adx_vals = W_ADX_VALUES
         t_trend_vals = T_TREND_VALUES
-        t_range_vals = T_RANGE_VALUES
 
-    grid = list(product(w_adx_vals, t_trend_vals, t_range_vals))
+    grid = list(product(w_adx_vals, t_trend_vals))
     print(f"Grid size: {len(grid)} combinations")
     print(f"Binary: {binary_path}")
     print(f"Data: {data_path}")
@@ -211,9 +209,9 @@ def main():
     # Run grid
     print(f"\n[2/2] Running grid search ({len(grid)} combinations)...")
     results = []
-    for i, (w_adx, t_trend, t_range) in enumerate(grid, start=1):
-        print(f"  [{i}/{len(grid)}] w_adx={w_adx} t_trend={t_trend} t_range={t_range} ... ", end="", flush=True)
-        res = run_backtest(binary_path, data_path, w_adx, t_trend, t_range)
+    for i, (w_adx, t_trend) in enumerate(grid, start=1):
+        print(f"  [{i}/{len(grid)}] w_adx={w_adx} t_trend={t_trend} ... ", end="", flush=True)
+        res = run_backtest(binary_path, data_path, w_adx, t_trend)
         if "error" in res:
             print(f"ERROR: {res['error']}")
         else:
@@ -221,7 +219,6 @@ def main():
         results.append({
             "w_adx": w_adx,
             "t_trend": t_trend,
-            "t_range": t_range,
             "sharpe": res.get("sharpe", -9999),
             "max_drawdown": res.get("max_drawdown", -9999),
             "win_rate": res.get("win_rate", -9999),
@@ -236,7 +233,7 @@ def main():
 
     # Write CSV
     fieldnames = [
-        "rank", "w_adx", "t_trend", "t_range",
+        "rank", "w_adx", "t_trend",
         "sharpe", "max_drawdown", "win_rate",
         "closed_trades", "avg_trade", "profit_factor", "error",
     ]
@@ -252,9 +249,9 @@ def main():
 
     # Top 10 summary
     print("\n=== TOP 10 PARAMETER SETS ===")
-    print(f"{'Rank':>4} {'w_adx':>6} {'t_trend':>8} {'t_range':>8} {'Sharpe':>8} {'maxDD':>8} {'winRate':>8} {'trades':>7}")
+    print(f"{'Rank':>4} {'w_adx':>6} {'t_trend':>8} {'Sharpe':>8} {'maxDD':>8} {'winRate':>8} {'trades':>7}")
     for rank, r in enumerate(results[:10], start=1):
-        print(f"{rank:>4} {r['w_adx']:>6.2f} {r['t_trend']:>8.2f} {r['t_range']:>8.2f} {r['sharpe']:>8.4f} {r['max_drawdown']:>8.4f} {r['win_rate']:>8.2%} {r['closed_trades']:>7}")
+        print(f"{rank:>4} {r['w_adx']:>6.2f} {r['t_trend']:>8.2f} {r['sharpe']:>8.4f} {r['max_drawdown']:>8.4f} {r['win_rate']:>8.2%} {r['closed_trades']:>7}")
 
     # Baseline reminder
     if "error" not in baseline:
