@@ -151,6 +151,7 @@ main = do
     testFeeRejectsAbsurdlyHighValue
     testFeeFixedRejectsAbsurdlyHighValue
     testSlippageRejectsNegativeValue
+    testSpreadRejectsNegativeValue
     testStopLossRejectsLowerBoundValidation
     testStopLossRejectsAbsurdlyTightStop
     testTakeProfitRejectsAbsurdlyTightValue
@@ -551,6 +552,12 @@ testSlippageRejectsNegativeValue =
     assert
         "slippage rejects negative values"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--slippage", "-0.01"] == Left "--slippage must be >= 0")
+
+testSpreadRejectsNegativeValue :: IO ()
+testSpreadRejectsNegativeValue =
+    assert
+        "spread rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--spread", "-0.01"] == Left "--spread must be >= 0")
 
 testStopLossRejectsLowerBoundValidation :: IO ()
 testStopLossRejectsLowerBoundValidation =
