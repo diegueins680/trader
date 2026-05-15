@@ -181,6 +181,7 @@ main = do
     testOpenThresholdRejectsInvalidValues
     testCloseThresholdRejectsInvalidValues
     testRouterLookbackRejectsInvalidValues
+    testRouterMinScoreRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -1088,6 +1089,33 @@ testRouterLookbackRejectsInvalidValues = do
         "router-lookback accepts 30 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv"] of
             Right args -> argRouterLookback args == 30
+            Left _ -> False
+        )
+
+testRouterMinScoreRejectsInvalidValues :: IO ()
+testRouterMinScoreRejectsInvalidValues = do
+    assert
+        "router-min-score rejects -0.1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--router-min-score", "-0.1"] == Left "--router-min-score must be between 0 and 1")
+    assert
+        "router-min-score rejects 1.1 (>1)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--router-min-score", "1.1"] == Left "--router-min-score must be between 0 and 1")
+    assert
+        "router-min-score accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--router-min-score", "0"] of
+            Right args -> argRouterMinScore args == 0
+            Left _ -> False
+        )
+    assert
+        "router-min-score accepts 0.25 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv"] of
+            Right args -> argRouterMinScore args == 0.25
+            Left _ -> False
+        )
+    assert
+        "router-min-score accepts 1.0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--router-min-score", "1.0"] of
+            Right args -> argRouterMinScore args == 1.0
             Left _ -> False
         )
 
