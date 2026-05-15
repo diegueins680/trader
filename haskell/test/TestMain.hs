@@ -14,7 +14,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
-import Trader.App.Args (Args (..), argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
+import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BotStartSemantics (botStartSymbolDisabled, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
@@ -182,6 +182,7 @@ main = do
     testCloseThresholdRejectsInvalidValues
     testRouterLookbackRejectsInvalidValues
     testRouterMinScoreRejectsInvalidValues
+    testRouterScorePnlWeightRejectsInvalidValues
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -1116,6 +1117,33 @@ testRouterMinScoreRejectsInvalidValues = do
         "router-min-score accepts 1.0 (boundary)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--router-min-score", "1.0"] of
             Right args -> argRouterMinScore args == 1.0
+            Left _ -> False
+        )
+
+testRouterScorePnlWeightRejectsInvalidValues :: IO ()
+testRouterScorePnlWeightRejectsInvalidValues = do
+    assert
+        "router-score-pnl-weight rejects -0.1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--router-score-pnl-weight", "-0.1"] == Left "--router-score-pnl-weight must be between 0 and 1")
+    assert
+        "router-score-pnl-weight rejects 1.1 (>1)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--router-score-pnl-weight", "1.1"] == Left "--router-score-pnl-weight must be between 0 and 1")
+    assert
+        "router-score-pnl-weight accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--router-score-pnl-weight", "0"] of
+            Right args -> argRouterScorePnlWeight args == 0
+            Left _ -> False
+        )
+    assert
+        "router-score-pnl-weight accepts 0.5 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv"] of
+            Right args -> argRouterScorePnlWeight args == 0.5
+            Left _ -> False
+        )
+    assert
+        "router-score-pnl-weight accepts 1.0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--router-score-pnl-weight", "1.0"] of
+            Right args -> argRouterScorePnlWeight args == 1.0
             Left _ -> False
         )
 
