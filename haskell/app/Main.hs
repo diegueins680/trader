@@ -23429,6 +23429,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             m | methodIsTechnicalAnalysis m -> do
                 let taPred =
                         technicalPredictionsForBacktest
+                            args
                             m
                             perSideCostForTechnical
                             prices
@@ -26058,7 +26059,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     Nothing -> Just currentPrice
             taCandidate =
                 if methodIsTechnicalAnalysis method
-                    then technicalSeriesFromFeatureInputs featureInputs >>= technicalCandidateForMethod method (technicalGateInputs perSideCost)
+                    then technicalSeriesFromFeatureInputs featureInputs >>= technicalCandidateForMethod method (technicalGateInputs args perSideCost)
                     else Nothing
             taNext = taCandidate >>= technicalPredictionFromCandidate currentPrice
             taDirRaw = taNext >>= directionPrice openThrAdj
@@ -27679,16 +27680,16 @@ volPerBarFromPrices prices =
                     std = sqrt (max 0 var)
                  in if isNaN std || isInfinite std || std <= 0 then Nothing else Just std
 
-technicalGateInputs :: Double -> TA.TechnicalAnalysisGateInputs
-technicalGateInputs perSideCost =
+technicalGateInputs :: Args -> Double -> TA.TechnicalAnalysisGateInputs
+technicalGateInputs args perSideCost =
     TA.TechnicalAnalysisGateInputs
         { TA.tagFeePerSide = max 0 perSideCost
         , TA.tagMinConfidence = 0
         , TA.tagCurrentBias = Nothing
         , TA.tagVolatility = Nothing
         , TA.tagVolConfGate = VolConfGateDisabled
-        , TA.tagRegimeCalibration = TA.RegimeCalibration 0.40 0.55 0.55
-        }
+        , TA.tagRegimeCalibration = TA.RegimeCalibration (argRegimeAdxWeight args) (argRegimeTrendThreshold args) (argRegimeRangeThreshold args)
+>>>>>>> 921290d6 (research(P1): wire regime CLI flags into technicalGateInputs at runtime)
 
 technicalSeriesFromFeatureInputs :: FeatureInputs -> Maybe TA.OhlcvSeries
 technicalSeriesFromFeatureInputs inputs =
@@ -27825,6 +27826,7 @@ technicalPositionSizeFromCandidate candidate =
      in if isFiniteDouble size then clamp01 size else 0
 
 technicalPredictionsForBacktest ::
+    Args ->
     Method ->
     Double ->
     [Double] ->
@@ -27835,7 +27837,7 @@ technicalPredictionsForBacktest ::
     Int ->
     Int ->
     [Double]
-technicalPredictionsForBacktest method perSideCost closes opens highs lows volumes predStart stepCount =
+technicalPredictionsForBacktest args method perSideCost closes opens highs lows volumes predStart stepCount =
     case technicalSeriesFromVectors (V.fromList closes) (Just (V.fromList opens)) (Just (V.fromList highs)) (Just (V.fromList lows)) (Just (V.fromList volumes)) of
         Nothing -> fallbackPredictions
         Just series ->
@@ -27858,7 +27860,7 @@ technicalPredictionsForBacktest method perSideCost closes opens highs lows volum
         | otherwise =
             let currentPrice = pricesV V.! t
                 prefix = technicalSeriesPrefix (t + 1) series
-                candidate = technicalCandidateForMethod method (technicalGateInputs perSideCost) prefix
+                candidate = technicalCandidateForMethod method (technicalGateInputs args perSideCost) prefix
              in fromMaybe currentPrice (candidate >>= technicalPredictionFromCandidate currentPrice)
 
 volPerBarFromPricesV :: V.Vector Double -> Maybe Double
