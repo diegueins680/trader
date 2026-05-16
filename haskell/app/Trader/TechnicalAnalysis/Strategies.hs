@@ -3,6 +3,7 @@ module Trader.TechnicalAnalysis.Strategies (
     OhlcvIndicators (..),
     OhlcvSeries (..),
     Regime (..),
+    RegimeCalibration (..),
     RegimeScore (..),
     StrategyCandidate (..),
     TechnicalAnalysisGateInputs (..),
@@ -58,10 +59,18 @@ data OhlcvSeries = OhlcvSeries
 data Regime = RegimeTrend | RegimeRange | RegimeNeutral
     deriving (Eq, Show)
 
+data RegimeCalibration = RegimeCalibration
+    { rcAdxWeight :: !Double
+    , rcTrendThreshold :: !Double
+    , rcRangeThreshold :: !Double
+    }
+    deriving (Eq, Show)
+
 data RegimeScore = RegimeScore
     { rsTrend :: !Double
     , rsRange :: !Double
     , rsNeutral :: !Double
+    , rsConfidence :: !Double
     }
     deriving (Eq, Show)
 
@@ -86,6 +95,7 @@ data TechnicalAnalysisGateInputs = TechnicalAnalysisGateInputs
     , tagCurrentBias :: !(Maybe TradeBias)
     , tagVolatility :: !(Maybe Double)
     , tagVolConfGate :: !VolConfGatePreset
+    , tagRegimeCalibration :: !RegimeCalibration
     }
     deriving (Eq, Show)
 
@@ -97,17 +107,17 @@ data GatedStrategyCandidate = GatedStrategyCandidate
     }
     deriving (Eq, Show)
 
-strategyCandidates :: OhlcvSeries -> [StrategyCandidate]
-strategyCandidates series =
+strategyCandidates :: RegimeCalibration -> OhlcvSeries -> [StrategyCandidate]
+strategyCandidates cal series =
     catMaybes
-        [ trendFollowingCandidate series
-        , momentumReversionCandidate series
+        [ trendFollowingCandidate cal series
+        , momentumReversionCandidate cal series
         , volumeConfirmedBreakoutCandidate series
         ]
 
 admittedStrategyCandidates :: TechnicalAnalysisGateInputs -> OhlcvSeries -> [GatedStrategyCandidate]
 admittedStrategyCandidates inputs series =
-    mapMaybe (admitStrategyCandidate inputs) (strategyCandidates series)
+    mapMaybe (admitStrategyCandidate inputs) (strategyCandidates (tagRegimeCalibration inputs) series)
 
 admitStrategyCandidate :: TechnicalAnalysisGateInputs -> StrategyCandidate -> Maybe GatedStrategyCandidate
 admitStrategyCandidate inputs candidate = do
@@ -151,8 +161,8 @@ candidateRewardEdge candidate = do
                 else Nothing
         BiasFlat -> Nothing
 
-regimeSelectorDecomposed :: OhlcvSeries -> Maybe RegimeScore
-regimeSelectorDecomposed series = do
+regimeSelectorDecomposed :: RegimeCalibration -> OhlcvSeries -> Maybe RegimeScore
+regimeSelectorDecomposed cal series = do
     validateSeries series
     closeNow <- lastValue (ohlcvClose series)
     adxNow <- latestJust (adxSeries 14 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))
@@ -166,7 +176,8 @@ regimeSelectorDecomposed series = do
         adxTrendScore = clamp01 ((adxValue adxNow - 15) / 20)
         aroonTrendScore = clamp01 ((aroonGap - 20) / 40)
         slopeTrendScore = clamp01 ((abs slope - 0.005) / 0.015)
-        trendScore = 0.40 * adxTrendScore + 0.35 * aroonTrendScore + 0.25 * slopeTrendScore
+        wAdx = rcAdxWeight cal
+        trendScore = wAdx * adxTrendScore + (1 - wAdx) * (0.35 / 0.60 * aroonTrendScore + 0.25 / 0.60 * slopeTrendScore)
         adxRangeScore = clamp01 ((25 - adxValue adxNow) / 15)
         widthRangeScore = clamp01 ((0.12 - width) / 0.08)
         rangeScore = 0.5 * adxRangeScore + 0.5 * widthRangeScore
@@ -177,20 +188,21 @@ regimeSelectorDecomposed series = do
             { rsTrend = trendScore
             , rsRange = rangeScore
             , rsNeutral = neutralScore
+            , rsConfidence = maxScore
             }
 
-regimeSelector :: OhlcvSeries -> Maybe Regime
-regimeSelector series = do
-    score <- regimeSelectorDecomposed series
-    if rsTrend score >= 0.55
+regimeSelector :: RegimeCalibration -> OhlcvSeries -> Maybe Regime
+regimeSelector cal series = do
+    score <- regimeSelectorDecomposed cal series
+    if rsTrend score >= rcTrendThreshold cal
         then Just RegimeTrend
         else
-            if rsRange score >= 0.55
+            if rsRange score >= rcRangeThreshold cal
                 then Just RegimeRange
                 else Just RegimeNeutral
 
-trendFollowingCandidate :: OhlcvSeries -> Maybe StrategyCandidate
-trendFollowingCandidate series = do
+trendFollowingCandidate :: RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
+trendFollowingCandidate cal series = do
     validateSeries series
     closeNow <- lastValue (ohlcvClose series)
     fastNow <- latestJust (emaSeries 20 (ohlcvClose series))
@@ -198,7 +210,8 @@ trendFollowingCandidate series = do
     adxNow <- latestJust (adxSeries 14 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))
     aroonNow <- latestJust (aroonSeries 25 (ohlcvHigh series) (ohlcvLow series))
     atrNow <- latestJust (atrSeries 14 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))
-    regimeNow <- regimeSelector series
+    regimeNow <- regimeSelector cal series
+    regimeScore <- regimeSelectorDecomposed cal series
     let longTrend =
             regimeNow == RegimeTrend
                 && fastNow > slowNow
@@ -211,6 +224,7 @@ trendFollowingCandidate series = do
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
         baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
+        dampedConfidence = baseConfidence * rsConfidence regimeScore
      in if longTrend
             then
                 Just
@@ -218,7 +232,7 @@ trendFollowingCandidate series = do
                         { scFamily = "trend-following"
                         , scName = "ema-crossover-adx-aroon-atr"
                         , scBias = BiasLong
-                        , scConfidence = baseConfidence
+                        , scConfidence = dampedConfidence
                         , scEntryPrice = Just closeNow
                         , scStopPrice = Just (closeNow - (2 * atrNow))
                         , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
@@ -232,7 +246,7 @@ trendFollowingCandidate series = do
                                 { scFamily = "trend-following"
                                 , scName = "ema-crossover-adx-aroon-atr"
                                 , scBias = BiasShort
-                                , scConfidence = baseConfidence
+                                , scConfidence = dampedConfidence
                                 , scEntryPrice = Just closeNow
                                 , scStopPrice = Just (closeNow + (2 * atrNow))
                                 , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
@@ -240,10 +254,10 @@ trendFollowingCandidate series = do
                                 }
                     else Nothing
 
-momentumReversionCandidate :: OhlcvSeries -> Maybe StrategyCandidate
-momentumReversionCandidate series = do
+momentumReversionCandidate :: RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
+momentumReversionCandidate cal series = do
     validateSeries series
-    regimeNow <- regimeSelector series
+    regimeNow <- regimeSelector cal series
     closeNow <- lastValue (ohlcvClose series)
     rsiNow <- latestJust (rsiSeries 14 (ohlcvClose series))
     stochasticNow <- latestJust (stochasticKSeries 14 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))

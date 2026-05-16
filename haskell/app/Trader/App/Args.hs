@@ -218,6 +218,9 @@ data Args = Args
     , argVolScaleMax :: Double
     , argMaxVolatility :: Maybe Double
     , argVolConfGate :: VolConfGatePreset
+    , argRegimeAdxWeight :: Double
+    , argRegimeTrendThreshold :: Double
+    , argRegimeRangeThreshold :: Double
     , argRebalanceBars :: Int
     , argRebalanceThreshold :: Double
     , argRebalanceCostMult :: Double
@@ -877,6 +880,9 @@ opts = do
                 <> metavar "PRESET"
                 <> help ("Frozen volatility/confidence gate preset. Choices: " ++ volConfGateChoicesCsv)
             )
+    argRegimeAdxWeight <- option auto (long "regime-adx-weight" <> value 0.40 <> showDefault <> help "ADX weight in regime trend-score blend (0..1)")
+    argRegimeTrendThreshold <- option auto (long "regime-trend-threshold" <> value 0.55 <> showDefault <> help "Minimum trend score to classify regime as trending (0..1)")
+    argRegimeRangeThreshold <- option auto (long "regime-range-threshold" <> value 0.55 <> showDefault <> help "Minimum range score to classify regime as ranging (0..1)")
     argRebalanceBars <- option auto (long "rebalance-bars" <> value 24 <> showDefault <> help "Rebalance position size every N bars when size targets change (0 disables; default anchors to entry age)")
     argRebalanceThreshold <- option auto (long "rebalance-threshold" <> value 0.05 <> showDefault <> help "Minimum abs size delta required to rebalance (0 disables)")
     argRebalanceCostMult <- option auto (long "rebalance-cost-mult" <> value 0.0 <> showDefault <> help "Extra rebalance threshold as a multiple of per-side cost (0 disables)")

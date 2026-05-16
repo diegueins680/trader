@@ -63,7 +63,7 @@ testRegimeSelectorFindsTrend = do
         opens = V.map (subtract 0.4) closes
         volumes = V.fromList [1000 + fromIntegral (i * 10) | i <- [0 .. 119]]
         series = OhlcvSeries opens highs lows closes volumes
-    assert "regimeSelector identifies a clean synthetic trend" (regimeSelector series == Just RegimeTrend)
+    assert "regimeSelector identifies a clean synthetic trend" (regimeSelector (RegimeCalibration 0.40 0.55 0.55) series == Just RegimeTrend)
 
 testTrendCandidateFailsClosedOnShortSeries :: IO ()
 testTrendCandidateFailsClosedOnShortSeries = do
@@ -73,7 +73,7 @@ testTrendCandidateFailsClosedOnShortSeries = do
         opens = V.map (subtract 0.5) closes
         volumes = V.replicate 40 1000
         series = OhlcvSeries opens highs lows closes volumes
-    assert "trendFollowingCandidate fails closed on short history" (isNothing (trendFollowingCandidate series))
+    assert "trendFollowingCandidate fails closed on short history" (isNothing (trendFollowingCandidate (RegimeCalibration 0.40 0.55 0.55) series))
 
 testBreakoutCandidateCanTriggerLong :: IO ()
 testBreakoutCandidateCanTriggerLong = do
@@ -115,6 +115,7 @@ testGatedCandidateAdmissionHonorsRiskGates = do
                 , tagCurrentBias = Nothing
                 , tagVolatility = Just 0.4
                 , tagVolConfGate = VolConfGateDisabled
+                , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
                 }
         admitted = admitStrategyCandidate inputs candidate
         highFeeInputs = inputs{tagFeePerSide = 0.02}
