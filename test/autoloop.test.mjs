@@ -841,10 +841,10 @@ test("autoloop script prefers the stored gh auth token over a stale GH_TOKEN env
 
 test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", async () => {
   const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
-  assert.match(script, /const CODEX_EXEC_TIMEOUT_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000\);/);
+  assert.match(script, /const CODEX_EXEC_TIMEOUT_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_TIMEOUT_MS, 420000, 10000, 1800000\);/);
   assert.match(script, /const CODEX_PATCH_TIMEOUT_MS = clampInt\(\s*process\.env\.AUTOLOOP_CODEX_PATCH_TIMEOUT_MS,\s*1800000,\s*CODEX_EXEC_TIMEOUT_MS,\s*3600000,\s*\);/);
   assert.match(script, /const CODEX_RETRY_MAX_ATTEMPTS = clampInt\(process\.env\.AUTOLOOP_CODEX_RETRY_MAX_ATTEMPTS, 2, 1, 5\);/);
-  assert.match(script, /const CODEX_RETRY_BACKOFF_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_RETRY_BACKOFF_MS, 15000, 1000, 120000\);/);
+  assert.match(script, /const CODEX_RETRY_BACKOFF_MS = clampInt\(process\.env\.AUTOLOOP_CODEX_RETRY_BACKOFF_MS, 30000, 1000, 300000\);/);
   assert.match(script, /const CODEX_REASONING_EFFORT = resolveCodexReasoningEffort\(process\.env\.AUTOLOOP_CODEX_REASONING_EFFORT\);/);
   assert.match(script, /if \(value === "low" \|\| value === "medium" \|\| value === "high" \|\| value === "xhigh"\) return value;/);
   assert.match(script, /return "xhigh";/);
@@ -863,6 +863,17 @@ test("autoloop codex backend uses JSON mode over stdin with a bounded timeout", 
   assert.match(script, /callModelJson\(\{ prompt, maxOutputTokens: 12000, timeoutMs: CODEX_PATCH_TIMEOUT_MS \}\)/);
   assert.match(script, /parseJsonResponse\(extractCodexExecLastMessage\(rawEvents\)\)/);
   assert.doesNotMatch(script, /--output-last-message/);
+});
+
+test("autoloop main loop gracefully degrades on retryable codex exec errors", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  assert.match(script, /try \{\s*if \(failureContext\)/);
+  assert.match(script, /\} catch \(err\) \{/);
+  assert.match(script, /if \(isRetryableCodexExecError\(err\)\)/);
+  assert.match(script, /outcome: "no_patch_plan"/);
+  assert.match(script, /Skipping cycle gracefully/);
+  assert.match(script, /return;/);
+  assert.match(script, /throw err;/);
 });
 
 test("bounded autoloop reports the required lifecycle phases in order", async () => {

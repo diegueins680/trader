@@ -47,7 +47,7 @@ const FAILURE_DISCOVERY_TIMEOUT_SECONDS = clampInt(
   5,
   CI_DISCOVERY_TIMEOUT_SECONDS,
 );
-const CODEX_EXEC_TIMEOUT_MS = clampInt(process.env.AUTOLOOP_CODEX_TIMEOUT_MS, 300000, 10000, 1800000);
+const CODEX_EXEC_TIMEOUT_MS = clampInt(process.env.AUTOLOOP_CODEX_TIMEOUT_MS, 420000, 10000, 1800000);
 const CODEX_PATCH_TIMEOUT_MS = clampInt(
   process.env.AUTOLOOP_CODEX_PATCH_TIMEOUT_MS,
   1800000,
@@ -55,7 +55,7 @@ const CODEX_PATCH_TIMEOUT_MS = clampInt(
   3600000,
 );
 const CODEX_RETRY_MAX_ATTEMPTS = clampInt(process.env.AUTOLOOP_CODEX_RETRY_MAX_ATTEMPTS, 2, 1, 5);
-const CODEX_RETRY_BACKOFF_MS = clampInt(process.env.AUTOLOOP_CODEX_RETRY_BACKOFF_MS, 15000, 1000, 120000);
+const CODEX_RETRY_BACKOFF_MS = clampInt(process.env.AUTOLOOP_CODEX_RETRY_BACKOFF_MS, 30000, 1000, 300000);
 const CODEX_REASONING_EFFORT = resolveCodexReasoningEffort(process.env.AUTOLOOP_CODEX_REASONING_EFFORT);
 const SKIP_CI_WAIT = readBooleanEnv(process.env.AUTOLOOP_SKIP_CI_WAIT);
 const AI_REVIEW_POLL_ENABLED = !readBooleanEnv(process.env.AUTOLOOP_DISABLE_AI_REVIEW_POLL);
@@ -253,20 +253,36 @@ async function main() {
       const repoContext = await buildRepoContext(uniqueStrings([...failureRepairPaths, ...reviewRepairPaths]));
       await updateStatus({ phase: "choose-change", iteration });
       let selectedIdea;
-      if (failureContext) {
-        selectedIdea = await requestFixIdea(repoContext, failureContext, failureRepairPaths, automaticRepairFailure);
-      } else if (actionableReviewFeedbackContext?.threads?.length > 0) {
-        selectedIdea = await requestReviewFeedbackSelection(repoContext, actionableReviewFeedbackContext);
-        if (selectedIdea.noChange) {
-          console.log(
-            `No actionable Copilot/Codex review feedback selected${selectedIdea.rationale ? `: ${selectedIdea.rationale}` : "."}`,
-          );
-          reviewFeedbackContext = null;
-          actionableReviewFeedbackContext = null;
+      try {
+        if (failureContext) {
+          selectedIdea = await requestFixIdea(repoContext, failureContext, failureRepairPaths, automaticRepairFailure);
+        } else if (actionableReviewFeedbackContext?.threads?.length > 0) {
+          selectedIdea = await requestReviewFeedbackSelection(repoContext, actionableReviewFeedbackContext);
+          if (selectedIdea.noChange) {
+            console.log(
+              `No actionable Copilot/Codex review feedback selected${selectedIdea.rationale ? `: ${selectedIdea.rationale}` : "."}`,
+            );
+            reviewFeedbackContext = null;
+            actionableReviewFeedbackContext = null;
+            selectedIdea = await requestIdeaSelection(repoContext);
+          }
+        } else {
           selectedIdea = await requestIdeaSelection(repoContext);
         }
-      } else {
-        selectedIdea = await requestIdeaSelection(repoContext);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isRetryableCodexExecError(err)) {
+          const gracefulMessage = `Planner backend temporarily unavailable (${message}). Skipping cycle gracefully.`;
+          await updateStatus({
+            phase: "complete",
+            iteration,
+            outcome: "no_patch_plan",
+            message: gracefulMessage,
+          });
+          console.log(gracefulMessage);
+          return;
+        }
+        throw err;
       }
       const idea =
         failureContext && selectedIdea.noChange
