@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run the locked 5-row vol/conf scorecard and emit a markdown report."""
 
+import argparse
 import json
 import subprocess
 import sys
@@ -17,12 +18,12 @@ PRESETS = [
 ]
 
 
-def run_backtest(preset: str) -> dict:
+def run_backtest(preset: str, data_path: Path, bars: int) -> dict:
     cmd = [
         str(BINARY),
-        "--data", str(DATA),
+        "--data", str(data_path),
         "--price-column", "close",
-        "--bars", "1000",
+        "--bars", str(bars),
         "--method", "ta_trend",
         "--vol-conf-gate", preset,
         "--walk-forward-folds", "7",
@@ -61,31 +62,43 @@ def run_backtest(preset: str) -> dict:
     pos_changes = int(metrics.get("positionChanges", -1) or -1)
     retention = (closed / pos_changes * 100) if pos_changes > 0 else float("nan")
 
+    def _f(key: str) -> float:
+        v = metrics.get(key)
+        return float(v) if v is not None else -9999
+
     return {
-        "sharpe": float(metrics.get("sharpe", -9999) or -9999),
-        "max_drawdown": float(metrics.get("maxDrawdown", -9999) or -9999),
-        "avg_trade": float(metrics.get("avgTrade", -9999) or -9999),
+        "sharpe": _f("sharpe"),
+        "max_drawdown": _f("maxDrawdown"),
+        "avg_trade": _f("avgTrade"),
         "closed_trades": closed,
         "trade_retention_pct": retention,
-        "win_rate": float(metrics.get("winRate", -9999) or -9999),
-        "profit_factor": float(metrics.get("profitFactor", -9999) or -9999),
-        "total_return": float(metrics.get("totalReturn", -9999) or -9999),
+        "win_rate": _f("winRate"),
+        "profit_factor": _f("profitFactor"),
+        "total_return": _f("totalReturn"),
         "error": "",
     }
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Run locked 5-row vol/conf scorecard")
+    parser.add_argument("--data", type=Path, default=DATA, help="Path to CSV data file")
+    parser.add_argument("--bars", type=int, default=1000, help="Number of bars to use")
+    args = parser.parse_args()
+
+    data_path = args.data
+    bars = args.bars
+
     if not BINARY.exists():
         print(f"ERROR: binary not found: {BINARY}", file=sys.stderr)
         return 1
-    if not DATA.exists():
-        print(f"ERROR: data not found: {DATA}", file=sys.stderr)
+    if not data_path.exists():
+        print(f"ERROR: data not found: {data_path}", file=sys.stderr)
         return 1
 
     rows = []
     for preset in PRESETS:
         print(f"Running {preset} ... ", end="", flush=True)
-        res = run_backtest(preset)
+        res = run_backtest(preset, data_path, bars)
         if res.get("error"):
             print(f"ERROR: {res['error']}")
         else:
