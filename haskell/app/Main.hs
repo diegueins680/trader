@@ -27687,6 +27687,7 @@ technicalGateInputs perSideCost =
         , TA.tagCurrentBias = Nothing
         , TA.tagVolatility = Nothing
         , TA.tagVolConfGate = VolConfGateDisabled
+        , TA.tagRegimeCalibration = TA.RegimeCalibration 0.40 0.55 0.55
         }
 
 technicalSeriesFromFeatureInputs :: FeatureInputs -> Maybe TA.OhlcvSeries
@@ -27772,16 +27773,17 @@ technicalCandidateForMethod ::
     TA.OhlcvSeries ->
     Maybe TA.GatedStrategyCandidate
 technicalCandidateForMethod method inputs series =
-    case method of
-        MethodTaTrend -> TA.trendFollowingCandidate series >>= TA.admitStrategyCandidate inputs
-        MethodTaReversion -> TA.momentumReversionCandidate series >>= TA.admitStrategyCandidate inputs
-        MethodTaBreakout -> TA.volumeConfirmedBreakoutCandidate series >>= TA.admitStrategyCandidate inputs
-        MethodTaBest ->
-            listToMaybe $
-                sortOn
-                    (Data.Ord.Down . technicalCandidateRank)
-                    (TA.admittedStrategyCandidates inputs series)
-        _ -> Nothing
+    let cal = TA.tagRegimeCalibration inputs
+     in case method of
+            MethodTaTrend -> TA.trendFollowingCandidate cal series >>= TA.admitStrategyCandidate inputs
+            MethodTaReversion -> TA.momentumReversionCandidate cal series >>= TA.admitStrategyCandidate inputs
+            MethodTaBreakout -> TA.volumeConfirmedBreakoutCandidate series >>= TA.admitStrategyCandidate inputs
+            MethodTaBest ->
+                listToMaybe $
+                    sortOn
+                        (Data.Ord.Down . technicalCandidateRank)
+                        (TA.admittedStrategyCandidates inputs series)
+            _ -> Nothing
 
 technicalCandidateRank :: TA.GatedStrategyCandidate -> (Double, Double)
 technicalCandidateRank candidate =
