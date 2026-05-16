@@ -27689,7 +27689,7 @@ technicalGateInputs args perSideCost =
         , TA.tagVolatility = Nothing
         , TA.tagVolConfGate = VolConfGateDisabled
         , TA.tagRegimeCalibration = TA.RegimeCalibration (argRegimeAdxWeight args) (argRegimeTrendThreshold args) (argRegimeRangeThreshold args)
->>>>>>> 921290d6 (research(P1): wire regime CLI flags into technicalGateInputs at runtime)
+        }
 
 technicalSeriesFromFeatureInputs :: FeatureInputs -> Maybe TA.OhlcvSeries
 technicalSeriesFromFeatureInputs inputs =
