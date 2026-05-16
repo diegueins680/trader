@@ -1,5 +1,6 @@
 module Trader.TechnicalAnalysis.Strategies (
     GatedStrategyCandidate (..),
+    OhlcvIndicators (..),
     OhlcvSeries (..),
     Regime (..),
     RegimeScore (..),
@@ -8,17 +9,26 @@ module Trader.TechnicalAnalysis.Strategies (
     TradeBias (..),
     admitStrategyCandidate,
     admittedStrategyCandidates,
+    bestCandidateAt,
+    candidateForMethodAt,
     candidateRewardEdge,
+    momentumReversionAt,
     momentumReversionCandidate,
+    precomputeIndicators,
     regimeSelector,
     regimeSelectorDecomposed,
     strategyCandidates,
+    trendFollowingAt,
     trendFollowingCandidate,
+    volumeConfirmedBreakoutAt,
     volumeConfirmedBreakoutCandidate,
 ) where
 
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.List (sortOn)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
+import Data.Ord (Down (..))
 import qualified Data.Vector as V
+import Trader.Method (Method (..))
 import Trader.SignalGates (
     finiteDouble,
     normalizeSignalEntryEdge,
@@ -425,3 +435,299 @@ clamp01 = max 0 . min 1
 
 midChannel :: DonchianChannel -> Double
 midChannel channel = (donchianUpper channel + donchianLower channel) / 2
+
+-- | Precomputed indicator vectors for a full OHLCV series, allowing O(1)
+-- per-bar strategy evaluation during backtests instead of O(n) prefix
+-- recomputation.
+data OhlcvIndicators = OhlcvIndicators
+    { oiClose :: !(V.Vector Double)
+    , oiHigh :: !(V.Vector Double)
+    , oiLow :: !(V.Vector Double)
+    , oiVolume :: !(V.Vector Double)
+    , oiEma20 :: !(V.Vector (Maybe Double))
+    , oiEma50 :: !(V.Vector (Maybe Double))
+    , oiAdx14 :: !(V.Vector (Maybe AdxPoint))
+    , oiAroon25 :: !(V.Vector (Maybe AroonPoint))
+    , oiAtr14 :: !(V.Vector (Maybe Double))
+    , oiRsi14 :: !(V.Vector (Maybe Double))
+    , oiStochastic14 :: !(V.Vector (Maybe Double))
+    , oiRoc10 :: !(V.Vector (Maybe Double))
+    , oiMacd12269 :: !(V.Vector (Maybe MacdPoint))
+    , oiBb202 :: !(V.Vector (Maybe Band))
+    , oiKeltner2015 :: !(V.Vector (Maybe Band))
+    , oiDonchian20 :: !(V.Vector (Maybe DonchianChannel))
+    , oiObv :: !(V.Vector (Maybe Double))
+    , oiAd :: !(V.Vector (Maybe Double))
+    , oiCmf20 :: !(V.Vector (Maybe Double))
+    , oiMfi14 :: !(V.Vector (Maybe Double))
+    , oiVpt :: !(V.Vector (Maybe Double))
+    , oiRegime :: !(V.Vector (Maybe Regime))
+    }
+    deriving (Eq, Show)
+
+-- | Compute all indicator series once for the full OHLCV data.
+-- This reduces backtest complexity from O(n²) to O(n).
+precomputeIndicators :: OhlcvSeries -> OhlcvIndicators
+precomputeIndicators series =
+    let closes = ohlcvClose series
+        highs = ohlcvHigh series
+        lows = ohlcvLow series
+        volumes = ohlcvVolume series
+        ema20 = emaSeries 20 closes
+        ema50 = emaSeries 50 closes
+        adx14 = adxSeries 14 highs lows closes
+        aroon25 = aroonSeries 25 highs lows
+        atr14 = atrSeries 14 highs lows closes
+        rsi14 = rsiSeries 14 closes
+        stochastic14 = stochasticKSeries 14 highs lows closes
+        roc10 = rocSeries 10 closes
+        macd12269 = macdSeries 12 26 9 closes
+        bb202 = bollingerBandsSeries 20 2 closes
+        keltner2015 = keltnerChannelsSeries 20 1.5 highs lows closes
+        donchian20 = donchianChannelsSeries 20 highs lows
+        obv = obvSeries closes volumes
+        ad = accumulationDistributionSeries highs lows closes volumes
+        cmf20 = cmfSeries 20 highs lows closes volumes
+        mfi14 = mfiSeries 14 highs lows closes volumes
+        vpt = vptSeries closes volumes
+        n = V.length closes
+        regimeAt t = do
+            closeNow <- safeIndex closes t
+            adxNow <- safeIndex adx14 t >>= id
+            aroonNow <- safeIndex aroon25 t >>= id
+            fastNow <- safeIndex ema20 t >>= id
+            fastPrev <- safeIndex ema20 (t - 5) >>= id
+            bbNow <- safeIndex bb202 t >>= id
+            let slope = safeDivide (fastNow - fastPrev) closeNow
+                width = safeDivide (bandUpper bbNow - bandLower bbNow) closeNow
+                aroonGap = abs (aroonUp aroonNow - aroonDown aroonNow)
+                adxTrendScore = clamp01 ((adxValue adxNow - 15) / 20)
+                aroonTrendScore = clamp01 ((aroonGap - 20) / 40)
+                slopeTrendScore = clamp01 ((abs slope - 0.005) / 0.015)
+                trendScore = 0.40 * adxTrendScore + 0.35 * aroonTrendScore + 0.25 * slopeTrendScore
+                adxRangeScore = clamp01 ((25 - adxValue adxNow) / 15)
+                widthRangeScore = clamp01 ((0.12 - width) / 0.08)
+                rangeScore = 0.5 * adxRangeScore + 0.5 * widthRangeScore
+                maxScore = max trendScore rangeScore
+                neutralScore = max 0 (1 - maxScore)
+            pure $
+                if trendScore >= 0.55
+                    then RegimeTrend
+                    else
+                        if rangeScore >= 0.55
+                            then RegimeRange
+                            else RegimeNeutral
+     in OhlcvIndicators
+            { oiClose = closes
+            , oiHigh = highs
+            , oiLow = lows
+            , oiVolume = volumes
+            , oiEma20 = ema20
+            , oiEma50 = ema50
+            , oiAdx14 = adx14
+            , oiAroon25 = aroon25
+            , oiAtr14 = atr14
+            , oiRsi14 = rsi14
+            , oiStochastic14 = stochastic14
+            , oiRoc10 = roc10
+            , oiMacd12269 = macd12269
+            , oiBb202 = bb202
+            , oiKeltner2015 = keltner2015
+            , oiDonchian20 = donchian20
+            , oiObv = obv
+            , oiAd = ad
+            , oiCmf20 = cmf20
+            , oiMfi14 = mfi14
+            , oiVpt = vpt
+            , oiRegime = V.generate n regimeAt
+            }
+
+safeIndex :: V.Vector a -> Int -> Maybe a
+safeIndex vec idx
+    | idx >= 0 && idx < V.length vec = Just (vec V.! idx)
+    | otherwise = Nothing
+
+-- | Trend-following candidate at a specific bar using precomputed indicators.
+trendFollowingAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
+trendFollowingAt inds t = do
+    closeNow <- safeIndex (oiClose inds) t
+    fastNow <- safeIndex (oiEma20 inds) t >>= id
+    slowNow <- safeIndex (oiEma50 inds) t >>= id
+    adxNow <- safeIndex (oiAdx14 inds) t >>= id
+    aroonNow <- safeIndex (oiAroon25 inds) t >>= id
+    atrNow <- safeIndex (oiAtr14 inds) t >>= id
+    regimeNow <- safeIndex (oiRegime inds) t >>= id
+    let longTrend =
+            regimeNow == RegimeTrend
+                && fastNow > slowNow
+                && adxValue adxNow >= 10
+                && aroonUp aroonNow > aroonDown aroonNow
+        shortTrend =
+            regimeNow == RegimeTrend
+                && fastNow < slowNow
+                && adxValue adxNow >= 10
+                && aroonDown aroonNow > aroonUp aroonNow
+        maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
+        baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
+    if longTrend
+        then
+            Just
+                StrategyCandidate
+                    { scFamily = "trend-following"
+                    , scName = "ema-crossover-adx-aroon-atr"
+                    , scBias = BiasLong
+                    , scConfidence = baseConfidence
+                    , scEntryPrice = Just closeNow
+                    , scStopPrice = Just (closeNow - (2 * atrNow))
+                    , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
+                    , scReason = "Fast EMA is above slow EMA with ADX/Aroon trend confirmation and ATR-based risk framing."
+                    }
+        else
+            if shortTrend
+                then
+                    Just
+                        StrategyCandidate
+                            { scFamily = "trend-following"
+                            , scName = "ema-crossover-adx-aroon-atr"
+                            , scBias = BiasShort
+                            , scConfidence = baseConfidence
+                            , scEntryPrice = Just closeNow
+                            , scStopPrice = Just (closeNow + (2 * atrNow))
+                            , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
+                            , scReason = "Fast EMA is below slow EMA with ADX/Aroon trend confirmation and ATR-based risk framing."
+                            }
+                else Nothing
+
+-- | Momentum-reversion candidate at a specific bar using precomputed indicators.
+momentumReversionAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
+momentumReversionAt inds t = do
+    regimeNow <- safeIndex (oiRegime inds) t >>= id
+    closeNow <- safeIndex (oiClose inds) t
+    rsiNow <- safeIndex (oiRsi14 inds) t >>= id
+    stochasticNow <- safeIndex (oiStochastic14 inds) t >>= id
+    rocNow <- safeIndex (oiRoc10 inds) t >>= id
+    macdNow <- safeIndex (oiMacd12269 inds) t >>= id
+    bollingerNow <- safeIndex (oiBb202 inds) t >>= id
+    keltnerNow <- safeIndex (oiKeltner2015 inds) t >>= id
+    atrNow <- safeIndex (oiAtr14 inds) t >>= id
+    let nearLowerEnvelope = closeNow <= max (bandLower bollingerNow) (bandLower keltnerNow) * 1.02
+        nearUpperEnvelope = closeNow >= min (bandUpper bollingerNow) (bandUpper keltnerNow) * 0.98
+        longSetup =
+            regimeNow /= RegimeTrend
+                && rsiNow <= 35
+                && stochasticNow <= 20
+                && rocNow < 0
+                && macdValue macdNow >= macdSignal macdNow
+                && nearLowerEnvelope
+        shortSetup =
+            regimeNow /= RegimeTrend
+                && rsiNow >= 65
+                && stochasticNow >= 80
+                && rocNow > 0
+                && macdValue macdNow <= macdSignal macdNow
+                && nearUpperEnvelope
+        baseConfidence = clamp01 (((abs (50 - rsiNow) / 50) + (abs (50 - stochasticNow) / 50) + min 1 (abs rocNow / 5)) / 3)
+    if longSetup
+        then
+            Just
+                StrategyCandidate
+                    { scFamily = "momentum-reversion"
+                    , scName = "rsi-stochastic-roc-macd-envelope"
+                    , scBias = BiasLong
+                    , scConfidence = baseConfidence
+                    , scEntryPrice = Just closeNow
+                    , scStopPrice = Just (closeNow - (1.5 * atrNow))
+                    , scTakeProfitPrice = Just (bandMiddle bollingerNow)
+                    , scReason = "Range-style long setup: RSI/Stochastic oversold, negative ROC, MACD confirmation, lower envelope context."
+                    }
+        else
+            if shortSetup
+                then
+                    Just
+                        StrategyCandidate
+                            { scFamily = "momentum-reversion"
+                            , scName = "rsi-stochastic-roc-macd-envelope"
+                            , scBias = BiasShort
+                            , scConfidence = baseConfidence
+                            , scEntryPrice = Just closeNow
+                            , scStopPrice = Just (closeNow + (1.5 * atrNow))
+                            , scTakeProfitPrice = Just (bandMiddle bollingerNow)
+                            , scReason = "Range-style short setup: RSI/Stochastic overbought, positive ROC, MACD confirmation, upper envelope context."
+                            }
+                else Nothing
+
+-- | Volume-confirmed breakout candidate at a specific bar using precomputed indicators.
+volumeConfirmedBreakoutAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
+volumeConfirmedBreakoutAt inds t = do
+    closeNow <- safeIndex (oiClose inds) t
+    donchianNow <- safeIndex (oiDonchian20 inds) (t - 1) >>= id
+    atrNow <- safeIndex (oiAtr14 inds) t >>= id
+    obvNow <- safeIndex (oiObv inds) t >>= id
+    obvPrev <- safeIndex (oiObv inds) (t - 5) >>= id
+    adNow <- safeIndex (oiAd inds) t >>= id
+    adPrev <- safeIndex (oiAd inds) (t - 5) >>= id
+    cmfNow <- safeIndex (oiCmf20 inds) t >>= id
+    mfiNow <- safeIndex (oiMfi14 inds) t >>= id
+    vptNow <- safeIndex (oiVpt inds) t >>= id
+    vptPrev <- safeIndex (oiVpt inds) (t - 5) >>= id
+    let obvUp = obvNow > obvPrev
+        adUp = adNow > adPrev
+        vptUp = vptNow > vptPrev
+        longBreakout = closeNow > donchianUpper donchianNow && obvUp && adUp && vptUp && cmfNow > 0 && mfiNow >= 50
+        shortBreakout = closeNow < donchianLower donchianNow && not obvUp && not adUp && not vptUp && cmfNow < 0 && mfiNow <= 50
+        breakoutDistance = max 0 (safeDivide (abs (closeNow - midChannel donchianNow)) closeNow)
+        baseConfidence = clamp01 (((if obvUp == adUp then 1 else 0.5) + min 1 (abs cmfNow) + min 1 (breakoutDistance * 10)) / 3)
+    if longBreakout
+        then
+            Just
+                StrategyCandidate
+                    { scFamily = "volume-confirmed-breakout"
+                    , scName = "donchian-obv-ad-cmf-mfi-vpt"
+                    , scBias = BiasLong
+                    , scConfidence = baseConfidence
+                    , scEntryPrice = Just closeNow
+                    , scStopPrice = Just (closeNow - (2 * atrNow))
+                    , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
+                    , scReason = "Volume-confirmed breakout above Donchian upper band with OBV/AD/VPT divergence and CMF/MFI confirmation."
+                    }
+        else
+            if shortBreakout
+                then
+                    Just
+                        StrategyCandidate
+                            { scFamily = "volume-confirmed-breakout"
+                            , scName = "donchian-obv-ad-cmf-mfi-vpt"
+                            , scBias = BiasShort
+                            , scConfidence = baseConfidence
+                            , scEntryPrice = Just closeNow
+                            , scStopPrice = Just (closeNow + (2 * atrNow))
+                            , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
+                            , scReason = "Volume-confirmed breakout below Donchian lower band with OBV/AD/VPT divergence and CMF/MFI confirmation."
+                            }
+                else Nothing
+
+-- | Evaluate the best precomputed candidate at a specific bar.
+bestCandidateAt :: TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Maybe GatedStrategyCandidate
+bestCandidateAt inputs inds t =
+    let candidates = catMaybes
+            [ trendFollowingAt inds t >>= admitStrategyCandidate inputs
+            , momentumReversionAt inds t >>= admitStrategyCandidate inputs
+            , volumeConfirmedBreakoutAt inds t >>= admitStrategyCandidate inputs
+            ]
+     in listToMaybe $ sortOn (Down . candidateRank) candidates
+  where
+    candidateRank candidate =
+        let rawConfidence = scConfidence (gscCandidate candidate)
+            confidence = if finiteDouble rawConfidence then rawConfidence else 0
+            edge = if finiteDouble (gscEntryEdge candidate) then gscEntryEdge candidate else 0
+         in (confidence, edge)
+
+-- | Evaluate a specific method at a bar using precomputed indicators.
+candidateForMethodAt :: Method -> TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Maybe GatedStrategyCandidate
+candidateForMethodAt method inputs inds t =
+    case method of
+        MethodTaTrend -> trendFollowingAt inds t >>= admitStrategyCandidate inputs
+        MethodTaReversion -> momentumReversionAt inds t >>= admitStrategyCandidate inputs
+        MethodTaBreakout -> volumeConfirmedBreakoutAt inds t >>= admitStrategyCandidate inputs
+        MethodTaBest -> bestCandidateAt inputs inds t
+        _ -> Nothing
