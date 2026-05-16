@@ -10,3 +10,16 @@ partial
 data-not-blocking
 data-objective-already-aligned
 FINAL_STATUS: done — main now clean with gitignore fixes; autoloop dirty-worktree blocker resolved
+
+## 2026-05-15 13:52 UTC — CTO health + credential + data seam check
+
+- Autoloop: STOPPED since 02:54 UTC (11h stall); forever PID 72122 alive but no new cycles since cycle-0007 (exitCode 1, codex ETIMEDOUT); exact blocker: status.json shows SIGTERM shutdown, cycleCount=7, blockReason=null
+- Credentials: BINANCE_API_KEY and BINANCE_API_SECRET unset (0 env matches)
+- Bot version: cabal not in PATH; cannot verify version string
+- API reachability: Binance ping HTTP 200
+- Data seam: fetch pipeline + checksums for BTCUSDT-4h, SOLUSDT-4h, ETHUSDT-4h not delivered
+
+blocked
+data-blocking: repeatable fetch pipeline with checksums for BTCUSDT-4h, SOLUSDT-4h, ETHUSDT-4h
+data-objective-already-aligned
+FINAL_STATUS: done — reports/trader-firm-cto.md appended with autoloop stall + credential gap evidence

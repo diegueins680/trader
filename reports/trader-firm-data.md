@@ -86,3 +86,62 @@ Findings:
 Status: `data-not-blocking` — seam exists and is wired end-to-end (CLI → args → state → JSON), but lacks test coverage. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage) or **trader-firm-research** (validate preset behavior).
 
 FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; no tests in TestMain.hs; working tree clean
+
+---
+## Run 2026-05-15 09:21 UTC — Data Director proof for `--vol-conf-gate <preset>`
+
+Command output (first 40 lines):
+```
+M haskell/app/Main.hs
+app/Trader/App/Args.hs:220:    , argVolConfGate :: VolConfGatePreset
+app/Trader/App/Args.hs:873-878:  --vol-conf-gate via eitherReader parseVolConfGatePreset
+app/Main.hs:425:    , lsVolConfGate :: !VolConfGatePreset
+app/Main.hs:497:    , bsVolConfGate :: !VolConfGatePreset
+app/Main.hs:1283:  "vol_conf_gate" .= volConfGateCode (lsVolConfGate s)
+app/Main.hs:1297:  "confidence" .= lsConfidence s
+```
+
+Findings:
+- `--vol-conf-gate` wired CLI→Args→Main→JSON (stable seam)
+- `app/Main.hs` dirty (M) since prior proof; Args.hs/TestMain.hs clean
+- **Zero references in test/TestMain.hs** — still no test coverage
+
+Status: `data-not-blocking` — seam exists end-to-end. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage for preset round-trip).
+
+FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; Main.hs dirty; no tests in TestMain.hs
+
+---
+## Run 2026-05-15 11:41 UTC — Data Director proof for `--vol-conf-gate <preset>`
+
+Proof: `(git status --porcelain ...; grep ...)` from `haskell/`
+- `--vol-conf-gate` defined Args.hs:873-878; consumed Main.hs:425,497,1283
+- `app/Main.hs` dirty (M); Args.hs/TestMain.hs clean
+- Zero matches in test/TestMain.hs
+
+Status: `data-not-blocking` — seam wired end-to-end. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage).
+
+FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; Main.hs dirty; no tests in TestMain.hs
+
+---
+## Run 2026-05-16 03:19 UTC — Data Director proof for `--vol-conf-gate <preset>`
+
+Proof: `(git status --porcelain ...; grep ...)` from `haskell/`
+- `--vol-conf-gate` defined Args.hs:873-878; consumed Main.hs:425,497,1283
+- All three files clean (no uncommitted changes)
+- Zero matches in test/TestMain.hs — still no test coverage
+
+Status: `data-not-blocking` — seam wired end-to-end. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage).
+
+FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; all files clean; no tests in TestMain.hs
+
+---
+## Run 2026-05-15 15:20 UTC — Data Director proof for `--vol-conf-gate <preset>`
+
+Proof: `(git status --porcelain ...; grep ...)` from `haskell/`
+- `--vol-conf-gate` defined Args.hs:873-878; consumed Main.hs:425,497,1283
+- `app/Main.hs` dirty (M); `test/TestMain.hs` dirty (M); Args.hs clean
+- Zero matches in test/TestMain.hs — still no test coverage
+
+Status: `data-not-blocking` — seam wired end-to-end. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage).
+
+FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; Main.hs+TestMain.hs dirty; no tests in TestMain.hs
