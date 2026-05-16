@@ -436,9 +436,10 @@ clamp01 = max 0 . min 1
 midChannel :: DonchianChannel -> Double
 midChannel channel = (donchianUpper channel + donchianLower channel) / 2
 
--- | Precomputed indicator vectors for a full OHLCV series, allowing O(1)
--- per-bar strategy evaluation during backtests instead of O(n) prefix
--- recomputation.
+{- | Precomputed indicator vectors for a full OHLCV series, allowing O(1)
+per-bar strategy evaluation during backtests instead of O(n) prefix
+recomputation.
+-}
 data OhlcvIndicators = OhlcvIndicators
     { oiClose :: !(V.Vector Double)
     , oiHigh :: !(V.Vector Double)
@@ -465,8 +466,9 @@ data OhlcvIndicators = OhlcvIndicators
     }
     deriving (Eq, Show)
 
--- | Compute all indicator series once for the full OHLCV data.
--- This reduces backtest complexity from O(n²) to O(n).
+{- | Compute all indicator series once for the full OHLCV data.
+This reduces backtest complexity from O(n²) to O(n).
+-}
 precomputeIndicators :: OhlcvSeries -> OhlcvIndicators
 precomputeIndicators series =
     let closes = ohlcvClose series
@@ -709,11 +711,12 @@ volumeConfirmedBreakoutAt inds t = do
 -- | Evaluate the best precomputed candidate at a specific bar.
 bestCandidateAt :: TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Maybe GatedStrategyCandidate
 bestCandidateAt inputs inds t =
-    let candidates = catMaybes
-            [ trendFollowingAt inds t >>= admitStrategyCandidate inputs
-            , momentumReversionAt inds t >>= admitStrategyCandidate inputs
-            , volumeConfirmedBreakoutAt inds t >>= admitStrategyCandidate inputs
-            ]
+    let candidates =
+            catMaybes
+                [ trendFollowingAt inds t >>= admitStrategyCandidate inputs
+                , momentumReversionAt inds t >>= admitStrategyCandidate inputs
+                , volumeConfirmedBreakoutAt inds t >>= admitStrategyCandidate inputs
+                ]
      in listToMaybe $ sortOn (Down . candidateRank) candidates
   where
     candidateRank candidate =
