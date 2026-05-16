@@ -60,7 +60,7 @@ Short.csv
 .tmp/
 tmp/
 .openclaw/
-HEARTBEAT.md
+# HEARTBEAT.md is tracked (contains monitoring docs)
 IDENTITY.md
 SOUL.md
 TOOLS.md
