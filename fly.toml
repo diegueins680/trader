@@ -8,6 +8,9 @@ primary_region = "fra"
   TRADER_BOT_SYMBOLS = "BTCUSDT"
   TRADER_BOT_TOP_COMBO_BOTS = "3"
   TRADER_BOT_TOP_COMBO_BOTS_STARTUP = "0"
+  TRADER_BOT_AUTOSTART_MAX_BOTS = "3"
+  TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE = "1"
+  TRADER_BOT_START_MAX_SYMBOLS = "3"
   TRADER_OPTIMIZER_ENABLED = "true"
   TRADER_OPTIMIZER_EVERY_SEC = "900"
   TRADER_OPTIMIZER_TRIALS = "60"
@@ -25,5 +28,5 @@ primary_region = "fra"
   processes = ["app"]
 
 [[vm]]
-  size = "shared-cpu-4x"
-  memory = "8192mb"
+  size = "performance-8x"
+  memory = "16384mb"

@@ -3055,7 +3055,12 @@ export function applyComboToForm(
   let maxOrderQuote = prev.maxOrderQuote;
 
   if (hasComboSizing) {
-    if (comboOrderQuantity > 0) {
+    if (comboOrderQuoteFraction > 0) {
+      orderQuoteFraction = comboOrderQuoteFraction;
+      orderQuantity = 0;
+      orderQuote = 0;
+      maxOrderQuote = comboMaxOrderQuote > 0 ? comboMaxOrderQuote : 0;
+    } else if (comboOrderQuantity > 0) {
       orderQuantity = comboOrderQuantity;
       orderQuote = 0;
       orderQuoteFraction = 0;
@@ -3065,15 +3070,10 @@ export function applyComboToForm(
       orderQuantity = 0;
       orderQuoteFraction = 0;
       maxOrderQuote = 0;
-    } else if (comboOrderQuoteFraction > 0) {
-      orderQuoteFraction = comboOrderQuoteFraction;
-      orderQuantity = 0;
-      orderQuote = 0;
-      maxOrderQuote = comboMaxOrderQuote > 0 ? comboMaxOrderQuote : 0;
     } else {
       orderQuantity = 0;
       orderQuote = 0;
-      orderQuoteFraction = 0;
+      orderQuoteFraction = 1;
       maxOrderQuote = 0;
     }
   }

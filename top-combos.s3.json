@@ -93,7 +93,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -1827,7 +1827,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -2049,7 +2049,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -2208,7 +2208,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -2322,7 +2322,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -2760,7 +2760,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -3081,7 +3081,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -3231,7 +3231,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -3336,7 +3336,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -3441,7 +3441,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -3555,7 +3555,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -3669,7 +3669,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -3864,7 +3864,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -4068,7 +4068,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -4263,7 +4263,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -4377,7 +4377,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -4500,7 +4500,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -4614,7 +4614,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -4719,7 +4719,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -4842,7 +4842,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -4947,7 +4947,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -5079,7 +5079,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -5184,7 +5184,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -5298,7 +5298,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -5403,7 +5403,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -5508,7 +5508,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -5622,7 +5622,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -5727,7 +5727,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -5832,7 +5832,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -5937,7 +5937,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -6042,7 +6042,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -6156,7 +6156,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -6387,7 +6387,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -6510,7 +6510,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -6624,7 +6624,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -6729,7 +6729,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -6924,7 +6924,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -7029,7 +7029,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -7143,7 +7143,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -7257,7 +7257,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -7362,7 +7362,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -7494,7 +7494,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -7599,7 +7599,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -7704,7 +7704,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -7818,7 +7818,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -7923,7 +7923,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -8046,7 +8046,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -8160,7 +8160,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -8265,7 +8265,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -8370,7 +8370,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {
@@ -8484,7 +8484,7 @@
         "volScaleMax": 1.0,
         "volTarget": null,
         "walkForwardFolds": 5,
-        "orderQuote": 100
+        "orderQuoteFraction": 1
       },
       "operations": [
         {

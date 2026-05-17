@@ -3424,7 +3424,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                     onChange={(e) =>
                       setForm((f) => {
                         const v = numFromInput(e.target.value, f.orderQuote);
-                        return v > 0 ? { ...f, orderQuote: v, orderQuantity: 0, orderQuoteFraction: 0 } : { ...f, orderQuote: v };
+                        return v > 0 ? { ...f, orderQuote: v, orderQuantity: 0, orderQuoteFraction: 0 } : { ...f, orderQuote: v, orderQuoteFraction: 1 };
                       })
                     }
                     placeholder="20"
@@ -3443,7 +3443,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                     onChange={(e) =>
                       setForm((f) => {
                         const v = numFromInput(e.target.value, f.orderQuantity);
-                        return v > 0 ? { ...f, orderQuantity: v, orderQuote: 0, orderQuoteFraction: 0 } : { ...f, orderQuantity: v };
+                        return v > 0 ? { ...f, orderQuantity: v, orderQuote: 0, orderQuoteFraction: 0 } : { ...f, orderQuantity: v, orderQuoteFraction: 1 };
                       })
                     }
                     placeholder="0.001"
@@ -3471,7 +3471,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                     onChange={(e) =>
                       setForm((f) => {
                         const v = numFromInput(e.target.value, f.orderQuoteFraction);
-                        return v > 0 ? { ...f, orderQuoteFraction: v, orderQuote: 0, orderQuantity: 0 } : { ...f, orderQuoteFraction: v };
+                        return v > 0 ? { ...f, orderQuoteFraction: v, orderQuote: 0, orderQuantity: 0 } : { ...f, orderQuoteFraction: v, orderQuote: 0, orderQuantity: 0 };
                       })
                     }
                     placeholder="0.10 (10%)"
