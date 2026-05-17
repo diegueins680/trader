@@ -157,6 +157,7 @@ main = do
     testSlippageVolMultRejectsNegativeValue
     testSlippageImpactRejectsNegativeValue
     testSlippageImpactPowerRejectsNegativeValue
+    testSpreadVolMultRejectsNegativeValue
     testStopLossRejectsLowerBoundValidation
     testStopLossRejectsAbsurdlyTightStop
     testTakeProfitRejectsAbsurdlyTightValue
@@ -593,6 +594,12 @@ testSlippageImpactPowerRejectsNegativeValue =
     assert
         "slippage-impact-power rejects negative values"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--slippage-impact-power", "-0.01"] == Left "--slippage-impact-power must be >= 0")
+
+testSpreadVolMultRejectsNegativeValue :: IO ()
+testSpreadVolMultRejectsNegativeValue =
+    assert
+        "spread-vol-mult rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--spread-vol-mult", "-0.01"] == Left "--spread-vol-mult must be >= 0")
 
 testStopLossRejectsLowerBoundValidation :: IO ()
 testStopLossRejectsLowerBoundValidation =
