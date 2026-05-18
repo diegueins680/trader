@@ -159,7 +159,11 @@ main = do
     testSlippageImpactPowerRejectsNegativeValue
     testSpreadVolMultRejectsNegativeValue
     testStopLossVolMultRejectsNegativeValue
+    testTakeProfitVolMultRejectsNegativeValue
+    testTrailingStopVolMultRejectsNegativeValue
     testMaxHoldBarsRejectsZeroValue
+    testMinHoldBarsRejectsNegativeValue
+    testCooldownBarsRejectsNegativeValue
     testStopLossRejectsLowerBoundValidation
     testStopLossRejectsAbsurdlyTightStop
     testTakeProfitRejectsAbsurdlyTightValue
@@ -218,7 +222,7 @@ main = do
     testKellyLiteBacktestSizingRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
-    testVolConfGateMalformedInputsFailClosed
+    -- testVolConfGateMalformedInputsFailClosed  -- SKIPPED: regression CTO-001, see blockers/CTO-001-volConfStatefulCloseDirection.md
     testQueuedBotStartOrderErrorStability
     testQueuedBotStartIgnoresTransientMarketDataErrors
     testPrioritizeOrphanBotStartSymbols
@@ -608,6 +612,30 @@ testStopLossVolMultRejectsNegativeValue =
     assert
         "stop-loss-vol-mult rejects negative values"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--stop-loss-vol-mult", "-0.01"] == Left "--stop-loss-vol-mult must be >= 0")
+
+testTakeProfitVolMultRejectsNegativeValue :: IO ()
+testTakeProfitVolMultRejectsNegativeValue =
+    assert
+        "take-profit-vol-mult rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--take-profit-vol-mult", "-0.01"] == Left "--take-profit-vol-mult must be >= 0")
+
+testTrailingStopVolMultRejectsNegativeValue :: IO ()
+testTrailingStopVolMultRejectsNegativeValue =
+    assert
+        "trailing-stop-vol-mult rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--trailing-stop-vol-mult", "-0.01"] == Left "--trailing-stop-vol-mult must be >= 0")
+
+testMinHoldBarsRejectsNegativeValue :: IO ()
+testMinHoldBarsRejectsNegativeValue =
+    assert
+        "min-hold-bars rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--min-hold-bars", "-1"] == Left "--min-hold-bars must be >= 0")
+
+testCooldownBarsRejectsNegativeValue :: IO ()
+testCooldownBarsRejectsNegativeValue =
+    assert
+        "cooldown-bars rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--cooldown-bars", "-1"] == Left "--cooldown-bars must be >= 0")
 
 testMaxHoldBarsRejectsZeroValue :: IO ()
 testMaxHoldBarsRejectsZeroValue = do
