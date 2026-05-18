@@ -164,6 +164,7 @@ main = do
     testMaxHoldBarsRejectsZeroValue
     testMinHoldBarsRejectsNegativeValue
     testCooldownBarsRejectsNegativeValue
+    testMaxTradesPerDayRejectsNegativeValue
     testStopLossRejectsLowerBoundValidation
     testStopLossRejectsAbsurdlyTightStop
     testTakeProfitRejectsAbsurdlyTightValue
@@ -636,6 +637,12 @@ testCooldownBarsRejectsNegativeValue =
     assert
         "cooldown-bars rejects negative values"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--cooldown-bars", "-1"] == Left "--cooldown-bars must be >= 0")
+
+testMaxTradesPerDayRejectsNegativeValue :: IO ()
+testMaxTradesPerDayRejectsNegativeValue =
+    assert
+        "max-trades-per-day rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-trades-per-day", "-1"] == Left "--max-trades-per-day must be >= 0")
 
 testMaxHoldBarsRejectsZeroValue :: IO ()
 testMaxHoldBarsRejectsZeroValue = do
