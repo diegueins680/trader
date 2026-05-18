@@ -159,6 +159,7 @@ main = do
     testSlippageImpactPowerRejectsNegativeValue
     testSpreadVolMultRejectsNegativeValue
     testStopLossVolMultRejectsNegativeValue
+    testMaxHoldBarsRejectsZeroValue
     testStopLossRejectsLowerBoundValidation
     testStopLossRejectsAbsurdlyTightStop
     testTakeProfitRejectsAbsurdlyTightValue
@@ -607,6 +608,18 @@ testStopLossVolMultRejectsNegativeValue =
     assert
         "stop-loss-vol-mult rejects negative values"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--stop-loss-vol-mult", "-0.01"] == Left "--stop-loss-vol-mult must be >= 0")
+
+testMaxHoldBarsRejectsZeroValue :: IO ()
+testMaxHoldBarsRejectsZeroValue = do
+    assert
+        "max-hold-bars rejects zero"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-hold-bars", "0"] == Left "--max-hold-bars must be >= 1")
+    assert
+        "max-hold-bars accepts one"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-hold-bars", "1"] of
+            Right args -> argMaxHoldBars args == Just 1
+            Left _ -> False
+        )
 
 testStopLossRejectsLowerBoundValidation :: IO ()
 testStopLossRejectsLowerBoundValidation =
