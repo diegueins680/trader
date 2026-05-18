@@ -35,7 +35,7 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef,
 import Data.Int (Int64)
 import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, mapAccumL, sortOn, stripPrefix)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybe, maybeToList)
 import qualified Data.Ord
 import Data.Scientific (FPFormat (Fixed), formatScientific, toBoundedInteger)
 import qualified Data.Set as Set
@@ -394,6 +394,7 @@ import Trader.VolConfGate (
     VolConfGateCell (..),
     VolConfGatePreset (..),
     applyVolConfGateBehavior,
+    parseVolConfGatePreset,
     volConfGateCell,
     volConfGateCode,
     volConfStatefulCloseDirection,
@@ -849,6 +850,7 @@ data ApiParams = ApiParams
     , apTuneStressVolMult :: Maybe Double
     , apTuneStressShock :: Maybe Double
     , apTuneStressWeight :: Maybe Double
+    , apVolConfGate :: Maybe String
     }
     deriving (Eq, Show, Generic)
 
@@ -8218,34 +8220,31 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
         -- - Otherwise, entry uses openThreshold via lsChosenDir.
         allowShort = argPositioning args == LongShort
         chosenDir = lsChosenDir latestStartRaw
-        volConfHoldActive = "VOL_CONF_GATE_HOLD" `isInfixOf` lsAction latestStartRaw
         closeDir = lsCloseDir latestStartRaw
 
         desiredPosSignal =
-            if startPos0 /= 0 && volConfHoldActive
-                then startPos0
-                else case startPos0 of
-                    1 ->
-                        case chosenDir of
-                            Just 1 -> 1
-                            Just (-1) | allowShort -> -1
-                            _ ->
-                                case closeDir of
-                                    Just 1 -> 1
-                                    _ -> 0
-                    (-1) ->
-                        case chosenDir of
-                            Just (-1) -> -1
-                            Just 1 | allowShort -> 1
-                            _ ->
-                                case closeDir of
-                                    Just (-1) -> -1
-                                    _ -> 0
-                    _ ->
-                        case chosenDir of
-                            Just 1 -> 1
-                            Just (-1) | allowShort -> -1
-                            _ -> 0
+            case startPos0 of
+                1 ->
+                    case chosenDir of
+                        Just 1 -> 1
+                        Just (-1) | allowShort -> -1
+                        _ ->
+                            case closeDir of
+                                Just 1 -> 1
+                                _ -> 0
+                (-1) ->
+                    case chosenDir of
+                        Just (-1) -> -1
+                        Just 1 | allowShort -> 1
+                        _ ->
+                            case closeDir of
+                                Just (-1) -> -1
+                                _ -> 0
+                _ ->
+                    case chosenDir of
+                        Just 1 -> 1
+                        Just (-1) | allowShort -> -1
+                        _ -> 0
 
         latest =
             case (startPos0, desiredPosSignal) of
@@ -9697,7 +9696,11 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         ]
                                                                                             ++ extraArgs
                                                                                 discoveryRecoveryArgs =
-                                                                                    [ "--open-threshold-min"
+                                                                                    [ "--epochs-max"
+                                                                                    , "2"
+                                                                                    , "--hidden-size-max"
+                                                                                    , "16"
+                                                                                    , "--open-threshold-min"
                                                                                     , "0.00005"
                                                                                     , "--open-threshold-max"
                                                                                     , "0.005"
@@ -9736,19 +9739,39 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     , "--method-weight-11"
                                                                                     , "0.25"
                                                                                     , "--method-weight-10"
-                                                                                    , "4.0"
+                                                                                    , "1.0"
                                                                                     , "--method-weight-01"
                                                                                     , "0.1"
                                                                                     , "--method-weight-edge-blend"
-                                                                                    , "1.0"
+                                                                                    , "2.0"
                                                                                     , "--method-weight-edge-pick"
-                                                                                    , "1.0"
+                                                                                    , "2.0"
                                                                                     , "--method-weight-regime-switch"
                                                                                     , "0.0"
                                                                                     , "--method-weight-bandit-router"
                                                                                     , "0.0"
                                                                                     ]
-                                                                                cliArgs = mkCliArgs recordsPath seed trials timeoutSec minRoundTrips minExposure minSharpe minCalmar []
+                                                                                primaryMethodArgs =
+                                                                                    [ "--epochs-max"
+                                                                                    , "2"
+                                                                                    , "--hidden-size-max"
+                                                                                    , "16"
+                                                                                    , "--method-weight-11"
+                                                                                    , "0.25"
+                                                                                    , "--method-weight-10"
+                                                                                    , "1.0"
+                                                                                    , "--method-weight-01"
+                                                                                    , "0.1"
+                                                                                    , "--method-weight-edge-blend"
+                                                                                    , "2.0"
+                                                                                    , "--method-weight-edge-pick"
+                                                                                    , "2.0"
+                                                                                    , "--method-weight-regime-switch"
+                                                                                    , "0.0"
+                                                                                    , "--method-weight-bandit-router"
+                                                                                    , "0.0"
+                                                                                    ]
+                                                                                cliArgs = mkCliArgs recordsPath seed trials timeoutSec minRoundTrips minExposure minSharpe minCalmar primaryMethodArgs
                                                                                 recoveryCliArgs =
                                                                                     mkCliArgs
                                                                                         recoveryRecordsPath
@@ -10509,39 +10532,36 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         allowShort = argPositioning args == LongShort
         chosenDir = lsChosenDir latest0Raw
         closeDir = lsCloseDir latest0Raw
-        volConfHoldActive = "VOL_CONF_GATE_HOLD" `isInfixOf` lsAction latest0Raw
 
         desiredPosSignal =
-            if prevPos /= 0 && volConfHoldActive
-                then prevPos
-                else case prevPos of
-                    1 ->
-                        case chosenDir of
-                            Just 1 -> 1
-                            Just (-1) ->
-                                if allowShort
-                                    then -1
-                                    else 0
-                            _ ->
-                                case closeDir of
-                                    Just 1 -> 1
-                                    _ -> 0
-                    (-1) ->
-                        case chosenDir of
-                            Just (-1) -> -1
-                            Just 1 ->
-                                if allowShort
-                                    then 1
-                                    else 0
-                            _ ->
-                                case closeDir of
-                                    Just (-1) -> -1
-                                    _ -> 0
-                    _ ->
-                        case chosenDir of
-                            Just 1 -> 1
-                            Just (-1) | allowShort -> -1
-                            _ -> 0
+            case prevPos of
+                1 ->
+                    case chosenDir of
+                        Just 1 -> 1
+                        Just (-1) ->
+                            if allowShort
+                                then -1
+                                else 0
+                        _ ->
+                            case closeDir of
+                                Just 1 -> 1
+                                _ -> 0
+                (-1) ->
+                    case chosenDir of
+                        Just (-1) -> -1
+                        Just 1 ->
+                            if allowShort
+                                then 1
+                                else 0
+                        _ ->
+                            case closeDir of
+                                Just (-1) -> -1
+                                _ -> 0
+                _ ->
+                    case chosenDir of
+                        Just 1 -> 1
+                        Just (-1) | allowShort -> -1
+                        _ -> 0
 
         -- If we decide to exit (open/close signal neutral/opposite), force chosenDir to the exit side
         -- so a closing order can be placed when trading is enabled.
@@ -17962,6 +17982,13 @@ argsFromApi baseArgs p = do
                 , argTuneStressVolMult = pick (apTuneStressVolMult p) (argTuneStressVolMult baseArgs)
                 , argTuneStressShock = pick (apTuneStressShock p) (argTuneStressShock baseArgs)
                 , argTuneStressWeight = pick (apTuneStressWeight p) (argTuneStressWeight baseArgs)
+                , argVolConfGate =
+                    case apVolConfGate p of
+                        Nothing -> argVolConfGate baseArgs
+                        Just raw ->
+                            case parseVolConfGatePreset raw of
+                                Left _ -> argVolConfGate baseArgs
+                                Right preset -> preset
                 }
 
     validateArgs (normalizeBarsForLookback args)
@@ -22524,7 +22551,7 @@ emitBacktestTradesNdjson args summary = do
         prices = bsBacktestPrices summary
         positions = bsPositions summary
         mOpenTimes = bsOpenTimes summary
-        sym = fromMaybe (symbolFromDataPath (argData args)) (T.pack <$> argBinanceSymbol args)
+        sym = maybe (symbolFromDataPath (argData args)) T.pack (argBinanceSymbol args)
         meth = T.pack (methodCode (bsMethodUsed summary))
         vcg = T.pack (volConfGateCode (bsVolConfGate summary))
         emitTrade tr = do

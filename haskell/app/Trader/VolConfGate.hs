@@ -124,9 +124,12 @@ applyVolConfGateBehavior behavior currentSide currentSize desiredSide desiredSiz
      in case behavior of
             VolConfGateAllowEntry -> (desiredSide, desiredSize')
             VolConfGateHold ->
-                case currentSide of
-                    Just side -> (Just side, currentSize')
+                case desiredSide of
                     Nothing -> (Nothing, 0)
+                    Just _ ->
+                        case currentSide of
+                            Just side -> (Just side, currentSize')
+                            Nothing -> (Nothing, 0)
             VolConfGateBlock -> reduceOnly
             VolConfGateAllowExitOnly -> reduceOnly
 
@@ -134,7 +137,7 @@ volConfStatefulCloseDirection :: VolConfGateBehavior -> Maybe side -> Maybe side
 volConfStatefulCloseDirection behavior preGateDir closeDirBase =
     case behavior of
         VolConfGateAllowEntry -> closeDirBase
-        VolConfGateHold -> Nothing
+        VolConfGateHold -> closeDirBase
         VolConfGateBlock -> firstJust preGateDir closeDirBase
         VolConfGateAllowExitOnly -> firstJust preGateDir closeDirBase
   where

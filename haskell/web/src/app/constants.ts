@@ -2,7 +2,7 @@ import type { Platform } from "../lib/types";
 import { TRADER_UI_CONFIG } from "../lib/deployConfig";
 import { PLATFORM_IDS } from "./contracts";
 
-export const STORAGE_KEY = "trader.ui.form.v1";
+export const STORAGE_KEY = "trader.ui.form.v2";
 export const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
 export const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
 export const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";

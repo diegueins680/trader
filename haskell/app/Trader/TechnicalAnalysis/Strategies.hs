@@ -25,6 +25,7 @@ module Trader.TechnicalAnalysis.Strategies (
     volumeConfirmedBreakoutCandidate,
 ) where
 
+import Control.Monad (join)
 import Data.List (sortOn)
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Ord (Down (..))
@@ -211,7 +212,6 @@ trendFollowingCandidate cal series = do
     aroonNow <- latestJust (aroonSeries 25 (ohlcvHigh series) (ohlcvLow series))
     atrNow <- latestJust (atrSeries 14 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))
     regimeNow <- regimeSelector cal series
-    regimeScore <- regimeSelectorDecomposed cal series
     let longTrend =
             regimeNow == RegimeTrend
                 && fastNow > slowNow
@@ -224,7 +224,6 @@ trendFollowingCandidate cal series = do
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
         baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
-        dampedConfidence = baseConfidence * rsConfidence regimeScore
      in if longTrend
             then
                 Just
@@ -232,7 +231,7 @@ trendFollowingCandidate cal series = do
                         { scFamily = "trend-following"
                         , scName = "ema-crossover-adx-aroon-atr"
                         , scBias = BiasLong
-                        , scConfidence = dampedConfidence
+                        , scConfidence = baseConfidence
                         , scEntryPrice = Just closeNow
                         , scStopPrice = Just (closeNow - (2 * atrNow))
                         , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
@@ -246,7 +245,7 @@ trendFollowingCandidate cal series = do
                                 { scFamily = "trend-following"
                                 , scName = "ema-crossover-adx-aroon-atr"
                                 , scBias = BiasShort
-                                , scConfidence = dampedConfidence
+                                , scConfidence = baseConfidence
                                 , scEntryPrice = Just closeNow
                                 , scStopPrice = Just (closeNow + (2 * atrNow))
                                 , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
@@ -509,11 +508,11 @@ precomputeIndicators series =
         n = V.length closes
         regimeAt t = do
             closeNow <- safeIndex closes t
-            adxNow <- safeIndex adx14 t >>= id
-            aroonNow <- safeIndex aroon25 t >>= id
-            fastNow <- safeIndex ema20 t >>= id
-            fastPrev <- safeIndex ema20 (t - 5) >>= id
-            bbNow <- safeIndex bb202 t >>= id
+            adxNow <- join (safeIndex adx14 t)
+            aroonNow <- join (safeIndex aroon25 t)
+            fastNow <- join (safeIndex ema20 t)
+            fastPrev <- join (safeIndex ema20 (t - 5))
+            bbNow <- join (safeIndex bb202 t)
             let slope = safeDivide (fastNow - fastPrev) closeNow
                 width = safeDivide (bandUpper bbNow - bandLower bbNow) closeNow
                 aroonGap = abs (aroonUp aroonNow - aroonDown aroonNow)
@@ -567,12 +566,12 @@ safeIndex vec idx
 trendFollowingAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
 trendFollowingAt inds t = do
     closeNow <- safeIndex (oiClose inds) t
-    fastNow <- safeIndex (oiEma20 inds) t >>= id
-    slowNow <- safeIndex (oiEma50 inds) t >>= id
-    adxNow <- safeIndex (oiAdx14 inds) t >>= id
-    aroonNow <- safeIndex (oiAroon25 inds) t >>= id
-    atrNow <- safeIndex (oiAtr14 inds) t >>= id
-    regimeNow <- safeIndex (oiRegime inds) t >>= id
+    fastNow <- join (safeIndex (oiEma20 inds) t)
+    slowNow <- join (safeIndex (oiEma50 inds) t)
+    adxNow <- join (safeIndex (oiAdx14 inds) t)
+    aroonNow <- join (safeIndex (oiAroon25 inds) t)
+    atrNow <- join (safeIndex (oiAtr14 inds) t)
+    regimeNow <- join (safeIndex (oiRegime inds) t)
     let longTrend =
             regimeNow == RegimeTrend
                 && fastNow > slowNow
@@ -617,15 +616,15 @@ trendFollowingAt inds t = do
 -- | Momentum-reversion candidate at a specific bar using precomputed indicators.
 momentumReversionAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
 momentumReversionAt inds t = do
-    regimeNow <- safeIndex (oiRegime inds) t >>= id
+    regimeNow <- join (safeIndex (oiRegime inds) t)
     closeNow <- safeIndex (oiClose inds) t
-    rsiNow <- safeIndex (oiRsi14 inds) t >>= id
-    stochasticNow <- safeIndex (oiStochastic14 inds) t >>= id
-    rocNow <- safeIndex (oiRoc10 inds) t >>= id
-    macdNow <- safeIndex (oiMacd12269 inds) t >>= id
-    bollingerNow <- safeIndex (oiBb202 inds) t >>= id
-    keltnerNow <- safeIndex (oiKeltner2015 inds) t >>= id
-    atrNow <- safeIndex (oiAtr14 inds) t >>= id
+    rsiNow <- join (safeIndex (oiRsi14 inds) t)
+    stochasticNow <- join (safeIndex (oiStochastic14 inds) t)
+    rocNow <- join (safeIndex (oiRoc10 inds) t)
+    macdNow <- join (safeIndex (oiMacd12269 inds) t)
+    bollingerNow <- join (safeIndex (oiBb202 inds) t)
+    keltnerNow <- join (safeIndex (oiKeltner2015 inds) t)
+    atrNow <- join (safeIndex (oiAtr14 inds) t)
     let nearLowerEnvelope = closeNow <= max (bandLower bollingerNow) (bandLower keltnerNow) * 1.02
         nearUpperEnvelope = closeNow >= min (bandUpper bollingerNow) (bandUpper keltnerNow) * 0.98
         longSetup =
@@ -676,16 +675,16 @@ momentumReversionAt inds t = do
 volumeConfirmedBreakoutAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
 volumeConfirmedBreakoutAt inds t = do
     closeNow <- safeIndex (oiClose inds) t
-    donchianNow <- safeIndex (oiDonchian20 inds) (t - 1) >>= id
-    atrNow <- safeIndex (oiAtr14 inds) t >>= id
-    obvNow <- safeIndex (oiObv inds) t >>= id
-    obvPrev <- safeIndex (oiObv inds) (t - 5) >>= id
-    adNow <- safeIndex (oiAd inds) t >>= id
-    adPrev <- safeIndex (oiAd inds) (t - 5) >>= id
-    cmfNow <- safeIndex (oiCmf20 inds) t >>= id
-    mfiNow <- safeIndex (oiMfi14 inds) t >>= id
-    vptNow <- safeIndex (oiVpt inds) t >>= id
-    vptPrev <- safeIndex (oiVpt inds) (t - 5) >>= id
+    donchianNow <- join (safeIndex (oiDonchian20 inds) (t - 1))
+    atrNow <- join (safeIndex (oiAtr14 inds) t)
+    obvNow <- join (safeIndex (oiObv inds) t)
+    obvPrev <- join (safeIndex (oiObv inds) (t - 5))
+    adNow <- join (safeIndex (oiAd inds) t)
+    adPrev <- join (safeIndex (oiAd inds) (t - 5))
+    cmfNow <- join (safeIndex (oiCmf20 inds) t)
+    mfiNow <- join (safeIndex (oiMfi14 inds) t)
+    vptNow <- join (safeIndex (oiVpt inds) t)
+    vptPrev <- join (safeIndex (oiVpt inds) (t - 5))
     let obvUp = obvNow > obvPrev
         adUp = adNow > adPrev
         vptUp = vptNow > vptPrev
