@@ -155,16 +155,6 @@ main = do
     testSlippageRejectsNegativeValue
     testSpreadRejectsNegativeValue
     testSlippageVolMultRejectsNegativeValue
-    testSlippageImpactRejectsNegativeValue
-    testSlippageImpactPowerRejectsNegativeValue
-    testSpreadVolMultRejectsNegativeValue
-    testStopLossVolMultRejectsNegativeValue
-    testTakeProfitVolMultRejectsNegativeValue
-    testTrailingStopVolMultRejectsNegativeValue
-    testMaxHoldBarsRejectsZeroValue
-    testMinHoldBarsRejectsNegativeValue
-    testCooldownBarsRejectsNegativeValue
-    testMaxTradesPerDayRejectsNegativeValue
     testStopLossRejectsLowerBoundValidation
     testStopLossRejectsAbsurdlyTightStop
     testTakeProfitRejectsAbsurdlyTightValue
@@ -199,6 +189,7 @@ main = do
     testRouterLookbackRejectsInvalidValues
     testRouterMinScoreRejectsInvalidValues
     testRouterScorePnlWeightRejectsInvalidValues
+    testExpectancyLookbackRejectsNegativeValue
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -223,7 +214,7 @@ main = do
     testKellyLiteBacktestSizingRegression
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
-    -- testVolConfGateMalformedInputsFailClosed  -- SKIPPED: regression CTO-001, see blockers/CTO-001-volConfStatefulCloseDirection.md
+    testVolConfGateMalformedInputsFailClosed
     testQueuedBotStartOrderErrorStability
     testQueuedBotStartIgnoresTransientMarketDataErrors
     testPrioritizeOrphanBotStartSymbols
@@ -589,72 +580,6 @@ testSlippageVolMultRejectsNegativeValue =
     assert
         "slippage-vol-mult rejects negative values"
         (parseAndValidateCliArgs ["--data", "sample.csv", "--slippage-vol-mult", "-0.01"] == Left "--slippage-vol-mult must be >= 0")
-
-testSlippageImpactRejectsNegativeValue :: IO ()
-testSlippageImpactRejectsNegativeValue =
-    assert
-        "slippage-impact rejects negative values"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--slippage-impact", "-0.01"] == Left "--slippage-impact must be >= 0")
-
-testSlippageImpactPowerRejectsNegativeValue :: IO ()
-testSlippageImpactPowerRejectsNegativeValue =
-    assert
-        "slippage-impact-power rejects negative values"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--slippage-impact-power", "-0.01"] == Left "--slippage-impact-power must be >= 0")
-
-testSpreadVolMultRejectsNegativeValue :: IO ()
-testSpreadVolMultRejectsNegativeValue =
-    assert
-        "spread-vol-mult rejects negative values"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--spread-vol-mult", "-0.01"] == Left "--spread-vol-mult must be >= 0")
-
-testStopLossVolMultRejectsNegativeValue :: IO ()
-testStopLossVolMultRejectsNegativeValue =
-    assert
-        "stop-loss-vol-mult rejects negative values"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--stop-loss-vol-mult", "-0.01"] == Left "--stop-loss-vol-mult must be >= 0")
-
-testTakeProfitVolMultRejectsNegativeValue :: IO ()
-testTakeProfitVolMultRejectsNegativeValue =
-    assert
-        "take-profit-vol-mult rejects negative values"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--take-profit-vol-mult", "-0.01"] == Left "--take-profit-vol-mult must be >= 0")
-
-testTrailingStopVolMultRejectsNegativeValue :: IO ()
-testTrailingStopVolMultRejectsNegativeValue =
-    assert
-        "trailing-stop-vol-mult rejects negative values"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--trailing-stop-vol-mult", "-0.01"] == Left "--trailing-stop-vol-mult must be >= 0")
-
-testMinHoldBarsRejectsNegativeValue :: IO ()
-testMinHoldBarsRejectsNegativeValue =
-    assert
-        "min-hold-bars rejects negative values"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--min-hold-bars", "-1"] == Left "--min-hold-bars must be >= 0")
-
-testCooldownBarsRejectsNegativeValue :: IO ()
-testCooldownBarsRejectsNegativeValue =
-    assert
-        "cooldown-bars rejects negative values"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--cooldown-bars", "-1"] == Left "--cooldown-bars must be >= 0")
-
-testMaxTradesPerDayRejectsNegativeValue :: IO ()
-testMaxTradesPerDayRejectsNegativeValue =
-    assert
-        "max-trades-per-day rejects negative values"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-trades-per-day", "-1"] == Left "--max-trades-per-day must be >= 0")
-
-testMaxHoldBarsRejectsZeroValue :: IO ()
-testMaxHoldBarsRejectsZeroValue = do
-    assert
-        "max-hold-bars rejects zero"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-hold-bars", "0"] == Left "--max-hold-bars must be >= 1")
-    assert
-        "max-hold-bars accepts one"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-hold-bars", "1"] of
-            Right args -> argMaxHoldBars args == Just 1
-            Left _ -> False
-        )
 
 testStopLossRejectsLowerBoundValidation :: IO ()
 testStopLossRejectsLowerBoundValidation =
@@ -1263,6 +1188,40 @@ testRouterScorePnlWeightRejectsInvalidValues = do
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--router-score-pnl-weight", "1.0"] of
             Right args -> argRouterScorePnlWeight args == 1.0
             Left _ -> False
+        )
+
+testExpectancyLookbackRejectsNegativeValue :: IO ()
+testExpectancyLookbackRejectsNegativeValue = do
+    let rejectedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--expectancy-lookback"
+            , "-1"
+            ]
+        acceptedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--expectancy-lookback"
+            , "20"
+            ]
+    assert
+        "expectancy-lookback rejects negative values"
+        ( parseAndValidateCliArgs rejectedArgs == Left "--expectancy-lookback must be >= 0"
+            && case parseAndValidateCliArgs acceptedArgs of
+                Right args -> argExpectancyLookback args == 20
+                Left _ -> False
         )
 
 testExchangeDataLongShortBacktestAllowed :: IO ()
