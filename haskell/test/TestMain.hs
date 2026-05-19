@@ -190,6 +190,7 @@ main = do
     testRouterMinScoreRejectsInvalidValues
     testRouterScorePnlWeightRejectsInvalidValues
     testExpectancyLookbackRejectsNegativeValue
+    testPerfLookbackRejectsNegativeValue
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -1221,6 +1222,40 @@ testExpectancyLookbackRejectsNegativeValue = do
         ( parseAndValidateCliArgs rejectedArgs == Left "--expectancy-lookback must be >= 0"
             && case parseAndValidateCliArgs acceptedArgs of
                 Right args -> argExpectancyLookback args == 20
+                Left _ -> False
+        )
+
+testPerfLookbackRejectsNegativeValue :: IO ()
+testPerfLookbackRejectsNegativeValue = do
+    let rejectedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--perf-lookback"
+            , "-1"
+            ]
+        acceptedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--perf-lookback"
+            , "20"
+            ]
+    assert
+        "perf-lookback rejects negative values"
+        ( parseAndValidateCliArgs rejectedArgs == Left "--perf-lookback must be >= 0"
+            && case parseAndValidateCliArgs acceptedArgs of
+                Right args -> argPerfLookback args == 20
                 Left _ -> False
         )
 
