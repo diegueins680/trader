@@ -147,6 +147,19 @@ async function main() {
         nextRunAt: shutdownRequest ? null : futureIso(LOOP_INTERVAL_SECONDS),
       });
 
+      const commit = (() => { try { return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', cwd: ROOT }).trim(); } catch { return null; } })();
+      const durationMs = result.startedAt && result.endedAt
+        ? new Date(result.endedAt).getTime() - new Date(result.startedAt).getTime()
+        : null;
+      const metricsLine = JSON.stringify({
+        timestamp: result.endedAt ?? new Date().toISOString(),
+        cycleCount: cycleIndex,
+        exitCode: result.exitCode ?? null,
+        durationMs,
+        commit,
+      }) + "\n";
+      await fs.appendFile(path.join(ROOT, "reports", "autoloop-metrics.ndjson"), metricsLine, "utf8").catch(() => {});
+
       if (await syncStopFileState()) break;
       if (await sleepWithStopPolling(LOOP_INTERVAL_SECONDS)) break;
     }

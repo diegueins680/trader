@@ -159,6 +159,18 @@ Status: `no-existing-data-validation-seam` — no tests validate the preset. Nex
 FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; TestMain.hs dirty; no tests in TestMain.hs
 
 ---
+## Run 2026-05-20 18:00 UTC — Data Director proof for `--vol-conf-gate <preset>`
+
+Proof: `(git status --porcelain ...; grep ...)` from `haskell/`
+- `--vol-conf-gate` defined Args.hs:873-878; consumed Main.hs:425,497,1283
+- `app/Main.hs` dirty (M); Args.hs/TestMain.hs clean
+- Zero matches in test/TestMain.hs — still no test coverage
+
+Status: `data-not-blocking` — seam wired end-to-end. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage).
+
+FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; Main.hs dirty; no tests in TestMain.hs
+
+---
 ## Run 2026-05-20 04:44 UTC — Data Director proof for `--vol-conf-gate <preset>`
 
 Proof: `(git status --porcelain ...; grep ...)` from `haskell/`

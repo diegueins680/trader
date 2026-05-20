@@ -205,6 +205,7 @@ main = do
     testPerfLookbackRejectsNegativeValue
     testLossStreakMaxRejectsNegativeValue
     testLossStreakCooldownBarsRejectsNegativeValue
+    testVolScaleMaxRejectsInvalidValues
     testRsiLowerMustBeLessThanUpper
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
@@ -1334,6 +1335,33 @@ testLossStreakMaxRejectsNegativeValue = do
             && case parseAndValidateCliArgs acceptedArgs of
                 Right args -> argLossStreakMax args == 3
                 Left _ -> False
+        )
+
+testVolScaleMaxRejectsInvalidValues :: IO ()
+testVolScaleMaxRejectsInvalidValues = do
+    assert
+        "vol-scale-max rejects -0.1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--vol-scale-max", "-0.1"] == Left "--vol-scale-max must be >= 0")
+    assert
+        "vol-scale-max rejects 100.1 (above sanity cap)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--vol-scale-max", "100.1"] == Left "--vol-scale-max must be <= 100")
+    assert
+        "vol-scale-max accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--vol-scale-max", "0"] of
+            Right args -> argVolScaleMax args == 0
+            Left _ -> False
+        )
+    assert
+        "vol-scale-max accepts 1 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv"] of
+            Right args -> argVolScaleMax args == 1
+            Left _ -> False
+        )
+    assert
+        "vol-scale-max accepts 100 (sanity cap boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--vol-scale-max", "100"] of
+            Right args -> argVolScaleMax args == 100
+            Left _ -> False
         )
 
 testLossStreakCooldownBarsRejectsNegativeValue :: IO ()

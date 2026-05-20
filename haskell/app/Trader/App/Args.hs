@@ -1607,6 +1607,7 @@ validateArgs args0 = do
         Just a -> ensure "--vol-ewma-alpha must be > 0 and < 1" (a > 0 && a < 1)
     ensure "--vol-floor must be >= 0" (argVolFloor args >= 0)
     ensure "--vol-scale-max must be >= 0" (argVolScaleMax args >= 0)
+    ensure "--vol-scale-max must be <= 100" (argVolScaleMax args <= 100)
     case argMaxVolatility args of
         Nothing -> pure ()
         Just v -> ensure "--max-volatility must be >= 0" (v >= 0)
