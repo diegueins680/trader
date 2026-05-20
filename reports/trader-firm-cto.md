@@ -35,4 +35,17 @@ FINAL_STATUS: done — reports/trader-firm-cto.md appended with autoloop stall +
 ready
 data-not-blocking
 data-objective-already-aligned
-FINAL_STATUS: done — reports/autoloop-metrics.ndjson restored and committed (4a4b5310)
+## 2026-05-20 21:50 UTC — CTO autoloop root-cause diagnosis (P1/P2)
+
+- PID 63353 alive (elapsed 03:15:26) but metrics NDJSON still stale at cycle 57 (08:47 UTC).
+- Root cause: stale PID file `.tmp/autoloop/runner.pid` contains dead PID 58369 (status.json shows SIGTERM shutdown at 11:51 UTC).
+- `ensureSingleRunner` uses PID-file collision detection; the new process (63353) fails its own check and exits immediately after cycle start, so metrics never append.
+- Cycle logs are 155-byte stubs (git reset only), confirming child dies before Codex work.
+- Fix required: remove stale PID file and restart; or patch `ensureSingleRunner` to validate PID liveness before rejecting.
+
+blocked
+data-not-blocking
+data-objective-already-aligned
+FINAL_STATUS: blocked — stale runner.pid (58369) prevents autoloop-forever.mjs from running cycles; fix is remove PID file + restart or patch ensureSingleRunner
+
+## 2026-05-20 11:50 UTC — CTO autoloop metrics file restored + verification pass

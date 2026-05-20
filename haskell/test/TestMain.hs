@@ -180,6 +180,7 @@ main = do
     testMinPositionSizeRejectsOutOfRangeValues
     testBacktestRatioRejectsInvalidValues
     testOrderQuoteFractionRejectsInvalidValues
+    testMaxOrderQuoteRejectsAbsurdValue
     testFromMustBeLessThanOrEqualToTo
     testValRatioRejectsInvalidValues
     testHiddenSizeRejectsInvalidValues
@@ -749,6 +750,24 @@ testOrderQuoteFractionRejectsInvalidValues = do
         "order-quote-fraction accepts 0.5 (valid fraction)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "0.5"] of
             Right args -> argOrderQuoteFraction args == Just 0.5
+            Left _ -> False
+        )
+
+testMaxOrderQuoteRejectsAbsurdValue :: IO ()
+testMaxOrderQuoteRejectsAbsurdValue = do
+    assert
+        "max-order-quote rejects 10000000.01 (absurd upper bound)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "0.5", "--max-order-quote", "10000000.01"] == Left "--max-order-quote must be <= 10000000")
+    assert
+        "max-order-quote accepts 10000000 (sanity cap boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "0.5", "--max-order-quote", "10000000"] of
+            Right args -> argMaxOrderQuote args == Just 10000000
+            Left _ -> False
+        )
+    assert
+        "max-order-quote accepts 1000 (normal value)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--order-quote-fraction", "0.5", "--max-order-quote", "1000"] of
+            Right args -> argMaxOrderQuote args == Just 1000
             Left _ -> False
         )
 

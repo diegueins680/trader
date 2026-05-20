@@ -1675,7 +1675,9 @@ validateArgs args0 = do
         Just f -> ensure "--order-quote-fraction must be > 0 and <= 1" (f > 0 && f <= 1)
     case argMaxOrderQuote args of
         Nothing -> pure ()
-        Just q -> ensure "--max-order-quote must be > 0" (q > 0)
+        Just q -> do
+            ensure "--max-order-quote must be > 0" (q > 0)
+            ensure "--max-order-quote must be <= 10000000" (q <= 10000000)
 
     case argMaxOrderQuote args of
         Just _ -> ensure "--max-order-quote requires --order-quote-fraction" fracOn
