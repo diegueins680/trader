@@ -23,3 +23,16 @@ blocked
 data-blocking: repeatable fetch pipeline with checksums for BTCUSDT-4h, SOLUSDT-4h, ETHUSDT-4h
 data-objective-already-aligned
 FINAL_STATUS: done — reports/trader-firm-cto.md appended with autoloop stall + credential gap evidence
+
+## 2026-05-20 11:50 UTC — CTO autoloop metrics file restored + verification pass
+
+- Autoloop PID 764 alive in runtime/trader-autoloop-live (elapsed 56m+, cwd confirmed).
+- Checkpoint commit 2198505e contained 3-line autoloop-metrics.ndjson (cycles 55–57, all exitCode 0).
+- File was missing from main worktree; restored via `git show` and committed as 4a4b5310.
+- Verification: `bash scripts/verify.sh automation` → 54/54 pass.
+- P1 probation already exited at cycle 57; P2 metrics file now durable in repo.
+
+ready
+data-not-blocking
+data-objective-already-aligned
+FINAL_STATUS: done — reports/autoloop-metrics.ndjson restored and committed (4a4b5310)

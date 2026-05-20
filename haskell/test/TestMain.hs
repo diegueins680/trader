@@ -175,6 +175,7 @@ main = do
     testTrailingStopRejectsLowerBoundValidation
     testMaxPositionSizeRejectsAbsurdUpperBound
     testMaxPositionSizeRejectsNonFuturesOverFive
+    testMaxPositionSizeRejectsZeroAndNegative
     testInitialBalanceRejectsZeroOrNegative
     testMinPositionSizeRejectsOutOfRangeValues
     testBacktestRatioRejectsInvalidValues
@@ -669,6 +670,21 @@ testMaxPositionSizeRejectsNonFuturesOverFive = do
         "max-position-size accepts 6 on Binance futures"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "6", "--futures"] of
             Right args -> argMaxPositionSize args == 6
+            Left _ -> False
+        )
+
+testMaxPositionSizeRejectsZeroAndNegative :: IO ()
+testMaxPositionSizeRejectsZeroAndNegative = do
+    assert
+        "max-position-size rejects 0 (zero boundary)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "0"] == Left "--max-position-size must be > 0")
+    assert
+        "max-position-size rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "-0.1"] == Left "--max-position-size must be > 0")
+    assert
+        "max-position-size accepts small positive values"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--max-position-size", "0.01", "--min-position-size", "0.01"] of
+            Right args -> argMaxPositionSize args == 0.01
             Left _ -> False
         )
 
