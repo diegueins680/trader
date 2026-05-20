@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading/CLI: reject `--max-position-size` values `<= 0` instead of allowing zero; the error message now reads `must be > 0` instead of `must be >= 0`, matching the existing `--initial-balance` and `--trailing-stop` strict-positive contracts.
 - Trading/TA: add `ta_regime_switch`, a regime-conditioned technical-analysis method that uses ADX/EMA200 to select long-biased trend following, narrow Bollinger bandwidth to select reversion, and breakout otherwise.
 - Planning: add next-generation architecture RFC (`artifacts/planning/trader-firm-nextgen-architecture-2026-05-20.md`) synthesizing 12 transformative trading-system ideas into a phased implementation plan.
 - Web/Trade: default new trade forms to live armed trading and quote-fraction sizing with `orderQuoteFraction=1`, `orderQuote=0`, and `orderQuantity=0`, matching the Live Bot & Trade preset.
