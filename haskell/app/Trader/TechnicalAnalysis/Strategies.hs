@@ -16,8 +16,11 @@ module Trader.TechnicalAnalysis.Strategies (
     momentumReversionAt,
     momentumReversionCandidate,
     precomputeIndicators,
+    regimeSwitchAt,
+    regimeSwitchCandidate,
     regimeSelector,
     regimeSelectorDecomposed,
+    regimeSwitchSubMethod,
     strategyCandidates,
     trendFollowingAt,
     trendFollowingCandidate,
@@ -27,7 +30,7 @@ module Trader.TechnicalAnalysis.Strategies (
 
 import Control.Monad (join)
 import Data.List (sortOn)
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
 import Data.Ord (Down (..))
 import qualified Data.Vector as V
 import Trader.Method (Method (..))
@@ -362,6 +365,20 @@ volumeConfirmedBreakoutCandidate series = do
                                 }
                     else Nothing
 
+regimeSwitchCandidate :: RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
+regimeSwitchCandidate cal series = do
+    validateSeries series
+    closeNow <- lastValue (ohlcvClose series)
+    let mAdx = latestJust (adxSeries 14 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))
+        mEma200 = latestJust (emaSeries 200 (ohlcvClose series))
+        mBollinger = latestJust (bollingerBandsSeries 20 2 (ohlcvClose series))
+    candidateForSubMethod (regimeSwitchSubMethod closeNow mAdx mEma200 mBollinger)
+  where
+    candidateForSubMethod MethodTaTrend = trendFollowingCandidate cal series >>= longBiasOnly
+    candidateForSubMethod MethodTaReversion = momentumReversionCandidate cal series
+    candidateForSubMethod MethodTaBreakout = volumeConfirmedBreakoutCandidate series
+    candidateForSubMethod _ = Nothing
+
 validateSeries :: OhlcvSeries -> Maybe ()
 validateSeries series
     | not (sameLength [ohlcvOpen series, ohlcvHigh series, ohlcvLow series, ohlcvClose series, ohlcvVolume series]) = Nothing
@@ -460,6 +477,7 @@ data OhlcvIndicators = OhlcvIndicators
     , oiVolume :: !(V.Vector Double)
     , oiEma20 :: !(V.Vector (Maybe Double))
     , oiEma50 :: !(V.Vector (Maybe Double))
+    , oiEma200 :: !(V.Vector (Maybe Double))
     , oiAdx14 :: !(V.Vector (Maybe AdxPoint))
     , oiAroon25 :: !(V.Vector (Maybe AroonPoint))
     , oiAtr14 :: !(V.Vector (Maybe Double))
@@ -490,6 +508,7 @@ precomputeIndicators series =
         volumes = ohlcvVolume series
         ema20 = emaSeries 20 closes
         ema50 = emaSeries 50 closes
+        ema200 = emaSeries 200 closes
         adx14 = adxSeries 14 highs lows closes
         aroon25 = aroonSeries 25 highs lows
         atr14 = atrSeries 14 highs lows closes
@@ -539,6 +558,7 @@ precomputeIndicators series =
             , oiVolume = volumes
             , oiEma20 = ema20
             , oiEma50 = ema50
+            , oiEma200 = ema200
             , oiAdx14 = adx14
             , oiAroon25 = aroon25
             , oiAtr14 = atr14
@@ -721,6 +741,45 @@ volumeConfirmedBreakoutAt inds t = do
                             }
                 else Nothing
 
+regimeSwitchAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
+regimeSwitchAt inds t = do
+    closeNow <- safeIndex (oiClose inds) t
+    let mAdx = join (safeIndex (oiAdx14 inds) t)
+        mEma200 = join (safeIndex (oiEma200 inds) t)
+        mBollinger = join (safeIndex (oiBb202 inds) t)
+    candidateForSubMethod (regimeSwitchSubMethod closeNow mAdx mEma200 mBollinger)
+  where
+    candidateForSubMethod MethodTaTrend = trendFollowingAt inds t >>= longBiasOnly
+    candidateForSubMethod MethodTaReversion = momentumReversionAt inds t
+    candidateForSubMethod MethodTaBreakout = volumeConfirmedBreakoutAt inds t
+    candidateForSubMethod _ = Nothing
+
+regimeSwitchSubMethod :: Double -> Maybe AdxPoint -> Maybe Double -> Maybe Band -> Method
+regimeSwitchSubMethod closeNow mAdx mEma200 mBollinger
+    | adxStrong && priceAboveEma200 = MethodTaTrend
+    | bollingerSqueeze = MethodTaReversion
+    | otherwise = MethodTaBreakout
+  where
+    adxStrong = maybe False ((> regimeSwitchAdxThreshold) . adxValue) mAdx
+    priceAboveEma200 = maybe False (closeNow >) mEma200
+    bollingerSqueeze = maybe False ((< regimeSwitchBollingerBandwidthThreshold) . bollingerBandwidth closeNow) mBollinger
+
+regimeSwitchAdxThreshold :: Double
+regimeSwitchAdxThreshold = 25
+
+regimeSwitchBollingerBandwidthThreshold :: Double
+regimeSwitchBollingerBandwidthThreshold = 0.002
+
+bollingerBandwidth :: Double -> Band -> Double
+bollingerBandwidth closeNow band =
+    safeDivide (bandUpper band - bandLower band) closeNow
+
+longBiasOnly :: StrategyCandidate -> Maybe StrategyCandidate
+longBiasOnly candidate =
+    case scBias candidate of
+        BiasLong -> Just candidate
+        _ -> Nothing
+
 -- | Evaluate the best precomputed candidate at a specific bar.
 bestCandidateAt :: TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Maybe GatedStrategyCandidate
 bestCandidateAt inputs inds t =
@@ -746,4 +805,5 @@ candidateForMethodAt method inputs inds t =
         MethodTaReversion -> momentumReversionAt inds t >>= admitStrategyCandidate inputs
         MethodTaBreakout -> volumeConfirmedBreakoutAt inds t >>= admitStrategyCandidate inputs
         MethodTaBest -> bestCandidateAt inputs inds t
+        MethodTaRegimeSwitch -> regimeSwitchAt inds t >>= admitStrategyCandidate inputs
         _ -> Nothing

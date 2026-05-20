@@ -1,4 +1,6 @@
 ## Unreleased
+- Trading/TA: add `ta_regime_switch`, a regime-conditioned technical-analysis method that uses ADX/EMA200 to select long-biased trend following, narrow Bollinger bandwidth to select reversion, and breakout otherwise.
+- Planning: add next-generation architecture RFC (`artifacts/planning/trader-firm-nextgen-architecture-2026-05-20.md`) synthesizing 12 transformative trading-system ideas into a phased implementation plan.
 - Web/Trade: default new trade forms to live armed trading and quote-fraction sizing with `orderQuoteFraction=1`, `orderQuote=0`, and `orderQuantity=0`, matching the Live Bot & Trade preset.
 - Deploy: enable the backend auto optimizer in checked-in Fly and Render deployment configs; Fly also enables scheduled top-combo rechecks with the documented 15-minute optimizer cadence and 30-day exchange history window so production combos keep refreshing without external imports.
 - Web/Optimizer: add parameter-to-ROI correlation charts to the Optimizer Combos section, scoped to the active combo filters, plus correlation-guided optimizer guesses that prefill run ranges and advanced extra JSON knobs from the strongest ROI relationships.
@@ -28,7 +30,6 @@
 - Trading: fail closed on malformed quantile prediction intervals by requiring `Trader.Predictors.Quantile.predictQuantiles` to emit usable intervals only from finite ordered q10/q50/q90 evidence; empty or dimension-invalid models, non-finite quantiles, and inverted q10/q90 bounds now return unavailable quantiles instead of a sorted or misleading interval.
 - Trading/Formal: document the quantile-interval admissibility invariant in `FORMAL_METHODS.md`, including valid q10/q90 equality, unavailable malformed evidence, and monotone non-narrowing under wider quantile spread.
 - Trading: fail closed on malformed volatility-confidence gate evidence by requiring enabled `Trader.VolConfGate` presets to receive present finite volatility within `[0,2]` and provided finite confidence within `[0,1]`; malformed volatility or malformed provided confidence now yields exit-only behavior instead of being normalized into an entry-permissive gate state.
-- Formal methods/CLI: document `analyze-close-timing` usage, input schema, bounded `tm` search window, robust per-combo timing stats, and fail-closed max-hold retune evidence.
 - Trading/Formal: document the volatility-confidence gate validity invariant in `FORMAL_METHODS.md` and bind it to bounded Haskell regression coverage for malformed volatility, malformed confidence, valid boundary equality, and monotonicity under stricter confidence/volatility requirements.
 - Trading: wire the fee-aware fresh-entry buffer into the actual backtest simulator and live latest-signal decision path after final entry-size overlays, so threshold/headroom-valid signals now remain flat when their modeled edge does not clear the sized round-trip cost floor.
 - Autoloop: make the logical-correctness loop explicitly audit the Haskell trading algorithm first, then implement backend correctness improvements with tests/formal notes and targeted verification where practical.
@@ -65,4 +66,3 @@
 - Trading: restore the fresh-entry edge-spike veto as a maximum-edge sanity gate: entries now require finite non-negative edge samples no greater than `min(4 * active open-threshold, 0.5)`, so absurd one-bar forecast edges are blocked as `EDGE_SPIKE` while the separate headroom and fee-buffer gates still enforce minimum edge.
 - Trading/Tests: add bounded Haskell tests covering spike-cap equality, strict-above-cap rejection, malformed-input rejection, and ETC-style spike replay coverage.
 - Trading: derive low-directionality efficiency and z-score from the additive per-bar return path, so clean monotonic trend windows stay directional instead of being misclassified as malformed when the compounded endpoint return slightly exceeds the summed simple-return path.
-...

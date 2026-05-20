@@ -64,6 +64,7 @@ data Method
     | MethodTaReversion
     | MethodTaBreakout
     | MethodTaBest
+    | MethodTaRegimeSwitch
     deriving (Eq, Show)
 
 methodCode :: Method -> String
@@ -105,6 +106,7 @@ methodCode m =
         MethodTaReversion -> "ta_reversion"
         MethodTaBreakout -> "ta_breakout"
         MethodTaBest -> "ta_best"
+        MethodTaRegimeSwitch -> "ta_regime_switch"
 
 methodIsTechnicalAnalysis :: Method -> Bool
 methodIsTechnicalAnalysis m =
@@ -113,6 +115,7 @@ methodIsTechnicalAnalysis m =
         MethodTaReversion -> True
         MethodTaBreakout -> True
         MethodTaBest -> True
+        MethodTaRegimeSwitch -> True
         _ -> False
 
 parseMethod :: String -> Either String Method
@@ -343,11 +346,17 @@ parseMethod raw =
         "technical" -> Right MethodTaBest
         "technical_analysis" -> Right MethodTaBest
         "technical-analysis" -> Right MethodTaBest
+        "ta_regime_switch" -> Right MethodTaRegimeSwitch
+        "ta-regime-switch" -> Right MethodTaRegimeSwitch
+        "taregimeswitch" -> Right MethodTaRegimeSwitch
+        "technical_regime_switch" -> Right MethodTaRegimeSwitch
+        "technical-regime-switch" -> Right MethodTaRegimeSwitch
+        "technicalregimeswitch" -> Right MethodTaRegimeSwitch
         other ->
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, kalman_physics_error, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router, ta_trend, ta_reversion, ta_breakout, ta_best)"
+                    ++ " (expected 11|both, 10|kalman, kalman_physics_error, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router, ta_trend, ta_reversion, ta_breakout, ta_best, ta_regime_switch)"
                 )
 
 runtimeMethod :: Method -> Method
@@ -367,6 +376,7 @@ selectPredictions m blendWeight kalPred lstmPred =
         MethodTaReversion -> (kalPred, kalPred)
         MethodTaBreakout -> (kalPred, kalPred)
         MethodTaBest -> (kalPred, kalPred)
+        MethodTaRegimeSwitch -> (kalPred, kalPred)
         MethodRegimeSwitch -> (regimeSwitched, regimeSwitched)
         MethodRouter -> (kalPred, lstmPred)
         MethodBanditRouter -> (kalPred, lstmPred)

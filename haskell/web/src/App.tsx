@@ -92,6 +92,7 @@ import { comboMarketValue, type ComboMarketFilter, type ComboMarketValue } from 
 import {
   BACKTEST_TIMEOUT_MS,
   BOT_START_TIMEOUT_MS,
+  OPTIMIZER_TIMEOUT_MS,
   BOT_STATUS_OPS_FALLBACK_LIMIT,
   BOT_STATUS_OPS_LIMIT,
   BOT_STATUS_POLL_MS,
@@ -3400,14 +3401,15 @@ export function App() {
     const controller = new AbortController();
     optimizerRunAbortRef.current = controller;
     setOptimizerRunUi((prev) => ({ ...prev, loading: true, error: null }));
+    const progressRequestId = `optimizer-run-${generateIdempotencyKey()}`;
 
     try {
       const payload = buildOptimizerRunRequest(optimizerRunForm, optimizerRunExtras.value);
       const timeoutSec = typeof payload.timeoutSec === "number" && Number.isFinite(payload.timeoutSec) ? payload.timeoutSec : null;
-      const timeoutMs = timeoutSec != null && timeoutSec > 0 ? Math.max(1000, Math.round(timeoutSec * 1000)) : BACKTEST_TIMEOUT_MS;
+      const timeoutMs = timeoutSec != null && timeoutSec > 0 ? Math.max(1000, Math.round(timeoutSec * 1000)) : OPTIMIZER_TIMEOUT_MS;
       const out = await optimizerRun(apiBase, payload, {
         signal: controller.signal,
-        headers: authHeaders,
+        headers: { ...(authHeaders ?? {}), [REQUEST_PROGRESS_HEADER]: progressRequestId },
         timeoutMs,
       });
       if (requestId !== optimizerRunRequestSeqRef.current) return;
@@ -3422,7 +3424,9 @@ export function App() {
 
       let msg = e instanceof Error ? e.message : String(e);
       let showErrorToast = true;
-      if (isTimeoutError(e)) msg = "Optimizer run timed out. Increase timeout or reduce trials.";
+      if (isTimeoutError(e)) {
+        msg = await fetchTimedRequestProgressMessage(progressRequestId, "Optimizer run timed out. Increase timeout or reduce trials.");
+      }
       if (e instanceof HttpError && typeof e.payload === "string") {
         const payload = e.payload;
         if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {

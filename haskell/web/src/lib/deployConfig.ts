@@ -3,6 +3,7 @@ export type TraderUiTimeoutsMs = {
   signalMs?: number;
   backtestMs?: number;
   tradeMs?: number;
+  optimizerMs?: number;
   botStartMs?: number;
   botStatusMs?: number;
 };
@@ -186,6 +187,7 @@ function readTimeouts(raw: unknown): TraderUiTimeoutsMs | undefined {
     signalMs: normalizeTimeoutMs(r.signalMs),
     backtestMs: normalizeTimeoutMs(r.backtestMs),
     tradeMs: normalizeTimeoutMs(r.tradeMs),
+    optimizerMs: normalizeTimeoutMs(r.optimizerMs),
     botStartMs: normalizeTimeoutMs(r.botStartMs),
     botStatusMs: normalizeTimeoutMs(r.botStatusMs),
   };

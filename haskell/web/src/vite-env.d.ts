@@ -17,6 +17,7 @@ interface Window {
       signalMs?: number;
       backtestMs?: number;
       tradeMs?: number;
+      optimizerMs?: number;
       botStartMs?: number;
       botStatusMs?: number;
     };

@@ -1331,6 +1331,10 @@ def build_report(
     auth_failure_unknown_role_events = [row for row in auth_failure_order_events if row["flowRole"] == "unknown"]
     cutoff_freshness, stale_snapshots_at_cutoff, latest_action_census = build_cutoff_freshness(snapshots, end_ms, tz)
     cutoff_latest_signal_audit = build_cutoff_latest_signal_audit(snapshots, end_ms, tz)
+    available_symbols = cutoff_freshness["availableSymbols"]
+    stale_snapshot_rate = (
+        round(len(stale_snapshots_at_cutoff) / available_symbols, 4) if available_symbols else None
+    )
 
     compound = 1.0
     for trade in completed_trades:
@@ -1373,6 +1377,7 @@ def build_report(
             "ambiguousOpenPositionOrigins": len(ambiguous_open_positions),
             "snapshotsUpdatedAfterWindow": len(snapshots_updated_after_window),
             "staleSnapshotsAtCutoff": len(stale_snapshots_at_cutoff),
+            "staleSnapshotRate": stale_snapshot_rate,
             "cutoffSignalsWithMeasurableEdge": cutoff_latest_signal_audit["counts"]["withMeasurableEdge"],
             "cutoffSignalsAboveOpenThreshold": cutoff_latest_signal_audit["counts"]["aboveOpenThreshold"],
             "cutoffSignalsAboveHeadroomFloor": cutoff_latest_signal_audit["counts"]["aboveHeadroomFloor"],

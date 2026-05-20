@@ -19,6 +19,8 @@ runTechnicalAnalysisTests = do
     testBreakoutCandidateCanTriggerLong
     testCandidateConfidenceUsesAverageBeforeClamp
     testGatedCandidateAdmissionHonorsRiskGates
+    testRegimeSwitchSubMethodSelection
+    testRegimeSwitchCandidateUsesBreakoutFallback
     testTechnicalAnalysisMethodsParse
 
 assert :: String -> Bool -> IO ()
@@ -132,6 +134,34 @@ testGatedCandidateAdmissionHonorsRiskGates = do
     assert "malformed volatility blocks non-disabled volume/confidence gates" (isNothing (admitStrategyCandidate malformedVolInputs candidate))
     assert "weak confidence blocks TA entries" (isNothing (admitStrategyCandidate inputs weakCandidate))
 
+testRegimeSwitchSubMethodSelection :: IO ()
+testRegimeSwitchSubMethodSelection = do
+    let strongAdx = Just AdxPoint{adxValue = 26, adxPlusDi = 30, adxMinusDi = 10}
+        weakAdx = Just AdxPoint{adxValue = 20, adxPlusDi = 20, adxMinusDi = 18}
+        narrowBand = Just Band{bandLower = 99.95, bandMiddle = 100, bandUpper = 100.05}
+        wideBand = Just Band{bandLower = 95, bandMiddle = 100, bandUpper = 105}
+    assert
+        "ta_regime_switch selects trend when ADX is above 25 and price is above EMA200"
+        (regimeSwitchSubMethod 101 strongAdx (Just 100) wideBand == MethodTaTrend)
+    assert
+        "ta_regime_switch selects reversion on narrow Bollinger bandwidth outside the trend regime"
+        (regimeSwitchSubMethod 99 strongAdx (Just 100) narrowBand == MethodTaReversion)
+    assert
+        "ta_regime_switch selects breakout by default"
+        (regimeSwitchSubMethod 100 weakAdx (Just 101) wideBand == MethodTaBreakout)
+
+testRegimeSwitchCandidateUsesBreakoutFallback :: IO ()
+testRegimeSwitchCandidateUsesBreakoutFallback = do
+    let inds = precomputeIndicators breakoutSeries
+        t = V.length (ohlcvClose breakoutSeries) - 1
+        candidate = candidateForMethodAt MethodTaRegimeSwitch taTestInputs inds t
+    assert
+        "ta_regime_switch uses the breakout candidate when trend and squeeze regimes are absent"
+        ( case candidate of
+            Just signal -> scFamily (gscCandidate signal) == "volume-confirmed-breakout"
+            Nothing -> False
+        )
+
 testTechnicalAnalysisMethodsParse :: IO ()
 testTechnicalAnalysisMethodsParse = do
     let cases =
@@ -139,6 +169,7 @@ testTechnicalAnalysisMethodsParse = do
             , ("technical-reversion", MethodTaReversion)
             , ("volume_breakout", MethodTaBreakout)
             , ("technical_analysis", MethodTaBest)
+            , ("ta_regime_switch", MethodTaRegimeSwitch)
             ]
     mapM_
         ( \(raw, expected) ->
@@ -157,3 +188,14 @@ breakoutSeries =
         opens = V.map (subtract 0.3) closes
         volumes = V.fromList ([1000 + fromIntegral i * 5 | i <- [0 .. 58]] ++ [2000, 2200, 2400, 2600, 2800, 3000])
      in OhlcvSeries opens highs lows closes volumes
+
+taTestInputs :: TechnicalAnalysisGateInputs
+taTestInputs =
+    TechnicalAnalysisGateInputs
+        { tagFeePerSide = 0
+        , tagMinConfidence = 0
+        , tagCurrentBias = Nothing
+        , tagVolatility = Just 0.4
+        , tagVolConfGate = VolConfGateDisabled
+        , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
+        }

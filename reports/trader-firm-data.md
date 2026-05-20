@@ -147,13 +147,25 @@ Status: `data-not-blocking` — seam wired end-to-end. Next owner/consumer: **tr
 FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; Main.hs+TestMain.hs dirty; no tests in TestMain.hs
 
 ---
-## Run 2026-05-16 08:52 UTC — Data Director proof for `--vol-conf-gate <preset>`
+## Run 2026-05-19 18:57 UTC — Data Director proof for `--vol-conf-gate <preset>`
 
 Proof: `(git status --porcelain ...; grep ...)` from `haskell/`
 - `--vol-conf-gate` defined Args.hs:873-878; consumed Main.hs:425,497,1283
-- All three files clean (no uncommitted changes)
+- `test/TestMain.hs` dirty (M); Args.hs/Main.hs clean
 - Zero matches in test/TestMain.hs — no test coverage
 
 Status: `no-existing-data-validation-seam` — no tests validate the preset. Next owner/consumer: **trader-firm-execution** (add TestMain.hs round-trip coverage).
 
-FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; all files clean; no tests in TestMain.hs
+FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; TestMain.hs dirty; no tests in TestMain.hs
+
+---
+## Run 2026-05-20 04:44 UTC — Data Director proof for `--vol-conf-gate <preset>`
+
+Proof: `(git status --porcelain ...; grep ...)` from `haskell/`
+- `--vol-conf-gate` defined Args.hs:873-878; consumed Main.hs:425,497,1283
+- `app/Main.hs` dirty (M); Args.hs/TestMain.hs clean
+- Zero matches in test/TestMain.hs — still no test coverage
+
+Status: `data-not-blocking` — seam wired end-to-end. Next owner/consumer: **trader-firm-execution** (add TestMain.hs coverage).
+
+FINAL_STATUS: done — `--vol-conf-gate` wired CLI→Args→Main→JSON; Main.hs dirty; no tests in TestMain.hs

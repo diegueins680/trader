@@ -479,7 +479,7 @@ function summarizePayload(payload: unknown): string {
 }
 
 async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
-  const timeoutMs = opts?.timeoutMs ?? TRADER_UI_CONFIG.timeoutsMs?.requestMs ?? 30_000;
+  const timeoutMs = opts?.timeoutMs ?? TRADER_UI_CONFIG.timeoutsMs?.requestMs ?? 60_000;
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
     const url = resolveUrl(baseUrl, path);
@@ -690,7 +690,7 @@ async function runSyncBacktestWithRetry(
   opts?: AsyncJobOptions,
 ): Promise<BacktestResponse> {
   const startedAt = Date.now();
-  const overallTimeoutMs = opts?.timeoutMs ?? 30_000;
+  const overallTimeoutMs = opts?.timeoutMs ?? 60_000;
   let backoffMs = 750;
   let sawBusy = false;
 
@@ -741,7 +741,7 @@ async function runAsyncJob<T>(
   opts?: AsyncJobOptions,
 ): Promise<T> {
   const startedAt = Date.now();
-  const overallTimeoutMs = opts?.timeoutMs ?? 30_000;
+  const overallTimeoutMs = opts?.timeoutMs ?? 60_000;
   const perRequestTimeoutMs = Math.min(55_000, overallTimeoutMs);
   const notFoundGraceMs = Math.min(2 * 60_000, Math.max(10_000, Math.round(overallTimeoutMs * 0.5)));
   let lastTransientError: unknown = null;

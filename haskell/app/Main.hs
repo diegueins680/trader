@@ -13243,7 +13243,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics m
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["optimizer", "run"] ->
                                 case Wai.requestMethod req of
-                                    "POST" -> handleOptimizerRun reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
+                                    "POST" -> handleOptimizerRun requestProgressStore reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["optimizer", "combos"] ->
                                 case Wai.requestMethod req of
@@ -15117,6 +15117,7 @@ applyTopComboForStartWithUuid base combo = do
     pure (args0, Just (topComboUuid combo))
 
 handleOptimizerRun ::
+    RequestProgressStore ->
     ApiRequestLimits ->
     Maybe OpsStore ->
     Maybe StateSyncTarget ->
@@ -15126,11 +15127,13 @@ handleOptimizerRun ::
     Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerRun reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
+handleOptimizerRun requestProgressStore reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
+    let mTracker = requestProgressTracker requestProgressStore req
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid optimizer payload: "
     case payloadOrErr of
         Left resp -> respond resp
         Right payload -> do
+            startRequestProgressMaybe mTracker "optimizer/run" "prepare" Nothing
             ts <- fmap (floor . (* 1000)) getPOSIXTime
             randId <- randomIO :: IO Word64
             let topJsonPath = tcsPath topCombosStore
@@ -15139,11 +15142,15 @@ handleOptimizerRun reqLimits mOps mStateSyncTarget projectRoot topCombosStore op
                 truncateOut = truncateProcessOutput maxOutputBytes
             argsOrErr <- prepareOptimizerArgs recordsPath payload
             case argsOrErr of
-                Left msg -> respond (jsonError status400 msg)
+                Left msg -> do
+                    failRequestProgressMaybe mTracker msg
+                    respond (jsonError status400 msg)
                 Right args -> do
+                    advanceRequestProgressMaybe mTracker "optimize" Nothing
                     runResult <- runOptimizerProcess projectRoot recordsPath maxOutputBytes args
                     case runResult of
-                        Left (msg, out, err) ->
+                        Left (msg, out, err) -> do
+                            failRequestProgressMaybe mTracker msg
                             respond
                                 ( jsonValue
                                     status500
@@ -15156,16 +15163,20 @@ handleOptimizerRun reqLimits mOps mStateSyncTarget projectRoot topCombosStore op
                                         , arrStderr = truncateOut (arrStderr resp)
                                         }
                             maxCombos <- optimizerMaxCombosFromEnv
+                            advanceRequestProgressMaybe mTracker "merge" Nothing
                             mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsPath maxCombos)
                             case mergeResult of
-                                Left (msg, out, err) ->
+                                Left (msg, out, err) -> do
+                                    failRequestProgressMaybe mTracker msg
                                     respond
                                         ( jsonValue
                                             status500
                                             (object ["error" .= msg, "stdout" .= truncateOut out, "stderr" .= truncateOut err])
                                         )
                                 Right _ -> do
+                                    advanceRequestProgressMaybe mTracker "persist" Nothing
                                     persistTopCombosDbMaybe mOps topCombosStore
+                                    completeRequestProgressMaybe mTracker (Just "response ready")
                                     respond (jsonValue status200 resp')
 
 handleOptimizerCombos ::
@@ -18276,6 +18287,7 @@ placeDexOrderForSignal args sig = do
                 MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
                 MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
                 MethodTaBest -> "No order: TA selector neutral (no admitted setup)."
+                MethodTaRegimeSwitch -> "No order: TA regime switch neutral (no admitted setup)."
         currentPrice = lsCurrentPrice sig
         entryScale = entryScaleForSignal args MarketSpot sig
         exitScale = maybe 1 clamp01 (lsExitSize sig)
@@ -20812,6 +20824,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodTaReversion -> (kalPred0, kalPred0)
                         MethodTaBreakout -> (kalPred0, kalPred0)
                         MethodTaBest -> (kalPred0, kalPred0)
+                        MethodTaRegimeSwitch -> (kalPred0, kalPred0)
                         MethodKalmanOnly -> (kalPred0, kalPred0)
                         MethodKalmanPhysicsError -> (kalPred0, kalPred0)
                         MethodLstmOnly -> (lstmPred0, lstmPred0)
@@ -21092,6 +21105,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
             MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
             MethodTaBest -> "No order: TA selector neutral (no admitted setup)."
+            MethodTaRegimeSwitch -> "No order: TA regime switch neutral (no admitted setup)."
 
     shortErr :: SomeException -> String
     shortErr ex = take 240 (show ex)
@@ -21972,6 +21986,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodTaReversion -> "No order: TA reversion method neutral (no admitted setup)."
             MethodTaBreakout -> "No order: TA breakout method neutral (no admitted setup)."
             MethodTaBest -> "No order: TA selector neutral (no admitted setup)."
+            MethodTaRegimeSwitch -> "No order: TA regime switch neutral (no admitted setup)."
 
     lstmBlockMsg :: Maybe String
     lstmBlockMsg = snd (lstmConfidenceSizing args sig)
@@ -22786,6 +22801,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodTaReversion -> "Backtest (technical-analysis reversion method) complete."
                     MethodTaBreakout -> "Backtest (technical-analysis breakout method) complete."
                     MethodTaBest -> "Backtest (technical-analysis best-candidate selector) complete."
+                    MethodTaRegimeSwitch -> "Backtest (technical-analysis regime switch) complete."
 
             Data.Foldable.for_ (bsLstmHistory summary) printLstmSummary
 
@@ -25046,6 +25062,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             MethodTaReversion -> Right compute
             MethodTaBreakout -> Right compute
             MethodTaBest -> Right compute
+            MethodTaRegimeSwitch -> Right compute
   where
     methodRequested = argMethod args
     method = runtimeMethod methodRequested
@@ -26135,6 +26152,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaReversion -> taNext
                     MethodTaBreakout -> taNext
                     MethodTaBest -> taNext
+                    MethodTaRegimeSwitch -> taNext
             routerDirRaw = routerNext >>= directionPrice openThrAdj
             routerCloseDirRaw = routerNext >>= directionPrice closeThrAdj
             edgeFromPred pred =
@@ -26214,6 +26232,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaReversion -> edgeTa
                     MethodTaBreakout -> edgeTa
                     MethodTaBest -> edgeTa
+                    MethodTaRegimeSwitch -> edgeTa
             regimeLeader =
                 case mRegimes of
                     Nothing -> Nothing
@@ -26926,6 +26945,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaReversion -> taConfidence
                     MethodTaBreakout -> taConfidence
                     MethodTaBest -> taConfidence
+                    MethodTaRegimeSwitch -> taConfidence
                     _ -> mConfidence
 
             volConfConfidence =
@@ -27015,6 +27035,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaReversion -> taCloseDirRaw
                     MethodTaBreakout -> taCloseDirRaw
                     MethodTaBest -> taCloseDirRaw
+                    MethodTaRegimeSwitch -> taCloseDirRaw
 
             agreeDir =
                 if kalDir == lstmDir
@@ -27058,6 +27079,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaReversion -> taDirRaw
                     MethodTaBreakout -> taDirRaw
                     MethodTaBest -> taDirRaw
+                    MethodTaRegimeSwitch -> taDirRaw
             entryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args method
             entryEdgeHeadroomOk = signalEntryHeadroomOk openThrAdj edgeForMethod
             entryEdgeSpikeOk = signalEntryEdgeSpikeOk openThrAdj edgeForMethod
@@ -27502,6 +27524,14 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (ta_best neutral)"
+                        MethodTaRegimeSwitch ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (ta_regime_switch neutral)"
                         MethodRouter ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -27561,6 +27591,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                         MethodTaReversion -> taPosSize
                         MethodTaBreakout -> taPosSize
                         MethodTaBest -> taPosSize
+                        MethodTaRegimeSwitch -> taPosSize
                         _ -> mPosSize
             gateReasonForMethod =
                 case method of
@@ -27596,6 +27627,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaReversion -> taGateReason
                     MethodTaBreakout -> taGateReason
                     MethodTaBest -> taGateReason
+                    MethodTaRegimeSwitch -> taGateReason
                     _ -> mGateReason
          in LatestSignal
                 { lsMethod = methodForReport
@@ -27811,6 +27843,7 @@ technicalCandidateForMethod method inputs series =
                     sortOn
                         (Data.Ord.Down . technicalCandidateRank)
                         (TA.admittedStrategyCandidates inputs series)
+            MethodTaRegimeSwitch -> TA.regimeSwitchCandidate cal series >>= TA.admitStrategyCandidate inputs
             _ -> Nothing
 
 technicalCandidateRank :: TA.GatedStrategyCandidate -> (Double, Double)
@@ -28544,6 +28577,7 @@ printMetrics method initialBalance m = do
                 MethodTaReversion -> "Signal rate (TA reversion)"
                 MethodTaBreakout -> "Signal rate (TA breakout)"
                 MethodTaBest -> "Signal rate (TA best)"
+                MethodTaRegimeSwitch -> "Signal rate (TA regime switch)"
     putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
     putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
 

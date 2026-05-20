@@ -28,10 +28,11 @@ export const STORAGE_TOP_COMBOS_KEY = "trader.ui.topCombos.v1";
 const DEFAULT_SIGNAL_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_BACKTEST_TIMEOUT_MS = 20 * 60_000;
 const DEFAULT_TRADE_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_OPTIMIZER_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_BOT_START_TIMEOUT_MS = 20 * 60_000;
 const DEFAULT_BOT_STATUS_TIMEOUT_MS = 60_000;
 
-function resolveTimeoutMs(key: "signalMs" | "backtestMs" | "tradeMs" | "botStartMs" | "botStatusMs", fallback: number): number {
+function resolveTimeoutMs(key: "signalMs" | "backtestMs" | "tradeMs" | "optimizerMs" | "botStartMs" | "botStatusMs", fallback: number): number {
   const v = TRADER_UI_CONFIG.timeoutsMs?.[key];
   return typeof v === "number" && Number.isFinite(v) && v >= 1000 ? v : fallback;
 }
@@ -39,6 +40,7 @@ function resolveTimeoutMs(key: "signalMs" | "backtestMs" | "tradeMs" | "botStart
 export const SIGNAL_TIMEOUT_MS = resolveTimeoutMs("signalMs", DEFAULT_SIGNAL_TIMEOUT_MS);
 export const BACKTEST_TIMEOUT_MS = resolveTimeoutMs("backtestMs", DEFAULT_BACKTEST_TIMEOUT_MS);
 export const TRADE_TIMEOUT_MS = resolveTimeoutMs("tradeMs", DEFAULT_TRADE_TIMEOUT_MS);
+export const OPTIMIZER_TIMEOUT_MS = resolveTimeoutMs("optimizerMs", DEFAULT_OPTIMIZER_TIMEOUT_MS);
 export const BOT_START_TIMEOUT_MS = resolveTimeoutMs("botStartMs", DEFAULT_BOT_START_TIMEOUT_MS);
 export const BOT_STATUS_TIMEOUT_MS = resolveTimeoutMs("botStatusMs", DEFAULT_BOT_STATUS_TIMEOUT_MS);
 export const BOT_STATUS_POLL_MS = 5_000;

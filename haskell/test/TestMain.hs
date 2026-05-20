@@ -389,7 +389,7 @@ testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
             , "--interval"
             , "15m"
             , "--method"
-            , "ta_trend"
+            , "ta_regime_switch"
             , "--bars"
             , "20"
             , "--lookback-bars"
@@ -397,8 +397,9 @@ testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
             ]
     let adjustedTaArgs = normalizeBarsForLookback taArgs{argTradeOnly = True}
     assert
-        "trade-only TA requests are raised to the 60-bar live minimum instead of failing bot/signal/trade starts"
+        "trade-only TA regime-switch requests are raised to the 60-bar live minimum instead of failing bot/signal/trade starts"
         ( argBars adjustedTaArgs == Just 60
+            && argMethod adjustedTaArgs == MethodTaRegimeSwitch
             && case validateArgs adjustedTaArgs of
                 Right _ -> True
                 Left _ -> False
