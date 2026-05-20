@@ -701,10 +701,19 @@ testMinPositionSizeRejectsOutOfRangeValues :: IO ()
 testMinPositionSizeRejectsOutOfRangeValues = do
     assert
         "min-position-size rejects negative (below 0)"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "-0.1"] == Left "--min-position-size must be between 0 and 1")
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "-0.1"] == Left "--min-position-size must be > 0")
+    assert
+        "min-position-size rejects zero (exact boundary)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "0"] == Left "--min-position-size must be > 0")
     assert
         "min-position-size rejects above 1 (exceeds 100%)"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "1.1"] == Left "--min-position-size must be between 0 and 1")
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "1.1"] == Left "--min-position-size must be <= 1")
+    assert
+        "min-position-size accepts small positive (above 0)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "0.01"] of
+            Right args -> argMinPositionSize args == 0.01
+            Left _ -> False
+        )
     assert
         "min-position-size accepts 0.5 (valid boundary)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--min-position-size", "0.5"] of

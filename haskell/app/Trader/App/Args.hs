@@ -1712,7 +1712,8 @@ validateArgs args0 = do
     case argMaxQuantileWidth args of
         Nothing -> pure ()
         Just v -> ensure "--max-quantile-width must be >= 0" (v >= 0)
-    ensure "--min-position-size must be between 0 and 1" (argMinPositionSize args >= 0 && argMinPositionSize args <= 1)
+    ensure "--min-position-size must be > 0" (argMinPositionSize args > 0)
+    ensure "--min-position-size must be <= 1" (argMinPositionSize args <= 1)
     ensure "--min-position-size must be <= --max-position-size" (argMinPositionSize args <= argMaxPositionSize args)
     ensure "--kelly-lite-fraction must be >= 0" (argKellyLiteFraction args >= 0)
     ensure "--kelly-lite-floor must be >= 0" (argKellyLiteFloor args >= 0)
