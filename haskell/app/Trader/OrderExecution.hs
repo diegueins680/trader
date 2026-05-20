@@ -5,6 +5,7 @@ module Trader.OrderExecution (
     applyReduceOnlyExecutedQuantity,
 ) where
 
+import Control.Exception (assert)
 import Trader.Text (normalizeKey, trim)
 
 data OrderExecutionEvidence = OrderExecutionEvidence
@@ -63,7 +64,9 @@ applyExecutedQuantity prevPos prevSize isBuy qtyRaw =
             if openQtyRaw <= eps || posNew == 0
                 then 0
                 else openQtyRaw
-     in (posNew, sizeNew, closeQty, openQty)
+        -- Runtime invariant: fill quantities are conserved (within epsilon)
+        qtyConserved = abs ((closeQty + openQty) - qty) <= max eps (abs qty * 1e-12)
+     in assert qtyConserved (posNew, sizeNew, closeQty, openQty)
 
 applyReduceOnlyExecutedQuantity :: Int -> Double -> Double -> (Int, Double, Double, Double)
 applyReduceOnlyExecutedQuantity prevPos prevSize qtyRaw =
@@ -90,7 +93,10 @@ applyReduceOnlyExecutedQuantity prevPos prevSize qtyRaw =
         posNew
             | sizeNew <= 0 = 0
             | otherwise = prevSign
-     in (posNew, sizeNew, closeQty, 0)
+        -- Runtime invariants: reduce-only never increases exposure or flips sign
+        neverIncreases = sizeNew <= currentSize || currentSize <= eps
+        neverFlips = posNew == 0 || posNew == prevSign
+     in assert (neverIncreases && neverFlips) (posNew, sizeNew, closeQty, 0)
 
 sanitizeSignedExposure :: Int -> Double -> Double
 sanitizeSignedExposure prevPos prevSize =

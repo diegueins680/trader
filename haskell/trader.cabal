@@ -27,6 +27,8 @@ executable trader-hs
                      , Trader.Duration
                      , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
+                     , Trader.Formal.Execution
+                     , Trader.Formal.Risk
                      , Trader.GateTelemetry
                      , Trader.Http
                      , Trader.KalmanFusion
@@ -71,6 +73,7 @@ executable trader-hs
                      , Trader.TechnicalAnalysis.Strategies
                      , Trader.Text
                      , Trader.Trading
+                     , Trader.Types.Safe
                      , Trader.VolConfGate
                      , Paths_trader
   default-language:    Haskell2010
@@ -117,10 +120,13 @@ executable optimize-equity
                      , Trader.Duration
                      , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
+                     , Trader.Formal.Execution
+                     , Trader.Formal.Risk
                      , Trader.KalmanFusion
                      , Trader.Kalman3
                      , Trader.Method
                      , Trader.Metrics
+                     , Trader.OrderExecution
                      , Trader.Platform
                      , Trader.Optimizer.Json
                      , Trader.Optimizer.Optimize
@@ -129,7 +135,9 @@ executable optimize-equity
                      , Trader.Predictors.Types
                      , Trader.SignalGates
                      , Trader.Symbol
+                     , Trader.Text
                      , Trader.Trading
+                     , Trader.Types.Safe
                      , Trader.VolConfGate
   default-language:    Haskell2010
   build-depends:       base >=4.14 && <4.20
@@ -225,6 +233,8 @@ test-suite trader-tests
                      , Trader.Duration
                      , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
+                     , Trader.Formal.Execution
+                     , Trader.Formal.Risk
                      , Trader.GateTelemetry
                      , Trader.Http
                      , Trader.KalmanFusion
@@ -273,6 +283,7 @@ test-suite trader-tests
                      , Trader.Test.TechnicalAnalysis
                      , Trader.Text
                      , Trader.Trading
+                     , Trader.Types.Safe
                      , Trader.VolConfGate
                      , Paths_trader
   default-language:    Haskell2010
@@ -315,6 +326,8 @@ benchmark trader-bench
                      , Trader.Duration
                      , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
+                     , Trader.Formal.Execution
+                     , Trader.Formal.Risk
                      , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
