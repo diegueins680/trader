@@ -272,6 +272,8 @@ data Args = Args
     , argProtectionMinConfidence :: Double
     , argLstmConfidenceSoft :: Double
     , argLstmConfidenceHard :: Double
+    , argRsiLower :: Double
+    , argRsiUpper :: Double
     , argMinPositionSize :: Double
     , argKellyLiteSizing :: Bool
     , argKellyLiteFraction :: Double
@@ -990,6 +992,8 @@ opts = do
             )
     argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (linear ramp to --lstm-confidence-hard; requires --confidence-sizing)")
     argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
+    argRsiLower <- option auto (long "rsi-lower" <> value 30 <> showDefault <> help "RSI lower threshold for mean-reversion oversold condition")
+    argRsiUpper <- option auto (long "rsi-upper" <> value 70 <> showDefault <> help "RSI upper threshold for mean-reversion overbought condition")
     argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "Minimum entry size after sizing/vol scaling; skip if below this (0..1)")
     argKellyLiteSizing <-
         defaultOffSwitch
@@ -1370,6 +1374,8 @@ validateArgs args0 = do
             , ("--protection-min-confidence", argProtectionMinConfidence args)
             , ("--lstm-confidence-soft", argLstmConfidenceSoft args)
             , ("--lstm-confidence-hard", argLstmConfidenceHard args)
+            , ("--rsi-lower", argRsiLower args)
+            , ("--rsi-upper", argRsiUpper args)
             , ("--min-position-size", argMinPositionSize args)
             , ("--kelly-lite-fraction", argKellyLiteFraction args)
             , ("--kelly-lite-floor", argKellyLiteFloor args)
@@ -1640,6 +1646,7 @@ validateArgs args0 = do
     ensure
         "--lstm-confidence-soft must be <= --lstm-confidence-hard (unless hard=0 to disable)"
         (argLstmConfidenceHard args <= 0 || argLstmConfidenceSoft args <= argLstmConfidenceHard args)
+    ensure "--rsi-lower must be < --rsi-upper" (argRsiLower args < argRsiUpper args)
     case argMaxOrderErrors args of
         Nothing -> pure ()
         Just n -> ensure "--max-order-errors must be >= 1" (n >= 1)

@@ -9,7 +9,7 @@ import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
@@ -19,6 +19,10 @@ import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatf
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BotStartSemantics (botStartSymbolDisabled, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
+import Trader.Formal.Execution (
+    ExecutionVerificationReport (..),
+    verifyFormalExecution,
+ )
 import Trader.Formal.Optimization (
     activityCountFromMetrics,
     fvrActivityCountInvariant,
@@ -26,6 +30,12 @@ import Trader.Formal.Optimization (
     roiViewFromMetrics,
     rvActivityCount,
     verifyFormalOptimization,
+ )
+import Trader.Formal.Risk (
+    HaltInputs (..),
+    RiskVerificationReport (..),
+    specRiskHalt,
+    verifyFormalRisk,
  )
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import Trader.MarketContext (fitLinearRange)
@@ -66,6 +76,7 @@ import Trader.SignalGates (
     SignalThresholdBoundary (..),
     directionalityWeakBandConfirmed,
     directionalityWeakBandConfirmedWithPrediction,
+    finiteDouble,
     mkSignalThresholdBoundary,
     normalizeSignalEntryEdge,
     signalCrossAssetCheck,
@@ -191,6 +202,9 @@ main = do
     testRouterScorePnlWeightRejectsInvalidValues
     testExpectancyLookbackRejectsNegativeValue
     testPerfLookbackRejectsNegativeValue
+    testLossStreakMaxRejectsNegativeValue
+    testLossStreakCooldownBarsRejectsNegativeValue
+    testRsiLowerMustBeLessThanUpper
     testExchangeDataLongShortBacktestAllowed
     testPositioningShortAliasRejected
     testTenantResolutionScopesMixedApiKeys
@@ -251,6 +265,9 @@ main = do
     testThresholdCalibrationRecommendationConservative
     testThresholdCalibrationRecommendationAggressive
     testThresholdCalibrationRecommendationBalanced
+    testFormalExecutionInvariants
+    testFormalRiskInvariants
+    testSignalGatesFailClosedExhaustive
     runTechnicalAnalysisTests
 
 assert :: String -> Bool -> IO ()
@@ -1257,6 +1274,131 @@ testPerfLookbackRejectsNegativeValue = do
             && case parseAndValidateCliArgs acceptedArgs of
                 Right args -> argPerfLookback args == 20
                 Left _ -> False
+        )
+
+testLossStreakMaxRejectsNegativeValue :: IO ()
+testLossStreakMaxRejectsNegativeValue = do
+    let rejectedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--loss-streak-max"
+            , "-1"
+            ]
+        acceptedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--loss-streak-max"
+            , "3"
+            ]
+    assert
+        "loss-streak-max rejects negative values"
+        ( parseAndValidateCliArgs rejectedArgs == Left "--loss-streak-max must be >= 0"
+            && case parseAndValidateCliArgs acceptedArgs of
+                Right args -> argLossStreakMax args == 3
+                Left _ -> False
+        )
+
+testLossStreakCooldownBarsRejectsNegativeValue :: IO ()
+testLossStreakCooldownBarsRejectsNegativeValue = do
+    let rejectedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--loss-streak-cooldown-bars"
+            , "-1"
+            ]
+        acceptedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--loss-streak-cooldown-bars"
+            , "5"
+            ]
+    assert
+        "loss-streak-cooldown-bars rejects negative values"
+        ( parseAndValidateCliArgs rejectedArgs == Left "--loss-streak-cooldown-bars must be >= 0"
+            && case parseAndValidateCliArgs acceptedArgs of
+                Right args -> argLossStreakCooldownBars args == 5
+                Left _ -> False
+        )
+
+testRsiLowerMustBeLessThanUpper :: IO ()
+testRsiLowerMustBeLessThanUpper = do
+    let rejectedEqualArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--rsi-lower"
+            , "50"
+            , "--rsi-upper"
+            , "50"
+            ]
+        rejectedGreaterArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--rsi-lower"
+            , "60"
+            , "--rsi-upper"
+            , "50"
+            ]
+        acceptedArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--rsi-lower"
+            , "30"
+            , "--rsi-upper"
+            , "70"
+            ]
+    assert
+        "rsi-lower must be < rsi-upper rejects equal values"
+        (parseAndValidateCliArgs rejectedEqualArgs == Left "--rsi-lower must be < --rsi-upper")
+    assert
+        "rsi-lower must be < rsi-upper rejects lower > upper"
+        (parseAndValidateCliArgs rejectedGreaterArgs == Left "--rsi-lower must be < --rsi-upper")
+    assert
+        "rsi-lower must be < rsi-upper accepts valid lower < upper"
+        ( case parseAndValidateCliArgs acceptedArgs of
+            Right args -> argRsiLower args == 30 && argRsiUpper args == 70
+            Left _ -> False
         )
 
 testExchangeDataLongShortBacktestAllowed :: IO ()
@@ -3518,3 +3660,106 @@ testThresholdCalibrationRecommendationBalanced = do
             assert
                 "balanced threshold in IQR is recommended"
                 (T.isInfixOf "BALANCED" (tcRecommendation calib))
+
+-- Formal execution verification: spec and impl agree on bounded grid.
+testFormalExecutionInvariants :: IO ()
+testFormalExecutionInvariants = do
+    let report = verifyFormalExecution
+    assert
+        "applyExecutedQuantity implementation matches spec on bounded grid"
+        (fvrExecImplMatchesSpec report)
+    assert
+        "applyReduceOnlyExecutedQuantity implementation matches spec on bounded grid"
+        (fvrExecReduceOnlyImplMatchesSpec report)
+    assert
+        "orderAppliedQuantity implementation matches spec on bounded grid"
+        (fvrExecOrderAppliedImplMatchesSpec report)
+    assert
+        "reduce-only fills never increase position magnitude"
+        (fvrExecReduceOnlyNeverIncreases report)
+    assert
+        "reduce-only fills never flip position sign"
+        (fvrExecReduceOnlyNeverFlips report)
+    assert
+        "executed quantity is conserved into close + open"
+        (fvrExecQtyConservation report)
+    assert
+        "close quantity is monotone non-decreasing in raw qty"
+        (fvrExecCloseQtyMonotone report)
+    assert
+        "open quantity is monotone non-decreasing in raw qty"
+        (fvrExecOpenQtyMonotone report)
+
+-- Formal risk verification: halt logic invariants on bounded grid.
+testFormalRiskInvariants :: IO ()
+testFormalRiskInvariants = do
+    let report = verifyFormalRisk
+    assert
+        "risk halt reason is always justified by a limit breach or previous halt"
+        (fvrRiskHaltMonotone report)
+    assert
+        "daily loss halt resets when day changes"
+        (fvrRiskHaltResetDaily report)
+    assert
+        "weekly loss halt resets when week changes"
+        (fvrRiskHaltResetWeekly report)
+    assert
+        "non-time-bound halt reasons are preserved across time boundaries"
+        (fvrRiskHaltPreservesOther report)
+    assert
+        "no halt occurs when no limits are configured and no previous halt exists"
+        (fvrRiskHaltNoFalsePositive report)
+
+-- Exhaustive fail-closed checks for signal gates.
+testSignalGatesFailClosedExhaustive :: IO ()
+testSignalGatesFailClosedExhaustive = do
+    let
+        -- Grid of malformed / edge-case inputs
+        badEdges = [Nothing, Just (-0.01), Just (0 / 0), Just (negate (1 / 0))]
+        badFees = [0 / 0, negate (1 / 0), -0.001]
+        thresholds = [0, 0.001, 0.01, 0.05]
+
+        -- Every gate that takes a raw Double should map bad values to safe defaults.
+        finiteOk = all finiteDouble [0, 0.001, 1.0]
+        nonFiniteNotOk = not (any finiteDouble [0 / 0, 1 / 0, negate (1 / 0)])
+
+        -- signalEntryFeeBufferOk should reject non-finite or negative fee floors
+        feeBufferFailClosed =
+            all
+                ( \fee ->
+                    not (signalEntryFeeBufferOk 0.01 fee (Just 0.02))
+                )
+                badFees
+
+        -- normalizeSignalEntryEdge should map bad values to Just 0
+        edgeNormalizationFailClosed =
+            all
+                ( \mEdge ->
+                    normalizeSignalEntryEdge (Data.Maybe.fromMaybe (0 / 0) mEdge) == Just 0
+                )
+                badEdges
+
+        -- mkSignalThresholdBoundary with bad inputs should produce zero thresholds
+        boundaryFailClosed =
+            all
+                ( \open ->
+                    let b = mkSignalThresholdBoundary open (Nothing :: Maybe Double)
+                     in stbEffectiveOpenThreshold b == 0 && stbEffectiveCloseThreshold b == 0
+                )
+                badFees
+
+    assert
+        "finiteDouble accepts normal values"
+        finiteOk
+    assert
+        "finiteDouble rejects NaN and infinities"
+        nonFiniteNotOk
+    assert
+        "signalEntryFeeBufferOk fails closed on malformed fees"
+        feeBufferFailClosed
+    assert
+        "normalizeSignalEntryEdge fails closed to Just 0"
+        edgeNormalizationFailClosed
+    assert
+        "mkSignalThresholdBoundary fails closed to zero thresholds"
+        boundaryFailClosed
