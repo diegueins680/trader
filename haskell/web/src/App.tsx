@@ -3927,7 +3927,7 @@ export function App() {
       confirmConformal: form.confirmConformal,
       confirmQuantiles: form.confirmQuantiles,
       confidenceSizing: form.confidenceSizing,
-      minPositionSize,
+      ...(minPositionSize > 0 ? { minPositionSize } : {}),
       ...(platform === "binance" ? { binanceTestnet: form.binanceTestnet } : {}),
     };
 
