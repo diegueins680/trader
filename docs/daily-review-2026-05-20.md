@@ -108,21 +108,27 @@ No trades executed today (2026-05-20). The most recent trading activity occurred
 
 ## 5. Implementation Plan
 
-### Phase 1: Entry Filter Hardening (Immediate)
-- [ ] **Raise ADX threshold** in `trendFollowingCandidate` from `>= 10` to `>= 20` to avoid weak-trend entries
-- [ ] **Add regime guard** to `volumeConfirmedBreakoutCandidate`: skip breakouts when `regimeNow == RegimeTrend` (breakouts should fire in ranging/mean-reverting regimes, not established trends)
-- [ ] **Add confidence floor** in `bestCandidateAt`: require `scConfidence >= 0.35` before admitting any candidate
+### Phase 1: Entry Filter Hardening ✅ COMPLETED
+- [x] **Raise ADX threshold** in `trendFollowingCandidate` from `>= 10` to `>= 20` to avoid weak-trend entries
+- [x] **Add regime guard** to `volumeConfirmedBreakoutCandidate`: skip breakouts when `regimeNow == RegimeTrend` (breakouts should fire in ranging/mean-reverting regimes, not established trends)
+- [x] **Add confidence floor** in `bestCandidateAt`: require `scConfidence >= 0.35` before admitting any candidate
+- [x] **Update call sites** in `Main.hs` and tests to pass `RegimeCalibration`
+- [x] **Run test suite** — all tests pass
 
-### Phase 2: Minimum Hold Extension (Immediate)
-- [ ] **Raise default `minHoldBars`** from 4 to 17 in CLI args (`--min-hold-bars`)
+**Commit:** `ab050233`
+
+### Phase 2: Minimum Hold Extension ✅ COMPLETED
+- [x] **Raise default `minHoldBars`** from 4 to 17 in CLI args (`--min-hold-bars`)
 - [ ] **Add dynamic minHold**: scale minimum hold by confidence (e.g., `minHoldBars = max(17, floor(confidence * 30))`)
+
+**Commit:** `4a2f4531`
 
 ### Phase 3: Exit Logic Hardening (Next)
 - [ ] **Add early-exit confidence requirement**: require higher confidence for SIGNAL exits < 20 bars
 - [ ] **Review LSTM/Kalman exit sensitivity**: these may be too reactive in the first 20 bars
 
 ### Phase 4: Validation
-- [ ] Run full test suite
+- [x] Run full test suite — PASSED
 - [ ] Run backtest on May 1–14 data with new parameters
 - [ ] Measure: win rate, avg PnL, Sharpe, max drawdown
 
