@@ -272,6 +272,7 @@ data Args = Args
     , argProtectionMinConfidence :: Double
     , argLstmConfidenceSoft :: Double
     , argLstmConfidenceHard :: Double
+    , argRsiPeriod :: Int
     , argRsiLower :: Double
     , argRsiUpper :: Double
     , argMinPositionSize :: Double
@@ -992,6 +993,7 @@ opts = do
             )
     argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (linear ramp to --lstm-confidence-hard; requires --confidence-sizing)")
     argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
+    argRsiPeriod <- option auto (long "rsi-period" <> value 14 <> showDefault <> help "RSI lookback period in bars (>= 1)")
     argRsiLower <- option auto (long "rsi-lower" <> value 30 <> showDefault <> help "RSI lower threshold for mean-reversion oversold condition")
     argRsiUpper <- option auto (long "rsi-upper" <> value 70 <> showDefault <> help "RSI upper threshold for mean-reversion overbought condition")
     argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "Minimum entry size after sizing/vol scaling; skip if below this (0..1)")
@@ -1731,6 +1733,8 @@ validateArgs args0 = do
     ensure "--prediction-market-herd-limit must be >= 1" (argPredictionMarketHerdLimit args >= 1)
     ensure "--tune-stress-vol-mult must be > 0" (argTuneStressVolMult args > 0)
     ensure "--tune-stress-weight must be >= 0" (argTuneStressWeight args >= 0)
+    ensure "--rsi-period must be >= 1" (argRsiPeriod args >= 1)
+    ensure "--rsi-period must be <= 100" (argRsiPeriod args <= 100)
 
     pure args
   where

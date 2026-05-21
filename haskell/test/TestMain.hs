@@ -148,6 +148,7 @@ import Trader.VolConfGate (
 main :: IO ()
 main = do
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
+    testRsiPeriodRejectsInvalidValues
     testRiskPerTradeRejectsUpperBoundValidation
     testRiskPerTradeRejectsLowerBoundValidation
     testRiskPerTradeRequiresStopDefinition
@@ -1415,6 +1416,36 @@ testLossStreakCooldownBarsRejectsNegativeValue = do
             && case parseAndValidateCliArgs acceptedArgs of
                 Right args -> argLossStreakCooldownBars args == 5
                 Left _ -> False
+        )
+
+testRsiPeriodRejectsInvalidValues :: IO ()
+testRsiPeriodRejectsInvalidValues = do
+    assert
+        "rsi-period rejects 0 (below minimum)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--rsi-period", "0"] == Left "--rsi-period must be >= 1")
+    assert
+        "rsi-period rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--rsi-period", "-1"] == Left "--rsi-period must be >= 1")
+    assert
+        "rsi-period rejects 101 (above sanity cap)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--rsi-period", "101"] == Left "--rsi-period must be <= 100")
+    assert
+        "rsi-period accepts 1 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--rsi-period", "1"] of
+            Right args -> argRsiPeriod args == 1
+            Left _ -> False
+        )
+    assert
+        "rsi-period accepts 14 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv"] of
+            Right args -> argRsiPeriod args == 14
+            Left _ -> False
+        )
+    assert
+        "rsi-period accepts 100 (sanity cap boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--rsi-period", "100"] of
+            Right args -> argRsiPeriod args == 100
+            Left _ -> False
         )
 
 testRsiLowerMustBeLessThanUpper :: IO ()
