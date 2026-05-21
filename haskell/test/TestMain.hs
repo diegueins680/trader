@@ -149,6 +149,7 @@ main :: IO ()
 main = do
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
     testRsiPeriodRejectsInvalidValues
+    testTrendLookbackRejectsInvalidValues
     testRiskPerTradeRejectsUpperBoundValidation
     testRiskPerTradeRejectsLowerBoundValidation
     testRiskPerTradeRequiresStopDefinition
@@ -1445,6 +1446,33 @@ testRsiPeriodRejectsInvalidValues = do
         "rsi-period accepts 100 (sanity cap boundary)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--rsi-period", "100"] of
             Right args -> argRsiPeriod args == 100
+            Left _ -> False
+        )
+
+testTrendLookbackRejectsInvalidValues :: IO ()
+testTrendLookbackRejectsInvalidValues = do
+    assert
+        "trend-lookback rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--trend-lookback", "-1"] == Left "--trend-lookback must be >= 0")
+    assert
+        "trend-lookback rejects 1001 (above sanity cap)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--trend-lookback", "1001"] == Left "--trend-lookback must be <= 1000")
+    assert
+        "trend-lookback accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--trend-lookback", "0"] of
+            Right args -> argTrendLookback args == 0
+            Left _ -> False
+        )
+    assert
+        "trend-lookback accepts 30 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv"] of
+            Right args -> argTrendLookback args == 30
+            Left _ -> False
+        )
+    assert
+        "trend-lookback accepts 1000 (sanity cap boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--trend-lookback", "1000"] of
+            Right args -> argTrendLookback args == 1000
             Left _ -> False
         )
 

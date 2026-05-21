@@ -1590,6 +1590,7 @@ validateArgs args0 = do
     ensure "--threshold-factor-floor must be >= 0" (argThresholdFactorFloor args >= 0)
     ensure "--edge-buffer must be >= 0" (argEdgeBuffer args >= 0)
     ensure "--trend-lookback must be >= 0" (argTrendLookback args >= 0)
+    ensure "--trend-lookback must be <= 1000" (argTrendLookback args <= 1000)
     ensure "--max-position-size must be > 0" (argMaxPositionSize args > 0)
     ensure "--max-position-size must be <= 10" (argMaxPositionSize args <= 10)
     let market = argBinanceMarket args
