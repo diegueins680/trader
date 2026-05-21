@@ -1647,6 +1647,10 @@ validateArgs args0 = do
     ensure
         "--lstm-confidence-soft must be <= --lstm-confidence-hard (unless hard=0 to disable)"
         (argLstmConfidenceHard args <= 0 || argLstmConfidenceSoft args <= argLstmConfidenceHard args)
+    ensure "--rsi-lower must be >= 0" (argRsiLower args >= 0)
+    ensure "--rsi-lower must be <= 100" (argRsiLower args <= 100)
+    ensure "--rsi-upper must be >= 0" (argRsiUpper args >= 0)
+    ensure "--rsi-upper must be <= 100" (argRsiUpper args <= 100)
     ensure "--rsi-lower must be < --rsi-upper" (argRsiLower args < argRsiUpper args)
     case argMaxOrderErrors args of
         Nothing -> pure ()

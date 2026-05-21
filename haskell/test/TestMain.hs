@@ -1447,6 +1447,76 @@ testRsiLowerMustBeLessThanUpper = do
             , "--rsi-upper"
             , "50"
             ]
+        rejectedLowerNegativeArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--rsi-lower"
+            , "-1"
+            , "--rsi-upper"
+            , "70"
+            ]
+        rejectedLowerAbove100Args =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--rsi-lower"
+            , "101"
+            , "--rsi-upper"
+            , "70"
+            ]
+        rejectedUpperNegativeArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--rsi-lower"
+            , "30"
+            , "--rsi-upper"
+            , "-1"
+            ]
+        rejectedUpperAbove100Args =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--rsi-lower"
+            , "30"
+            , "--rsi-upper"
+            , "101"
+            ]
+        acceptedBoundaryArgs =
+            [ "--binance-symbol"
+            , "BTCUSDT"
+            , "--interval"
+            , "15m"
+            , "--bars"
+            , "673"
+            , "--lookback-bars"
+            , "672"
+            , "--rsi-lower"
+            , "0"
+            , "--rsi-upper"
+            , "100"
+            ]
         acceptedArgs =
             [ "--binance-symbol"
             , "BTCUSDT"
@@ -1467,6 +1537,24 @@ testRsiLowerMustBeLessThanUpper = do
     assert
         "rsi-lower must be < rsi-upper rejects lower > upper"
         (parseAndValidateCliArgs rejectedGreaterArgs == Left "--rsi-lower must be < --rsi-upper")
+    assert
+        "rsi-lower must be >= 0 rejects negative lower"
+        (parseAndValidateCliArgs rejectedLowerNegativeArgs == Left "--rsi-lower must be >= 0")
+    assert
+        "rsi-lower must be <= 100 rejects above 100"
+        (parseAndValidateCliArgs rejectedLowerAbove100Args == Left "--rsi-lower must be <= 100")
+    assert
+        "rsi-upper must be >= 0 rejects negative upper"
+        (parseAndValidateCliArgs rejectedUpperNegativeArgs == Left "--rsi-upper must be >= 0")
+    assert
+        "rsi-upper must be <= 100 rejects above 100"
+        (parseAndValidateCliArgs rejectedUpperAbove100Args == Left "--rsi-upper must be <= 100")
+    assert
+        "rsi boundary 0/100 stays admissible when lower < upper"
+        ( case parseAndValidateCliArgs acceptedBoundaryArgs of
+            Right args -> argRsiLower args == 0 && argRsiUpper args == 100
+            Left _ -> False
+        )
     assert
         "rsi-lower must be < rsi-upper accepts valid lower < upper"
         ( case parseAndValidateCliArgs acceptedArgs of
