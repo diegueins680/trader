@@ -79,7 +79,7 @@ testTrendCandidateFailsClosedOnShortSeries = do
 
 testBreakoutCandidateCanTriggerLong :: IO ()
 testBreakoutCandidateCanTriggerLong = do
-    let candidate = volumeConfirmedBreakoutCandidate breakoutSeries
+    let candidate = volumeConfirmedBreakoutCandidate breakoutTestCalibration breakoutSeries
     assert
         "volumeConfirmedBreakoutCandidate can produce a long breakout candidate on synthetic breakout data"
         ( case candidate of
@@ -89,7 +89,7 @@ testBreakoutCandidateCanTriggerLong = do
 
 testCandidateConfidenceUsesAverageBeforeClamp :: IO ()
 testCandidateConfidenceUsesAverageBeforeClamp = do
-    let candidate = volumeConfirmedBreakoutCandidate breakoutSeries
+    let candidate = volumeConfirmedBreakoutCandidate breakoutTestCalibration breakoutSeries
     assert
         "breakout confidence is averaged before clamping"
         ( case candidate of
@@ -199,3 +199,6 @@ taTestInputs =
         , tagVolConfGate = VolConfGateDisabled
         , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
         }
+
+breakoutTestCalibration :: RegimeCalibration
+breakoutTestCalibration = RegimeCalibration 0.40 1.01 0.55

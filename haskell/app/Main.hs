@@ -27837,7 +27837,7 @@ technicalCandidateForMethod method inputs series =
      in case method of
             MethodTaTrend -> TA.trendFollowingCandidate cal series >>= TA.admitStrategyCandidate inputs
             MethodTaReversion -> TA.momentumReversionCandidate cal series >>= TA.admitStrategyCandidate inputs
-            MethodTaBreakout -> TA.volumeConfirmedBreakoutCandidate series >>= TA.admitStrategyCandidate inputs
+            MethodTaBreakout -> TA.volumeConfirmedBreakoutCandidate cal series >>= TA.admitStrategyCandidate inputs
             MethodTaBest ->
                 listToMaybe $
                     sortOn

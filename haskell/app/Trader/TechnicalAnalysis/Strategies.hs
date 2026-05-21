@@ -116,7 +116,7 @@ strategyCandidates cal series =
     catMaybes
         [ trendFollowingCandidate cal series
         , momentumReversionCandidate cal series
-        , volumeConfirmedBreakoutCandidate series
+        , volumeConfirmedBreakoutCandidate cal series
         ]
 
 admittedStrategyCandidates :: TechnicalAnalysisGateInputs -> OhlcvSeries -> [GatedStrategyCandidate]
@@ -218,12 +218,12 @@ trendFollowingCandidate cal series = do
     let longTrend =
             regimeNow == RegimeTrend
                 && fastNow > slowNow
-                && adxValue adxNow >= 10
+                && adxValue adxNow >= 20
                 && aroonUp aroonNow > aroonDown aroonNow
         shortTrend =
             regimeNow == RegimeTrend
                 && fastNow < slowNow
-                && adxValue adxNow >= 10
+                && adxValue adxNow >= 20
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
         baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
@@ -314,9 +314,10 @@ momentumReversionCandidate cal series = do
                                 }
                     else Nothing
 
-volumeConfirmedBreakoutCandidate :: OhlcvSeries -> Maybe StrategyCandidate
-volumeConfirmedBreakoutCandidate series = do
+volumeConfirmedBreakoutCandidate :: RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
+volumeConfirmedBreakoutCandidate cal series = do
     validateSeries series
+    regimeNow <- regimeSelector cal series
     closeNow <- lastValue (ohlcvClose series)
     let donchianSeries = donchianChannelsSeries 20 (ohlcvHigh series) (ohlcvLow series)
     donchianNow <- laggedJust 1 donchianSeries
@@ -332,8 +333,22 @@ volumeConfirmedBreakoutCandidate series = do
     let obvUp = obvNow > obvPrev
         adUp = adNow > adPrev
         vptUp = vptNow > vptPrev
-        longBreakout = closeNow > donchianUpper donchianNow && obvUp && adUp && vptUp && cmfNow > 0 && mfiNow >= 50
-        shortBreakout = closeNow < donchianLower donchianNow && not obvUp && not adUp && not vptUp && cmfNow < 0 && mfiNow <= 50
+        longBreakout =
+            regimeNow /= RegimeTrend
+                && closeNow > donchianUpper donchianNow
+                && obvUp
+                && adUp
+                && vptUp
+                && cmfNow > 0
+                && mfiNow >= 50
+        shortBreakout =
+            regimeNow /= RegimeTrend
+                && closeNow < donchianLower donchianNow
+                && not obvUp
+                && not adUp
+                && not vptUp
+                && cmfNow < 0
+                && mfiNow <= 50
         breakoutDistance = max 0 (safeDivide (abs (closeNow - midChannel donchianNow)) closeNow)
         baseConfidence = clamp01 (((if obvUp == adUp then 1 else 0.5) + min 1 (abs cmfNow) + min 1 (breakoutDistance * 10)) / 3)
      in if longBreakout
@@ -376,7 +391,7 @@ regimeSwitchCandidate cal series = do
   where
     candidateForSubMethod MethodTaTrend = trendFollowingCandidate cal series >>= longBiasOnly
     candidateForSubMethod MethodTaReversion = momentumReversionCandidate cal series
-    candidateForSubMethod MethodTaBreakout = volumeConfirmedBreakoutCandidate series
+    candidateForSubMethod MethodTaBreakout = volumeConfirmedBreakoutCandidate cal series
     candidateForSubMethod _ = Nothing
 
 validateSeries :: OhlcvSeries -> Maybe ()
@@ -595,12 +610,12 @@ trendFollowingAt inds t = do
     let longTrend =
             regimeNow == RegimeTrend
                 && fastNow > slowNow
-                && adxValue adxNow >= 10
+                && adxValue adxNow >= 20
                 && aroonUp aroonNow > aroonDown aroonNow
         shortTrend =
             regimeNow == RegimeTrend
                 && fastNow < slowNow
-                && adxValue adxNow >= 10
+                && adxValue adxNow >= 20
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
         baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
@@ -785,9 +800,9 @@ bestCandidateAt :: TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Mayb
 bestCandidateAt inputs inds t =
     let candidates =
             catMaybes
-                [ trendFollowingAt inds t >>= admitStrategyCandidate inputs
-                , momentumReversionAt inds t >>= admitStrategyCandidate inputs
-                , volumeConfirmedBreakoutAt inds t >>= admitStrategyCandidate inputs
+                [ trendFollowingAt inds t >>= admitBestCandidate
+                , momentumReversionAt inds t >>= admitBestCandidate
+                , volumeConfirmedBreakoutAt inds t >>= admitBestCandidate
                 ]
      in listToMaybe $ sortOn (Down . candidateRank) candidates
   where
@@ -796,6 +811,9 @@ bestCandidateAt inputs inds t =
             confidence = if finiteDouble rawConfidence then rawConfidence else 0
             edge = if finiteDouble (gscEntryEdge candidate) then gscEntryEdge candidate else 0
          in (confidence, edge)
+    admitBestCandidate candidate = do
+        require (confidenceOk 0.35 (scConfidence candidate))
+        admitStrategyCandidate inputs candidate
 
 -- | Evaluate a specific method at a bar using precomputed indicators.
 candidateForMethodAt :: Method -> TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Maybe GatedStrategyCandidate
