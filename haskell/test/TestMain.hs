@@ -4021,11 +4021,12 @@ testSignalGatesFailClosedExhaustive = do
 testStopLossHaltsSimulation :: IO ()
 testStopLossHaltsSimulation = do
     let prices = V.fromList [100 :: Double, 100, 100, 97, 97]
-        highs  = V.fromList [100 :: Double, 100, 100, 100, 100]
-        lows   = V.fromList [100 :: Double, 100, 100, 97, 97]
+        highs = V.fromList [100 :: Double, 100, 100, 100, 100]
+        lows = V.fromList [100 :: Double, 100, 100, 97, 97]
         kalPreds = V.fromList [100 :: Double, 102, 102, 102]
         lstmPreds = V.fromList [100 :: Double, 102, 102, 102]
-        cfg = sampleEnsembleConfig
+        cfg =
+            sampleEnsembleConfig
                 { ecOpenThreshold = 0.01
                 , ecCloseThreshold = 0.005
                 , ecVolLookback = 2
@@ -4045,7 +4046,7 @@ testStopLossHaltsSimulation = do
         "last trade exits with ExitStopLoss or simulation halted"
         ( case trades of
             [] -> False
-            ts -> case trExitReason (last ts) of { Just _ -> True; Nothing -> False }
+            ts -> case trExitReason (last ts) of Just _ -> True; Nothing -> False
         )
     assert
         "stop-loss halt occurs before or at the final bar"

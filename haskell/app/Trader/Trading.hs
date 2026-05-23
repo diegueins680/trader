@@ -1687,11 +1687,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                         Just _ -> Nothing
                                                         Nothing ->
                                                             case () of
-                                                                _ | maybe False (dailyLoss >=) maxDailyLossLim -> Just ExitMaxDailyLoss
-                                                                  | maybe False (weeklyLoss >=) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
-                                                                  | maybe False (drawdown >=) maxDrawdownLim -> Just ExitMaxDrawdown
-                                                                  | maybe False (\lim -> maybe False (< lim) expectancy) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
-                                                                  | otherwise -> Nothing
+                                                                _
+                                                                    | maybe False (dailyLoss >=) maxDailyLossLim -> Just ExitMaxDailyLoss
+                                                                    | maybe False (weeklyLoss >=) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
+                                                                    | maybe False (drawdown >=) maxDrawdownLim -> Just ExitMaxDrawdown
+                                                                    | maybe False (\lim -> maybe False (< lim) expectancy) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
+                                                                    | otherwise -> Nothing
                                                 specResult = specHaltReasonBase <|> specRiskHaltReason
                                                 implResult = haltReason1
                                              in if specResult == implResult
