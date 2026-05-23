@@ -1676,6 +1676,27 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             | otherwise -> Nothing
                                         haltReason1 =
                                             haltReasonBase <|> riskHaltReason
+                                        _riskInvariantCheck =
+                                            let specHaltReasonBase =
+                                                    case (haltReason0, dayChanged, weekChanged) of
+                                                        (Just ExitMaxDailyLoss, True, _) -> Nothing
+                                                        (Just ExitMaxWeeklyLoss, _, True) -> Nothing
+                                                        _ -> haltReason0
+                                                specRiskHaltReason =
+                                                    case specHaltReasonBase of
+                                                        Just _ -> Nothing
+                                                        Nothing ->
+                                                            case () of
+                                                                _ | maybe False (dailyLoss >=) maxDailyLossLim -> Just ExitMaxDailyLoss
+                                                                  | maybe False (weeklyLoss >=) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
+                                                                  | maybe False (drawdown >=) maxDrawdownLim -> Just ExitMaxDrawdown
+                                                                  | maybe False (\lim -> maybe False (< lim) expectancy) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
+                                                                  | otherwise -> Nothing
+                                                specResult = specHaltReasonBase <|> specRiskHaltReason
+                                                implResult = haltReason1
+                                             in if specResult == implResult
+                                                    then ()
+                                                    else error ("RISK_INVARIANT_VIOLATION: spec=" ++ show specResult ++ " impl=" ++ show implResult ++ " at step t=" ++ show t)
                                         halted = Data.Maybe.isJust haltReason1
 
                                         prev = pricesV V.! t

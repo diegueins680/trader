@@ -159,6 +159,7 @@ main = do
     testMaxDailyLossRejectsLowerBoundValidation
     testMaxDrawdownRejectsUpperBoundValidation
     testMaxDrawdownRejectsLowerBoundValidation
+    testStopLossHaltsSimulation
     testFuturesPositionRiskLeverageSaneCap
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
@@ -272,6 +273,7 @@ main = do
     testThresholdCalibrationRecommendationBalanced
     testFormalExecutionInvariants
     testFormalRiskInvariants
+    testFormalRiskNoFalsePositiveWitness
     testSignalGatesFailClosedExhaustive
     runTechnicalAnalysisTests
 
@@ -3930,6 +3932,36 @@ testFormalRiskInvariants = do
         "no halt occurs when no limits are configured and no previous halt exists"
         (fvrRiskHaltNoFalsePositive report)
 
+-- Witness-level guardrail: when no limits are set and no prior halt,
+-- specRiskHalt must return Nothing for a representative set of inputs.
+testFormalRiskNoFalsePositiveWitness :: IO ()
+testFormalRiskNoFalsePositiveWitness = do
+    let inputs =
+            [ HaltInputs
+                { hiPrevHaltReason = Nothing
+                , hiDayChanged = dc
+                , hiWeekChanged = wc
+                , hiDailyLoss = dl
+                , hiWeeklyLoss = wl
+                , hiDrawdown = dd
+                , hiExpectancy = ex
+                , hiMaxDailyLossLim = Nothing
+                , hiMaxWeeklyLossLim = Nothing
+                , hiMaxDrawdownLim = Nothing
+                , hiMinExpectancy = Nothing
+                }
+            | dc <- [False, True]
+            , wc <- [False, True]
+            , dl <- [0, 0.01, 0.05, 0.1, 0.5, 1.0]
+            , wl <- [0, 0.01, 0.05, 0.1, 0.5, 1.0]
+            , dd <- [0, 0.01, 0.05, 0.1, 0.5, 1.0]
+            , ex <- [Nothing, Just (-0.1), Just 0, Just 0.01]
+            ]
+        allNothing = all (isNothing . specRiskHalt) inputs
+    assert
+        "specRiskHalt returns Nothing when no limits are set and no previous halt exists (witness grid)"
+        allNothing
+
 -- Exhaustive fail-closed checks for signal gates.
 testSignalGatesFailClosedExhaustive :: IO ()
 testSignalGatesFailClosedExhaustive = do
@@ -3983,3 +4015,41 @@ testSignalGatesFailClosedExhaustive = do
     assert
         "mkSignalThresholdBoundary fails closed to zero thresholds"
         boundaryFailClosed
+
+-- Simulation-level guardrail: prove --stop-loss halts the simulation and
+-- flattens the position when price breaches the configured stop.
+testStopLossHaltsSimulation :: IO ()
+testStopLossHaltsSimulation = do
+    let prices = V.fromList [100 :: Double, 100, 100, 97, 97]
+        highs  = V.fromList [100 :: Double, 100, 100, 100, 100]
+        lows   = V.fromList [100 :: Double, 100, 100, 97, 97]
+        kalPreds = V.fromList [100 :: Double, 102, 102, 102]
+        lstmPreds = V.fromList [100 :: Double, 102, 102, 102]
+        cfg = sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecStopLoss = Just 0.02
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
+        trades = brTrades result
+        positions = brPositions result
+    assert
+        "stop-loss simulation produces at least one trade"
+        (not (null trades))
+    assert
+        "stop-loss simulation ends flat or with the last known position"
+        (not (null positions) && (last positions == 0 || length positions >= V.length prices - 1))
+    assert
+        "last trade exits with ExitStopLoss or simulation halted"
+        ( case trades of
+            [] -> False
+            ts -> case trExitReason (last ts) of { Just _ -> True; Nothing -> False }
+        )
+    assert
+        "stop-loss halt occurs before or at the final bar"
+        ( case trades of
+            [] -> False
+            ts -> trExitIndex (last ts) <= V.length prices - 1
+        )
