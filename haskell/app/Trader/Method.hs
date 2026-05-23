@@ -121,13 +121,13 @@ methodIsTechnicalAnalysis m =
 parseMethod :: String -> Either String Method
 parseMethod raw =
     case map toLower (trim raw) of
-        "11" -> Right MethodBoth
-        "both" -> Right MethodBoth
-        "ensemble" -> Right MethodBoth
-        "agreement" -> Right MethodBoth
-        "gated" -> Right MethodBoth
-        "kalman+lstm" -> Right MethodBoth
-        "lstm+kalman" -> Right MethodBoth
+        "11" -> Left "Method '11' (Kalman+LSTM ensemble) is disabled: LSTM initialization hangs indefinitely. Use '01' (LSTM-only), '10' (Kalman-only), or 'blend'."
+        "both" -> Left "Method 'both' (Kalman+LSTM ensemble) is disabled: LSTM initialization hangs indefinitely. Use '01' (LSTM-only), '10' (Kalman-only), or 'blend'."
+        "ensemble" -> Left "Method 'ensemble' (Kalman+LSTM ensemble) is disabled: LSTM initialization hangs indefinitely. Use '01' (LSTM-only), '10' (Kalman-only), or 'blend'."
+        "agreement" -> Left "Method 'agreement' (Kalman+LSTM ensemble) is disabled: LSTM initialization hangs indefinitely. Use '01' (LSTM-only), '10' (Kalman-only), or 'blend'."
+        "gated" -> Left "Method 'gated' (Kalman+LSTM ensemble) is disabled: LSTM initialization hangs indefinitely. Use '01' (LSTM-only), '10' (Kalman-only), or 'blend'."
+        "kalman+lstm" -> Left "Method 'kalman+lstm' (Kalman+LSTM ensemble) is disabled: LSTM initialization hangs indefinitely. Use '01' (LSTM-only), '10' (Kalman-only), or 'blend'."
+        "lstm+kalman" -> Left "Method 'lstm+kalman' (Kalman+LSTM ensemble) is disabled: LSTM initialization hangs indefinitely. Use '01' (LSTM-only), '10' (Kalman-only), or 'blend'."
         "10" -> Right MethodKalmanOnly
         "kalman" -> Right MethodKalmanOnly
         "kalman-only" -> Right MethodKalmanOnly
