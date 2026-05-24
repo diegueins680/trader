@@ -5,59 +5,15 @@ module Trader.Formal.Risk (
     verifyFormalRisk,
 ) where
 
-import Control.Applicative ((<|>))
-import Data.Maybe (isJust, isNothing)
-import Trader.Trading (ExitReason (..))
-
--- | Inputs to the risk halt decision, extracted from the simulation loop.
-data HaltInputs = HaltInputs
-    { hiPrevHaltReason :: !(Maybe ExitReason)
-    , hiDayChanged :: !Bool
-    , hiWeekChanged :: !Bool
-    , hiDailyLoss :: !Double
-    , hiWeeklyLoss :: !Double
-    , hiDrawdown :: !Double
-    , hiExpectancy :: !(Maybe Double)
-    , hiMaxDailyLossLim :: !(Maybe Double)
-    , hiMaxWeeklyLossLim :: !(Maybe Double)
-    , hiMaxDrawdownLim :: !(Maybe Double)
-    , hiMinExpectancy :: !(Maybe Double)
-    }
-    deriving (Eq, Show)
-
-{- | Naive spec of the halt logic.
-
-1. If previously halted for daily loss and the day changed, reset.
-2. If previously halted for weekly loss and the week changed, reset.
-3. Otherwise preserve the previous halt.
-4. If still not halted, check new risk conditions.
-
-This mirrors the logic in 'Trader.Trading' exactly but expressed as a
-pure function with no simulation baggage.
--}
-specRiskHalt :: HaltInputs -> Maybe ExitReason
-specRiskHalt hi =
-    let haltReasonBase =
-            case (hiPrevHaltReason hi, hiDayChanged hi, hiWeekChanged hi) of
-                (Just ExitMaxDailyLoss, True, _) -> Nothing
-                (Just ExitMaxWeeklyLoss, _, True) -> Nothing
-                _ -> hiPrevHaltReason hi
-        riskHaltReason =
-            case haltReasonBase of
-                Just _ -> Nothing
-                Nothing ->
-                    case () of
-                        _
-                            | maybe False (hiDailyLoss hi >=) (hiMaxDailyLossLim hi) ->
-                                Just ExitMaxDailyLoss
-                            | maybe False (hiWeeklyLoss hi >=) (hiMaxWeeklyLossLim hi) ->
-                                Just ExitMaxWeeklyLoss
-                            | maybe False (hiDrawdown hi >=) (hiMaxDrawdownLim hi) ->
-                                Just ExitMaxDrawdown
-                            | maybe False (\lim -> maybe False (< lim) (hiExpectancy hi)) (hiMinExpectancy hi) ->
-                                Just (ExitOther "NEGATIVE_EXPECTANCY")
-                            | otherwise -> Nothing
-     in haltReasonBase <|> riskHaltReason
+import Data.Maybe (isNothing)
+-- 'HaltInputs' and 'specRiskHalt' are defined in 'Trader.Trading' so the
+-- simulation loop can call the canonical spec directly. This module
+-- re-exports them and proves properties via 'verifyFormalRisk'.
+import Trader.Trading (
+    ExitReason (..),
+    HaltInputs (..),
+    specRiskHalt,
+ )
 
 -- ---------------------------------------------------------------------------
 -- Verification report
@@ -84,7 +40,7 @@ verifyFormalRisk =
             , Just ExitMaxDailyLoss
             , Just ExitMaxWeeklyLoss
             , Just ExitMaxDrawdown
-            , Just (ExitOther "NEGATIVE_EXPECTANENCY")
+            , Just (ExitOther "NEGATIVE_EXPECTANCY")
             , Just (ExitOther "MANUAL")
             ]
         booleans = [False, True]

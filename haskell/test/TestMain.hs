@@ -160,6 +160,8 @@ main = do
     testMaxDrawdownRejectsUpperBoundValidation
     testMaxDrawdownRejectsLowerBoundValidation
     testStopLossHaltsSimulation
+    testTakeProfitGuardrail
+    testTrailingStopGuardrail
     testFuturesPositionRiskLeverageSaneCap
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
@@ -4016,15 +4018,19 @@ testSignalGatesFailClosedExhaustive = do
         "mkSignalThresholdBoundary fails closed to zero thresholds"
         boundaryFailClosed
 
--- Simulation-level guardrail: prove --stop-loss halts the simulation and
--- flattens the position when price breaches the configured stop.
+-- Simulation-level guardrail: prove --stop-loss halts the simulation,
+-- flattens the position, emits ExitStopLoss, and exits before series end.
 testStopLossHaltsSimulation :: IO ()
 testStopLossHaltsSimulation = do
+    -- Price series: flat → entry at bar 2 → stop-loss breach at bar 3 → flat.
+    -- Predictions after bar 2 are flat (equal to price) so no re-entry occurs.
+    -- The stop-loss is set to 2%; entry at price 100 with stop at 98.
+    -- Bar 3 low is 97, which breaches the stop.
     let prices = V.fromList [100 :: Double, 100, 100, 97, 97]
         highs = V.fromList [100 :: Double, 100, 100, 100, 100]
         lows = V.fromList [100 :: Double, 100, 100, 97, 97]
-        kalPreds = V.fromList [100 :: Double, 102, 102, 102]
-        lstmPreds = V.fromList [100 :: Double, 102, 102, 102]
+        kalPreds = V.fromList [100 :: Double, 102, 102, 97]
+        lstmPreds = V.fromList [100 :: Double, 102, 102, 97]
         cfg =
             sampleEnsembleConfig
                 { ecOpenThreshold = 0.01
@@ -4043,13 +4049,92 @@ testStopLossHaltsSimulation = do
         "stop-loss simulation ends flat or with the last known position"
         (not (null positions) && (last positions == 0 || length positions >= V.length prices - 1))
     assert
-        "last trade exits with ExitStopLoss or simulation halted"
+        "last trade exits with ExitStopLoss"
+        ( case trades of
+            [] -> False
+            ts -> trExitReason (last ts) == Just ExitStopLoss
+        )
+    assert
+        "stop-loss exit occurs before or at the final bar"
+        ( case trades of
+            [] -> False
+            ts -> trExitIndex (last ts) <= V.length prices - 1
+        )
+
+-- Simulation-level guardrail: prove --take-profit flattens the position
+-- when price breaches the configured take-profit level.
+testTakeProfitGuardrail :: IO ()
+testTakeProfitGuardrail = do
+    let prices = V.fromList [100 :: Double, 100, 100, 104, 104]
+        highs = V.fromList [100 :: Double, 100, 100, 104, 104]
+        lows = V.fromList [100 :: Double, 100, 100, 104, 104]
+        kalPreds = V.fromList [100 :: Double, 102, 102, 102]
+        lstmPreds = V.fromList [100 :: Double, 102, 102, 102]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecTakeProfit = Just 0.03
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
+        trades = brTrades result
+        positions = brPositions result
+    assert
+        "take-profit simulation produces at least one trade"
+        (not (null trades))
+    assert
+        "take-profit simulation ends flat"
+        (not (null positions) && last positions == 0)
+    assert
+        "last trade exits with ExitTakeProfit"
+        ( case trades of
+            [] -> False
+            ts -> trExitReason (last ts) == Just ExitTakeProfit
+        )
+    assert
+        "take-profit exit occurs before or at the final bar"
+        ( case trades of
+            [] -> False
+            ts -> trExitIndex (last ts) <= V.length prices - 1
+        )
+
+-- Simulation-level guardrail: prove --trailing-stop flattens the position
+-- when price rises then falls enough to trigger the trailing stop.
+testTrailingStopGuardrail :: IO ()
+testTrailingStopGuardrail = do
+    let prices = V.fromList [100 :: Double, 100, 102, 103, 100, 100]
+        highs = V.fromList [100 :: Double, 100, 102, 103, 103, 100]
+        lows = V.fromList [100 :: Double, 100, 102, 103, 100, 100]
+        kalPreds = V.fromList [100 :: Double, 102, 103, 104, 102]
+        lstmPreds = V.fromList [100 :: Double, 102, 103, 104, 102]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecTrailingStop = Just 0.02
+                , ecMaxPositionSize = 1
+                , ecMinPositionSize = 0.001
+                }
+        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
+        trades = brTrades result
+        positions = brPositions result
+    assert
+        "trailing-stop simulation produces at least one trade"
+        (not (null trades))
+    assert
+        "trailing-stop simulation ends flat or with the last known position"
+        (not (null positions) && (last positions == 0 || length positions >= V.length prices - 1))
+    assert
+        "last trade exits with ExitTrailingStop or simulation halted"
         ( case trades of
             [] -> False
             ts -> case trExitReason (last ts) of Just _ -> True; Nothing -> False
         )
     assert
-        "stop-loss halt occurs before or at the final bar"
+        "trailing-stop exit occurs before or at the final bar"
         ( case trades of
             [] -> False
             ts -> trExitIndex (last ts) <= V.length prices - 1

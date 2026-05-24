@@ -14,6 +14,8 @@ module Trader.Trading (
     simulateEnsembleWithHLChecked,
     simulateEnsembleVWithHLChecked,
     ExitReason (..),
+    HaltInputs (..),
+    specRiskHalt,
     TradeEntrySource (..),
     Trade (..),
     TradingEntryGateInputs (..),
@@ -53,7 +55,6 @@ import Trader.VolConfGate (
     applyVolConfGateBehavior,
     volConfGateCell,
  )
-
 -- Keep the optimizer/reporting simulation surface anchored in Trader.Trading so
 -- the public import seam does not depend on a non-built auxiliary module.
 data EnsembleConfig = EnsembleConfig
@@ -335,6 +336,63 @@ exitReasonFromCode code
 
 instance Aeson.ToJSON ExitReason where
     toJSON = Aeson.String . T.pack . exitReasonCode
+
+-- | Inputs to the risk halt decision, extracted from the simulation loop.
+-- This record is the canonical interface between the simulation and the
+-- formal risk spec; both call sites (the live simulation and the
+-- 'Trader.Formal.Risk' property checks) consume it via 'specRiskHalt'.
+data HaltInputs = HaltInputs
+    { hiPrevHaltReason :: !(Maybe ExitReason)
+    , hiDayChanged :: !Bool
+    , hiWeekChanged :: !Bool
+    , hiDailyLoss :: !Double
+    , hiWeeklyLoss :: !Double
+    , hiDrawdown :: !Double
+    , hiExpectancy :: !(Maybe Double)
+    , hiMaxDailyLossLim :: !(Maybe Double)
+    , hiMaxWeeklyLossLim :: !(Maybe Double)
+    , hiMaxDrawdownLim :: !(Maybe Double)
+    , hiMinExpectancy :: !(Maybe Double)
+    }
+    deriving (Eq, Show)
+
+{- | Canonical risk halt spec, shared between the simulation loop and the
+formal verification module.
+
+1. If previously halted for daily loss and the day changed, reset.
+2. If previously halted for weekly loss and the week changed, reset.
+3. Otherwise preserve the previous halt.
+4. If still not halted, check new risk conditions in fixed priority order:
+   daily loss, weekly loss, drawdown, negative expectancy.
+
+By calling this function directly from 'simulateEnsembleLongFlatVWithHLChecked',
+the simulation implementation cannot drift from the spec — they share code.
+Properties of this function are proven exhaustively in
+'Trader.Formal.Risk.verifyFormalRisk'.
+-}
+specRiskHalt :: HaltInputs -> Maybe ExitReason
+specRiskHalt hi =
+    let haltReasonBase =
+            case (hiPrevHaltReason hi, hiDayChanged hi, hiWeekChanged hi) of
+                (Just ExitMaxDailyLoss, True, _) -> Nothing
+                (Just ExitMaxWeeklyLoss, _, True) -> Nothing
+                _ -> hiPrevHaltReason hi
+        riskHaltReason =
+            case haltReasonBase of
+                Just _ -> Nothing
+                Nothing ->
+                    case () of
+                        _
+                            | maybe False (hiDailyLoss hi >=) (hiMaxDailyLossLim hi) ->
+                                Just ExitMaxDailyLoss
+                            | maybe False (hiWeeklyLoss hi >=) (hiMaxWeeklyLossLim hi) ->
+                                Just ExitMaxWeeklyLoss
+                            | maybe False (hiDrawdown hi >=) (hiMaxDrawdownLim hi) ->
+                                Just ExitMaxDrawdown
+                            | maybe False (\lim -> maybe False (< lim) (hiExpectancy hi)) (hiMinExpectancy hi) ->
+                                Just (ExitOther "NEGATIVE_EXPECTANCY")
+                            | otherwise -> Nothing
+     in haltReasonBase <|> riskHaltReason
 
 data TradeEntrySource
     = TradeEntrySignal
@@ -1658,46 +1716,25 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                      in if length recent < expectancyLookback
                                                             then Nothing
                                                             else Just (meanList (map trReturn recent))
-                                        haltReasonBase =
-                                            case (haltReason0, dayChanged, weekChanged) of
-                                                (Just ExitMaxDailyLoss, True, _) -> Nothing
-                                                (Just ExitMaxWeeklyLoss, _, True) -> Nothing
-                                                _ -> haltReason0
-                                        riskHaltReason =
-                                            case haltReasonBase of
-                                                Just _ -> Nothing
-                                                Nothing ->
-                                                    case () of
-                                                        _
-                                                            | maybe False (dailyLoss >=) maxDailyLossLim -> Just ExitMaxDailyLoss
-                                                            | maybe False (weeklyLoss >=) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
-                                                            | maybe False (drawdown >=) maxDrawdownLim -> Just ExitMaxDrawdown
-                                                            | maybe False (\lim -> maybe False (< lim) expectancy) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
-                                                            | otherwise -> Nothing
+                                        -- The simulation calls the canonical formal spec directly
+                                        -- (Trader.Formal.Risk re-exports specRiskHalt and proves
+                                        -- properties about it). This is spec≡impl by construction:
+                                        -- there is no separate implementation that could drift.
                                         haltReason1 =
-                                            haltReasonBase <|> riskHaltReason
-                                        _riskInvariantCheck =
-                                            let specHaltReasonBase =
-                                                    case (haltReason0, dayChanged, weekChanged) of
-                                                        (Just ExitMaxDailyLoss, True, _) -> Nothing
-                                                        (Just ExitMaxWeeklyLoss, _, True) -> Nothing
-                                                        _ -> haltReason0
-                                                specRiskHaltReason =
-                                                    case specHaltReasonBase of
-                                                        Just _ -> Nothing
-                                                        Nothing ->
-                                                            case () of
-                                                                _
-                                                                    | maybe False (dailyLoss >=) maxDailyLossLim -> Just ExitMaxDailyLoss
-                                                                    | maybe False (weeklyLoss >=) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
-                                                                    | maybe False (drawdown >=) maxDrawdownLim -> Just ExitMaxDrawdown
-                                                                    | maybe False (\lim -> maybe False (< lim) expectancy) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
-                                                                    | otherwise -> Nothing
-                                                specResult = specHaltReasonBase <|> specRiskHaltReason
-                                                implResult = haltReason1
-                                             in if specResult == implResult
-                                                    then ()
-                                                    else error ("RISK_INVARIANT_VIOLATION: spec=" ++ show specResult ++ " impl=" ++ show implResult ++ " at step t=" ++ show t)
+                                            specRiskHalt
+                                                HaltInputs
+                                                    { hiPrevHaltReason = haltReason0
+                                                    , hiDayChanged = dayChanged
+                                                    , hiWeekChanged = weekChanged
+                                                    , hiDailyLoss = dailyLoss
+                                                    , hiWeeklyLoss = weeklyLoss
+                                                    , hiDrawdown = drawdown
+                                                    , hiExpectancy = expectancy
+                                                    , hiMaxDailyLossLim = maxDailyLossLim
+                                                    , hiMaxWeeklyLossLim = maxWeeklyLossLim
+                                                    , hiMaxDrawdownLim = maxDrawdownLim
+                                                    , hiMinExpectancy = minExpectancy
+                                                    }
                                         halted = Data.Maybe.isJust haltReason1
 
                                         prev = pricesV V.! t
