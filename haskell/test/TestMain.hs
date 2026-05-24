@@ -2111,8 +2111,8 @@ testNormalizeSignalEntryEdgeFailClosedRegression = do
         "normalizeSignalEntryEdge stays the shared non-negative fresh-entry sample"
         ( validEdge == Just 0.017
             && negativeEdge == Just 0
-            && nanEdge == Just 0
-            && infiniteEdge == Just 0
+            && nanEdge == Nothing
+            && infiniteEdge == Nothing
             && entryEdge boundaryState == validEdge
             && entryEdge negativeState == negativeEdge
             && entryEdge nanState == nanEdge
@@ -2126,7 +2126,7 @@ testNormalizeSignalEntryEdgeFailClosedRegression = do
             && not (entryGatesOk negativeState)
             && isNothing (desiredSide1 negativeState)
             && needsEntry nanState
-            && edgeSpikeOk nanState
+            && not (edgeSpikeOk nanState)
             && not (edgeHeadroomOk nanState)
             && not (feeBufferOk nanState)
             && not (entryGatesOk nanState)
@@ -2189,9 +2189,10 @@ testTradingEntryGateFailClosedMonotone = do
             && isNothing (desiredSide1 negativeFeeState)
         )
     assert
-        "non-finite raw edge collapses to the shared zero edge and stays blocked"
+        "non-finite raw edge collapses to Nothing and stays blocked"
         ( needsEntry nonFiniteEdgeState
-            && entryEdge nonFiniteEdgeState == Just 0
+            && Data.Maybe.isNothing (entryEdge nonFiniteEdgeState)
+            && not (edgeSpikeOk nonFiniteEdgeState)
             && not (edgeHeadroomOk nonFiniteEdgeState)
             && not (entryGatesOk nonFiniteEdgeState)
             && isNothing (desiredSide1 nonFiniteEdgeState)
@@ -3985,11 +3986,14 @@ testSignalGatesFailClosedExhaustive = do
                 )
                 badFees
 
-        -- normalizeSignalEntryEdge should map bad values to Just 0
+        -- normalizeSignalEntryEdge should fail closed: finite negatives clamp
+        -- to Just 0; non-finite values (NaN, Inf) map to Nothing.
         edgeNormalizationFailClosed =
             all
                 ( \mEdge ->
-                    normalizeSignalEntryEdge (Data.Maybe.fromMaybe (0 / 0) mEdge) == Just 0
+                    let raw = Data.Maybe.fromMaybe (0 / 0) mEdge
+                        result = normalizeSignalEntryEdge raw
+                     in if finiteDouble raw then result == Just (max 0 raw) else Data.Maybe.isNothing result
                 )
                 badEdges
 
@@ -4012,7 +4016,7 @@ testSignalGatesFailClosedExhaustive = do
         "signalEntryFeeBufferOk fails closed on malformed fees"
         feeBufferFailClosed
     assert
-        "normalizeSignalEntryEdge fails closed to Just 0"
+        "normalizeSignalEntryEdge fails closed for non-finite inputs"
         edgeNormalizationFailClosed
     assert
         "mkSignalThresholdBoundary fails closed to zero thresholds"

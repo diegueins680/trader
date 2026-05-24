@@ -58,7 +58,7 @@ computeMetrics periodsPerYear br =
         annRet =
             if periods <= 0
                 then 0
-                else finalEq ** (periodsPerYear / fromIntegral periods) - 1
+                else sanitizeFinite 0 (finalEq ** (periodsPerYear / fromIntegral periods) - 1)
         maxDd = abs (min 0 (minDrawdown eq))
         calmar =
             if maxDd <= 0
@@ -180,7 +180,7 @@ stddev xs =
         _ ->
             let m = mean xs
                 var = sum (map (\x -> (x - m) ** 2) xs) / fromIntegral (length xs - 1)
-             in sqrt var
+             in sqrt (max 0 var)
 
 downsideDeviation :: [Double] -> Double
 downsideDeviation xs =
@@ -188,7 +188,7 @@ downsideDeviation xs =
         n = length downs
      in if n <= 0
             then 0
-            else sqrt (sum (map (\r -> r * r) downs) / fromIntegral n)
+            else sqrt (max 0 (sum (map (\r -> r * r) downs) / fromIntegral n))
 
 varCvar :: Double -> [Double] -> (Double, Double)
 varCvar level xs =
@@ -205,7 +205,7 @@ varCvar level xs =
                         case right of
                             y : _ -> y
                             [] -> lastOr 0 left
-                    tailXs = take (idx + 1) xs'
+                    tailXs = take (safeIdx + 1) xs'
                     varLoss = max 0 (-q)
                     cvarLoss =
                         if null tailXs

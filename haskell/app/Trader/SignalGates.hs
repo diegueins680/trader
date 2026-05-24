@@ -137,7 +137,7 @@ sanitizeSignalThreshold raw
 normalizeSignalEntryEdge :: Double -> Maybe Double
 normalizeSignalEntryEdge raw
     | finiteDouble raw = Just (max 0 raw)
-    | otherwise = Just 0
+    | otherwise = Nothing
 
 signalCrossAssetCheck :: Bool -> Maybe Int -> (Bool, Maybe String)
 signalCrossAssetCheck enabled crossAssetDirRaw
