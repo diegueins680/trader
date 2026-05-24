@@ -2651,13 +2651,20 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             then Nothing
                                                                             else Just (meanList (map trReturn recent))
                                                         riskHaltReason2 =
-                                                            case () of
-                                                                _
-                                                                    | maybe False (dailyLossAfter >=) maxDailyLossLim -> Just ExitMaxDailyLoss
-                                                                    | maybe False (weeklyLossAfter >=) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
-                                                                    | maybe False (drawdownAfter >=) maxDrawdownLim -> Just ExitMaxDrawdown
-                                                                    | maybe False (\lim -> maybe False (< lim) expectancyAfter) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
-                                                                    | otherwise -> Nothing
+                                                            specRiskHalt
+                                                                HaltInputs
+                                                                    { hiPrevHaltReason = Nothing
+                                                                    , hiDayChanged = False
+                                                                    , hiWeekChanged = False
+                                                                    , hiDailyLoss = dailyLossAfter
+                                                                    , hiWeeklyLoss = weeklyLossAfter
+                                                                    , hiDrawdown = drawdownAfter
+                                                                    , hiExpectancy = expectancyAfter
+                                                                    , hiMaxDailyLossLim = maxDailyLossLim
+                                                                    , hiMaxWeeklyLossLim = maxWeeklyLossLim
+                                                                    , hiMaxDrawdownLim = maxDrawdownLim
+                                                                    , hiMinExpectancy = minExpectancy
+                                                                    }
                                                      in case riskHaltReason2 of
                                                             Nothing -> (posFinal2, posSizeFinal2, equityFinal2, costTotalsFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Nothing)
                                                             Just r ->
