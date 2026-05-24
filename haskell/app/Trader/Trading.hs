@@ -55,6 +55,7 @@ import Trader.VolConfGate (
     applyVolConfGateBehavior,
     volConfGateCell,
  )
+
 -- Keep the optimizer/reporting simulation surface anchored in Trader.Trading so
 -- the public import seam does not depend on a non-built auxiliary module.
 data EnsembleConfig = EnsembleConfig
@@ -337,10 +338,11 @@ exitReasonFromCode code
 instance Aeson.ToJSON ExitReason where
     toJSON = Aeson.String . T.pack . exitReasonCode
 
--- | Inputs to the risk halt decision, extracted from the simulation loop.
--- This record is the canonical interface between the simulation and the
--- formal risk spec; both call sites (the live simulation and the
--- 'Trader.Formal.Risk' property checks) consume it via 'specRiskHalt'.
+{- | Inputs to the risk halt decision, extracted from the simulation loop.
+This record is the canonical interface between the simulation and the
+formal risk spec; both call sites (the live simulation and the
+'Trader.Formal.Risk' property checks) consume it via 'specRiskHalt'.
+-}
 data HaltInputs = HaltInputs
     { hiPrevHaltReason :: !(Maybe ExitReason)
     , hiDayChanged :: !Bool

@@ -6,6 +6,7 @@ module Trader.Formal.Risk (
 ) where
 
 import Data.Maybe (isNothing)
+
 -- 'HaltInputs' and 'specRiskHalt' are defined in 'Trader.Trading' so the
 -- simulation loop can call the canonical spec directly. This module
 -- re-exports them and proves properties via 'verifyFormalRisk'.
