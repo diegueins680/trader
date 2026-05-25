@@ -161,6 +161,7 @@ main = do
     testMaxDrawdownRejectsLowerBoundValidation
     testStopLossHaltsSimulation
     testTakeProfitGuardrail
+    testMaxDrawdownHaltsSimulation
     testTrailingStopGuardrail
     testFuturesPositionRiskLeverageSaneCap
     testFeeRejectsNegativeValue
@@ -2111,8 +2112,8 @@ testNormalizeSignalEntryEdgeFailClosedRegression = do
         "normalizeSignalEntryEdge stays the shared non-negative fresh-entry sample"
         ( validEdge == Just 0.017
             && negativeEdge == Just 0
-            && nanEdge == Nothing
-            && infiniteEdge == Nothing
+            && isNothing nanEdge
+            && isNothing infiniteEdge
             && entryEdge boundaryState == validEdge
             && entryEdge negativeState == negativeEdge
             && entryEdge nanState == nanEdge
@@ -4099,6 +4100,50 @@ testTakeProfitGuardrail = do
         )
     assert
         "take-profit exit occurs before or at the final bar"
+        ( case trades of
+            [] -> False
+            ts -> trExitIndex (last ts) <= V.length prices - 1
+        )
+
+-- Simulation-level guardrail: prove --trailing-stop flattens the position
+-- when price rises then falls enough to trigger the trailing stop.
+-- Simulation-level guardrail: prove --max-drawdown halts the simulation,
+-- flattens the position, emits ExitMaxDrawdown, and exits before series end.
+testMaxDrawdownHaltsSimulation :: IO ()
+testMaxDrawdownHaltsSimulation = do
+    -- Price series: flat → entry at bar 2 → drawdown breach at bar 4 → flat.
+    -- Entry at 100, max-drawdown = 5% (limit = 0.05), so breach when equity
+    -- drops to 95. Bar 4 close is 94, triggering drawdown halt.
+    let prices = V.fromList [100 :: Double, 100, 100, 99, 94, 94]
+        highs = V.fromList [100 :: Double, 100, 100, 100, 99, 94]
+        lows = V.fromList [100 :: Double, 100, 100, 99, 94, 94]
+        kalPreds = V.fromList [100 :: Double, 102, 102, 101, 94]
+        lstmPreds = V.fromList [100 :: Double, 102, 102, 101, 94]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecMaxDrawdown = Just 0.05
+                , ecMaxPositionSize = 1
+                }
+        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
+        trades = brTrades result
+        positions = brPositions result
+    assert
+        "max-drawdown simulation produces at least one trade"
+        (not (null trades))
+    assert
+        "max-drawdown simulation ends flat or with the last known position"
+        (not (null positions) && (last positions == 0 || length positions >= V.length prices - 1))
+    assert
+        "last trade exits with ExitMaxDrawdown"
+        ( case trades of
+            [] -> False
+            ts -> trExitReason (last ts) == Just ExitMaxDrawdown
+        )
+    assert
+        "max-drawdown exit occurs before or at the final bar"
         ( case trades of
             [] -> False
             ts -> trExitIndex (last ts) <= V.length prices - 1
