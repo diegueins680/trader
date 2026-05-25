@@ -142,7 +142,7 @@ jobs:
           fi
 
           if ! flyctl auth whoami >"$auth_err_file" 2>&1; then
-            if grep -qiE "missing third-party discharge token|invalid token" "$auth_err_file"; then
+            if grep -qiE "missing third-party discharge token|invalid token|must be authenticated" "$auth_err_file"; then
               echo "::warning::FLY_API_TOKEN is invalid for CI deploy (missing Fly discharge token). Generate a deploy token with 'fly tokens create deploy' and update the FLY_API_TOKEN GitHub secret; skipping Fly deploy."
               exit 0
             fi
