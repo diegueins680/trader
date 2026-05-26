@@ -374,9 +374,11 @@ the simulation implementation cannot drift from the spec — they share code.
 Properties of this function are proven exhaustively in
 'Trader.Formal.Risk.verifyFormalRisk'.
 -}
--- | Sanitize a limit to be non-negative. Negative limits are treated as
--- zero (most restrictive) to prevent nonsensical risk configurations from
--- silently disabling halts.
+
+{- | Sanitize a limit to be non-negative. Negative limits are treated as
+zero (most restrictive) to prevent nonsensical risk configurations from
+silently disabling halts.
+-}
 sanitizeRiskLimit :: Double -> Double
 sanitizeRiskLimit = max 0
 
@@ -394,9 +396,9 @@ specRiskHalt hi =
                     let mdl = fmap sanitizeRiskLimit (hiMaxDailyLossLim hi)
                         mwl = fmap sanitizeRiskLimit (hiMaxWeeklyLossLim hi)
                         mdd = fmap sanitizeRiskLimit (hiMaxDrawdownLim hi)
-                        me  = fmap sanitizeRiskLimit (hiMinExpectancy hi)
+                        me = fmap sanitizeRiskLimit (hiMinExpectancy hi)
                         mps = fmap sanitizeRiskLimit (hiMaxPositionSizeLim hi)
-                        ps  = max 0 (hiPositionSize hi)
+                        ps = max 0 (hiPositionSize hi)
                      in case () of
                             _
                                 | maybe False (hiDailyLoss hi >=) mdl ->
