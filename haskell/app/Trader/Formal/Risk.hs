@@ -26,6 +26,7 @@ data RiskVerificationReport = RiskVerificationReport
     , fvrRiskHaltResetWeekly :: !Bool
     , fvrRiskHaltPreservesOther :: !Bool
     , fvrRiskHaltNoFalsePositive :: !Bool
+    , fvrRiskHaltPositionSize :: !Bool
     }
     deriving (Eq, Show)
 
@@ -60,6 +61,8 @@ verifyFormalRisk =
                 , hiMaxWeeklyLossLim = mwl
                 , hiMaxDrawdownLim = mdd
                 , hiMinExpectancy = me
+                , hiPositionSize = 0
+                , hiMaxPositionSizeLim = Nothing
                 }
             | pr <- prevReasons
             , dc <- booleans
@@ -156,10 +159,43 @@ verifyFormalRisk =
                                 && isNothing (hiMaxWeeklyLossLim hi)
                                 && isNothing (hiMaxDrawdownLim hi)
                                 && isNothing (hiMinExpectancy hi)
+                                && isNothing (hiMaxPositionSizeLim hi)
                             )
                             || isNothing result
                 )
                 allInputs
+
+        -- Position-size halt: if position size exceeds the sanitized limit,
+        -- a POSITION_SIZE halt is emitted.
+        positionSizeHalt =
+            all
+                ( \hi ->
+                    let result = specRiskHalt hi
+                        limit = fmap (max 0) (hiMaxPositionSizeLim hi)
+                        size = max 0 (hiPositionSize hi)
+                     in case result of
+                            Just (ExitOther "POSITION_SIZE") ->
+                                maybe False (size >) limit
+                            _ -> True
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = ps
+                    , hiMaxPositionSizeLim = mps
+                    }
+                | ps <- [0, 0.5, 1.0, 1.5, 2.0]
+                , mps <- [Nothing, Just 0, Just 1.0, Just 2.0]
+                ]
      in
         RiskVerificationReport
             { fvrRiskHaltMonotone = haltMonotone
@@ -167,4 +203,5 @@ verifyFormalRisk =
             , fvrRiskHaltResetWeekly = resetWeekly
             , fvrRiskHaltPreservesOther = preservesOther
             , fvrRiskHaltNoFalsePositive = noFalsePositive
+            , fvrRiskHaltPositionSize = positionSizeHalt
             }

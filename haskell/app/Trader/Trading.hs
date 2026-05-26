@@ -355,6 +355,8 @@ data HaltInputs = HaltInputs
     , hiMaxWeeklyLossLim :: !(Maybe Double)
     , hiMaxDrawdownLim :: !(Maybe Double)
     , hiMinExpectancy :: !(Maybe Double)
+    , hiPositionSize :: !Double
+    , hiMaxPositionSizeLim :: !(Maybe Double)
     }
     deriving (Eq, Show)
 
@@ -372,6 +374,12 @@ the simulation implementation cannot drift from the spec — they share code.
 Properties of this function are proven exhaustively in
 'Trader.Formal.Risk.verifyFormalRisk'.
 -}
+-- | Sanitize a limit to be non-negative. Negative limits are treated as
+-- zero (most restrictive) to prevent nonsensical risk configurations from
+-- silently disabling halts.
+sanitizeRiskLimit :: Double -> Double
+sanitizeRiskLimit = max 0
+
 specRiskHalt :: HaltInputs -> Maybe ExitReason
 specRiskHalt hi =
     let haltReasonBase =
@@ -383,17 +391,25 @@ specRiskHalt hi =
             case haltReasonBase of
                 Just _ -> Nothing
                 Nothing ->
-                    case () of
-                        _
-                            | maybe False (hiDailyLoss hi >=) (hiMaxDailyLossLim hi) ->
-                                Just ExitMaxDailyLoss
-                            | maybe False (hiWeeklyLoss hi >=) (hiMaxWeeklyLossLim hi) ->
-                                Just ExitMaxWeeklyLoss
-                            | maybe False (hiDrawdown hi >=) (hiMaxDrawdownLim hi) ->
-                                Just ExitMaxDrawdown
-                            | maybe False (\lim -> maybe False (< lim) (hiExpectancy hi)) (hiMinExpectancy hi) ->
-                                Just (ExitOther "NEGATIVE_EXPECTANCY")
-                            | otherwise -> Nothing
+                    let mdl = fmap sanitizeRiskLimit (hiMaxDailyLossLim hi)
+                        mwl = fmap sanitizeRiskLimit (hiMaxWeeklyLossLim hi)
+                        mdd = fmap sanitizeRiskLimit (hiMaxDrawdownLim hi)
+                        me  = fmap sanitizeRiskLimit (hiMinExpectancy hi)
+                        mps = fmap sanitizeRiskLimit (hiMaxPositionSizeLim hi)
+                        ps  = max 0 (hiPositionSize hi)
+                     in case () of
+                            _
+                                | maybe False (hiDailyLoss hi >=) mdl ->
+                                    Just ExitMaxDailyLoss
+                                | maybe False (hiWeeklyLoss hi >=) mwl ->
+                                    Just ExitMaxWeeklyLoss
+                                | maybe False (hiDrawdown hi >=) mdd ->
+                                    Just ExitMaxDrawdown
+                                | maybe False (\lim -> maybe False (< lim) (hiExpectancy hi)) me ->
+                                    Just (ExitOther "NEGATIVE_EXPECTANCY")
+                                | maybe False (ps >) mps ->
+                                    Just (ExitOther "POSITION_SIZE")
+                                | otherwise -> Nothing
      in haltReasonBase <|> riskHaltReason
 
 data TradeEntrySource
@@ -1736,6 +1752,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     , hiMaxWeeklyLossLim = maxWeeklyLossLim
                                                     , hiMaxDrawdownLim = maxDrawdownLim
                                                     , hiMinExpectancy = minExpectancy
+                                                    , hiPositionSize = max 0 posSize
+                                                    , hiMaxPositionSizeLim =
+                                                        if positionSizeBoundsOk
+                                                            then Just maxPositionSize
+                                                            else Nothing
                                                     }
                                         halted = Data.Maybe.isJust haltReason1
 
@@ -2666,6 +2687,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                     , hiMaxWeeklyLossLim = maxWeeklyLossLim
                                                                     , hiMaxDrawdownLim = maxDrawdownLim
                                                                     , hiMinExpectancy = minExpectancy
+                                                                    , hiPositionSize = max 0 posSizeFinal2
+                                                                    , hiMaxPositionSizeLim =
+                                                                        if positionSizeBoundsOk
+                                                                            then Just maxPositionSize
+                                                                            else Nothing
                                                                     }
                                                      in case riskHaltReason2 of
                                                             Nothing -> (posFinal2, posSizeFinal2, equityFinal2, costTotalsFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Nothing)

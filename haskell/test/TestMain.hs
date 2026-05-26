@@ -277,6 +277,8 @@ main = do
     testFormalExecutionInvariants
     testFormalRiskInvariants
     testFormalRiskNoFalsePositiveWitness
+    testFormalRiskNegativeLimitSanitization
+    testFormalRiskPositionSizeHalt
     testSignalGatesFailClosedExhaustive
     runTechnicalAnalysisTests
 
@@ -3935,6 +3937,9 @@ testFormalRiskInvariants = do
     assert
         "no halt occurs when no limits are configured and no previous halt exists"
         (fvrRiskHaltNoFalsePositive report)
+    assert
+        "position-size halt fires when position exceeds sanitized limit"
+        (fvrRiskHaltPositionSize report)
 
 -- Witness-level guardrail: when no limits are set and no prior halt,
 -- specRiskHalt must return Nothing for a representative set of inputs.
@@ -3953,6 +3958,8 @@ testFormalRiskNoFalsePositiveWitness = do
                 , hiMaxWeeklyLossLim = Nothing
                 , hiMaxDrawdownLim = Nothing
                 , hiMinExpectancy = Nothing
+                , hiPositionSize = 0
+                , hiMaxPositionSizeLim = Nothing
                 }
             | dc <- [False, True]
             , wc <- [False, True]
@@ -3965,6 +3972,84 @@ testFormalRiskNoFalsePositiveWitness = do
     assert
         "specRiskHalt returns Nothing when no limits are set and no previous halt exists (witness grid)"
         allNothing
+
+-- Risk-limit sanitization guardrail: negative configured limits are treated as
+-- zero (most restrictive), so a negative daily-loss limit still halts when
+-- daily loss is non-negative.
+testFormalRiskNegativeLimitSanitization :: IO ()
+testFormalRiskNegativeLimitSanitization = do
+    let negLimInputs reason limField =
+            HaltInputs
+                { hiPrevHaltReason = Nothing
+                , hiDayChanged = False
+                , hiWeekChanged = False
+                , hiDailyLoss = 0.01
+                , hiWeeklyLoss = 0.01
+                , hiDrawdown = 0.01
+                , hiExpectancy = Just (-0.01)
+                , hiMaxDailyLossLim = if reason == ExitMaxDailyLoss then Just limField else Nothing
+                , hiMaxWeeklyLossLim = if reason == ExitMaxWeeklyLoss then Just limField else Nothing
+                , hiMaxDrawdownLim = if reason == ExitMaxDrawdown then Just limField else Nothing
+                , hiMinExpectancy = if reason == ExitOther "NEGATIVE_EXPECTANCY" then Just limField else Nothing
+                , hiPositionSize = 0
+                , hiMaxPositionSizeLim = Nothing
+                }
+    assert
+        "negative daily-loss limit is sanitized to zero and halts on any non-negative daily loss"
+        (specRiskHalt (negLimInputs ExitMaxDailyLoss (-0.05)) == Just ExitMaxDailyLoss)
+    assert
+        "negative weekly-loss limit is sanitized to zero and halts on any non-negative weekly loss"
+        (specRiskHalt (negLimInputs ExitMaxWeeklyLoss (-0.05)) == Just ExitMaxWeeklyLoss)
+    assert
+        "negative drawdown limit is sanitized to zero and halts on any non-negative drawdown"
+        (specRiskHalt (negLimInputs ExitMaxDrawdown (-0.05)) == Just ExitMaxDrawdown)
+    assert
+        "negative min-expectancy limit is sanitized to zero and halts on any negative expectancy"
+        (specRiskHalt (negLimInputs (ExitOther "NEGATIVE_EXPECTANCY") (-0.05)) == Just (ExitOther "NEGATIVE_EXPECTANCY"))
+
+-- Position-size halt guardrail: if position size exceeds the configured max,
+-- specRiskHalt emits a POSITION_SIZE exit reason. Negative limits are sanitized
+-- to zero (most restrictive), and missing limits disable the check.
+testFormalRiskPositionSizeHalt :: IO ()
+testFormalRiskPositionSizeHalt = do
+    let baseInputs =
+            HaltInputs
+                { hiPrevHaltReason = Nothing
+                , hiDayChanged = False
+                , hiWeekChanged = False
+                , hiDailyLoss = 0
+                , hiWeeklyLoss = 0
+                , hiDrawdown = 0
+                , hiExpectancy = Nothing
+                , hiMaxDailyLossLim = Nothing
+                , hiMaxWeeklyLossLim = Nothing
+                , hiMaxDrawdownLim = Nothing
+                , hiMinExpectancy = Nothing
+                , hiPositionSize = 0
+                , hiMaxPositionSizeLim = Nothing
+                }
+    assert
+        "position size exceeding limit triggers POSITION_SIZE halt"
+        ( specRiskHalt baseInputs{hiPositionSize = 1.5, hiMaxPositionSizeLim = Just 1.0}
+            == Just (ExitOther "POSITION_SIZE")
+        )
+    assert
+        "position size within limit does not trigger halt"
+        (isNothing (specRiskHalt baseInputs{hiPositionSize = 0.5, hiMaxPositionSizeLim = Just 1.0}))
+    assert
+        "negative position size is sanitized to zero and does not trigger halt"
+        (isNothing (specRiskHalt baseInputs{hiPositionSize = -0.5, hiMaxPositionSizeLim = Just 1.0}))
+    assert
+        "negative limit is sanitized to zero and halts on any positive position size"
+        ( specRiskHalt baseInputs{hiPositionSize = 0.01, hiMaxPositionSizeLim = Just (-0.05)}
+            == Just (ExitOther "POSITION_SIZE")
+        )
+    assert
+        "missing limit disables position-size halt"
+        (isNothing (specRiskHalt baseInputs{hiPositionSize = 10.0, hiMaxPositionSizeLim = Nothing}))
+    assert
+        "position size exactly at limit does not trigger halt"
+        (isNothing (specRiskHalt baseInputs{hiPositionSize = 1.0, hiMaxPositionSizeLim = Just 1.0}))
 
 -- Exhaustive fail-closed checks for signal gates.
 testSignalGatesFailClosedExhaustive :: IO ()
