@@ -562,6 +562,26 @@ function runGh(args, opts = {}) {
   });
 }
 
+function runGhWithRetry(args, opts = {}) {
+  const maxRetries = 3;
+  const baseDelayMs = 2000;
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return runGh(args, opts);
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err?.message ?? "");
+      const is502 = msg.includes("502") || msg.includes("Bad Gateway");
+      if (!is502 || attempt === maxRetries) throw err;
+      const delayMs = baseDelayMs * 2 ** attempt;
+      console.error(`[runGhWithRetry] 502 on attempt ${attempt + 1}/${maxRetries + 1}, retrying in ${delayMs}ms…`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
+  throw lastErr;
+}
+
 function runBash(command, opts = {}) {
   return runCommand("/bin/bash", ["-lc", prepareShellCommand(command)], opts);
 }
@@ -787,7 +807,7 @@ function isAiReviewAuthor(login) {
 function getRepoNameWithOwner() {
   if (cachedRepoNameWithOwner !== null) return cachedRepoNameWithOwner;
   try {
-    const response = JSON.parse(runGh(["repo", "view", "--json", "nameWithOwner"]));
+    const response = JSON.parse(runGhWithRetry(["repo", "view", "--json", "nameWithOwner"]));
     cachedRepoNameWithOwner = String(response?.nameWithOwner || "").trim();
   } catch {
     cachedRepoNameWithOwner = "";
@@ -797,7 +817,7 @@ function getRepoNameWithOwner() {
 
 function listRecentPullRequestsForReview() {
   const response = JSON.parse(
-    runGh(["api", `repos/:owner/:repo/pulls?state=all&sort=updated&direction=desc&per_page=${AI_REVIEW_LOOKBACK_PRS}`]),
+    runGhWithRetry(["api", `repos/:owner/:repo/pulls?state=all&sort=updated&direction=desc&per_page=${AI_REVIEW_LOOKBACK_PRS}`]),
   );
   return (Array.isArray(response) ? response : [])
     .map((pr) => ({
@@ -850,7 +870,7 @@ query($owner: String!, $name: String!, $number: Int!) {
   }
 }`;
   const response = JSON.parse(
-    runGh(["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${prSummary.number}`, "-f", `query=${query}`]),
+    runGhWithRetry(["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${prSummary.number}`, "-f", `query=${query}`]),
   );
   const pr = response?.data?.repository?.pullRequest;
   const threads = Array.isArray(pr?.reviewThreads?.nodes) ? pr.reviewThreads.nodes : [];
@@ -1685,7 +1705,7 @@ function isFailedWorkflowConclusion(conclusion) {
 
 function listCommitChangedPaths(headSha) {
   try {
-    const response = JSON.parse(runGh(["api", `repos/:owner/:repo/commits/${headSha}`]));
+    const response = JSON.parse(runGhWithRetry(["api", `repos/:owner/:repo/commits/${headSha}`]));
     return uniqueStrings(
       (Array.isArray(response?.files) ? response.files : [])
         .map((file) => String(file?.filename || "").trim())
@@ -1835,12 +1855,12 @@ async function inspectLatestRemoteBranchFailureContext() {
 }
 
 function listWorkflowRunsForHead(headSha, branchName) {
-  const response = JSON.parse(runGh(["api", buildActionsRunsApiPath(headSha, branchName, 50)]));
+  const response = JSON.parse(runGhWithRetry(["api", buildActionsRunsApiPath(headSha, branchName, 50)]));
   return Array.isArray(response?.workflow_runs) ? response.workflow_runs : [];
 }
 
 function summarizeCheckSuitesForHead(headSha) {
-  const response = JSON.parse(runGh(["api", `repos/:owner/:repo/commits/${headSha}/check-suites`]));
+  const response = JSON.parse(runGhWithRetry(["api", `repos/:owner/:repo/commits/${headSha}/check-suites`]));
   const suites = Array.isArray(response?.check_suites) ? response.check_suites : [];
   return uniqueStrings(
     suites.map((suite) => {
