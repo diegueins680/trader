@@ -279,6 +279,7 @@ main = do
     testFormalRiskNoFalsePositiveWitness
     testFormalRiskNegativeLimitSanitization
     testFormalRiskPositionSizeHalt
+    testFormalRiskLossStreakHalt
     testSignalGatesFailClosedExhaustive
     runTechnicalAnalysisTests
 
@@ -3940,6 +3941,9 @@ testFormalRiskInvariants = do
     assert
         "position-size halt fires when position exceeds sanitized limit"
         (fvrRiskHaltPositionSize report)
+    assert
+        "loss-streak halt fires when consecutive losses exceed configured limit"
+        (fvrRiskHaltLossStreak report)
 
 -- Witness-level guardrail: when no limits are set and no prior halt,
 -- specRiskHalt must return Nothing for a representative set of inputs.
@@ -3960,6 +3964,8 @@ testFormalRiskNoFalsePositiveWitness = do
                 , hiMinExpectancy = Nothing
                 , hiPositionSize = 0
                 , hiMaxPositionSizeLim = Nothing
+                , hiConsecutiveLosses = 0
+                , hiMaxLossStreakLim = Nothing
                 }
             | dc <- [False, True]
             , wc <- [False, True]
@@ -3993,6 +3999,8 @@ testFormalRiskNegativeLimitSanitization = do
                 , hiMinExpectancy = if reason == ExitOther "NEGATIVE_EXPECTANCY" then Just limField else Nothing
                 , hiPositionSize = 0
                 , hiMaxPositionSizeLim = Nothing
+                , hiConsecutiveLosses = 0
+                , hiMaxLossStreakLim = Nothing
                 }
     assert
         "negative daily-loss limit is sanitized to zero and halts on any non-negative daily loss"
@@ -4027,6 +4035,8 @@ testFormalRiskPositionSizeHalt = do
                 , hiMinExpectancy = Nothing
                 , hiPositionSize = 0
                 , hiMaxPositionSizeLim = Nothing
+                , hiConsecutiveLosses = 0
+                , hiMaxLossStreakLim = Nothing
                 }
     assert
         "position size exceeding limit triggers POSITION_SIZE halt"
@@ -4050,6 +4060,50 @@ testFormalRiskPositionSizeHalt = do
     assert
         "position size exactly at limit does not trigger halt"
         (isNothing (specRiskHalt baseInputs{hiPositionSize = 1.0, hiMaxPositionSizeLim = Just 1.0}))
+
+-- Loss-streak halt guardrail: if consecutive losses exceed the configured max,
+-- specRiskHalt emits a LOSS_STREAK exit reason. Missing or zero limits disable
+-- the check, and exact-boundary equality does not trigger.
+testFormalRiskLossStreakHalt :: IO ()
+testFormalRiskLossStreakHalt = do
+    let baseInputs =
+            HaltInputs
+                { hiPrevHaltReason = Nothing
+                , hiDayChanged = False
+                , hiWeekChanged = False
+                , hiDailyLoss = 0
+                , hiWeeklyLoss = 0
+                , hiDrawdown = 0
+                , hiExpectancy = Nothing
+                , hiMaxDailyLossLim = Nothing
+                , hiMaxWeeklyLossLim = Nothing
+                , hiMaxDrawdownLim = Nothing
+                , hiMinExpectancy = Nothing
+                , hiPositionSize = 0
+                , hiMaxPositionSizeLim = Nothing
+                , hiConsecutiveLosses = 0
+                , hiMaxLossStreakLim = Nothing
+                }
+    assert
+        "consecutive losses exceeding limit triggers LOSS_STREAK halt"
+        ( specRiskHalt baseInputs{hiConsecutiveLosses = 4, hiMaxLossStreakLim = Just 3}
+            == Just (ExitOther "LOSS_STREAK")
+        )
+    assert
+        "consecutive losses within limit do not trigger halt"
+        (isNothing (specRiskHalt baseInputs{hiConsecutiveLosses = 2, hiMaxLossStreakLim = Just 3}))
+    assert
+        "exact boundary equality does not trigger LOSS_STREAK halt"
+        (isNothing (specRiskHalt baseInputs{hiConsecutiveLosses = 3, hiMaxLossStreakLim = Just 3}))
+    assert
+        "missing limit disables loss-streak halt"
+        (isNothing (specRiskHalt baseInputs{hiConsecutiveLosses = 10, hiMaxLossStreakLim = Nothing}))
+    assert
+        "zero limit disables loss-streak halt"
+        (isNothing (specRiskHalt baseInputs{hiConsecutiveLosses = 10, hiMaxLossStreakLim = Just 0}))
+    assert
+        "zero consecutive losses do not trigger halt even with low limit"
+        (isNothing (specRiskHalt baseInputs{hiConsecutiveLosses = 0, hiMaxLossStreakLim = Just 1}))
 
 -- Exhaustive fail-closed checks for signal gates.
 testSignalGatesFailClosedExhaustive :: IO ()

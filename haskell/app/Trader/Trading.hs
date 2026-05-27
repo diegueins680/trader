@@ -357,6 +357,8 @@ data HaltInputs = HaltInputs
     , hiMinExpectancy :: !(Maybe Double)
     , hiPositionSize :: !Double
     , hiMaxPositionSizeLim :: !(Maybe Double)
+    , hiConsecutiveLosses :: !Int
+    , hiMaxLossStreakLim :: !(Maybe Int)
     }
     deriving (Eq, Show)
 
@@ -411,6 +413,8 @@ specRiskHalt hi =
                                     Just (ExitOther "NEGATIVE_EXPECTANCY")
                                 | maybe False (ps >) mps ->
                                     Just (ExitOther "POSITION_SIZE")
+                                | maybe False (\lim -> lim > 0 && hiConsecutiveLosses hi > lim) (hiMaxLossStreakLim hi) ->
+                                    Just (ExitOther "LOSS_STREAK")
                                 | otherwise -> Nothing
      in haltReasonBase <|> riskHaltReason
 
@@ -1759,6 +1763,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                         if positionSizeBoundsOk
                                                             then Just maxPositionSize
                                                             else Nothing
+                                                    , hiConsecutiveLosses = lossStreak
+                                                    , hiMaxLossStreakLim =
+                                                        if lossStreakMax > 0
+                                                            then Just lossStreakMax
+                                                            else Nothing
                                                     }
                                         halted = Data.Maybe.isJust haltReason1
 
@@ -2693,6 +2702,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                     , hiMaxPositionSizeLim =
                                                                         if positionSizeBoundsOk
                                                                             then Just maxPositionSize
+                                                                            else Nothing
+                                                                    , hiConsecutiveLosses = lossStreak
+                                                                    , hiMaxLossStreakLim =
+                                                                        if lossStreakMax > 0
+                                                                            then Just lossStreakMax
                                                                             else Nothing
                                                                     }
                                                      in case riskHaltReason2 of

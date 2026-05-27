@@ -27,6 +27,7 @@ data RiskVerificationReport = RiskVerificationReport
     , fvrRiskHaltPreservesOther :: !Bool
     , fvrRiskHaltNoFalsePositive :: !Bool
     , fvrRiskHaltPositionSize :: !Bool
+    , fvrRiskHaltLossStreak :: !Bool
     }
     deriving (Eq, Show)
 
@@ -63,6 +64,8 @@ verifyFormalRisk =
                 , hiMinExpectancy = me
                 , hiPositionSize = 0
                 , hiMaxPositionSizeLim = Nothing
+                , hiConsecutiveLosses = 0
+                , hiMaxLossStreakLim = Nothing
                 }
             | pr <- prevReasons
             , dc <- booleans
@@ -192,9 +195,44 @@ verifyFormalRisk =
                     , hiMinExpectancy = Nothing
                     , hiPositionSize = ps
                     , hiMaxPositionSizeLim = mps
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
                     }
                 | ps <- [0, 0.5, 1.0, 1.5, 2.0]
                 , mps <- [Nothing, Just 0, Just 1.0, Just 2.0]
+                ]
+
+        -- Loss-streak cooldown halt: if consecutive losses exceed the configured
+        -- max, a LOSS_STREAK halt is emitted. This prevents runaway drawdowns
+        -- during persistent adverse regimes.
+        lossStreakHalt =
+            all
+                ( \hi ->
+                    let result = specRiskHalt hi
+                     in case result of
+                            Just (ExitOther "LOSS_STREAK") ->
+                                maybe False (\lim -> hiConsecutiveLosses hi > lim) (hiMaxLossStreakLim hi)
+                            _ -> True
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = cl
+                    , hiMaxLossStreakLim = mls
+                    }
+                | cl <- [0, 1, 2, 3, 5]
+                , mls <- [Nothing, Just 0, Just 2, Just 3]
                 ]
      in
         RiskVerificationReport
@@ -204,4 +242,5 @@ verifyFormalRisk =
             , fvrRiskHaltPreservesOther = preservesOther
             , fvrRiskHaltNoFalsePositive = noFalsePositive
             , fvrRiskHaltPositionSize = positionSizeHalt
+            , fvrRiskHaltLossStreak = lossStreakHalt
             }
