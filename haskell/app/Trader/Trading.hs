@@ -160,6 +160,7 @@ data EnsembleConfig = EnsembleConfig
     , ecKalmanBandStdMult :: !Double
     , ecKalmanZMin :: !Double
     , ecKalmanZMax :: !Double
+    , ecKalmanMinStdFloor :: !Double
     , ecLstmExitFlipBars :: !Int
     , ecLstmExitFlipGraceBars :: !Int
     , ecLstmExitFlipStrong :: !Bool
@@ -1586,10 +1587,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                      in if isNaN w || isInfinite w then Nothing else Just w
                                 _ -> Nothing
 
-                        kalmanZ :: StepMeta -> Double
-                        kalmanZ m =
+                        kalmanZ :: Double -> StepMeta -> Double
+                        kalmanZ minStdFloor m =
                             let var = max 0 (smKalmanVar m)
-                                std = sqrt var
+                                std = max minStdFloor (sqrt var)
                                 mu = smKalmanMean m
                              in if std <= 0 || isNaN std || isInfinite std then 0 else abs mu / std
 
@@ -1615,7 +1616,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         confidenceScoreKalman zMin0 m =
                             let zMin = max 0 zMin0
                                 zMax = max zMin (ecKalmanZMax cfg)
-                                zScore = scale01 zMin zMax (kalmanZ m)
+                                zScore = scale01 zMin zMax (kalmanZ (ecKalmanMinStdFloor cfg) m)
                                 hvScore =
                                     case (ecMaxHighVolProb cfg, smHighVolProb m) of
                                         (Just maxHv, Just hv) -> clamp01 ((maxHv - hv) / max 1e-12 maxHv)
@@ -1657,7 +1658,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 | hvOk -> (Just side, if useSizing then confScore else 1)
                                             _ -> (Nothing, 0)
                                     Just side ->
-                                        let kalZ = kalmanZ m
+                                        let kalZ = kalmanZ (ecKalmanMinStdFloor cfg) m
                                             zMin = max 0 zMin0
                                             size0 = if useSizing then confScore else 1
                                          in if (kalZ < zMin)
@@ -2014,7 +2015,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             Just m ->
                                                                 let zMin = max 0 kalmanZMinStep
                                                                     zMax = max zMin (ecKalmanZMax cfg)
-                                                                 in Just (scale01 zMin zMax (kalmanZ m))
+                                                                 in Just (scale01 zMin zMax (kalmanZ (ecKalmanMinStdFloor cfg) m))
                                                 hvScore =
                                                     scoreOrNeutral $
                                                         case metaNow >>= smHighVolProb of

@@ -144,7 +144,7 @@ constantAcceleration1D dt processVar measurementVar initialPosition =
                     dtSafe
         h = Vec3 1 0 0
         x0 = Vec3 initialPosition 0 0
-        p0 = identity3
+        p0 = matScale 10 identity3
      in Kalman3{kF = f, kH = h, kQ = q, kR = measVarSafe, kx = x0, kP = p0}
 
 data KalmanRun = KalmanRun

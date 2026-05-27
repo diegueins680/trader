@@ -1817,6 +1817,7 @@ sampleEnsembleConfig =
         , ecKalmanBandStdMult = 0
         , ecKalmanZMin = -1
         , ecKalmanZMax = 1
+        , ecKalmanMinStdFloor = 1e-6
         , ecLstmExitFlipBars = 0
         , ecLstmExitFlipGraceBars = 0
         , ecLstmExitFlipStrong = False
@@ -1852,6 +1853,7 @@ optimizerPublicSurfaceWitnessConfig =
         , ecSpreadVolMult = 0.05
         , ecKalmanZMin = 0.5
         , ecKalmanZMax = 2
+        , ecKalmanMinStdFloor = 1e-6
         , ecLstmExitFlipBars = 3
         , ecLstmExitFlipGraceBars = 1
         }

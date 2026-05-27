@@ -818,6 +818,7 @@ optimizerPublicSurfaceBaseConfig =
         , ecKalmanBandStdMult = 0
         , ecKalmanZMin = 0.5
         , ecKalmanZMax = 2
+        , ecKalmanMinStdFloor = 1e-6
         , ecLstmExitFlipBars = 3
         , ecLstmExitFlipGraceBars = 1
         , ecLstmExitFlipStrong = False

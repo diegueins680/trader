@@ -263,6 +263,7 @@ data Args = Args
     , -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
       argKalmanZMin :: Double
     , argKalmanZMax :: Double
+    , argKalmanMinStdFloor :: Double
     , argMaxHighVolProb :: Maybe Double
     , argMaxConformalWidth :: Maybe Double
     , argMaxQuantileWidth :: Maybe Double
@@ -962,6 +963,7 @@ opts = do
     argPort <- option auto (long "port" <> value 8080 <> help "REST API port (when --serve)")
     argKalmanZMin <- option auto (long "kalman-z-min" <> value 0.5 <> help "Min |Kalman mean|/std (z-score) required to treat Kalman as directional (0 disables)")
     argKalmanZMax <- option auto (long "kalman-z-max" <> value 3 <> help "Z-score mapped to position size=1 when --confidence-sizing is enabled")
+    argKalmanMinStdFloor <- option auto (long "kalman-min-std-floor" <> value 1e-6 <> help "Minimum std floor for Kalman z-score to avoid division by near-zero")
     argMaxHighVolProb <- optional (option auto (long "max-high-vol-prob" <> help "If set, block trades when HMM high-vol regime prob exceeds this (0..1)"))
     argMaxConformalWidth <- optional (option auto (long "max-conformal-width" <> help "If set, block trades when conformal interval width exceeds this (return units)"))
     argMaxQuantileWidth <- optional (option auto (long "max-quantile-width" <> help "If set, block trades when quantile (q90-q10) width exceeds this (return units)"))
@@ -1387,6 +1389,7 @@ validateArgs args0 = do
             , ("--prediction-market-herd-min-volume", argPredictionMarketHerdMinVolume args)
             , ("--kalman-z-min", argKalmanZMin args)
             , ("--kalman-z-max", argKalmanZMax args)
+            , ("--kalman-min-std-floor", argKalmanMinStdFloor args)
             , ("--tune-stress-vol-mult", argTuneStressVolMult args)
             , ("--tune-stress-shock", argTuneStressShock args)
             , ("--tune-stress-weight", argTuneStressWeight args)
