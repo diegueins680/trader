@@ -11232,9 +11232,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
 
                         let liveSym = fromMaybe "BTCUSDT" (argBinanceSymbol args)
                         when (appliedExecution && prevPos == 0 && posNew /= 0) $
-                            emitLiveTradeNdjson liveSym "OPEN" priceNew eqAfterFee
+                            emitLiveTradeNdjson (argTradeLog args) liveSym "OPEN" priceNew eqAfterFee
                         when (appliedExecution && prevPos /= 0 && posNew == 0) $
-                            emitLiveTradeNdjson liveSym "CLOSE" priceNew eqAfterFee
+                            emitLiveTradeNdjson (argTradeLog args) liveSym "CLOSE" priceNew eqAfterFee
 
                         pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
 
@@ -22562,57 +22562,61 @@ runTradeOnly mWebhook args lookback series mBinanceEnv = do
 
 emitBacktestTradesNdjson :: Args -> BacktestSummary -> IO ()
 emitBacktestTradesNdjson args summary = do
-    createDirectoryIfMissing True ".tmp/trader"
-    let trades = bsTrades summary
-        prices = bsBacktestPrices summary
-        positions = bsPositions summary
-        mOpenTimes = bsOpenTimes summary
-        sym = maybe (symbolFromDataPath (argData args)) T.pack (argBinanceSymbol args)
-        meth = T.pack (methodCode (bsMethodUsed summary))
-        vcg = T.pack (volConfGateCode (bsVolConfGate summary))
-        emitTrade tr = do
-            let ei = trEntryIndex tr
-                xi = trExitIndex tr
-                entryPrice = if ei >= 0 && ei < length prices then prices !! ei else 0.0
-                exitPrice = if xi >= 0 && xi < length prices then prices !! xi else 0.0
-                side = T.pack (if ei >= 0 && ei < length positions && positions !! ei >= 0 then "LONG" else "SHORT")
-                qty = if ei >= 0 && ei < length positions then abs (positions !! ei) else 0.0
-                pnl = trExitEquity tr - trEntryEquity tr
-                epochMsToIso ms =
-                    T.pack $
-                        formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
-                            posixSecondsToUTCTime $
-                                fromIntegral ms / 1000
-                entryTime = case mOpenTimes of
-                    Just ts | ei >= 0 && ei < length ts -> epochMsToIso (ts !! ei)
-                    _ -> T.pack ""
-                exitTime = case mOpenTimes of
-                    Just ts | xi >= 0 && xi < length ts -> epochMsToIso (ts !! xi)
-                    _ -> T.pack ""
-                logTime = case mOpenTimes of
-                    Just ts | not (null ts) -> epochMsToIso (last ts)
-                    _ -> T.pack ""
-                line =
-                    object
-                        [ "timestamp" .= logTime
-                        , "symbol" .= sym
-                        , "side" .= side
-                        , "entryPrice" .= entryPrice
-                        , "exitPrice" .= exitPrice
-                        , "quantity" .= qty
-                        , "pnl" .= pnl
-                        , "pnlPercent" .= trReturn tr
-                        , "method" .= meth
-                        , "volConfGate" .= vcg
-                        , "fees" .= trFeeCost tr
-                        , "entryTime" .= entryTime
-                        , "exitTime" .= exitTime
-                        , "barsHeld" .= trHoldingPeriods tr
-                        , "exitReason" .= maybe "" (T.pack . exitReasonCode) (trExitReason tr)
-                        , "feeCost" .= trFeeCost tr
-                        ]
-            BL.appendFile ".tmp/trader/live_trades.ndjson" (encode line <> BL.fromStrict (BS.pack "\n"))
-    mapM_ emitTrade trades
+    let mPath = argTradeLog args
+    case mPath of
+        Nothing -> pure ()
+        Just path -> do
+            createDirectoryIfMissing True (takeDirectory path)
+            let trades = bsTrades summary
+                prices = bsBacktestPrices summary
+                positions = bsPositions summary
+                mOpenTimes = bsOpenTimes summary
+                sym = maybe (symbolFromDataPath (argData args)) T.pack (argBinanceSymbol args)
+                meth = T.pack (methodCode (bsMethodUsed summary))
+                vcg = T.pack (volConfGateCode (bsVolConfGate summary))
+                emitTrade tr = do
+                    let ei = trEntryIndex tr
+                        xi = trExitIndex tr
+                        entryPrice = if ei >= 0 && ei < length prices then prices !! ei else 0.0
+                        exitPrice = if xi >= 0 && xi < length prices then prices !! xi else 0.0
+                        side = T.pack (if ei >= 0 && ei < length positions && positions !! ei >= 0 then "LONG" else "SHORT")
+                        qty = if ei >= 0 && ei < length positions then abs (positions !! ei) else 0.0
+                        pnl = trExitEquity tr - trEntryEquity tr
+                        epochMsToIso ms =
+                            T.pack $
+                                formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
+                                    posixSecondsToUTCTime $
+                                        fromIntegral ms / 1000
+                        entryTime = case mOpenTimes of
+                            Just ts | ei >= 0 && ei < length ts -> epochMsToIso (ts !! ei)
+                            _ -> T.pack ""
+                        exitTime = case mOpenTimes of
+                            Just ts | xi >= 0 && xi < length ts -> epochMsToIso (ts !! xi)
+                            _ -> T.pack ""
+                        logTime = case mOpenTimes of
+                            Just ts | not (null ts) -> epochMsToIso (last ts)
+                            _ -> T.pack ""
+                        line =
+                            object
+                                [ "timestamp" .= logTime
+                                , "symbol" .= sym
+                                , "side" .= side
+                                , "entryPrice" .= entryPrice
+                                , "exitPrice" .= exitPrice
+                                , "quantity" .= qty
+                                , "pnl" .= pnl
+                                , "pnlPercent" .= trReturn tr
+                                , "method" .= meth
+                                , "volConfGate" .= vcg
+                                , "fees" .= trFeeCost tr
+                                , "entryTime" .= entryTime
+                                , "exitTime" .= exitTime
+                                , "barsHeld" .= trHoldingPeriods tr
+                                , "exitReason" .= maybe "" (T.pack . exitReasonCode) (trExitReason tr)
+                                , "feeCost" .= trFeeCost tr
+                                ]
+                    BL.appendFile path (encode line <> BL.fromStrict (BS.pack "\n"))
+            mapM_ emitTrade trades
   where
     symbolFromDataPath Nothing = T.pack ""
     symbolFromDataPath (Just path) =
@@ -22621,35 +22625,38 @@ emitBacktestTradesNdjson args summary = do
             upper = map toUpper noExt
          in T.pack (takeWhile (/= '-') upper)
 
-emitLiveTradeNdjson :: String -> String -> Double -> Double -> IO ()
-emitLiveTradeNdjson sym eventType price equity = do
-    createDirectoryIfMissing True ".tmp/trader"
-    nowMs <- getTimestampMs
-    let epochMsToIso ms =
-            T.pack $
-                formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
-                    posixSecondsToUTCTime $
-                        fromIntegral ms / 1000
-        line =
-            object
-                [ "timestamp" .= epochMsToIso nowMs
-                , "symbol" .= T.pack sym
-                , "side" .= T.pack eventType
-                , "entryPrice" .= price
-                , "exitPrice" .= price
-                , "quantity" .= (0.0 :: Double)
-                , "pnl" .= (0.0 :: Double)
-                , "pnlPercent" .= (0.0 :: Double)
-                , "method" .= T.pack "live"
-                , "volConfGate" .= T.pack "live"
-                , "fees" .= (0.0 :: Double)
-                , "entryTime" .= epochMsToIso nowMs
-                , "exitTime" .= epochMsToIso nowMs
-                , "barsHeld" .= (0 :: Int)
-                , "exitReason" .= T.pack eventType
-                , "feeCost" .= (0.0 :: Double)
-                ]
-    BL.appendFile ".tmp/trader/live_trades.ndjson" (encode line <> BL.fromStrict (BS.pack "\n"))
+emitLiveTradeNdjson :: Maybe FilePath -> String -> String -> Double -> Double -> IO ()
+emitLiveTradeNdjson mPath sym eventType price equity =
+    case mPath of
+        Nothing -> pure ()
+        Just path -> do
+            createDirectoryIfMissing True (takeDirectory path)
+            nowMs <- getTimestampMs
+            let epochMsToIso ms =
+                    T.pack $
+                        formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
+                            posixSecondsToUTCTime $
+                                fromIntegral ms / 1000
+                line =
+                    object
+                        [ "timestamp" .= epochMsToIso nowMs
+                        , "symbol" .= T.pack sym
+                        , "side" .= T.pack eventType
+                        , "entryPrice" .= price
+                        , "exitPrice" .= price
+                        , "quantity" .= (0.0 :: Double)
+                        , "pnl" .= (0.0 :: Double)
+                        , "pnlPercent" .= (0.0 :: Double)
+                        , "method" .= T.pack "live"
+                        , "volConfGate" .= T.pack "live"
+                        , "fees" .= (0.0 :: Double)
+                        , "entryTime" .= epochMsToIso nowMs
+                        , "exitTime" .= epochMsToIso nowMs
+                        , "barsHeld" .= (0 :: Int)
+                        , "exitReason" .= T.pack eventType
+                        , "feeCost" .= (0.0 :: Double)
+                        ]
+            BL.appendFile path (encode line <> BL.fromStrict (BS.pack "\n"))
 
 runBacktestPipeline :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
 runBacktestPipeline mWebhook args lookback series mBinanceEnv = do

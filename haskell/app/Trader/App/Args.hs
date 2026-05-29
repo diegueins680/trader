@@ -256,6 +256,7 @@ data Args = Args
     , argMaxOrderErrors :: Maybe Int
     , argPeriodsPerYear :: Maybe Double
     , argJson :: Bool
+    , argTradeLog :: Maybe FilePath
     , argServe :: Bool
     , argOpsBackfillCommits :: Bool
     , argTopCombosBackfillCloseTiming :: Bool
@@ -953,6 +954,7 @@ opts = do
             "Do not fallback to market execution after maker-first timeout."
     argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
     argJson <- switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
+    argTradeLog <- optional (strOption (long "trade-log" <> metavar "FILE" <> help "Append closed-trade NDJSON records to FILE"))
     argServe <- switch (long "serve" <> help "Run REST API server on localhost instead of running the CLI workflow")
     argOpsBackfillCommits <- switch (long "ops-backfill-commits" <> help "Backfill git_commits from repo history and link ops by commit time (requires TRADER_DB_URL)")
     argTopCombosBackfillCloseTiming <-
