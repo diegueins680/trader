@@ -46,6 +46,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX (getPOSIXTime, posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import qualified Data.UUID as UUID
+import qualified Data.UUID.V4 as UUID4
 import qualified Data.Vector as V
 import Data.Version (showVersion)
 import Data.Word (Word64)
@@ -22596,24 +22597,25 @@ emitBacktestTradesNdjson args summary = do
                         logTime = case mOpenTimes of
                             Just ts | not (null ts) -> epochMsToIso (last ts)
                             _ -> T.pack ""
-                        line =
+                    tid <- UUID.toText <$> UUID4.nextRandom
+                    let line =
                             object
                                 [ "timestamp" .= logTime
                                 , "symbol" .= sym
                                 , "side" .= side
-                                , "entryPrice" .= entryPrice
-                                , "exitPrice" .= exitPrice
+                                , "entry_price" .= entryPrice
+                                , "exit_price" .= exitPrice
                                 , "quantity" .= qty
-                                , "pnl" .= pnl
-                                , "pnlPercent" .= trReturn tr
-                                , "method" .= meth
-                                , "volConfGate" .= vcg
-                                , "fees" .= trFeeCost tr
-                                , "entryTime" .= entryTime
-                                , "exitTime" .= exitTime
-                                , "barsHeld" .= trHoldingPeriods tr
-                                , "exitReason" .= maybe "" (T.pack . exitReasonCode) (trExitReason tr)
-                                , "feeCost" .= trFeeCost tr
+                                , "pnl_quote" .= pnl
+                                , "pnl_pct" .= trReturn tr
+                                , "fee_quote" .= trFeeCost tr
+                                , "signal_method" .= meth
+                                , "vol_conf_gate" .= vcg
+                                , "regime_filter" .= (Nothing :: Maybe T.Text)
+                                , "slippage_estimate" .= (Nothing :: Maybe Double)
+                                , "latency_ms" .= (Nothing :: Maybe Int)
+                                , "trade_id" .= tid
+                                , "schema_version" .= ("1.0" :: T.Text)
                                 ]
                     BL.appendFile path (encode line <> BL.fromStrict (BS.pack "\n"))
             mapM_ emitTrade trades
@@ -22632,6 +22634,7 @@ emitLiveTradeNdjson mPath sym eventType price equity =
         Just path -> do
             createDirectoryIfMissing True (takeDirectory path)
             nowMs <- getTimestampMs
+            tid <- UUID.toText <$> UUID4.nextRandom
             let epochMsToIso ms =
                     T.pack $
                         formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" $
@@ -22642,19 +22645,19 @@ emitLiveTradeNdjson mPath sym eventType price equity =
                         [ "timestamp" .= epochMsToIso nowMs
                         , "symbol" .= T.pack sym
                         , "side" .= T.pack eventType
-                        , "entryPrice" .= price
-                        , "exitPrice" .= price
+                        , "entry_price" .= price
+                        , "exit_price" .= price
                         , "quantity" .= (0.0 :: Double)
-                        , "pnl" .= (0.0 :: Double)
-                        , "pnlPercent" .= (0.0 :: Double)
-                        , "method" .= T.pack "live"
-                        , "volConfGate" .= T.pack "live"
-                        , "fees" .= (0.0 :: Double)
-                        , "entryTime" .= epochMsToIso nowMs
-                        , "exitTime" .= epochMsToIso nowMs
-                        , "barsHeld" .= (0 :: Int)
-                        , "exitReason" .= T.pack eventType
-                        , "feeCost" .= (0.0 :: Double)
+                        , "pnl_quote" .= (0.0 :: Double)
+                        , "pnl_pct" .= (0.0 :: Double)
+                        , "fee_quote" .= (0.0 :: Double)
+                        , "signal_method" .= T.pack "live"
+                        , "vol_conf_gate" .= T.pack "live"
+                        , "regime_filter" .= (Nothing :: Maybe T.Text)
+                        , "slippage_estimate" .= (Nothing :: Maybe Double)
+                        , "latency_ms" .= (Nothing :: Maybe Int)
+                        , "trade_id" .= tid
+                        , "schema_version" .= ("1.0" :: T.Text)
                         ]
             BL.appendFile path (encode line <> BL.fromStrict (BS.pack "\n"))
 
