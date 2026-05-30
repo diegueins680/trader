@@ -106,8 +106,9 @@ resolveS3State = do
                                 }
                         )
 
--- | Parse a custom S3 endpoint (e.g. "https://fly.storage.tigris.dev") into
---   (host-without-scheme-or-trailing-slash, useTls). Nothing => AWS default.
+{- | Parse a custom S3 endpoint (e.g. "https://fly.storage.tigris.dev") into
+  (host-without-scheme-or-trailing-slash, useTls). Nothing => AWS default.
+-}
 parseS3Endpoint :: Maybe String -> (Maybe String, Bool)
 parseS3Endpoint Nothing = (Nothing, True)
 parseS3Endpoint (Just raw)
@@ -302,8 +303,9 @@ s3Host st =
         Just h -> h
         Nothing -> s3Bucket st ++ ".s3." ++ s3Region st ++ ".amazonaws.com"
 
--- | Canonical request path. Virtual-hosted (AWS default) signs "/key"; path-style
---   (custom endpoints) signs "/bucket/key" since the bucket isn't in the host.
+{- | Canonical request path. Virtual-hosted (AWS default) signs "/key"; path-style
+  (custom endpoints) signs "/bucket/key" since the bucket isn't in the host.
+-}
 s3CanonicalPath :: S3State -> String -> String
 s3CanonicalPath st raw =
     let keySegs = case trimSlashes raw of
