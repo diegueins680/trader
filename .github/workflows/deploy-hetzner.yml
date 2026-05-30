@@ -37,6 +37,21 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
+      # The box serves haskell/web/dist via Caddy; it is gitignored, so build it
+      # here and rsync it to the box (matches the existing local-build flow).
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: haskell/web/package-lock.json
+
+      - name: Build web frontend
+        env:
+          VITE_GIT_COMMIT: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          npm --workspaces=false --prefix haskell/web ci
+          npm --prefix haskell/web run build
+
       - name: Deploy to Hetzner (${{ matrix.role }}) over SSH
         env:
           # Shared deploy key (same public key on both boxes' authorized_keys).
