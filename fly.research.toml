@@ -41,6 +41,11 @@ primary_region = "fra"
   # live trading node's (combos themselves are not tenant-scoped, so they're shared).
   TRADER_STATE_SYNC_TENANT_KEY = "fly-research"
 
+# Run the serve process in FUTURES market: the top combos use long-short
+# positioning, which requires market=futures (spot serve rejects them).
+[processes]
+  app = "trader-hs --serve --port 8080 --futures"
+
 [http_service]
   internal_port = 8080
   force_https = true
