@@ -1142,6 +1142,10 @@ validateArgs args0 = do
     case argData args of
         Just "" -> Left "--data cannot be empty"
         _ -> pure ()
+    case argTradeLog args of
+        Just "" -> Left "--trade-log cannot be empty"
+        Just raw | '\0' `elem` raw -> Left "--trade-log cannot contain null bytes"
+        _ -> pure ()
     case argBinanceSymbol args of
         Just "" -> Left "--binance-symbol cannot be empty"
         _ -> pure ()
@@ -1716,6 +1720,7 @@ validateArgs args0 = do
         Nothing -> pure ()
         Just d -> ensure "--dex-quote-decimals must be >= 0" (d >= 0)
 
+    ensure "--kalman-min-std-floor must be >= 0" (argKalmanMinStdFloor args >= 0)
     ensure "--kalman-z-min must be >= 0" (argKalmanZMin args >= 0)
     ensure "--kalman-z-max must be >= --kalman-z-min" (argKalmanZMax args >= argKalmanZMin args)
     case argMaxHighVolProb args of

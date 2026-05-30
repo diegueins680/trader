@@ -8042,7 +8042,18 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                 (marketCode (argBinanceMarket args))
                 (argInterval args)
             )
-    let initBars = clampInt 2 1000 (max 2 (resolveBarsForBinance args))
+    -- High-lookback combos (e.g. an LSTM sequence lookback exceeding the legacy
+    -- 1000-bar cap) couldn't start: the fetch was too small to train the model
+    -- ("Not enough data for lookback=N"). fetchKlines already paginates beyond
+    -- Binance's per-request limit, so when the legacy fetch can't cover the
+    -- lookback, size the fetch to the lookback (with training headroom). Combos
+    -- whose legacy fetch already covers the lookback are left byte-for-byte
+    -- unchanged, so the live trading bots' behaviour is unaffected.
+    let legacyInitBars = clampInt 2 1000 (max 2 (resolveBarsForBinance args))
+        initBars =
+            if legacyInitBars > lookback
+                then legacyInitBars
+                else clampInt 2 20000 (2 * lookback)
     ks <- fetchKlines env sym (argInterval args) initBars
     when (length ks < 2) $ throwIO (userError "Not enough klines to start bot")
     let closes = map kClose ks
@@ -17818,6 +17829,25 @@ argsFromApi baseArgs p = do
         binanceSymbolSanitized = binanceSymbolRaw >>= sanitizeComboSymbolForPlatform (Just (platformCode platform))
         binanceSymbol = binanceSymbolSanitized <|> binanceSymbolRaw
 
+        -- Some optimizer-produced combos specify a strategy lookback larger than
+        -- their own bar count (e.g. LSTM lookback 3360 with bars 978), which makes
+        -- bots fail to start ("Not enough data for lookback=N") on every fetch path.
+        -- Reconcile bars to cover the lookback so the bot can actually train/run.
+        -- Only combos that are inconsistent (bars < lookback+1) are adjusted.
+        mergedInterval = pick (apInterval p) (argInterval baseArgs)
+        effectiveLookback =
+            case pickMaybe (apLookbackBars p) (argLookbackBars baseArgs) of
+                Just n -> max 2 n
+                Nothing ->
+                    either
+                        (const 2)
+                        id
+                        (lookbackBarsFrom mergedInterval (pick (apLookbackWindow p) (argLookbackWindow baseArgs)))
+        reconciledBars =
+            case pickMaybe (apBars p) (argBars baseArgs) of
+                Just b | b < effectiveLookback + 1 -> Just (min 20000 (2 * effectiveLookback))
+                other -> other
+
         args =
             baseArgs
                 { argData = pickMaybe (apData p) (argData baseArgs)
@@ -17829,7 +17859,7 @@ argsFromApi baseArgs p = do
                 , argBinanceFutures = futuresFlag
                 , argBinanceMargin = marginFlag
                 , argInterval = pick (apInterval p) (argInterval baseArgs)
-                , argBars = pickMaybe (apBars p) (argBars baseArgs)
+                , argBars = reconciledBars
                 , argLookbackWindow = pick (apLookbackWindow p) (argLookbackWindow baseArgs)
                 , argLookbackBars = pickMaybe (apLookbackBars p) (argLookbackBars baseArgs)
                 , argBinanceTestnet = pick (apBinanceTestnet p) (argBinanceTestnet baseArgs)
