@@ -1,0 +1,54 @@
+app = "trader-hs-research"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  TRADER_SERVER_ID = "fly-trader-hs-research"
+  TRADER_SERVER_ROLE = "research"
+  TRADER_SERVER_PROVIDER = "fly"
+
+  # Shadow/staging bots: run the same universe in paper mode (no --binance-live,
+  # no live keys, BOT_TRADE off => signals + simulated eval only, no exchange orders).
+  TRADER_BOT_SYMBOLS = "XRPUSDT,FILUSDT,DOGEUSDT,ADAUSDT,SOLUSDT,AAVEUSDT,UNIUSDT,ETHUSDT,BTCUSDT,BNBUSDT,LTCUSDT,LINKUSDT,SUIUSDT,ATOMUSDT,ARBUSDT,AVAXUSDT,DOTUSDT,ETCUSDT,NEARUSDT,OPUSDT,BCHUSDT"
+  TRADER_BOT_AUTOSTART = "true"
+  TRADER_BOT_TRADE = "false"
+  TRADER_BOT_TOP_COMBO_BOTS = "22"
+  TRADER_BOT_TOP_COMBO_BOTS_STARTUP = "0"
+  TRADER_BOT_AUTOSTART_MAX_BOTS = "22"
+  TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE = "5"
+  TRADER_BOT_START_MAX_SYMBOLS = "1"
+
+  # This node OWNS optimization/backtesting (heavier than the trading node).
+  TRADER_OPTIMIZER_ENABLED = "true"
+  TRADER_OPTIMIZER_EVERY_SEC = "900"
+  TRADER_OPTIMIZER_TRIALS = "120"
+  TRADER_OPTIMIZER_TIMEOUT_SEC = "180"
+  TRADER_OPTIMIZER_LOOKBACK_WINDOW = "30d"
+  TRADER_OPTIMIZER_MAX_POINTS = "2000"
+  TRADER_TOP_COMBOS_BACKTEST_ENABLED = "true"
+
+  # Cross-instance combo sync — SAME bucket + prefix as trader-hs / Hetzner / local.
+  # Credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) are set via `fly secrets`.
+  TRADER_STATE_S3_ENDPOINT = "https://fly.storage.tigris.dev"
+  TRADER_STATE_S3_REGION = "auto"
+  TRADER_STATE_S3_BUCKET = "broken-thunder-8987"
+  TRADER_STATE_S3_PREFIX = "trader-prod"
+  TRADER_TOP_COMBOS_SYNC_ENABLED = "true"
+  TRADER_TOP_COMBOS_SYNC_EVERY_SEC = "60"
+  # Distinct tenant so this node's paper-bot snapshots don't collide with the
+  # live trading node's (combos themselves are not tenant-scoped, so they're shared).
+  TRADER_STATE_SYNC_TENANT_KEY = "fly-research"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  size = "performance-8x"
+  memory = "16384mb"

@@ -14,13 +14,12 @@ primary_region = "fra"
   TRADER_BOT_AUTOSTART_MAX_BOTS = "22"
   TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE = "5"
   TRADER_BOT_START_MAX_SYMBOLS = "1"
-  TRADER_OPTIMIZER_ENABLED = "true"
-  TRADER_OPTIMIZER_EVERY_SEC = "900"
-  TRADER_OPTIMIZER_TRIALS = "60"
-  TRADER_OPTIMIZER_TIMEOUT_SEC = "90"
-  TRADER_OPTIMIZER_LOOKBACK_WINDOW = "30d"
+  # Trading-only node: optimization/backtesting runs on trader-hs-research (and
+  # Hetzner research). This node pulls the best combos from the Tigris bus and
+  # applies them to the live bots. See fly.research.toml + deploy/COMBOS_SYNC.md.
+  TRADER_OPTIMIZER_ENABLED = "false"
   TRADER_OPTIMIZER_MAX_POINTS = "2000"
-  TRADER_TOP_COMBOS_BACKTEST_ENABLED = "true"
+  TRADER_TOP_COMBOS_BACKTEST_ENABLED = "false"
   # --- Cross-instance combo sync (shared S3 bus: Tigris, S3-compatible) ---
   # Provision with `fly storage create` (see deploy/COMBOS_SYNC.md). That command
   # auto-sets AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY as app secrets and creates the
