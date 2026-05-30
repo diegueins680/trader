@@ -8,14 +8,14 @@ on:
     workflows: ["CI"]
     types: [completed]
 
-# Never let two deploys race; let an in-flight deploy finish before the next.
+# Never let two deploys to the same box race; let an in-flight deploy finish.
 concurrency:
-  group: deploy-hetzner
+  group: deploy-hetzner-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy (Hetzner)
+    name: Deploy (${{ matrix.role }})
     runs-on: ubuntu-latest
     # Only deploy a real pushed commit whose entire CI run passed, on main/master.
     if: >-
@@ -25,6 +25,11 @@ jobs:
        github.event.workflow_run.head_branch == 'master')
     permissions:
       contents: read
+    strategy:
+      # One box failing must not cancel the deploy to the other.
+      fail-fast: false
+      matrix:
+        role: [trading, research]
     steps:
       # Check out the exact commit that passed CI (not the branch tip, which may
       # have advanced) so the deploy script and the box deploy the same SHA.
@@ -32,21 +37,42 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Deploy to Hetzner over SSH
+      - name: Deploy to Hetzner (${{ matrix.role }}) over SSH
         env:
+          # Shared deploy key (same public key on both boxes' authorized_keys).
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
-          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          # Per-role hosts / pinned host keys (secret context can't be indexed by
+          # matrix value, so expose both and select with a case below).
+          HETZNER_TRADING_HOST: ${{ secrets.HETZNER_TRADING_HOST }}
+          HETZNER_RESEARCH_HOST: ${{ secrets.HETZNER_RESEARCH_HOST }}
+          HETZNER_TRADING_KNOWN_HOSTS: ${{ secrets.HETZNER_TRADING_KNOWN_HOSTS }}
+          HETZNER_RESEARCH_KNOWN_HOSTS: ${{ secrets.HETZNER_RESEARCH_KNOWN_HOSTS }}
+          # Optional overrides; fall back to deploy-remote.sh defaults
+          # (root @ /opt/trader, env at deploy/hetzner/trader.env).
           HETZNER_SSH_USER: ${{ secrets.HETZNER_SSH_USER }}
           HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
-          HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
           HETZNER_REPO_DIR: ${{ secrets.HETZNER_REPO_DIR }}
           HETZNER_ENV_FILE: ${{ secrets.HETZNER_ENV_FILE }}
+          ROLE: ${{ matrix.role }}
           TRADER_GIT_COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
-          if [[ -z "${HETZNER_SSH_KEY:-}" || -z "${HETZNER_HOST:-}" ]]; then
-            echo "::warning::HETZNER_SSH_KEY / HETZNER_HOST are not set; skipping Hetzner deploy."
+          case "$ROLE" in
+            trading)
+              host="${HETZNER_TRADING_HOST:-}"
+              host_keys="${HETZNER_TRADING_KNOWN_HOSTS:-}"
+              ;;
+            research)
+              host="${HETZNER_RESEARCH_HOST:-}"
+              host_keys="${HETZNER_RESEARCH_KNOWN_HOSTS:-}"
+              ;;
+            *)
+              echo "::error::Unknown role '$ROLE'"; exit 1 ;;
+          esac
+
+          if [[ -z "${HETZNER_SSH_KEY:-}" || -z "$host" ]]; then
+            echo "::warning::HETZNER_SSH_KEY or ${ROLE} host secret not set; skipping ${ROLE} deploy."
             exit 0
           fi
 
@@ -58,11 +84,11 @@ jobs:
           chmod 600 "$key_file"
 
           port="${HETZNER_SSH_PORT:-22}"
-          if [[ -n "${HETZNER_KNOWN_HOSTS:-}" ]]; then
-            printf '%s\n' "$HETZNER_KNOWN_HOSTS" > "$known_hosts"
+          if [[ -n "$host_keys" ]]; then
+            printf '%s\n' "$host_keys" > "$known_hosts"
           else
-            echo "::warning::HETZNER_KNOWN_HOSTS not set; trusting the host key via ssh-keyscan (TOFU)."
-            ssh-keyscan -p "$port" -H "$HETZNER_HOST" > "$known_hosts" 2>/dev/null || true
+            echo "::warning::No pinned host key for ${ROLE}; trusting via ssh-keyscan (TOFU)."
+            ssh-keyscan -p "$port" -H "$host" > "$known_hosts" 2>/dev/null || true
           fi
 
           export TRADER_HETZNER_SSH_USER="${HETZNER_SSH_USER:-root}"
@@ -73,4 +99,4 @@ jobs:
           export TRADER_HETZNER_KNOWN_HOSTS="$known_hosts"
           export TRADER_GIT_COMMIT
 
-          bash deploy/hetzner/deploy-remote.sh "$HETZNER_HOST"
+          bash deploy/hetzner/deploy-remote.sh "$host"
