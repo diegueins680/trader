@@ -4542,9 +4542,17 @@ resolveBars args intervals maxBarsCap useSweepThreshold = do
         barsMax = if barsMax0 <= 0 then maxBarsCap else barsMax0
         barsMin0 = oaBarsMin args
     if barsMin0 > 0
-        then do
-            let barsMin = max 2 (min barsMin0 barsMax)
-            pure (Right (barsMin, barsMax))
+        then case deriveWorstLookback (oaLookbackWindow args) intervals of
+            Left err -> pure (Left err)
+            Right worstLb -> do
+                -- Never emit a combo whose bar budget can't cover the lookback
+                -- (such combos can't train/run as bots: "Not enough data for lookback").
+                let minRequired = worstLb + 3
+                if minRequired > barsMax
+                    then pure (Left (insufficientBarsErr worstLb minRequired))
+                    else do
+                        let barsMin = max 2 (max minRequired (min barsMin0 barsMax))
+                        pure (Right (min barsMin barsMax, barsMax))
         else case deriveWorstLookback (oaLookbackWindow args) intervals of
             Left err -> pure (Left err)
             Right worstLb -> do
@@ -4583,10 +4591,19 @@ resolveBars args intervals maxBarsCap useSweepThreshold = do
                                             else do
                                                 let barsMin = min barsMax (max 10 minRequired2)
                                                 pure (Right (max 2 (min barsMin barsMax), barsMax))
-                    else do
-                        let barsMin = min barsMax (max 10 minRequired0)
-                        pure (Right (max 2 (min barsMin barsMax), barsMax))
+                    else
+                        if minRequired0 > barsMax
+                            then pure (Left (insufficientBarsErr worstLb minRequired0))
+                            else do
+                                let barsMin = max 10 minRequired0
+                                pure (Right (max 2 (min barsMin barsMax), barsMax))
   where
+    insufficientBarsErr worstLb need =
+        "Not enough bars for lookback="
+            ++ show worstLb
+            ++ " (need bars >= "
+            ++ show need
+            ++ "). Increase --bars-max / TRADER_OPTIMIZER_MAX_POINTS or reduce --lookback-window."
     deriveWorstLookback lookbackWindow itvs =
         case traverse (lookbackForInterval lookbackWindow) itvs of
             Left err -> Left err
