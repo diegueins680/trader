@@ -15,9 +15,9 @@ import Crypto.Hash (Digest, SHA256, hash)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (FromJSON (..), eitherDecodeStrict', withObject, (.:), (.:?))
 import Data.ByteArray (convert)
-import Data.Char (isSpace)
-import Data.List (intercalate)
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Char (isSpace, toLower)
+import Data.List (intercalate, isPrefixOf)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
 import Network.HTTP.Client (Response, method, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
 import Network.HTTP.Types (statusCode)
@@ -42,6 +42,13 @@ data S3State = S3State
     , s3Bucket :: !String
     , s3Prefix :: !String
     , s3Creds :: !AwsCredentials
+    , s3EndpointHost :: !(Maybe String)
+    -- ^ Custom S3-compatible host (no scheme), e.g. "fly.storage.tigris.dev".
+    --   Nothing => AWS virtual-hosted addressing.
+    , s3UseTls :: !Bool
+    -- ^ Request scheme (https unless the endpoint was given as http://).
+    , s3PathStyle :: !Bool
+    -- ^ Path-style addressing (host/bucket/key). Default on for custom endpoints.
     }
     deriving (Eq, Show)
 
@@ -75,10 +82,17 @@ resolveS3State = do
             awsDefaultRegion <- lookupEnv "AWS_DEFAULT_REGION"
             let region = fromMaybe "us-east-1" (firstNonEmpty [regionEnv, awsRegion, awsDefaultRegion])
             prefixEnv <- lookupEnv "TRADER_STATE_S3_PREFIX"
+            endpointEnv <- lookupEnv "TRADER_STATE_S3_ENDPOINT"
+            pathStyleEnv <- lookupEnv "TRADER_STATE_S3_FORCE_PATH_STYLE"
             credsOrErr <- resolveAwsCredentials
             case credsOrErr of
                 Left _ -> pure Nothing
-                Right creds ->
+                Right creds -> do
+                    let (mEndpointHost, useTls) = parseS3Endpoint (endpointEnv >>= nonEmpty)
+                        pathStyle =
+                            case pathStyleEnv >>= nonEmpty of
+                                Just v -> boolish v
+                                Nothing -> isJust mEndpointHost
                     pure
                         ( Just
                             S3State
@@ -86,8 +100,28 @@ resolveS3State = do
                                 , s3Bucket = bucket
                                 , s3Prefix = trimSlashes (fromMaybe "" prefixEnv)
                                 , s3Creds = creds
+                                , s3EndpointHost = mEndpointHost
+                                , s3UseTls = useTls
+                                , s3PathStyle = pathStyle
                                 }
                         )
+
+-- | Parse a custom S3 endpoint (e.g. "https://fly.storage.tigris.dev") into
+--   (host-without-scheme-or-trailing-slash, useTls). Nothing => AWS default.
+parseS3Endpoint :: Maybe String -> (Maybe String, Bool)
+parseS3Endpoint Nothing = (Nothing, True)
+parseS3Endpoint (Just raw)
+    | "https://" `isPrefixOf` raw = (hostOf (drop 8 raw), True)
+    | "http://" `isPrefixOf` raw = (hostOf (drop 7 raw), False)
+    | otherwise = (hostOf raw, True)
+  where
+    hostOf s =
+        case trimSlashes (trim s) of
+            "" -> Nothing
+            h -> Just h
+
+boolish :: String -> Bool
+boolish s = map toLower (trim s) `elem` ["1", "true", "yes", "on"]
 
 s3KeyFor :: S3State -> [String] -> String
 s3KeyFor st parts =
@@ -200,7 +234,7 @@ s3Request st reqMethod key body = do
         payloadHash = sha256Hex body
         amzDate = formatAmzDate now
         shortDate = formatShortDate now
-        encodedPath = s3CanonicalPath key
+        encodedPath = s3CanonicalPath st key
         signedHeaders =
             if isNothing (awsSessionToken (s3Creds st))
                 then "host;x-amz-content-sha256;x-amz-date"
@@ -241,7 +275,8 @@ s3Request st reqMethod key body = do
                 ++ signedHeaders
                 ++ ", Signature="
                 ++ BS.unpack signature
-        url = "https://" ++ host ++ encodedPath
+        scheme = if s3UseTls st then "https://" else "http://"
+        url = scheme ++ host ++ encodedPath
     req0 <- parseRequest url
     let headers =
             [ ("Host", BS.pack host)
@@ -262,14 +297,22 @@ s3Request st reqMethod key body = do
         Right resp -> pure (Right resp)
 
 s3Host :: S3State -> String
-s3Host st = s3Bucket st ++ ".s3." ++ s3Region st ++ ".amazonaws.com"
+s3Host st =
+    case s3EndpointHost st of
+        Just h -> h
+        Nothing -> s3Bucket st ++ ".s3." ++ s3Region st ++ ".amazonaws.com"
 
-s3CanonicalPath :: String -> String
-s3CanonicalPath raw =
-    let trimmed = trimSlashes raw
-     in if null trimmed
-            then "/"
-            else "/" ++ intercalate "/" (map encodeSegment (splitOnSlash trimmed))
+-- | Canonical request path. Virtual-hosted (AWS default) signs "/key"; path-style
+--   (custom endpoints) signs "/bucket/key" since the bucket isn't in the host.
+s3CanonicalPath :: S3State -> String -> String
+s3CanonicalPath st raw =
+    let keySegs = case trimSlashes raw of
+            "" -> []
+            t -> splitOnSlash t
+        segs = if s3PathStyle st then s3Bucket st : keySegs else keySegs
+     in case segs of
+            [] -> "/"
+            _ -> "/" ++ intercalate "/" (map encodeSegment segs)
   where
     encodeSegment = BS.unpack . urlEncode False . BS.pack
 
