@@ -8042,7 +8042,18 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                 (marketCode (argBinanceMarket args))
                 (argInterval args)
             )
-    let initBars = clampInt 2 1000 (max 2 (resolveBarsForBinance args))
+    -- High-lookback combos (e.g. an LSTM sequence lookback exceeding the legacy
+    -- 1000-bar cap) couldn't start: the fetch was too small to train the model
+    -- ("Not enough data for lookback=N"). fetchKlines already paginates beyond
+    -- Binance's per-request limit, so when the legacy fetch can't cover the
+    -- lookback, size the fetch to the lookback (with training headroom). Combos
+    -- whose legacy fetch already covers the lookback are left byte-for-byte
+    -- unchanged, so the live trading bots' behaviour is unaffected.
+    let legacyInitBars = clampInt 2 1000 (max 2 (resolveBarsForBinance args))
+        initBars =
+            if legacyInitBars > lookback
+                then legacyInitBars
+                else clampInt 2 20000 (2 * lookback)
     ks <- fetchKlines env sym (argInterval args) initBars
     when (length ks < 2) $ throwIO (userError "Not enough klines to start bot")
     let closes = map kClose ks
