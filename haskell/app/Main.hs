@@ -16,6 +16,8 @@ import Control.Monad (forM, forM_, forever, unless, void, when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode, encode, object, (.=))
+import Data.Aeson.Encoding (pairs, pair)
+import qualified Data.Aeson.Encoding as AE
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
@@ -22599,25 +22601,25 @@ emitBacktestTradesNdjson args summary = do
                             _ -> T.pack ""
                     tid <- UUID.toText <$> UUID4.nextRandom
                     let line =
-                            object
-                                [ "timestamp" .= logTime
-                                , "symbol" .= sym
-                                , "side" .= side
-                                , "entry_price" .= (T.pack (show entryPrice))
-                                , "exit_price" .= (T.pack (show exitPrice))
-                                , "quantity" .= (T.pack (show qty))
-                                , "pnl_quote" .= (T.pack (show pnl))
-                                , "pnl_pct" .= (T.pack (show (trReturn tr)))
-                                , "fee_quote" .= (T.pack (show (trFeeCost tr)))
-                                , "signal_method" .= meth
-                                , "vol_conf_gate" .= vcg
-                                , "regime_filter" .= (Nothing :: Maybe T.Text)
-                                , "slippage_estimate" .= (Nothing :: Maybe T.Text)
-                                , "latency_ms" .= (Nothing :: Maybe T.Text)
-                                , "trade_id" .= tid
-                                , "schema_version" .= ("1.0" :: T.Text)
-                                ]
-                    BL.appendFile path (encode line <> BL.fromStrict (BS.pack "\n"))
+                            AE.encodingToLazyByteString $
+                                pairs $
+                                    pair "timestamp" (toEncoding logTime)
+                                    <> pair "symbol" (toEncoding sym)
+                                    <> pair "side" (toEncoding side)
+                                    <> pair "entry_price" (toEncoding (T.pack (show entryPrice)))
+                                    <> pair "exit_price" (toEncoding (T.pack (show exitPrice)))
+                                    <> pair "quantity" (toEncoding (T.pack (show qty)))
+                                    <> pair "pnl_quote" (toEncoding (T.pack (show pnl)))
+                                    <> pair "pnl_pct" (toEncoding (T.pack (show (trReturn tr))))
+                                    <> pair "fee_quote" (toEncoding (T.pack (show (trFeeCost tr))))
+                                    <> pair "signal_method" (toEncoding meth)
+                                    <> pair "vol_conf_gate" (toEncoding vcg)
+                                    <> pair "regime_filter" (toEncoding (Nothing :: Maybe T.Text))
+                                    <> pair "slippage_estimate" (toEncoding (Nothing :: Maybe T.Text))
+                                    <> pair "latency_ms" (toEncoding (Nothing :: Maybe T.Text))
+                                    <> pair "trade_id" (toEncoding tid)
+                                    <> pair "schema_version" (toEncoding ("1.0" :: T.Text))
+                    BL.appendFile path (line <> BL.fromStrict (BS.pack "\n"))
             mapM_ emitTrade trades
   where
     symbolFromDataPath Nothing = T.pack ""
@@ -22641,25 +22643,25 @@ emitLiveTradeNdjson mPath sym eventType price equity =
                             posixSecondsToUTCTime $
                                 fromIntegral ms / 1000
                 line =
-                    object
-                        [ "timestamp" .= epochMsToIso nowMs
-                        , "symbol" .= T.pack sym
-                        , "side" .= T.pack eventType
-                        , "entry_price" .= (T.pack (show price))
-                        , "exit_price" .= (T.pack (show price))
-                        , "quantity" .= ("0.0" :: T.Text)
-                        , "pnl_quote" .= ("0.0" :: T.Text)
-                        , "pnl_pct" .= ("0.0" :: T.Text)
-                        , "fee_quote" .= ("0.0" :: T.Text)
-                        , "signal_method" .= T.pack "live"
-                        , "vol_conf_gate" .= T.pack "live"
-                        , "regime_filter" .= (Nothing :: Maybe T.Text)
-                        , "slippage_estimate" .= (Nothing :: Maybe T.Text)
-                        , "latency_ms" .= (Nothing :: Maybe T.Text)
-                        , "trade_id" .= tid
-                        , "schema_version" .= ("1.0" :: T.Text)
-                        ]
-            BL.appendFile path (encode line <> BL.fromStrict (BS.pack "\n"))
+                    AE.encodingToLazyByteString $
+                        pairs $
+                            pair "timestamp" (toEncoding (epochMsToIso nowMs))
+                            <> pair "symbol" (toEncoding (T.pack sym))
+                            <> pair "side" (toEncoding (T.pack eventType))
+                            <> pair "entry_price" (toEncoding (T.pack (show price)))
+                            <> pair "exit_price" (toEncoding (T.pack (show price)))
+                            <> pair "quantity" (toEncoding ("0.0" :: T.Text))
+                            <> pair "pnl_quote" (toEncoding ("0.0" :: T.Text))
+                            <> pair "pnl_pct" (toEncoding ("0.0" :: T.Text))
+                            <> pair "fee_quote" (toEncoding ("0.0" :: T.Text))
+                            <> pair "signal_method" (toEncoding (T.pack "live"))
+                            <> pair "vol_conf_gate" (toEncoding (T.pack "live"))
+                            <> pair "regime_filter" (toEncoding (Nothing :: Maybe T.Text))
+                            <> pair "slippage_estimate" (toEncoding (Nothing :: Maybe T.Text))
+                            <> pair "latency_ms" (toEncoding (Nothing :: Maybe T.Text))
+                            <> pair "trade_id" (toEncoding tid)
+                            <> pair "schema_version" (toEncoding ("1.0" :: T.Text))
+            BL.appendFile path (line <> BL.fromStrict (BS.pack "\n"))
 
 runBacktestPipeline :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
 runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
