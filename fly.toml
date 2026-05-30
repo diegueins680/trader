@@ -5,6 +5,9 @@ primary_region = "fra"
   dockerfile = "Dockerfile"
 
 [env]
+  TRADER_SERVER_ID = "fly-trader-hs"
+  TRADER_SERVER_ROLE = "fly"
+  TRADER_SERVER_PROVIDER = "fly"
   TRADER_BOT_SYMBOLS = "XRPUSDT,FILUSDT,DOGEUSDT,ADAUSDT,SOLUSDT,AAVEUSDT,UNIUSDT,ETHUSDT,BTCUSDT,BNBUSDT,LTCUSDT,LINKUSDT,SUIUSDT,ATOMUSDT,ARBUSDT,AVAXUSDT,DOTUSDT,ETCUSDT,NEARUSDT,OPUSDT,BCHUSDT"
   TRADER_BOT_TOP_COMBO_BOTS = "22"
   TRADER_BOT_TOP_COMBO_BOTS_STARTUP = "0"
@@ -18,6 +21,19 @@ primary_region = "fra"
   TRADER_OPTIMIZER_LOOKBACK_WINDOW = "30d"
   TRADER_OPTIMIZER_MAX_POINTS = "2000"
   TRADER_TOP_COMBOS_BACKTEST_ENABLED = "true"
+  # --- Cross-instance combo sync (shared S3 bus: Tigris, S3-compatible) ---
+  # Provision with `fly storage create` (see deploy/COMBOS_SYNC.md). That command
+  # auto-sets AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY as app secrets and creates the
+  # bucket; put the bucket name it prints into TRADER_STATE_S3_BUCKET below.
+  # TRADER_STATE_S3_PREFIX MUST be identical on fly, Hetzner, and local — the combos
+  # key (<prefix>/optimizer/top-combos.json) is not tenant-scoped, so a shared prefix
+  # = one shared global leaderboard.
+  TRADER_STATE_S3_ENDPOINT = "https://fly.storage.tigris.dev"
+  TRADER_STATE_S3_REGION = "auto"
+  TRADER_STATE_S3_BUCKET = "broken-thunder-8987"
+  TRADER_STATE_S3_PREFIX = "trader-prod"
+  TRADER_TOP_COMBOS_SYNC_ENABLED = "true"
+  TRADER_TOP_COMBOS_SYNC_EVERY_SEC = "60"
 
 [http_service]
   internal_port = 8080

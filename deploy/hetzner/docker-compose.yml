@@ -1,0 +1,136 @@
+name: ${COMPOSE_PROJECT_NAME:-trader}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trader}
+      POSTGRES_USER: ${POSTGRES_USER:-trader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/hetzner/trader.env}
+    volumes:
+      - trader-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        TRADER_GIT_COMMIT: ${TRADER_GIT_COMMIT:-}
+    image: ${TRADER_API_IMAGE:-trader-api:local}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TRADER_API_TOKEN: ${TRADER_API_TOKEN:?set TRADER_API_TOKEN in deploy/hetzner/trader.env}
+      TRADER_DB_URL: ${TRADER_DB_URL:?set TRADER_DB_URL in deploy/hetzner/trader.env}
+      TRADER_SERVER_ID: ${TRADER_SERVER_ID:-hetzner}
+      TRADER_SERVER_ROLE: ${TRADER_SERVER_ROLE:-standalone}
+      TRADER_SERVER_PROVIDER: ${TRADER_SERVER_PROVIDER:-hetzner}
+      TRADER_MULTI_USER: ${TRADER_MULTI_USER:-true}
+      TRADER_STATE_DIR: /var/lib/trader/state
+      TRADER_API_ASYNC_DIR: /var/lib/trader/async
+      TRADER_LSTM_WEIGHTS_DIR: /var/lib/trader/lstm
+      TRADER_BOT_STATE_DIR: /var/lib/trader/state/bots
+      TRADER_OPTIMIZER_COMBOS_DIR: /var/lib/trader/state/optimizer
+      TRADER_JOURNAL_DIR: /var/lib/trader/state/journal
+      TRADER_BINANCE_LIVE: ${TRADER_BINANCE_LIVE:-false}
+      TRADER_BOT_TRADE: ${TRADER_BOT_TRADE:-false}
+      TRADER_BOT_AUTOSTART: ${TRADER_BOT_AUTOSTART:-true}
+      TRADER_BOT_SYMBOLS: ${TRADER_BOT_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      TRADER_BOT_TOP_COMBO_BOTS: ${TRADER_BOT_TOP_COMBO_BOTS:-3}
+      TRADER_BOT_TOP_COMBO_BOTS_STARTUP: ${TRADER_BOT_TOP_COMBO_BOTS_STARTUP:-0}
+      TRADER_BOT_AUTOSTART_MAX_BOTS: ${TRADER_BOT_AUTOSTART_MAX_BOTS:-3}
+      TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE: ${TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE:-1}
+      TRADER_BOT_START_MAX_SYMBOLS: ${TRADER_BOT_START_MAX_SYMBOLS:-1}
+      TRADER_BOT_START_QUEUE_MAX_WAIT_SEC: ${TRADER_BOT_START_QUEUE_MAX_WAIT_SEC:-1800}
+      TRADER_OPTIMIZER_ENABLED: ${TRADER_OPTIMIZER_ENABLED:-true}
+      TRADER_OPTIMIZER_EVERY_SEC: ${TRADER_OPTIMIZER_EVERY_SEC:-900}
+      TRADER_OPTIMIZER_TRIALS: ${TRADER_OPTIMIZER_TRIALS:-60}
+      TRADER_OPTIMIZER_TIMEOUT_SEC: ${TRADER_OPTIMIZER_TIMEOUT_SEC:-90}
+      TRADER_OPTIMIZER_LOOKBACK_WINDOW: ${TRADER_OPTIMIZER_LOOKBACK_WINDOW:-30d}
+      TRADER_OPTIMIZER_MAX_POINTS: ${TRADER_OPTIMIZER_MAX_POINTS:-2000}
+      TRADER_TOP_COMBOS_BACKTEST_ENABLED: ${TRADER_TOP_COMBOS_BACKTEST_ENABLED:-true}
+      TRADER_BINANCE_REQUEST_OPS_ENABLED: ${TRADER_BINANCE_REQUEST_OPS_ENABLED:-false}
+      TRADER_BOT_STATUS_LOG_INTERVAL_MS: ${TRADER_BOT_STATUS_LOG_INTERVAL_MS:-300000}
+      TRADER_API_CACHE_TTL_MS: ${TRADER_API_CACHE_TTL_MS:-30000}
+      TRADER_API_CACHE_MAX_ENTRIES: ${TRADER_API_CACHE_MAX_ENTRIES:-64}
+      TRADER_API_MAX_ASYNC_RUNNING: ${TRADER_API_MAX_ASYNC_RUNNING:-1}
+      TRADER_API_MAX_BARS_LSTM: ${TRADER_API_MAX_BARS_LSTM:-1000}
+      TRADER_API_MAX_EPOCHS: ${TRADER_API_MAX_EPOCHS:-100}
+      TRADER_API_MAX_HIDDEN_SIZE: ${TRADER_API_MAX_HIDDEN_SIZE:-50}
+      TRADER_STATE_SYNC_URL: ${TRADER_STATE_SYNC_URL:-}
+      TRADER_STATE_SYNC_TIMEOUT_SEC: ${TRADER_STATE_SYNC_TIMEOUT_SEC:-15}
+      TRADER_STATE_SYNC_TENANT_KEY: ${TRADER_STATE_SYNC_TENANT_KEY:-}
+      TRADER_STATE_SYNC_API_TOKEN: ${TRADER_STATE_SYNC_API_TOKEN:-}
+      TRADER_STATE_SYNC_API_KEY: ${TRADER_STATE_SYNC_API_KEY:-}
+      # Cross-instance combo sync via shared S3 bus / Tigris (see deploy/COMBOS_SYNC.md).
+      # PREFIX must match fly + local; endpoint/bucket/region/creds come from the env file.
+      TRADER_STATE_S3_ENDPOINT: ${TRADER_STATE_S3_ENDPOINT:-}
+      TRADER_STATE_S3_BUCKET: ${TRADER_STATE_S3_BUCKET:-}
+      TRADER_STATE_S3_REGION: ${TRADER_STATE_S3_REGION:-}
+      TRADER_STATE_S3_PREFIX: ${TRADER_STATE_S3_PREFIX:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      TRADER_TOP_COMBOS_SYNC_ENABLED: ${TRADER_TOP_COMBOS_SYNC_ENABLED:-true}
+      TRADER_TOP_COMBOS_SYNC_EVERY_SEC: ${TRADER_TOP_COMBOS_SYNC_EVERY_SEC:-60}
+      BINANCE_API_KEY: ${BINANCE_API_KEY:-}
+      BINANCE_API_SECRET: ${BINANCE_API_SECRET:-}
+      COINBASE_API_KEY: ${COINBASE_API_KEY:-}
+      COINBASE_API_SECRET: ${COINBASE_API_SECRET:-}
+      COINBASE_API_PASSPHRASE: ${COINBASE_API_PASSPHRASE:-}
+      TRADER_WEBHOOK_URL: ${TRADER_WEBHOOK_URL:-}
+      TRADER_WEBHOOK_EVENTS: ${TRADER_WEBHOOK_EVENTS:-bot.started,bot.start_failed,bot.stop,bot.order,bot.halt,trade.order}
+    volumes:
+      - trader-state:/var/lib/trader
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      TRADER_SITE_ADDRESS: ${TRADER_SITE_ADDRESS:-http://localhost}
+      TRADER_API_TOKEN: ${TRADER_API_TOKEN:?set TRADER_API_TOKEN in deploy/hetzner/trader.env}
+      TRADER_UI_BASIC_AUTH_USER: ${TRADER_UI_BASIC_AUTH_USER:-trader}
+      TRADER_UI_BASIC_AUTH_HASH: ${TRADER_UI_BASIC_AUTH_HASH:?set TRADER_UI_BASIC_AUTH_HASH in deploy/hetzner/trader.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./${TRADER_CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
+      - ../../haskell/web/dist:/srv/trader-web:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  webhook-bridge:
+    image: python:3.11-slim
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./webhook-bridge/bridge.py:/app/bridge.py:ro
+    environment:
+      ALERT_PHONE: ${ALERT_PHONE:-}
+      CALLMEBOT_APIKEY: ${CALLMEBOT_APIKEY:-}
+      TRADER_API_URL: http://api:8080
+      HEALTH_INTERVAL_SEC: "60"
+    command: python /app/bridge.py
+    ports:
+      - "127.0.0.1:8081:8081"
+
+volumes:
+  trader-postgres:
+    name: ${TRADER_POSTGRES_VOLUME:-trader-postgres}
+  trader-state:
+    name: ${TRADER_STATE_VOLUME:-trader-state}
+  caddy-data:
+    name: ${TRADER_CADDY_DATA_VOLUME:-trader-caddy-data}
+  caddy-config:
+    name: ${TRADER_CADDY_CONFIG_VOLUME:-trader-caddy-config}
