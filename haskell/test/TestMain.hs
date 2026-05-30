@@ -4041,6 +4041,9 @@ testFormalRiskInvariants = do
     assert
         "loss-streak halt fires when consecutive losses exceed configured limit"
         (fvrRiskHaltLossStreak report)
+    assert
+        "max-position-size bound invariant: specRiskHalt respects sanitized limits"
+        (fvrMaxPositionSizeBound report)
 
 -- Witness-level guardrail: when no limits are set and no prior halt,
 -- specRiskHalt must return Nothing for a representative set of inputs.

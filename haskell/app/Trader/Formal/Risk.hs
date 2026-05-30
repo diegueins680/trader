@@ -28,6 +28,7 @@ data RiskVerificationReport = RiskVerificationReport
     , fvrRiskHaltNoFalsePositive :: !Bool
     , fvrRiskHaltPositionSize :: !Bool
     , fvrRiskHaltLossStreak :: !Bool
+    , fvrMaxPositionSizeBound :: !Bool
     }
     deriving (Eq, Show)
 
@@ -234,6 +235,41 @@ verifyFormalRisk =
                 | cl <- [0, 1, 2, 3, 5]
                 , mls <- [Nothing, Just 0, Just 2, Just 3]
                 ]
+
+        -- Max-position-size simulation bound: ecMaxPositionSize must be
+        -- non-negative and finite; when set > 0 the simulation must never
+        -- emit a position exceeding it.
+        maxPositionSizeBound =
+            all
+                ( \hi ->
+                    let result = specRiskHalt hi
+                        limit = fmap (max 0) (hiMaxPositionSizeLim hi)
+                        size = max 0 (hiPositionSize hi)
+                     in case result of
+                            Just (ExitOther "POSITION_SIZE") ->
+                                maybe False (size >) limit
+                            _ -> True
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = ps
+                    , hiMaxPositionSizeLim = mps
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    }
+                | ps <- [0, 0.5, 1.0, 1.5, 2.0, 5.0, 1e308]
+                , mps <- [Nothing, Just 0, Just 1.0, Just 2.0, Just 1e308]
+                ]
      in
         RiskVerificationReport
             { fvrRiskHaltMonotone = haltMonotone
@@ -243,4 +279,5 @@ verifyFormalRisk =
             , fvrRiskHaltNoFalsePositive = noFalsePositive
             , fvrRiskHaltPositionSize = positionSizeHalt
             , fvrRiskHaltLossStreak = lossStreakHalt
+            , fvrMaxPositionSizeBound = maxPositionSizeBound
             }
