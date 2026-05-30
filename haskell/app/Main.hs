@@ -17829,6 +17829,25 @@ argsFromApi baseArgs p = do
         binanceSymbolSanitized = binanceSymbolRaw >>= sanitizeComboSymbolForPlatform (Just (platformCode platform))
         binanceSymbol = binanceSymbolSanitized <|> binanceSymbolRaw
 
+        -- Some optimizer-produced combos specify a strategy lookback larger than
+        -- their own bar count (e.g. LSTM lookback 3360 with bars 978), which makes
+        -- bots fail to start ("Not enough data for lookback=N") on every fetch path.
+        -- Reconcile bars to cover the lookback so the bot can actually train/run.
+        -- Only combos that are inconsistent (bars < lookback+1) are adjusted.
+        mergedInterval = pick (apInterval p) (argInterval baseArgs)
+        effectiveLookback =
+            case pickMaybe (apLookbackBars p) (argLookbackBars baseArgs) of
+                Just n -> max 2 n
+                Nothing ->
+                    either
+                        (const 2)
+                        id
+                        (lookbackBarsFrom mergedInterval (pick (apLookbackWindow p) (argLookbackWindow baseArgs)))
+        reconciledBars =
+            case pickMaybe (apBars p) (argBars baseArgs) of
+                Just b | b < effectiveLookback + 1 -> Just (min 20000 (2 * effectiveLookback))
+                other -> other
+
         args =
             baseArgs
                 { argData = pickMaybe (apData p) (argData baseArgs)
@@ -17840,7 +17859,7 @@ argsFromApi baseArgs p = do
                 , argBinanceFutures = futuresFlag
                 , argBinanceMargin = marginFlag
                 , argInterval = pick (apInterval p) (argInterval baseArgs)
-                , argBars = pickMaybe (apBars p) (argBars baseArgs)
+                , argBars = reconciledBars
                 , argLookbackWindow = pick (apLookbackWindow p) (argLookbackWindow baseArgs)
                 , argLookbackBars = pickMaybe (apLookbackBars p) (argLookbackBars baseArgs)
                 , argBinanceTestnet = pick (apBinanceTestnet p) (argBinanceTestnet baseArgs)
