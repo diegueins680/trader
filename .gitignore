@@ -83,3 +83,4 @@ data/*USDT-*.csv
 
 # Planning artifacts
 artifacts/planning/
+reports/autoloop-metrics.ndjson
