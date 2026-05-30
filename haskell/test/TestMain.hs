@@ -187,6 +187,7 @@ main = do
     testBacktestRatioRejectsInvalidValues
     testOrderQuoteFractionRejectsInvalidValues
     testMaxOrderQuoteRejectsAbsurdValue
+    testTradeLogRejectsInvalidPaths
     testFromMustBeLessThanOrEqualToTo
     testValRatioRejectsInvalidValues
     testHiddenSizeRejectsInvalidValues
@@ -196,6 +197,9 @@ main = do
     testKalmanDtRejectsInvalidValues
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
+    testKalmanMinStdFloorRejectsInvalidValues
+    testKalmanBandStdMultRejectsInvalidValues
+    testKalmanBandLookbackRejectsInvalidValues
     testKalmanMarketTopNRejectsInvalidValues
     testTuneRatioRejectsInvalidValues
     testTunePenaltyMaxDrawdownRejectsInvalidValues
@@ -280,6 +284,7 @@ main = do
     testFormalRiskNegativeLimitSanitization
     testFormalRiskPositionSizeHalt
     testFormalRiskLossStreakHalt
+    testMaxPositionSizeInvariant
     testSignalGatesFailClosedExhaustive
     runTechnicalAnalysisTests
 
@@ -781,6 +786,27 @@ testMaxOrderQuoteRejectsAbsurdValue = do
             Left _ -> False
         )
 
+testTradeLogRejectsInvalidPaths :: IO ()
+testTradeLogRejectsInvalidPaths = do
+    assert
+        "trade-log rejects empty string"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--trade-log", ""] == Left "--trade-log cannot be empty")
+    assert
+        "trade-log rejects null byte"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--trade-log", "foo\0bar"] == Left "--trade-log cannot contain null bytes")
+    assert
+        "trade-log accepts valid relative path"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--trade-log", "trades.ndjson"] of
+            Right args -> argTradeLog args == Just "trades.ndjson"
+            Left _ -> False
+        )
+    assert
+        "trade-log accepts valid absolute path"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--trade-log", "/tmp/trades.ndjson"] of
+            Right args -> argTradeLog args == Just "/tmp/trades.ndjson"
+            Left _ -> False
+        )
+
 testFromMustBeLessThanOrEqualToTo :: IO ()
 testFromMustBeLessThanOrEqualToTo = do
     assert
@@ -955,6 +981,75 @@ testKalmanMeasurementVarRejectsInvalidValues = do
         "kalman-measurement-var accepts 1e-3 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-measurement-var", "1e-3"] of
             Right args -> argKalmanMeasurementVar args == 1e-3
+            Left _ -> False
+        )
+
+testKalmanMinStdFloorRejectsInvalidValues :: IO ()
+testKalmanMinStdFloorRejectsInvalidValues = do
+    assert
+        "kalman-min-std-floor rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-min-std-floor", "-1"] == Left "--kalman-min-std-floor must be >= 0")
+    assert
+        "kalman-min-std-floor accepts 0 (boundary)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-min-std-floor", "0"] of
+            Right args -> argKalmanMinStdFloor args == 0
+            Left _ -> False
+        )
+    assert
+        "kalman-min-std-floor accepts 1e-6 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-min-std-floor", "1e-6"] of
+            Right args -> argKalmanMinStdFloor args == 1e-6
+            Left _ -> False
+        )
+    assert
+        "kalman-min-std-floor accepts 1e-3 (larger floor)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-min-std-floor", "1e-3"] of
+            Right args -> argKalmanMinStdFloor args == 1e-3
+            Left _ -> False
+        )
+
+testKalmanBandStdMultRejectsInvalidValues :: IO ()
+testKalmanBandStdMultRejectsInvalidValues = do
+    assert
+        "kalman-band-std-mult rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "-1"] == Left "--kalman-band-std-mult must be >= 0")
+    assert
+        "kalman-band-std-mult accepts 0 (disabled)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "0"] of
+            Right args -> argKalmanBandStdMult args == 0
+            Left _ -> False
+        )
+    assert
+        "kalman-band-std-mult accepts 1.0 (positive) with default lookback"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "1.0", "--kalman-band-lookback", "2"] of
+            Right args -> argKalmanBandStdMult args == 1.0
+            Left _ -> False
+        )
+    assert
+        "kalman-band-std-mult with positive value requires lookback >= 2"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "1.0", "--kalman-band-lookback", "1"] == Left "--kalman-band-lookback must be >= 2 when --kalman-band-std-mult is enabled")
+    assert
+        "kalman-band-std-mult with positive value and lookback >= 2 accepted"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "1.0", "--kalman-band-lookback", "2"] of
+            Right args -> argKalmanBandStdMult args == 1.0 && argKalmanBandLookback args == 2
+            Left _ -> False
+        )
+
+testKalmanBandLookbackRejectsInvalidValues :: IO ()
+testKalmanBandLookbackRejectsInvalidValues = do
+    assert
+        "kalman-band-lookback rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-lookback", "-1"] == Left "--kalman-band-lookback must be >= 0")
+    assert
+        "kalman-band-lookback accepts 0 (disabled)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-lookback", "0"] of
+            Right args -> argKalmanBandLookback args == 0
+            Left _ -> False
+        )
+    assert
+        "kalman-band-lookback accepts 2 (minimum for band exit)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-lookback", "2"] of
+            Right args -> argKalmanBandLookback args == 2
             Left _ -> False
         )
 
@@ -4329,3 +4424,33 @@ testTrailingStopGuardrail = do
             [] -> False
             ts -> trExitIndex (last ts) <= V.length prices - 1
         )
+
+-- Invariant guardrail: prove that --max-position-size strictly bounds
+-- the absolute position size in simulation output. An oversized position
+-- (e.g. from a sizing bug) must never escape the configured limit.
+testMaxPositionSizeInvariant :: IO ()
+testMaxPositionSizeInvariant = do
+    let prices = V.fromList [100 :: Double, 100, 102, 103, 100, 100]
+        highs = V.fromList [100 :: Double, 100, 102, 103, 103, 100]
+        lows = V.fromList [100 :: Double, 100, 102, 103, 100, 100]
+        kalPreds = V.fromList [100 :: Double, 102, 103, 104, 102]
+        lstmPreds = V.fromList [100 :: Double, 102, 103, 104, 102]
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecVolLookback = 2
+                , ecMaxPositionSize = 0.5
+                , ecMinPositionSize = 0.001
+                }
+        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
+        positions = brPositions result
+    assert
+        "max-position-size invariant: all position sizes <= configured limit"
+        (all (\p -> abs p <= 0.5 + 1e-9) positions)
+    assert
+        "max-position-size invariant: at least one non-zero position exists"
+        (any (/= 0) positions)
+    assert
+        "max-position-size invariant: position sizes are non-negative on long side"
+        (all (>= 0) positions)
