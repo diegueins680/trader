@@ -17839,9 +17839,8 @@ argsFromApi baseArgs p = do
             case pickMaybe (apLookbackBars p) (argLookbackBars baseArgs) of
                 Just n -> max 2 n
                 Nothing ->
-                    either
-                        (const 2)
-                        id
+                    fromRight
+                        2
                         (lookbackBarsFrom mergedInterval (pick (apLookbackWindow p) (argLookbackWindow baseArgs)))
         reconciledBars =
             case pickMaybe (apBars p) (argBars baseArgs) of
