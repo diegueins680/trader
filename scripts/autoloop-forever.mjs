@@ -65,6 +65,14 @@ async function main() {
   await fs.writeFile(PID_FILE, `${process.pid}\n`, "utf8");
   installSignalHandlers();
   startStatusHeartbeat();
+
+  // Resume cycle counter from metrics NDJSON if available
+  const resumedCycleCount = await readMaxCycleCount();
+  if (resumedCycleCount > 0) {
+    runnerState.cycleCount = resumedCycleCount;
+    await logRunner(`resumed cycleCount from metrics = ${resumedCycleCount}`);
+  }
+
   await logRunner(`started persistent runner with interval=${LOOP_INTERVAL_SECONDS}s`);
   await updateRunnerStatus({ state: "idle", heartbeatAt: new Date().toISOString() });
 
@@ -934,6 +942,25 @@ function wait(ms) {
 
 async function safeUnlink(filePath) {
   await fs.unlink(filePath).catch(() => {});
+}
+
+async function readMaxCycleCount() {
+  const metricsPath = path.join(ROOT, "reports", "autoloop-metrics.ndjson");
+  const raw = await fs.readFile(metricsPath, "utf8").catch(() => "");
+  if (!raw.trim()) return 0;
+  let max = 0;
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const obj = JSON.parse(line);
+      if (typeof obj.cycleCount === "number" && obj.cycleCount > max) {
+        max = obj.cycleCount;
+      }
+    } catch {
+      // ignore malformed lines
+    }
+  }
+  return max;
 }
 
 main().catch(async (err) => {
