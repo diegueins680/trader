@@ -118,6 +118,8 @@ testGatedCandidateAdmissionHonorsRiskGates = do
                 , tagVolatility = Just 0.4
                 , tagVolConfGate = VolConfGateDisabled
                 , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
+                , tagOpenThreshold = 0.0
+                , tagCloseThreshold = 0.0
                 }
         admitted = admitStrategyCandidate inputs candidate
         highFeeInputs = inputs{tagFeePerSide = 0.02}
@@ -198,6 +200,8 @@ taTestInputs =
         , tagVolatility = Just 0.4
         , tagVolConfGate = VolConfGateDisabled
         , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
+        , tagOpenThreshold = 0.0
+        , tagCloseThreshold = 0.0
         }
 
 breakoutTestCalibration :: RegimeCalibration

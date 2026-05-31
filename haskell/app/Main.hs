@@ -18326,6 +18326,7 @@ placeDexOrderForSignal args sig = do
                 MethodTaBest -> "No order: TA selector neutral (no admitted setup)."
                 MethodTaRegimeSwitch -> "No order: TA regime switch neutral (no admitted setup)."
                 MethodSmaCross -> "No order: SMA cross method neutral (no admitted setup)."
+                MethodSmaCrossRegime -> "No order: SMA cross regime method neutral (no admitted setup)."
         currentPrice = lsCurrentPrice sig
         entryScale = entryScaleForSignal args MarketSpot sig
         exitScale = maybe 1 clamp01 (lsExitSize sig)
@@ -20864,6 +20865,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodTaBest -> (kalPred0, kalPred0)
                         MethodTaRegimeSwitch -> (kalPred0, kalPred0)
                         MethodSmaCross -> (kalPred0, kalPred0)
+                        MethodSmaCrossRegime -> (kalPred0, kalPred0)
                         MethodKalmanOnly -> (kalPred0, kalPred0)
                         MethodKalmanPhysicsError -> (kalPred0, kalPred0)
                         MethodLstmOnly -> (lstmPred0, lstmPred0)
@@ -21146,6 +21148,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodTaBest -> "No order: TA selector neutral (no admitted setup)."
             MethodTaRegimeSwitch -> "No order: TA regime switch neutral (no admitted setup)."
             MethodSmaCross -> "No order: SMA cross method neutral (no admitted setup)."
+            MethodSmaCrossRegime -> "No order: SMA cross regime method neutral (no admitted setup)."
 
     shortErr :: SomeException -> String
     shortErr ex = take 240 (show ex)
@@ -22028,6 +22031,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodTaBest -> "No order: TA selector neutral (no admitted setup)."
             MethodTaRegimeSwitch -> "No order: TA regime switch neutral (no admitted setup)."
             MethodSmaCross -> "No order: SMA cross method neutral (no admitted setup)."
+            MethodSmaCrossRegime -> "No order: SMA cross regime method neutral (no admitted setup)."
 
     lstmBlockMsg :: Maybe String
     lstmBlockMsg = snd (lstmConfidenceSizing args sig)
@@ -22853,6 +22857,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodTaBest -> "Backtest (technical-analysis best-candidate selector) complete."
                     MethodTaRegimeSwitch -> "Backtest (technical-analysis regime switch) complete."
                     MethodSmaCross -> "Backtest (SMA cross method) complete."
+                    MethodSmaCrossRegime -> "Backtest (SMA cross regime method) complete."
 
             Data.Foldable.for_ (bsLstmHistory summary) printLstmSummary
 
@@ -25116,6 +25121,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             MethodTaBest -> Right compute
             MethodTaRegimeSwitch -> Right compute
             MethodSmaCross -> Right compute
+            MethodSmaCrossRegime -> Right compute
   where
     methodRequested = argMethod args
     method = runtimeMethod methodRequested
@@ -26207,6 +26213,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaBest -> taNext
                     MethodTaRegimeSwitch -> taNext
                     MethodSmaCross -> taNext
+                    MethodSmaCrossRegime -> taNext
             routerDirRaw = routerNext >>= directionPrice openThrAdj
             routerCloseDirRaw = routerNext >>= directionPrice closeThrAdj
             edgeFromPred pred =
@@ -26288,6 +26295,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaBest -> edgeTa
                     MethodTaRegimeSwitch -> edgeTa
                     MethodSmaCross -> edgeTa
+                    MethodSmaCrossRegime -> edgeTa
             regimeLeader =
                 case mRegimes of
                     Nothing -> Nothing
@@ -27002,6 +27010,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaBest -> taConfidence
                     MethodTaRegimeSwitch -> taConfidence
                     MethodSmaCross -> taConfidence
+                    MethodSmaCrossRegime -> taConfidence
                     _ -> mConfidence
 
             volConfConfidence =
@@ -27093,6 +27102,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaBest -> taCloseDirRaw
                     MethodTaRegimeSwitch -> taCloseDirRaw
                     MethodSmaCross -> taCloseDirRaw
+                    MethodSmaCrossRegime -> taCloseDirRaw
 
             agreeDir =
                 if kalDir == lstmDir
@@ -27138,6 +27148,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaBest -> taDirRaw
                     MethodTaRegimeSwitch -> taDirRaw
                     MethodSmaCross -> taDirRaw
+                    MethodSmaCrossRegime -> taDirRaw
             entryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args method
             entryEdgeHeadroomOk = signalEntryHeadroomOk openThrAdj edgeForMethod
             entryEdgeSpikeOk = signalEntryEdgeSpikeOk openThrAdj edgeForMethod
@@ -27598,6 +27609,14 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (sma_cross neutral)"
+                        MethodSmaCrossRegime ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (sma_cross_regime neutral)"
                         MethodRouter ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -27659,6 +27678,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                         MethodTaBest -> taPosSize
                         MethodTaRegimeSwitch -> taPosSize
                         MethodSmaCross -> taPosSize
+                        MethodSmaCrossRegime -> taPosSize
                         _ -> mPosSize
             gateReasonForMethod =
                 case method of
@@ -27696,6 +27716,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodTaBest -> taGateReason
                     MethodTaRegimeSwitch -> taGateReason
                     MethodSmaCross -> taGateReason
+                    MethodSmaCrossRegime -> taGateReason
                     _ -> mGateReason
          in LatestSignal
                 { lsMethod = methodForReport
@@ -27816,6 +27837,8 @@ technicalGateInputs args perSideCost =
         , TA.tagVolatility = Nothing
         , TA.tagVolConfGate = VolConfGateDisabled
         , TA.tagRegimeCalibration = TA.RegimeCalibration (argRegimeAdxWeight args) (argRegimeTrendThreshold args) (argRegimeRangeThreshold args)
+        , TA.tagOpenThreshold = argOpenThreshold args
+        , TA.tagCloseThreshold = argCloseThreshold args
         }
 
 technicalSeriesFromFeatureInputs :: FeatureInputs -> Maybe TA.OhlcvSeries
@@ -27912,7 +27935,14 @@ technicalCandidateForMethod method inputs series =
                         (Data.Ord.Down . technicalCandidateRank)
                         (TA.admittedStrategyCandidates inputs series)
             MethodTaRegimeSwitch -> TA.regimeSwitchCandidate cal series >>= TA.admitStrategyCandidate inputs
-            MethodSmaCross -> TA.smaCrossAt (TA.precomputeIndicators series) (V.length (TA.ohlcvClose series) - 1) >>= TA.admitStrategyCandidate inputs
+            MethodSmaCross ->
+                let inds = TA.precomputeIndicators series
+                    t = V.length (TA.ohlcvClose series) - 1
+                 in TA.smaCrossAt inds (TA.tagOpenThreshold inputs) (TA.tagCloseThreshold inputs) Nothing t >>= TA.admitStrategyCandidate inputs
+            MethodSmaCrossRegime ->
+                let inds = TA.precomputeIndicators series
+                    t = V.length (TA.ohlcvClose series) - 1
+                 in TA.smaCrossAt inds (TA.tagOpenThreshold inputs) (TA.tagCloseThreshold inputs) (Just TA.RegimeTrend) t >>= TA.admitStrategyCandidate inputs
             _ -> Nothing
 
 technicalCandidateRank :: TA.GatedStrategyCandidate -> (Double, Double)
@@ -28648,6 +28678,7 @@ printMetrics method initialBalance m = do
                 MethodTaBest -> "Signal rate (TA best)"
                 MethodTaRegimeSwitch -> "Signal rate (TA regime switch)"
                 MethodSmaCross -> "Signal rate (SMA cross)"
+                MethodSmaCrossRegime -> "Signal rate (SMA cross regime)"
     putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
     putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
 

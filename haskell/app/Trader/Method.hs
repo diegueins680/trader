@@ -66,6 +66,7 @@ data Method
     | MethodTaBest
     | MethodTaRegimeSwitch
     | MethodSmaCross
+    | MethodSmaCrossRegime
     deriving (Eq, Show)
 
 methodCode :: Method -> String
@@ -109,6 +110,7 @@ methodCode m =
         MethodTaBest -> "ta_best"
         MethodTaRegimeSwitch -> "ta_regime_switch"
         MethodSmaCross -> "sma_cross"
+        MethodSmaCrossRegime -> "sma_cross_regime"
 
 methodIsTechnicalAnalysis :: Method -> Bool
 methodIsTechnicalAnalysis m =
@@ -119,6 +121,7 @@ methodIsTechnicalAnalysis m =
         MethodTaBest -> True
         MethodTaRegimeSwitch -> True
         MethodSmaCross -> True
+        MethodSmaCrossRegime -> True
         _ -> False
 
 parseMethod :: String -> Either String Method
@@ -358,6 +361,9 @@ parseMethod raw =
         "sma_cross" -> Right MethodSmaCross
         "sma-cross" -> Right MethodSmaCross
         "smacross" -> Right MethodSmaCross
+        "sma_cross_regime" -> Right MethodSmaCrossRegime
+        "sma-cross-regime" -> Right MethodSmaCrossRegime
+        "smacrossregime" -> Right MethodSmaCrossRegime
         other ->
             Left
                 ( "Invalid --method: "
@@ -384,6 +390,7 @@ selectPredictions m blendWeight kalPred lstmPred =
         MethodTaBest -> (kalPred, kalPred)
         MethodTaRegimeSwitch -> (kalPred, kalPred)
         MethodSmaCross -> (kalPred, kalPred)
+        MethodSmaCrossRegime -> (kalPred, kalPred)
         MethodRegimeSwitch -> (regimeSwitched, regimeSwitched)
         MethodRouter -> (kalPred, lstmPred)
         MethodBanditRouter -> (kalPred, lstmPred)

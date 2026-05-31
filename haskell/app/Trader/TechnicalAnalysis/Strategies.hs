@@ -101,6 +101,8 @@ data TechnicalAnalysisGateInputs = TechnicalAnalysisGateInputs
     , tagVolatility :: !(Maybe Double)
     , tagVolConfGate :: !VolConfGatePreset
     , tagRegimeCalibration :: !RegimeCalibration
+    , tagOpenThreshold :: !Double
+    , tagCloseThreshold :: !Double
     }
     deriving (Eq, Show)
 
@@ -817,46 +819,62 @@ bestCandidateAt inputs inds t =
         admitStrategyCandidate inputs candidate
 
 -- | SMA-cross candidate at a specific bar using precomputed indicators.
-smaCrossAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
-smaCrossAt inds t = do
+smaCrossAt :: OhlcvIndicators -> Double -> Double -> Maybe Regime -> Int -> Maybe StrategyCandidate
+smaCrossAt inds openThreshold closeThreshold mRequiredRegime t = do
     closeNow <- safeIndex (oiClose inds) t
     fastNow <- join (safeIndex (oiEma20 inds) t)
     slowNow <- join (safeIndex (oiEma50 inds) t)
     fastPrev <- join (safeIndex (oiEma20 inds) (t - 1))
     slowPrev <- join (safeIndex (oiEma50 inds) (t - 1))
     atrNow <- join (safeIndex (oiAtr14 inds) t)
-    let longCross = fastNow > slowNow && fastPrev <= slowPrev
+    regimeNow <- join (safeIndex (oiRegime inds) t)
+    -- Optional regime gate: if a required regime is specified, enforce it
+    case mRequiredRegime of
+        Just requiredRegime | regimeNow /= requiredRegime -> Nothing
+        _ -> pure ()
+    let maSpread = safeDivide (fastNow - slowNow) closeNow
+        absSpread = abs maSpread
+        longCross = fastNow > slowNow && fastPrev <= slowPrev
         shortCross = fastNow < slowNow && fastPrev >= slowPrev
-        maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
-        baseConfidence = clamp01 (maSpread * 20)
-    if longCross
-        then
-            Just
-                StrategyCandidate
-                    { scFamily = "sma-cross"
-                    , scName = "ema20-ema50-cross"
-                    , scBias = BiasLong
-                    , scConfidence = baseConfidence
-                    , scEntryPrice = Just closeNow
-                    , scStopPrice = Just (closeNow - (2 * atrNow))
-                    , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
-                    , scReason = "EMA20 crossed above EMA50 with ATR-based risk framing."
-                    }
+        -- Entry: require spread > openThreshold (directional)
+        longEntry = longCross && maSpread > openThreshold
+        shortEntry = shortCross && (-maSpread) > openThreshold
+        -- Exit / hold: if spread is within closeThreshold, suppress signal (hold)
+        -- This means when |spread| < closeThreshold we return Nothing,
+        -- allowing positions to persist through small reversals.
+        withinClose = absSpread < closeThreshold
+        baseConfidence = clamp01 (absSpread * 20)
+    if withinClose
+        then Nothing
         else
-            if shortCross
+            if longEntry
                 then
                     Just
                         StrategyCandidate
                             { scFamily = "sma-cross"
                             , scName = "ema20-ema50-cross"
-                            , scBias = BiasShort
+                            , scBias = BiasLong
                             , scConfidence = baseConfidence
                             , scEntryPrice = Just closeNow
-                            , scStopPrice = Just (closeNow + (2 * atrNow))
-                            , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
-                            , scReason = "EMA20 crossed below EMA50 with ATR-based risk framing."
+                            , scStopPrice = Just (closeNow - (2 * atrNow))
+                            , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
+                            , scReason = "EMA20 crossed above EMA50 with ATR-based risk framing."
                             }
-                else Nothing
+                else
+                    if shortEntry
+                        then
+                            Just
+                                StrategyCandidate
+                                    { scFamily = "sma-cross"
+                                    , scName = "ema20-ema50-cross"
+                                    , scBias = BiasShort
+                                    , scConfidence = baseConfidence
+                                    , scEntryPrice = Just closeNow
+                                    , scStopPrice = Just (closeNow + (2 * atrNow))
+                                    , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
+                                    , scReason = "EMA20 crossed below EMA50 with ATR-based risk framing."
+                                    }
+                        else Nothing
 
 -- | Evaluate a specific method at a bar using precomputed indicators.
 candidateForMethodAt :: Method -> TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Maybe GatedStrategyCandidate
@@ -867,5 +885,6 @@ candidateForMethodAt method inputs inds t =
         MethodTaBreakout -> volumeConfirmedBreakoutAt inds t >>= admitStrategyCandidate inputs
         MethodTaBest -> bestCandidateAt inputs inds t
         MethodTaRegimeSwitch -> regimeSwitchAt inds t >>= admitStrategyCandidate inputs
-        MethodSmaCross -> smaCrossAt inds t >>= admitStrategyCandidate inputs
+        MethodSmaCross -> smaCrossAt inds (tagOpenThreshold inputs) (tagCloseThreshold inputs) Nothing t >>= admitStrategyCandidate inputs
+        MethodSmaCrossRegime -> smaCrossAt inds (tagOpenThreshold inputs) (tagCloseThreshold inputs) (Just RegimeTrend) t >>= admitStrategyCandidate inputs
         _ -> Nothing

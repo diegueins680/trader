@@ -362,6 +362,8 @@ data HaltInputs = HaltInputs
     , hiMaxPositionSizeLim :: !(Maybe Double)
     , hiConsecutiveLosses :: !Int
     , hiMaxLossStreakLim :: !(Maybe Int)
+    , hiVolTarget :: !Double
+    , hiLeverage :: !Double
     }
     deriving (Eq, Show)
 
@@ -427,6 +429,12 @@ specRiskHalt hi =
                         Just (ExitOther "DRAWDOWN_LIMIT_INVALID")
                     | not (finiteDouble (hiPositionSize hi)) || hiPositionSize hi < 0 || hiPositionSize hi > 10 ->
                         Just (ExitOther "POSITION_SIZE_INVALID")
+                    | isJust (hiMinExpectancy hi) && (isNothing (hiExpectancy hi) || maybe False (not . finiteDouble) (hiExpectancy hi)) ->
+                        Just (ExitOther "EXPECTANCY_INVALID")
+                    | not (finiteDouble (hiVolTarget hi)) || hiVolTarget hi < 0 || hiVolTarget hi > 10 ->
+                        Just (ExitOther "VOL_TARGET_INVALID")
+                    | not (finiteDouble (hiLeverage hi)) || hiLeverage hi < 0 || hiLeverage hi > 150 ->
+                        Just (ExitOther "LEVERAGE_INVALID")
                     | otherwise ->
                         let mdl = fmap sanitizeRiskLimit (hiMaxDailyLossLim hi)
                             mwl = fmap sanitizeRiskLimit (hiMaxWeeklyLossLim hi)
@@ -1777,6 +1785,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         -- (Trader.Formal.Risk re-exports specRiskHalt and proves
                                         -- properties about it). This is spec≡impl by construction:
                                         -- there is no separate implementation that could drift.
+                                        volTargetVal =
+                                            case ecVolTarget cfg of
+                                                Just v | not (isNaN v || isInfinite v) -> v
+                                                _ -> 0
                                         haltReason1 =
                                             specRiskHalt
                                                 HaltInputs
@@ -1801,6 +1813,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                         if lossStreakMax > 0
                                                             then Just lossStreakMax
                                                             else Nothing
+                                                    , hiVolTarget = volTargetVal
+                                                    , hiLeverage = 0
                                                     }
                                         halted = Data.Maybe.isJust haltReason1
 
@@ -2741,6 +2755,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                         if lossStreakMax > 0
                                                                             then Just lossStreakMax
                                                                             else Nothing
+                                                                    , hiVolTarget = volTargetVal
+                                                                    , hiLeverage = 0
                                                                     }
                                                      in case riskHaltReason2 of
                                                             Nothing -> (posFinal2, posSizeFinal2, equityFinal2, costTotalsFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Nothing)

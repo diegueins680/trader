@@ -29,6 +29,9 @@ data RiskID
     | RISK_LIMIT_NON_FINITE_001
     | LEVERAGE_SANITY_001
     | AUTOLOOP_RESET_2026_05_30
+    | EXPECTANCY_INVALID_001
+    | VOL_TARGET_INVALID_001
+    | LEVERAGE_INVALID_001
     deriving (Eq, Show)
 
 -- | Severity levels.
@@ -100,6 +103,27 @@ riskRegister =
         , reDescription = "Autoloop cycle reset (cycle 184 -> 1, gap ~2h10m, cycle 181 exitCode 1)"
         , reOwner = "trader-firm-cto"
         , reMitigation = "Root cause TBD; reset breaks continuity assumptions in readiness memo"
+        }
+    , RiskEntry
+        { reId = EXPECTANCY_INVALID_001
+        , reSeverity = CRITICAL
+        , reDescription = "Missing or non-finite expectancy when min-expectancy is configured"
+        , reOwner = "trader-firm-risk"
+        , reMitigation = "Executable halt spec landed: specRiskHalt emits EXPECTANCY_INVALID; invariant proven in verifyFormalRisk"
+        }
+    , RiskEntry
+        { reId = VOL_TARGET_INVALID_001
+        , reSeverity = CRITICAL
+        , reDescription = "Non-finite, negative, or >1000% vol-target configs bypass vol-scaling limits"
+        , reOwner = "trader-firm-risk"
+        , reMitigation = "Executable halt spec landed: specRiskHalt emits VOL_TARGET_INVALID; invariant proven in verifyFormalRisk"
+        }
+    , RiskEntry
+        { reId = LEVERAGE_INVALID_001
+        , reSeverity = CRITICAL
+        , reDescription = "Non-finite, negative, or >150x leverage configs bypass position-size limits and allow catastrophic liquidation risk"
+        , reOwner = "trader-firm-risk"
+        , reMitigation = "Executable halt spec landed: specRiskHalt emits LEVERAGE_INVALID; invariant proven in verifyFormalRisk; futuresPositionRiskLeverageSane caps live trading at 125x"
         }
     ]
 

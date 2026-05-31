@@ -4053,6 +4053,15 @@ testFormalRiskInvariants = do
     assert
         "position-size sanity invariant: non-finite, negative, or >10x position sizes are rejected"
         (fvrPositionSizeSanity report)
+    assert
+        "expectancy sanity invariant: missing or non-finite expectancy when min-expectancy is set triggers EXPECTANCY_INVALID halt"
+        (fvrExpectancySanity report)
+    assert
+        "vol-target sanity invariant: non-finite, negative, or >1000% vol targets are rejected"
+        (fvrVolTargetSanity report)
+    assert
+        "leverage sanity invariant: non-finite, negative, or >150x leverage values are rejected"
+        (fvrLeverageSanity report)
 
 -- Witness-level guardrail: when no limits are set and no prior halt,
 -- specRiskHalt must return Nothing for a representative set of inputs.
@@ -4075,6 +4084,8 @@ testFormalRiskNoFalsePositiveWitness = do
                 , hiMaxPositionSizeLim = Nothing
                 , hiConsecutiveLosses = 0
                 , hiMaxLossStreakLim = Nothing
+                , hiVolTarget = 0
+                , hiLeverage = 0
                 }
             | dc <- [False, True]
             , wc <- [False, True]
@@ -4110,6 +4121,8 @@ testFormalRiskNegativeLimitSanitization = do
                 , hiMaxPositionSizeLim = Nothing
                 , hiConsecutiveLosses = 0
                 , hiMaxLossStreakLim = Nothing
+                , hiVolTarget = 0
+                , hiLeverage = 0
                 }
     assert
         "negative daily-loss limit is sanitized to zero and halts on any non-negative daily loss"
@@ -4146,6 +4159,8 @@ testFormalRiskPositionSizeHalt = do
                 , hiMaxPositionSizeLim = Nothing
                 , hiConsecutiveLosses = 0
                 , hiMaxLossStreakLim = Nothing
+                , hiVolTarget = 0
+                , hiLeverage = 0
                 }
     assert
         "position size exceeding limit triggers POSITION_SIZE halt"
@@ -4192,6 +4207,8 @@ testFormalRiskLossStreakHalt = do
                 , hiMaxPositionSizeLim = Nothing
                 , hiConsecutiveLosses = 0
                 , hiMaxLossStreakLim = Nothing
+                , hiVolTarget = 0
+                , hiLeverage = 0
                 }
     assert
         "consecutive losses exceeding limit triggers LOSS_STREAK halt"

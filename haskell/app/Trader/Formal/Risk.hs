@@ -6,7 +6,7 @@ module Trader.Formal.Risk (
     verifyFormalRisk,
 ) where
 
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 
 -- 'HaltInputs' and 'specRiskHalt' are defined in 'Trader.Trading' so the
 -- simulation loop can call the canonical spec directly. This module
@@ -43,6 +43,9 @@ data RiskVerificationReport = RiskVerificationReport
     , fvrRiskLimitFinite :: !Bool
     , fvrDrawdownSanity :: !Bool
     , fvrPositionSizeSanity :: !Bool
+    , fvrExpectancySanity :: !Bool
+    , fvrVolTargetSanity :: !Bool
+    , fvrLeverageSanity :: !Bool
     }
     deriving (Eq, Show)
 
@@ -81,6 +84,8 @@ verifyFormalRisk =
                 , hiMaxPositionSizeLim = Nothing
                 , hiConsecutiveLosses = 0
                 , hiMaxLossStreakLim = Nothing
+                , hiVolTarget = 0
+                , hiLeverage = 0
                 }
             | pr <- prevReasons
             , dc <- booleans
@@ -119,6 +124,8 @@ verifyFormalRisk =
                                 anyRiskLimitNonFinite hi
                             Just (ExitOther "DRAWDOWN_LIMIT_INVALID") ->
                                 drawdownLimitInvalid hi
+                            Just (ExitOther "EXPECTANCY_INVALID") ->
+                                isJust (hiMinExpectancy hi) && (isNothing (hiExpectancy hi) || maybe False (not . finiteDouble) (hiExpectancy hi))
                             Just (ExitOther _) ->
                                 hiPrevHaltReason hi == result
                             Nothing -> True
@@ -216,6 +223,8 @@ verifyFormalRisk =
                     , hiMaxPositionSizeLim = mps
                     , hiConsecutiveLosses = 0
                     , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
                     }
                 | ps <- [0, 0.5, 1.0, 1.5, 2.0]
                 , mps <- [Nothing, Just 0, Just 1.0, Just 2.0]
@@ -249,6 +258,8 @@ verifyFormalRisk =
                     , hiMaxPositionSizeLim = Nothing
                     , hiConsecutiveLosses = cl
                     , hiMaxLossStreakLim = mls
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
                     }
                 | cl <- [0, 1, 2, 3, 5]
                 , mls <- [Nothing, Just 0, Just 2, Just 3]
@@ -284,6 +295,8 @@ verifyFormalRisk =
                     , hiMaxPositionSizeLim = mps
                     , hiConsecutiveLosses = 0
                     , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
                     }
                 | ps <- [0, 0.5, 1.0, 1.5, 2.0, 5.0, 1e308]
                 , mps <- [Nothing, Just 0, Just 1.0, Just 2.0, Just 1e308]
@@ -318,6 +331,8 @@ verifyFormalRisk =
                     , hiMaxPositionSizeLim = mps
                     , hiConsecutiveLosses = 0
                     , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
                     }
                 | mdl <- [Nothing, Just 0, Just 0.05, Just (0 / 0), Just (1 / 0), Just (-1 / 0)]
                 , mwl <- [Nothing, Just 0, Just 0.05, Just (0 / 0), Just (1 / 0)]
@@ -357,6 +372,8 @@ verifyFormalRisk =
                     , hiMaxPositionSizeLim = Nothing
                     , hiConsecutiveLosses = 0
                     , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
                     }
                 | mdd <- [Nothing, Just 0, Just 0.05, Just 0.5, Just 0.999999, Just 1.0, Just (-0.01), Just (0 / 0), Just (1 / 0), Just (-1 / 0)]
                 ]
@@ -394,9 +411,132 @@ verifyFormalRisk =
                     , hiMaxPositionSizeLim = mps
                     , hiConsecutiveLosses = 0
                     , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
                     }
                 | ps <- [0, 0.5, 1.0, 2.0, 5.0, 10.0, 10.000001, -0.01, 0 / 0, 1 / 0, -1 / 0]
                 , mps <- [Nothing, Just 0, Just 1.0, Just 2.0, Just 10.0]
+                ]
+
+        -- Expectancy sanity: if hiMinExpectancy is configured, hiExpectancy
+        -- must be a finite Just value. Non-finite or missing expectancy when
+        -- a min-expectancy limit is set indicates corrupted configuration and
+        -- would cause spurious negative-expectancy halts or silent bypass.
+        expectancySanity =
+            all
+                ( \hi ->
+                    let result = specRiskHalt hi
+                        me = hiMinExpectancy hi
+                        ex = hiExpectancy hi
+                        missing = isJust me && (isNothing ex || maybe False (not . finiteDouble) ex)
+                     in case result of
+                            Just (ExitOther "EXPECTANCY_INVALID") ->
+                                missing && not (anyRiskLimitNonFinite hi)
+                            Just (ExitOther "RISK_LIMIT_NON_FINITE") ->
+                                anyRiskLimitNonFinite hi
+                            _ -> not missing
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = ex
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = me
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
+                    }
+                | ex <- [Nothing, Just (-0.1), Just 0, Just 0.01, Just (0 / 0), Just (1 / 0), Just (-1 / 0)]
+                , me <- [Nothing, Just (-0.05), Just 0, Just 0.05, Just (0 / 0), Just (1 / 0)]
+                ]
+
+        -- Vol-target sanity: ecVolTarget must be finite, non-negative, and not
+        -- exceed a hard sanity cap (10.0, representing 1000% annualized vol).
+        -- Non-finite, negative, or absurdly large vol targets indicate corrupted
+        -- configuration and would silently bypass vol-scaling limits, allowing
+        -- catastrophic position-size drift.
+        volTargetSanity =
+            all
+                ( \hi ->
+                    let result = specRiskHalt hi
+                        vt = hiVolTarget hi
+                        invalid = not (finiteDouble vt) || vt < 0 || vt > 10
+                     in case result of
+                            Just (ExitOther "VOL_TARGET_INVALID") ->
+                                invalid && not (anyRiskLimitNonFinite hi)
+                            Just (ExitOther "RISK_LIMIT_NON_FINITE") ->
+                                anyRiskLimitNonFinite hi
+                            _ -> not invalid
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = vt
+                    , hiLeverage = 0
+                    }
+                | vt <- [0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 10.000001, -0.01, 0 / 0, 1 / 0, -1 / 0]
+                ]
+
+        -- Leverage sanity: hiLeverage must be finite, non-negative, and not
+        -- exceed a hard sanity cap (150x). Non-finite, negative, or absurdly
+        -- large leverage values indicate corrupted configuration and would
+        -- silently bypass position-size limits, allowing catastrophic
+        -- liquidation risk.
+        leverageSanity =
+            all
+                ( \hi ->
+                    let result = specRiskHalt hi
+                        lev = hiLeverage hi
+                        invalid = not (finiteDouble lev) || lev < 0 || lev > 150
+                     in case result of
+                            Just (ExitOther "LEVERAGE_INVALID") ->
+                                invalid && not (anyRiskLimitNonFinite hi)
+                            Just (ExitOther "RISK_LIMIT_NON_FINITE") ->
+                                anyRiskLimitNonFinite hi
+                            _ -> not invalid
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = lev
+                    }
+                | lev <- [0, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 125.0, 150.0, 150.000001, -0.01, 0 / 0, 1 / 0, -1 / 0]
                 ]
      in
         RiskVerificationReport
@@ -411,4 +551,7 @@ verifyFormalRisk =
             , fvrRiskLimitFinite = riskLimitFinite
             , fvrDrawdownSanity = drawdownSanity
             , fvrPositionSizeSanity = positionSizeSanity
+            , fvrExpectancySanity = expectancySanity
+            , fvrVolTargetSanity = volTargetSanity
+            , fvrLeverageSanity = leverageSanity
             }
