@@ -1,6 +1,7 @@
 module Trader.Formal.Risk (
     HaltInputs (..),
     RiskVerificationReport (..),
+    drawdownLimitInvalid,
     specRiskHalt,
     verifyFormalRisk,
 ) where
@@ -10,11 +11,21 @@ import Data.Maybe (isNothing)
 -- 'HaltInputs' and 'specRiskHalt' are defined in 'Trader.Trading' so the
 -- simulation loop can call the canonical spec directly. This module
 -- re-exports them and proves properties via 'verifyFormalRisk'.
+import Trader.SignalGates (finiteDouble)
 import Trader.Trading (
     ExitReason (..),
     HaltInputs (..),
+    anyRiskLimitNonFinite,
     specRiskHalt,
  )
+
+-- | Check whether the drawdown limit is outside the valid (0,1) interval.
+-- Defined here to avoid a module cycle with Trader.Trading.
+drawdownLimitInvalid :: HaltInputs -> Bool
+drawdownLimitInvalid hi =
+    case hiMaxDrawdownLim hi of
+        Just v -> v <= 0 || v >= 1 || not (finiteDouble v)
+        Nothing -> False
 
 -- ---------------------------------------------------------------------------
 -- Verification report
@@ -29,6 +40,9 @@ data RiskVerificationReport = RiskVerificationReport
     , fvrRiskHaltPositionSize :: !Bool
     , fvrRiskHaltLossStreak :: !Bool
     , fvrMaxPositionSizeBound :: !Bool
+    , fvrRiskLimitFinite :: !Bool
+    , fvrDrawdownSanity :: !Bool
+    , fvrPositionSizeSanity :: !Bool
     }
     deriving (Eq, Show)
 
@@ -101,6 +115,10 @@ verifyFormalRisk =
                             Just (ExitOther "NEGATIVE_EXPECTANCY") ->
                                 maybe False (\lim -> maybe False (< lim) (hiExpectancy hi)) (hiMinExpectancy hi)
                                     || hiPrevHaltReason hi == Just (ExitOther "NEGATIVE_EXPECTANCY")
+                            Just (ExitOther "RISK_LIMIT_NON_FINITE") ->
+                                anyRiskLimitNonFinite hi
+                            Just (ExitOther "DRAWDOWN_LIMIT_INVALID") ->
+                                drawdownLimitInvalid hi
                             Just (ExitOther _) ->
                                 hiPrevHaltReason hi == result
                             Nothing -> True
@@ -270,6 +288,116 @@ verifyFormalRisk =
                 | ps <- [0, 0.5, 1.0, 1.5, 2.0, 5.0, 1e308]
                 , mps <- [Nothing, Just 0, Just 1.0, Just 2.0, Just 1e308]
                 ]
+
+        -- Non-finite risk limit halt: if any configured limit is NaN or
+        -- Infinity, specRiskHalt must emit RISK_LIMIT_NON_FINITE before any
+        -- other risk check. This prevents corrupted configs from silently
+        -- disabling halts.
+        riskLimitFinite =
+            all
+                ( \hi ->
+                    let result = specRiskHalt hi
+                     in case result of
+                            Just (ExitOther "RISK_LIMIT_NON_FINITE") ->
+                                anyRiskLimitNonFinite hi
+                            _ -> not (anyRiskLimitNonFinite hi)
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = mdl
+                    , hiMaxWeeklyLossLim = mwl
+                    , hiMaxDrawdownLim = mdd
+                    , hiMinExpectancy = me
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = mps
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    }
+                | mdl <- [Nothing, Just 0, Just 0.05, Just (0 / 0), Just (1 / 0), Just (-1 / 0)]
+                , mwl <- [Nothing, Just 0, Just 0.05, Just (0 / 0), Just (1 / 0)]
+                , mdd <- [Nothing, Just 0, Just 0.05, Just (0 / 0)]
+                , me <- [Nothing, Just 0, Just (0 / 0)]
+                , mps <- [Nothing, Just 0, Just (0 / 0)]
+                ]
+
+        -- Drawdown sanity: ecMaxDrawdown must be finite and strictly within
+        -- (0,1). Values <=0, >=1, NaN, or Infinity are treated as corrupted
+        -- and disable the drawdown halt check, allowing catastrophic losses.
+        drawdownSanity =
+            all
+                ( \hi ->
+                    let result = specRiskHalt hi
+                        invalid = drawdownLimitInvalid hi
+                     in case result of
+                            Just (ExitOther "DRAWDOWN_LIMIT_INVALID") ->
+                                invalid && not (anyRiskLimitNonFinite hi)
+                            Just (ExitOther "RISK_LIMIT_NON_FINITE") ->
+                                anyRiskLimitNonFinite hi
+                            _ -> not invalid
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = mdd
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    }
+                | mdd <- [Nothing, Just 0, Just 0.05, Just 0.5, Just 0.999999, Just 1.0, Just (-0.01), Just (0 / 0), Just (1 / 0), Just (-1 / 0)]
+                ]
+
+        -- Position-size sanity: hiPositionSize must be finite, non-negative,
+        -- and not exceed a hard sanity cap (10× notional account value).
+        -- Non-finite, negative, or absurdly large sizes indicate corrupted
+        -- configuration and would silently bypass exposure limits.
+        positionSizeSanity =
+            all
+                ( \hi ->
+                    let result = specRiskHalt hi
+                        ps = hiPositionSize hi
+                        invalid = not (finiteDouble ps) || ps < 0 || ps > 10
+                     in case result of
+                            Just (ExitOther "POSITION_SIZE_INVALID") ->
+                                invalid && not (anyRiskLimitNonFinite hi)
+                            Just (ExitOther "RISK_LIMIT_NON_FINITE") ->
+                                anyRiskLimitNonFinite hi
+                            _ -> not invalid
+                )
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = ps
+                    , hiMaxPositionSizeLim = mps
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    }
+                | ps <- [0, 0.5, 1.0, 2.0, 5.0, 10.0, 10.000001, -0.01, 0 / 0, 1 / 0, -1 / 0]
+                , mps <- [Nothing, Just 0, Just 1.0, Just 2.0, Just 10.0]
+                ]
      in
         RiskVerificationReport
             { fvrRiskHaltMonotone = haltMonotone
@@ -280,4 +408,7 @@ verifyFormalRisk =
             , fvrRiskHaltPositionSize = positionSizeHalt
             , fvrRiskHaltLossStreak = lossStreakHalt
             , fvrMaxPositionSizeBound = maxPositionSizeBound
+            , fvrRiskLimitFinite = riskLimitFinite
+            , fvrDrawdownSanity = drawdownSanity
+            , fvrPositionSizeSanity = positionSizeSanity
             }

@@ -15,6 +15,8 @@ module Trader.Trading (
     simulateEnsembleVWithHLChecked,
     ExitReason (..),
     HaltInputs (..),
+    anyRiskLimitNonFinite,
+    drawdownLimitInvalid,
     specRiskHalt,
     TradeEntrySource (..),
     Trade (..),
@@ -385,6 +387,29 @@ silently disabling halts.
 sanitizeRiskLimit :: Double -> Double
 sanitizeRiskLimit = max 0
 
+-- | Check whether any configured risk limit is non-finite (NaN or Infinity).
+-- This is a FIRM-CRITICAL hygiene gate: non-finite limits silently disable
+-- halt checks and allow unbounded losses.
+anyRiskLimitNonFinite :: HaltInputs -> Bool
+anyRiskLimitNonFinite hi =
+    any (maybe False (not . finiteDouble))
+        [ hiMaxDailyLossLim hi
+        , hiMaxWeeklyLossLim hi
+        , hiMaxDrawdownLim hi
+        , hiMinExpectancy hi
+        , hiMaxPositionSizeLim hi
+        ]
+
+-- | Check whether the drawdown limit is outside the valid (0,1) interval.
+-- This is a FIRM-CRITICAL hygiene gate: a drawdown limit of 0 would halt on
+-- any non-negative drawdown, and a limit >=1 would never halt, both of which
+-- indicate corrupted configuration.
+drawdownLimitInvalid :: HaltInputs -> Bool
+drawdownLimitInvalid hi =
+    case hiMaxDrawdownLim hi of
+        Just v -> v <= 0 || v >= 1 || not (finiteDouble v)
+        Nothing -> False
+
 specRiskHalt :: HaltInputs -> Maybe ExitReason
 specRiskHalt hi =
     let haltReasonBase =
@@ -395,28 +420,35 @@ specRiskHalt hi =
         riskHaltReason =
             case haltReasonBase of
                 Just _ -> Nothing
-                Nothing ->
-                    let mdl = fmap sanitizeRiskLimit (hiMaxDailyLossLim hi)
-                        mwl = fmap sanitizeRiskLimit (hiMaxWeeklyLossLim hi)
-                        mdd = fmap sanitizeRiskLimit (hiMaxDrawdownLim hi)
-                        me = fmap sanitizeRiskLimit (hiMinExpectancy hi)
-                        mps = fmap sanitizeRiskLimit (hiMaxPositionSizeLim hi)
-                        ps = max 0 (hiPositionSize hi)
-                     in case () of
-                            _
-                                | maybe False (hiDailyLoss hi >=) mdl ->
-                                    Just ExitMaxDailyLoss
-                                | maybe False (hiWeeklyLoss hi >=) mwl ->
-                                    Just ExitMaxWeeklyLoss
-                                | maybe False (hiDrawdown hi >=) mdd ->
-                                    Just ExitMaxDrawdown
-                                | maybe False (\lim -> maybe False (< lim) (hiExpectancy hi)) me ->
-                                    Just (ExitOther "NEGATIVE_EXPECTANCY")
-                                | maybe False (ps >) mps ->
-                                    Just (ExitOther "POSITION_SIZE")
-                                | maybe False (\lim -> lim > 0 && hiConsecutiveLosses hi > lim) (hiMaxLossStreakLim hi) ->
-                                    Just (ExitOther "LOSS_STREAK")
-                                | otherwise -> Nothing
+                Nothing
+                    | anyRiskLimitNonFinite hi ->
+                        Just (ExitOther "RISK_LIMIT_NON_FINITE")
+                    | drawdownLimitInvalid hi ->
+                        Just (ExitOther "DRAWDOWN_LIMIT_INVALID")
+                    | not (finiteDouble (hiPositionSize hi)) || hiPositionSize hi < 0 || hiPositionSize hi > 10 ->
+                        Just (ExitOther "POSITION_SIZE_INVALID")
+                    | otherwise ->
+                        let mdl = fmap sanitizeRiskLimit (hiMaxDailyLossLim hi)
+                            mwl = fmap sanitizeRiskLimit (hiMaxWeeklyLossLim hi)
+                            mdd = fmap sanitizeRiskLimit (hiMaxDrawdownLim hi)
+                            me = fmap sanitizeRiskLimit (hiMinExpectancy hi)
+                            mps = fmap sanitizeRiskLimit (hiMaxPositionSizeLim hi)
+                            ps = max 0 (hiPositionSize hi)
+                         in case () of
+                                _
+                                    | maybe False (hiDailyLoss hi >=) mdl ->
+                                        Just ExitMaxDailyLoss
+                                    | maybe False (hiWeeklyLoss hi >=) mwl ->
+                                        Just ExitMaxWeeklyLoss
+                                    | maybe False (hiDrawdown hi >=) mdd ->
+                                        Just ExitMaxDrawdown
+                                    | maybe False (\lim -> maybe False (< lim) (hiExpectancy hi)) me ->
+                                        Just (ExitOther "NEGATIVE_EXPECTANCY")
+                                    | maybe False (ps >) mps ->
+                                        Just (ExitOther "POSITION_SIZE")
+                                    | maybe False (\lim -> lim > 0 && hiConsecutiveLosses hi > lim) (hiMaxLossStreakLim hi) ->
+                                        Just (ExitOther "LOSS_STREAK")
+                                    | otherwise -> Nothing
      in haltReasonBase <|> riskHaltReason
 
 data TradeEntrySource

@@ -4044,6 +4044,15 @@ testFormalRiskInvariants = do
     assert
         "max-position-size bound invariant: specRiskHalt respects sanitized limits"
         (fvrMaxPositionSizeBound report)
+    assert
+        "risk-limit finite invariant: non-finite limits trigger RISK_LIMIT_NON_FINITE halt"
+        (fvrRiskLimitFinite report)
+    assert
+        "drawdown sanity invariant: non-finite or out-of-range drawdown limits are rejected"
+        (fvrDrawdownSanity report)
+    assert
+        "position-size sanity invariant: non-finite, negative, or >10x position sizes are rejected"
+        (fvrPositionSizeSanity report)
 
 -- Witness-level guardrail: when no limits are set and no prior halt,
 -- specRiskHalt must return Nothing for a representative set of inputs.
@@ -4109,8 +4118,8 @@ testFormalRiskNegativeLimitSanitization = do
         "negative weekly-loss limit is sanitized to zero and halts on any non-negative weekly loss"
         (specRiskHalt (negLimInputs ExitMaxWeeklyLoss (-0.05)) == Just ExitMaxWeeklyLoss)
     assert
-        "negative drawdown limit is sanitized to zero and halts on any non-negative drawdown"
-        (specRiskHalt (negLimInputs ExitMaxDrawdown (-0.05)) == Just ExitMaxDrawdown)
+        "negative drawdown limit triggers DRAWDOWN_LIMIT_INVALID halt"
+        (specRiskHalt (negLimInputs ExitMaxDrawdown (-0.05)) == Just (ExitOther "DRAWDOWN_LIMIT_INVALID"))
     assert
         "negative min-expectancy limit is sanitized to zero and halts on any negative expectancy"
         (specRiskHalt (negLimInputs (ExitOther "NEGATIVE_EXPECTANCY") (-0.05)) == Just (ExitOther "NEGATIVE_EXPECTANCY"))
@@ -4147,8 +4156,8 @@ testFormalRiskPositionSizeHalt = do
         "position size within limit does not trigger halt"
         (isNothing (specRiskHalt baseInputs{hiPositionSize = 0.5, hiMaxPositionSizeLim = Just 1.0}))
     assert
-        "negative position size is sanitized to zero and does not trigger halt"
-        (isNothing (specRiskHalt baseInputs{hiPositionSize = -0.5, hiMaxPositionSizeLim = Just 1.0}))
+        "negative position size triggers POSITION_SIZE_INVALID halt"
+        (specRiskHalt baseInputs{hiPositionSize = -0.5, hiMaxPositionSizeLim = Just 1.0} == Just (ExitOther "POSITION_SIZE_INVALID"))
     assert
         "negative limit is sanitized to zero and halts on any positive position size"
         ( specRiskHalt baseInputs{hiPositionSize = 0.01, hiMaxPositionSizeLim = Just (-0.05)}

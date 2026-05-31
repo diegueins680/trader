@@ -5176,6 +5176,7 @@ data BotState = BotState
     , botLastBatchSize :: !Int
     , botLastBatchMs :: !Int
     , botError :: !(Maybe String)
+    , botBuildCommit :: !(Maybe String)
     }
 
 data BotStartStability
@@ -5982,6 +5983,7 @@ botStatusJson st =
             , "adaptive" .= adaptiveJson
             , "latestSignal" .= botLatestSignal st
             , "decisionTrace" .= botDecisionTrace st
+            , "buildCommit" .= botBuildCommit st
             ]
                 ++ maybe [] (\o -> ["lastOrder" .= o]) (botLastOrder st)
                 ++ maybe [] (\k -> ["fetchedLastKline" .= klineJson k]) (botFetchedLastKline st)
@@ -8555,6 +8557,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                 , botLastBatchSize = length ks
                 , botLastBatchMs = 0
                 , botError = Nothing
+                , botBuildCommit = Nothing
                 }
 
     if wantSwitch && appliedSwitch && desiredPos /= 0
@@ -11438,6 +11441,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 , botStartIndex = startIndex2
                 , botUpdatedAtMs = now
                 , botError = Nothing
+                , botBuildCommit = botBuildCommit st
                 }
 
     stOut <- if switchedApplied then botOptimizeAfterOperation st1 else pure st1
