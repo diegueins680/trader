@@ -26,6 +26,7 @@ module Trader.TechnicalAnalysis.Strategies (
     trendFollowingCandidate,
     volumeConfirmedBreakoutAt,
     volumeConfirmedBreakoutCandidate,
+    smaCrossAt,
 ) where
 
 import Control.Monad (join)
@@ -815,6 +816,48 @@ bestCandidateAt inputs inds t =
         require (confidenceOk 0.35 (scConfidence candidate))
         admitStrategyCandidate inputs candidate
 
+-- | SMA-cross candidate at a specific bar using precomputed indicators.
+smaCrossAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
+smaCrossAt inds t = do
+    closeNow <- safeIndex (oiClose inds) t
+    fastNow <- join (safeIndex (oiEma20 inds) t)
+    slowNow <- join (safeIndex (oiEma50 inds) t)
+    fastPrev <- join (safeIndex (oiEma20 inds) (t - 1))
+    slowPrev <- join (safeIndex (oiEma50 inds) (t - 1))
+    atrNow <- join (safeIndex (oiAtr14 inds) t)
+    let longCross = fastNow > slowNow && fastPrev <= slowPrev
+        shortCross = fastNow < slowNow && fastPrev >= slowPrev
+        maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
+        baseConfidence = clamp01 (maSpread * 20)
+    if longCross
+        then
+            Just
+                StrategyCandidate
+                    { scFamily = "sma-cross"
+                    , scName = "ema20-ema50-cross"
+                    , scBias = BiasLong
+                    , scConfidence = baseConfidence
+                    , scEntryPrice = Just closeNow
+                    , scStopPrice = Just (closeNow - (2 * atrNow))
+                    , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
+                    , scReason = "EMA20 crossed above EMA50 with ATR-based risk framing."
+                    }
+        else
+            if shortCross
+                then
+                    Just
+                        StrategyCandidate
+                            { scFamily = "sma-cross"
+                            , scName = "ema20-ema50-cross"
+                            , scBias = BiasShort
+                            , scConfidence = baseConfidence
+                            , scEntryPrice = Just closeNow
+                            , scStopPrice = Just (closeNow + (2 * atrNow))
+                            , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
+                            , scReason = "EMA20 crossed below EMA50 with ATR-based risk framing."
+                            }
+                else Nothing
+
 -- | Evaluate a specific method at a bar using precomputed indicators.
 candidateForMethodAt :: Method -> TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Maybe GatedStrategyCandidate
 candidateForMethodAt method inputs inds t =
@@ -824,4 +867,5 @@ candidateForMethodAt method inputs inds t =
         MethodTaBreakout -> volumeConfirmedBreakoutAt inds t >>= admitStrategyCandidate inputs
         MethodTaBest -> bestCandidateAt inputs inds t
         MethodTaRegimeSwitch -> regimeSwitchAt inds t >>= admitStrategyCandidate inputs
+        MethodSmaCross -> smaCrossAt inds t >>= admitStrategyCandidate inputs
         _ -> Nothing
