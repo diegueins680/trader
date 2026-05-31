@@ -389,12 +389,14 @@ silently disabling halts.
 sanitizeRiskLimit :: Double -> Double
 sanitizeRiskLimit = max 0
 
--- | Check whether any configured risk limit is non-finite (NaN or Infinity).
--- This is a FIRM-CRITICAL hygiene gate: non-finite limits silently disable
--- halt checks and allow unbounded losses.
+{- | Check whether any configured risk limit is non-finite (NaN or Infinity).
+This is a FIRM-CRITICAL hygiene gate: non-finite limits silently disable
+halt checks and allow unbounded losses.
+-}
 anyRiskLimitNonFinite :: HaltInputs -> Bool
 anyRiskLimitNonFinite hi =
-    any (maybe False (not . finiteDouble))
+    any
+        (maybe False (not . finiteDouble))
         [ hiMaxDailyLossLim hi
         , hiMaxWeeklyLossLim hi
         , hiMaxDrawdownLim hi
@@ -402,10 +404,11 @@ anyRiskLimitNonFinite hi =
         , hiMaxPositionSizeLim hi
         ]
 
--- | Check whether the drawdown limit is outside the valid (0,1) interval.
--- This is a FIRM-CRITICAL hygiene gate: a drawdown limit of 0 would halt on
--- any non-negative drawdown, and a limit >=1 would never halt, both of which
--- indicate corrupted configuration.
+{- | Check whether the drawdown limit is outside the valid (0,1) interval.
+This is a FIRM-CRITICAL hygiene gate: a drawdown limit of 0 would halt on
+any non-negative drawdown, and a limit >=1 would never halt, both of which
+indicate corrupted configuration.
+-}
 drawdownLimitInvalid :: HaltInputs -> Bool
 drawdownLimitInvalid hi =
     case hiMaxDrawdownLim hi of

@@ -19,8 +19,9 @@ import Trader.Trading (
     specRiskHalt,
  )
 
--- | Check whether the drawdown limit is outside the valid (0,1) interval.
--- Defined here to avoid a module cycle with Trader.Trading.
+{- | Check whether the drawdown limit is outside the valid (0,1) interval.
+Defined here to avoid a module cycle with Trader.Trading.
+-}
 drawdownLimitInvalid :: HaltInputs -> Bool
 drawdownLimitInvalid hi =
     case hiMaxDrawdownLim hi of

@@ -1,15 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Risk Register — Trader Firm
---
--- This module defines the canonical risk register for the trading system.
--- It is version-controlled and updated by the Risk Director.
---
--- Update rule: every severity change or new risk ID must be committed
--- to this file and cited in the Risk report.
---
--- Last updated: 2026-05-30 23:17 UTC
+{- | Risk Register — Trader Firm
 
+This module defines the canonical risk register for the trading system.
+It is version-controlled and updated by the Risk Director.
+
+Update rule: every severity change or new risk ID must be committed
+to this file and cited in the Risk report.
+
+Last updated: 2026-05-30 23:17 UTC
+-}
 module Trader.Formal.RiskRegister (
     RiskID (..),
     RiskSeverity (..),
