@@ -2430,6 +2430,46 @@ export function autoAdjustBarsForLookback(
   return autoBars < requiredBars ? requiredBars : null;
 }
 
+export type AutoFitLookbackToBarsResult =
+  | { action: "lookbackBars"; value: number }
+  | { action: "lookbackWindow"; value: string };
+
+export function autoFitLookbackToBars(
+  platform: Platform,
+  intervalRaw: string,
+  lookbackBarsRaw: number,
+  lookbackWindowRaw: string,
+  barsRaw: number,
+  method: Method,
+  apiLimits: ComputeLimits | null,
+): AutoFitLookbackToBarsResult | null {
+  const interval = intervalRaw.trim();
+  const minBarsRequired = minBarsRequiredForLookback(platform, interval, lookbackBarsRaw, lookbackWindowRaw);
+  if (minBarsRequired == null) return null;
+  if (autoAdjustBarsForLookback(barsRaw, minBarsRequired, platform, method, apiLimits) != null) return null;
+
+  const requestedBars = Math.trunc(barsRaw);
+  if (!Number.isFinite(requestedBars) || requestedBars <= 0) return null;
+
+  const barsCap = maxBarsForPlatform(platform, method, apiLimits);
+  const availableBarsRaw = Number.isFinite(barsCap)
+    ? Math.min(Math.max(MIN_LOOKBACK_BARS, requestedBars), Math.trunc(barsCap))
+    : Math.max(MIN_LOOKBACK_BARS, requestedBars);
+  const maxLookbackBars = Math.trunc(availableBarsRaw) - 1;
+  if (!Number.isFinite(maxLookbackBars) || maxLookbackBars < MIN_LOOKBACK_BARS) return null;
+  if (minBarsRequired <= maxLookbackBars + 1) return null;
+
+  const overrideRaw = Math.trunc(lookbackBarsRaw);
+  if (Number.isFinite(overrideRaw) && overrideRaw >= MIN_LOOKBACK_BARS) {
+    return overrideRaw === maxLookbackBars ? null : { action: "lookbackBars", value: maxLookbackBars };
+  }
+
+  const intervalSec = platformIntervalSeconds(platform, interval);
+  if (!intervalSec) return null;
+  const nextWindow = formatDurationSeconds(maxLookbackBars * intervalSec);
+  return nextWindow === lookbackWindowRaw.trim() ? null : { action: "lookbackWindow", value: nextWindow };
+}
+
 export const DURATION_UNITS: Array<{ unit: string; seconds: number }> = [
   { unit: "M", seconds: 30 * 24 * 60 * 60 },
   { unit: "w", seconds: 7 * 24 * 60 * 60 },

@@ -22,6 +22,7 @@
 | **AUTOLOOP-DOWN-003** | Autoloop DOWN — no process alive | **CRITICAL** | trader-firm-cto | OPEN | No autoloop-forever.mjs process alive. Metrics NDJSON last entry: cycle 384 at 2026-05-29 21:27 UTC. Operational outage. CTO to restart or diagnose immediately. |
 | **KALMAN-NUMSTAB-001** | Kalman filter numerical instability / zero trades / hangs | **MEDIUM** | trader-firm-cto | OPEN | Fix committed 8d41af11. **UNVALIDATED** — autoloop DOWN since 2026-05-29 21:27 UTC. Cannot confirm clean cycles. Severity remains MEDIUM until live validation resumes. |
 | **GITHUB-502-001** | Autoloop GitHub API 502 retries are unbounded | **MEDIUM** | trader-firm-cto | OPEN | Fix deployed 5c64c508. **UNVALIDATED** — autoloop DOWN since 2026-05-29 21:27 UTC. Cannot confirm clean cycles. Severity remains MEDIUM until live validation resumes. |
+| **MAX-POSITION-GUARDRAIL-001** | `maxPositionSize <= 0` silently disables all trades with no error | **RESOLVED** 2026-05-30 | trader-firm-risk | CLOSED | Runtime guardrail landed in `simulateEnsembleLongFlatVWithHLChecked`: rejects `maxPositionSize <= 0` or non-finite with explicit `Left` error. Tests updated to expect rejection. Commit pending. |
 
 ---
 

@@ -5,6 +5,7 @@
 module Trader.App.Observability (
     Journal,
     Metrics,
+    ServerIdentity (..),
     Webhook,
     WebhookEvent (..),
     getLocalIpAddress,
@@ -20,6 +21,9 @@ module Trader.App.Observability (
     newWebhookFromEnv,
     renderMetricsText,
     sanitizeWebhookText,
+    serverIdentityFields,
+    serverIdentityFromEnv,
+    serverIdentityJson,
     stateDirFromEnv,
     stateSubdirFromEnv,
     webhookMaxMessageLen,
@@ -27,12 +31,15 @@ module Trader.App.Observability (
     webhookNotifyMaybeSync,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (SomeException, bracket, catch, try)
 import Control.Monad (when)
 import Data.Aeson (encode, object, (.=))
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Types as AT
 import Data.Bits (shiftR, (.&.))
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
@@ -41,7 +48,9 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
 import Data.List (intercalate, isPrefixOf)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust)
+import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Word (Word64, Word8)
 import Network.HTTP.Client (
     Manager,
@@ -183,6 +192,75 @@ data Journal = Journal
     , jLock :: !(MVar ())
     }
 
+data ServerIdentity = ServerIdentity
+    { siServerId :: !(Maybe Text)
+    , siServerRole :: !(Maybe Text)
+    , siServerProvider :: !(Maybe Text)
+    }
+    deriving (Eq, Show)
+
+lookupTextEnv :: String -> IO (Maybe Text)
+lookupTextEnv name = do
+    raw <- lookupEnv name
+    pure $
+        case trim <$> raw of
+            Just v | not (null v) -> Just (T.pack v)
+            _ -> Nothing
+
+serverIdentityFromEnv :: IO ServerIdentity
+serverIdentityFromEnv = do
+    explicitId <- lookupTextEnv "TRADER_SERVER_ID"
+    explicitRole <- lookupTextEnv "TRADER_SERVER_ROLE"
+    explicitProvider <- lookupTextEnv "TRADER_SERVER_PROVIDER"
+    flyMachineId <- lookupTextEnv "FLY_MACHINE_ID"
+    flyAppName <- lookupTextEnv "FLY_APP_NAME"
+    let onFly = isJust flyMachineId || isJust flyAppName
+        fallbackProvider = if onFly then Just "fly" else Just "local"
+        fallbackRole = if onFly then Just "fly" else Just "local"
+        fallbackId = flyMachineId <|> flyAppName <|> Just "local"
+    pure
+        ServerIdentity
+            { siServerId = explicitId <|> fallbackId
+            , siServerRole = explicitRole <|> fallbackRole
+            , siServerProvider = explicitProvider <|> fallbackProvider
+            }
+
+serverIdentityFields :: ServerIdentity -> [AT.Pair]
+serverIdentityFields ident =
+    catMaybes
+        [ ("serverId" .=) <$> siServerId ident
+        , ("serverRole" .=) <$> siServerRole ident
+        , ("serverProvider" .=) <$> siServerProvider ident
+        ]
+
+serverIdentityObjectFields :: ServerIdentity -> [AT.Pair]
+serverIdentityObjectFields ident =
+    catMaybes
+        [ ("id" .=) <$> siServerId ident
+        , ("role" .=) <$> siServerRole ident
+        , ("provider" .=) <$> siServerProvider ident
+        ]
+
+serverIdentityJson :: ServerIdentity -> Maybe Aeson.Value
+serverIdentityJson ident =
+    let fields = serverIdentityObjectFields ident
+     in if null fields then Nothing else Just (object fields)
+
+withServerIdentity :: ServerIdentity -> Aeson.Value -> Aeson.Value
+withServerIdentity ident value =
+    let flatFields = serverIdentityFields ident
+        nestedFields =
+            case serverIdentityJson ident of
+                Nothing -> flatFields
+                Just serverJson -> ("server" .= serverJson) : flatFields
+        insertPairs m = foldl (\acc (k, v) -> KM.insert k v acc) m nestedFields
+     in case nestedFields of
+            [] -> value
+            _ ->
+                case value of
+                    Aeson.Object o -> Aeson.Object (insertPairs o)
+                    _ -> object (("event" .= value) : nestedFields)
+
 stateDirFromEnv :: IO (Maybe FilePath)
 stateDirFromEnv = do
     mDir <- lookupEnv "TRADER_STATE_DIR"
@@ -212,9 +290,11 @@ newJournalFromEnv = do
             pure (Just (Journal (dir </> ("trader-" ++ show ts ++ ".jsonl")) lock))
 
 journalWrite :: Journal -> Aeson.Value -> IO ()
-journalWrite j v =
+journalWrite j v = do
+    ident <- serverIdentityFromEnv
+    let enriched = withServerIdentity ident v
     withMVar (jLock j) $ \_ ->
-        BL.appendFile (jPath j) (encode v <> BL.fromStrict (BS.pack "\n"))
+        BL.appendFile (jPath j) (encode enriched <> BL.fromStrict (BS.pack "\n"))
 
 journalWriteMaybe :: Maybe Journal -> Aeson.Value -> IO ()
 journalWriteMaybe mj v =

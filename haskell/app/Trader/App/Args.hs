@@ -1651,6 +1651,15 @@ validateArgs args0 = do
             | v > 0 ->
                 ensure "--kalman-band-lookback must be >= 2 when --kalman-band-std-mult is enabled" (argKalmanBandLookback args >= 2)
         _ -> pure ()
+    -- Guardrail: --kalman-band-std-mult > 0 is useless without --kalman-band-lookback >= 2,
+    -- but the reverse is also a risk: --kalman-band-lookback >= 2 with --kalman-band-std-mult == 0
+    -- means lookback is set but the band exit is disabled, which can confuse operators.
+    -- We allow it (it's harmless), but we do not allow negative lookback.
+    -- The non-negativity check above already covers that; this comment documents the invariant.
+    -- Invariant: if lookback >= 2 then std-mult must be >= 0 (already enforced).
+    -- Invariant: if std-mult > 0 then lookback must be >= 2 (enforced above).
+    -- Invariant: lookback must be >= 0 (enforced above).
+    -- No additional code needed; the invariants are already enforced.
     ensure "--lstm-exit-flip-bars must be >= 0" (argLstmExitFlipBars args >= 0)
     ensure "--lstm-exit-flip-grace-bars must be >= 0" (argLstmExitFlipGraceBars args >= 0)
     ensure "--lstm-confidence-soft must be between 0 and 1" (argLstmConfidenceSoft args >= 0 && argLstmConfidenceSoft args <= 1)
@@ -1673,6 +1682,12 @@ validateArgs args0 = do
     case argPeriodsPerYear args of
         Nothing -> pure ()
         Just v -> ensure "--periods-per-year must be > 0" (v > 0)
+    case argTradeLog args of
+        Nothing -> pure ()
+        Just path -> do
+            let t = trim path
+            ensure "--trade-log cannot be empty" (not (null t))
+            ensure "--trade-log cannot contain null bytes" ('\0' `notElem` t)
     case argOrderQuote args of
         Nothing -> pure ()
         Just q -> ensure "--order-quote must be > 0" (q > 0)
@@ -1723,6 +1738,7 @@ validateArgs args0 = do
     ensure "--kalman-min-std-floor must be >= 0" (argKalmanMinStdFloor args >= 0)
     ensure "--kalman-z-min must be >= 0" (argKalmanZMin args >= 0)
     ensure "--kalman-z-max must be >= --kalman-z-min" (argKalmanZMax args >= argKalmanZMin args)
+    ensure "--kalman-min-std-floor must be >= 0" (argKalmanMinStdFloor args >= 0)
     case argMaxHighVolProb args of
         Nothing -> pure ()
         Just v -> ensure "--max-high-vol-prob must be between 0 and 1" (v >= 0 && v <= 1)

@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/root/.cabal \
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates libgmp10 libpq5 libtinfo6 \
+  && apt-get install -y --no-install-recommends ca-certificates curl libgmp10 libpq5 libtinfo6 \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/trader/trader-hs /usr/local/bin/trader-hs
@@ -55,6 +55,9 @@ RUN mkdir -p /var/lib/trader/async /var/lib/trader/lstm /var/lib/trader/state /o
 VOLUME ["/var/lib/trader"]
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
 
 USER 65532:65532
 
