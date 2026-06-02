@@ -8,6 +8,7 @@
 - Web/Trade: default new trade forms to live armed trading and quote-fraction sizing with `orderQuoteFraction=1`, `orderQuote=0`, and `orderQuantity=0`, matching the Live Bot & Trade preset.
 - Deploy: keep research producers focused on optimizer discovery by disabling bot autostart and scheduled top-combo rechecks in the checked-in Fly/Hetzner research defaults, with smaller per-run optimizer budgets so combo refreshes can continue without starving the API.
 - Trading/Optimizer: normalize generated min/max position sizes before launching each optimizer trial and stop sampling disabled method `11`, preventing generated trials from failing before they can be scored.
+- Trading/Optimizer: make the server-side auto optimizer use a method-10-heavy discovery mix with conformal/quantile confirmations disabled by default, reducing inactive background trials that previously spent their run on HOLD gates instead of producing deployable combo candidates.
 - Web/Optimizer: add parameter-to-ROI correlation charts to the Optimizer Combos section, scoped to the active combo filters, plus correlation-guided optimizer guesses that prefill run ranges and advanced extra JSON knobs from the strongest ROI relationships.
 - Web: show loaded open-position and orphaned-position counts next to the Positions and Orphaned ops items in the Sections menu.
 - Web/Live Bot: order Live Bot symbol selectors with symbols that have currently open Binance futures positions before flat symbols, then keep the existing active/running/startup ordering.
