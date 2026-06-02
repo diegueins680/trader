@@ -24,6 +24,7 @@ module Trader.Binance (
     binanceFuturesTestnetBaseUrl,
     newBinanceEnv,
     fetchKlines,
+    fetchKlinesRaw,
     fetchCloses,
     fetchSymbolFilters,
     quantizeDown,

@@ -172,6 +172,7 @@ import Trader.Binance (
     fetchFuturesPositionAmt,
     fetchFuturesPositionRisks,
     fetchKlines,
+    fetchKlinesRaw,
     fetchOpenOrders,
     fetchOrderByClientId,
     fetchSymbolFilters,
@@ -190,6 +191,7 @@ import Trader.Binance (
 import Trader.BinanceIntervals (binanceIntervals)
 import Trader.BotStartSemantics (
     botStartSymbolDisabled,
+    botStartupBacktestRoiAcceptable,
     botTradeEnabledFromApi,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
@@ -352,10 +354,11 @@ import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
 import qualified Trader.TechnicalAnalysis.Strategies as TA
 import Trader.Text (dedupeStable, normalizeKey, trim)
 import Trader.TopCombosStore (
+    ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
-    applyComboUpdates,
+    applyComboUpdatesWithStats,
     comboIdentityKey,
     comboMetricDouble,
     comboPerformanceKey,
@@ -7030,6 +7033,221 @@ applyLatestTopCombo mOps topCombosStore limits sym args req = do
                 Nothing -> pure (baseArgs, Nothing)
                 Just (args', mUuid) -> pure (args', mUuid)
 
+topComboValueByUuid :: Text -> Aeson.Value -> Maybe Aeson.Value
+topComboValueByUuid uuid val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup (AK.fromString "combos") o of
+                Just (Aeson.Array combos) -> find matchesUuid (V.toList combos)
+                _ -> Nothing
+        _ -> Nothing
+  where
+    requested = normalizeUuidText uuid
+
+    normalizeUuidText = T.toLower . T.strip
+
+    matchesUuid comboVal =
+        case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
+            Aeson.Success combo -> normalizeUuidText (topComboUuid combo) == requested
+            Aeson.Error _ -> False
+
+lookupTopComboValueByUuid :: Maybe OpsStore -> TopCombosStore -> Text -> IO (Either String Aeson.Value)
+lookupTopComboValueByUuid mOps topCombosStore comboUuid = do
+    valOrErr <- readTopCombosValueWithDbFallback mOps topCombosStore
+    pure $
+        case valOrErr of
+            Left err -> Left err
+            Right val ->
+                case topComboValueByUuid comboUuid val of
+                    Just comboVal -> Right comboVal
+                    Nothing -> Left ("Selected top combo " ++ T.unpack comboUuid ++ " was not found in top combos.")
+
+topComboStartupBacktestArgs :: String -> Args -> Args
+topComboStartupBacktestArgs sym args =
+    normalizeBarsForLookback
+        args
+            { argPlatform = PlatformBinance
+            , argBinanceSymbol = Just sym
+            , argData = Nothing
+            , argTradeOnly = False
+            , argBinanceTrade = False
+            , argOptimizeOperations = False
+            , argSweepThreshold = False
+            }
+
+recordTopComboStartupBacktestEvent ::
+    TopCombosBacktestCtx ->
+    TenantKey ->
+    String ->
+    String ->
+    Text ->
+    Maybe Double ->
+    Maybe String ->
+    IO ()
+recordTopComboStartupBacktestEvent ctx tenantKey kind sym comboUuid mFinalEq mErr = do
+    now <- getTimestampMs
+    let details =
+            object $
+                [ "symbol" .= sym
+                , "comboUuid" .= comboUuid
+                , "finalEquity" .= mFinalEq
+                ]
+                    ++ maybe [] (\err -> ["error" .= err]) mErr
+        event =
+            object $
+                [ "type" .= kind
+                , "atMs" .= now
+                , "symbol" .= sym
+                , "comboUuid" .= comboUuid
+                , "finalEquity" .= mFinalEq
+                ]
+                    ++ maybe [] (\err -> ["error" .= err]) mErr
+    journalWriteMaybe (tcbcJournal ctx) event
+    opsAppendMaybe
+        (tcbcOps ctx)
+        (Just tenantKey)
+        (T.pack kind)
+        Nothing
+        Nothing
+        (Just details)
+        mFinalEq
+        (Just comboUuid)
+        (Just (T.pack sym))
+        Nothing
+
+applyStartupComboBacktestUpdate ::
+    TopCombosBacktestCtx ->
+    BS.ByteString ->
+    ComboBacktestUpdate ->
+    IO (Either String ComboBacktestApplyStats)
+applyStartupComboBacktestUpdate ctx key update = do
+    let store = tcbcStore ctx
+        topJsonPath = tcsPath store
+        mOps = tcbcOps ctx
+    result <-
+        withTopCombosLock store $ do
+            latestValOrErr <- readTopCombosValueWithDbFallbackUnlocked mOps store
+            case latestValOrErr of
+                Left err -> pure (Left ("Failed to read latest top combos before applying startup backtest: " ++ err))
+                Right latestVal -> do
+                    now <- getTimestampMs
+                    case applyComboUpdatesWithStats now (HM.singleton key update) latestVal of
+                        Left err -> pure (Left err)
+                        Right (updatedVal, stats) ->
+                            if cbasUpdatedCount stats <= 0
+                                then pure (Left "Selected top combo no longer matched top-combos storage.")
+                                else do
+                                    writeResult <- writeTopCombosValue topJsonPath updatedVal
+                                    case writeResult of
+                                        Left err -> pure (Left err)
+                                        Right _ -> do
+                                            persistTopCombosMaybe (tcbcStateSync ctx) topJsonPath
+                                            pure (Right stats)
+    case result of
+        Right _ -> persistTopCombosDbMaybe mOps store
+        Left _ -> pure ()
+    pure result
+
+deleteTopComboFromDbMaybe :: Maybe OpsStore -> Text -> IO ()
+deleteTopComboFromDbMaybe Nothing _ = pure ()
+deleteTopComboFromDbMaybe (Just store) comboUuidText =
+    case uuidFromText comboUuidText of
+        Nothing -> pure ()
+        Just comboUuid -> do
+            result <-
+                try
+                    ( withOpsConnection store $ \conn ->
+                        void $ execute conn "DELETE FROM combos WHERE combo_uuid = ?" (Only comboUuid)
+                    ) ::
+                    IO (Either SomeException ())
+            case result of
+                Left ex ->
+                    putStrLn
+                        ( "Warning: failed to delete pruned startup combo "
+                            ++ T.unpack comboUuidText
+                            ++ " from database: "
+                            ++ displayException ex
+                        )
+                Right () -> pure ()
+
+topComboStartupAbortMessage :: String -> Text -> Maybe Double -> Bool -> String
+topComboStartupAbortMessage sym comboUuid mFinalEq pruned =
+    "Top-combo startup backtest aborted "
+        ++ sym
+        ++ ": refreshed ROI is not positive"
+        ++ maybe "" (\eq -> " (finalEquity=" ++ printf "%.6f" eq ++ ")") mFinalEq
+        ++ " for combo "
+        ++ T.unpack comboUuid
+        ++ if pruned then "; combo removed from top combos." else "."
+
+runTopComboStartupBacktestGuard :: TopCombosBacktestCtx -> TenantKey -> String -> Args -> Maybe Text -> IO (Either String ())
+runTopComboStartupBacktestGuard _ _ _ _ Nothing = pure (Right ())
+runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
+    comboValOrErr <- lookupTopComboValueByUuid (tcbcOps ctx) (tcbcStore ctx) comboUuid
+    case comboValOrErr of
+        Left err -> do
+            let msg = "Top-combo startup backtest failed: " ++ err
+            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
+            pure (Left msg)
+        Right comboVal ->
+            case comboIdentityKey comboVal of
+                Nothing -> do
+                    let msg = "Top-combo startup backtest failed: selected combo has no stable identity."
+                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
+                    pure (Left msg)
+                Just comboKey -> do
+                    let argsBacktest = topComboStartupBacktestArgs sym args
+                    case validateApiComputeLimits (tcbcLimits ctx) argsBacktest of
+                        Left err -> do
+                            let msg = "Top-combo startup backtest failed: " ++ err
+                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
+                            pure (Left msg)
+                        Right argsOk -> do
+                            backtestResult <- runBacktestWithGateWait (tcbcGate ctx) (computeBacktestFromArgsFreshBinanceWithLimits (tcbcLimits ctx) (tcbcOps ctx) argsOk)
+                            case backtestResult of
+                                Left failure -> do
+                                    let msg = "Top-combo startup backtest failed: " ++ backtestFailureMessage (tcbcGate ctx) failure
+                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
+                                    pure (Left msg)
+                                Right out ->
+                                    case extractBacktestMetrics out of
+                                        Nothing -> do
+                                            let msg = "Top-combo startup backtest failed: backtest missing metrics."
+                                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
+                                            pure (Left msg)
+                                        Just metricsVal -> do
+                                            let mFinalEq = comboMetricDouble "finalEquity" metricsVal
+                                                objective =
+                                                    case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
+                                                        Aeson.Success combo -> fromMaybe "final-equity" (tcObjectiveLabel combo)
+                                                        Aeson.Error _ -> "final-equity"
+                                                update =
+                                                    ComboBacktestUpdate
+                                                        { cbuMetrics = metricsVal
+                                                        , cbuFinalEquity = mFinalEq
+                                                        , cbuScore = objectiveScoreFromMetrics argsOk objective metricsVal
+                                                        , cbuOperations = extractBacktestOperations out
+                                                        }
+                                            updateResult <- applyStartupComboBacktestUpdate ctx comboKey update
+                                            let acceptable = botStartupBacktestRoiAcceptable mFinalEq
+                                            case updateResult of
+                                                Left err -> do
+                                                    let msg = "Top-combo startup backtest failed: " ++ err
+                                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid mFinalEq (Just msg)
+                                                    if acceptable
+                                                        then pure (Right ())
+                                                        else pure (Left msg)
+                                                Right stats -> do
+                                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest" sym comboUuid mFinalEq Nothing
+                                                    let pruned = cbasPrunedCount stats > 0
+                                                    when pruned (deleteTopComboFromDbMaybe (tcbcOps ctx) comboUuid)
+                                                    if acceptable
+                                                        then pure (Right ())
+                                                        else do
+                                                            let msg = topComboStartupAbortMessage sym comboUuid mFinalEq pruned
+                                                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_aborted" sym comboUuid mFinalEq (Just msg)
+                                                            pure (Left msg)
+
 clearPositionOriginIfFlatMaybe :: Maybe OpsStore -> TenantKey -> Args -> String -> IO ()
 clearPositionOriginIfFlatMaybe mOps tenantKey args sym =
     case mOps of
@@ -7525,35 +7743,39 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                 preflight <- preflightBotStart mOps argsSym settings sym
                                 case preflight of
                                     Left e | not (arActive adoptReq) -> pure (Left e)
-                                    _ ->
-                                        modifyMVar (bcRuntime ctrl) $ \mrt ->
-                                            let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
-                                             in case HM.lookup sym tenantMap of
-                                                    Just st ->
-                                                        if allowExisting
-                                                            then pure (mrt, Right (BotStartOutcome sym st False))
-                                                            else case st of
-                                                                BotRunning _ -> pure (mrt, Left "Bot is already running")
-                                                                BotStarting _ -> pure (mrt, Left "Bot is starting")
-                                                    Nothing -> do
-                                                        stopSig <- newEmptyMVar
-                                                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig)
-                                                        now <- getTimestampMs
-                                                        let rt =
-                                                                BotStartRuntime
-                                                                    { bsrThreadId = tid
-                                                                    , bsrStopSignal = stopSig
-                                                                    , bsrArgs = sanitizeArgsKeys argsSym
-                                                                    , bsrSettings = settings
-                                                                    , bsrSymbol = sym
-                                                                    , bsrTenantKey = tenantKey
-                                                                    , bsrRequestedAtMs = now
-                                                                    , bsrStartReason = startReason
-                                                                    }
-                                                            st = BotStarting rt
-                                                            tenantMap' = HM.insert sym st tenantMap
-                                                            mrt' = HM.insert tenantKey tenantMap' mrt
-                                                        pure (mrt', Right (BotStartOutcome sym st True))
+                                    _ -> do
+                                        comboGuard <- runTopComboStartupBacktestGuard topCombosCtx tenantKey sym argsSym mComboUuid
+                                        case comboGuard of
+                                            Left err -> pure (Left err)
+                                            Right () ->
+                                                modifyMVar (bcRuntime ctrl) $ \mrt ->
+                                                    let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+                                                     in case HM.lookup sym tenantMap of
+                                                            Just st ->
+                                                                if allowExisting
+                                                                    then pure (mrt, Right (BotStartOutcome sym st False))
+                                                                    else case st of
+                                                                        BotRunning _ -> pure (mrt, Left "Bot is already running")
+                                                                        BotStarting _ -> pure (mrt, Left "Bot is starting")
+                                                            Nothing -> do
+                                                                stopSig <- newEmptyMVar
+                                                                tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig)
+                                                                now <- getTimestampMs
+                                                                let rt =
+                                                                        BotStartRuntime
+                                                                            { bsrThreadId = tid
+                                                                            , bsrStopSignal = stopSig
+                                                                            , bsrArgs = sanitizeArgsKeys argsSym
+                                                                            , bsrSettings = settings
+                                                                            , bsrSymbol = sym
+                                                                            , bsrTenantKey = tenantKey
+                                                                            , bsrRequestedAtMs = now
+                                                                            , bsrStartReason = startReason
+                                                                            }
+                                                                    st = BotStarting rt
+                                                                    tenantMap' = HM.insert sym st tenantMap
+                                                                    mrt' = HM.insert tenantKey tenantMap' mrt
+                                                                pure (mrt', Right (BotStartOutcome sym st True))
 
 botStartWorker ::
     Maybe OpsStore ->
@@ -7587,7 +7809,13 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
             preflight <- preflightBotStart mOps argsFinal settings sym
             case preflight of
                 Left e -> throwIO (userError e)
-                Right () -> initBotState mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp sym
+                Right () -> do
+                    when (isNothing mComboUuid && isJust comboUuidFinal) $ do
+                        comboGuard <- runTopComboStartupBacktestGuard topCombosCtx tenantKey sym argsFinal comboUuidFinal
+                        case comboGuard of
+                            Left e -> throwIO (userError e)
+                            Right () -> pure ()
+                    initBotState mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp sym
     r <- try (doStart args) :: IO (Either SomeException BotState)
     case r of
         Left ex -> do
@@ -10071,11 +10299,13 @@ backtestTopCombosOnce topNRaw ctx = do
                                                 Right latestVal -> do
                                                     now <- getTimestampMs
                                                     let updateMap = HM.fromList updates
-                                                    case applyComboUpdates now updateMap latestVal of
+                                                    case applyComboUpdatesWithStats now updateMap latestVal of
                                                         Left err -> do
                                                             recordError "optimizer.combos.backtest_failed" err Nothing Nothing
                                                             pure False
-                                                        Right (updatedVal, updatedCount) ->
+                                                        Right (updatedVal, stats) -> do
+                                                            let updatedCount = cbasUpdatedCount stats
+                                                                prunedCount = cbasPrunedCount stats
                                                             if updatedCount <= 0
                                                                 then do
                                                                     recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
@@ -10091,6 +10321,7 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                             recordEvent
                                                                                 "optimizer.combos.backtest_updated"
                                                                                 [ "updated" .= updatedCount
+                                                                                , "pruned" .= prunedCount
                                                                                 , "topN" .= topN
                                                                                 , "path" .= topJsonPath
                                                                                 ]
@@ -28314,7 +28545,13 @@ takeLast n xs
          in if k <= 0 then xs else drop k xs
 
 loadPricesBinance :: Maybe OpsStore -> Args -> String -> IO (BinanceEnv, PriceSeries)
-loadPricesBinance mOps args sym = do
+loadPricesBinance = loadPricesBinanceWith fetchKlines
+
+loadPricesBinanceFresh :: Maybe OpsStore -> Args -> String -> IO (BinanceEnv, PriceSeries)
+loadPricesBinanceFresh = loadPricesBinanceWith fetchKlinesRaw
+
+loadPricesBinanceWith :: (BinanceEnv -> String -> String -> Int -> IO [Kline]) -> Maybe OpsStore -> Args -> String -> IO (BinanceEnv, PriceSeries)
+loadPricesBinanceWith fetcher mOps args sym = do
     let market = argBinanceMarket args
     when (market == MarketMargin && argBinanceTestnet args) $
         throwIO (userError "--binance-testnet is not supported for margin operations")
@@ -28329,7 +28566,7 @@ loadPricesBinance mOps args sym = do
     apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
     apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
     envTrade <- newBinanceEnvWithOps mOps market tradeBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-    klinesE <- try (fetchKlines envTrade sym (argInterval args) bars) :: IO (Either HttpException [Kline])
+    klinesE <- try (fetcher envTrade sym (argInterval args) bars) :: IO (Either HttpException [Kline])
     ks <-
         case klinesE of
             Right out -> pure out
@@ -28337,7 +28574,7 @@ loadPricesBinance mOps args sym = do
                 if argBinanceTestnet args
                     then do
                         envData <- newBinanceEnvWithOps mOps market dataBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                        fetchKlines envData sym (argInterval args) bars
+                        fetcher envData sym (argInterval args) bars
                     else throwIO ex
     let opens = map kOpen ks
         closes = map kClose ks
@@ -28346,6 +28583,21 @@ loadPricesBinance mOps args sym = do
         volumes = map kVolume ks
         openTimes = map (normalizeEpochMs . kOpenTime) ks
     pure (envTrade, PriceSeries closes (Just opens) (Just highs) (Just lows) (Just volumes) (Just openTimes))
+
+computeBacktestFromArgsFreshBinanceWithLimits :: ApiComputeLimits -> Maybe OpsStore -> Args -> IO Aeson.Value
+computeBacktestFromArgsFreshBinanceWithLimits limits mOps args =
+    case (argPlatform args, argBinanceSymbol args, argData args) of
+        (PlatformBinance, Just sym, Nothing) -> do
+            (env, series) <- loadPricesBinanceFresh mOps args sym
+            seriesForLimits <-
+                case applyBacktestTimeWindow args series of
+                    Left msg -> throwIO (userError msg)
+                    Right s -> pure s
+            case validateApiComputeLimitsAfterLoad limits args seriesForLimits of
+                Left msg -> throwIO (userError msg)
+                Right () -> pure ()
+            computeBacktestFromSeries args series (Just env)
+        _ -> computeBacktestFromArgsWithLimits limits mOps args
 
 loadPricesCoinbase :: Args -> String -> IO PriceSeries
 loadPricesCoinbase args sym = do

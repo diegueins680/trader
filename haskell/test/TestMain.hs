@@ -18,7 +18,7 @@ import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPur
 import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
-import Trader.BotStartSemantics (botStartSymbolDisabled, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (botStartSymbolDisabled, botStartupBacktestRoiAcceptable, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
 import Trader.Formal.Execution (
     ExecutionVerificationReport (..),
@@ -245,6 +245,7 @@ main = do
     testQueuedBotStartIgnoresTransientMarketDataErrors
     testPrioritizeOrphanBotStartSymbols
     testDisabledBotStartSymbols
+    testBotStartupBacktestRoiAcceptability
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
@@ -2359,6 +2360,18 @@ testDisabledBotStartSymbols =
         ( botStartSymbolDisabled ["MATICUSDT"] "maticusdt"
             && botStartSymbolDisabled ["MATIC USDT"] "MATICUSDT"
             && not (botStartSymbolDisabled ["MATICUSDT"] "BTCUSDT")
+        )
+
+testBotStartupBacktestRoiAcceptability :: IO ()
+testBotStartupBacktestRoiAcceptability = do
+    assert
+        "startup backtest accepts only profitable finite final equity"
+        ( botStartupBacktestRoiAcceptable (Just 1.000001)
+            && not (botStartupBacktestRoiAcceptable (Just 1.0))
+            && not (botStartupBacktestRoiAcceptable (Just 0.999999))
+            && not (botStartupBacktestRoiAcceptable (Just (1 / 0)))
+            && not (botStartupBacktestRoiAcceptable (Just (0 / 0)))
+            && not (botStartupBacktestRoiAcceptable Nothing)
         )
 
 testBinanceExceptionSummaryRedactsSecrets :: IO ()
