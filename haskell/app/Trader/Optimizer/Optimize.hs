@@ -154,10 +154,13 @@ normalizeOptionalUnitInterval raw =
             | isNaN x || isInfinite x -> Nothing
             | otherwise -> Just (clamp x 0 1)
 
+minPositionSizeFloor :: Double
+minPositionSizeFloor = 1e-12
+
 normalizeTrialParams :: TrialParams -> TrialParams
 normalizeTrialParams p =
-    let maxPositionSize' = max 0 (tpMaxPositionSize p)
-        minPositionSize' = clamp (tpMinPositionSize p) 0 maxPositionSize'
+    let maxPositionSize' = max minPositionSizeFloor (tpMaxPositionSize p)
+        minPositionSize' = clamp (tpMinPositionSize p) minPositionSizeFloor maxPositionSize'
         kellyLiteFloor' = max 0 (tpKellyLiteFloor p)
         kellyLiteCap' = max kellyLiteFloor' (tpKellyLiteCap p)
         thresholdFactorMin' = max 0 (tpThresholdFactorMin p)
@@ -2045,7 +2048,8 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
      in cmd37 ++ ["--json"]
 
 runTrial :: FilePath -> [String] -> TrialParams -> Double -> Bool -> Double -> Bool -> IO TrialResult
-runTrial traderBin baseArgs params tuneRatio useSweepThreshold timeoutSec disableLstm = do
+runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disableLstm = do
+    let params = normalizeTrialParams params0
     let cmd = buildCommand traderBin baseArgs params tuneRatio useSweepThreshold
         cmdArgs = drop 1 cmd
     env0 <- getEnvironment
@@ -2597,7 +2601,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWConformalClip, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWHedgeBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
+    (_methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWConformalClip, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWHedgeBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -2708,8 +2712,7 @@ sampleParams
             interval = fromMaybe (fromMaybe "1h" (listToMaybe intervals)) intervalChoice
             (bars, rng3) = sampleBars rng2
             methods =
-                [ ("11", methodW11)
-                , ("10", methodW10)
+                [ ("10", methodW10)
                 , ("01", methodW01)
                 , ("blend", methodWBlend)
                 , ("conf_blend", methodWConfBlend)

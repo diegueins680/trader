@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   adjustBacktestParamsForSplit,
+  autoFitLookbackToBars,
   buildOpenBinancePositionSymbolSet,
   buildDefaultOptimizerRunForm,
   buildOptimizerCorrelationGuess,
@@ -347,6 +348,36 @@ test("adjustBacktestParamsForSplit raises bars and lowers holdout when lookback 
   const stats = splitStats(adjusted.params.bars, adjusted.params.backtestRatio, 960, 0, false);
   assert.equal(stats.trainOk, true);
   assert.equal(stats.backtestOk, true);
+});
+
+test("autoFitLookbackToBars leaves lookback alone when bars can be raised within the cap", () => {
+  const fitted = autoFitLookbackToBars("binance", "1m", 0, "12h", 500, "11", {
+    maxBarsLstm: 1000,
+    maxEpochs: 100,
+    maxHiddenSize: 50,
+  });
+
+  assert.equal(fitted, null);
+});
+
+test("autoFitLookbackToBars reduces a window lookback when it exceeds available capped bars", () => {
+  const fitted = autoFitLookbackToBars("binance", "1m", 0, "7d", 978, "11", {
+    maxBarsLstm: 1000,
+    maxEpochs: 100,
+    maxHiddenSize: 50,
+  });
+
+  assert.deepEqual(fitted, { action: "lookbackWindow", value: "977m" });
+});
+
+test("autoFitLookbackToBars reduces a bars override when it exceeds available capped bars", () => {
+  const fitted = autoFitLookbackToBars("binance", "1m", 3360, "7d", 978, "11", {
+    maxBarsLstm: 1000,
+    maxEpochs: 100,
+    maxHiddenSize: 50,
+  });
+
+  assert.deepEqual(fitted, { action: "lookbackBars", value: 977 });
 });
 
 test("buildOptimizerRunRequest drops exchange-only known overrides when the effective source is csv", () => {

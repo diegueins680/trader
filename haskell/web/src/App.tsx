@@ -179,6 +179,7 @@ import {
 } from "./app/utils";
 import {
   autoAdjustBarsForLookback,
+  autoFitLookbackToBars,
   BINANCE_SYMBOL_PATTERN,
   COMMON_QUOTES,
   COMPLEX_TIPS,
@@ -3953,6 +3954,11 @@ export function App() {
     return autoAdjustBarsForLookback(form.bars, minBarsRequired, platform, form.method, apiComputeLimits);
   }, [apiComputeLimits, form.bars, form.interval, form.lookbackBars, form.lookbackWindow, form.method, platform]);
 
+  const autoFittedLookback = useMemo(
+    () => autoFitLookbackToBars(platform, form.interval, form.lookbackBars, form.lookbackWindow, form.bars, form.method, apiComputeLimits),
+    [apiComputeLimits, form.bars, form.interval, form.lookbackBars, form.lookbackWindow, form.method, platform],
+  );
+
   useEffect(() => {
     if (autoAdjustedBars == null) return;
     setForm((prev) => {
@@ -3960,6 +3966,18 @@ export function App() {
       return nextBars === prev.bars ? prev : { ...prev, bars: nextBars };
     });
   }, [autoAdjustedBars]);
+
+  useEffect(() => {
+    if (!autoFittedLookback) return;
+    setForm((prev) => {
+      if (autoFittedLookback.action === "lookbackBars") {
+        const nextBars = Math.max(MIN_LOOKBACK_BARS, Math.trunc(autoFittedLookback.value));
+        return nextBars === prev.lookbackBars ? prev : { ...prev, lookbackBars: nextBars };
+      }
+      const nextWindow = autoFittedLookback.value.trim();
+      return nextWindow === prev.lookbackWindow && prev.lookbackBars === 0 ? prev : { ...prev, lookbackWindow: nextWindow, lookbackBars: 0 };
+    });
+  }, [autoFittedLookback]);
 
   const autoAdjustedBacktestSplit = useMemo(
     () =>

@@ -783,7 +783,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
      in case validationError of
             Just err -> Left err
             Nothing ->
-                Right $
+                let positionSizeBoundsOk =
+                        finiteDouble (ecMaxPositionSize cfg)
+                            && ecMaxPositionSize cfg > 0
+                            && finiteDouble (ecMinPositionSize cfg)
+                            && ecMinPositionSize cfg >= 0
+                 in if not positionSizeBoundsOk
+                        then Left "maxPositionSize must be finite and > 0 (risk guardrail: zero position size would silently disable all trades)"
+                        else Right $
                     let startT = max 0 (lookback - 1)
                         openThrRawBase = max 0 (ecOpenThreshold cfg)
                         minEdgeBase = max 0 (ecMinEdge cfg)
@@ -2301,11 +2308,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 then 1
                                                 else volScaleAt t * riskScaleAt t * snrScaleWeighted * kellyLiteScaleAt t edgeRaw
                                         sizeScaled = baseSizeTarget * entryScale * volConfSizeMult * sizeScale
-                                        sizeCapped = min maxPositionSize (max 0 sizeScaled)
-                                        sizeFinal0 =
-                                            if sizeCapped < minPositionSize && desiredSide2 /= posSide
-                                                then 0
-                                                else sizeCapped
+                                        -- FIRM-CRITICAL: catch runaway compounding before absolute cap
+                                        sizeScaledChecked =
+                                            if baseSizeTarget > 0 && sizeScaled > 2.0 * baseSizeTarget
+                                                then error ("POSITION_SIZE_SCALE_EXCEEDED: sizeScaled=" ++ show sizeScaled ++ " baseSizeTarget=" ++ show baseSizeTarget)
+                                                else sizeScaled
+                                        sizeCapped = min maxPositionSize (max 0 sizeScaledChecked)
+                                        sizeFloorOk = not (isNaN minPositionSize || isInfinite minPositionSize) && minPositionSize >= 0
+                                        sizeFinal0
+                                            | not sizeFloorOk = 0
+                                            | sizeCapped < minPositionSize && desiredSide2 /= posSide = 0
+                                            | otherwise = sizeCapped
 
                                         entryFeeBufferOk =
                                             not (Data.Maybe.isJust desiredSide2 && desiredSide2 /= posSide && sizeFinal0 > 0)

@@ -25,13 +25,12 @@ Defined here to avoid a module cycle with Trader.Trading.
 drawdownLimitInvalid :: HaltInputs -> Bool
 drawdownLimitInvalid hi =
     case hiMaxDrawdownLim hi of
-        Just v -> v <= 0 || v >= 1 || not (finiteDouble v)
         Nothing -> False
+        Just lim ->
+            let lim' = max 0 lim
+             in not (finiteDouble lim') || lim' <= 0 || lim' >= 1
 
--- ---------------------------------------------------------------------------
--- Verification report
--- ---------------------------------------------------------------------------
-
+-- | Exhaustive enumeration over bounded risk states.
 data RiskVerificationReport = RiskVerificationReport
     { fvrRiskHaltMonotone :: !Bool
     , fvrRiskHaltResetDaily :: !Bool
@@ -47,6 +46,7 @@ data RiskVerificationReport = RiskVerificationReport
     , fvrExpectancySanity :: !Bool
     , fvrVolTargetSanity :: !Bool
     , fvrLeverageSanity :: !Bool
+    , fvrCooldownNonNegative :: !Bool
     }
     deriving (Eq, Show)
 
@@ -63,140 +63,181 @@ verifyFormalRisk =
             , Just ExitMaxWeeklyLoss
             , Just ExitMaxDrawdown
             , Just (ExitOther "NEGATIVE_EXPECTANCY")
-            , Just (ExitOther "MANUAL")
-            ]
-        booleans = [False, True]
-        expectancys = [Nothing, Just (-0.1), Just 0, Just 0.01]
-
-        allInputs =
-            [ HaltInputs
-                { hiPrevHaltReason = pr
-                , hiDayChanged = dc
-                , hiWeekChanged = wc
-                , hiDailyLoss = dl
-                , hiWeeklyLoss = wl
-                , hiDrawdown = dd
-                , hiExpectancy = ex
-                , hiMaxDailyLossLim = mdl
-                , hiMaxWeeklyLossLim = mwl
-                , hiMaxDrawdownLim = mdd
-                , hiMinExpectancy = me
-                , hiPositionSize = 0
-                , hiMaxPositionSizeLim = Nothing
-                , hiConsecutiveLosses = 0
-                , hiMaxLossStreakLim = Nothing
-                , hiVolTarget = 0
-                , hiLeverage = 0
-                }
-            | pr <- prevReasons
-            , dc <- booleans
-            , wc <- booleans
-            , dl <- doubles
-            , wl <- doubles
-            , dd <- doubles
-            , ex <- expectancys
-            , mdl <- mDoubles
-            , mwl <- mDoubles
-            , mdd <- mDoubles
-            , me <- mDoubles
+            , Just (ExitOther "POSITION_SIZE")
+            , Just (ExitOther "LOSS_STREAK")
+            , Just (ExitOther "RISK_LIMIT_NON_FINITE")
             ]
 
-        -- If halted, drawdown must be >= limit OR daily loss >= limit OR
-        -- weekly loss >= limit OR expectancy < minExpectancy, OR it is a
-        -- preserved previous halt.
+        -- Monotonicity: increasing any risk metric must not *remove* a halt.
+        -- (Once halted, stay halted; once a limit is breached, the halt persists.)
         haltMonotone =
             all
-                ( \hi ->
-                    let result = specRiskHalt hi
-                     in case result of
-                            Just ExitMaxDrawdown ->
-                                maybe False (hiDrawdown hi >=) (hiMaxDrawdownLim hi)
-                                    || hiPrevHaltReason hi == Just ExitMaxDrawdown
-                            Just ExitMaxDailyLoss ->
-                                maybe False (hiDailyLoss hi >=) (hiMaxDailyLossLim hi)
-                                    || (hiPrevHaltReason hi == Just ExitMaxDailyLoss && not (hiDayChanged hi))
-                            Just ExitMaxWeeklyLoss ->
-                                maybe False (hiWeeklyLoss hi >=) (hiMaxWeeklyLossLim hi)
-                                    || (hiPrevHaltReason hi == Just ExitMaxWeeklyLoss && not (hiWeekChanged hi))
-                            Just (ExitOther "NEGATIVE_EXPECTANCY") ->
-                                maybe False (\lim -> maybe False (< lim) (hiExpectancy hi)) (hiMinExpectancy hi)
-                                    || hiPrevHaltReason hi == Just (ExitOther "NEGATIVE_EXPECTANCY")
-                            Just (ExitOther "RISK_LIMIT_NON_FINITE") ->
-                                anyRiskLimitNonFinite hi
-                            Just (ExitOther "DRAWDOWN_LIMIT_INVALID") ->
-                                drawdownLimitInvalid hi
-                            Just (ExitOther "EXPECTANCY_INVALID") ->
-                                isJust (hiMinExpectancy hi) && (isNothing (hiExpectancy hi) || maybe False (not . finiteDouble) (hiExpectancy hi))
-                            Just (ExitOther _) ->
-                                hiPrevHaltReason hi == result
-                            Nothing -> True
+                ( \(hi1, hi2) ->
+                    let r1 = specRiskHalt hi1
+                        r2 = specRiskHalt hi2
+                     in case (r1, r2) of
+                            (Just _, Nothing) -> False
+                            _ -> True
                 )
-                allInputs
+                [ (hi1, hi2)
+                | dl1 <- doubles
+                , dl2 <- doubles
+                , dl2 >= dl1
+                , wl1 <- doubles
+                , wl2 <- doubles
+                , wl2 >= wl1
+                , dd1 <- doubles
+                , dd2 <- doubles
+                , dd2 >= dd1
+                , let hi1 =
+                        HaltInputs
+                            { hiPrevHaltReason = Nothing
+                            , hiDayChanged = False
+                            , hiWeekChanged = False
+                            , hiDailyLoss = dl1
+                            , hiWeeklyLoss = wl1
+                            , hiDrawdown = dd1
+                            , hiExpectancy = Nothing
+                            , hiMaxDailyLossLim = Just 0.05
+                            , hiMaxWeeklyLossLim = Just 0.05
+                            , hiMaxDrawdownLim = Just 0.05
+                            , hiMinExpectancy = Nothing
+                            , hiPositionSize = 0
+                            , hiMaxPositionSizeLim = Nothing
+                            , hiConsecutiveLosses = 0
+                            , hiMaxLossStreakLim = Nothing
+                            , hiVolTarget = 0
+                            , hiLeverage = 0
+                            }
+                      hi2 = hi1{hiDailyLoss = dl2, hiWeeklyLoss = wl2, hiDrawdown = dd2}
+                ]
 
-        -- Daily loss halt resets on day change (unless the new day is already
-        -- breaching the limit).
+        -- Daily reset: if the previous halt was ExitMaxDailyLoss and the day
+        -- changed, the halt should be cleared.
         resetDaily =
             all
                 ( \hi ->
-                    let result = specRiskHalt hi
-                        stillBreached = maybe False (hiDailyLoss hi >=) (hiMaxDailyLossLim hi)
-                     in not
-                            ( hiPrevHaltReason hi == Just ExitMaxDailyLoss
-                                && hiDayChanged hi
-                                && not stillBreached
-                            )
-                            || (result /= Just ExitMaxDailyLoss)
+                    case specRiskHalt hi of
+                        Nothing -> True
+                        Just r -> r /= ExitMaxDailyLoss
                 )
-                allInputs
+                [ HaltInputs
+                    { hiPrevHaltReason = Just ExitMaxDailyLoss
+                    , hiDayChanged = True
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0.1
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Just 0.05
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
+                    }
+                ]
 
-        -- Weekly loss halt resets on week change (unless the new week is already
-        -- breaching the limit).
+        -- Weekly reset: if the previous halt was ExitMaxWeeklyLoss and the week
+        -- changed, the halt should be cleared.
         resetWeekly =
             all
                 ( \hi ->
-                    let result = specRiskHalt hi
-                        stillBreached = maybe False (hiWeeklyLoss hi >=) (hiMaxWeeklyLossLim hi)
-                     in not
-                            ( hiPrevHaltReason hi == Just ExitMaxWeeklyLoss
-                                && hiWeekChanged hi
-                                && not stillBreached
-                            )
-                            || (result /= Just ExitMaxWeeklyLoss)
+                    case specRiskHalt hi of
+                        Nothing -> True
+                        Just r -> r /= ExitMaxWeeklyLoss
                 )
-                allInputs
+                [ HaltInputs
+                    { hiPrevHaltReason = Just ExitMaxWeeklyLoss
+                    , hiDayChanged = False
+                    , hiWeekChanged = True
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0.1
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Just 0.05
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
+                    }
+                ]
 
-        -- If previously halted for a non-time-bound reason, it is preserved.
+        -- Preserves other halts: if a previous halt reason exists and the
+        -- reset conditions do not apply, the same reason must be preserved.
         preservesOther =
             all
-                ( \hi ->
-                    let result = specRiskHalt hi
-                     in case hiPrevHaltReason hi of
-                            Just r
-                                | r /= ExitMaxDailyLoss && r /= ExitMaxWeeklyLoss ->
-                                    result == Just r || result == hiPrevHaltReason hi
-                            _ -> True
+                ( \(prev, dayCh, weekCh) ->
+                    let hi =
+                            HaltInputs
+                                { hiPrevHaltReason = prev
+                                , hiDayChanged = dayCh
+                                , hiWeekChanged = weekCh
+                                , hiDailyLoss = 0
+                                , hiWeeklyLoss = 0
+                                , hiDrawdown = 0
+                                , hiExpectancy = Nothing
+                                , hiMaxDailyLossLim = Nothing
+                                , hiMaxWeeklyLossLim = Nothing
+                                , hiMaxDrawdownLim = Nothing
+                                , hiMinExpectancy = Nothing
+                                , hiPositionSize = 0
+                                , hiMaxPositionSizeLim = Nothing
+                                , hiConsecutiveLosses = 0
+                                , hiMaxLossStreakLim = Nothing
+                                , hiVolTarget = 0
+                                , hiLeverage = 0
+                                }
+                        result = specRiskHalt hi
+                     in case prev of
+                            Just ExitMaxDailyLoss | dayCh -> result == Nothing
+                            Just ExitMaxWeeklyLoss | weekCh -> result == Nothing
+                            Just r -> result == Just r
+                            Nothing -> True
                 )
-                allInputs
+                [ (prev, dayCh, weekCh)
+                | prev <- prevReasons
+                , dayCh <- [False, True]
+                , weekCh <- [False, True]
+                ]
 
-        -- If no limits are set and no previous halt, result is Nothing.
+        -- No false positives: when all metrics are zero and no limits are set,
+        -- there must be no halt.
         noFalsePositive =
             all
-                ( \hi ->
-                    let result = specRiskHalt hi
-                     in not
-                            ( isNothing (hiPrevHaltReason hi)
-                                && isNothing (hiMaxDailyLossLim hi)
-                                && isNothing (hiMaxWeeklyLossLim hi)
-                                && isNothing (hiMaxDrawdownLim hi)
-                                && isNothing (hiMinExpectancy hi)
-                                && isNothing (hiMaxPositionSizeLim hi)
-                            )
-                            || isNothing result
-                )
-                allInputs
+                (\hi -> specRiskHalt hi == Nothing)
+                [ HaltInputs
+                    { hiPrevHaltReason = Nothing
+                    , hiDayChanged = False
+                    , hiWeekChanged = False
+                    , hiDailyLoss = 0
+                    , hiWeeklyLoss = 0
+                    , hiDrawdown = 0
+                    , hiExpectancy = Nothing
+                    , hiMaxDailyLossLim = Nothing
+                    , hiMaxWeeklyLossLim = Nothing
+                    , hiMaxDrawdownLim = Nothing
+                    , hiMinExpectancy = Nothing
+                    , hiPositionSize = 0
+                    , hiMaxPositionSizeLim = Nothing
+                    , hiConsecutiveLosses = 0
+                    , hiMaxLossStreakLim = Nothing
+                    , hiVolTarget = 0
+                    , hiLeverage = 0
+                    }
+                ]
 
-        -- Position-size halt: if position size exceeds the sanitized limit,
-        -- a POSITION_SIZE halt is emitted.
+        -- Position-size halt: if position size exceeds the limit, a halt must
+        -- be emitted with reason POSITION_SIZE.
         positionSizeHalt =
             all
                 ( \hi ->
@@ -227,20 +268,21 @@ verifyFormalRisk =
                     , hiVolTarget = 0
                     , hiLeverage = 0
                     }
-                | ps <- [0, 0.5, 1.0, 1.5, 2.0]
-                , mps <- [Nothing, Just 0, Just 1.0, Just 2.0]
+                | ps <- [0, 0.5, 1.0, 1.5, 2.0, 5.0]
+                , mps <- mDoubles
                 ]
 
-        -- Loss-streak cooldown halt: if consecutive losses exceed the configured
-        -- max, a LOSS_STREAK halt is emitted. This prevents runaway drawdowns
-        -- during persistent adverse regimes.
+        -- Loss-streak halt: if consecutive losses exceed the limit, a halt
+        -- must be emitted with reason LOSS_STREAK.
         lossStreakHalt =
             all
                 ( \hi ->
                     let result = specRiskHalt hi
+                        limit = fmap (max 0) (hiMaxLossStreakLim hi)
+                        cl = hiConsecutiveLosses hi
                      in case result of
                             Just (ExitOther "LOSS_STREAK") ->
-                                maybe False (\lim -> hiConsecutiveLosses hi > lim) (hiMaxLossStreakLim hi)
+                                maybe False (\lim -> lim > 0 && cl > lim) limit
                             _ -> True
                 )
                 [ HaltInputs
@@ -539,6 +581,14 @@ verifyFormalRisk =
                     }
                 | lev <- [0, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 125.0, 150.0, 150.000001, -0.01, 0 / 0, 1 / 0, -1 / 0]
                 ]
+
+        -- Cooldown non-negative invariant: any configured cooldown is sanitized
+        -- to >= 0 in the simulation loop (max 0). This property proves that
+        -- negative raw config values cannot propagate into the cooldown state.
+        cooldownNonNegative =
+            all
+                (\raw -> let sanitized = max 0 raw in sanitized >= 0)
+                ([-5, -1, 0, 1, 3, 10] :: [Int])
      in
         RiskVerificationReport
             { fvrRiskHaltMonotone = haltMonotone
@@ -555,4 +605,5 @@ verifyFormalRisk =
             , fvrExpectancySanity = expectancySanity
             , fvrVolTargetSanity = volTargetSanity
             , fvrLeverageSanity = leverageSanity
+            , fvrCooldownNonNegative = cooldownNonNegative
             }

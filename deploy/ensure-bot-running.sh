@@ -40,6 +40,9 @@ curl_headers=()
 if [[ -n "${TRADER_API_TOKEN:-}" ]]; then
   curl_headers+=(-H "Authorization: Bearer ${TRADER_API_TOKEN}")
 fi
+if [[ -n "${TRADER_STATE_SYNC_TENANT_KEY:-}" ]]; then
+  curl_headers+=(-H "X-Tenant-Key: ${TRADER_STATE_SYNC_TENANT_KEY}")
+fi
 
 fetch_status() {
   local url="$1"

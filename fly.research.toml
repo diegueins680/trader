@@ -9,25 +9,24 @@ primary_region = "fra"
   TRADER_SERVER_ROLE = "research"
   TRADER_SERVER_PROVIDER = "fly"
 
-  # Shadow/staging bots: run the same universe in paper mode (no --binance-live,
-  # no live keys, BOT_TRADE off => signals + simulated eval only, no exchange orders).
-  TRADER_BOT_SYMBOLS = "XRPUSDT,FILUSDT,DOGEUSDT,ADAUSDT,SOLUSDT,AAVEUSDT,UNIUSDT,ETHUSDT,BTCUSDT,BNBUSDT,LTCUSDT,LINKUSDT,SUIUSDT,ATOMUSDT,ARBUSDT,AVAXUSDT,DOTUSDT,ETCUSDT,NEARUSDT,OPUSDT,BCHUSDT"
-  TRADER_BOT_AUTOSTART = "true"
+  # Research producer: reserve capacity for optimizer discovery, not paper bots.
+  TRADER_BOT_SYMBOLS = ""
+  TRADER_BOT_AUTOSTART = "false"
   TRADER_BOT_TRADE = "false"
-  TRADER_BOT_TOP_COMBO_BOTS = "22"
+  TRADER_BOT_TOP_COMBO_BOTS = "0"
   TRADER_BOT_TOP_COMBO_BOTS_STARTUP = "0"
-  TRADER_BOT_AUTOSTART_MAX_BOTS = "22"
-  TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE = "5"
+  TRADER_BOT_AUTOSTART_MAX_BOTS = "0"
+  TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE = "1"
   TRADER_BOT_START_MAX_SYMBOLS = "1"
 
   # This node OWNS optimization/backtesting (heavier than the trading node).
   TRADER_OPTIMIZER_ENABLED = "true"
   TRADER_OPTIMIZER_EVERY_SEC = "900"
-  TRADER_OPTIMIZER_TRIALS = "120"
-  TRADER_OPTIMIZER_TIMEOUT_SEC = "180"
+  TRADER_OPTIMIZER_TRIALS = "60"
+  TRADER_OPTIMIZER_TIMEOUT_SEC = "120"
   TRADER_OPTIMIZER_LOOKBACK_WINDOW = "30d"
   TRADER_OPTIMIZER_MAX_POINTS = "2000"
-  TRADER_TOP_COMBOS_BACKTEST_ENABLED = "true"
+  TRADER_TOP_COMBOS_BACKTEST_ENABLED = "false"
 
   # Cross-instance combo sync — SAME bucket + prefix as trader-hs / Hetzner / local.
   # Credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) are set via `fly secrets`.

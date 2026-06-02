@@ -27262,7 +27262,13 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             sizeScaled = baseSize * volConfSizeMult * volScale * snrScaleWeighted
             sizeScaledRisk = sizeScaled * riskScale
             sizeAfterOverlays = sizeScaledRisk * regimeSizeMult * pairsSizeScale * fundingOiSizeScale * kellyLiteScale
-            sizeCapped = min maxPositionSize (max 0 sizeAfterOverlays)
+            -- FIRM-CRITICAL: mirror the simulation guardrail so live trading
+            -- fails closed before the absolute cap can hide runaway sizing.
+            sizeAfterOverlaysChecked =
+                if baseSize > 0 && sizeAfterOverlays > 2.0 * baseSize
+                    then error ("POSITION_SIZE_SCALE_EXCEEDED: sizeAfterOverlays=" ++ show sizeAfterOverlays ++ " baseSize=" ++ show baseSize)
+                    else sizeAfterOverlays
+            sizeCapped = min maxPositionSize (max 0 sizeAfterOverlaysChecked)
             sizeFinal0 =
                 if (confidenceSizingEnabled || volConfGateEnabled) && sizeCapped < argMinPositionSize args
                     then 0

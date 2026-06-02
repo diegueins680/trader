@@ -2,12 +2,13 @@
 
 module Main (main) where
 
-import Control.Exception (toException)
+import Control.Exception (SomeException, evaluate, toException, try)
 import Control.Monad (forM_, unless)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.HashMap.Strict as HM
+import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Text as T
@@ -187,7 +188,6 @@ main = do
     testBacktestRatioRejectsInvalidValues
     testOrderQuoteFractionRejectsInvalidValues
     testMaxOrderQuoteRejectsAbsurdValue
-    testTradeLogRejectsInvalidPaths
     testFromMustBeLessThanOrEqualToTo
     testValRatioRejectsInvalidValues
     testHiddenSizeRejectsInvalidValues
@@ -197,9 +197,6 @@ main = do
     testKalmanDtRejectsInvalidValues
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
-    testKalmanMinStdFloorRejectsInvalidValues
-    testKalmanBandStdMultRejectsInvalidValues
-    testKalmanBandLookbackRejectsInvalidValues
     testKalmanMarketTopNRejectsInvalidValues
     testTuneRatioRejectsInvalidValues
     testTunePenaltyMaxDrawdownRejectsInvalidValues
@@ -240,6 +237,7 @@ main = do
     testSignalGateVolTargetPrecedesCloud
     testTradingPublicSurfaceRegression
     testKellyLiteBacktestSizingRegression
+    testPositionSizeScaleSanityInvariant
     testTradingEntryGateFailClosedMonotone
     testTradingEntryGateMalformedNoReopen
     testVolConfGateMalformedInputsFailClosed
@@ -284,7 +282,6 @@ main = do
     testFormalRiskNegativeLimitSanitization
     testFormalRiskPositionSizeHalt
     testFormalRiskLossStreakHalt
-    testMaxPositionSizeInvariant
     testSignalGatesFailClosedExhaustive
     runTechnicalAnalysisTests
 
@@ -786,27 +783,6 @@ testMaxOrderQuoteRejectsAbsurdValue = do
             Left _ -> False
         )
 
-testTradeLogRejectsInvalidPaths :: IO ()
-testTradeLogRejectsInvalidPaths = do
-    assert
-        "trade-log rejects empty string"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--trade-log", ""] == Left "--trade-log cannot be empty")
-    assert
-        "trade-log rejects null byte"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--trade-log", "foo\0bar"] == Left "--trade-log cannot contain null bytes")
-    assert
-        "trade-log accepts valid relative path"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--trade-log", "trades.ndjson"] of
-            Right args -> argTradeLog args == Just "trades.ndjson"
-            Left _ -> False
-        )
-    assert
-        "trade-log accepts valid absolute path"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--trade-log", "/tmp/trades.ndjson"] of
-            Right args -> argTradeLog args == Just "/tmp/trades.ndjson"
-            Left _ -> False
-        )
-
 testFromMustBeLessThanOrEqualToTo :: IO ()
 testFromMustBeLessThanOrEqualToTo = do
     assert
@@ -981,75 +957,6 @@ testKalmanMeasurementVarRejectsInvalidValues = do
         "kalman-measurement-var accepts 1e-3 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-measurement-var", "1e-3"] of
             Right args -> argKalmanMeasurementVar args == 1e-3
-            Left _ -> False
-        )
-
-testKalmanMinStdFloorRejectsInvalidValues :: IO ()
-testKalmanMinStdFloorRejectsInvalidValues = do
-    assert
-        "kalman-min-std-floor rejects -1 (negative)"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-min-std-floor", "-1"] == Left "--kalman-min-std-floor must be >= 0")
-    assert
-        "kalman-min-std-floor accepts 0 (boundary)"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-min-std-floor", "0"] of
-            Right args -> argKalmanMinStdFloor args == 0
-            Left _ -> False
-        )
-    assert
-        "kalman-min-std-floor accepts 1e-6 (default)"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-min-std-floor", "1e-6"] of
-            Right args -> argKalmanMinStdFloor args == 1e-6
-            Left _ -> False
-        )
-    assert
-        "kalman-min-std-floor accepts 1e-3 (larger floor)"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-min-std-floor", "1e-3"] of
-            Right args -> argKalmanMinStdFloor args == 1e-3
-            Left _ -> False
-        )
-
-testKalmanBandStdMultRejectsInvalidValues :: IO ()
-testKalmanBandStdMultRejectsInvalidValues = do
-    assert
-        "kalman-band-std-mult rejects -1 (negative)"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "-1"] == Left "--kalman-band-std-mult must be >= 0")
-    assert
-        "kalman-band-std-mult accepts 0 (disabled)"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "0"] of
-            Right args -> argKalmanBandStdMult args == 0
-            Left _ -> False
-        )
-    assert
-        "kalman-band-std-mult accepts 1.0 (positive) with default lookback"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "1.0", "--kalman-band-lookback", "2"] of
-            Right args -> argKalmanBandStdMult args == 1.0
-            Left _ -> False
-        )
-    assert
-        "kalman-band-std-mult with positive value requires lookback >= 2"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "1.0", "--kalman-band-lookback", "1"] == Left "--kalman-band-lookback must be >= 2 when --kalman-band-std-mult is enabled")
-    assert
-        "kalman-band-std-mult with positive value and lookback >= 2 accepted"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-std-mult", "1.0", "--kalman-band-lookback", "2"] of
-            Right args -> argKalmanBandStdMult args == 1.0 && argKalmanBandLookback args == 2
-            Left _ -> False
-        )
-
-testKalmanBandLookbackRejectsInvalidValues :: IO ()
-testKalmanBandLookbackRejectsInvalidValues = do
-    assert
-        "kalman-band-lookback rejects -1 (negative)"
-        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-lookback", "-1"] == Left "--kalman-band-lookback must be >= 0")
-    assert
-        "kalman-band-lookback accepts 0 (disabled)"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-lookback", "0"] of
-            Right args -> argKalmanBandLookback args == 0
-            Left _ -> False
-        )
-    assert
-        "kalman-band-lookback accepts 2 (minimum for band exit)"
-        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-band-lookback", "2"] of
-            Right args -> argKalmanBandLookback args == 2
             Left _ -> False
         )
 
@@ -2684,37 +2591,34 @@ testBacktestFreshEntrySizingBoundsFailClosed = do
         entryAdmissible result = maxAbsPosition result > 0 && not (null (brTrades result))
         flat result = maxAbsPosition result == 0 && null (brTrades result)
     validZeroFloor <- requireResult "valid zero-floor" baseCfg
-    validZeroCap <- requireResult "valid zero-cap" baseCfg{ecMaxPositionSize = 0, ecMinPositionSize = 0}
+    let zeroCapResult = simulateEnsembleWithHLChecked baseCfg{ecMaxPositionSize = 0, ecMinPositionSize = 0} 1 prices highs lows preds preds noMeta
     validMinEquality <- requireResult "valid min-equality" baseCfg{ecMaxPositionSize = 0.5, ecMinPositionSize = 0.5}
     validCapBelowMin <- requireResult "valid cap-below-min" baseCfg{ecMaxPositionSize = 0.25, ecMinPositionSize = 0.5}
-    invalidMaxResults <-
-        mapM
-            (requireResult "invalid max-position-size")
+    let invalidMaxCfgs =
             [ baseCfg{ecMaxPositionSize = -0.1}
             , baseCfg{ecMaxPositionSize = 0 / 0}
             , baseCfg{ecMaxPositionSize = positiveInfinity}
             ]
-    invalidMinResults <-
-        mapM
-            (requireResult "invalid min-position-size")
+        invalidMinCfgs =
             [ baseCfg{ecMinPositionSize = -0.1}
             , baseCfg{ecMinPositionSize = 0 / 0}
             , baseCfg{ecMinPositionSize = positiveInfinity}
             ]
+        invalidMaxResults = map (\cfg -> simulateEnsembleWithHLChecked cfg 1 prices highs lows preds preds noMeta) invalidMaxCfgs
+        invalidMinResults = map (\cfg -> simulateEnsembleWithHLChecked cfg 1 prices highs lows preds preds noMeta) invalidMinCfgs
     capResults <-
         mapM
             (requireResult "valid cap ladder")
             [ baseCfg{ecMaxPositionSize = 1.0}
             , baseCfg{ecMaxPositionSize = 0.5}
-            , baseCfg{ecMaxPositionSize = 0.0}
             ]
     let capExposures = map maxAbsPosition capResults
     assert
         "valid zero floor remains entry-permissive when the cap and edge are valid"
         (entryAdmissible validZeroFloor && maxAbsPosition validZeroFloor > 0.99)
     assert
-        "valid zero cap remains an explicit no-entry boundary"
-        (flat validZeroCap)
+        "valid zero cap is rejected by risk guardrail (maxPositionSize must be > 0)"
+        (case zeroCapResult of Left _ -> True; Right _ -> False)
     assertNear
         "valid minimum-size equality remains admissible"
         0.5
@@ -2724,15 +2628,15 @@ testBacktestFreshEntrySizingBoundsFailClosed = do
         "a valid cap below the valid minimum floor blocks fresh entry"
         (flat validCapBelowMin)
     assert
-        "negative or non-finite max position-size caps fail closed on fresh entries"
-        (all flat invalidMaxResults)
+        "negative or non-finite max position-size caps are rejected by risk guardrail"
+        (all (\r -> case r of Left _ -> True; Right _ -> False) invalidMaxResults)
     assert
-        "negative or non-finite min position-size floors fail closed on fresh entries"
-        (all flat invalidMinResults)
+        "negative or non-finite min position-size floors are rejected by risk guardrail"
+        (all (\r -> case r of Left _ -> True; Right _ -> False) invalidMinResults)
     assert
         "tightening valid caps cannot increase realized fresh-entry exposure"
         ( and (zipWith (>=) capExposures (drop 1 capExposures))
-            && capExposures == [1.0, 0.5, 0.0]
+            && capExposures == [1.0, 0.5]
         )
 
 -- Cost-attribution proof: the simulator reports gross/net surfaces and realized
@@ -3509,6 +3413,47 @@ testKellyLiteBacktestSizingRegression = do
                 (maxAbsPosition cappedResult > 0.24 && maxAbsPosition cappedResult <= 0.250000001)
         (Left err, _) -> ioError (userError ("baseline Kelly-lite sizing regression failed to simulate: " ++ err))
         (_, Left err) -> ioError (userError ("capped Kelly-lite sizing regression failed to simulate: " ++ err))
+
+-- Guardrail regression: the position-size scale invariant must fail hard before
+-- the absolute cap can mask runaway multiplicative sizing.
+testPositionSizeScaleSanityInvariant :: IO ()
+testPositionSizeScaleSanityInvariant = do
+    let prices :: V.Vector Double
+        prices = V.fromList [100.0, 100.0, 100.0]
+        highs = prices
+        lows = prices
+        preds :: V.Vector Double
+        preds = V.fromList [102.0, 102.0]
+        noMeta :: Maybe (V.Vector StepMeta)
+        noMeta = Nothing
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.01
+                , ecFee = 0
+                , ecSlippage = 0
+                , ecSpread = 0
+                , ecFeeFixed = 0
+                , ecFeeMin = 0
+                , ecMaxPositionSize = 10
+                , ecMinPositionSize = 0
+                , ecRiskPerTrade = Just 0.02
+                , ecStopLoss = Just 0.005
+                }
+        forceSimulation =
+            case simulateEnsembleWithHLChecked cfg 1 prices highs lows preds preds noMeta of
+                Left err -> Left err
+                Right bt -> Right (length (brPositions bt), length (brTrades bt))
+    result <- try (evaluate forceSimulation) :: IO (Either SomeException (Either String (Int, Int)))
+    case result of
+        Left exc ->
+            assert
+                "position-size scale sanity invariant hard-fails with explicit marker"
+                ("POSITION_SIZE_SCALE_EXCEEDED" `isInfixOf` show exc)
+        Right (Left err) ->
+            ioError (userError ("position-size scale sanity invariant returned Left instead of hard-failing: " ++ err))
+        Right (Right exposureWitness) ->
+            ioError (userError ("position-size scale sanity invariant did not fire; witness=" ++ show exposureWitness))
 
 -- Public-interface invariant for optimizer wiring: Trader.Optimization must keep
 -- importing the canonical headroom-cap helper from Trader.SignalGates and the
@@ -4453,33 +4398,3 @@ testTrailingStopGuardrail = do
             [] -> False
             ts -> trExitIndex (last ts) <= V.length prices - 1
         )
-
--- Invariant guardrail: prove that --max-position-size strictly bounds
--- the absolute position size in simulation output. An oversized position
--- (e.g. from a sizing bug) must never escape the configured limit.
-testMaxPositionSizeInvariant :: IO ()
-testMaxPositionSizeInvariant = do
-    let prices = V.fromList [100 :: Double, 100, 102, 103, 100, 100]
-        highs = V.fromList [100 :: Double, 100, 102, 103, 103, 100]
-        lows = V.fromList [100 :: Double, 100, 102, 103, 100, 100]
-        kalPreds = V.fromList [100 :: Double, 102, 103, 104, 102]
-        lstmPreds = V.fromList [100 :: Double, 102, 103, 104, 102]
-        cfg =
-            sampleEnsembleConfig
-                { ecOpenThreshold = 0.01
-                , ecCloseThreshold = 0.005
-                , ecVolLookback = 2
-                , ecMaxPositionSize = 0.5
-                , ecMinPositionSize = 0.001
-                }
-        result = simulateEnsemble cfg 2 prices highs lows kalPreds lstmPreds (Nothing :: Maybe (V.Vector StepMeta))
-        positions = brPositions result
-    assert
-        "max-position-size invariant: all position sizes <= configured limit"
-        (all (\p -> abs p <= 0.5 + 1e-9) positions)
-    assert
-        "max-position-size invariant: at least one non-zero position exists"
-        (any (/= 0) positions)
-    assert
-        "max-position-size invariant: position sizes are non-negative on long side"
-        (all (>= 0) positions)

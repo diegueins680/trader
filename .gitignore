@@ -5,6 +5,9 @@
 .env.*
 .tmp-ui-deploy/
 !.env.example
+deploy/hetzner/trader.env
+deploy/hetzner/*.env
+deploy/hetzner/backups/
 
 # Python
 .venv/

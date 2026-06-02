@@ -286,7 +286,7 @@ optimizerArgsParser =
         <*> option auto (long "max-wl-max" <> value 0.40 <> metavar "FLOAT")
         <*> option auto (long "max-oe-min" <> value 1 <> metavar "INT")
         <*> option auto (long "max-oe-max" <> value 10 <> metavar "INT")
-        <*> option auto (long "method-weight-11" <> value 0.25 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-11" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-10" <> value 4.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-01" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "method-weight-blend" <> value 0.0 <> metavar "FLOAT")
