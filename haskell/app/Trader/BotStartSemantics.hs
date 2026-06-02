@@ -1,6 +1,7 @@
 module Trader.BotStartSemantics (
     botTradeEnabledFromApi,
     botStartSymbolDisabled,
+    botStartupBacktestRoiAcceptable,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
     shouldResolveOriginComboOnAutoStart,
@@ -23,6 +24,11 @@ normalizeStartSymbol = map toUpper . filter (not . isSpace)
 botStartSymbolDisabled :: [String] -> String -> Bool
 botStartSymbolDisabled disabled sym =
     normalizeStartSymbol sym `elem` map normalizeStartSymbol disabled
+
+botStartupBacktestRoiAcceptable :: Maybe Double -> Bool
+botStartupBacktestRoiAcceptable (Just finalEquity) =
+    finalEquity > 1.0 && not (isNaN finalEquity || isInfinite finalEquity)
+botStartupBacktestRoiAcceptable Nothing = False
 
 prioritizeBotStartSymbols :: [String] -> [String] -> [String]
 prioritizeBotStartSymbols regularSymbols orphanSymbols =
