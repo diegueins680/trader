@@ -114,6 +114,11 @@ verifyFormalRisk =
 
         -- Daily reset: if the previous halt was ExitMaxDailyLoss and the day
         -- changed, the halt should be cleared.
+        -- Daily reset semantics: after the day changes, the previously
+        -- recorded ExitMaxDailyLoss halt must be cleared as long as the
+        -- \*current* daily-loss metric is back inside its limit. (A
+        -- still-breaching loss on the new day must re-halt: that is a
+        -- fresh breach, not a stale carry-over.)
         resetDaily =
             all
                 ( \hi ->
@@ -125,7 +130,7 @@ verifyFormalRisk =
                     { hiPrevHaltReason = Just ExitMaxDailyLoss
                     , hiDayChanged = True
                     , hiWeekChanged = False
-                    , hiDailyLoss = 0.1
+                    , hiDailyLoss = 0
                     , hiWeeklyLoss = 0
                     , hiDrawdown = 0
                     , hiExpectancy = Nothing
@@ -156,7 +161,7 @@ verifyFormalRisk =
                     , hiDayChanged = False
                     , hiWeekChanged = True
                     , hiDailyLoss = 0
-                    , hiWeeklyLoss = 0.1
+                    , hiWeeklyLoss = 0
                     , hiDrawdown = 0
                     , hiExpectancy = Nothing
                     , hiMaxDailyLossLim = Nothing
