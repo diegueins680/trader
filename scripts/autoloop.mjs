@@ -1253,7 +1253,10 @@ async function callModelJson({ prompt, maxOutputTokens = 4000, timeoutMs = CODEX
         "Return JSON only. The word JSON must appear in the output context, and the final output must be a single valid JSON object with no markdown fences.",
       input: prompt,
       text: { format: { type: "json_object" } },
-      temperature: 0.2,
+      // 'temperature' is deprecated/rejected for newer OpenAI Responses-API
+      // reasoning models (gpt-5.x family). The JSON-only contract above plus
+      // structured output is already deterministic enough; rely on the model
+      // default rather than 400ing on every call.
       max_output_tokens: maxOutputTokens,
       store: false,
     }),
@@ -1277,7 +1280,9 @@ async function callModelJsonViaAnthropic({ prompt, maxOutputTokens }) {
     body: JSON.stringify({
       model: ANTHROPIC_MODEL,
       max_tokens: maxOutputTokens,
-      temperature: 0.2,
+      // 'temperature' is deprecated/rejected for newer Anthropic models
+      // (Claude Opus 4.5+). Rely on the model default; the JSON-only
+      // system prompt + assistant prefill below is already deterministic.
       system:
         "Return JSON only. The final output must be a single valid JSON object with no markdown fences and no surrounding prose.",
       messages: [
