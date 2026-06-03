@@ -1,0 +1,9 @@
+# HLint configuration for the Haskell tree.
+#
+# Trader.Formal.Risk uses single-element exhaustive-table witnesses
+# (`all spec [HaltInputs{...}]`) to make the verification structure
+# uniform across cases with multi-element lists. The "Evaluate" hint
+# would collapse these to bare function applications and obscure the
+# table-driven shape, so silence it module-scoped.
+- ignore: { name: "Evaluate", within: Trader.Formal.Risk }
+- ignore: { name: "Avoid lambda", within: Trader.Formal.Risk }

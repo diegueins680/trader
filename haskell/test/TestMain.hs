@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -2642,10 +2643,10 @@ testBacktestFreshEntrySizingBoundsFailClosed = do
         (flat validCapBelowMin)
     assert
         "negative or non-finite max position-size caps are rejected by risk guardrail"
-        (all (\r -> case r of Left _ -> True; Right _ -> False) invalidMaxResults)
+        (all (\case Left _ -> True; Right _ -> False) invalidMaxResults)
     assert
         "negative or non-finite min position-size floors are rejected by risk guardrail"
-        (all (\r -> case r of Left _ -> True; Right _ -> False) invalidMinResults)
+        (all (\case Left _ -> True; Right _ -> False) invalidMinResults)
     assert
         "tightening valid caps cannot increase realized fresh-entry exposure"
         ( and (zipWith (>=) capExposures (drop 1 capExposures))

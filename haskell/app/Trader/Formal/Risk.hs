@@ -199,8 +199,8 @@ verifyFormalRisk =
                                 }
                         result = specRiskHalt hi
                      in case prev of
-                            Just ExitMaxDailyLoss | dayCh -> result == Nothing
-                            Just ExitMaxWeeklyLoss | weekCh -> result == Nothing
+                            Just ExitMaxDailyLoss | dayCh -> isNothing result
+                            Just ExitMaxWeeklyLoss | weekCh -> isNothing result
                             Just r -> result == Just r
                             Nothing -> True
                 )
@@ -214,7 +214,7 @@ verifyFormalRisk =
         -- there must be no halt.
         noFalsePositive =
             all
-                (\hi -> specRiskHalt hi == Nothing)
+                (\hi -> isNothing (specRiskHalt hi))
                 [ HaltInputs
                     { hiPrevHaltReason = Nothing
                     , hiDayChanged = False
@@ -377,7 +377,7 @@ verifyFormalRisk =
                     , hiVolTarget = 0
                     , hiLeverage = 0
                     }
-                | mdl <- [Nothing, Just 0, Just 0.05, Just (0 / 0), Just (1 / 0), Just (-1 / 0)]
+                | mdl <- [Nothing, Just 0, Just 0.05, Just (0 / 0), Just (1 / 0), Just (-(1 / 0))]
                 , mwl <- [Nothing, Just 0, Just 0.05, Just (0 / 0), Just (1 / 0)]
                 , mdd <- [Nothing, Just 0, Just 0.05, Just (0 / 0)]
                 , me <- [Nothing, Just 0, Just (0 / 0)]
@@ -418,7 +418,7 @@ verifyFormalRisk =
                     , hiVolTarget = 0
                     , hiLeverage = 0
                     }
-                | mdd <- [Nothing, Just 0, Just 0.05, Just 0.5, Just 0.999999, Just 1.0, Just (-0.01), Just (0 / 0), Just (1 / 0), Just (-1 / 0)]
+                | mdd <- [Nothing, Just 0, Just 0.05, Just 0.5, Just 0.999999, Just 1.0, Just (-0.01), Just (0 / 0), Just (1 / 0), Just (-(1 / 0))]
                 ]
 
         -- Position-size sanity: hiPositionSize must be finite, non-negative,
@@ -457,7 +457,7 @@ verifyFormalRisk =
                     , hiVolTarget = 0
                     , hiLeverage = 0
                     }
-                | ps <- [0, 0.5, 1.0, 2.0, 5.0, 10.0, 10.000001, -0.01, 0 / 0, 1 / 0, -1 / 0]
+                | ps <- [0, 0.5, 1.0, 2.0, 5.0, 10.0, 10.000001, -0.01, 0 / 0, 1 / 0, -(1 / 0)]
                 , mps <- [Nothing, Just 0, Just 1.0, Just 2.0, Just 10.0]
                 ]
 
@@ -498,7 +498,7 @@ verifyFormalRisk =
                     , hiVolTarget = 0
                     , hiLeverage = 0
                     }
-                | ex <- [Nothing, Just (-0.1), Just 0, Just 0.01, Just (0 / 0), Just (1 / 0), Just (-1 / 0)]
+                | ex <- [Nothing, Just (-0.1), Just 0, Just 0.01, Just (0 / 0), Just (1 / 0), Just (-(1 / 0))]
                 , me <- [Nothing, Just (-0.05), Just 0, Just 0.05, Just (0 / 0), Just (1 / 0)]
                 ]
 
@@ -539,7 +539,7 @@ verifyFormalRisk =
                     , hiVolTarget = vt
                     , hiLeverage = 0
                     }
-                | vt <- [0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 10.000001, -0.01, 0 / 0, 1 / 0, -1 / 0]
+                | vt <- [0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 10.000001, -0.01, 0 / 0, 1 / 0, -(1 / 0)]
                 ]
 
         -- Leverage sanity: hiLeverage must be finite, non-negative, and not
@@ -579,7 +579,7 @@ verifyFormalRisk =
                     , hiVolTarget = 0
                     , hiLeverage = lev
                     }
-                | lev <- [0, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 125.0, 150.0, 150.000001, -0.01, 0 / 0, 1 / 0, -1 / 0]
+                | lev <- [0, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 125.0, 150.0, 150.000001, -0.01, 0 / 0, 1 / 0, -(1 / 0)]
                 ]
 
         -- Cooldown non-negative invariant: any configured cooldown is sanitized
