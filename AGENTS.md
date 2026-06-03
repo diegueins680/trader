@@ -81,7 +81,7 @@ Avoid mixing formatters (e.g., do not run `stylish-haskell` alongside `ormolu/fo
 ## Gotchas & tips
 - Most low-level Haskell commands still run from the `haskell/` directory, but prefer the repo-root verification wrappers when they exist.
 - Binance credentials must be set via `BINANCE_API_KEY` / `BINANCE_API_SECRET` and should never be logged.
-- GitHub-hosted autoloop additionally requires `OPENAI_API_KEY` and `AUTOLOOP_PUSH_TOKEN` secrets.
+- GitHub-hosted autoloop additionally requires `ANTHROPIC_API_KEY` (preferred) or `OPENAI_API_KEY`, plus `AUTOLOOP_PUSH_TOKEN` secrets.
 
 ## Templates (examples)
 - Verify Haskell: `bash scripts/verify.sh haskell`

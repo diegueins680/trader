@@ -47,11 +47,20 @@ CI also uses `fourmolu 0.15.0.0` and `hlint 3.8`.
 
 ## Local AI automation environment
 
+The autoloop selects its LLM backend from `AUTOLOOP_BACKEND` (default `auto`).
+In `auto` mode it prefers Claude (Anthropic) when `ANTHROPIC_API_KEY` is set,
+then falls back to OpenAI when `OPENAI_API_KEY` is set, then to the local Codex
+CLI. Set `AUTOLOOP_BACKEND` to `anthropic`/`claude`, `openai`, or `codex` to pin
+one explicitly.
+
 Optional local `.env` settings:
 
+- `ANTHROPIC_API_KEY`
 - `OPENAI_API_KEY`
 - `AUTOLOOP_BACKEND`
-- `AUTOLOOP_MODEL`
+- `AUTOLOOP_MODEL` (overrides the active backend's model; defaults to
+  `claude-opus-4-8` for Anthropic, `gpt-5.4` for OpenAI/Codex)
+- `ANTHROPIC_MODEL`
 - `AUTOLOOP_MAX_ITERATIONS`
 - `AUTOLOOP_FOREVER_INTERVAL_SECONDS`
 - `CODEX_LOOP_MODEL`
@@ -61,7 +70,7 @@ These are documented in `.env.example`.
 
 GitHub-hosted autoloop still requires repository secrets:
 
-- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`)
 - `AUTOLOOP_PUSH_TOKEN`
 
 `AUTOLOOP_PUSH_TOKEN` is intentionally a GitHub Actions secret, not a checked-in local default.

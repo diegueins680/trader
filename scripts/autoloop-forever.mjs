@@ -255,21 +255,24 @@ async function logRunner(message) {
 
 async function detectPreflightBlock() {
   const requestedBackend = String(process.env.AUTOLOOP_BACKEND || "auto").trim().toLowerCase();
+  const hasAnthropicKey = Boolean(process.env.ANTHROPIC_API_KEY);
   const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
   const hasCodex = commandExists("codex");
   const backendAvailable =
-    requestedBackend === "openai" || requestedBackend === "responses"
-      ? hasOpenAiKey
-      : requestedBackend === "codex"
-        ? hasCodex
-        : hasOpenAiKey || hasCodex;
+    requestedBackend === "anthropic" || requestedBackend === "claude"
+      ? hasAnthropicKey
+      : requestedBackend === "openai" || requestedBackend === "responses"
+        ? hasOpenAiKey
+        : requestedBackend === "codex"
+          ? hasCodex
+          : hasAnthropicKey || hasOpenAiKey || hasCodex;
 
   if (!backendAvailable) {
     return {
       reason:
         requestedBackend && requestedBackend !== "auto"
           ? `requested autoloop backend \"${requestedBackend}\" is unavailable; waiting before the next bounded cycle`
-          : "neither OPENAI_API_KEY nor Codex CLI is available; waiting before the next bounded cycle",
+          : "none of ANTHROPIC_API_KEY, OPENAI_API_KEY, or Codex CLI is available; waiting before the next bounded cycle",
       details: [],
     };
   }

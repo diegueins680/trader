@@ -8,8 +8,10 @@ import { execFileSync } from "node:child_process";
 import {
   buildActionsRunsApiPath,
   buildRemoteTrackingRefspec,
+  buildAnthropicApiError,
   buildOpenAiApiError,
   clampText,
+  extractAnthropicResponseText,
   extractCodexExecLastMessage,
   extractResponseText,
   normalizeIdeaSelection,
@@ -26,6 +28,9 @@ import {
 const ROOT = process.cwd();
 const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 const OPENAI_MODEL = process.env.AUTOLOOP_MODEL || process.env.OPENAI_MODEL || "gpt-5.4";
+const ANTHROPIC_BASE_URL = (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/$/, "");
+const ANTHROPIC_MODEL = process.env.AUTOLOOP_MODEL || process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
+const ANTHROPIC_VERSION = process.env.ANTHROPIC_VERSION || "2023-06-01";
 const BASE_BRANCH =
   process.env.AUTOLOOP_BASE_BRANCH || process.env.GITHUB_BASE_REF || process.env.GITHUB_REF_NAME || "main";
 const LOOP_BRANCH = BASE_BRANCH;
@@ -64,6 +69,7 @@ const AI_REVIEW_MAX_THREADS = clampInt(process.env.AUTOLOOP_AI_REVIEW_MAX_THREAD
 const AI_REVIEW_THREAD_MAX_CHARS = clampInt(process.env.AUTOLOOP_AI_REVIEW_THREAD_MAX_CHARS, 6000, 1000, 20000);
 const HAS_CODEX = commandExists("codex");
 const PLANNER_BACKEND = resolveAutoloopBackend(REQUESTED_BACKEND, {
+  hasAnthropicKey: Boolean(process.env.ANTHROPIC_API_KEY),
   hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
   hasCodex: HAS_CODEX,
 });
@@ -161,7 +167,7 @@ async function main() {
     const message =
       REQUESTED_BACKEND && REQUESTED_BACKEND !== "auto"
         ? `Autoloop backend \"${REQUESTED_BACKEND}\" is unavailable in this workspace; autoloop is skipping.`
-        : "Neither OPENAI_API_KEY nor Codex CLI is available; autoloop is skipping.";
+        : "None of ANTHROPIC_API_KEY, OPENAI_API_KEY, or Codex CLI is available; autoloop is skipping.";
     await updateStatus({ phase: "skipped", outcome: "skipped_missing_backend", message });
     if (DRY_RUN) throw new Error(message);
     console.log(message);
@@ -1231,6 +1237,9 @@ async function callModelJson({ prompt, maxOutputTokens = 4000, timeoutMs = CODEX
   if (PLANNER_BACKEND === "codex") {
     return callModelJsonViaCodex({ prompt, maxOutputTokens, timeoutMs });
   }
+  if (PLANNER_BACKEND === "anthropic") {
+    return callModelJsonViaAnthropic({ prompt, maxOutputTokens });
+  }
 
   const response = await fetch(`${OPENAI_BASE_URL}/responses`, {
     method: "POST",
@@ -1255,6 +1264,36 @@ async function callModelJson({ prompt, maxOutputTokens = 4000, timeoutMs = CODEX
     throw buildOpenAiApiError(response.status, json);
   }
   return parseJsonResponse(extractResponseText(json));
+}
+
+async function callModelJsonViaAnthropic({ prompt, maxOutputTokens }) {
+  const response = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": ANTHROPIC_VERSION,
+    },
+    body: JSON.stringify({
+      model: ANTHROPIC_MODEL,
+      max_tokens: maxOutputTokens,
+      temperature: 0.2,
+      system:
+        "Return JSON only. The final output must be a single valid JSON object with no markdown fences and no surrounding prose.",
+      messages: [
+        { role: "user", content: prompt },
+        // Prefill the assistant turn with an opening brace so the model is forced to emit a JSON object.
+        { role: "assistant", content: "{" },
+      ],
+    }),
+  });
+
+  const json = await response.json();
+  if (!response.ok) {
+    throw buildAnthropicApiError(response.status, json);
+  }
+  // The prefilled "{" is not echoed back in the response, so restore it before parsing.
+  return parseJsonResponse(`{${extractAnthropicResponseText(json)}`);
 }
 
 async function callModelJsonViaCodex({ prompt, maxOutputTokens, timeoutMs }) {
