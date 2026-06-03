@@ -16,8 +16,10 @@ import {
   buildActionsRunsApiPath,
   buildForceWithLeaseFlag,
   buildRemoteTrackingRefspec,
+  buildAnthropicApiError,
   buildOpenAiApiError,
   clampText,
+  extractAnthropicResponseText,
   extractCodexExecLastMessage,
   extractResponseText,
   isAutoloopRecoveryBranch,
@@ -610,13 +612,23 @@ test("buildOpenAiApiError marks quota and auth failures as skippable", () => {
   assert.equal(serverErr.skipAutoloop, false);
 });
 
-test("resolveAutoloopBackend prefers OpenAI then Codex in auto mode", () => {
+test("resolveAutoloopBackend prefers Anthropic, then OpenAI, then Codex in auto mode", () => {
+  assert.equal(
+    resolveAutoloopBackend("auto", { hasAnthropicKey: true, hasOpenAiKey: true, hasCodex: true }),
+    "anthropic",
+  );
   assert.equal(resolveAutoloopBackend("auto", { hasOpenAiKey: true, hasCodex: true }), "openai");
   assert.equal(resolveAutoloopBackend("", { hasOpenAiKey: false, hasCodex: true }), "codex");
   assert.equal(resolveAutoloopBackend("", { hasOpenAiKey: false, hasCodex: false }), "");
 });
 
 test("resolveAutoloopBackend respects explicit backend requests", () => {
+  assert.equal(
+    resolveAutoloopBackend("anthropic", { hasAnthropicKey: true, hasOpenAiKey: true, hasCodex: true }),
+    "anthropic",
+  );
+  assert.equal(resolveAutoloopBackend("claude", { hasAnthropicKey: true }), "anthropic");
+  assert.equal(resolveAutoloopBackend("anthropic", { hasAnthropicKey: false, hasOpenAiKey: true }), "");
   assert.equal(resolveAutoloopBackend("openai", { hasOpenAiKey: true, hasCodex: true }), "openai");
   assert.equal(resolveAutoloopBackend("codex", { hasOpenAiKey: true, hasCodex: true }), "codex");
   assert.equal(resolveAutoloopBackend("codex", { hasOpenAiKey: true, hasCodex: false }), "");
@@ -624,6 +636,29 @@ test("resolveAutoloopBackend respects explicit backend requests", () => {
     () => resolveAutoloopBackend("mystery", { hasOpenAiKey: true, hasCodex: true }),
     /Unknown autoloop backend/,
   );
+});
+
+test("extractAnthropicResponseText concatenates text blocks", () => {
+  const response = {
+    content: [
+      { type: "text", text: "one" },
+      { type: "thinking", thinking: "ignored" },
+      { type: "text", text: "two" },
+    ],
+  };
+  assert.equal(extractAnthropicResponseText(response), "one\ntwo");
+  assert.equal(extractAnthropicResponseText({}), "");
+});
+
+test("buildAnthropicApiError marks auth and billing failures as skippable", () => {
+  const authErr = buildAnthropicApiError(401, { error: { type: "authentication_error", message: "bad key" } });
+  const billingErr = buildAnthropicApiError(400, {
+    error: { type: "invalid_request_error", message: "Your credit balance is too low" },
+  });
+  const overloadedErr = buildAnthropicApiError(529, { error: { type: "overloaded_error", message: "busy" } });
+  assert.equal(authErr.skipAutoloop, true);
+  assert.equal(billingErr.skipAutoloop, true);
+  assert.equal(overloadedErr.skipAutoloop, false);
 });
 
 test("parseLsRemoteBranchHead extracts the requested remote branch head", () => {

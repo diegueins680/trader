@@ -20,6 +20,15 @@ export function extractResponseText(response) {
   return parts.join("\n").trim();
 }
 
+export function extractAnthropicResponseText(response) {
+  const content = Array.isArray(response?.content) ? response.content : [];
+  const parts = [];
+  for (const part of content) {
+    if (part?.type === "text" && typeof part.text === "string") parts.push(part.text);
+  }
+  return parts.join("\n").trim();
+}
+
 export function parseJsonResponse(raw) {
   const text = stripMarkdownFences(raw);
   if (!text) throw new Error("Model returned empty text.");
@@ -436,12 +445,16 @@ export function prepareShellCommand(command) {
   return `source "$HOME/.ghcup/env" 2>/dev/null || true; ${normalized}`;
 }
 
-export function resolveAutoloopBackend(rawBackend, { hasOpenAiKey, hasCodex }) {
+export function resolveAutoloopBackend(rawBackend, { hasAnthropicKey, hasOpenAiKey, hasCodex }) {
   const requested = String(rawBackend ?? "").trim().toLowerCase();
   if (!requested || requested === "auto") {
+    if (hasAnthropicKey) return "anthropic";
     if (hasOpenAiKey) return "openai";
     if (hasCodex) return "codex";
     return "";
+  }
+  if (requested === "anthropic" || requested === "claude") {
+    return hasAnthropicKey ? "anthropic" : "";
   }
   if (requested === "openai" || requested === "responses") {
     return hasOpenAiKey ? "openai" : "";
@@ -513,6 +526,25 @@ export function buildOpenAiApiError(status, payload) {
     code === "insufficient_quota" ||
     type === "insufficient_quota" ||
     authOrPermissionDenied;
+  return err;
+}
+
+export function buildAnthropicApiError(status, payload) {
+  const errorObj = payload?.error && typeof payload.error === "object" ? payload.error : {};
+  const type = typeof errorObj.type === "string" ? errorObj.type : "";
+  const message = typeof errorObj.message === "string" ? errorObj.message : "";
+  const err = new Error(`Anthropic API request failed (${status}): ${JSON.stringify(payload)}`);
+  err.anthropicStatus = Number(status) || 0;
+  err.anthropicType = type;
+  err.anthropicMessage = message;
+  const authOrPermissionDenied =
+    err.anthropicStatus === 401 ||
+    err.anthropicStatus === 403 ||
+    type === "authentication_error" ||
+    type === "permission_error";
+  const billingExhausted =
+    err.anthropicStatus === 402 || /credit balance|billing|quota|insufficient/i.test(message);
+  err.skipAutoloop = authOrPermissionDenied || billingExhausted;
   return err;
 }
 
