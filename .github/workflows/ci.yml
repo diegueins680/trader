@@ -128,6 +128,7 @@ jobs:
         if: steps.setup_flyctl.outputs.installed == 'true'
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN_FRONTEND: ${{ secrets.FLY_API_TOKEN_FRONTEND }}
           BACKEND_FLY_APP: ${{ secrets.FLY_APP }}
           FRONTEND_FLY_APP: ${{ secrets.FLY_FRONTEND_APP }}
         run: |
@@ -156,6 +157,7 @@ jobs:
             local workdir="$2"
             local config_path="$3"
             local app_name="$4"
+            local token_override="${5:-}"
             local config_basename
 
             if [[ ! -f "$config_path" ]]; then
@@ -171,9 +173,20 @@ jobs:
               deploy_args+=(--app "$app_name")
             fi
 
+            # Per-deploy token override: Fly app-scoped deploy tokens
+            # only carry a discharge for a single app, but we need to
+            # deploy two (backend + frontend). Pass a per-call override
+            # so each deploy sees the token authorized for that app.
+            local token_env=()
+            if [[ -n "$token_override" ]]; then
+              token_env=(env -u FLY_APP "FLY_API_TOKEN=${token_override}")
+            else
+              token_env=(env -u FLY_APP)
+            fi
+
             for attempt in 1 2 3; do
               : > "$deploy_log"
-              if env -u FLY_APP flyctl "${deploy_args[@]}" 2>&1 | tee "$deploy_log"; then
+              if "${token_env[@]}" flyctl "${deploy_args[@]}" 2>&1 | tee "$deploy_log"; then
                 popd >/dev/null
                 return 0
               fi
@@ -204,5 +217,9 @@ jobs:
             popd >/dev/null
           }
 
-          deploy_with_retries "backend" "." "fly.toml" "${BACKEND_FLY_APP:-}"
-          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FRONTEND_FLY_APP:-}"
+          deploy_with_retries "backend" "." "fly.toml" "${BACKEND_FLY_APP:-}" "${FLY_API_TOKEN}"
+          # If a frontend-specific token is configured (recommended,
+          # because Fly app-scoped deploy tokens carry a discharge for
+          # only one app), use it; otherwise fall back to the primary
+          # FLY_API_TOKEN and rely on org-level authorization.
+          deploy_with_retries "frontend" "haskell/web" "haskell/web/fly.frontend.toml" "${FRONTEND_FLY_APP:-}" "${FLY_API_TOKEN_FRONTEND:-${FLY_API_TOKEN}}"
