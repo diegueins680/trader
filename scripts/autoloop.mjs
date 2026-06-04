@@ -1282,13 +1282,13 @@ async function callModelJsonViaAnthropic({ prompt, maxOutputTokens }) {
       max_tokens: maxOutputTokens,
       // 'temperature' is deprecated/rejected for newer Anthropic models
       // (Claude Opus 4.5+). Rely on the model default; the JSON-only
-      // system prompt + assistant prefill below is already deterministic.
+      // system prompt is the contract — newer Anthropic models reject
+      // assistant-message prefill with HTTP 400, so we no longer end the
+      // conversation with an assistant turn.
       system:
-        "Return JSON only. The final output must be a single valid JSON object with no markdown fences and no surrounding prose.",
+        "Return JSON only. The final output must be a single valid JSON object that starts with '{' and ends with '}', with no markdown fences and no surrounding prose. Do not include any text before or after the JSON object.",
       messages: [
         { role: "user", content: prompt },
-        // Prefill the assistant turn with an opening brace so the model is forced to emit a JSON object.
-        { role: "assistant", content: "{" },
       ],
     }),
   });
@@ -1297,8 +1297,7 @@ async function callModelJsonViaAnthropic({ prompt, maxOutputTokens }) {
   if (!response.ok) {
     throw buildAnthropicApiError(response.status, json);
   }
-  // The prefilled "{" is not echoed back in the response, so restore it before parsing.
-  return parseJsonResponse(`{${extractAnthropicResponseText(json)}`);
+  return parseJsonResponse(extractAnthropicResponseText(json));
 }
 
 async function callModelJsonViaCodex({ prompt, maxOutputTokens, timeoutMs }) {

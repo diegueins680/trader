@@ -224,6 +224,16 @@ test("parseJsonResponse rejects invalid JSON", () => {
   assert.throws(() => parseJsonResponse("not-json"), /invalid JSON/);
 });
 
+test("parseJsonResponse extracts first JSON object when model emits a stray preamble", () => {
+  // Newer Anthropic models (e.g. claude-opus-4-8) reject assistant-message
+  // prefill, so we can no longer force the response to start with '{'. The
+  // parser must tolerate optional whitespace, prose, or a leading newline
+  // before the JSON object.
+  assert.deepEqual(parseJsonResponse('Sure, here is the result:\n{"ok":true}'), { ok: true });
+  assert.deepEqual(parseJsonResponse('  \n {"noChange": false, "title": "x"}  \n'), { noChange: false, title: "x" });
+  assert.deepEqual(parseJsonResponse('```json\n{"a":1}\n```'), { a: 1 });
+});
+
 test("sanitizeRelativePath rejects absolute and traversal paths", () => {
   assert.equal(sanitizeRelativePath("./haskell/web/src/App.tsx"), "haskell/web/src/App.tsx");
   assert.equal(sanitizeRelativePath("haskell/web/src/./App.tsx"), "haskell/web/src/App.tsx");
