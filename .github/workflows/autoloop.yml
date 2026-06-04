@@ -99,7 +99,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AUTOLOOP_BASE_BRANCH: ${{ github.event.repository.default_branch }}
-          AUTOLOOP_MODEL: ${{ github.event.inputs.model || vars.AUTOLOOP_MODEL }}
+          # Pin the Anthropic planner model explicitly. The empty fallback caused
+          # the loop to drift onto whatever Anthropic's default was, which
+          # silently broke when newer models stopped accepting assistant-message
+          # prefill. Workflow_dispatch and repo `vars.AUTOLOOP_MODEL` can still
+          # override.
+          AUTOLOOP_MODEL: ${{ github.event.inputs.model || vars.AUTOLOOP_MODEL || 'claude-opus-4-8' }}
           AUTOLOOP_MAX_ITERATIONS: ${{ github.event.inputs.max_iterations || vars.AUTOLOOP_MAX_ITERATIONS || '2' }}
         run: |
           if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${OPENAI_API_KEY:-}" ]]; then
