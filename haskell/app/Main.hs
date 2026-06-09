@@ -191,7 +191,7 @@ import Trader.Binance (
 import Trader.BinanceIntervals (binanceIntervals)
 import Trader.BotStartSemantics (
     botStartSymbolDisabled,
-    botStartupBacktestRoiAcceptable,
+    botStartupBacktestAborts,
     botTradeEnabledFromApi,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
@@ -7182,39 +7182,53 @@ topComboStartupAbortMessage sym comboUuid mFinalEq pruned =
 
 runTopComboStartupBacktestGuard :: TopCombosBacktestCtx -> TenantKey -> String -> Args -> Maybe Text -> IO (Either String ())
 runTopComboStartupBacktestGuard _ _ _ _ Nothing = pure (Right ())
+-- Honor the box-level disable switch (TRADER_TOP_COMBOS_BACKTEST_ENABLED): when
+-- off, never gate a live start on a fresh backtest. This guard falls through to
+-- the full backtest equation below when top-combo backtesting is enabled.
+runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid)
+    | not (tcbcEnabled ctx) = do
+        recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_skipped" sym comboUuid Nothing (Just "top-combo startup backtest disabled (TRADER_TOP_COMBOS_BACKTEST_ENABLED=false)")
+        pure (Right ())
 runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
     comboValOrErr <- lookupTopComboValueByUuid (tcbcOps ctx) (tcbcStore ctx) comboUuid
     case comboValOrErr of
         Left err -> do
             let msg = "Top-combo startup backtest failed: " ++ err
             recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
-            pure (Left msg)
+            -- Infrastructure failure (combo lookup): fail open so live trading is
+            -- not blocked by the backtest path. Only a genuine sub-threshold ROI
+            -- reading aborts a start.
+            pure (Right ())
         Right comboVal ->
             case comboIdentityKey comboVal of
                 Nothing -> do
                     let msg = "Top-combo startup backtest failed: selected combo has no stable identity."
                     recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
-                    pure (Left msg)
+                    -- Infrastructure failure (no stable identity): fail open.
+                    pure (Right ())
                 Just comboKey -> do
                     let argsBacktest = topComboStartupBacktestArgs sym args
                     case validateApiComputeLimits (tcbcLimits ctx) argsBacktest of
                         Left err -> do
                             let msg = "Top-combo startup backtest failed: " ++ err
                             recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
-                            pure (Left msg)
+                            -- Infrastructure failure (compute-limit validation): fail open.
+                            pure (Right ())
                         Right argsOk -> do
                             backtestResult <- runBacktestWithGateWait (tcbcGate ctx) (computeBacktestFromArgsFreshBinanceWithLimits (tcbcLimits ctx) (tcbcOps ctx) argsOk)
                             case backtestResult of
                                 Left failure -> do
                                     let msg = "Top-combo startup backtest failed: " ++ backtestFailureMessage (tcbcGate ctx) failure
                                     recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
-                                    pure (Left msg)
+                                    -- Infrastructure failure (backtest run errored/timed out): fail open.
+                                    pure (Right ())
                                 Right out ->
                                     case extractBacktestMetrics out of
                                         Nothing -> do
                                             let msg = "Top-combo startup backtest failed: backtest missing metrics."
                                             recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
-                                            pure (Left msg)
+                                            -- Infrastructure failure (backtest produced no metrics): fail open.
+                                            pure (Right ())
                                         Just metricsVal -> do
                                             let mFinalEq = comboMetricDouble "finalEquity" metricsVal
                                                 objective =
@@ -7229,7 +7243,10 @@ runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
                                                         , cbuOperations = extractBacktestOperations out
                                                         }
                                             updateResult <- applyStartupComboBacktestUpdate ctx comboKey update
-                                            let acceptable = botStartupBacktestRoiAcceptable mFinalEq
+                                            -- Reached only when the guard is enabled (disabled boxes
+                                            -- short-circuit above). A start aborts only on a genuine
+                                            -- sub-threshold ROI reading; a missing finalEquity fails open.
+                                            let acceptable = not (botStartupBacktestAborts (tcbcEnabled ctx) mFinalEq)
                                             case updateResult of
                                                 Left err -> do
                                                     let msg = "Top-combo startup backtest failed: " ++ err
