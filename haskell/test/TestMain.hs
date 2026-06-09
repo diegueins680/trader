@@ -20,7 +20,7 @@ import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPur
 import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
-import Trader.BotStartSemantics (botStartSymbolDisabled, botStartupBacktestRoiAcceptable, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
 import Trader.Formal.Execution (
     ExecutionVerificationReport (..),
@@ -248,6 +248,7 @@ main = do
     testPrioritizeOrphanBotStartSymbols
     testDisabledBotStartSymbols
     testBotStartupBacktestRoiAcceptability
+    testBotStartupBacktestGuardFailOpen
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
@@ -2374,6 +2375,26 @@ testBotStartupBacktestRoiAcceptability = do
             && not (botStartupBacktestRoiAcceptable (Just (1 / 0)))
             && not (botStartupBacktestRoiAcceptable (Just (0 / 0)))
             && not (botStartupBacktestRoiAcceptable Nothing)
+        )
+
+testBotStartupBacktestGuardFailOpen :: IO ()
+testBotStartupBacktestGuardFailOpen = do
+    assert
+        "startup backtest guard aborts only on an enabled, sub-threshold ROI reading"
+        ( -- disabled guard never aborts, regardless of ROI reading
+          not (botStartupBacktestAborts False (Just 0.5))
+            && not (botStartupBacktestAborts False Nothing)
+            && not (botStartupBacktestAborts False (Just (0 / 0)))
+            -- enabled but no finalEquity reading (infra failure): fail open
+            && not (botStartupBacktestAborts True Nothing)
+            -- enabled with a profitable, finite reading: allow
+            && not (botStartupBacktestAborts True (Just 1.000001))
+            -- enabled with a flat/losing reading: abort
+            && botStartupBacktestAborts True (Just 1.0)
+            && botStartupBacktestAborts True (Just 0.5)
+            -- enabled with a non-finite reading: abort, do not trade on a garbage verdict
+            && botStartupBacktestAborts True (Just (1 / 0))
+            && botStartupBacktestAborts True (Just (0 / 0))
         )
 
 testBinanceExceptionSummaryRedactsSecrets :: IO ()

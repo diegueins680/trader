@@ -2,6 +2,7 @@ module Trader.BotStartSemantics (
     botTradeEnabledFromApi,
     botStartSymbolDisabled,
     botStartupBacktestRoiAcceptable,
+    botStartupBacktestAborts,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
     shouldResolveOriginComboOnAutoStart,
@@ -29,6 +30,24 @@ botStartupBacktestRoiAcceptable :: Maybe Double -> Bool
 botStartupBacktestRoiAcceptable (Just finalEquity) =
     finalEquity > 1.0 && not (isNaN finalEquity || isInfinite finalEquity)
 botStartupBacktestRoiAcceptable Nothing = False
+
+{- | Decide whether the startup combo backtest guard should abort a bot start.
+
+The guard aborts only when it is enabled AND the backtest produced a
+final-equity reading that fails the ROI threshold. Two cases deliberately
+never abort (fail open), so that live trading is not held hostage to the
+backtest path:
+
+  * the guard is disabled (@enabled = False@) — e.g. the box runs with
+    @TRADER_TOP_COMBOS_BACKTEST_ENABLED=false@; and
+  * no final-equity reading is available (@Nothing@) — i.e. the backtest
+    errored, timed out, or returned no metrics (an infrastructure failure,
+    not a verdict on the combo).
+-}
+botStartupBacktestAborts :: Bool -> Maybe Double -> Bool
+botStartupBacktestAborts False _ = False
+botStartupBacktestAborts True Nothing = False
+botStartupBacktestAborts True mFinalEquity = not (botStartupBacktestRoiAcceptable mFinalEquity)
 
 prioritizeBotStartSymbols :: [String] -> [String] -> [String]
 prioritizeBotStartSymbols regularSymbols orphanSymbols =

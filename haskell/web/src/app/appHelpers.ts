@@ -2680,6 +2680,8 @@ export type TuneRatioBounds = {
 export type BacktestSplitAdjustmentChanges = {
   bars?: number;
   backtestRatio?: number;
+  lookbackBars?: number;
+  lookbackWindow?: string;
   message: string;
 };
 
@@ -2855,6 +2857,34 @@ function buildBacktestSplitAdjustment(
   };
 }
 
+function buildBacktestLookbackAdjustment(
+  params: ApiParams,
+  overrideBars: number,
+  fittedLookback: number,
+  intervalSec: number | null,
+): BacktestSplitAdjustment {
+  const usingOverride = Number.isFinite(overrideBars) && overrideBars >= MIN_LOOKBACK_BARS;
+  if (usingOverride) {
+    if (fittedLookback === overrideBars) return { params, changes: null };
+    return {
+      params: { ...params, lookbackBars: fittedLookback },
+      changes: {
+        lookbackBars: fittedLookback,
+        message: `Reduced lookback to ${fittedLookback} bars to satisfy the backtest split.`,
+      },
+    };
+  }
+  if (!intervalSec) return { params, changes: null };
+  const nextWindow = formatDurationSeconds(fittedLookback * intervalSec);
+  return {
+    params: { ...params, lookbackWindow: nextWindow, lookbackBars: 0 },
+    changes: {
+      lookbackWindow: nextWindow,
+      message: `Reduced lookback window to ${nextWindow} to satisfy the backtest split.`,
+    },
+  };
+}
+
 export function adjustBacktestParamsForSplit(
   params: ApiParams,
   options: BacktestSplitAdjustmentOptions,
@@ -2924,6 +2954,19 @@ export function adjustBacktestParamsForSplit(
   const adjustedRatio = adjustedBacktestRatioForBars(bars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
   if (adjustedRatio != null) {
     return buildBacktestSplitAdjustment(params, barsRaw, backtestRatioRaw, bars, adjustedRatio);
+  }
+
+  // Last resort: the lookback is too large for the available (capped) bars to leave a valid
+  // train/backtest split, and neither raising bars nor lowering the holdout ratio can fix it.
+  // Shrink the lookback to the most it can be while keeping the split valid.
+  const fittedLookback = maxLookbackForSplit(bars, backtestRatio, tuneRatio, tuningEnabled);
+  if (
+    fittedLookback != null &&
+    fittedLookback >= MIN_LOOKBACK_BARS &&
+    fittedLookback < lookbackBars &&
+    splitStatsValid(splitStats(bars, backtestRatio, fittedLookback, tuneRatio, tuningEnabled))
+  ) {
+    return buildBacktestLookbackAdjustment(params, overrideBars, fittedLookback, intervalSec);
   }
 
   return { params, changes: null };
