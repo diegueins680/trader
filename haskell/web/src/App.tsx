@@ -3990,9 +3990,17 @@ export function App() {
   );
   const autoAdjustedBacktestBars = autoAdjustedBacktestSplit?.bars;
   const autoAdjustedBacktestRatio = autoAdjustedBacktestSplit?.backtestRatio;
+  const autoAdjustedBacktestLookbackBars = autoAdjustedBacktestSplit?.lookbackBars;
+  const autoAdjustedBacktestLookbackWindow = autoAdjustedBacktestSplit?.lookbackWindow;
 
   useEffect(() => {
-    if (autoAdjustedBacktestBars === undefined && autoAdjustedBacktestRatio === undefined) return;
+    if (
+      autoAdjustedBacktestBars === undefined &&
+      autoAdjustedBacktestRatio === undefined &&
+      autoAdjustedBacktestLookbackBars === undefined &&
+      autoAdjustedBacktestLookbackWindow === undefined
+    )
+      return;
     setForm((prev) => {
       let next = prev;
       if (autoAdjustedBacktestBars !== undefined && autoAdjustedBacktestBars !== prev.bars) {
@@ -4001,9 +4009,23 @@ export function App() {
       if (autoAdjustedBacktestRatio !== undefined && Math.abs(autoAdjustedBacktestRatio - prev.backtestRatio) >= 1e-9) {
         next = { ...next, backtestRatio: autoAdjustedBacktestRatio };
       }
+      if (autoAdjustedBacktestLookbackBars !== undefined && autoAdjustedBacktestLookbackBars !== prev.lookbackBars) {
+        next = { ...next, lookbackBars: autoAdjustedBacktestLookbackBars };
+      }
+      if (
+        autoAdjustedBacktestLookbackWindow !== undefined &&
+        (autoAdjustedBacktestLookbackWindow !== prev.lookbackWindow || prev.lookbackBars !== 0)
+      ) {
+        next = { ...next, lookbackWindow: autoAdjustedBacktestLookbackWindow, lookbackBars: 0 };
+      }
       return next;
     });
-  }, [autoAdjustedBacktestBars, autoAdjustedBacktestRatio]);
+  }, [
+    autoAdjustedBacktestBars,
+    autoAdjustedBacktestRatio,
+    autoAdjustedBacktestLookbackBars,
+    autoAdjustedBacktestLookbackWindow,
+  ]);
 
   useEffect(() => {
     if (form.method !== "router" && form.method !== "bandit_router") return;
@@ -4890,6 +4912,15 @@ export function App() {
             }
             if (adjusted.changes?.backtestRatio !== undefined && adjusted.changes.backtestRatio !== prev.backtestRatio) {
               next = { ...next, backtestRatio: adjusted.changes.backtestRatio };
+            }
+            if (adjusted.changes?.lookbackBars !== undefined && adjusted.changes.lookbackBars !== prev.lookbackBars) {
+              next = { ...next, lookbackBars: adjusted.changes.lookbackBars };
+            }
+            if (
+              adjusted.changes?.lookbackWindow !== undefined &&
+              (adjusted.changes.lookbackWindow !== prev.lookbackWindow || prev.lookbackBars !== 0)
+            ) {
+              next = { ...next, lookbackWindow: adjusted.changes.lookbackWindow, lookbackBars: 0 };
             }
             return next === prev ? prev : next;
           });

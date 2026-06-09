@@ -350,6 +350,66 @@ test("adjustBacktestParamsForSplit raises bars and lowers holdout when lookback 
   assert.equal(stats.backtestOk, true);
 });
 
+test("adjustBacktestParamsForSplit shrinks an override lookback when the cap leaves no valid split", () => {
+  const adjusted = adjustBacktestParamsForSplit(
+    {
+      platform: "binance",
+      method: "10",
+      interval: "3m",
+      bars: 1000,
+      lookbackBars: 999,
+      backtestRatio: 0.2,
+    },
+    { platform: "binance", method: "10", apiLimits: null },
+  );
+
+  assert.equal(adjusted.changes?.lookbackBars, 799);
+  assert.equal(adjusted.changes?.bars, undefined);
+  assert.equal(adjusted.changes?.backtestRatio, undefined);
+  assert.equal(adjusted.params.lookbackBars, 799);
+
+  const stats = splitStats(1000, 0.2, adjusted.params.lookbackBars, 0, false);
+  assert.equal(stats.trainOk, true);
+  assert.equal(stats.backtestOk, true);
+});
+
+test("adjustBacktestParamsForSplit shrinks a window lookback when the cap leaves no valid split", () => {
+  const adjusted = adjustBacktestParamsForSplit(
+    {
+      platform: "binance",
+      method: "10",
+      interval: "1m",
+      bars: 1000,
+      lookbackBars: 0,
+      lookbackWindow: "999m",
+      backtestRatio: 0.2,
+    },
+    { platform: "binance", method: "10", apiLimits: null },
+  );
+
+  assert.equal(adjusted.changes?.lookbackWindow, "799m");
+  assert.equal(adjusted.params.lookbackWindow, "799m");
+  assert.equal(adjusted.params.lookbackBars, 0);
+});
+
+test("adjustBacktestParamsForSplit prefers raising bars over shrinking lookback when the cap allows it", () => {
+  const adjusted = adjustBacktestParamsForSplit(
+    {
+      platform: "binance",
+      method: "10",
+      interval: "3m",
+      bars: 500,
+      lookbackBars: 499,
+      backtestRatio: 0.2,
+    },
+    { platform: "binance", method: "10", apiLimits: null },
+  );
+
+  assert.equal(adjusted.changes?.bars, 625);
+  assert.equal(adjusted.changes?.lookbackBars, undefined);
+  assert.equal(adjusted.changes?.lookbackWindow, undefined);
+});
+
 test("autoFitLookbackToBars leaves lookback alone when bars can be raised within the cap", () => {
   const fitted = autoFitLookbackToBars("binance", "1m", 0, "12h", 500, "11", {
     maxBarsLstm: 1000,
