@@ -16,6 +16,10 @@ module Trader.Binance (
     fetchTickerPrice,
     fetchTicker24hPrice,
     fetchFuturesMarkPrice,
+    fetchFundingRateHistory,
+    fetchOpenInterestHist,
+    fetchTakerLongShortRatio,
+    fetchBasisHistory,
     fetchTickers24h,
     fetchTopSymbolsByQuoteVolume,
     binanceBaseUrl,
@@ -952,6 +956,112 @@ fetchFuturesMarkPrice env symbol = do
     case eitherDecode (responseBody resp) of
         Left e -> throwIO (userError ("Failed to decode premiumIndex: " ++ e))
         Right (FuturesMarkPrice p) -> pure p
+
+{- | A single @(timestampMs, value)@ observation from a Binance derivatives-stats
+endpoint. Binance returns the numeric value as a JSON string and the timestamp
+as a number; the field names vary by endpoint, so each newtype fixes them.
+-}
+newtype TsValueRow = TsValueRow {unTsValueRow :: (Int64, Double)}
+
+parseTsValue :: Text -> Text -> Aeson.Value -> AT.Parser TsValueRow
+parseTsValue tsKey valKey =
+    withObject "TsValueRow" $ \o -> do
+        ts <- o .: AK.fromText tsKey
+        valTxt <- o .: AK.fromText valKey
+        val <- parseDoubleText valTxt
+        pure (TsValueRow (ts, val))
+
+-- | Fetch + decode a derivatives-stats array, returning ascending @(ts, value)@.
+fetchTsValueSeries ::
+    BinanceEnv ->
+    String -> -- request label (for errors/metrics)
+    String -> -- path
+    [(BS.ByteString, BS.ByteString)] -> -- query params
+    Text -> -- timestamp JSON key
+    Text -> -- value JSON key
+    IO [(Int64, Double)]
+fetchTsValueSeries env label path params tsKey valKey = do
+    req0 <- parseRequest (beBaseUrl env ++ path)
+    let req = req0{method = "GET", queryString = renderSimpleQuery True params}
+    resp <- binanceHttp env label req
+    ensure2xx label resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
+        Right vals ->
+            case AT.parseEither (traverse (parseTsValue tsKey valKey)) vals of
+                Left e -> throwIO (userError ("Failed to decode " ++ label ++ " rows: " ++ e))
+                Right rows -> pure (sortOn fst (map unTsValueRow rows))
+
+symBytes :: String -> BS.ByteString
+symBytes = BS.pack . map toUpperAscii
+
+clampLimit :: Int -> Int -> BS.ByteString
+clampLimit hi n = BS.pack (show (max 1 (min hi n)))
+
+{- | Historical perp funding rate, ascending @(fundingTimeMs, rate)@.
+@\/fapi\/v1\/fundingRate@ (no auth). Funding settles on a schedule (~8h), so
+align to bars with point-in-time forward-fill before use.
+-}
+fetchFundingRateHistory :: BinanceEnv -> String -> Int -> IO [(Int64, Double)]
+fetchFundingRateHistory env symbol limit =
+    fetchTsValueSeries
+        env
+        "fundingRate"
+        "/fapi/v1/fundingRate"
+        [("symbol", symBytes symbol), ("limit", clampLimit 1000 limit)]
+        "fundingTime"
+        "fundingRate"
+
+{- | Historical open interest, ascending @(timestampMs, sumOpenInterest)@.
+@\/futures\/data\/openInterestHist@. @period@ is one of
+@5m,15m,30m,1h,2h,4h,6h,12h,1d@; only ~30 days of history are available at fine
+periods. Requires a futures env.
+-}
+fetchOpenInterestHist :: BinanceEnv -> String -> String -> Int -> IO [(Int64, Double)]
+fetchOpenInterestHist env symbol period limit = do
+    Control.Monad.when (beMarket env /= MarketFutures) $
+        throwIO (userError "fetchOpenInterestHist requires MarketFutures")
+    fetchTsValueSeries
+        env
+        "openInterestHist"
+        "/futures/data/openInterestHist"
+        [("symbol", symBytes symbol), ("period", BS.pack period), ("limit", clampLimit 500 limit)]
+        "timestamp"
+        "sumOpenInterest"
+
+{- | Historical taker buy/sell volume ratio (CVD proxy), ascending
+@(timestampMs, buySellRatio)@. @\/futures\/data\/takerlongshortRatio@.
+-}
+fetchTakerLongShortRatio :: BinanceEnv -> String -> String -> Int -> IO [(Int64, Double)]
+fetchTakerLongShortRatio env symbol period limit = do
+    Control.Monad.when (beMarket env /= MarketFutures) $
+        throwIO (userError "fetchTakerLongShortRatio requires MarketFutures")
+    fetchTsValueSeries
+        env
+        "takerlongshortRatio"
+        "/futures/data/takerlongshortRatio"
+        [("symbol", symBytes symbol), ("period", BS.pack period), ("limit", clampLimit 500 limit)]
+        "timestamp"
+        "buySellRatio"
+
+{- | Historical futures-vs-index basis rate, ascending @(timestampMs, basisRate)@.
+@\/futures\/data\/basis@ (keyed by @pair@ + @contractType=PERPETUAL@).
+-}
+fetchBasisHistory :: BinanceEnv -> String -> String -> Int -> IO [(Int64, Double)]
+fetchBasisHistory env pair period limit = do
+    Control.Monad.when (beMarket env /= MarketFutures) $
+        throwIO (userError "fetchBasisHistory requires MarketFutures")
+    fetchTsValueSeries
+        env
+        "basis"
+        "/futures/data/basis"
+        [ ("pair", symBytes pair)
+        , ("contractType", BS.pack "PERPETUAL")
+        , ("period", BS.pack period)
+        , ("limit", clampLimit 500 limit)
+        ]
+        "timestamp"
+        "basisRate"
 
 data Ticker24h = Ticker24h
     { t24Symbol :: !String
