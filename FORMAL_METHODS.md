@@ -12,7 +12,7 @@ Clauses:
 
 Bounded executable obligations:
 
-- The Haskell test suite is the bounded regression harness for this invariant. It must cover empty calibration evidence, malformed residual evidence including mixed valid/malformed samples, valid zero residual evidence, no sigma for unavailable or zero-width intervals, and monotone widening as the selected conformal residual quantile rises.
+- The Haskell test suite is the bounded regression harness for this invariant. It must explicitly name and cover all five obligations: (1) empty calibration evidence yields `cmCount == 0` and an unbounded interval; (2) malformed residual evidence, including mixed valid/malformed samples that contain negative, `NaN`, `+Infinity`, or `-Infinity` residuals, is rejected whole and yields `cmCount == 0` with `(-Infinity, Infinity, Nothing)`; (3) valid zero residual evidence remains admissible and produces a zero-width interval; (4) an unavailable model or a zero-width interval yields no sigma (`Nothing`); and (5) interval width stays `2 * cmRadius` and widens monotonically (non-decreasing) as the selected conformal residual quantile rises.
 
 Proof sketch:
 
