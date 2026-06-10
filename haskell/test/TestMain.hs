@@ -10,6 +10,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.HashMap.Strict as HM
+import Data.Int (Int64)
 import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isNothing)
@@ -74,6 +75,7 @@ import Trader.PredictionMarkets (
  )
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
+import Trader.Predictors.Exogenous (alignToBars)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
@@ -287,7 +289,29 @@ main = do
     testFormalRiskPositionSizeHalt
     testFormalRiskLossStreakHalt
     testSignalGatesFailClosedExhaustive
+    testAlignToBarsPointInTime
     runTechnicalAnalysisTests
+
+testAlignToBarsPointInTime :: IO ()
+testAlignToBarsPointInTime = do
+    let bars = V.fromList [1000, 2000, 3000 :: Int64]
+        intervalMs = 1000 :: Int64
+        -- Deliberately unsorted; (3500,30) is in the FUTURE relative to bars 0/1
+        -- (their closes are 1999 and 2999), so it must NOT influence them.
+        series = [(1500, 20.0), (500, 10.0), (3500, 30.0)]
+    assert
+        "alignToBars forward-fills point-in-time and never leaks future observations"
+        (alignToBars bars intervalMs series == V.fromList [Just 20.0, Just 20.0, Just 30.0])
+    assert
+        "alignToBars yields Nothing for bars before the first observation"
+        ( alignToBars (V.fromList [1000, 2000 :: Int64]) (1000 :: Int64) [(5000, 9.0)]
+            == V.fromList [Nothing, Nothing]
+        )
+    assert
+        "alignToBars carries the last value forward across gaps with no new data"
+        ( alignToBars (V.fromList [1000, 2000, 3000, 4000 :: Int64]) (1000 :: Int64) [(900, 7.0)]
+            == V.fromList [Just 7.0, Just 7.0, Just 7.0, Just 7.0]
+        )
 
 assert :: String -> Bool -> IO ()
 assert message condition =

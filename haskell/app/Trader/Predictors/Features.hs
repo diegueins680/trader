@@ -3,6 +3,7 @@ module Trader.Predictors.Features (
     FeatureInputs (..),
     mkFeatureSpec,
     mkFeatureInputs,
+    withExogenousInputs,
     featureInputsFromClose,
     featuresAt,
     featuresAtWithMarket,
@@ -19,7 +20,7 @@ module Trader.Predictors.Features (
     buildDatasetWithInputsWithMarket,
 ) where
 
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Vector as V
 
 import Trader.MarketContext (MarketModel (..))
@@ -37,6 +38,14 @@ data FeatureInputs = FeatureInputs
     , fiHigh :: !(Maybe (V.Vector Double))
     , fiLow :: !(Maybe (V.Vector Double))
     , fiVolume :: !(Maybe (V.Vector Double))
+    , -- Exogenous derivatives series, pre-aligned 1:1 with fiClose and
+      -- point-in-time (each value known by that bar's close). Nothing => the
+      -- corresponding exogenous features contribute a neutral 0, so existing
+      -- call sites and trained models behave exactly as before.
+      fiFunding :: !(Maybe (V.Vector Double)) -- perp funding rate (level)
+    , fiOpenInterest :: !(Maybe (V.Vector Double)) -- open interest (level)
+    , fiBasis :: !(Maybe (V.Vector Double)) -- (mark - index) / index
+    , fiTakerFlow :: !(Maybe (V.Vector Double)) -- taker buy/sell volume ratio (CVD proxy)
     }
     deriving (Eq, Show)
 
@@ -70,10 +79,34 @@ mkFeatureInputs closes opens highs lows volumes =
         , fiHigh = highs
         , fiLow = lows
         , fiVolume = volumes
+        , fiFunding = Nothing
+        , fiOpenInterest = Nothing
+        , fiBasis = Nothing
+        , fiTakerFlow = Nothing
         }
 
 featureInputsFromClose :: V.Vector Double -> FeatureInputs
 featureInputsFromClose closes = mkFeatureInputs closes Nothing Nothing Nothing Nothing
+
+{- | Attach exogenous derivatives series to an existing 'FeatureInputs'. Each
+vector must already be aligned 1:1 with 'fiClose' and point-in-time (see
+'Trader.Predictors.Exogenous.alignToBars'). Pass 'Nothing' to leave a series
+unset (its features stay neutral 0).
+-}
+withExogenousInputs ::
+    Maybe (V.Vector Double) -> -- funding
+    Maybe (V.Vector Double) -> -- open interest
+    Maybe (V.Vector Double) -> -- basis
+    Maybe (V.Vector Double) -> -- taker flow
+    FeatureInputs ->
+    FeatureInputs
+withExogenousInputs funding oi basis takerFlow inputs =
+    inputs
+        { fiFunding = funding
+        , fiOpenInterest = oi
+        , fiBasis = basis
+        , fiTakerFlow = takerFlow
+        }
 
 -- | Forward return r_t = p_{t+1}/p_t - 1.
 forwardReturnAt :: V.Vector Double -> Int -> Maybe Double
@@ -134,6 +167,7 @@ featuresAtWithInputsWithMarket fs mMarket inputs t = do
                 retMeanReversion = ret1 - muS
                 volRatio = if abs sigM <= eps then 0 else sigS / sigM
                 trendSlope = muS - muM
+                exoFeats = exogenousFeatures inputs t
                 feats =
                     [ ret1
                     , ret3
@@ -152,9 +186,48 @@ featuresAtWithInputsWithMarket fs mMarket inputs t = do
                         ++ klineFeats
                         ++ marketFeats
                         ++ psych
+                        ++ exoFeats
             if all isFiniteDouble feats
                 then pure feats
                 else Nothing
+
+{- | Exogenous derivatives features at bar @t@ (point-in-time — reads only
+indices <= t). Always returns a fixed-width vector so the feature dimension is
+stable whether or not the series are supplied; an absent, out-of-range, or
+non-finite reading contributes a neutral 0. Inputs are stationarized (deltas /
+centering) rather than passed as raw levels, matching the price-feature
+convention above.
+
+Returns @[]@ when no exogenous series is attached at all, so call sites and
+models that do not opt in get a byte-identical feature vector (and unchanged
+input dimension) — the presence of any series is itself the opt-in.
+-}
+exogenousFeatures :: FeatureInputs -> Int -> [Double]
+exogenousFeatures inputs t
+    | all isNothing [fiFunding inputs, fiOpenInterest inputs, fiBasis inputs, fiTakerFlow inputs] = []
+    | otherwise =
+        [ levelAt (fiFunding inputs) -- funding rate level (already small/stationary)
+        , deltaAt (fiFunding inputs) -- funding momentum (Δ)
+        , relDeltaAt (fiOpenInterest inputs) -- ΔOI / |OI| (position buildup)
+        , levelAt (fiBasis inputs) -- basis (mean-reverting premium)
+        , centeredAt (fiTakerFlow inputs) 1.0 -- taker buy/sell imbalance, centered at 0
+        ]
+  where
+    valAt mv i = case mv of
+        Just v
+            | i >= 0 && i < V.length v ->
+                let x = v V.! i in if isFiniteDouble x then Just x else Nothing
+        _ -> Nothing
+    levelAt mv = fromMaybe 0 (valAt mv t)
+    centeredAt mv c = maybe 0 (subtract c) (valAt mv t)
+    deltaAt mv = fromMaybe 0 $ do
+        a <- valAt mv (t - 1)
+        b <- valAt mv t
+        pure (b - a)
+    relDeltaAt mv = fromMaybe 0 $ do
+        a <- valAt mv (t - 1)
+        b <- valAt mv t
+        pure (if abs a <= 1e-12 then 0 else (b - a) / abs a)
 
 {- | Build a supervised dataset (features at t, target forward return at t) with bar indices.
 Uses t in [lookbackBars-1 .. n-2].

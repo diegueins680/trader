@@ -53,6 +53,8 @@ executable trader-hs
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
+                     , Trader.Predictors.Exogenous
+                     , Trader.Predictors.ExogenousFetch
                      , Trader.Predictors.KNN
                      , Trader.Predictors.DecisionTree
                      , Trader.Predictors.GBDT
@@ -259,6 +261,8 @@ test-suite trader-tests
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
+                     , Trader.Predictors.Exogenous
+                     , Trader.Predictors.ExogenousFetch
                      , Trader.Predictors.KNN
                      , Trader.Predictors.DecisionTree
                      , Trader.Predictors.GBDT
@@ -348,6 +352,8 @@ benchmark trader-bench
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
+                     , Trader.Predictors.Exogenous
+                     , Trader.Predictors.ExogenousFetch
                      , Trader.Predictors.GBDT
                      , Trader.Predictors.TCN
                      , Trader.Predictors.Transformer
