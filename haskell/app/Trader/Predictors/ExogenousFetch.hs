@@ -14,6 +14,7 @@ module Trader.Predictors.ExogenousFetch (
 ) where
 
 import Control.Exception (SomeException, try)
+import Data.Either (fromRight)
 import Data.Int (Int64)
 import qualified Data.Vector as V
 
@@ -44,8 +45,8 @@ fetchExogenousInputs ::
 fetchExogenousInputs env symbol period barOpenTimes intervalMs inputs = do
     let n = max 1 (V.length barOpenTimes)
         tryFetch io =
-            either (const []) id <$> (try io :: IO (Either SomeException [(Int64, Double)]))
-        align rows = alignedFeatureSeries barOpenTimes intervalMs rows
+            fromRight [] <$> (try io :: IO (Either SomeException [(Int64, Double)]))
+        align = alignedFeatureSeries barOpenTimes intervalMs
     funding <- align <$> tryFetch (fetchFundingRateHistory env symbol n)
     oi <- align <$> tryFetch (fetchOpenInterestHist env symbol period n)
     taker <- align <$> tryFetch (fetchTakerLongShortRatio env symbol period n)
