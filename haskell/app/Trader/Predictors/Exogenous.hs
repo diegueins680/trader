@@ -16,6 +16,7 @@ module Trader.Predictors.Exogenous (
 
 import Data.Int (Int64)
 import Data.List (sortOn)
+import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 
 {- | Forward-fill an irregular @(timestampMs, value)@ series onto @barOpenTimes@,
@@ -46,7 +47,7 @@ aligned series into a 'FeatureInputs' field (whose features are deltas/centered
 levels, for which 0 reads as "no information").
 -}
 neutralFill :: V.Vector (Maybe Double) -> V.Vector Double
-neutralFill = V.map (maybe 0 id)
+neutralFill = V.map (fromMaybe 0)
 
 {- | Convenience: align a raw series to bars and pack it for 'FeatureInputs'.
 Returns 'Nothing' when the series is empty (so the feature stays fully neutral),
