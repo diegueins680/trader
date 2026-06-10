@@ -1,0 +1,6 @@
+# Generated research data cache (accumulated by scripts/research/datafeed.py).
+# Tracked dir, ignored contents.
+*.csv
+*.parquet
+*.feather
+!.gitignore
