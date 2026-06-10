@@ -15,6 +15,7 @@ Usage:  python3 scripts/research/run_example.py [SYM ...]
 
 from __future__ import annotations
 
+import os
 import sys
 
 import numpy as np
@@ -47,7 +48,8 @@ def main():
 
     # number of (signal x symbol) configurations we are scanning, for the haircut
     n_trials = 2 * len(panel)
-    min_train = 250  # small window today; raise toward 2000+ once cache has history
+    # small window today; the scheduled deep-data re-run sets MIN_TRAIN=2000+
+    min_train = int(os.environ.get("MIN_TRAIN", "250"))
 
     print("\n=== per-symbol walk-forward (cost 5bps/turn) ===")
     for sym, df in panel.items():
