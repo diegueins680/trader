@@ -27,7 +27,10 @@ import numpy as np
 import pandas as pd
 
 BASE = "https://fapi.binance.com"
-CACHE_DIR = os.path.abspath(
+# Cache location: override with TRADER_RESEARCH_CACHE (e.g. for a standalone
+# scheduled collector that must not depend on the repo checkout path), else
+# default to data/research/ in the repo.
+CACHE_DIR = os.environ.get("TRADER_RESEARCH_CACHE") or os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "data", "research")
 )
 INTERVAL_MS = {
