@@ -230,6 +230,7 @@ import Trader.Coinbase (
     fetchCoinbaseAvailableBalance,
     fetchCoinbaseBaseMinSize,
     fetchCoinbaseCandles,
+    fetchCoinbaseCandlesEndingAt,
     fetchCoinbaseOrderById,
     newCoinbaseEnv,
     placeCoinbaseMarketOrder,
@@ -266,6 +267,7 @@ import Trader.LSTM (
     LSTMConfig (..),
     LSTMModel (..),
     fineTuneLSTM,
+    fineTuneLSTMWeighted,
     paramCount,
     predictNext,
     predictNextMulti,
@@ -381,13 +383,18 @@ import Trader.Text (dedupeStable, normalizeKey, trim)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
+    ComboLiveStats (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
     applyComboUpdatesWithStats,
+    blendedAnnualizedReturn,
     comboIdentityKey,
+    comboLiveStatsFromObject,
+    comboLiveStatsValue,
     comboMetricDouble,
     comboMetricInt,
     comboPerformanceKey,
+    liveStatsQuarantined,
     compactTopCombosPayloadForSync,
     isTopCombosPayload,
     mergeTopCombosPayloads,
@@ -421,6 +428,7 @@ import Trader.Trading (
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
+    tradeOutcomeWeights,
  )
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
@@ -3929,6 +3937,7 @@ updateComboPerformanceFromCompletedOperation conn now comboUuid currentEq = do
                         _ -> KM.empty
                 (nextFinalEq, nextAnnualized, metricsObj') =
                     recalculateComboPerformanceFromOperation
+                        now
                         (T.unpack <$> mInterval)
                         mFinalEq
                         mAnnualized
@@ -7065,7 +7074,10 @@ applyAdoptRequirementArgs args req
 
 selectCompatibleTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (Args, Maybe Text)
 selectCompatibleTopComboArgs limits sym args req export =
-    let combos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
+    let combos =
+            filter
+                (\c -> topComboMatchesSymbol sym Nothing c && not (topComboLiveQuarantined c))
+                (tceCombos export)
         sortedCombos = sortOn topComboTradePriorityKey combos
         pick [] = Nothing
         pick (combo : rest) =
@@ -7445,6 +7457,7 @@ topCombosTopTargets disabledSymbols topN export =
         targets =
             [ (normalizeSymbol sym, combo)
             | combo <- sorted
+            , not (topComboLiveQuarantined combo)
             , Just sym <- [topComboSymbol combo]
             , not (null sym)
             , not (botStartSymbolDisabled disabledSymbols sym)
@@ -10908,6 +10921,11 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 pure (Just (predictors, kal', hmm', sv'))
 
     -- LSTM: append the new observation and fine-tune for a few epochs.
+    -- Closed-trade outcomes weight the fine-tune loss: bars a losing trade
+    -- spanned train hardest (correct the mistake), bars a winning trade
+    -- spanned train harder than uninvolved bars (reinforce the pattern).
+    -- botTrades indices share obsAll's index space (both are trimmed by the
+    -- same dropCount), so the weight slice aligns with obsTrain.
     mLstmCtx1 <-
         case botLstmCtx st of
             Nothing -> pure Nothing
@@ -10915,6 +10933,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 let obsAll' = obsAll ++ forwardSeries normState [priceNew]
                     trainBars = max (lookback + 2) (bsTrainBars settings)
                     obsTrain = takeLast trainBars obsAll'
+                    outcomeWeights = takeLast trainBars (tradeOutcomeWeights (botTrades st) (length obsAll'))
                     epochs = bsOnlineEpochs settings
                     cfg =
                         LSTMConfig
@@ -10930,7 +10949,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                     (lstmModel1, _) =
                         if epochs <= 0
                             then (lstmModel0, [])
-                            else fineTuneLSTM cfg lstmModel0 obsTrain
+                            else fineTuneLSTMWeighted cfg lstmModel0 obsTrain outcomeWeights
                 mPath <- lstmWeightsPath args lookback
                 savePersistedLstmModelMaybe mPath (length obsTrain) lstmModel1
                 pure (Just (normState, obsAll', lstmModel1))
@@ -15091,7 +15110,7 @@ readTopCombosExportWithDbFallback mOps store = do
         Right val ->
             case Aeson.fromJSON val of
                 Aeson.Error err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
-                Aeson.Success out -> pure (Right out)
+                Aeson.Success out -> Right <$> annotateTopCombosExportWithLiveStats mOps out
 
 persistTopCombosMaybe :: Maybe StateSyncTarget -> FilePath -> IO ()
 persistTopCombosMaybe mSync path = do
@@ -15208,6 +15227,68 @@ fetchTopComboOperationCounts conn combos =
                         IO [(UUID.UUID, Int64)]
                 pure (M.fromList [(comboUuid, fromIntegral count) | (comboUuid, count) <- rows])
 
+fetchComboLiveStatsMap :: Connection -> [TopCombo] -> IO (M.Map UUID.UUID ComboLiveStats)
+fetchComboLiveStatsMap conn combos =
+    let comboUuids =
+            dedupeStable
+                [ comboUuid
+                | combo <- combos
+                , Just comboUuid <- [uuidFromText (topComboUuid combo)]
+                ]
+     in if null comboUuids
+            then pure M.empty
+            else do
+                rows <-
+                    query
+                        conn
+                        "SELECT combo_uuid, metrics_json->>'live' FROM combos WHERE combo_uuid = ANY(?) AND metrics_json IS NOT NULL AND jsonb_exists(metrics_json, 'live')"
+                        (Only (PGArray comboUuids)) ::
+                        IO [(UUID.UUID, Maybe Text)]
+                pure $
+                    M.fromList
+                        [ (comboUuid, stats)
+                        | (comboUuid, mLiveText) <- rows
+                        , Just liveVal <- [decodeJsonTextMaybe mLiveText]
+                        , Just stats <- [comboLiveStatsFromObject (KM.singleton (AK.fromString "live") liveVal)]
+                        ]
+
+annotateTopComboWithLiveStats :: M.Map UUID.UUID ComboLiveStats -> TopCombo -> TopCombo
+annotateTopComboWithLiveStats liveMap combo =
+    case uuidFromText (topComboUuid combo) >>= (`M.lookup` liveMap) of
+        Just stats
+            -- Only adopt the DB record when it is richer than whatever the
+            -- payload already carries (e.g. from another instance).
+            | maybe True ((< clsOperationCount stats) . clsOperationCount) (topComboLiveStats combo) ->
+                combo
+                    { tcMetrics =
+                        Just
+                            ( KM.insert
+                                (AK.fromString "live")
+                                (comboLiveStatsValue stats)
+                                (fromMaybe KM.empty (tcMetrics combo))
+                            )
+                    }
+        _ -> combo
+
+{- | Join realized live performance from the local @combos@ table onto a
+top-combos export so ranking and bot-start selection see it. Fail-open:
+live stats are advisory, so any DB error leaves the export unannotated.
+-}
+annotateTopCombosExportWithLiveStats :: Maybe OpsStore -> TopCombosExport -> IO TopCombosExport
+annotateTopCombosExportWithLiveStats mOps export =
+    case mOps of
+        Nothing -> pure export
+        Just store -> do
+            result <-
+                try (withOpsConnection store (\conn -> fetchComboLiveStatsMap conn (tceCombos export))) ::
+                    IO (Either SomeException (M.Map UUID.UUID ComboLiveStats))
+            case result of
+                Left _ -> pure export
+                Right liveMap
+                    | M.null liveMap -> pure export
+                    | otherwise ->
+                        pure export{tceCombos = map (annotateTopComboWithLiveStats liveMap) (tceCombos export)}
+
 persistTopCombosToDb :: Connection -> TopCombosExport -> IO ()
 persistTopCombosToDb conn export =
     withTransaction conn $ do
@@ -15245,7 +15326,14 @@ persistTopCombosToDb conn export =
                                 <> "open_threshold = EXCLUDED.open_threshold, "
                                 <> "close_threshold = EXCLUDED.close_threshold, "
                                 <> "params_json = EXCLUDED.params_json, "
-                                <> "metrics_json = EXCLUDED.metrics_json, "
+                                -- A payload combo without live stats must not erase the live
+                                -- record accumulated in this DB from completed orders.
+                                <> "metrics_json = CASE "
+                                <> "WHEN combos.metrics_json IS NOT NULL "
+                                <> "AND jsonb_exists(combos.metrics_json, 'live') "
+                                <> "AND (EXCLUDED.metrics_json IS NULL OR NOT jsonb_exists(EXCLUDED.metrics_json, 'live')) "
+                                <> "THEN COALESCE(EXCLUDED.metrics_json, '{}'::jsonb) || jsonb_build_object('live', combos.metrics_json->'live') "
+                                <> "ELSE EXCLUDED.metrics_json END, "
                                 <> "operation_count = EXCLUDED.operation_count, "
                                 <> "updated_at_ms = EXCLUDED.updated_at_ms"
                             )
@@ -15476,10 +15564,21 @@ topComboMetricDouble key combo = do
 topComboTradeCount :: TopCombo -> Int
 topComboTradeCount combo = fromMaybe 0 (topComboMetricInt "tradeCount" combo)
 
+topComboLiveStats :: TopCombo -> Maybe ComboLiveStats
+topComboLiveStats combo = tcMetrics combo >>= comboLiveStatsFromObject
+
+topComboLiveQuarantined :: TopCombo -> Bool
+topComboLiveQuarantined combo = maybe False liveStatsQuarantined (topComboLiveStats combo)
+
+-- | Backtest annualized return blended with realized live performance;
+-- quarantined combos rank as -inf so they sink everywhere.
 topComboAnnualizedReturn :: TopCombo -> Double
 topComboAnnualizedReturn combo =
     let ann = fromMaybe (negate (1 / 0)) (topComboMetricDouble "annualizedReturn" combo)
-     in if isNaN ann || isInfinite ann then negate (1 / 0) else ann
+        ann' = if isNaN ann || isInfinite ann then negate (1 / 0) else ann
+     in if topComboLiveQuarantined combo
+            then negate (1 / 0)
+            else blendedAnnualizedReturn ann' (topComboLiveStats combo)
 
 topComboRankKey :: TopCombo -> (Double, Double, Double, Int)
 topComboRankKey combo =
@@ -15512,7 +15611,7 @@ topComboMatchesSymbol symRaw mInterval combo =
 
 bestTopComboFromList :: [TopCombo] -> Maybe TopCombo
 bestTopComboFromList combos =
-    case sortOn topComboTradePriorityKey combos of
+    case sortOn topComboTradePriorityKey (filter (not . topComboLiveQuarantined) combos) of
         [] -> Nothing
         (c : _) -> Just c
 
@@ -28840,11 +28939,14 @@ buildCrossExchangeCoinbase args pricesV mOpenTimes
     | not (argCrossExchangeCoinbase args) = pure Nothing
     | argPlatform args /= PlatformBinance = pure Nothing
     | otherwise =
-        case (argBinanceSymbol args >>= coinbaseProductFromBinance, coinbaseIntervalSeconds (argInterval args), mOpenTimes) of
+        case ((argCrossExchangeSymbol args <|> argBinanceSymbol args) >>= coinbaseProductFromBinance, coinbaseIntervalSeconds (argInterval args), mOpenTimes) of
             (Just product, Just gran, Just openTimes)
                 | n > 0 && length openTimes == n -> do
+                    -- End the Coinbase fetch at the data window's last bar (not "now")
+                    -- so historical optimizer-CSV windows align correctly too.
+                    let endSec = maximum openTimes `div` 1000
                     res <-
-                        try (fetchCoinbaseCandles product gran (n + 5)) ::
+                        try (fetchCoinbaseCandlesEndingAt product gran endSec (n + 5)) ::
                             IO (Either SomeException [CoinbaseCandle])
                     case res of
                         Left ex -> do

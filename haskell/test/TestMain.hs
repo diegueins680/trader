@@ -7,6 +7,7 @@ module Main (main) where
 import Control.Exception (SomeException, evaluate, toException, try)
 import Control.Monad (forM_, unless)
 import Data.Aeson ((.=))
+import Data.Int (Int64)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
@@ -42,7 +43,7 @@ import Trader.Formal.Risk (
     verifyFormalRisk,
  )
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
-import Trader.LSTM (LSTMConfig (..), LSTMModel (..), inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
+import Trader.LSTM (LSTMConfig (..), LSTMModel (..), evaluateLoss, buildSequences, fineTuneLSTM, fineTuneLSTMWeighted, inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
 import Trader.MarketContext (fitLinearRange)
 import Trader.MarketDataIntegrity (
     isTransientMarketDataError,
@@ -118,8 +119,17 @@ import Trader.ThresholdCalibration (CalibrationMethod (..), EdgeDistribution (..
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
+    ComboLiveStats (..),
     applyComboUpdatesWithStats,
+    blendedAnnualizedReturn,
     comboIdentityKey,
+    comboLiveQuarantined,
+    comboLiveStats,
+    comboLiveStatsFromObject,
+    comboPerformanceKey,
+    liveStatsQuarantined,
+    mergeTopCombosPayloads,
+    recalculateComboPerformanceFromOperation,
  )
 import Trader.Trading (
     BacktestCostAttribution (..),
@@ -143,7 +153,12 @@ import Trader.Trading (
     mkEntryGateState,
     mkTradingEntryGateInputs,
     needsEntry,
+    outcomeWeightCap,
+    outcomeWeightLossScale,
+    outcomeWeightWinScale,
     roundTripFeeFloor,
+    tradeOutcomeWeightFactor,
+    tradeOutcomeWeights,
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
@@ -263,6 +278,14 @@ main = do
     testBotStartupBacktestVerdictPreservesDisabledBehaviour
     testApplyComboUpdatesZeroTradeDoesNotPrune
     testApplyComboUpdatesGenuineLossStillPrunes
+    testLiveBlendShrinkageRanking
+    testLiveQuarantineThresholds
+    testRecalculateMaintainsLiveStats
+    testBacktestUpdatePreservesLiveStats
+    testMergePreservesLiveStats
+    testTradeOutcomeWeightsSemantics
+    testWeightedFineTuneUnitWeightsEquivalence
+    testWeightedFineTunePunishesLossRegion
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
@@ -2753,6 +2776,289 @@ testApplyComboUpdatesGenuineLossStillPrunes = do
             assert
                 "genuine loss with positive tradeCount still prunes"
                 (cbasUpdatedCount stats == 1 && cbasPrunedCount stats == 1 && length (cbasPrunedKeys stats) == 1)
+
+liveStatsForTest :: Double -> Maybe Double -> Int -> Aeson.Value
+liveStatsForTest eq mAnn count =
+    Aeson.object
+        ( [ "finalEquity" .= eq
+          , "operationCount" .= count
+          ]
+            ++ maybe [] (\ann -> ["annualizedReturn" .= ann]) mAnn
+        )
+
+liveComboForTest :: T.Text -> Double -> Maybe Aeson.Value -> Aeson.Value
+liveComboForTest sym backtestAnn mLive =
+    Aeson.object
+        [ "symbol" .= sym
+        , "uuid" .= ("0badc0de-1234-5678-9abc-def012345678" :: T.Text)
+        , "finalEquity" .= (1.4 :: Double)
+        , "annualizedReturn" .= backtestAnn
+        , "openThreshold" .= (0.005 :: Double)
+        , "closeThreshold" .= (0.010 :: Double)
+        , "objective" .= ("final-equity" :: T.Text)
+        , "params" .= Aeson.object ["method" .= ("blend" :: T.Text)]
+        , "metrics"
+            .= Aeson.object
+                ( ["finalEquity" .= (1.4 :: Double), "tradeCount" .= (8 :: Int)]
+                    ++ maybe [] (\live -> ["live" .= live]) mLive
+                )
+        ]
+
+{- | Live evidence shifts the ranking via shrinkage: with n live orders the
+live annualized return carries weight n/(n+25), so a combo whose live record
+contradicts its backtest sinks below an identical combo with no live history,
+but a thin live record (small n) barely moves the needle.
+-}
+testLiveBlendShrinkageRanking :: IO ()
+testLiveBlendShrinkageRanking = do
+    let halfWeightStats =
+            ComboLiveStats
+                { clsFinalEquity = 1.0
+                , clsAnnualizedReturn = Just 0.0
+                , clsOperationCount = 25
+                , clsFirstAtMs = Nothing
+                , clsLastAtMs = Nothing
+                }
+    assert
+        "n = shrinkage pseudo-count gives live evidence exactly half weight"
+        (abs (blendedAnnualizedReturn 2.0 (Just halfWeightStats) - 1.0) < 1e-9)
+    assert
+        "no live stats leaves the backtest prior untouched"
+        (blendedAnnualizedReturn 2.0 Nothing == 2.0)
+    let noLive = liveComboForTest "BTCUSDT" 2.0 Nothing
+        liveBreakEven = liveComboForTest "BTCUSDT" 2.0 (Just (liveStatsForTest 1.0 (Just 0.0) 25))
+        liveThin = liveComboForTest "BTCUSDT" 2.0 (Just (liveStatsForTest 1.0 (Just 0.0) 1))
+    assert
+        "live break-even record ranks an identical combo lower"
+        (comboPerformanceKey liveBreakEven > comboPerformanceKey noLive)
+    assert
+        "a thin live record moves the rank less than a substantial one"
+        (comboPerformanceKey liveThin < comboPerformanceKey liveBreakEven)
+
+testLiveQuarantineThresholds :: IO ()
+testLiveQuarantineThresholds = do
+    let stats eq count =
+            ComboLiveStats
+                { clsFinalEquity = eq
+                , clsAnnualizedReturn = Just (-0.5)
+                , clsOperationCount = count
+                , clsFirstAtMs = Nothing
+                , clsLastAtMs = Nothing
+                }
+    assert "below minimum live orders never quarantines" (not (liveStatsQuarantined (stats 0.5 29)))
+    assert "sustained live loss quarantines" (liveStatsQuarantined (stats 0.98 30))
+    assert "live winner is not quarantined" (not (liveStatsQuarantined (stats 1.05 30)))
+    let quarantined = liveComboForTest "ETHUSDT" 3.0 (Just (liveStatsForTest 0.9 (Just (-0.5)) 40))
+        modest = liveComboForTest "ETHUSDT" 0.1 Nothing
+    assert "combo-level quarantine flag reads from metrics.live" (comboLiveQuarantined quarantined)
+    assert
+        "quarantined combo sinks below any healthy combo regardless of backtest"
+        (comboPerformanceKey quarantined > comboPerformanceKey modest)
+
+{- | 'recalculateComboPerformanceFromOperation' must accumulate a separate
+live record (compounded equity, order count, span) alongside the blended
+backtest fields it already maintains, and only annualize once the observed
+span is long enough to be meaningful.
+-}
+testRecalculateMaintainsLiveStats :: IO ()
+testRecalculateMaintainsLiveStats = do
+    let t0 = 1700000000000 :: Int64
+        (_, _, metrics1) =
+            recalculateComboPerformanceFromOperation t0 (Just "1h") (Just 1.42) (Just 0.8) KM.empty Nothing 1.05
+    stats1 <- case comboLiveStatsFromObject metrics1 of
+        Nothing -> ioError (userError "first operation did not create a live record")
+        Just s -> pure s
+    assert "first operation seeds the live record" (clsOperationCount stats1 == 1)
+    assert "first operation compounds live equity from the order ratio" (abs (clsFinalEquity stats1 - 1.05) < 1e-9)
+    assert "first operation pins the live span start" (clsFirstAtMs stats1 == Just t0)
+    assert "no annualization before a meaningful live span" (clsAnnualizedReturn stats1 == Nothing)
+    let t1 = t0 + 2 * 86400000
+        (_, _, metrics2) =
+            recalculateComboPerformanceFromOperation t1 (Just "1h") (Just 1.49) (Just 0.8) metrics1 (Just 1.05) 0.945
+    stats2 <- case comboLiveStatsFromObject metrics2 of
+        Nothing -> ioError (userError "second operation lost the live record")
+        Just s -> pure s
+    assert "second operation increments the live order count" (clsOperationCount stats2 == 2)
+    assert "live equity compounds across operations" (abs (clsFinalEquity stats2 - 0.945) < 1e-9)
+    assert "live span start is preserved" (clsFirstAtMs stats2 == Just t0)
+    assert "live span end tracks the latest operation" (clsLastAtMs stats2 == Just t1)
+    assert
+        "a losing live record annualizes negative (clamped)"
+        (maybe False (<= (-0.99)) (clsAnnualizedReturn stats2))
+
+{- | A scheduled re-backtest replaces a combo's metrics wholesale; the
+accumulated live record must survive that refresh or the system forgets
+everything it learned from its own orders every 24h.
+-}
+testBacktestUpdatePreservesLiveStats :: IO ()
+testBacktestUpdatePreservesLiveStats = do
+    let combo = liveComboForTest "BTCUSDT" 1.2 (Just (liveStatsForTest 1.1 (Just 0.4) 12))
+        combosJson = Aeson.object ["combos" .= [combo]]
+        key = case comboIdentityKey combo of
+            Just k -> k
+            Nothing -> error "test setup: combo identity key resolution failed"
+        update =
+            ComboBacktestUpdate
+                { cbuMetrics =
+                    Aeson.object
+                        [ "finalEquity" .= (1.3 :: Double)
+                        , "tradeCount" .= (10 :: Int)
+                        ]
+                , cbuFinalEquity = Just 1.3
+                , cbuScore = Just 0.3
+                , cbuOperations = Nothing
+                }
+    case applyComboUpdatesWithStats 0 (HM.singleton key update) combosJson of
+        Left err -> ioError (userError ("applyComboUpdatesWithStats failed unexpectedly: " ++ err))
+        Right (updatedVal, _) -> do
+            let mUpdatedCombo = case updatedVal of
+                    Aeson.Object o -> case KM.lookup "combos" o of
+                        Just (Aeson.Array v) | not (V.null v) -> Just (V.head v)
+                        _ -> Nothing
+                    _ -> Nothing
+            stats <- case mUpdatedCombo >>= comboLiveStats of
+                Nothing -> ioError (userError "backtest refresh erased the live record")
+                Just s -> pure s
+            assert "live record survives a backtest metrics refresh" (clsOperationCount stats == 12)
+
+{- | The S3 combo bus merges payloads from multiple instances; whichever
+duplicate wins the merge must carry the richest live record seen across all
+of them, so live evidence is never lost in transit between instances.
+-}
+testMergePreservesLiveStats :: IO ()
+testMergePreservesLiveStats = do
+    let comboWithLive = liveComboForTest "BTCUSDT" 1.2 (Just (liveStatsForTest 1.1 (Just 0.4) 10))
+        comboFresh =
+            case liveComboForTest "BTCUSDT" 1.2 Nothing of
+                Aeson.Object o -> Aeson.Object (KM.insert "score" (Aeson.toJSON (0.9 :: Double)) o)
+                v -> v
+        payload combosVal generatedAt =
+            Aeson.object
+                [ "combos" .= [combosVal]
+                , "generatedAtMs" .= (generatedAt :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+        merged = mergeTopCombosPayloads 10 2000 [payload comboWithLive 1000, payload comboFresh 1500]
+        mMergedCombo = case merged of
+            Aeson.Object o -> case KM.lookup "combos" o of
+                Just (Aeson.Array v) | not (V.null v) -> Just (V.head v)
+                _ -> Nothing
+            _ -> Nothing
+    case mMergedCombo of
+        Nothing -> ioError (userError "merge produced no combos")
+        Just mergedCombo -> do
+            stats <- case comboLiveStats mergedCombo of
+                Nothing -> ioError (userError "merge dropped the live record")
+                Just s -> pure s
+            assert "merge keeps the richest live record across duplicates" (clsOperationCount stats == 10)
+
+mkOutcomeTestTrade :: Int -> Int -> Double -> Trade
+mkOutcomeTestTrade entryIdx exitIdx ret =
+    Trade
+        { trEntryIndex = entryIdx
+        , trExitIndex = exitIdx
+        , trEntryEquity = 1.0
+        , trExitEquity = 1.0 + ret
+        , trReturn = ret
+        , trHoldingPeriods = exitIdx - entryIdx
+        , trEntryHighVolProb = Nothing
+        , trEntrySource = TradeEntrySignal
+        , trExitReason = Nothing
+        , trEntryIp = Nothing
+        , trExitIp = Nothing
+        , trFeeCost = 0.0
+        }
+
+{- | Outcome weights translate closed trades into per-bar loss emphasis for
+the LSTM fine-tune: losing spans weigh more than winning spans (asymmetric
+scales), uncovered bars stay at 1, and a cap bounds any single trade's
+influence.
+-}
+testTradeOutcomeWeightsSemantics :: IO ()
+testTradeOutcomeWeightsSemantics = do
+    let win = mkOutcomeTestTrade 2 4 0.02
+        loss = mkOutcomeTestTrade 6 7 (-0.02)
+        weights = tradeOutcomeWeights [win, loss] 10
+    assert "weights align index-for-index with the series" (length weights == 10)
+    assert "bars not covered by any trade weigh 1" (all (\t -> weights !! t == 1.0) [0, 1, 5, 8, 9])
+    assert
+        "a winning trade reinforces its span (1 + winScale * |return|)"
+        (all (\t -> abs (weights !! t - (1 + outcomeWeightWinScale * 0.02)) < 1e-9) [2 .. 4])
+    assert
+        "a losing trade punishes its span harder (1 + lossScale * |return|)"
+        (all (\t -> abs (weights !! t - (1 + outcomeWeightLossScale * 0.02)) < 1e-9) [6, 7])
+    assert
+        "loss scale exceeds win scale"
+        (outcomeWeightLossScale > outcomeWeightWinScale)
+    assert
+        "extreme trades cap at outcomeWeightCap"
+        (tradeOutcomeWeightFactor (mkOutcomeTestTrade 0 1 (-0.5)) == Just outcomeWeightCap)
+    assert
+        "break-even trades carry no learning signal"
+        (tradeOutcomeWeightFactor (mkOutcomeTestTrade 0 1 0) == Nothing)
+    assert
+        "trade spans clamp to the series bounds"
+        (last (tradeOutcomeWeights [mkOutcomeTestTrade 8 20 (-0.02)] 10) > 1)
+    assert "empty series yields no weights" (null (tradeOutcomeWeights [win] 0))
+
+-- | The weighted fine-tune with default weights must be exactly the plain
+-- fine-tune, so enabling outcome weighting cannot perturb bots with no
+-- closed trades.
+testWeightedFineTuneUnitWeightsEquivalence :: IO ()
+testWeightedFineTuneUnitWeightsEquivalence = do
+    let series = [0.5 + 0.2 * sin (fromIntegral t / 5) | t <- [0 .. 59 :: Int]]
+        cfg =
+            LSTMConfig
+                { lcLookback = 4
+                , lcHiddenSize = 4
+                , lcEpochs = 8
+                , lcLearningRate = 0.01
+                , lcValRatio = 0
+                , lcPatience = 0
+                , lcGradClip = Nothing
+                , lcSeed = 7
+                }
+        (model0, _) = trainLSTM cfg{lcEpochs = 0} series
+        (plain, _) = fineTuneLSTM cfg model0 series
+        (weightedEmpty, _) = fineTuneLSTMWeighted cfg model0 series []
+        (weightedOnes, _) = fineTuneLSTMWeighted cfg model0 series (replicate 60 1.0)
+    assert "no weights reproduces the plain fine-tune bit-for-bit" (lmParams weightedEmpty == lmParams plain)
+    assert "unit weights reproduce the plain fine-tune bit-for-bit" (lmParams weightedOnes == lmParams plain)
+
+{- | The reinforcement semantics: starting from identical parameters, a
+fine-tune that upweights one region of the series must fit that region
+better than the uniformly-weighted fine-tune does — that is what makes a
+losing trade's span actually correct the model.
+-}
+testWeightedFineTunePunishesLossRegion :: IO ()
+testWeightedFineTunePunishesLossRegion = do
+    let n = 40 :: Int
+        lookback = 3
+        hidden = 4
+        regionB t = t >= 20
+        series = [if regionB t then 0.8 else 0.2 | t <- [0 .. n - 1]]
+        cfg =
+            LSTMConfig
+                { lcLookback = lookback
+                , lcHiddenSize = hidden
+                , lcEpochs = 40
+                , lcLearningRate = 0.02
+                , lcValRatio = 0
+                , lcPatience = 0
+                , lcGradClip = Nothing
+                , lcSeed = 11
+                }
+        (model0, _) = trainLSTM cfg{lcEpochs = 0} series
+        (uniform, _) = fineTuneLSTM cfg model0 series
+        weights = [if regionB t then 8 else 1 | t <- [0 .. n - 1]]
+        (weighted, _) = fineTuneLSTMWeighted cfg model0 series weights
+        dataset = buildSequences lookback series
+        regionBSamples = [s | (i, s) <- zip [0 :: Int ..] dataset, regionB (i + lookback)]
+        lossOn model = evaluateLoss lookback hidden regionBSamples (lmParams model)
+    assert "test setup: the emphasized region has samples" (not (null regionBSamples))
+    assert
+        "upweighting a region trains it to a better fit than uniform weighting"
+        (lossOn weighted < lossOn uniform)
 
 {- | Today's launchd log also showed:
   @Need at least 3361 price rows for lookback=3360 (got 500) from Binance FILUSDT (3m)@

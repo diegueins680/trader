@@ -3,17 +3,27 @@
 module Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
+    ComboLiveStats (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
     applyComboUpdates,
     applyComboUpdatesWithStats,
+    blendedAnnualizedReturn,
     compactTopCombosPayloadForSync,
     comboFinalEquityValue,
     comboIdentityKey,
+    comboLiveQuarantined,
+    comboLiveStats,
+    comboLiveStatsFromObject,
+    comboLiveStatsValue,
     comboMetricDouble,
     comboMetricInt,
     comboMetricsDouble,
     comboPerformanceKey,
+    liveBlendShrinkageOps,
+    liveQuarantineMinOperations,
+    liveQuarantineMaxFinalEquity,
+    liveStatsQuarantined,
     isBinancePlatformKey,
     isCoinbasePlatformKey,
     isPoloniexPlatformKey,
@@ -360,7 +370,194 @@ comboScoreValue :: Aeson.Value -> Maybe Double
 comboScoreValue val =
     comboMetricDouble "score" val <|> comboMetricsDouble "score" val
 
+{- | Realized live-trading performance of a combo, accumulated from completed
+@bot.order@ operations. Stored as a @live@ object inside the combo's metrics
+so it survives the JSON round-trips between the DB, the top-combos file, and
+the S3 bus, and stays clearly separated from backtest metrics.
+-}
+data ComboLiveStats = ComboLiveStats
+    { clsFinalEquity :: !Double
+    -- ^ Compounded product of per-order equity ratios; 1.0 = break-even.
+    , clsAnnualizedReturn :: !(Maybe Double)
+    -- ^ Annualized from the observed live span; Nothing until the span is
+    -- long enough to annualize without exploding.
+    , clsOperationCount :: !Int
+    , clsFirstAtMs :: !(Maybe Int64)
+    , clsLastAtMs :: !(Maybe Int64)
+    }
+    deriving (Eq, Show)
+
+-- | Pseudo-count of live operations at which live evidence carries the same
+-- weight as the backtest prior in the blended ranking (w = n / (n + k)).
+liveBlendShrinkageOps :: Double
+liveBlendShrinkageOps = 25
+
+-- | Minimum completed live orders before a combo can be quarantined.
+liveQuarantineMinOperations :: Int
+liveQuarantineMinOperations = 30
+
+{- | A combo with at least 'liveQuarantineMinOperations' live orders whose
+compounded live equity sits at or below this ceiling is quarantined: a real
+net loss, not break-even noise.
+-}
+liveQuarantineMaxFinalEquity :: Double
+liveQuarantineMaxFinalEquity = 0.99
+
+-- | Minimum observed live span before annualizing live equity (1 day).
+liveAnnualizationMinSpanMs :: Int64
+liveAnnualizationMinSpanMs = 86400000
+
+liveAnnualizedReturnFloor :: Double
+liveAnnualizedReturnFloor = -0.9999
+
+liveAnnualizedReturnCeiling :: Double
+liveAnnualizedReturnCeiling = 10
+
+clampLiveAnnualizedReturn :: Double -> Double
+clampLiveAnnualizedReturn ann =
+    max liveAnnualizedReturnFloor (min liveAnnualizedReturnCeiling ann)
+
+liveAnnualizedReturnFromSpan :: Double -> Int64 -> Maybe Double
+liveAnnualizedReturnFromSpan liveEq spanMs
+    | spanMs < liveAnnualizationMinSpanMs = Nothing
+    | liveEq <= 0 = Just liveAnnualizedReturnFloor
+    | otherwise =
+        let msPerYear = 365 * 86400000 :: Double
+            exponent' = msPerYear / fromIntegral spanMs
+            ann = (liveEq ** exponent') - 1
+         in if isNaN ann || isInfinite ann
+                then Nothing
+                else Just (clampLiveAnnualizedReturn ann)
+
+comboLiveStatsFromObject :: Aeson.Object -> Maybe ComboLiveStats
+comboLiveStatsFromObject obj = do
+    liveVal <- KM.lookup (AK.fromString "live") obj
+    liveObj <-
+        case liveVal of
+            Aeson.Object o -> Just o
+            _ -> Nothing
+    eq <- KM.lookup (AK.fromString "finalEquity") liveObj >>= coerceDoubleValue
+    count <- KM.lookup (AK.fromString "operationCount") liveObj >>= coerceIntValue
+    if eq < 0 || count < 0
+        then Nothing
+        else
+            pure
+                ComboLiveStats
+                    { clsFinalEquity = eq
+                    , clsAnnualizedReturn =
+                        KM.lookup (AK.fromString "annualizedReturn") liveObj
+                            >>= coerceDoubleValue
+                    , clsOperationCount = count
+                    , clsFirstAtMs = KM.lookup (AK.fromString "firstAtMs") liveObj >>= coerceInt64Value
+                    , clsLastAtMs = KM.lookup (AK.fromString "lastAtMs") liveObj >>= coerceInt64Value
+                    }
+
+-- | Read live stats from a combo JSON value (under @metrics.live@, falling
+-- back to a root-level @live@ object).
+comboLiveStats :: Aeson.Value -> Maybe ComboLiveStats
+comboLiveStats val =
+    (metricsObjectMaybe val >>= comboLiveStatsFromObject)
+        <|> (rootObjectMaybe val >>= comboLiveStatsFromObject)
+  where
+    metricsObjectMaybe v =
+        case comboMetricValue "metrics" v of
+            Just (Aeson.Object o) -> Just o
+            _ -> Nothing
+    rootObjectMaybe v =
+        case v of
+            Aeson.Object o -> Just o
+            _ -> Nothing
+
+comboLiveStatsValue :: ComboLiveStats -> Aeson.Value
+comboLiveStatsValue stats =
+    object
+        ( [ "finalEquity" .= clsFinalEquity stats
+          , "operationCount" .= clsOperationCount stats
+          ]
+            ++ maybe [] (\v -> ["annualizedReturn" .= v]) (clsAnnualizedReturn stats)
+            ++ maybe [] (\v -> ["firstAtMs" .= v]) (clsFirstAtMs stats)
+            ++ maybe [] (\v -> ["lastAtMs" .= v]) (clsLastAtMs stats)
+        )
+
+{- | Blend the backtest annualized return with realized live performance.
+
+Shrinkage weighting: with n live orders, live evidence gets weight
+@n / (n + liveBlendShrinkageOps)@. A combo with no (or too-short) live
+history ranks purely on its backtest prior; live evidence takes over
+gradually as orders accumulate, so a handful of noisy fills cannot
+overturn the backtest, but a sustained live record can.
+-}
+blendedAnnualizedReturn :: Double -> Maybe ComboLiveStats -> Double
+blendedAnnualizedReturn backtestAnn mLive =
+    case mLive >>= liveAnnWithCount of
+        Nothing -> backtestAnn
+        Just (liveAnn, n) ->
+            let w = fromIntegral n / (fromIntegral n + liveBlendShrinkageOps)
+             in w * clampLiveAnnualizedReturn liveAnn + (1 - w) * backtestAnn
+  where
+    liveAnnWithCount stats = do
+        ann <- clsAnnualizedReturn stats
+        if isNaN ann || isInfinite ann || clsOperationCount stats <= 0
+            then Nothing
+            else Just (ann, clsOperationCount stats)
+
+liveStatsQuarantined :: ComboLiveStats -> Bool
+liveStatsQuarantined stats =
+    clsOperationCount stats >= liveQuarantineMinOperations
+        && clsFinalEquity stats <= liveQuarantineMaxFinalEquity
+
+{- | A quarantined combo has enough live evidence to conclude it is losing
+real money regardless of what its backtest claims. Quarantined combos sink
+to the bottom of every ranking and are skipped when starting bots; they are
+kept in the store (flagged by their live stats) so the verdict is visible
+and survives merges instead of being silently re-added fresh.
+-}
+comboLiveQuarantined :: Aeson.Value -> Bool
+comboLiveQuarantined val = maybe False liveStatsQuarantined (comboLiveStats val)
+
+-- | Write live stats into a combo's @metrics.live@, creating the metrics
+-- object if needed.
+setComboLiveStats :: ComboLiveStats -> Aeson.Value -> Aeson.Value
+setComboLiveStats stats val =
+    case val of
+        Aeson.Object o ->
+            let metricsObj =
+                    case KM.lookup (AK.fromString "metrics") o of
+                        Just (Aeson.Object m) -> m
+                        _ -> KM.empty
+                metricsObj' = KM.insert (AK.fromString "live") (comboLiveStatsValue stats) metricsObj
+             in Aeson.Object (KM.insert (AK.fromString "metrics") (Aeson.Object metricsObj') o)
+        _ -> val
+
+{- | Ensure the chosen combo carries the richest live record (most live
+operations) seen across all candidate duplicates, so merges and backtest
+refreshes can never silently erase accumulated live evidence.
+-}
+preserveRichestLiveStats :: [Aeson.Value] -> Aeson.Value -> Aeson.Value
+preserveRichestLiveStats candidates chosen =
+    let richest =
+            listToMaybe
+                ( sortBy
+                    (\a b -> compare (negate (clsOperationCount a)) (negate (clsOperationCount b)))
+                    (Data.Maybe.mapMaybe comboLiveStats candidates)
+                )
+     in case richest of
+            Just stats
+                | maybe True ((< clsOperationCount stats) . clsOperationCount) (comboLiveStats chosen) ->
+                    setComboLiveStats stats chosen
+            _ -> chosen
+
+coerceInt64Value :: Aeson.Value -> Maybe Int64
+coerceInt64Value value =
+    case AT.parseMaybe Aeson.parseJSON value of
+        Just v -> Just v
+        Nothing ->
+            case value of
+                Aeson.String s -> readMaybe (trim (T.unpack s))
+                _ -> Nothing
+
 recalculateComboPerformanceFromOperation ::
+    Int64 ->
     Maybe String ->
     Maybe Double ->
     Maybe Double ->
@@ -368,7 +565,7 @@ recalculateComboPerformanceFromOperation ::
     Maybe Double ->
     Double ->
     (Double, Double, Aeson.Object)
-recalculateComboPerformanceFromOperation mInterval mStoredFinalEq mStoredAnnualized metricsObj mPrevOrderEq currentOrderEq =
+recalculateComboPerformanceFromOperation now mInterval mStoredFinalEq mStoredAnnualized metricsObj mPrevOrderEq currentOrderEq =
     let prevEq = fromMaybe 1 (positiveFiniteMaybe mPrevOrderEq)
         currentEq = fromMaybe prevEq (nonNegativeFinite currentOrderEq)
         ratioRaw =
@@ -386,11 +583,39 @@ recalculateComboPerformanceFromOperation mInterval mStoredFinalEq mStoredAnnuali
                 else baselineEq
         mExponent = comboAnnualizationExponent mInterval metricsObj baselineEq mStoredAnnualized
         nextAnnualized = comboAnnualizedReturnFromExponent nextFinalEq mExponent
+        liveStats =
+            fromMaybe
+                ComboLiveStats
+                    { clsFinalEquity = 1
+                    , clsAnnualizedReturn = Nothing
+                    , clsOperationCount = 0
+                    , clsFirstAtMs = Nothing
+                    , clsLastAtMs = Nothing
+                    }
+                (comboLiveStatsFromObject metricsObj)
+        liveFirstAtMs = fromMaybe now (clsFirstAtMs liveStats)
+        liveEqRaw = clsFinalEquity liveStats * ratio
+        liveEq =
+            if isFiniteDouble liveEqRaw && liveEqRaw >= 0
+                then liveEqRaw
+                else clsFinalEquity liveStats
+        liveStats' =
+            ComboLiveStats
+                { clsFinalEquity = liveEq
+                , clsAnnualizedReturn = liveAnnualizedReturnFromSpan liveEq (max 0 (now - liveFirstAtMs))
+                , clsOperationCount = clsOperationCount liveStats + 1
+                , clsFirstAtMs = Just liveFirstAtMs
+                , clsLastAtMs = Just now
+                }
         metricsObj' =
             KM.insert
-                (AK.fromString "annualizedReturn")
-                (toJSON nextAnnualized)
-                (KM.insert (AK.fromString "finalEquity") (toJSON nextFinalEq) metricsObj)
+                (AK.fromString "live")
+                (comboLiveStatsValue liveStats')
+                ( KM.insert
+                    (AK.fromString "annualizedReturn")
+                    (toJSON nextAnnualized)
+                    (KM.insert (AK.fromString "finalEquity") (toJSON nextFinalEq) metricsObj)
+                )
      in (nextFinalEq, nextAnnualized, metricsObj')
   where
     comboMetricFromObject key obj =
@@ -734,6 +959,10 @@ comboMergeKey val = do
                 ]
     pure (BL.toStrict (encodePretty identity))
 
+{- | Ranking key: primarily the backtest annualized return blended with
+realized live performance ('blendedAnnualizedReturn'); quarantined combos
+('comboLiveQuarantined') sink to the bottom unconditionally.
+-}
 comboPerformanceKey :: Aeson.Value -> (Double, Double, Double, Int)
 comboPerformanceKey val =
     let ann =
@@ -746,7 +975,10 @@ comboPerformanceKey val =
             case val of
                 Aeson.Object o -> fromMaybe maxBound (KM.lookup (AK.fromString "rank") o >>= AT.parseMaybe Aeson.parseJSON)
                 _ -> maxBound
-        ann' = if isNaN ann || isInfinite ann then negate (1 / 0) else ann
+        ann'
+            | comboLiveQuarantined val = negate (1 / 0)
+            | isNaN ann || isInfinite ann = negate (1 / 0)
+            | otherwise = blendedAnnualizedReturn ann (comboLiveStats val)
         eq' = if isNaN eq || isInfinite eq then 0 else eq
         score' = if isNaN score || isInfinite score then negate (1 / 0) else score
      in (negate ann', negate score', negate eq', rank)
@@ -878,19 +1110,7 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
             other -> other
 
     compareCombos :: Aeson.Value -> Aeson.Value -> Ordering
-    compareCombos a b =
-        let annA = comboAnnualizedReturn a
-            annB = comboAnnualizedReturn b
-            scoreA = sanitizeScore (fromMaybe (negate (1 / 0)) (comboScoreValue a))
-            scoreB = sanitizeScore (fromMaybe (negate (1 / 0)) (comboScoreValue b))
-            eqA = sanitizeEq (fromMaybe 0 (comboFinalEquityValue a))
-            eqB = sanitizeEq (fromMaybe 0 (comboFinalEquityValue b))
-         in case compareDesc annA annB of
-                EQ ->
-                    case compareDesc scoreA scoreB of
-                        EQ -> compareDesc eqA eqB
-                        ord -> ord
-                ord -> ord
+    compareCombos a b = compare (comboPerformanceKey a) (comboPerformanceKey b)
 
     pickBestCombo newer prev =
         let objNew = comboMetricString "objective" newer
@@ -900,29 +1120,14 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
             scoreVal = fromMaybe (negate (1 / 0))
             finalEqNew = fromMaybe 0 (comboFinalEquityValue newer)
             finalEqPrev = fromMaybe 0 (comboFinalEquityValue prev)
-         in if objNew == objPrev && (isJust scoreNew || isJust scorePrev)
-                then if scoreVal scoreNew > scoreVal scorePrev then newer else prev
-                else if finalEqNew > finalEqPrev then newer else prev
+            best =
+                if objNew == objPrev && (isJust scoreNew || isJust scorePrev)
+                    then if scoreVal scoreNew > scoreVal scorePrev then newer else prev
+                    else if finalEqNew > finalEqPrev then newer else prev
+         in preserveRichestLiveStats [newer, prev] best
 
     comboMetricString key val =
         comboMetricValue key val >>= valueStringMaybe
-
-    comboAnnualizedReturn val =
-        let ann = fromMaybe (negate (1 / 0)) (comboMetricsDouble "annualizedReturn" val <|> comboMetricDouble "annualizedReturn" val)
-         in if isNaN ann || isInfinite ann then negate (1 / 0) else ann
-
-    sanitizeScore score
-        | isNaN score || isInfinite score = negate (1 / 0)
-        | otherwise = score
-
-    sanitizeEq eq
-        | isNaN eq || isInfinite eq = 0
-        | otherwise = eq
-
-    compareDesc a b
-        | a > b = LT
-        | a < b = GT
-        | otherwise = EQ
 
 data ComboBacktestUpdate = ComboBacktestUpdate
     { cbuMetrics :: !Aeson.Value
@@ -935,7 +1140,14 @@ updateComboWithBacktest :: ComboBacktestUpdate -> Aeson.Value -> Aeson.Value
 updateComboWithBacktest update comboVal =
     case comboVal of
         Aeson.Object o ->
-            let o1 = KM.insert (AK.fromString "metrics") (cbuMetrics update) o
+            -- Backtests know nothing about live trading: carry the prior
+            -- metrics' live record over so a refresh cannot erase it.
+            let metricsWithLive =
+                    case (comboLiveStats comboVal, cbuMetrics update) of
+                        (Just stats, Aeson.Object m) ->
+                            Aeson.Object (KM.insert (AK.fromString "live") (comboLiveStatsValue stats) m)
+                        (_, m) -> m
+                o1 = KM.insert (AK.fromString "metrics") metricsWithLive o
                 o2 =
                     case cbuFinalEquity update of
                         Nothing -> o1

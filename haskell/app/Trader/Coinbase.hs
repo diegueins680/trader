@@ -12,6 +12,7 @@ module Trader.Coinbase (
     fetchCoinbaseBaseMinSize,
     fetchCoinbaseOrderById,
     fetchCoinbaseCandles,
+    fetchCoinbaseCandlesEndingAt,
     decodeCoinbaseCandles,
     decodeCoinbaseOrderInfo,
     buildRanges,
@@ -285,6 +286,49 @@ fetchCoinbaseCandles product granularitySec bars = do
                     [ ("granularity", Just (BS8.pack (show granularity)))
                     , ("start", Just (formatIso startSec))
                     , ("end", Just (formatIso endSec))
+                    ]
+                    req0
+            req' =
+                req
+                    { requestHeaders =
+                        ("User-Agent", BS8.pack "trader-hs/0.1")
+                            : ("Accept", BS8.pack "application/json")
+                            : requestHeaders req
+                    , responseTimeout = responseTimeoutMicro coinbaseTimeoutMicros
+                    }
+        resp <- httpLbsWithRetry defaultRetryConfig (Just "coinbase.candles") manager req'
+        ensure2xx "Coinbase candles" resp
+        case decodeCoinbaseCandles (responseBody resp) of
+            Left err -> throwIO (userError err)
+            Right xs -> pure xs
+
+{- | Fetch @bars@ candles ending at @endSec@ (epoch seconds), paging backward.
+Unlike 'fetchCoinbaseCandles' (which always ends "now"), this lets a backtest
+fetch the Coinbase window matching a *historical* data set (e.g. an optimizer
+CSV), so cross-exchange alignment works off the live trading path too. Cached by
+(product, granularity, endSec, bars) — a stable CSV window hits the cache across
+optimizer trials.
+-}
+fetchCoinbaseCandlesEndingAt :: String -> Int -> Int64 -> Int -> IO [CoinbaseCandle]
+fetchCoinbaseCandlesEndingAt product granularitySec endSec bars = do
+    let totalBars = max 1 bars
+        key = cleaned ++ ":" ++ show granularity ++ ":end" ++ show endSec ++ ":" ++ show totalBars
+    fetchWithCache coinbaseCandlesCache coinbaseCandlesFreshTtl coinbaseCandlesStaleTtl key $ do
+        mgr <- getSharedManager
+        let ranges = buildRanges endSec (fromIntegral granularity) totalBars
+        chunks <- mapM (fetchRange mgr) ranges
+        pure (normalizeCoinbaseCandles totalBars (concat chunks))
+  where
+    cleaned = map toUpperAscii (trim product)
+    granularity = max 1 granularitySec
+
+    fetchRange manager (startSec, endSecR) = do
+        req0 <- parseRequest (coinbaseBaseUrl ++ "/products/" ++ cleaned ++ "/candles")
+        let req =
+                setQueryString
+                    [ ("granularity", Just (BS8.pack (show granularity)))
+                    , ("start", Just (formatIso startSec))
+                    , ("end", Just (formatIso endSecR))
                     ]
                     req0
             req' =
