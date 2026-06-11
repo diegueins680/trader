@@ -129,8 +129,10 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           FLY_API_TOKEN_FRONTEND: ${{ secrets.FLY_API_TOKEN_FRONTEND }}
+          FLY_API_TOKEN_RESEARCH: ${{ secrets.FLY_API_TOKEN_RESEARCH }}
           BACKEND_FLY_APP: ${{ secrets.FLY_APP }}
           FRONTEND_FLY_APP: ${{ secrets.FLY_FRONTEND_APP }}
+          RESEARCH_FLY_APP: ${{ secrets.FLY_RESEARCH_APP }}
         run: |
           set -euo pipefail
           auth_err_file="$(mktemp)"
@@ -218,6 +220,13 @@ jobs:
           }
 
           deploy_with_retries "backend" "." "fly.toml" "${BACKEND_FLY_APP:-}" "${FLY_API_TOKEN}"
+          # Research producer app (optimizer discovery). App-scoped deploy
+          # tokens carry a single app's discharge, so prefer a dedicated
+          # research token when configured and fall back to the primary one.
+          # Non-fatal: a missing/under-scoped research token must not fail the
+          # backend deploy or the Hetzner deploy workflow that keys off this run.
+          deploy_with_retries "research" "." "fly.research.toml" "${RESEARCH_FLY_APP:-trader-hs-research}" "${FLY_API_TOKEN_RESEARCH:-${FLY_API_TOKEN}}" ||
+            echo "::warning::research Fly deploy failed; set an app-scoped FLY_API_TOKEN_RESEARCH secret (fly tokens create deploy -a trader-hs-research)."
           # If a frontend-specific token is configured (recommended,
           # because Fly app-scoped deploy tokens carry a discharge for
           # only one app), use it; otherwise fall back to the primary

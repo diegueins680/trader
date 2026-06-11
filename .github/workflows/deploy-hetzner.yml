@@ -110,6 +110,9 @@ jobs:
           export TRADER_HETZNER_SSH_PORT="$port"
           export TRADER_HETZNER_REPO_DIR="${HETZNER_REPO_DIR:-/opt/trader}"
           export TRADER_HETZNER_ENV_FILE="${HETZNER_ENV_FILE:-deploy/hetzner/trader.env}"
+          # Checked-in, non-secret tuning overlay merged into the box's env file
+          # on every deploy (missing file = no-op, e.g. for the trading role).
+          export TRADER_HETZNER_MANAGED_ENV_FILE="deploy/hetzner/trader.${ROLE}.env.managed"
           export TRADER_HETZNER_SSH_KEY_FILE="$key_file"
           export TRADER_HETZNER_KNOWN_HOSTS="$known_hosts"
           export TRADER_GIT_COMMIT
