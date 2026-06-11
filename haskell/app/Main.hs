@@ -205,8 +205,10 @@ import Trader.Binance (
  )
 import Trader.BinanceIntervals (binanceIntervals)
 import Trader.BotStartSemantics (
+    BacktestVerdict (..),
+    backtestVerdictAborts,
     botStartSymbolDisabled,
-    botStartupBacktestAborts,
+    botStartupBacktestVerdict,
     botTradeEnabledFromApi,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
@@ -352,10 +354,10 @@ import Trader.SignalGates (
     SignalThresholdBoundary (..),
     dynamicRangePct,
     mkSignalThresholdBoundary,
+    normalizeSignalThreshold,
     predictorDegenerate,
     predictorLiveness,
     predictorLivenessToJson,
-    normalizeSignalThreshold,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
     signalEntryEdgeSpikeAuditWarning,
@@ -384,6 +386,7 @@ import Trader.TopCombosStore (
     applyComboUpdatesWithStats,
     comboIdentityKey,
     comboMetricDouble,
+    comboMetricInt,
     comboPerformanceKey,
     compactTopCombosPayloadForSync,
     isTopCombosPayload,
@@ -7286,39 +7289,58 @@ runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
                                             pure (Right ())
                                         Just metricsVal -> do
                                             let mFinalEq = comboMetricDouble "finalEquity" metricsVal
+                                                mTradeCount = comboMetricInt "tradeCount" metricsVal
                                                 objective =
                                                     case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
                                                         Aeson.Success combo -> fromMaybe "final-equity" (tcObjectiveLabel combo)
                                                         Aeson.Error _ -> "final-equity"
-                                                update =
-                                                    ComboBacktestUpdate
-                                                        { cbuMetrics = metricsVal
-                                                        , cbuFinalEquity = mFinalEq
-                                                        , cbuScore = objectiveScoreFromMetrics argsOk objective metricsVal
-                                                        , cbuOperations = extractBacktestOperations out
-                                                        }
-                                            updateResult <- applyStartupComboBacktestUpdate ctx comboKey update
-                                            -- Reached only when the guard is enabled (disabled boxes
-                                            -- short-circuit above). A start aborts only on a genuine
-                                            -- sub-threshold ROI reading; a missing finalEquity fails open.
-                                            let acceptable = not (botStartupBacktestAborts (tcbcEnabled ctx) mFinalEq)
-                                            case updateResult of
-                                                Left err -> do
-                                                    let msg = "Top-combo startup backtest failed: " ++ err
-                                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid mFinalEq (Just msg)
-                                                    if acceptable
-                                                        then pure (Right ())
-                                                        else pure (Left msg)
-                                                Right stats -> do
-                                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest" sym comboUuid mFinalEq Nothing
-                                                    let pruned = cbasPrunedCount stats > 0
-                                                    when pruned (deleteTopComboFromDbMaybe (tcbcOps ctx) comboUuid)
-                                                    if acceptable
-                                                        then pure (Right ())
-                                                        else do
-                                                            let msg = topComboStartupAbortMessage sym comboUuid mFinalEq pruned
-                                                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_aborted" sym comboUuid mFinalEq (Just msg)
-                                                            pure (Left msg)
+                                                verdict = botStartupBacktestVerdict (tcbcEnabled ctx) mFinalEq mTradeCount
+                                            case verdict of
+                                                BacktestNoVerdict -> do
+                                                    -- Zero-trade (or unknown-trade) smoke window. Do NOT
+                                                    -- persist the smoke metrics onto the combo and do NOT
+                                                    -- prune it: the on-disk metrics are the optimizer's
+                                                    -- out-of-sample reading, which is the right artifact
+                                                    -- to keep. Pruning here would silently delete healthy
+                                                    -- combos every quiet day (124 such erroneous prunes
+                                                    -- in the 2026-06-10 launchd log).
+                                                    let reason =
+                                                            "top-combo startup backtest produced no verdict (tradeCount="
+                                                                ++ maybe "unknown" show mTradeCount
+                                                                ++ ", finalEquity="
+                                                                ++ maybe "unknown" (printf "%.6f") mFinalEq
+                                                                ++ "); allowing start without persisting smoke metrics."
+                                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_no_verdict" sym comboUuid mFinalEq (Just reason)
+                                                    pure (Right ())
+                                                _ -> do
+                                                    let update =
+                                                            ComboBacktestUpdate
+                                                                { cbuMetrics = metricsVal
+                                                                , cbuFinalEquity = mFinalEq
+                                                                , cbuScore = objectiveScoreFromMetrics argsOk objective metricsVal
+                                                                , cbuOperations = extractBacktestOperations out
+                                                                }
+                                                    updateResult <- applyStartupComboBacktestUpdate ctx comboKey update
+                                                    -- Reached only when the verdict is Allow or Abort and the
+                                                    -- guard is enabled (disabled boxes return Allow above).
+                                                    let acceptable = not (backtestVerdictAborts verdict)
+                                                    case updateResult of
+                                                        Left err -> do
+                                                            let msg = "Top-combo startup backtest failed: " ++ err
+                                                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid mFinalEq (Just msg)
+                                                            if acceptable
+                                                                then pure (Right ())
+                                                                else pure (Left msg)
+                                                        Right stats -> do
+                                                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest" sym comboUuid mFinalEq Nothing
+                                                            let pruned = cbasPrunedCount stats > 0
+                                                            when pruned (deleteTopComboFromDbMaybe (tcbcOps ctx) comboUuid)
+                                                            if acceptable
+                                                                then pure (Right ())
+                                                                else do
+                                                                    let msg = topComboStartupAbortMessage sym comboUuid mFinalEq pruned
+                                                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_aborted" sym comboUuid mFinalEq (Just msg)
+                                                                    pure (Left msg)
 
 clearPositionOriginIfFlatMaybe :: Maybe OpsStore -> TenantKey -> Args -> String -> IO ()
 clearPositionOriginIfFlatMaybe mOps tenantKey args sym =
@@ -28822,8 +28844,8 @@ buildCrossExchangeCoinbase args pricesV mOpenTimes
             (Just product, Just gran, Just openTimes)
                 | n > 0 && length openTimes == n -> do
                     res <-
-                        try (fetchCoinbaseCandles product gran (n + 5))
-                            :: IO (Either SomeException [CoinbaseCandle])
+                        try (fetchCoinbaseCandles product gran (n + 5)) ::
+                            IO (Either SomeException [CoinbaseCandle])
                     case res of
                         Left ex -> do
                             hPutStrLn stderr ("WARN: cross-exchange Coinbase fetch failed for " ++ product ++ ": " ++ displayException ex)

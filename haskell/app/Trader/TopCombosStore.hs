@@ -11,6 +11,7 @@ module Trader.TopCombosStore (
     comboFinalEquityValue,
     comboIdentityKey,
     comboMetricDouble,
+    comboMetricInt,
     comboMetricsDouble,
     comboPerformanceKey,
     isBinancePlatformKey,
@@ -329,6 +330,22 @@ coerceIntValue value =
 comboMetricDouble :: String -> Aeson.Value -> Maybe Double
 comboMetricDouble key val =
     comboMetricValue key val >>= coerceDoubleValue
+
+{- | Read a metric value as an integer, supporting both numeric and stringly
+encoded fields. Returns 'Nothing' for non-finite or non-integral inputs.
+Used by the bot-start guard to distinguish a zero-trade smoke window
+(@tradeCount == 0@) from an actual loss reading.
+-}
+comboMetricInt :: String -> Aeson.Value -> Maybe Int
+comboMetricInt key val = do
+    d <- comboMetricDouble key val
+    if isNaN d || isInfinite d
+        then Nothing
+        else
+            let r = round d :: Integer
+             in if fromIntegral r == d
+                    then Just (fromInteger r)
+                    else Nothing
 
 comboMetricsDouble :: String -> Aeson.Value -> Maybe Double
 comboMetricsDouble key val = do
@@ -959,6 +976,15 @@ data ComboBacktestApplyStats = ComboBacktestApplyStats
     }
     deriving (Eq, Show)
 
+{- | Apply backtest updates to the top-combos JSON.
+
+Invariant (2026-06-10): a combo is /never/ pruned when the incoming backtest
+update represents a zero-trade smoke window. A zero-trade backtest is not a
+verdict on the combo's profitability; it is a verdict on the smoke window.
+Pruning on @finalEquity == 1.0@ produced by @tradeCount == 0@ silently
+deleted 124 healthy combos in the 2026-06-10 launchd log. We detect the
+zero-trade case by reading the inbound update's metrics directly.
+-}
 applyComboUpdatesWithStats :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
 applyComboUpdatesWithStats now updates val =
     case val of
@@ -973,7 +999,11 @@ applyComboUpdatesWithStats now updates val =
                                 Just upd ->
                                     let updated = updateComboWithBacktest upd comboVal
                                         mEquity = comboFinalEquityValue updated
-                                     in if maybe True (> 1.0) mEquity
+                                        mTrades = comboMetricInt "tradeCount" (cbuMetrics upd)
+                                        -- A zero-trade update is not a verdict; keep the combo as-is.
+                                        zeroTradeUpdate = mTrades == Just 0
+                                        keep = maybe True (> 1.0) mEquity || zeroTradeUpdate
+                                     in if keep
                                             then (updated : acc, updCount + 1, pruneCount, pKeys)
                                             else case comboIdentityKey comboVal of
                                                 Nothing -> (acc, updCount + 1, pruneCount + 1, pKeys)

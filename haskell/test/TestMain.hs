@@ -6,6 +6,7 @@ module Main (main) where
 
 import Control.Exception (SomeException, evaluate, toException, try)
 import Control.Monad (forM_, unless)
+import Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
@@ -20,10 +21,8 @@ import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPur
 import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
-import Trader.BotStartSemantics (botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (BacktestVerdict (..), backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
-import Trader.LSTM (LSTMConfig (..), LSTMModel (..), inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
-import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
 import Trader.Formal.Execution (
     ExecutionVerificationReport (..),
     verifyFormalExecution,
@@ -43,6 +42,7 @@ import Trader.Formal.Risk (
     verifyFormalRisk,
  )
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
+import Trader.LSTM (LSTMConfig (..), LSTMModel (..), inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
 import Trader.MarketContext (fitLinearRange)
 import Trader.MarketDataIntegrity (
     isTransientMarketDataError,
@@ -76,15 +76,19 @@ import Trader.PredictionMarkets (
  )
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
+import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     PredictorLiveness (..),
     SignalThresholdBoundary (..),
     directionalityWeakBandConfirmed,
     directionalityWeakBandConfirmedWithPrediction,
+    dynamicRangePct,
     finiteDouble,
     mkSignalThresholdBoundary,
     normalizeSignalEntryEdge,
+    predictorDegenerate,
+    predictorLiveness,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
     signalDirectionalitySnapshotImplWithPrediction,
@@ -106,9 +110,6 @@ import Trader.SignalGates (
     signalPredictionSanityOk,
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
-    dynamicRangePct,
-    predictorDegenerate,
-    predictorLiveness,
  )
 import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
@@ -257,6 +258,12 @@ main = do
     testDisabledBotStartSymbols
     testBotStartupBacktestRoiAcceptability
     testBotStartupBacktestGuardFailOpen
+    testBotStartupBacktestVerdictZeroTradeIsNoVerdict
+    testBotStartupBacktestVerdictAbortOnLossWithTrades
+    testBotStartupBacktestVerdictPreservesDisabledBehaviour
+    testApplyComboUpdatesZeroTradeDoesNotPrune
+    testApplyComboUpdatesGenuineLossStillPrunes
+    testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
     testBacktestEntryGateUsesRoundTripFeeBuffer
@@ -2573,6 +2580,200 @@ testBotStartupBacktestGuardFailOpen = do
             && botStartupBacktestAborts True (Just (1 / 0))
             && botStartupBacktestAborts True (Just (0 / 0))
         )
+
+{- | H6 from 2026-06-10 review: a backtest that fired zero trades is not a
+verdict on the combo. It must produce 'BacktestNoVerdict' so the start is
+allowed and the combo is not pruned. Today's launchd log shows 124 such
+erroneous prunes with @finalEquity=1.000000@ exactly, all caused by
+zero-trade smoke windows. The verdict function is the central guard.
+-}
+testBotStartupBacktestVerdictZeroTradeIsNoVerdict :: IO ()
+testBotStartupBacktestVerdictZeroTradeIsNoVerdict = do
+    assert
+        "zero-trade backtest is not a verdict: do not abort, do not prune"
+        ( botStartupBacktestVerdict True (Just 1.0) (Just 0) == BacktestNoVerdict
+            && botStartupBacktestVerdict True (Just 0.9999) (Just 0) == BacktestNoVerdict
+            && botStartupBacktestVerdict True (Just 1.5) (Just 0) == BacktestAllow
+            -- An unknown tradeCount with a flat/losing finalEquity is also
+            -- not a verdict: we don't have evidence the smoke window
+            -- actually traded.
+            && botStartupBacktestVerdict True (Just 1.0) Nothing == BacktestNoVerdict
+            && not (backtestVerdictAborts BacktestNoVerdict)
+            && not (backtestVerdictAborts BacktestAllow)
+            && backtestVerdictAborts BacktestAbort
+        )
+
+{- | When the smoke backtest actually traded and lost (or finished flat with
+evidence of trading), the verdict must still abort — we don't want to fail
+open on a real signal that lost money.
+-}
+testBotStartupBacktestVerdictAbortOnLossWithTrades :: IO ()
+testBotStartupBacktestVerdictAbortOnLossWithTrades = do
+    assert
+        "backtest that traded and lost still aborts"
+        ( botStartupBacktestVerdict True (Just 0.5) (Just 4) == BacktestAbort
+            && botStartupBacktestVerdict True (Just 1.0) (Just 12) == BacktestAbort
+            && botStartupBacktestVerdict True (Just (1 / 0)) (Just 2) == BacktestAbort
+            && botStartupBacktestVerdict True (Just (0 / 0)) (Just 2) == BacktestAbort
+            -- One actual trade is enough evidence that the signal fired.
+            && botStartupBacktestVerdict True (Just 0.9) (Just 1) == BacktestAbort
+        )
+
+{- | The disabled-guard short-circuit (BotStartSemantics fail-open) must keep
+the new three-valued verdict consistent with the existing two-valued
+'botStartupBacktestAborts': disabled always allows, regardless of trades.
+-}
+testBotStartupBacktestVerdictPreservesDisabledBehaviour :: IO ()
+testBotStartupBacktestVerdictPreservesDisabledBehaviour = do
+    assert
+        "disabled guard always returns Allow and never aborts"
+        ( botStartupBacktestVerdict False (Just 0.5) (Just 4) == BacktestAllow
+            && botStartupBacktestVerdict False (Just 1.0) (Just 0) == BacktestAllow
+            && botStartupBacktestVerdict False Nothing Nothing == BacktestAllow
+            && botStartupBacktestVerdict False (Just (1 / 0)) Nothing == BacktestAllow
+            && not (backtestVerdictAborts (botStartupBacktestVerdict False (Just 0.0) (Just 99)))
+        )
+
+{- | End-to-end invariant on the JSON store: a zero-trade update must not
+cause 'applyComboUpdatesWithStats' to prune the combo. This closes the
+second prune path used by the optimizer top-N rerun.
+-}
+testApplyComboUpdatesZeroTradeDoesNotPrune :: IO ()
+testApplyComboUpdatesZeroTradeDoesNotPrune = do
+    let combosJson =
+            Aeson.object
+                [ "combos"
+                    .= Aeson.toJSON
+                        [ Aeson.object
+                            [ "comboKey" .= ("binance|BTCUSDT|15m|deadbeef" :: T.Text)
+                            , "platform" .= ("binance" :: T.Text)
+                            , "symbol" .= ("BTCUSDT" :: T.Text)
+                            , "interval" .= ("15m" :: T.Text)
+                            , "uuid" .= ("deadbeef-1234-5678-9abc-def012345678" :: T.Text)
+                            , "finalEquity" .= (1.42 :: Double)
+                            , "openThreshold" .= (0.005 :: Double)
+                            , "closeThreshold" .= (0.010 :: Double)
+                            , "objective" .= ("final-equity" :: T.Text)
+                            , "params"
+                                .= Aeson.object
+                                    [ "method" .= ("blend" :: T.Text)
+                                    , "lookback" .= (48 :: Int)
+                                    ]
+                            , "metrics"
+                                .= Aeson.object
+                                    [ "finalEquity" .= (1.42 :: Double)
+                                    , "tradeCount" .= (8 :: Int)
+                                    ]
+                            ]
+                        ]
+                ]
+    let firstCombo = case combosJson of
+            Aeson.Object o -> case KM.lookup "combos" o of
+                Just (Aeson.Array v) | not (V.null v) -> Just (V.head v)
+                _ -> Nothing
+            _ -> Nothing
+        key = case firstCombo >>= comboIdentityKey of
+            Just k -> k
+            Nothing -> error "test setup: combo identity key resolution failed"
+        zeroTradeUpdate =
+            ComboBacktestUpdate
+                { cbuMetrics =
+                    Aeson.object
+                        [ "finalEquity" .= (1.000000 :: Double)
+                        , "tradeCount" .= (0 :: Int)
+                        ]
+                , cbuFinalEquity = Just 1.0
+                , cbuScore = Just 0.0
+                , cbuOperations = Nothing
+                }
+        result = applyComboUpdatesWithStats 0 (HM.singleton key zeroTradeUpdate) combosJson
+    case result of
+        Left err -> ioError (userError ("applyComboUpdatesWithStats failed unexpectedly: " ++ err))
+        Right (_, stats) ->
+            assert
+                "zero-trade smoke update does not prune the combo"
+                (cbasUpdatedCount stats == 1 && cbasPrunedCount stats == 0 && null (cbasPrunedKeys stats))
+
+{- | Symmetry test for the prune fix: a genuine loss (positive trade count,
+sub-threshold finalEquity) must still prune. We don't want the fix to
+swallow real signal regressions.
+-}
+testApplyComboUpdatesGenuineLossStillPrunes :: IO ()
+testApplyComboUpdatesGenuineLossStillPrunes = do
+    let combosJson =
+            Aeson.object
+                [ "combos"
+                    .= Aeson.toJSON
+                        [ Aeson.object
+                            [ "comboKey" .= ("binance|ETHUSDT|15m|cafebabe" :: T.Text)
+                            , "platform" .= ("binance" :: T.Text)
+                            , "symbol" .= ("ETHUSDT" :: T.Text)
+                            , "interval" .= ("15m" :: T.Text)
+                            , "uuid" .= ("cafebabe-1234-5678-9abc-def012345678" :: T.Text)
+                            , "finalEquity" .= (1.42 :: Double)
+                            , "openThreshold" .= (0.005 :: Double)
+                            , "closeThreshold" .= (0.010 :: Double)
+                            , "objective" .= ("final-equity" :: T.Text)
+                            , "params"
+                                .= Aeson.object
+                                    [ "method" .= ("blend" :: T.Text)
+                                    , "lookback" .= (48 :: Int)
+                                    ]
+                            , "metrics"
+                                .= Aeson.object
+                                    [ "finalEquity" .= (1.42 :: Double)
+                                    , "tradeCount" .= (8 :: Int)
+                                    ]
+                            ]
+                        ]
+                ]
+    let firstCombo = case combosJson of
+            Aeson.Object o -> case KM.lookup "combos" o of
+                Just (Aeson.Array v) | not (V.null v) -> Just (V.head v)
+                _ -> Nothing
+            _ -> Nothing
+        key = case firstCombo >>= comboIdentityKey of
+            Just k -> k
+            Nothing -> error "test setup: combo identity key resolution failed"
+        lossUpdate =
+            ComboBacktestUpdate
+                { cbuMetrics =
+                    Aeson.object
+                        [ "finalEquity" .= (0.85 :: Double)
+                        , "tradeCount" .= (12 :: Int)
+                        ]
+                , cbuFinalEquity = Just 0.85
+                , cbuScore = Just (-0.15)
+                , cbuOperations = Nothing
+                }
+        result = applyComboUpdatesWithStats 0 (HM.singleton key lossUpdate) combosJson
+    case result of
+        Left err -> ioError (userError ("applyComboUpdatesWithStats failed unexpectedly: " ++ err))
+        Right (_, stats) ->
+            assert
+                "genuine loss with positive tradeCount still prunes"
+                (cbasUpdatedCount stats == 1 && cbasPrunedCount stats == 1 && length (cbasPrunedKeys stats) == 1)
+
+{- | Today's launchd log also showed:
+  @Need at least 3361 price rows for lookback=3360 (got 500) from Binance FILUSDT (3m)@
+and the same for XRPUSDT. The current behaviour of 'normalizeBarsForLookback'
+is to leave 'argBars' alone when @requiredBars > 1000@. That is the right
+conservative call for now (paging is the optimizer's job, not the bot
+starter's). This test pins that decision so any future change is
+deliberate, with an explicit follow-up reminder.
+-}
+testNormalizeBarsForLookbackBinanceClampsAtPageCap :: IO ()
+testNormalizeBarsForLookbackBinanceClampsAtPageCap = do
+    let parseOrFail argv =
+            case parseCliArgs argv of
+                Left err -> ioError (userError ("CLI parse failed unexpectedly: " ++ err))
+                Right a -> pure a
+    overLookbackArgs <-
+        parseOrFail ["--binance-symbol", "FILUSDT", "--interval", "3m", "--bars", "500", "--lookback-bars", "3360"]
+    let adjusted = normalizeBarsForLookback overLookbackArgs
+    assert
+        "Binance + requiredBars > 1000 leaves --bars unchanged (deferred: page or shrink lookback in optimizer)"
+        (argBars adjusted == argBars overLookbackArgs)
 
 testBinanceExceptionSummaryRedactsSecrets :: IO ()
 testBinanceExceptionSummaryRedactsSecrets = do
