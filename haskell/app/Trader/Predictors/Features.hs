@@ -4,6 +4,7 @@ module Trader.Predictors.Features (
     mkFeatureSpec,
     mkFeatureInputs,
     withExogenousInputs,
+    withCoinbaseInputs,
     featureInputsFromClose,
     featuresAt,
     featuresAtWithMarket,
@@ -20,7 +21,7 @@ module Trader.Predictors.Features (
     buildDatasetWithInputsWithMarket,
 ) where
 
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Vector as V
 
 import Trader.MarketContext (MarketModel (..))
@@ -46,6 +47,11 @@ data FeatureInputs = FeatureInputs
     , fiOpenInterest :: !(Maybe (V.Vector Double)) -- open interest (level)
     , fiBasis :: !(Maybe (V.Vector Double)) -- (mark - index) / index
     , fiTakerFlow :: !(Maybe (V.Vector Double)) -- taker buy/sell volume ratio (CVD proxy)
+    , fiCoinbaseClose :: !(Maybe (V.Vector Double))
+    -- ^ Same-asset cross-exchange (Coinbase) closes, aligned to the same bar
+    -- grid as 'fiClose'. 'Nothing' (the default) leaves the feature vector
+    -- byte-identical to the Binance-only behavior; its presence switches on the
+    -- cross-exchange feature block.
     }
     deriving (Eq, Show)
 
@@ -83,6 +89,7 @@ mkFeatureInputs closes opens highs lows volumes =
         , fiOpenInterest = Nothing
         , fiBasis = Nothing
         , fiTakerFlow = Nothing
+        , fiCoinbaseClose = Nothing
         }
 
 featureInputsFromClose :: V.Vector Double -> FeatureInputs
@@ -107,6 +114,12 @@ withExogenousInputs funding oi basis takerFlow inputs =
         , fiBasis = basis
         , fiTakerFlow = takerFlow
         }
+
+{- | Attach (or clear) the same-asset cross-exchange close series. The vector,
+when present, must be aligned to the same bar grid as 'fiClose'.
+-}
+withCoinbaseInputs :: Maybe (V.Vector Double) -> FeatureInputs -> FeatureInputs
+withCoinbaseInputs cbCloses inputs = inputs{fiCoinbaseClose = cbCloses}
 
 -- | Forward return r_t = p_{t+1}/p_t - 1.
 forwardReturnAt :: V.Vector Double -> Int -> Maybe Double
@@ -168,6 +181,10 @@ featuresAtWithInputsWithMarket fs mMarket inputs t = do
                 volRatio = if abs sigM <= eps then 0 else sigS / sigM
                 trendSlope = muS - muM
                 exoFeats = exogenousFeatures inputs t
+                crossFeats =
+                    if isJust (fiCoinbaseClose inputs)
+                        then crossExchangeFeatures inputs t ret1 shortB
+                        else []
                 feats =
                     [ ret1
                     , ret3
@@ -187,6 +204,7 @@ featuresAtWithInputsWithMarket fs mMarket inputs t = do
                         ++ marketFeats
                         ++ psych
                         ++ exoFeats
+                        ++ crossFeats
             if all isFiniteDouble feats
                 then pure feats
                 else Nothing
@@ -545,6 +563,55 @@ sanitizeFinite x =
     if isFiniteDouble x
         then x
         else 0
+
+{- | Number of same-asset cross-exchange (Coinbase) features appended when a
+Coinbase close series is attached. Constant so the feature dimension is stable
+across every bar of a run.
+-}
+crossExchangeFeatureCount :: Int
+crossExchangeFeatureCount = 5
+
+zeroCrossExchangeFeatures :: [Double]
+zeroCrossExchangeFeatures = replicate crossExchangeFeatureCount 0
+
+{- | Same-asset cross-exchange features derived from the Coinbase close series
+aligned to the Binance bar grid. Captures the Binance/Coinbase basis (premium),
+its short-window dynamics, and the per-bar lead-lag return divergence. Every
+component uses only data available by bar @t@ (no lookahead) and is sanitized to
+a finite value; missing/degenerate inputs collapse to neutral zeros.
+-}
+crossExchangeFeatures :: FeatureInputs -> Int -> Double -> Int -> [Double]
+crossExchangeFeatures inputs t ret1 shortB =
+    case fiCoinbaseClose inputs of
+        Nothing -> zeroCrossExchangeFeatures
+        Just cb ->
+            let bn = fiClose inputs
+                eps = 1e-12
+                basisAt i =
+                    if i < 0 || i >= V.length cb || i >= V.length bn
+                        then Nothing
+                        else
+                            let b = bn V.! i
+                                c = cb V.! i
+                             in if abs b <= eps || not (isFiniteDouble b) || not (isFiniteDouble c)
+                                    then Nothing
+                                    else Just ((c - b) / b)
+                mBasisNow = basisAt t
+                basisNow = fromMaybe 0 mBasisNow
+                basisChange =
+                    case (mBasisNow, basisAt (t - 1)) of
+                        (Just a, Just b) -> a - b
+                        _ -> 0
+                window = [b | i <- [t - shortB + 1 .. t], Just b <- [basisAt i]]
+                (muB, sigB) = meanStd window
+                basisZ = if sigB <= eps then 0 else (basisNow - muB) / sigB
+                cbRet1 =
+                    if t >= 1 && t < V.length cb
+                        then fromMaybe 0 (finiteReturn (cb V.! (t - 1)) (cb V.! t))
+                        else 0
+                leadLag = cbRet1 - ret1
+                feats = [basisNow, basisChange, basisZ, cbRet1, leadLag]
+             in map sanitizeFinite feats
 
 marketFeatureCount :: Int
 marketFeatureCount = 8
