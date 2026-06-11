@@ -325,7 +325,7 @@ unflattenParamsD h d xs =
             }
 
 lossFromFlatV :: (Floating a) => Int -> Int -> [(V.Vector Double, Double)] -> [a] -> a
-lossFromFlatV _lookback hidden = lossFromFlatDV 1 hidden
+lossFromFlatV _lookback = lossFromFlatDV 1
 
 {- | Mean-squared error of the model over a dataset of (flat window, target),
 where each window holds @lookback@ timesteps of @d@ interleaved channels
