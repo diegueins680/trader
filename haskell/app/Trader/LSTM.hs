@@ -50,9 +50,10 @@ data LSTMModel = LSTMModel
 paramCount :: Int -> Int
 paramCount h = paramCountD h 1
 
--- | Parameter count for a hidden size @h@ and input dimension @d@ (number of
--- channels per timestep). The univariate model is @d == 1@. Each gate matrix is
--- @h x (h + d)@ (recurrent state plus the @d@ inputs) with an @h@ bias.
+{- | Parameter count for a hidden size @h@ and input dimension @d@ (number of
+channels per timestep). The univariate model is @d == 1@. Each gate matrix is
+@h x (h + d)@ (recurrent state plus the @d@ inputs) with an @h@ bias.
+-}
 paramCountD :: Int -> Int -> Int
 paramCountD h d =
     let gate = h * (h + d) + h -- W (h x (h+d)) plus b (h)
@@ -286,9 +287,10 @@ data LSTMParams a = LSTMParams
 unflattenParams :: (Num a) => Int -> [a] -> LSTMParams a
 unflattenParams h = unflattenParamsD h 1
 
--- | Unflatten parameters for hidden size @h@ and input dimension @d@. Each gate
--- weight matrix is @h x (h+d)@. @unflattenParamsD h 1@ matches the original
--- univariate layout exactly.
+{- | Unflatten parameters for hidden size @h@ and input dimension @d@. Each gate
+weight matrix is @h x (h+d)@. @unflattenParamsD h 1@ matches the original
+univariate layout exactly.
+-}
 unflattenParamsD :: (Num a) => Int -> Int -> [a] -> LSTMParams a
 unflattenParamsD h d xs =
     let cols = h + d
@@ -325,9 +327,10 @@ unflattenParamsD h d xs =
 lossFromFlatV :: (Floating a) => Int -> Int -> [(V.Vector Double, Double)] -> [a] -> a
 lossFromFlatV _lookback hidden = lossFromFlatDV 1 hidden
 
--- | Mean-squared error of the model over a dataset of (flat window, target),
--- where each window holds @lookback@ timesteps of @d@ interleaved channels
--- (timestep-major: @[t0c0,t0c1,...,t1c0,...]@). @d == 1@ is the univariate case.
+{- | Mean-squared error of the model over a dataset of (flat window, target),
+where each window holds @lookback@ timesteps of @d@ interleaved channels
+(timestep-major: @[t0c0,t0c1,...,t1c0,...]@). @d == 1@ is the univariate case.
+-}
 lossFromFlatDV :: (Floating a) => Int -> Int -> [(V.Vector Double, Double)] -> [a] -> a
 lossFromFlatDV d hidden dataset flat =
     let p = unflattenParamsD hidden d flat
@@ -346,8 +349,9 @@ lossFromFlatDV d hidden dataset flat =
 forwardWindowV :: (Floating a) => LSTMParams a -> V.Vector a -> a
 forwardWindowV = forwardWindowDV 1
 
--- | Forward pass over a flat window of @d@ interleaved channels. With @d == 1@
--- each step feeds a single scalar, identical to the original univariate fold.
+{- | Forward pass over a flat window of @d@ interleaved channels. With @d == 1@
+each step feeds a single scalar, identical to the original univariate fold.
+-}
 forwardWindowDV :: (Floating a) => Int -> LSTMParams a -> V.Vector a -> a
 forwardWindowDV d p xsV =
     let h = length (pBi p)
@@ -363,8 +367,9 @@ forwardWindow :: (Floating a) => LSTMParams a -> [a] -> a
 forwardWindow p xs =
     forwardWindowV p (V.fromList xs)
 
--- | One recurrent step consuming the @d@-dimensional input vector for this
--- timestep. For @d == 1@, @u == x : hPrev@, matching the original.
+{- | One recurrent step consuming the @d@-dimensional input vector for this
+timestep. For @d == 1@, @u == x : hPrev@, matching the original.
+-}
 lstmStep :: (Floating a) => LSTMParams a -> ([a], [a]) -> [a] -> ([a], [a])
 lstmStep p (hPrev, cPrev) xVec =
     let u = xVec ++ hPrev

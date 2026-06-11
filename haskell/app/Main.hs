@@ -352,10 +352,10 @@ import Trader.SignalGates (
     SignalThresholdBoundary (..),
     dynamicRangePct,
     mkSignalThresholdBoundary,
+    normalizeSignalThreshold,
     predictorDegenerate,
     predictorLiveness,
     predictorLivenessToJson,
-    normalizeSignalThreshold,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
     signalEntryEdgeSpikeAuditWarning,
@@ -28822,8 +28822,8 @@ buildCrossExchangeCoinbase args pricesV mOpenTimes
             (Just product, Just gran, Just openTimes)
                 | n > 0 && length openTimes == n -> do
                     res <-
-                        try (fetchCoinbaseCandles product gran (n + 5))
-                            :: IO (Either SomeException [CoinbaseCandle])
+                        try (fetchCoinbaseCandles product gran (n + 5)) ::
+                            IO (Either SomeException [CoinbaseCandle])
                     case res of
                         Left ex -> do
                             hPutStrLn stderr ("WARN: cross-exchange Coinbase fetch failed for " ++ product ++ ": " ++ displayException ex)
