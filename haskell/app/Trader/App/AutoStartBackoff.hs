@@ -123,8 +123,8 @@ defaultBackoffPolicy :: BackoffPolicy
 defaultBackoffPolicy =
     BackoffPolicy
         { bpInitialDelaySec = 60
-        , bpMaxDelaySec = 1800
-        , bpAuthCircuitOpenSec = 3600
+        , bpMaxDelaySec = 1_800
+        , bpAuthCircuitOpenSec = 3_600
         , bpPermanentOpenSec = 21_600 -- 6h: needs an operator change anyway
         , bpMultiplier = 2.0
         }
@@ -142,7 +142,7 @@ defaultCircuitPolicy :: CircuitPolicy
 defaultCircuitPolicy =
     CircuitPolicy
         { cpAuthThreshold = 3
-        , cpOpenDurationSec = 3600
+        , cpOpenDurationSec = 3_600
         }
 
 data CircuitState
@@ -213,13 +213,13 @@ isPermanentByCode :: Maybe Int -> Bool
 isPermanentByCode = maybe False go
   where
     go c =
-        c == (-1013)
-            || c == (-2010)
-            || c == (-2011)
-            || c == (-2022)
-            || c == (-4164)
-            || (c <= (-1100) && c >= (-1199))
-            || (c <= (-4000) && c >= (-4999))
+        c == (-1_013)
+            || c == (-2_010)
+            || c == (-2_011)
+            || c == (-2_022)
+            || c == (-4_164)
+            || (c <= (-1_100) && c >= (-1_199))
+            || (c <= (-4_000) && c >= (-4_999))
 
 isPermanentBySummary :: String -> Bool
 isPermanentBySummary summary = any (`isInfixOf` lowerSummary) phrases
@@ -250,7 +250,7 @@ initialBackoff nowMs cls msg policy =
             { sbLastErrorAtMs = nowMs
             , sbLastErrorClass = cls
             , sbConsecutiveFails = 1
-            , sbNextAllowedAtMs = nowMs + fromIntegral delaySec * 1000
+            , sbNextAllowedAtMs = nowMs + fromIntegral delaySec * 1_000
             , sbLastErrorMessage = normalizeAutoStartErrorMessage msg
             }
 
@@ -282,7 +282,7 @@ nextBackoff policy nowMs mPrev cls msg =
                     { sbLastErrorAtMs = nowMs
                     , sbLastErrorClass = cls
                     , sbConsecutiveFails = count'
-                    , sbNextAllowedAtMs = nowMs + fromIntegral base * 1000
+                    , sbNextAllowedAtMs = nowMs + fromIntegral base * 1_000
                     , sbLastErrorMessage = normalizeAutoStartErrorMessage msg
                     }
 
