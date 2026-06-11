@@ -52,9 +52,12 @@ verify_haskell() {
   require_cmd fourmolu
   require_cmd hlint
 
+  # Build first: a compile break must surface on its own, not be hidden behind a
+  # formatting/lint failure that aborts the script early (set -e). This mirrors
+  # the autoloop merge build gate.
+  run_haskell_shell "cabal build"
   run_haskell_shell "find app test bench -name '*.hs' -print0 | xargs -0 fourmolu --mode check"
   run_haskell_shell "hlint app test bench"
-  run_haskell_shell "cabal build"
   run_haskell_shell "bash scripts/ci_smoke.sh"
   run_haskell_shell "cabal test --test-show-details=direct"
 }

@@ -12,6 +12,7 @@ import {
   isAutoloopRecoveryBranch,
   normalizeGitBranchShortName,
   parseGitStatusPaths,
+  prepareShellCommand,
   uniqueStrings,
   writeJsonFileAtomic,
 } from "./autoloop-lib.mjs";
@@ -29,6 +30,11 @@ const REPO_STATUS_FILE = process.env.TRADER_AUTOLOOP_STATUS_FILE
   ? path.resolve(process.env.TRADER_AUTOLOOP_STATUS_FILE)
   : path.join("/Users/diegosaa/.openclaw/orgs/trader-firm/runtime/trader-autoloop-live", ".tmp", "autoloop", "status.json");
 const BASE_BRANCH = normalizeGitBranchShortName(process.env.AUTOLOOP_BASE_BRANCH || "main") || "main";
+// Compile the reconciled base branch before pushing merged branches. A per-file
+// conflict resolution (or a clean-but-semantic merge) can produce a tree that
+// does not build; this gate keeps such a tree off origin/<base>. Disable with
+// AUTOLOOP_MERGE_BUILD_GATE=0.
+const MERGE_BUILD_GATE_ENABLED = String(process.env.AUTOLOOP_MERGE_BUILD_GATE ?? "1").trim() !== "0";
 const LOOP_INTERVAL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_INTERVAL_SECONDS, 300, 15, 86400);
 const STOP_POLL_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_STOP_POLL_SECONDS, 5, 1, 60);
 const STATUS_HEARTBEAT_SECONDS = clampInt(process.env.AUTOLOOP_FOREVER_STATUS_HEARTBEAT_SECONDS, 15, 5, 300);
@@ -328,6 +334,27 @@ function buildConflictResolutionCommitMessage(shortName = "", branchRef = "") {
   return `autoloop: resolve conflicts while merging ${shortName || branchRef} into ${BASE_BRANCH}`;
 }
 
+function mergeChangedHaskellFiles(fromRef, toRef = "HEAD") {
+  const changed = splitNonEmptyLines(
+    runCommand("git", ["diff", "--name-only", `${fromRef}..${toRef}`], { trimOutput: false }),
+  );
+  return changed.some((file) => file.startsWith("haskell/") && file.endsWith(".hs"));
+}
+
+// Compile the reconciled base branch. Returns { ok, skipped, error }. Reuses the
+// same ghcup bootstrapping as the verification commands so the toolchain env
+// matches CI. Never throws — a thrown error is reported as a failed gate.
+function runMergeBuildGate() {
+  if (!MERGE_BUILD_GATE_ENABLED) return { ok: true, skipped: "disabled", error: null };
+  const command = prepareShellCommand("cd haskell && cabal build all");
+  try {
+    runCommand("bash", ["-lc", command], { capture: true });
+    return { ok: true, skipped: null, error: null };
+  } catch (err) {
+    return { ok: false, skipped: null, error: String(err?.message ?? err).slice(0, 4000) };
+  }
+}
+
 function mergeRefOntoBaseBranch(branchRef, shortName = normalizeGitBranchShortName(branchRef)) {
   const headBefore = runCommand("git", ["rev-parse", "HEAD"]);
   const mergeMessage = buildMergeCommitMessage(shortName, branchRef);
@@ -529,6 +556,7 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
     }
 
     const originSync = syncBaseBranchToOrigin();
+    const baseHeadAfterSync = runCommand("git", ["rev-parse", "HEAD"]);
     const localBranches = splitNonEmptyLines(
       runCommand("git", ["branch", "--format=%(refname:short)", "--no-merged", BASE_BRANCH], { trimOutput: false }),
     );
@@ -555,6 +583,42 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
           branch: candidate.shortName,
           conflicts: mergeResult.conflicts,
         });
+      }
+    }
+
+    // Build gate: before pushing any newly merged work, confirm the reconciled
+    // tree still compiles. A per-file conflict resolution can leave callers in
+    // one file without their definitions in another (a clean-merge semantic
+    // break can do the same), which must never reach origin/<base>. On failure,
+    // roll the whole batch back to the origin-synced head and skip the push so
+    // the offending branches stay unmerged for the next cycle / human review.
+    const mergedAnything = mergedBranches.length > 0 || conflictResolvedBranches.length > 0;
+    if (mergedAnything && mergeChangedHaskellFiles(baseHeadAfterSync)) {
+      const buildGate = runMergeBuildGate();
+      if (!buildGate.ok) {
+        runCommand("git", ["reset", "--hard", baseHeadAfterSync], { capture: false });
+        const rolledBack = [...mergedBranches, ...conflictResolvedBranches.map((item) => item.branch)];
+        await logRunner(
+          `branch reconciliation rolled back ${rolledBack.length} merge(s) into ${BASE_BRANCH}: build gate failed`,
+        );
+        return {
+          ok: false,
+          reason: `merge build gate failed; rolled back ${rolledBack.length} branch merge(s) to keep ${BASE_BRANCH} building`,
+          details: [...rolledBack.map((branch) => `rolled-back:${branch}`), buildGate.error].filter(Boolean).slice(0, 40),
+          summary: {
+            startedAt,
+            endedAt: new Date().toISOString(),
+            baseBranch: BASE_BRANCH,
+            syncedOrigin: originSync.outcome,
+            candidateBranches: candidates.map((candidate) => candidate.shortName),
+            mergedBranches: [],
+            conflictResolvedBranches: [],
+            rolledBackBranches: rolledBack,
+            buildGate: "failed",
+            pushed: false,
+            head: runCommand("git", ["rev-parse", "HEAD"]),
+          },
+        };
       }
     }
 
