@@ -10,6 +10,7 @@ executable trader-hs
   main-is:             Main.hs
   other-modules:       Trader.Binance
                      , Trader.Api.Routes
+                     , Trader.App.AutoStartBackoff
                      , Trader.App.BinanceProbe
                      , Trader.App.Csv
                      , Trader.App.Env
@@ -218,6 +219,7 @@ test-suite trader-tests
   main-is:             TestMain.hs
   other-modules:       Trader.Binance
                      , Trader.Api.Routes
+                     , Trader.App.AutoStartBackoff
                      , Trader.App.BinanceProbe
                      , Trader.App.Env
                      , Trader.Cache
@@ -273,6 +275,7 @@ test-suite trader-tests
                      , Trader.SignalGates
                      , Trader.Split
                      , Trader.Symbol
+                     , Trader.Test.AutoStartBackoff
                      , Trader.Test.BinanceProbe
                      , Trader.Test.Cors
                      , Trader.ThresholdCalibration

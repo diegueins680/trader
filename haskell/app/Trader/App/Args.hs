@@ -123,6 +123,7 @@ data Args = Args
     , argPositioning :: Positioning
     , argOptimizeOperations :: Bool
     , argSweepThreshold :: Bool
+    , argCrossExchangeCoinbase :: Bool
     , argTradeOnly :: Bool
     , argFee :: Double
     , argSlippage :: Double
@@ -672,6 +673,7 @@ opts = do
             )
     argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01/blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch/router/bandit_router), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split; TA methods are fixed-method and can use --sweep-threshold)")
     argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
+    argCrossExchangeCoinbase <- switch (long "cross-exchange-coinbase" <> help "Enrich the LSTM features and Kalman market-context with same-asset Coinbase data (e.g. BTCUSDT<->BTC-USD basis/lead-lag). Research/backtest only; fail-open to Binance-only if Coinbase is unavailable or the interval is unsupported")
     argTradeOnly <- switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     argFee <- option auto (long "fee" <> value 0.0008 <> help "Fee applied when switching position")
     argSlippage <- option auto (long "slippage" <> value 0.0002 <> help "Slippage per side (fractional, e.g. 0.0002)")

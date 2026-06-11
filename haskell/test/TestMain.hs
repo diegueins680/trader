@@ -12,7 +12,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.HashMap.Strict as HM
 import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (catMaybes, fromMaybe, isNothing)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
@@ -21,7 +21,9 @@ import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnov
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BotStartSemantics (botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
-import Trader.Coinbase (CoinbaseOrderInfo (..), decodeCoinbaseOrderInfo)
+import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
+import Trader.LSTM (LSTMConfig (..), LSTMModel (..), inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
+import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
 import Trader.Formal.Execution (
     ExecutionVerificationReport (..),
     verifyFormalExecution,
@@ -76,6 +78,7 @@ import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
+    PredictorLiveness (..),
     SignalThresholdBoundary (..),
     directionalityWeakBandConfirmed,
     directionalityWeakBandConfirmedWithPrediction,
@@ -103,7 +106,12 @@ import Trader.SignalGates (
     signalPredictionSanityOk,
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
+    dynamicRangePct,
+    predictorDegenerate,
+    predictorLiveness,
  )
+import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
+import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
 import Trader.ThresholdCalibration (CalibrationMethod (..), EdgeDistribution (..), ThresholdCalibration (..), calibrateThreshold, calibrationReport, calibrationToJson, computeEdgeDistribution, suggestedThreshold, thresholdAtPercentile)
 import Trader.TopCombosStore (
@@ -287,7 +295,20 @@ main = do
     testFormalRiskPositionSizeHalt
     testFormalRiskLossStreakHalt
     testSignalGatesFailClosedExhaustive
+    testPredictorLivenessDetectsDegenerateForecast
+    testCrossExchangeCoinbaseInputs
+    testMultivariateLstmInputs
     runTechnicalAnalysisTests
+    runSuite "binanceProbe" binanceProbeSuite
+    runSuite "autoStartBackoff" autoStartBackoffSuite
+
+runSuite :: String -> [(String, IO ())] -> IO ()
+runSuite label cases =
+    forM_ cases $ \(name, run) -> do
+        result <- try run :: IO (Either SomeException ())
+        case result of
+            Left ex -> ioError (userError (label ++ " :: " ++ name ++ " failed: " ++ show ex))
+            Right () -> pure ()
 
 assert :: String -> Bool -> IO ()
 assert message condition =
@@ -296,6 +317,162 @@ assert message condition =
 assertMonotoneNonIncreasing :: String -> [Bool] -> IO ()
 assertMonotoneNonIncreasing message values =
     assert message (and (zipWith (\left right -> left || not right) values (drop 1 values)))
+
+{- | Regression for the 2026-06-02 silent zero-trade failure: an untrained
+forecaster pinned near a constant while price trends should be flagged
+degenerate, because its largest single-bar step cannot clear the entry
+threshold. A live forecaster, or any run that actually closed trades, must not
+be flagged.
+-}
+testPredictorLivenessDetectsDegenerateForecast :: IO ()
+testPredictorLivenessDetectsDegenerateForecast = do
+    let openThreshold = 0.0024 :: Double
+        -- Flat untrained forecast: ~94400 every bar, dynamic range ~7 over the
+        -- window, max consecutive step return ~1.1e-5 (observed shape).
+        flatSeries =
+            map Just [94400.0 + fromIntegral i * 1.0e-4 | i <- [0 .. 200 :: Int]] ++ [Nothing]
+        -- Live forecast: tracks a +20% move with multi-percent per-bar steps.
+        liveSeries =
+            map (Just . (\x -> 94400.0 * x)) (take 60 (iterate (* 1.01) 1.0)) ++ [Nothing]
+        -- Price dynamic range: simulate ~20% bull move akin to the bull dataset.
+        priceSeries =
+            map (Just . (\x -> 94400.0 * x)) (take 200 (iterate (* 1.001) 1.0))
+        priceRangePct = fromMaybe 0 (dynamicRangePct priceSeries)
+        flatLiveness = predictorLiveness "lstm" priceRangePct flatSeries
+        liveLiveness = predictorLiveness "lstm" priceRangePct liveSeries
+    assert
+        "price dynamic range is positive on a trending series"
+        (priceRangePct > 0.1)
+    case flatLiveness of
+        Just pl -> do
+            assert
+                "flat forecast max step return is far below the open threshold"
+                (plMaxStepReturn pl < openThreshold)
+            assert
+                "flat forecast dynamic range is negligible (<0.01%)"
+                (plDynamicRangePct pl < 1.0e-4)
+            assert
+                "flat forecast tracking ratio is below the 5% floor"
+                (plPriceTrackingRatio pl < 0.05)
+        Nothing -> assert "flat forecast should yield liveness diagnostics" False
+    case liveLiveness of
+        Just pl -> do
+            assert
+                "live forecast max step return clears the open threshold"
+                (plMaxStepReturn pl >= openThreshold)
+            assert
+                "live forecast tracking ratio is well above the 5% floor"
+                (plPriceTrackingRatio pl > 0.5)
+        Nothing -> assert "live forecast should yield liveness diagnostics" False
+    -- Zero closed trades + flat predictor => degenerate (structural no-trade).
+    assert
+        "degenerate flag fires for flat predictor with zero trades"
+        (predictorDegenerate 0 (catMaybes [flatLiveness]))
+    -- Any closed trade means the no-trade was a market decision, not structural.
+    assert
+        "degenerate flag is suppressed once trades close"
+        (not (predictorDegenerate 3 (catMaybes [flatLiveness])))
+    -- A live predictor that simply found no signal is not degenerate.
+    assert
+        "degenerate flag is suppressed for a live predictor"
+        (not (predictorDegenerate 0 (catMaybes [liveLiveness])))
+    -- No predictor series at all => nothing to assess => not degenerate.
+    assert
+        "degenerate flag is suppressed when no predictor series is present"
+        (not (predictorDegenerate 0 []))
+
+{- | Cross-exchange (Coinbase) input enrichment: symbol mapping, bar-grid
+alignment (point-in-time forward-fill, no lookahead), and the gated LSTM feature
+block (default off => identical vector; on => +5 same-asset features).
+-}
+testCrossExchangeCoinbaseInputs :: IO ()
+testCrossExchangeCoinbaseInputs = do
+    -- Symbol mapping: USD-pegged Binance quotes map to a Coinbase USD product.
+    assert "BTCUSDT -> BTC-USD" (coinbaseProductFromBinance "BTCUSDT" == Just "BTC-USD")
+    assert "ETHUSDC -> ETH-USD" (coinbaseProductFromBinance "ETHUSDC" == Just "ETH-USD")
+    assert "lower-case symbol still maps" (coinbaseProductFromBinance "btcusdt" == Just "BTC-USD")
+    assert "non-USD quote does not map" (coinbaseProductFromBinance "ETHBTC" == Nothing)
+
+    -- Alignment: exact match at matching open times, point-in-time forward-fill
+    -- for gaps, and NEVER a future bucket (bar at sec 120 must use 10, not 30).
+    let candle s c = CoinbaseCandle{ccOpenTime = s, ccHigh = c, ccLow = c, ccClose = c}
+        openTimesMs = [60000, 120000, 180000, 240000]
+        binanceCloses = V.fromList [1, 2, 3, 4]
+        aligned = alignCoinbaseClosesToGrid openTimesMs binanceCloses [candle 60 10, candle 180 30]
+    assert
+        "alignment forward-fills gaps without lookahead"
+        (aligned == Just (V.fromList [10, 10, 30, 30]))
+
+    -- Leading gap (before first Coinbase candle) falls back to the Binance close.
+    let leading = alignCoinbaseClosesToGrid openTimesMs binanceCloses [candle 180 30]
+    assert
+        "leading bars fall back to the Binance close"
+        (leading == Just (V.fromList [1, 2, 30, 30]))
+
+    -- No overlap at all => Nothing (caller fails open to Binance-only).
+    assert
+        "no Coinbase/Binance bar overlap yields Nothing"
+        (alignCoinbaseClosesToGrid [60000, 120000] (V.fromList [1, 2]) [candle 999999 5] == Nothing)
+
+    -- Feature gating: attaching a Coinbase close series appends exactly 5
+    -- same-asset features; absence is byte-identical to Binance-only.
+    let n = 60 :: Int
+        closes = V.fromList [100 + fromIntegral i * 0.5 | i <- [0 .. n - 1]]
+        fs = mkFeatureSpec 10
+        baseInputs = mkFeatureInputs closes Nothing Nothing Nothing Nothing
+        cbInputs = withCoinbaseInputs (Just (V.map (* 1.02) closes)) baseInputs
+        t = 40
+    case (featuresAtWithInputsWithMarket fs Nothing baseInputs t, featuresAtWithInputsWithMarket fs Nothing cbInputs t) of
+        (Just featsBase, Just featsCb) -> do
+            assert
+                "Coinbase attachment appends exactly 5 cross-exchange features"
+                (length featsCb == length featsBase + 5)
+            assert
+                "Binance-only feature vector is unchanged when Coinbase is absent"
+                (take (length featsBase) featsCb == featsBase)
+            let basisNow = head (drop (length featsBase) featsCb)
+            assert
+                "basis feature reflects the ~+2% Coinbase premium"
+                (basisNow > 0.015 && basisNow < 0.025)
+        _ -> assert "feature vectors should be computable at t" False
+
+{- | Multivariate LSTM: a single channel is byte-identical to the univariate
+model (so the default/live path is unchanged), input dim is recoverable from the
+flat params, and a 2-channel (price + cross-exchange) model trains to a distinct,
+finite predictor that actually uses the second channel.
+-}
+testMultivariateLstmInputs :: IO ()
+testMultivariateLstmInputs = do
+    let cfg =
+            LSTMConfig
+                { lcLookback = 4
+                , lcHiddenSize = 3
+                , lcEpochs = 2
+                , lcLearningRate = 0.01
+                , lcValRatio = 0
+                , lcPatience = 0
+                , lcGradClip = Nothing
+                , lcSeed = 7
+                }
+        series = [0.10, 0.20, 0.15, 0.30, 0.25, 0.40, 0.35, 0.50, 0.45, 0.60, 0.55, 0.70, 0.65, 0.80]
+        series2 = [0.05, 0.10, 0.08, 0.20, 0.15, 0.25, 0.20, 0.30, 0.28, 0.35, 0.32, 0.45, 0.40, 0.50]
+        (mUni, _) = trainLSTM cfg series
+        (mMultiSingle, _) = trainLSTMMulti cfg [series]
+        (mMulti, _) = trainLSTMMulti cfg [series, series2]
+        window = take 4 series
+        finite x = not (isNaN x || isInfinite x)
+    -- d=1 identity: single-channel multivariate training matches univariate.
+    assert "single-channel multi training == univariate params" (lmParams mUni == lmParams mMultiSingle)
+    assert "univariate model input dim recovers as 1" (inputDimFromModel mUni == 1)
+    assert "univariate paramCount is consistent" (length (lmParams mUni) == paramCount (lmHiddenSize mUni))
+    assert
+        "predictNextMulti on a single channel == predictNext"
+        (abs (predictNextMulti mUni [window] - predictNext mUni window) < 1.0e-12)
+    -- d=2: trains a distinct, finite, dimension-2 model.
+    assert "two-channel model input dim recovers as 2" (inputDimFromModel mMulti == 2)
+    assert "two-channel paramCount matches paramCountD h 2" (length (lmParams mMulti) == paramCountD (lmHiddenSize mMulti) 2)
+    assert "two-channel params differ from univariate" (lmParams mMulti /= lmParams mUni)
+    assert "two-channel prediction is finite" (finite (predictNextMulti mMulti [take 4 series, take 4 series2]))
 
 topCombosCount :: Aeson.Value -> Int
 topCombosCount val =

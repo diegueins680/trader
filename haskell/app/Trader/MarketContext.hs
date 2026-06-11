@@ -138,16 +138,27 @@ fitLinearRange xs ys start endExclusive =
 The returned model predicts the target forward return using the previous-bar, volume-weighted market return.
 'fitEnd' is the exclusive end of the training window in price indices (avoids lookahead in backtests).
 -}
-buildMarketModel :: Args -> BinanceEnv -> String -> Int -> V.Vector Double -> IO (Maybe MarketModel)
-buildMarketModel args env targetSymbol fitEnd pricesV = do
+buildMarketModel :: Args -> BinanceEnv -> String -> Int -> V.Vector Double -> Maybe (V.Vector Double) -> IO (Maybe MarketModel)
+buildMarketModel args env targetSymbol fitEnd pricesV mCoinbaseCloses = do
     let topN = max 0 (argKalmanMarketTopN args)
         n = V.length pricesV
         measVarFloor = max 1e-12 (argKalmanMeasurementVar args)
-    if topN <= 0 || n < 3 || fitEnd < 3
+        -- Same-asset cross-exchange (Coinbase) returns, aligned to the price grid.
+        -- Its lagged return is a strong same-asset / lead-lag predictor, so it is
+        -- folded into the volume-weighted basket as an extra member.
+        mCoinbaseReturns =
+            case mCoinbaseCloses of
+                Just cbV | V.length cbV == n -> Just (returnsFromCloses cbV)
+                _ -> Nothing
+        haveCoinbase = case mCoinbaseReturns of Just _ -> True; Nothing -> False
+    if n < 3 || fitEnd < 3 || (topN <= 0 && not haveCoinbase)
         then pure Nothing
         else do
             let (_base, quote) = splitSymbol targetSymbol
-            ranked <- fetchTopSymbolsByQuoteVolume env quote (topN + 5)
+            ranked <-
+                if topN > 0
+                    then fetchTopSymbolsByQuoteVolume env quote (topN + 5)
+                    else pure []
             let targetU = map toUpperAscii targetSymbol
                 ranked' = filter (\(s, _w) -> map toUpperAscii s /= targetU) ranked
 
@@ -166,9 +177,18 @@ buildMarketModel args env targetSymbol fitEnd pricesV = do
                                 pure (Just (sym, max 0 w, rets))
             fetched <-
                 catMaybes <$> mapConcurrentlyBounded maxConcurrent fetchOne (take topN ranked')
-            let usedSyms = [s | (s, _w, _r) <- fetched]
-                wrets = [(w, r) | (_s, w, r) <- fetched]
-                minSymbols = max 1 (min topN 5)
+            let otherWrets = [(w, r) | (_s, w, r) <- fetched]
+                -- Weight Coinbase at the basket's total volume weight (~50% of the
+                -- normalized lag), or 1 when it is the sole member.
+                coinbaseEntry =
+                    case mCoinbaseReturns of
+                        Just cbRets ->
+                            let cbW = let s = sum (map fst otherWrets) in if s > 0 then s else 1
+                             in [(cbW, cbRets)]
+                        Nothing -> []
+                wrets = coinbaseEntry ++ otherWrets
+                usedSyms = [s | (s, _w, _r) <- fetched] ++ [targetSymbol ++ "@coinbase" | haveCoinbase]
+                minSymbols = if haveCoinbase then 1 else max 1 (min topN 5)
             if length wrets < minSymbols
                 then pure Nothing
                 else do

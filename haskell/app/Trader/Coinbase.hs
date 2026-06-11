@@ -18,6 +18,8 @@ module Trader.Coinbase (
     coinbaseCandlesCacheStats,
     normalizeCoinbaseCandles,
     placeCoinbaseMarketOrder,
+    coinbaseProductFromBinance,
+    alignCoinbaseClosesToGrid,
 ) where
 
 import Control.Applicative ((<|>))
@@ -36,6 +38,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Int (Int64)
 import Data.List (find, sortOn)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, isNothing)
 import qualified Data.Scientific as Scientific
 import qualified Data.Set as Set
@@ -51,6 +54,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
+import Trader.Symbol (splitSymbol)
 import Trader.Text (trim)
 
 data CoinbaseCandle = CoinbaseCandle
@@ -506,3 +510,55 @@ toLowerAscii c =
     if isAsciiUpper c
         then toEnum (fromEnum c + 32)
         else c
+
+{- | Map a Binance symbol to the same-asset Coinbase product id, e.g.
+@BTCUSDT -> BTC-USD@. All USD-pegged Binance quotes map to Coinbase USD; any
+other quote (e.g. a BTC-quoted pair) returns 'Nothing' since there is no clean
+same-asset Coinbase product. Used only for cross-exchange input enrichment, so a
+'Nothing' simply means "no Coinbase signal for this symbol".
+-}
+coinbaseProductFromBinance :: String -> Maybe String
+coinbaseProductFromBinance symbol =
+    let (base, quote) = splitSymbol symbol
+     in if null base
+            then Nothing
+            else case quote of
+                "USDT" -> Just (base ++ "-USD")
+                "USDC" -> Just (base ++ "-USD")
+                "BUSD" -> Just (base ++ "-USD")
+                "FDUSD" -> Just (base ++ "-USD")
+                "TUSD" -> Just (base ++ "-USD")
+                "USD" -> Just (base ++ "-USD")
+                _ -> Nothing
+
+{- | Align Coinbase candle closes onto a Binance bar grid given the Binance bar
+open times (in ms) and Binance closes.
+
+For each Binance bar we use the Coinbase bucket with the identical open time, or
+the most recent earlier one (point-in-time forward-fill — never a future bucket,
+so there is no lookahead). Bars with no Coinbase data yet fall back to the
+Binance close (a neutral, zero-basis value). Returns 'Nothing' when no Binance
+bar overlaps any Coinbase candle, so callers fail open to Binance-only behavior.
+
+The result has the same length as @binanceCloses@.
+-}
+alignCoinbaseClosesToGrid :: [Int64] -> V.Vector Double -> [CoinbaseCandle] -> Maybe (V.Vector Double)
+alignCoinbaseClosesToGrid binanceOpenTimesMs binanceCloses candles
+    | Map.null cmap = Nothing
+    | not anyCovered = Nothing
+    | otherwise = Just (V.fromList (map fst rows))
+  where
+    n = V.length binanceCloses
+    -- ccOpenTime is in epoch seconds; key the lookup by seconds.
+    cmap = Map.fromList [(ccOpenTime c, ccClose c) | c <- candles]
+    rows = walk Nothing 0 binanceOpenTimesMs
+    anyCovered = any snd rows
+    walk _ _ [] = []
+    walk lastV idx (otMs : rest) =
+        let sec = otMs `div` 1000
+            cur = Map.lookup sec cmap <|> lastV
+            fallbackClose = if idx >= 0 && idx < n then binanceCloses V.! idx else 0
+            row = case cur of
+                Just c -> (c, True)
+                Nothing -> (fallbackClose, False)
+         in row : walk cur (idx + 1) rest

@@ -27,6 +27,7 @@ module Trader.Trading (
     exitReasonFromCode,
     mkEntryGateState,
     tradeEntrySourceCode,
+    positionSizeScaleHardFailMultiplier,
 ) where
 
 import Control.Applicative ((<|>))
@@ -388,6 +389,16 @@ silently disabling halts.
 -}
 sanitizeRiskLimit :: Double -> Double
 sanitizeRiskLimit = max 0
+
+{- | FIRM-CRITICAL position-size parity constant. Both the simulation sizing
+path (here in 'Trader.Trading') and the live sizing path in @Main@ must hard-fail
+with @POSITION_SIZE_SCALE_EXCEEDED@ when overlayed size exceeds this multiple of
+the base size, before the absolute cap can mask runaway multiplicative sizing.
+Keeping it a single exported constant prevents the two guardrails from silently
+drifting apart.
+-}
+positionSizeScaleHardFailMultiplier :: Double
+positionSizeScaleHardFailMultiplier = 2.0
 
 {- | Check whether any configured risk limit is non-finite (NaN or Infinity).
 This is a FIRM-CRITICAL hygiene gate: non-finite limits silently disable
@@ -2311,7 +2322,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     sizeScaled = baseSizeTarget * entryScale * volConfSizeMult * sizeScale
                                                     -- FIRM-CRITICAL: catch runaway compounding before absolute cap
                                                     sizeScaledChecked =
-                                                        if baseSizeTarget > 0 && sizeScaled > 2.0 * baseSizeTarget
+                                                        if baseSizeTarget > 0 && sizeScaled > positionSizeScaleHardFailMultiplier * baseSizeTarget
                                                             then error ("POSITION_SIZE_SCALE_EXCEEDED: sizeScaled=" ++ show sizeScaled ++ " baseSizeTarget=" ++ show baseSizeTarget)
                                                             else sizeScaled
                                                     sizeCapped = min maxPositionSize (max 0 sizeScaledChecked)

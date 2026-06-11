@@ -22,8 +22,12 @@ primary_region = "fra"
   # This node OWNS optimization/backtesting (heavier than the trading node).
   TRADER_OPTIMIZER_ENABLED = "true"
   TRADER_OPTIMIZER_EVERY_SEC = "900"
-  TRADER_OPTIMIZER_TRIALS = "60"
-  TRADER_OPTIMIZER_TIMEOUT_SEC = "120"
+  # Fewer, heavier trials: the incumbent leaderboard lives at epochs ~8 /
+  # hidden ~29, unreachable under the old epochs<=2 / hidden<=16 sampling.
+  TRADER_OPTIMIZER_TRIALS = "18"
+  TRADER_OPTIMIZER_TIMEOUT_SEC = "480"
+  TRADER_OPTIMIZER_EPOCHS_MAX = "12"
+  TRADER_OPTIMIZER_HIDDEN_SIZE_MAX = "48"
   TRADER_OPTIMIZER_LOOKBACK_WINDOW = "30d"
   TRADER_OPTIMIZER_MAX_POINTS = "2000"
   TRADER_TOP_COMBOS_BACKTEST_ENABLED = "false"

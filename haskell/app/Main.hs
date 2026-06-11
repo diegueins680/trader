@@ -100,6 +100,21 @@ import Trader.App.Args (
     resolveBarsForPlatform,
     validateArgs,
  )
+import Trader.App.AutoStartBackoff (
+    BackoffPolicy (..),
+    CircuitPolicy (..),
+    ErrorClass (..),
+    SymbolBackoff (..),
+    classifyAutoStartError,
+    defaultBackoffPolicy,
+    defaultCircuitPolicy,
+    errorClassDescription,
+    nextBackoff,
+    normalizeAutoStartErrorMessage,
+    shouldAttempt,
+    shouldOpenCircuit,
+    summarizeAuthSymbols,
+ )
 import Trader.App.BinanceProbe (BinanceErrorInfo (..), binanceAuthFailureFromMessage, binanceTradeTestConfirmsAuth, parseBinanceError)
 import Trader.App.Csv (loadCsvPriceSeries)
 import Trader.App.Env (getBuildCommit, loadEnvFile, traderVersion)
@@ -204,8 +219,10 @@ import Trader.Coinbase (
     CoinbaseCandle (..),
     CoinbaseEnv (..),
     CoinbaseOrderInfo (..),
+    alignCoinbaseClosesToGrid,
     coinbaseBaseUrl,
     coinbaseCandlesCacheStats,
+    coinbaseProductFromBinance,
     decodeCoinbaseOrderInfo,
     fetchCoinbaseAccounts,
     fetchCoinbaseAvailableBalance,
@@ -249,8 +266,10 @@ import Trader.LSTM (
     fineTuneLSTM,
     paramCount,
     predictNext,
+    predictNextMulti,
     predictSeriesNext,
     trainLSTM,
+    trainLSTMMulti,
  )
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (MarketModel (..), buildMarketModel, marketMeasurementAt)
@@ -313,7 +332,7 @@ import Trader.Predictors (
     trainPredictorsWithInputsWithMarket,
     updateHMM,
  )
-import Trader.Predictors.Features (FeatureInputs (..), mkFeatureInputs)
+import Trader.Predictors.Features (FeatureInputs (..), mkFeatureInputs, withCoinbaseInputs)
 import Trader.Predictors.Types (
     predictorCode,
     predictorEnabled,
@@ -331,7 +350,11 @@ import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianc
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
+    dynamicRangePct,
     mkSignalThresholdBoundary,
+    predictorDegenerate,
+    predictorLiveness,
+    predictorLivenessToJson,
     normalizeSignalThreshold,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
@@ -391,6 +414,7 @@ import Trader.Trading (
     emptyBacktestCostAttribution,
     exitReasonCode,
     exitReasonFromCode,
+    positionSizeScaleHardFailMultiplier,
     simulateEnsemble,
     simulateEnsembleWithHLChecked,
     tradeEntrySourceCode,
@@ -6930,6 +6954,37 @@ botStartQueueMaxWaitSecondsFromEnv :: IO Int
 botStartQueueMaxWaitSecondsFromEnv =
     readBoundedIntEnv "TRADER_BOT_START_QUEUE_MAX_WAIT_SEC" 0 86400 defaultBotStartQueueMaxWaitSeconds
 
+{- | Environment-tunable auto-start backoff policy. The defaults come from
+'defaultBackoffPolicy' but can be overridden so operators can shrink the
+circuit-open window during incident response without redeploying.
+-}
+autoStartBackoffPolicyFromEnv :: IO BackoffPolicy
+autoStartBackoffPolicyFromEnv = do
+    initial <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_BACKOFF_INITIAL_SEC" 1 3600 (bpInitialDelaySec defaultBackoffPolicy)
+    cap <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_BACKOFF_MAX_SEC" 1 86400 (bpMaxDelaySec defaultBackoffPolicy)
+    auth <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_AUTH_OPEN_SEC" 60 86400 (bpAuthCircuitOpenSec defaultBackoffPolicy)
+    permanent <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_PERMANENT_OPEN_SEC" 60 604800 (bpPermanentOpenSec defaultBackoffPolicy)
+    pure
+        defaultBackoffPolicy
+            { bpInitialDelaySec = initial
+            , bpMaxDelaySec = max initial cap
+            , bpAuthCircuitOpenSec = auth
+            , bpPermanentOpenSec = permanent
+            }
+
+{- | Global auth-circuit policy: how many distinct auth-failed symbols trip the
+pause, and how long the pause holds before the loop reprobes.
+-}
+autoStartCircuitPolicyFromEnv :: IO CircuitPolicy
+autoStartCircuitPolicyFromEnv = do
+    threshold <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_AUTH_CIRCUIT_THRESHOLD" 1 200 (cpAuthThreshold defaultCircuitPolicy)
+    durationSec <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_AUTH_CIRCUIT_OPEN_SEC" 60 86400 (cpOpenDurationSec defaultCircuitPolicy)
+    pure
+        defaultCircuitPolicy
+            { cpAuthThreshold = threshold
+            , cpOpenDurationSec = durationSec
+            }
+
 data AdoptRequirement = AdoptRequirement
     { arActive :: !Bool
     , arRequiresLongShort :: !Bool
@@ -7964,6 +8019,17 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                         disabledTargetsWarnRef <- newIORef Nothing
                         targetsRef <- newIORef []
                         startupPhaseRef <- newIORef (topComboStartupBotCount /= topComboBotCount)
+                        -- Per-symbol backoff control plane (engineering review 2026-06-08):
+                        -- Before this change the loop hammered Binance every poll cycle even
+                        -- for permanent auth failures (Binance code -2015) — observed today as
+                        -- thousands of identical failures per symbol. backoffRef carries the
+                        -- pure backoff state; circuitOpenAtRef remembers when we last logged the
+                        -- global auth circuit so we do not flood the journal.
+                        backoffPolicy <- autoStartBackoffPolicyFromEnv
+                        circuitPolicy <- autoStartCircuitPolicyFromEnv
+                        backoffRef <- newIORef (HM.empty :: HM.HashMap String SymbolBackoff)
+                        circuitWarnRef <- newIORef Nothing
+                        skippedWarnRef <- newIORef HM.empty
                         let formatList xs =
                                 if null xs
                                     then "none"
@@ -7985,13 +8051,40 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
 
                         let sleepSec s = threadDelay (max 1 s * 1000000)
                             recordError sym msg = do
+                                -- Dedup on the *normalized* fingerprint so the
+                                -- otherwise-identical Binance -2015 reply does not
+                                -- re-log every time the host's egress IP rotates
+                                -- (observed today: same -2015 against 5 distinct
+                                -- request-ips for XRP/SOL/FIL/DOGE/ADA in one day).
+                                let fingerprint = normalizeAutoStartErrorMessage msg
                                 prev <- readIORef errRef
-                                if HM.lookup sym prev == Just msg
-                                    then pure ()
-                                    else do
-                                        writeIORef errRef (HM.insert sym msg prev)
-                                        putStrLn ("Live bot auto-start failed for " ++ sym ++ ": " ++ msg)
-                            clearError sym = modifyIORef' errRef (HM.delete sym)
+                                let firstTime = HM.lookup sym prev /= Just fingerprint
+                                when firstTime $ do
+                                    writeIORef errRef (HM.insert sym fingerprint prev)
+                                    putStrLn ("Live bot auto-start failed for " ++ sym ++ ": " ++ msg)
+                                -- Update pure backoff state regardless of dedup so the
+                                -- circuit breaker sees every failure.
+                                let cls = classifyAutoStartError msg
+                                nowMs <- getTimestampMs
+                                modifyIORef'
+                                    backoffRef
+                                    ( \m ->
+                                        HM.insert
+                                            sym
+                                            (nextBackoff backoffPolicy nowMs (HM.lookup sym m) cls msg)
+                                            m
+                                    )
+                                when (firstTime && cls /= ErrTransient) $
+                                    putStrLn
+                                        ( "Live bot auto-start classified "
+                                            ++ sym
+                                            ++ " as "
+                                            ++ errorClassDescription cls
+                                        )
+                            clearError sym = do
+                                modifyIORef' errRef (HM.delete sym)
+                                modifyIORef' backoffRef (HM.delete sym)
+                                modifyIORef' skippedWarnRef (HM.delete sym)
                             loadTopTargets topComboTargetCount = do
                                 combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
                                 case combosOrErr of
@@ -8179,7 +8272,51 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                             ++ "): "
                                             ++ formatList delayedMissing
                                         )
-                                mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap) (sym `elem` orphanSymbols)) missing
+                                -- Auto-start circuit breaker (engineering review 2026-06-08):
+                                -- 1) Skip symbols whose per-symbol backoff has not expired.
+                                -- 2) Open a global auth circuit when enough symbols report
+                                --    -2015 / 401 / -1022 / -1021 so we stop hammering Binance.
+                                nowMs <- getTimestampMs
+                                backoffMap <- readIORef backoffRef
+                                let circuitOpen = shouldOpenCircuit circuitPolicy backoffMap
+                                    authSyms = summarizeAuthSymbols backoffMap
+                                when circuitOpen $
+                                    logChanged
+                                        circuitWarnRef
+                                        (intercalate "," authSyms)
+                                        ( "Live bot auto-start auth circuit OPEN: "
+                                            ++ show (length authSyms)
+                                            ++ " symbol(s) reporting Binance auth failures ("
+                                            ++ formatList authSyms
+                                            ++ "); pausing live starts. Verify BINANCE_API_KEY/BINANCE_API_SECRET and IP allow-list."
+                                        )
+                                let allowedMissing =
+                                        if circuitOpen
+                                            then []
+                                            else filter (shouldAttempt nowMs . flip HM.lookup backoffMap) missing
+                                    skippedMissing = filter (`notElem` allowedMissing) missing
+                                -- Log at most once per (symbol, backoff-fingerprint) so the
+                                -- skipped entries do not flood logs each cycle.
+                                forM_ skippedMissing $ \sym -> do
+                                    case HM.lookup sym backoffMap of
+                                        Nothing -> pure ()
+                                        Just sb -> do
+                                            seenMap <- readIORef skippedWarnRef
+                                            let key = (sbLastErrorClass sb, sbNextAllowedAtMs sb)
+                                            unless (HM.lookup sym seenMap == Just key) $ do
+                                                writeIORef skippedWarnRef (HM.insert sym key seenMap)
+                                                let waitSec = (sbNextAllowedAtMs sb - nowMs) `div` 1000
+                                                putStrLn
+                                                    ( "Live bot auto-start backoff: skipping "
+                                                        ++ sym
+                                                        ++ " for ~"
+                                                        ++ show (max 0 waitSec)
+                                                        ++ "s ("
+                                                        ++ errorClassDescription (sbLastErrorClass sb)
+                                                        ++ "); fails="
+                                                        ++ show (sbConsecutiveFails sb)
+                                                    )
+                                mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap) (sym `elem` orphanSymbols)) allowedMissing
                                 when startupPhase $ do
                                     writeIORef startupPhaseRef False
                                     putStrLn "Live bot auto-start startup phase complete; enabling steady-state top-combo targets."
@@ -9746,6 +9883,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     maxPointsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
                                     symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
                                     intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
+                                    epochsMaxEnv <- lookupEnv "TRADER_OPTIMIZER_EPOCHS_MAX"
+                                    hiddenSizeMaxEnv <- lookupEnv "TRADER_OPTIMIZER_HIDDEN_SIZE_MAX"
                                     maxCombos <- optimizerMaxCombosFromEnv
                                     maxOutputBytes <- optimizerOutputCapFromEnv
                                     exePath <- getExecutablePath
@@ -9801,6 +9940,10 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         minWfSharpeMean = readNonNegativeDouble minWfSharpeMeanEnv 0
                                         maxWfSharpeStd :: Double
                                         maxWfSharpeStd = readNonNegativeDouble maxWfSharpeStdEnv 0
+                                        epochsMax :: Int
+                                        epochsMax = max 1 (readNonNegativeInt epochsMaxEnv 2)
+                                        hiddenSizeMax :: Int
+                                        hiddenSizeMax = max 1 (readNonNegativeInt hiddenSizeMaxEnv 16)
                                         discoveryRecoveryEnabled = readEnvBool discoveryRecoveryEnabledEnv True
                                         discoveryRecoveryTrials :: Int
                                         discoveryRecoveryTrials =
@@ -9960,9 +10103,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                             ++ extraArgs
                                                                                 discoveryRecoveryArgs =
                                                                                     [ "--epochs-max"
-                                                                                    , "2"
+                                                                                    , show epochsMax
                                                                                     , "--hidden-size-max"
-                                                                                    , "16"
+                                                                                    , show hiddenSizeMax
                                                                                     , "--open-threshold-min"
                                                                                     , "0.00005"
                                                                                     , "--open-threshold-max"
@@ -10016,9 +10159,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     ]
                                                                                 primaryMethodArgs =
                                                                                     [ "--epochs-max"
-                                                                                    , "2"
+                                                                                    , show epochsMax
                                                                                     , "--hidden-size-max"
-                                                                                    , "16"
+                                                                                    , show hiddenSizeMax
                                                                                     , "--p-confirm-conformal"
                                                                                     , "0.0"
                                                                                     , "--p-confirm-quantiles"
@@ -22562,6 +22705,25 @@ computeBacktestFromSeries args series mBinanceEnv = do
 backtestSummaryJson :: BacktestSummary -> Aeson.Value
 backtestSummaryJson summary =
     let metrics = bsMetrics summary
+        priceDynamicRangePct =
+            fromMaybe 0 (dynamicRangePct (map Just (bsBacktestPrices summary)))
+        predictorLivenessSeries =
+            catMaybes
+                [ predictorLiveness "lstm" priceDynamicRangePct (bsLstmPredNext summary)
+                , predictorLiveness "kalman" priceDynamicRangePct (bsKalmanPredNext summary)
+                ]
+        predictorLivenessJson =
+            object
+                [ "openThreshold" .= bsBestOpenThreshold summary
+                , "closedTrades" .= bmRoundTrips metrics
+                , "priceDynamicRangePct" .= priceDynamicRangePct
+                , "trackingFloor" .= (0.05 :: Double)
+                , "degenerate"
+                    .= predictorDegenerate
+                        (bmRoundTrips metrics)
+                        predictorLivenessSeries
+                , "series" .= map predictorLivenessToJson predictorLivenessSeries
+                ]
         tuneStatsJson =
             case bsTuneStats summary of
                 Nothing -> Nothing
@@ -22727,6 +22889,7 @@ backtestSummaryJson summary =
             , "lstmPredNext" .= bsLstmPredNext summary
             , "positions" .= bsPositions summary
             , "agreementOk" .= bsAgreementOk summary
+            , "predictorLiveness" .= predictorLivenessJson
             , "trades" .= map tradeToJson (bsTrades summary)
             ]
 
@@ -23212,7 +23375,9 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
             (m, _, _) | methodIsTechnicalAnalysis m -> pure Nothing
             (_, Just env, Just sym)
                 | platformSupportsMarketContext (argPlatform args) -> do
-                    r <- try (buildMarketModel args env sym n pricesV) :: IO (Either SomeException (Maybe MarketModel))
+                    -- Live trade-only path stays Binance-only (cross-exchange Coinbase
+                    -- enrichment is research/backtest scoped for now).
+                    r <- try (buildMarketModel args env sym n pricesV Nothing) :: IO (Either SomeException (Maybe MarketModel))
                     case r of
                         Right model -> pure model
                         Left ex -> do
@@ -23491,6 +23656,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 _ -> Nothing
     ensureMinPriceRows args 2 prices
     ensureLookbackRows args lookback prices
+    mCoinbaseCloses <- buildCrossExchangeCoinbase args (V.fromList prices) (matchLengthAndTrim (psOpenTimes seriesWindow))
     when useKalmanPhysics $ do
         when (argOptimizeOperations args || argSweepThreshold args) $
             throwIO (userError "Method kalman_physics_error does not support --optimize-operations/--sweep-threshold.")
@@ -23616,19 +23782,21 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     _ -> methodRequested
         pricesV = V.fromList prices
         allFeatureInputs =
-            featureInputsFromLists
-                prices
-                opensAll
-                (Just highsAll)
-                (Just lowsAll)
-                (Just volumesAll)
+            withCoinbaseInputs mCoinbaseCloses $
+                featureInputsFromLists
+                    prices
+                    opensAll
+                    (Just highsAll)
+                    (Just lowsAll)
+                    (Just volumesAll)
         fitFeatureInputs =
-            featureInputsFromLists
-                fitPrices
-                (take predStart <$> opensAll)
-                (Just (take predStart highsAll))
-                (Just (take predStart lowsAll))
-                (Just (take predStart volumesAll))
+            withCoinbaseInputs (V.take predStart <$> mCoinbaseCloses) $
+                featureInputsFromLists
+                    fitPrices
+                    (take predStart <$> opensAll)
+                    (Just (take predStart highsAll))
+                    (Just (take predStart lowsAll))
+                    (Just (take predStart volumesAll))
         highsV = V.fromList highsAll
         lowsV = V.fromList lowsAll
         volPerBarForTechnical = volPerBarFromPrices prices
@@ -23652,7 +23820,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             (MethodLstmOnly, _, _) -> pure Nothing
             (m, _, _) | methodIsTechnicalAnalysis m -> pure Nothing
             (_, Just env, Just sym) -> do
-                r <- try (buildMarketModel args env sym predStart pricesV) :: IO (Either SomeException (Maybe MarketModel))
+                r <- try (buildMarketModel args env sym predStart pricesV mCoinbaseCloses) :: IO (Either SomeException (Maybe MarketModel))
                 case r of
                     Right model -> pure model
                     Left ex -> do
@@ -23664,7 +23832,29 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             let normState = fitNorm (argNormalization args) fitPrices
                 obsAll = forwardSeries normState prices
                 obsTrain = take predStart obsAll
-            (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
+                -- Cross-exchange (Coinbase) basis as a second LSTM input channel,
+                -- normalized like price so the two channels share scale. Present
+                -- only when --cross-exchange-coinbase attached aligned closes.
+                mBasisObs =
+                    case mCoinbaseCloses of
+                        Just cb
+                            | V.length cb == length prices ->
+                                let finiteD x = not (isNaN x || isInfinite x)
+                                    basisRaw =
+                                        [ let c = cb V.! i in if p /= 0 && finiteD c then (c - p) / p else 0
+                                        | (i, p) <- zip [0 ..] prices
+                                        ]
+                                    basisNormState = fitNorm (argNormalization args) (take predStart basisRaw)
+                                 in Just (forwardSeries basisNormState basisRaw)
+                        _ -> Nothing
+            (lstmModel, history) <-
+                case mBasisObs of
+                    Just basisObsAll ->
+                        -- Train a 2-channel (price + basis) LSTM. Persistence is
+                        -- skipped here because the param shape differs from the
+                        -- univariate persisted models.
+                        pure (trainLSTMMulti lstmCfg [obsTrain, take predStart basisObsAll])
+                    Nothing -> trainLstmWithPersistence args lookback lstmCfg obsTrain
             let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel fitFeatureInputs
                 hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                 hmm0 = initHMMFilter predictors hmmInitReturns
@@ -23676,7 +23866,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 sv0 = emptySensorVar
                 (kalFinal, hmmFinal, svFinal, kalPredRev, lstmPredRev, metaRev) =
                     foldl'
-                        (backtestStep args lookback normState obsAll allFeatureInputs lstmModel predictors predStart mMarketModel)
+                        (backtestStep args lookback normState obsAll mBasisObs allFeatureInputs lstmModel predictors predStart mMarketModel)
                         (kal0, hmm0, sv0, [], [], [])
                         [0 .. stepCount - 1]
                 kalPred = reverse kalPredRev
@@ -27517,7 +27707,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             -- FIRM-CRITICAL: mirror the simulation guardrail so live trading
             -- fails closed before the absolute cap can hide runaway sizing.
             sizeAfterOverlaysChecked =
-                if baseSize > 0 && sizeAfterOverlays > 2.0 * baseSize
+                if baseSize > 0 && sizeAfterOverlays > positionSizeScaleHardFailMultiplier * baseSize
                     then error ("POSITION_SIZE_SCALE_EXCEEDED: sizeAfterOverlays=" ++ show sizeAfterOverlays ++ " baseSize=" ++ show baseSize)
                     else sizeAfterOverlays
             sizeCapped = min maxPositionSize (max 0 sizeAfterOverlaysChecked)
@@ -28616,6 +28806,33 @@ computeBacktestFromArgsFreshBinanceWithLimits limits mOps args =
             computeBacktestFromSeries args series (Just env)
         _ -> computeBacktestFromArgsWithLimits limits mOps args
 
+{- | Fetch same-asset Coinbase closes aligned to a Binance backtest bar grid, for
+cross-exchange LSTM/Kalman enrichment. Fully fail-open: returns 'Nothing' (and
+the backtest proceeds Binance-only) when the flag is off, the platform is not
+Binance, the symbol\/interval has no Coinbase mapping, the open-time grid is
+missing, or the Coinbase fetch fails. The returned vector has the same length as
+@pricesV@. Research/backtest use only — never wired into the live trade path.
+-}
+buildCrossExchangeCoinbase :: Args -> V.Vector Double -> Maybe [Int64] -> IO (Maybe (V.Vector Double))
+buildCrossExchangeCoinbase args pricesV mOpenTimes
+    | not (argCrossExchangeCoinbase args) = pure Nothing
+    | argPlatform args /= PlatformBinance = pure Nothing
+    | otherwise =
+        case (argBinanceSymbol args >>= coinbaseProductFromBinance, coinbaseIntervalSeconds (argInterval args), mOpenTimes) of
+            (Just product, Just gran, Just openTimes)
+                | n > 0 && length openTimes == n -> do
+                    res <-
+                        try (fetchCoinbaseCandles product gran (n + 5))
+                            :: IO (Either SomeException [CoinbaseCandle])
+                    case res of
+                        Left ex -> do
+                            hPutStrLn stderr ("WARN: cross-exchange Coinbase fetch failed for " ++ product ++ ": " ++ displayException ex)
+                            pure Nothing
+                        Right candles -> pure (alignCoinbaseClosesToGrid openTimes pricesV candles)
+            _ -> pure Nothing
+  where
+    n = V.length pricesV
+
 loadPricesCoinbase :: Args -> String -> IO PriceSeries
 loadPricesCoinbase args sym = do
     let interval = argInterval args
@@ -28804,6 +29021,7 @@ backtestStep ::
     Int ->
     NormState ->
     [Double] ->
+    Maybe [Double] ->
     FeatureInputs ->
     LSTMModel ->
     PredictorBundle ->
@@ -28812,7 +29030,7 @@ backtestStep ::
     (Kalman1, HMMFilter, SensorVar, [Double], [Double], [StepMeta]) ->
     Int ->
     (Kalman1, HMMFilter, SensorVar, [Double], [Double], [StepMeta])
-backtestStep args lookback normState obsAll inputs lstmModel predictors trainEnd mMarketModel (kal, hmm, sv, kalAcc, lstmAcc, metaAcc) i =
+backtestStep args lookback normState obsAll mBasisObs inputs lstmModel predictors trainEnd mMarketModel (kal, hmm, sv, kalAcc, lstmAcc, metaAcc) i =
     let pricesV = fiClose inputs
         t = trainEnd + i
         priceT = pricesV V.! t
@@ -28839,7 +29057,14 @@ backtestStep args lookback normState obsAll inputs lstmModel predictors trainEnd
                 }
 
         window = take lookback (drop (t - lookback + 1) obsAll)
-        lstmNextObs = predictNext lstmModel window
+        -- Multivariate (price + cross-exchange basis) predict when a basis
+        -- channel is supplied; otherwise the univariate path, unchanged.
+        lstmNextObs =
+            case mBasisObs of
+                Just basisObs ->
+                    let window2 = take lookback (drop (t - lookback + 1) basisObs)
+                     in predictNextMulti lstmModel [window, window2]
+                Nothing -> predictNext lstmModel window
         lstmNext = inverseNorm normState lstmNextObs
 
         sv' =
