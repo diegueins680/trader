@@ -30,6 +30,9 @@ primary_region = "fra"
   TRADER_OPTIMIZER_HIDDEN_SIZE_MAX = "48"
   TRADER_OPTIMIZER_LOOKBACK_WINDOW = "30d"
   TRADER_OPTIMIZER_MAX_POINTS = "2000"
+  # Enrich discovery trials with same-asset Coinbase data (basis/lead-lag) for
+  # Coinbase-eligible symbols/intervals; fail-open to Binance-only otherwise.
+  TRADER_OPTIMIZER_CROSS_EXCHANGE_COINBASE = "true"
   TRADER_TOP_COMBOS_BACKTEST_ENABLED = "false"
 
   # Cross-instance combo sync — SAME bucket + prefix as trader-hs / Hetzner / local.

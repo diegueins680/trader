@@ -9920,6 +9920,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
                                     epochsMaxEnv <- lookupEnv "TRADER_OPTIMIZER_EPOCHS_MAX"
                                     hiddenSizeMaxEnv <- lookupEnv "TRADER_OPTIMIZER_HIDDEN_SIZE_MAX"
+                                    crossExchangeEnv <- lookupEnv "TRADER_OPTIMIZER_CROSS_EXCHANGE_COINBASE"
                                     maxCombos <- optimizerMaxCombosFromEnv
                                     maxOutputBytes <- optimizerOutputCapFromEnv
                                     exePath <- getExecutablePath
@@ -9979,6 +9980,14 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         epochsMax = max 1 (readNonNegativeInt epochsMaxEnv 2)
                                         hiddenSizeMax :: Int
                                         hiddenSizeMax = max 1 (readNonNegativeInt hiddenSizeMaxEnv 16)
+                                        -- When TRADER_OPTIMIZER_CROSS_EXCHANGE_COINBASE is set, every spawned
+                                        -- optimize-equity trial enriches the LSTM/Kalman with same-asset
+                                        -- Coinbase data (fail-open if the symbol/interval is not eligible).
+                                        crossExchangeArgs :: [String]
+                                        crossExchangeArgs =
+                                            if readEnvBool crossExchangeEnv False
+                                                then ["--cross-exchange-coinbase"]
+                                                else []
                                         discoveryRecoveryEnabled = readEnvBool discoveryRecoveryEnabledEnv True
                                         discoveryRecoveryTrials :: Int
                                         discoveryRecoveryTrials =
@@ -10136,6 +10145,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , "--disable-lstm-persistence"
                                                                                         ]
                                                                                             ++ extraArgs
+                                                                                            ++ crossExchangeArgs
                                                                                 discoveryRecoveryArgs =
                                                                                     [ "--epochs-max"
                                                                                     , show epochsMax
