@@ -54,7 +54,10 @@ env_file="${TRADER_HETZNER_ENV_FILE:-deploy/hetzner/trader.env}"
 managed_env_file="${TRADER_HETZNER_MANAGED_ENV_FILE:-}"
 compose_file="${TRADER_HETZNER_COMPOSE_FILE:-deploy/hetzner/docker-compose.yml}"
 
-ssh_opts=(-p "$ssh_port" -o BatchMode=yes)
+# Keepalives: the remote `docker compose ... --build` step compiles the full
+# Haskell tree and can sit minutes without output; without these the session
+# dies with "Broken pipe" (observed on the research box, 2026-06-11).
+ssh_opts=(-p "$ssh_port" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20)
 if [[ -n "${TRADER_HETZNER_SSH_KEY_FILE:-}" ]]; then
   ssh_opts+=(-i "$TRADER_HETZNER_SSH_KEY_FILE" -o IdentitiesOnly=yes)
 fi
