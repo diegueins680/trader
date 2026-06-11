@@ -11,6 +11,7 @@ module Trader.LSTM (
     trainLSTM,
     trainLSTMMulti,
     fineTuneLSTM,
+    fineTuneLSTMWeighted,
     predictNext,
     predictNextMulti,
     predictSeriesNext,
@@ -110,6 +111,30 @@ buildSequencesMultiV lookback channels
                     | i <- [0 .. n - lookback - 1]
                     ]
 
+{- | Supervised windows with a per-sample loss weight. The sample whose target
+is @xsV ! t@ gets weight @wsV ! t@; indices beyond the weight vector and
+non-finite or negative weights default to 1.
+-}
+buildSequencesWeightedV :: Int -> V.Vector Double -> V.Vector Double -> [(V.Vector Double, Double, Double)]
+buildSequencesWeightedV lookback xsV wsV
+    | lookback <= 0 = []
+    | V.length xsV <= lookback = []
+    | otherwise =
+        let count = V.length xsV - lookback
+            weightAt t =
+                if t < V.length wsV
+                    then sanitizeWeight (wsV V.! t)
+                    else 1
+            sanitizeWeight w
+                | isNaN w || isInfinite w || w < 0 = 1
+                | otherwise = w
+         in [ (V.slice i lookback xsV, xsV V.! (i + lookback), weightAt (i + lookback))
+            | i <- [0 .. count - 1]
+            ]
+
+unitWeights :: [(V.Vector Double, Double)] -> [(V.Vector Double, Double, Double)]
+unitWeights = map (\(w, y) -> (w, y, 1))
+
 evaluateLoss :: Int -> Int -> [([Double], Double)] -> [Double] -> Double
 evaluateLoss lookback hidden dataset flat =
     let datasetV = map (Data.Bifunctor.first V.fromList) dataset
@@ -127,7 +152,7 @@ trainLSTM cfg series =
      in if lookback <= 0 || hidden <= 0 || null dataset
             then (LSTMModel{lmHiddenSize = hidden, lmParams = replicate (paramCount hidden) 0}, [])
             else
-                let (trainSet, valSet) = splitTrainVal (lcValRatio cfg) dataset
+                let (trainSet, valSet) = splitTrainVal (lcValRatio cfg) (unitWeights dataset)
                     initFlat = initParams (paramCount hidden) (lcSeed cfg)
                     (bestFlat, history) = trainLoop cfg 1 hidden trainSet valSet initFlat
                  in (LSTMModel{lmHiddenSize = hidden, lmParams = bestFlat}, history)
@@ -147,16 +172,32 @@ trainLSTMMulti cfg channels =
      in if lookback <= 0 || hidden <= 0 || d <= 0 || null dataset
             then (LSTMModel{lmHiddenSize = hidden, lmParams = replicate (paramCountD hidden (max 1 d)) 0}, [])
             else
-                let (trainSet, valSet) = splitTrainVal (lcValRatio cfg) dataset
+                let (trainSet, valSet) = splitTrainVal (lcValRatio cfg) (unitWeights dataset)
                     initFlat = initParams (paramCountD hidden d) (lcSeed cfg)
                     (bestFlat, history) = trainLoop cfg d hidden trainSet valSet initFlat
                  in (LSTMModel{lmHiddenSize = hidden, lmParams = bestFlat}, history)
 
 fineTuneLSTM :: LSTMConfig -> LSTMModel -> [Double] -> (LSTMModel, [EpochStats])
 fineTuneLSTM cfg model series =
+    fineTuneLSTMWeighted cfg model series []
+
+{- | Fine-tune with a per-observation loss weight. @weights@ aligns index-for-
+index with @series@; the supervised sample whose target is @series !! t@ gets
+weight @weights !! t@. Missing or non-finite entries default to 1, so the
+empty list reproduces plain 'fineTuneLSTM' exactly.
+
+This is the hook for outcome-driven learning: bars covered by a closed trade
+carry extra weight, so the model is pulled hardest toward the true prices
+exactly where its predictions were acted on — correcting itself where a trade
+lost (punishment) and consolidating the patterns where a trade won
+(reinforcement) — while the objective stays supervised toward observed
+prices, so the feedback cannot inflate the model's own predictions.
+-}
+fineTuneLSTMWeighted :: LSTMConfig -> LSTMModel -> [Double] -> [Double] -> (LSTMModel, [EpochStats])
+fineTuneLSTMWeighted cfg model series weights =
     let lookback = lcLookback cfg
         hidden = lcHiddenSize cfg
-        dataset = buildSequencesV lookback (V.fromList series)
+        dataset = buildSequencesWeightedV lookback (V.fromList series) (V.fromList weights)
      in if hidden /= lmHiddenSize model || hidden <= 0 || lookback <= 0 || null dataset || lcEpochs cfg <= 0
             then (model, [])
             else
@@ -215,8 +256,10 @@ splitTrainVal valRatio xs
             splitAtN = max 1 (floor (fromIntegral n * (1 - valRatio)))
          in splitAt splitAtN xs
 
--- | The third argument is the input dimension @d@ (1 for the univariate model).
-trainLoop :: LSTMConfig -> Int -> Int -> [(V.Vector Double, Double)] -> [(V.Vector Double, Double)] -> [Double] -> ([Double], [EpochStats])
+-- | The third argument is the input dimension @d@ (1 for the univariate
+-- model). Datasets carry a per-sample loss weight; weight 1 everywhere is
+-- exactly the unweighted MSE.
+trainLoop :: LSTMConfig -> Int -> Int -> [(V.Vector Double, Double, Double)] -> [(V.Vector Double, Double, Double)] -> [Double] -> ([Double], [EpochStats])
 trainLoop cfg d hidden trainSet valSet initFlat =
     let beta1 = 0.9
         beta2 = 0.999
@@ -232,8 +275,8 @@ trainLoop cfg d hidden trainSet valSet initFlat =
             if epoch > maxEpochs
                 then (bestFlat, reverse history)
                 else
-                    let trainLoss = realToFrac (lossFromFlatDV d hidden trainSet flat)
-                        valLoss = if null valSet then trainLoss else realToFrac (lossFromFlatDV d hidden valSet flat)
+                    let trainLoss = realToFrac (lossFromFlatWeightedDV d hidden trainSet flat)
+                        valLoss = if null valSet then trainLoss else realToFrac (lossFromFlatWeightedDV d hidden valSet flat)
 
                         history' = EpochStats epoch trainLoss valLoss : history
 
@@ -246,7 +289,7 @@ trainLoop cfg d hidden trainSet valSet initFlat =
                      in if shouldStop
                             then (bestFlat', reverse history')
                             else
-                                let g = grad (lossFromFlatDV d hidden trainSet) flat
+                                let g = grad (lossFromFlatWeightedDV d hidden trainSet) flat
                                     g' =
                                         case clip of
                                             Nothing -> g
@@ -345,6 +388,24 @@ lossFromFlatDV d hidden dataset flat =
      in if nInt <= 0
             then 0
             else foldl' (\acc x -> acc + err x) 0 dataset / n
+
+{- | Weighted mean-squared error: @sum(w_i * e_i^2) / sum(w_i)@. With unit
+weights this is numerically identical to 'lossFromFlatDV' (multiplying by the
+constant 1.0 and summing unit weights are exact float operations).
+-}
+lossFromFlatWeightedDV :: (Floating a) => Int -> Int -> [(V.Vector Double, Double, Double)] -> [a] -> a
+lossFromFlatWeightedDV d hidden dataset flat =
+    let p = unflattenParamsD hidden d flat
+        sumW = foldl' (\acc (_, _, w) -> acc + w) 0 dataset :: Double
+        err (w, yTrue, wt) =
+            let wA = V.map realToFrac w
+                yA = realToFrac yTrue
+                yPred = forwardWindowDV d p wA
+                e = yPred - yA
+             in realToFrac wt * e * e
+     in if null dataset || sumW <= 0 || isNaN sumW || isInfinite sumW
+            then 0
+            else foldl' (\acc x -> acc + err x) 0 dataset / realToFrac sumW
 
 forwardWindowV :: (Floating a) => LSTMParams a -> V.Vector a -> a
 forwardWindowV = forwardWindowDV 1

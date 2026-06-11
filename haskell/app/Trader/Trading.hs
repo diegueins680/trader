@@ -26,7 +26,12 @@ module Trader.Trading (
     exitReasonCode,
     exitReasonFromCode,
     mkEntryGateState,
+    outcomeWeightCap,
+    outcomeWeightLossScale,
+    outcomeWeightWinScale,
     tradeEntrySourceCode,
+    tradeOutcomeWeightFactor,
+    tradeOutcomeWeights,
     positionSizeScaleHardFailMultiplier,
 ) where
 
@@ -501,6 +506,56 @@ data Trade = Trade
     , trFeeCost :: !Double
     }
     deriving (Eq, Show)
+
+{- | Outcome-driven LSTM learning: extra loss weight per unit of realized
+return for bars covered by a winning trade. With a 2% win the bars it spanned
+train at weight 1.2 — consolidating the pattern that paid.
+-}
+outcomeWeightWinScale :: Double
+outcomeWeightWinScale = 10
+
+{- | Extra loss weight per unit of realized loss. Deliberately larger than
+'outcomeWeightWinScale': a 2% losing trade trains its bars at weight 1.5, so
+the model corrects hardest exactly where its predictions cost money.
+-}
+outcomeWeightLossScale :: Double
+outcomeWeightLossScale = 25
+
+-- | Ceiling on any single bar's outcome weight, so one extreme trade cannot
+-- dominate the fine-tune window.
+outcomeWeightCap :: Double
+outcomeWeightCap = 3
+
+{- | Loss-weight multiplier a closed trade assigns to the bars it spanned.
+Nothing for break-even or non-finite returns (no signal to learn from).
+-}
+tradeOutcomeWeightFactor :: Trade -> Maybe Double
+tradeOutcomeWeightFactor tr =
+    let r = trReturn tr
+     in if isNaN r || isInfinite r || r == 0
+            then Nothing
+            else
+                let scale = if r < 0 then outcomeWeightLossScale else outcomeWeightWinScale
+                 in Just (min outcomeWeightCap (1 + scale * abs r))
+
+{- | Per-bar loss weights for a price/observation series of length @n@,
+derived from closed trades whose entry/exit indices live in the same index
+space as the series. Bars not covered by any trade weigh 1. Bots hold one
+position at a time, so spans effectively don't overlap; where they touch
+(close + reopen on the same bar) the later trade in the list wins.
+-}
+tradeOutcomeWeights :: [Trade] -> Int -> [Double]
+tradeOutcomeWeights trades n
+    | n <= 0 = []
+    | otherwise =
+        let updatesFor tr =
+                case tradeOutcomeWeightFactor tr of
+                    Nothing -> []
+                    Just f ->
+                        let lo = max 0 (trEntryIndex tr)
+                            hi = min (n - 1) (trExitIndex tr)
+                         in [(t, f) | lo <= hi, t <- [lo .. hi]]
+         in V.toList (V.replicate n 1 V.// concatMap updatesFor trades)
 
 data BacktestCostAttribution = BacktestCostAttribution
     { bcaGrossEquityCurve :: [Double]

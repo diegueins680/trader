@@ -422,3 +422,16 @@ FINAL_STATUS: done — reports/trader-firm-data.md result block appended for --v
 - Status: data-not-blocking
 - Next owner: trader-firm-quant (verify preset → gate semantics + decide if TestMain.hs needs a `--vol-conf-gate` round-trip assertion).
 FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate seam evidence from Args.hs/Main.hs (no test hits).
+
+## Finished result — vol-conf-gate slice proof (2026-06-11 06:55 UTC)
+- Cmd: `(git status --porcelain=v1 -- app/Trader/App/Args.hs app/Main.hs test/TestMain.hs; grep -nE 'vol-conf-gate|...' ...)`
+- Git: M app/Main.hs, M test/TestMain.hs; Args.hs clean.
+- Args.hs: re-exports `VolConfGatePreset(..)`, `parseVolConfGatePreset`; field `argVolConfGate :: VolConfGatePreset` (L221); CLI option `--vol-conf-gate` wired via `eitherReader parseVolConfGatePreset` with `volConfGateChoicesCsv` help (L883–888).
+- Main.hs: imports `VolConfGatePreset(..)`, `parseVolConfGatePreset` (L433–435); `lsVolConfGate`/`bsVolConfGate` fields (L464,536); JSON emits `vol_conf_gate` via `volConfGateCode` and `confidence` (L1323,1337).
+- TestMain.hs: no matches in 40-line window (modified but slice symbols absent here).
+- Realized/confidence threading: confidence sizing knobs (`--lstm-confidence-soft/hard`, `--protection-min-confidence`, `--meta-label-min-confidence`) validated in `ensure` block; `--vol-lookback` drives realized-vol sizing (L867).
+- Seam: callable preset path `parseVolConfGatePreset → argVolConfGate → lsVolConfGate/bsVolConfGate → JSON vol_conf_gate` is intact for data validation hand-off.
+- Status: data-not-blocking
+- Next owner/consumer: trader-firm-quant (validate preset semantics + JSON contract) → trader-firm-cto.
+
+FINAL_STATUS: done — reports/trader-firm-data.md appended; vol-conf-gate seam evidence captured from Args.hs L57–58/221/883–888 and Main.hs L433–435/464/536/1323/1337.

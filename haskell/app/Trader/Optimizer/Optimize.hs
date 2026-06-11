@@ -1252,6 +1252,7 @@ data OptimizerArgs = OptimizerArgs
     , oaKellyLiteFloorMax :: !Double
     , oaKellyLiteCapMin :: !Double
     , oaKellyLiteCapMax :: !Double
+    , oaCrossExchangeCoinbase :: !Bool
     }
     deriving (Eq, Show)
 
@@ -4627,7 +4628,17 @@ buildBaseArgs args csvCols = do
                 case csvCols of
                     Nothing -> pure (Left "CSV path not resolved")
                     Just (csvPath, (mHigh, mLow)) -> do
-                        let base = base0 ++ ["--data", csvPath, "--price-column", oaPriceColumn args]
+                        -- When cross-exchange is requested, pass the flag plus a --symbol
+                        -- so the CSV trial can map to a Coinbase product and align by the
+                        -- CSV's own openTime grid. Fail-open if the symbol/interval is not
+                        -- Coinbase-eligible.
+                        let cbxArgs =
+                                if oaCrossExchangeCoinbase args
+                                    then
+                                        let sym = fromMaybe (oaSymbolLabel args) (oaBinanceSymbol args)
+                                         in if null sym then ["--cross-exchange-coinbase"] else ["--cross-exchange-coinbase", "--cross-exchange-symbol", sym]
+                                    else []
+                            base = base0 ++ ["--data", csvPath, "--price-column", oaPriceColumn args] ++ cbxArgs
                         case (mHigh, mLow) of
                             (Nothing, Nothing) -> pure (Right base)
                             (Just h, Just l) -> pure (Right (base ++ ["--high-column", h, "--low-column", l]))

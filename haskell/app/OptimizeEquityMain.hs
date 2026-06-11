@@ -455,6 +455,7 @@ optimizerArgsParser =
         <*> option auto (long "kelly-lite-floor-max" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "kelly-lite-cap-min" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "kelly-lite-cap-max" <> value 1.0 <> metavar "FLOAT")
+        <*> switch (long "cross-exchange-coinbase" <> help "Pass --cross-exchange-coinbase to each trial so it enriches the LSTM/Kalman with same-asset Coinbase data (CSV symbol/interval must be Coinbase-eligible; fail-open otherwise)")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do

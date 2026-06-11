@@ -3,6 +3,9 @@ module Trader.BotStartSemantics (
     botStartSymbolDisabled,
     botStartupBacktestRoiAcceptable,
     botStartupBacktestAborts,
+    BacktestVerdict (..),
+    botStartupBacktestVerdict,
+    backtestVerdictAborts,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
     shouldResolveOriginComboOnAutoStart,
@@ -48,6 +51,67 @@ botStartupBacktestAborts :: Bool -> Maybe Double -> Bool
 botStartupBacktestAborts False _ = False
 botStartupBacktestAborts True Nothing = False
 botStartupBacktestAborts True mFinalEquity = not (botStartupBacktestRoiAcceptable mFinalEquity)
+
+{- | Three-valued verdict for the top-combo startup backtest guard.
+
+  * 'BacktestAllow'      — backtest cleared the bar; allow start.
+  * 'BacktestAbort'      — backtest produced a verdict that fails the bar;
+                           block start (and let upstream prune the combo).
+  * 'BacktestNoVerdict'  — backtest did not produce an actionable verdict on
+                           the combo (e.g. zero trades fired in the smoke
+                           window). Fail open: do not block the start, and
+                           do not let upstream prune the combo.
+-}
+data BacktestVerdict
+    = BacktestAllow
+    | BacktestAbort
+    | BacktestNoVerdict
+    deriving (Eq, Show)
+
+{- | Decide the verdict for a startup combo backtest given:
+
+      * whether the guard is enabled,
+      * the @finalEquity@ reading (if any), and
+      * the @tradeCount@ reading (if any).
+
+    The crucial invariant added 2026-06-10 is:
+
+      A backtest that fired zero trades is /not/ a verdict on the combo's
+      profitability — it is a verdict on the smoke /window/. The smoke
+      backtest is a short, signal-gated slice; on quiet days the dominant
+      outcome is "no trade fired" with @finalEquity == 1.0@ exactly.
+      Treating that as a loss (a) blocks otherwise-valid starts and
+      (b) silently deletes the combo from top-combos JSON + DB, eroding
+      the strategy bank a little more each quiet day. The 2026-06-10
+      launchd log shows 124 such erroneous prunes in a single session,
+      versus 1 genuine loss.
+
+    Falsification:
+
+      * 'BacktestAllow' \<\=\> guard enabled \& finalEquity is finite \& \> 1.0.
+      * 'BacktestAbort' \<\=\> guard enabled \& tradeCount \> 0 \&
+                        finalEquity is non-acceptable (sub-threshold or
+                        non-finite).
+      * 'BacktestNoVerdict' \<\=\> guard enabled \& (no finalEquity reading
+                        OR no tradeCount reading OR tradeCount == 0).
+      * Guard disabled always yields 'BacktestAllow'.
+-}
+botStartupBacktestVerdict :: Bool -> Maybe Double -> Maybe Int -> BacktestVerdict
+botStartupBacktestVerdict False _ _ = BacktestAllow
+botStartupBacktestVerdict True Nothing _ = BacktestNoVerdict
+botStartupBacktestVerdict True mFinalEquity mTradeCount =
+    if botStartupBacktestRoiAcceptable mFinalEquity
+        then BacktestAllow
+        else case mTradeCount of
+            Just n | n > 0 -> BacktestAbort
+            -- Zero-trade or unknown-trade smoke window: not a verdict on the
+            -- combo. Do not abort, do not prune.
+            _ -> BacktestNoVerdict
+
+-- | Convenience: does this verdict block the start?
+backtestVerdictAborts :: BacktestVerdict -> Bool
+backtestVerdictAborts BacktestAbort = True
+backtestVerdictAborts _ = False
 
 prioritizeBotStartSymbols :: [String] -> [String] -> [String]
 prioritizeBotStartSymbols regularSymbols orphanSymbols =
