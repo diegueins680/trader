@@ -114,8 +114,8 @@ testTransientMonotone = do
         chain = mkChain 6
         delays = zipWith (\a b -> sbNextAllowedAtMs b - sbLastErrorAtMs b) chain (tail chain ++ [last chain])
     -- All delays must be >= initial and <= cap, and non-decreasing until the cap.
-    let initialMs = fromIntegral (bpInitialDelaySec policy) * 1000
-        capMs = fromIntegral (bpMaxDelaySec policy) * 1000
+    let initialMs = fromIntegral (bpInitialDelaySec policy) * 1_000
+        capMs = fromIntegral (bpMaxDelaySec policy) * 1_000
     mapM_
         ( \d -> do
             expectTrue ("delay >= initial: " ++ show d) (d >= initialMs)
@@ -130,18 +130,18 @@ testTransientMonotone = do
 testAuthInitialDelay :: IO ()
 testAuthInitialDelay = do
     let sb = initialBackoff (fromInteger now) ErrAuth "401" policy
-        expected = fromInteger now + fromIntegral (bpAuthCircuitOpenSec policy) * 1000
+        expected = fromInteger now + fromIntegral (bpAuthCircuitOpenSec policy) * 1_000
     expectEq "auth initial nextAllowedAt" expected (sbNextAllowedAtMs sb)
     expectEq "auth class recorded" ErrAuth (sbLastErrorClass sb)
 
 testAuthStayHigh :: IO ()
 testAuthStayHigh = do
     let sb0 = initialBackoff (fromInteger now) ErrAuth "401" policy
-        sb1 = nextBackoff policy (fromInteger (now + 1000)) (Just sb0) ErrAuth "401"
+        sb1 = nextBackoff policy (fromInteger (now + 1_000)) (Just sb0) ErrAuth "401"
         gap1 = sbNextAllowedAtMs sb1 - sbLastErrorAtMs sb1
     expectTrue
         "second auth failure also yields >= circuit open"
-        (gap1 >= fromIntegral (bpAuthCircuitOpenSec policy) * 1000)
+        (gap1 >= fromIntegral (bpAuthCircuitOpenSec policy) * 1_000)
 
 testShouldAttemptBoundary :: IO ()
 testShouldAttemptBoundary = do
@@ -227,7 +227,7 @@ testTransientCap = do
         go k sb = go (k - 1) (nextBackoff policy (fromInteger now) (Just sb) ErrTransient "DNS")
         sbBig = go 64 (initialBackoff (fromInteger now) ErrTransient "DNS" policy)
         gapMs = sbNextAllowedAtMs sbBig - sbLastErrorAtMs sbBig
-        capMs = fromIntegral (bpMaxDelaySec policy) * 1000
+        capMs = fromIntegral (bpMaxDelaySec policy) * 1_000
     expectTrue ("gap clamped at cap: gap=" ++ show gapMs ++ " cap=" ++ show capMs) (gapMs == capMs)
 
 _unused :: Integer -> Integer
@@ -326,7 +326,7 @@ testBackoffStableAcrossIps = do
     let raw1 = "futures/positionRisk HTTP 401: Binance code -2015: Invalid API-key, IP, or permissions for action, request ip: 157.100.191.150"
         raw2 = "futures/positionRisk HTTP 401: Binance code -2015: Invalid API-key, IP, or permissions for action, request ip: 148.227.107.253"
         sb1 = initialBackoff (fromInteger now) ErrAuth raw1 policy
-        sb2 = nextBackoff policy (fromInteger (now + 1000)) (Just sb1) ErrAuth raw2
+        sb2 = nextBackoff policy (fromInteger (now + 1_000)) (Just sb1) ErrAuth raw2
     expectEq
         "backoff fingerprint stable across IP rotation"
         (sbLastErrorMessage sb1)
