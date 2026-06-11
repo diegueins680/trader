@@ -7,3 +7,11 @@
 # table-driven shape, so silence it module-scoped.
 - ignore: { name: "Evaluate", within: Trader.Formal.Risk }
 - ignore: { name: "Avoid lambda", within: Trader.Formal.Risk }
+
+# Newer hlint (CI installs via apt, currently stricter than some local
+# installs) emits "Use underscore" on numeric literals like Binance error
+# codes (-1013, -4999) and second-durations (1800, 3600) where digit
+# grouping is wrong or pointless. The codebase does not enforce this style,
+# so silence the hint tree-wide to keep `verify.sh haskell` deterministic
+# across hlint versions.
+- ignore: { name: "Use underscore" }
