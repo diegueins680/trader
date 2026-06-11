@@ -4,6 +4,11 @@
 module Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalThresholdBoundary (..),
+    PredictorLiveness (..),
+    dynamicRangePct,
+    predictorLiveness,
+    predictorDegenerate,
+    predictorLivenessToJson,
     finiteDouble,
     mkSignalThresholdBoundary,
     normalizeSignalThreshold,
@@ -661,3 +666,126 @@ signalEntryEdgeSpikeAuditWarningInterval interval auditOnly openThreshold edgeFo
     if auditOnly && not (signalEntryEdgeSpikeOkInterval interval openThreshold edgeForMethod)
         then Just "EDGE_SPIKE"
         else Nothing
+
+{- | Series-wide dynamic range as a fraction of the mean: @(max - min) / |mean|@
+over the finite points. Returns 'Nothing' when fewer than two finite points are
+present. This is the headline statistic for predictor liveness — a predictor
+that barely varies across a window is not responding to its input.
+-}
+dynamicRangePct :: [Maybe Double] -> Maybe Double
+dynamicRangePct series =
+    case filter finiteDouble (catMaybes series) of
+        finite@(_ : _ : _) ->
+            let mn = minimum finite
+                mx = maximum finite
+                mean = sum finite / fromIntegral (length finite)
+                denom = abs mean
+             in Just (if denom > 0 then (mx - mn) / denom else 0)
+        _ -> Nothing
+
+{- | Liveness diagnostics for a single predictor's forecast series over a
+backtest split, measured against the price series the method was supposed to
+track.
+
+Motivation (observed 2026-06-02): running methods @01@ (LSTM-only), @10@
+(Kalman-only) and @blend@ at @--epochs 0@ over a contiguous +20% BTCUSDT 4h
+up-trend produced *zero trades*, flat equity, and no warning. Instrumenting the
+forecast series partitioned the three "zero-trade" methods, which prior notes
+had conflated into one defect:
+
+  * @01@: the untrained LSTM emitted ~94400 on every bar while price ran to
+    120750 — dynamic range 0.0074% of its mean vs the price's 20.3%. The model
+    ignores its input entirely. This is a genuinely *dead* predictor.
+  * @10@: the Kalman forecast tracked the move (range 18.7%, ~92% of the price
+    range) yet still opened no position — a *live* predictor gated out
+    downstream, a different and real investigation target.
+
+'plPriceTrackingRatio' is the discriminating statistic: a forecast whose
+dynamic range is a tiny fraction of the price's own range is not tracking the
+market, regardless of regime. Per-bar sanity gates (see
+'signalPredictionSanityOk') cannot catch this because each point is individually
+in-scale; only the series-wide range relative to price reveals it.
+-}
+data PredictorLiveness = PredictorLiveness
+    { plSeries :: !String
+    -- ^ predictor label, e.g. "lstm" | "kalman"
+    , plFiniteCount :: !Int
+    -- ^ number of finite forecast points assessed
+    , plDynamicRangePct :: !Double
+    -- ^ (max - min) / |mean| of finite forecasts
+    , plMaxStepReturn :: !Double
+    -- ^ max |p[t+1] - p[t]| / |p[t]| over consecutive finite forecasts (telemetry)
+    , plPriceTrackingRatio :: !Double
+    -- ^ plDynamicRangePct / priceDynamicRangePct; ~1 means the forecast moves as
+    -- much as price, ~0 means a near-constant (dead) forecast
+    }
+    deriving (Eq, Show)
+
+{- | Compute liveness for a forecast series, given the price series' own dynamic
+range (@(max - min)/|mean|@) as the tracking reference. Returns 'Nothing' when
+the forecast has fewer than two finite points. Steps are taken across the
+compacted finite series, which can only *overstate* 'plMaxStepReturn' across
+gaps — the conservative direction (it never invents liveness that is not there).
+-}
+predictorLiveness :: String -> Double -> [Maybe Double] -> Maybe PredictorLiveness
+predictorLiveness label priceDynamicRangePct series =
+    case filter finiteDouble (catMaybes series) of
+        finite@(_ : _ : _) ->
+            let mn = minimum finite
+                mx = maximum finite
+                mean = sum finite / fromIntegral (length finite)
+                denom = abs mean
+                rangePct = if denom > 0 then (mx - mn) / denom else 0
+                steps =
+                    [ abs (b - a) / abs a
+                    | (a, b) <- zip finite (drop 1 finite)
+                    , abs a > 0
+                    ]
+                maxStep = if null steps then 0 else maximum steps
+                trackingRatio =
+                    if finiteDouble priceDynamicRangePct && priceDynamicRangePct > 0
+                        then rangePct / priceDynamicRangePct
+                        else 0
+             in Just
+                    PredictorLiveness
+                        { plSeries = label
+                        , plFiniteCount = length finite
+                        , plDynamicRangePct = rangePct
+                        , plMaxStepReturn = maxStep
+                        , plPriceTrackingRatio = trackingRatio
+                        }
+        _ -> Nothing
+
+{- | A forecast tracking less than this fraction of the price's own dynamic
+range is treated as not tracking the market (a dead predictor). 5% leaves a
+wide margin: the observed dead LSTM tracked 0.04%, the live Kalman tracked 92%.
+-}
+predictorTrackingFloor :: Double
+predictorTrackingFloor = 0.05
+
+{- | A method's predictor stack is degenerate when it produced no closed trades
+AND every available forecast series tracked less than 'predictorTrackingFloor'
+of the price's dynamic range — i.e. the models were effectively constant, so the
+zero-trade outcome was structural rather than a market decision.
+
+Fail-open by design: an empty liveness list yields 'False'. This is a diagnostic
+surfaced in the backtest payload, not a trade gate, so the safe default is to
+*not* cry wolf. A method that closed trades, or that had a live (tracking)
+predictor which was merely gated out, is correctly *not* flagged.
+-}
+predictorDegenerate :: Int -> [PredictorLiveness] -> Bool
+predictorDegenerate closedTrades liveness =
+    closedTrades == 0
+        && not (null liveness)
+        && all (\pl -> plPriceTrackingRatio pl < predictorTrackingFloor) liveness
+
+-- | JSON encoding of a single predictor's liveness diagnostics.
+predictorLivenessToJson :: PredictorLiveness -> Aeson.Value
+predictorLivenessToJson pl =
+    Aeson.object
+        [ "series" Aeson..= plSeries pl
+        , "finiteCount" Aeson..= plFiniteCount pl
+        , "dynamicRangePct" Aeson..= plDynamicRangePct pl
+        , "maxStepReturn" Aeson..= plMaxStepReturn pl
+        , "priceTrackingRatio" Aeson..= plPriceTrackingRatio pl
+        ]

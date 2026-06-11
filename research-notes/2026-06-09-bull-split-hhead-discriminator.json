@@ -1,0 +1,56 @@
+{
+  "cio_authorization": {
+    "objective_file": "/Users/diegosaa/.openclaw/orgs/trader-firm/objectives/trader-firm-execution.md",
+    "authorization_timestamp": "2026-06-09 03:30 UTC",
+    "hypothesis": "H-HEAD",
+    "flag": "--open-threshold",
+    "method": "01",
+    "dataset": "data/BTCUSDT-4h-bull-2020-2021.csv",
+    "dataset_md5": "b442c23281a2136e11068bd6a136392c",
+    "deadline": "2026-06-09 05:00 UTC"
+  },
+  "rows": [
+    {
+      "label": "01_open-threshold_1e-6",
+      "method": "01",
+      "openThreshold": "1e-6",
+      "command": "trader-hs --data data/BTCUSDT-4h-bull-2020-2021.csv --price-column close --method 01 --epochs 1 --trailing-stop 0.03 --open-threshold 1e-6 --json",
+      "closed_trades": 0,
+      "total_return": 0,
+      "sharpe": 0,
+      "max_drawdown": 0,
+      "final_equity": 1,
+      "exit_code": 0,
+      "equity_points": 877,
+      "avg_trade": 0
+    },
+    {
+      "label": "01_open-threshold_0",
+      "method": "01",
+      "openThreshold": "0",
+      "command": "trader-hs --data data/BTCUSDT-4h-bull-2020-2021.csv --price-column close --method 01 --epochs 1 --trailing-stop 0.03 --open-threshold 0 --json",
+      "closed_trades": 0,
+      "total_return": 0,
+      "sharpe": 0,
+      "max_drawdown": 0,
+      "final_equity": 1,
+      "exit_code": 0,
+      "equity_points": 877,
+      "avg_trade": 0
+    },
+    {
+      "label": "01_open-threshold_1e-12",
+      "method": "01",
+      "openThreshold": "1e-12",
+      "command": "trader-hs --data data/BTCUSDT-4h-bull-2020-2021.csv --price-column close --method 01 --epochs 1 --trailing-stop 0.03 --open-threshold 1e-12 --json",
+      "closed_trades": 0,
+      "total_return": 0,
+      "sharpe": 0,
+      "max_drawdown": 0,
+      "final_equity": 1,
+      "exit_code": 0,
+      "equity_points": 877,
+      "avg_trade": 0
+    }
+  ]
+}

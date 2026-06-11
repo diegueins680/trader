@@ -24,6 +24,10 @@ set -euo pipefail
 #   TRADER_HETZNER_SSH_PORT      SSH port (default: 22)
 #   TRADER_HETZNER_REPO_DIR      Repo path on the host (default: /opt/trader)
 #   TRADER_HETZNER_ENV_FILE      Env file relative to repo dir (default: deploy/hetzner/trader.env)
+#   TRADER_HETZNER_MANAGED_ENV_FILE  Optional checked-in KEY=VALUE overlay relative to the
+#                                repo dir; each key is updated-or-appended into the box's
+#                                env file before compose up, so non-secret tuning ships
+#                                from the repo instead of by hand. Missing file = no-op.
 #   TRADER_HETZNER_COMPOSE_FILE  Compose file relative to repo dir (default: deploy/hetzner/docker-compose.yml)
 #   TRADER_HETZNER_SSH_KEY_FILE  SSH identity file (optional; for CI)
 #   TRADER_HETZNER_KNOWN_HOSTS   known_hosts file (optional; for CI)
@@ -47,6 +51,7 @@ ssh_user="${TRADER_HETZNER_SSH_USER:-root}"
 ssh_port="${TRADER_HETZNER_SSH_PORT:-22}"
 repo_dir="${TRADER_HETZNER_REPO_DIR:-/opt/trader}"
 env_file="${TRADER_HETZNER_ENV_FILE:-deploy/hetzner/trader.env}"
+managed_env_file="${TRADER_HETZNER_MANAGED_ENV_FILE:-}"
 compose_file="${TRADER_HETZNER_COMPOSE_FILE:-deploy/hetzner/docker-compose.yml}"
 
 ssh_opts=(-p "$ssh_port" -o BatchMode=yes)
@@ -92,7 +97,7 @@ rsync -az --human-readable \
 
 echo "==> Building and starting containers on ${host}"
 ssh "${ssh_opts[@]}" "${ssh_user}@${host}" \
-  "REPO_DIR='${repo_dir}' ENV_FILE='${env_file}' COMPOSE_FILE='${compose_file}'" \
+  "REPO_DIR='${repo_dir}' ENV_FILE='${env_file}' MANAGED_ENV_FILE='${managed_env_file}' COMPOSE_FILE='${compose_file}'" \
   "TRADER_GIT_COMMIT='${commit}' bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$REPO_DIR"
@@ -100,6 +105,24 @@ cd "$REPO_DIR"
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: env file not found at ${REPO_DIR}/${ENV_FILE}" >&2
   exit 1
+fi
+
+# Merge the checked-in managed overlay into the box's env file: update each
+# overlay key in place, append keys the box doesn't have yet, leave everything
+# else (secrets, operator overrides of unmanaged keys) untouched.
+if [[ -n "$MANAGED_ENV_FILE" && -f "$MANAGED_ENV_FILE" ]]; then
+  merged="$(mktemp)"
+  awk -F= '
+    NR == FNR { if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) managed[$1] = $0; next }
+    /^[A-Za-z_][A-Za-z0-9_]*=/ && ($1 in managed) { print managed[$1]; delete managed[$1]; next }
+    { print }
+    END { for (k in managed) print managed[k] }
+  ' "$MANAGED_ENV_FILE" "$ENV_FILE" > "$merged"
+  if ! cmp -s "$merged" "$ENV_FILE"; then
+    echo "==> Applying managed env overlay ${MANAGED_ENV_FILE} -> ${ENV_FILE}"
+    cat "$merged" > "$ENV_FILE"
+  fi
+  rm -f "$merged"
 fi
 
 export TRADER_GIT_COMMIT
