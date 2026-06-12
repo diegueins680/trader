@@ -521,8 +521,9 @@ the model corrects hardest exactly where its predictions cost money.
 outcomeWeightLossScale :: Double
 outcomeWeightLossScale = 25
 
--- | Ceiling on any single bar's outcome weight, so one extreme trade cannot
--- dominate the fine-tune window.
+{- | Ceiling on any single bar's outcome weight, so one extreme trade cannot
+dominate the fine-tune window.
+-}
 outcomeWeightCap :: Double
 outcomeWeightCap = 3
 

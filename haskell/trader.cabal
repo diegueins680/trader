@@ -20,6 +20,8 @@ executable trader-hs
                      , Trader.Coinbase
                      , Trader.ComboTracking
                      , Trader.Config
+                     , Trader.CostCalibration
+                     , Trader.LiveGap
                      , Trader.Cors
                      , Trader.Dex
                      , Trader.App.Args
@@ -228,6 +230,8 @@ test-suite trader-tests
                      , Trader.Coinbase
                      , Trader.ComboTracking
                      , Trader.Config
+                     , Trader.CostCalibration
+                     , Trader.LiveGap
                      , Trader.Cors
                      , Trader.Dex
                      , Trader.App.Args

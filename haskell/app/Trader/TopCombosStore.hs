@@ -24,6 +24,7 @@ module Trader.TopCombosStore (
     liveQuarantineMinOperations,
     liveQuarantineMaxFinalEquity,
     liveStatsQuarantined,
+    setComboLiveStats,
     isBinancePlatformKey,
     isCoinbasePlatformKey,
     isPoloniexPlatformKey,
@@ -387,8 +388,9 @@ data ComboLiveStats = ComboLiveStats
     }
     deriving (Eq, Show)
 
--- | Pseudo-count of live operations at which live evidence carries the same
--- weight as the backtest prior in the blended ranking (w = n / (n + k)).
+{- | Pseudo-count of live operations at which live evidence carries the same
+weight as the backtest prior in the blended ranking (w = n / (n + k)).
+-}
 liveBlendShrinkageOps :: Double
 liveBlendShrinkageOps = 25
 
@@ -452,8 +454,9 @@ comboLiveStatsFromObject obj = do
                     , clsLastAtMs = KM.lookup (AK.fromString "lastAtMs") liveObj >>= coerceInt64Value
                     }
 
--- | Read live stats from a combo JSON value (under @metrics.live@, falling
--- back to a root-level @live@ object).
+{- | Read live stats from a combo JSON value (under @metrics.live@, falling
+back to a root-level @live@ object).
+-}
 comboLiveStats :: Aeson.Value -> Maybe ComboLiveStats
 comboLiveStats val =
     (metricsObjectMaybe val >>= comboLiveStatsFromObject)
@@ -515,8 +518,9 @@ and survives merges instead of being silently re-added fresh.
 comboLiveQuarantined :: Aeson.Value -> Bool
 comboLiveQuarantined val = maybe False liveStatsQuarantined (comboLiveStats val)
 
--- | Write live stats into a combo's @metrics.live@, creating the metrics
--- object if needed.
+{- | Write live stats into a combo's @metrics.live@, creating the metrics
+object if needed.
+-}
 setComboLiveStats :: ComboLiveStats -> Aeson.Value -> Aeson.Value
 setComboLiveStats stats val =
     case val of
@@ -1120,10 +1124,11 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
             scoreVal = fromMaybe (negate (1 / 0))
             finalEqNew = fromMaybe 0 (comboFinalEquityValue newer)
             finalEqPrev = fromMaybe 0 (comboFinalEquityValue prev)
-            best =
-                if objNew == objPrev && (isJust scoreNew || isJust scorePrev)
-                    then if scoreVal scoreNew > scoreVal scorePrev then newer else prev
-                    else if finalEqNew > finalEqPrev then newer else prev
+            best
+                | objNew == objPrev && (isJust scoreNew || isJust scorePrev) =
+                    if scoreVal scoreNew > scoreVal scorePrev then newer else prev
+                | finalEqNew > finalEqPrev = newer
+                | otherwise = prev
          in preserveRichestLiveStats [newer, prev] best
 
     comboMetricString key val =

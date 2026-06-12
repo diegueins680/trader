@@ -256,9 +256,10 @@ splitTrainVal valRatio xs
             splitAtN = max 1 (floor (fromIntegral n * (1 - valRatio)))
          in splitAt splitAtN xs
 
--- | The third argument is the input dimension @d@ (1 for the univariate
--- model). Datasets carry a per-sample loss weight; weight 1 everywhere is
--- exactly the unweighted MSE.
+{- | The third argument is the input dimension @d@ (1 for the univariate
+model). Datasets carry a per-sample loss weight; weight 1 everywhere is
+exactly the unweighted MSE.
+-}
 trainLoop :: LSTMConfig -> Int -> Int -> [(V.Vector Double, Double, Double)] -> [(V.Vector Double, Double, Double)] -> [Double] -> ([Double], [EpochStats])
 trainLoop cfg d hidden trainSet valSet initFlat =
     let beta1 = 0.9
