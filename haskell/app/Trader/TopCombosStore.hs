@@ -24,6 +24,7 @@ module Trader.TopCombosStore (
     liveQuarantineMinOperations,
     liveQuarantineMaxFinalEquity,
     liveStatsQuarantined,
+    setComboLiveStats,
     isBinancePlatformKey,
     isCoinbasePlatformKey,
     isPoloniexPlatformKey,

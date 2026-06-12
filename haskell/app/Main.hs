@@ -238,6 +238,17 @@ import Trader.Coinbase (
 import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Cors (CorsConfig (..), corsHeadersFor, resolveCorsConfig, withCors)
+import Trader.CostCalibration (
+    calibratedSlippagePerSide,
+    costCalibrationMinObservations,
+    costCalibrationWindow,
+    observedSlippageFraction,
+ )
+import Trader.LiveGap (
+    LiveGapStats (..),
+    liveGapMethodMultiplier,
+    liveGapStatsByMethod,
+ )
 import Trader.Dex (
     DexEnv (..),
     DexSwapResult (..),
@@ -389,6 +400,7 @@ import Trader.TopCombosStore (
     applyComboUpdatesWithStats,
     blendedAnnualizedReturn,
     comboIdentityKey,
+    comboLiveStats,
     comboLiveStatsFromObject,
     comboLiveStatsValue,
     comboMetricDouble,
@@ -404,6 +416,7 @@ import Trader.TopCombosStore (
     readTopCombosValueLocal,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
+    setComboLiveStats,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
     topCombosGeneratedAtMs,
@@ -5183,6 +5196,7 @@ data BotState = BotState
     , botPositions :: !(V.Vector Int) -- position after decision at each bar (len == prices)
     , botOps :: ![BotOp]
     , botOrders :: ![BotOrderEvent]
+    , botRestoredSlippages :: ![Double] -- fill-slippage observations restored from the previous session's snapshot
     , botTrades :: ![Trade]
     , botPerfStats :: !BotPerfStats
     , botAdjustments :: !BotAdjustments
@@ -6020,6 +6034,15 @@ botStatusJson st =
             , "openTrade" .= fmap botOpenTradeJson (botOpenTrade st)
             , "performance" .= perfJson
             , "adaptive" .= adaptiveJson
+            , "costCalibration"
+                .= let obs = botSlippageObservations st
+                       configured = argSlippage (botArgs st)
+                    in object
+                        [ "configuredSlippage" .= configured
+                        , "calibratedSlippage" .= calibratedSlippagePerSide configured obs
+                        , "observations" .= length obs
+                        , "minObservations" .= costCalibrationMinObservations
+                        ]
             , "latestSignal" .= botLatestSignal st
             , "decisionTrace" .= botDecisionTrace st
             , "buildCommit" .= botBuildCommit st
@@ -6534,6 +6557,82 @@ lossStreakFromTrades trades =
             (\tr -> let r = trReturn tr in isNaN r || isInfinite r || r <= 0)
             (reverse trades)
         )
+
+-- | Realized fill-slippage observations (oldest-first) from this session's
+-- order events. Only orders that were actually sent and filled measure
+-- anything; dry-run and rejected orders are skipped.
+realizedSlippagesFromOrderEvents :: [BotOrderEvent] -> [Double]
+realizedSlippagesFromOrderEvents events =
+    [ slip
+    | e <- events
+    , let o = boeOrder e
+    , aorSent o
+    , Just slip <-
+        [ observedSlippageFraction
+            (boeOpSide e)
+            (boePrice e)
+            (aorExecutedQty o)
+            (aorCummulativeQuoteQty o)
+        ]
+    ]
+
+-- | Extract one fill-slippage observation from a persisted order-event JSON
+-- object (the snapshot's @orders@ array). Field names follow the
+-- 'BotOrderEvent' / 'ApiOrderResult' ToJSON encodings.
+slippageFromOrderEventValue :: Aeson.Value -> Maybe Double
+slippageFromOrderEventValue val = do
+    o <- case val of
+        Aeson.Object obj -> Just obj
+        _ -> Nothing
+    side <- KM.lookup "opSide" o >>= AT.parseMaybe Aeson.parseJSON
+    price <- KM.lookup "price" o >>= AT.parseMaybe Aeson.parseJSON
+    orderObj <- case KM.lookup "order" o of
+        Just (Aeson.Object oo) -> Just oo
+        _ -> Nothing
+    sent <- KM.lookup "sent" orderObj >>= AT.parseMaybe Aeson.parseJSON
+    if not sent
+        then Nothing
+        else
+            observedSlippageFraction
+                side
+                price
+                (KM.lookup "executedQty" orderObj >>= AT.parseMaybe Aeson.parseJSON)
+                (KM.lookup "cummulativeQuoteQty" orderObj >>= AT.parseMaybe Aeson.parseJSON)
+
+{- | Seed cost calibration from the previous session's snapshot, mirroring
+'restoreTradeMemoryFromSnapshotMaybe': bots restart on every deploy, and
+without a seed the calibration would fall back to the configured slippage
+for the first 'costCalibrationMinObservations' fills of each session.
+Fail-open: no snapshot, a context mismatch, or unparseable orders mean no
+seed.
+-}
+restoreSlippageObservationsFromSnapshotMaybe :: Maybe FilePath -> TenantKey -> Args -> String -> IO [Double]
+restoreSlippageObservationsFromSnapshotMaybe mDir tenantKey args sym = do
+    mSnap <- readBotStatusSnapshotMaybe mDir tenantKey sym
+    let restored =
+            case mSnap of
+                Nothing -> []
+                Just snap ->
+                    if not (botSnapshotMatchesTradeMemoryContext args sym (bssStatus snap))
+                        then []
+                        else case bssStatus snap of
+                            Aeson.Object o ->
+                                case KM.lookup "orders" o of
+                                    Just (Aeson.Array ordersV) ->
+                                        takeLast
+                                            costCalibrationWindow
+                                            (mapMaybe slippageFromOrderEventValue (V.toList ordersV))
+                                    _ -> []
+                            _ -> []
+    pure restored
+
+-- | All fill-slippage observations available to a bot, oldest-first:
+-- last session's restored tail, then this session's order events.
+botSlippageObservations :: BotState -> [Double]
+botSlippageObservations st =
+    takeLast
+        costCalibrationWindow
+        (botRestoredSlippages st ++ realizedSlippagesFromOrderEvents (botOrders st))
 
 data BotOp = BotOp
     { boIndex :: !Int
@@ -8452,6 +8551,14 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                     else pure pos
             else pure 0
     restoredTrades <- restoreTradeMemoryFromSnapshotMaybe mBotStateDir tenantKey args sym
+    restoredSlippages <- restoreSlippageObservationsFromSnapshotMaybe mBotStateDir tenantKey args sym
+    unless (null restoredSlippages) $
+        putStrLn
+            ( printf
+                "Restored %d fill-slippage observations of cost-calibration memory for %s."
+                (length restoredSlippages)
+                sym
+            )
     unless (null restoredTrades) $
         putStrLn
             ( printf
@@ -8942,6 +9049,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                 , botPositions = pos2
                 , botOps = ops2
                 , botOrders = orders2
+                , botRestoredSlippages = restoredSlippages
                 , botTrades = restoredTrades
                 , botPerfStats = restoredPerfStats
                 , botAdjustments = restoredAdjustments
@@ -9825,6 +9933,23 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
 
     loop
 
+{- | Base discovery sampling weights for the auto-optimizer, keyed by the
+flag passed to optimize-equity and the @params.method@ code combos carry.
+Each cycle these are scaled by 'liveGapMethodMultiplier', so method
+families whose combos chronically underdeliver live lose discovery budget
+and families that hold up live gain it.
+-}
+autoOptimizerBaseMethodWeights :: [(String, String, Double)]
+autoOptimizerBaseMethodWeights =
+    [ ("--method-weight-11", "11", 0.0)
+    , ("--method-weight-10", "10", 4.0)
+    , ("--method-weight-01", "01", 0.1)
+    , ("--method-weight-edge-blend", "edge_blend", 0.0)
+    , ("--method-weight-edge-pick", "edge_pick", 0.0)
+    , ("--method-weight-regime-switch", "regime_switch", 0.0)
+    , ("--method-weight-bandit-router", "bandit_router", 0.0)
+    ]
+
 autoOptimizerLoop :: Args -> Maybe StateSyncTarget -> Maybe OpsStore -> Maybe Journal -> FilePath -> TopCombosStore -> IO ()
 autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore = do
     enabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
@@ -10058,6 +10183,53 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                             let sleepSec s = threadDelay (max 1 s * 1000000)
 
                                                 loop = do
+                                                    -- Live-vs-backtest gap feedback: read the current combos (with
+                                                    -- whatever live records the fleet has propagated), aggregate the
+                                                    -- gap per method family, and reweight this cycle's discovery
+                                                    -- sampling accordingly. Fail-open to the base weights.
+                                                    liveGapStatsMap <- do
+                                                        valOrErr <-
+                                                            try (readTopCombosValueWithDbFallback mOps topCombosStore) ::
+                                                                IO (Either SomeException (Either String Aeson.Value))
+                                                        case valOrErr of
+                                                            Right (Right v) -> do
+                                                                v' <- annotateTopCombosValueWithLiveStats mOps v
+                                                                pure $ case v' of
+                                                                    Aeson.Object o
+                                                                        | Just (Aeson.Array combosArr) <- KM.lookup "combos" o ->
+                                                                            liveGapStatsByMethod (V.toList combosArr)
+                                                                    _ -> M.empty
+                                                            _ -> pure M.empty
+                                                    let liveGapWeightArgs =
+                                                            concat
+                                                                [ [flag, printf "%.4f" (base * liveGapMethodMultiplier (M.lookup key liveGapStatsMap)) :: String]
+                                                                | (flag, key, base) <- autoOptimizerBaseMethodWeights
+                                                                ]
+                                                        liveGapActive =
+                                                            or
+                                                                [ base > 0 && liveGapMethodMultiplier (M.lookup key liveGapStatsMap) /= 1
+                                                                | (_, key, base) <- autoOptimizerBaseMethodWeights
+                                                                ]
+                                                    when liveGapActive $ do
+                                                        nowGap <- getTimestampMs
+                                                        journalWriteMaybe
+                                                            mJournal
+                                                            ( object
+                                                                [ "type" .= ("optimizer.auto.live_gap" :: String)
+                                                                , "atMs" .= nowGap
+                                                                , "methods"
+                                                                    .= object
+                                                                        [ AK.fromString m
+                                                                            .= object
+                                                                                [ "combos" .= lgsCombos s
+                                                                                , "operations" .= lgsOperations s
+                                                                                , "opsWeightedGap" .= lgsOpsWeightedGap s
+                                                                                , "multiplier" .= liveGapMethodMultiplier (Just s)
+                                                                                ]
+                                                                        | (m, s) <- M.toList liveGapStatsMap
+                                                                        ]
+                                                                ]
+                                                            )
                                                     mSym <- pickRandom symbols
                                                     mInterval <- pickRandom intervals
                                                     case (mSym, mInterval) of
@@ -10187,21 +10359,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     , "0.0"
                                                                                     , "--p-confirm-quantiles"
                                                                                     , "0.0"
-                                                                                    , "--method-weight-11"
-                                                                                    , "0.0"
-                                                                                    , "--method-weight-10"
-                                                                                    , "4.0"
-                                                                                    , "--method-weight-01"
-                                                                                    , "0.1"
-                                                                                    , "--method-weight-edge-blend"
-                                                                                    , "0.0"
-                                                                                    , "--method-weight-edge-pick"
-                                                                                    , "0.0"
-                                                                                    , "--method-weight-regime-switch"
-                                                                                    , "0.0"
-                                                                                    , "--method-weight-bandit-router"
-                                                                                    , "0.0"
                                                                                     ]
+                                                                                        ++ liveGapWeightArgs
                                                                                 primaryMethodArgs =
                                                                                     [ "--epochs-max"
                                                                                     , show epochsMax
@@ -10211,21 +10370,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     , "0.0"
                                                                                     , "--p-confirm-quantiles"
                                                                                     , "0.0"
-                                                                                    , "--method-weight-11"
-                                                                                    , "0.0"
-                                                                                    , "--method-weight-10"
-                                                                                    , "4.0"
-                                                                                    , "--method-weight-01"
-                                                                                    , "0.1"
-                                                                                    , "--method-weight-edge-blend"
-                                                                                    , "0.0"
-                                                                                    , "--method-weight-edge-pick"
-                                                                                    , "0.0"
-                                                                                    , "--method-weight-regime-switch"
-                                                                                    , "0.0"
-                                                                                    , "--method-weight-bandit-router"
-                                                                                    , "0.0"
                                                                                     ]
+                                                                                        ++ liveGapWeightArgs
                                                                                 cliArgs = mkCliArgs recordsPath seed trials timeoutSec minRoundTrips minExposure minSharpe minCalmar primaryMethodArgs
                                                                                 recoveryCliArgs =
                                                                                     mkCliArgs
@@ -10516,7 +10662,11 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                     recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
                                                                     pure False
                                                                 else do
-                                                                    writeResult <- writeTopCombosValue topJsonPath updatedVal
+                                                                    -- Embed this instance's live records before writing, so the
+                                                                    -- file/S3 payload carries them to the rest of the fleet and
+                                                                    -- to the research box's live-gap analysis.
+                                                                    updatedValLive <- annotateTopCombosValueWithLiveStats (tcbcOps ctx) updatedVal
+                                                                    writeResult <- writeTopCombosValue topJsonPath updatedValLive
                                                                     case writeResult of
                                                                         Left err -> do
                                                                             recordError "optimizer.combos.backtest_failed" err Nothing Nothing
@@ -10785,7 +10935,19 @@ botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
 botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotController -> BotState -> Kline -> IO BotState
 botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
     now <- getTimestampMs
-    let args = botArgs st
+    -- Realized fills recalibrate the slippage assumption for this bar, so the
+    -- entry fee-buffer gates and per-order cost accounting price trades at
+    -- what execution actually costs instead of the static --slippage guess.
+    -- botArgs itself stays configured; the calibration is recomputed per bar
+    -- from the (restored + session) fill observations.
+    let argsConfigured = botArgs st
+        args =
+            argsConfigured
+                { argSlippage =
+                    calibratedSlippagePerSide
+                        (argSlippage argsConfigured)
+                        (botSlippageObservations st)
+                }
         argsSignal = applyBotAdjustments (botAdjustments st) args
         lookback = botLookback st
         settings = botSettings st
@@ -15237,14 +15399,9 @@ fetchTopComboOperationCounts conn combos =
                         IO [(UUID.UUID, Int64)]
                 pure (M.fromList [(comboUuid, fromIntegral count) | (comboUuid, count) <- rows])
 
-fetchComboLiveStatsMap :: Connection -> [TopCombo] -> IO (M.Map UUID.UUID ComboLiveStats)
-fetchComboLiveStatsMap conn combos =
-    let comboUuids =
-            dedupeStable
-                [ comboUuid
-                | combo <- combos
-                , Just comboUuid <- [uuidFromText (topComboUuid combo)]
-                ]
+fetchComboLiveStatsMap :: Connection -> [UUID.UUID] -> IO (M.Map UUID.UUID ComboLiveStats)
+fetchComboLiveStatsMap conn comboUuidsRaw =
+    let comboUuids = dedupeStable comboUuidsRaw
      in if null comboUuids
             then pure M.empty
             else do
@@ -15289,8 +15446,9 @@ annotateTopCombosExportWithLiveStats mOps export =
     case mOps of
         Nothing -> pure export
         Just store -> do
+            let comboUuids = mapMaybe (uuidFromText . topComboUuid) (tceCombos export)
             result <-
-                try (withOpsConnection store (\conn -> fetchComboLiveStatsMap conn (tceCombos export))) ::
+                try (withOpsConnection store (\conn -> fetchComboLiveStatsMap conn comboUuids)) ::
                     IO (Either SomeException (M.Map UUID.UUID ComboLiveStats))
             case result of
                 Left _ -> pure export
@@ -15298,6 +15456,49 @@ annotateTopCombosExportWithLiveStats mOps export =
                     | M.null liveMap -> pure export
                     | otherwise ->
                         pure export{tceCombos = map (annotateTopComboWithLiveStats liveMap) (tceCombos export)}
+
+comboUuidFromValue :: Aeson.Value -> Maybe UUID.UUID
+comboUuidFromValue val =
+    case val of
+        Aeson.Object o ->
+            KM.lookup "uuid" o
+                >>= AT.parseMaybe Aeson.parseJSON
+                >>= uuidFromText
+        _ -> Nothing
+
+{- | Value-level twin of 'annotateTopCombosExportWithLiveStats': join live
+stats from the local @combos@ table onto a raw top-combos payload. Used
+before the payload is written to disk so the file (and everything synced
+from it — the S3 combo bus, other instances, the research box's gap
+analysis) carries the live records this instance accumulated. Fail-open on
+any DB error.
+-}
+annotateTopCombosValueWithLiveStats :: Maybe OpsStore -> Aeson.Value -> IO Aeson.Value
+annotateTopCombosValueWithLiveStats mOps val =
+    case (mOps, val) of
+        (Just store, Aeson.Object o)
+            | Just (Aeson.Array combos) <- KM.lookup "combos" o -> do
+                let comboUuids = mapMaybe comboUuidFromValue (V.toList combos)
+                result <-
+                    try (withOpsConnection store (\conn -> fetchComboLiveStatsMap conn comboUuids)) ::
+                        IO (Either SomeException (M.Map UUID.UUID ComboLiveStats))
+                case result of
+                    Left _ -> pure val
+                    Right liveMap
+                        | M.null liveMap -> pure val
+                        | otherwise ->
+                            let richer stats comboVal =
+                                    maybe
+                                        True
+                                        ((< clsOperationCount stats) . clsOperationCount)
+                                        (comboLiveStats comboVal)
+                                annotate comboVal =
+                                    case comboUuidFromValue comboVal >>= (`M.lookup` liveMap) of
+                                        Just stats
+                                            | richer stats comboVal -> setComboLiveStats stats comboVal
+                                        _ -> comboVal
+                             in pure (Aeson.Object (KM.insert "combos" (Aeson.Array (V.map annotate combos)) o))
+        _ -> pure val
 
 persistTopCombosToDb :: Connection -> TopCombosExport -> IO ()
 persistTopCombosToDb conn export =

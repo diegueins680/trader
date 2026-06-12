@@ -8,6 +8,23 @@ import Control.Exception (SomeException, evaluate, toException, try)
 import Control.Monad (forM_, unless)
 import Data.Aeson ((.=))
 import Data.Int (Int64)
+import Trader.CostCalibration (
+    calibratedSlippagePerSide,
+    costCalibrationFloorFactor,
+    costCalibrationMaxPerSide,
+    costCalibrationMinObservations,
+    observedSlippageFraction,
+ )
+import Trader.LiveGap (
+    LiveGapStats (..),
+    comboLiveGapEntry,
+    liveGapMethodMultiplier,
+    liveGapMinComboOperations,
+    liveGapMinTotalOperations,
+    liveGapMultiplierCeiling,
+    liveGapMultiplierFloor,
+    liveGapStatsByMethod,
+ )
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
@@ -286,6 +303,9 @@ main = do
     testTradeOutcomeWeightsSemantics
     testWeightedFineTuneUnitWeightsEquivalence
     testWeightedFineTunePunishesLossRegion
+    testObservedSlippageFractionSemantics
+    testCalibratedSlippageShrinkage
+    testLiveGapFeedback
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
     testBinanceExceptionSummaryRedactsSecrets
     testConformalCalibrationResidualsFailClosed
@@ -3024,6 +3044,138 @@ testWeightedFineTuneUnitWeightsEquivalence = do
         (weightedOnes, _) = fineTuneLSTMWeighted cfg model0 series (replicate 60 1.0)
     assert "no weights reproduces the plain fine-tune bit-for-bit" (lmParams weightedEmpty == lmParams plain)
     assert "unit weights reproduce the plain fine-tune bit-for-bit" (lmParams weightedOnes == lmParams plain)
+
+gapComboForTest :: T.Text -> Double -> Double -> Int -> Aeson.Value
+gapComboForTest method backtestAnn liveAnn ops =
+    Aeson.object
+        [ "annualizedReturn" .= backtestAnn
+        , "params" .= Aeson.object ["method" .= method]
+        , "metrics"
+            .= Aeson.object
+                [ "live"
+                    .= Aeson.object
+                        [ "finalEquity" .= (1.0 :: Double)
+                        , "operationCount" .= ops
+                        , "annualizedReturn" .= liveAnn
+                        ]
+                ]
+        ]
+
+{- | The optimizer's report card: per-combo live-vs-backtest gap entries
+require real live evidence, aggregate ops-weighted per method family, and
+map to a bounded discovery-sampling multiplier.
+-}
+testLiveGapFeedback :: IO ()
+testLiveGapFeedback = do
+    let entry = comboLiveGapEntry (gapComboForTest "10" 2.0 0.5 12)
+    assert
+        "a combo with live evidence yields (method, live - backtest, ops)"
+        (entry == Just ("10", -1.5, 12))
+    assert
+        "too few live orders yields no gap entry"
+        (comboLiveGapEntry (gapComboForTest "10" 2.0 0.5 (liveGapMinComboOperations - 1)) == Nothing)
+    assert
+        "a combo without a live record yields no gap entry"
+        ( comboLiveGapEntry
+            (Aeson.object ["annualizedReturn" .= (2.0 :: Double), "params" .= Aeson.object ["method" .= ("10" :: T.Text)]])
+            == Nothing
+        )
+    let statsMap =
+            liveGapStatsByMethod
+                [ gapComboForTest "10" 1.0 0.0 30 -- gap -1, 30 ops
+                , gapComboForTest "10" 1.0 2.0 10 -- gap +1, 10 ops
+                , gapComboForTest "01" 3.0 0.0 40 -- separate family
+                ]
+    case Map.lookup "10" statsMap of
+        Nothing -> ioError (userError "method 10 missing from gap stats")
+        Just s -> do
+            assert "family aggregates combos and operations" (lgsCombos s == 2 && lgsOperations s == 40)
+            assert
+                "the family gap is operations-weighted"
+                (abs (lgsOpsWeightedGap s - ((-1) * 30 + 1 * 10) / 40) < 1e-9)
+    assert "families aggregate separately" (Map.member "01" statsMap && Map.size statsMap == 2)
+    let statsWith gap ops = LiveGapStats{lgsCombos = 3, lgsOperations = ops, lgsOpsWeightedGap = gap}
+    assert "no evidence is neutral" (liveGapMethodMultiplier Nothing == 1)
+    assert
+        "below the family evidence floor is neutral"
+        (liveGapMethodMultiplier (Just (statsWith (-2) (liveGapMinTotalOperations - 1))) == 1)
+    assert
+        "a moderate live shortfall scales sampling down proportionally"
+        (abs (liveGapMethodMultiplier (Just (statsWith (-0.5) 60)) - 0.5) < 1e-9)
+    assert
+        "a chronic shortfall bottoms out at the floor, never zero"
+        (liveGapMethodMultiplier (Just (statsWith (-3) 60)) == liveGapMultiplierFloor)
+    assert
+        "live outperformance caps at the ceiling"
+        (liveGapMethodMultiplier (Just (statsWith 2 60)) == liveGapMultiplierCeiling)
+    assert
+        "mild outperformance earns a proportional boost"
+        (abs (liveGapMethodMultiplier (Just (statsWith 0.2 60)) - 1.2) < 1e-9)
+
+{- | Fill measurements: positive when execution was worse than the decision
+price on either side, negative on improvement, Nothing whenever the inputs
+cannot support an honest measurement.
+-}
+testObservedSlippageFractionSemantics :: IO ()
+testObservedSlippageFractionSemantics = do
+    let approx expected actual = maybe False (\v -> abs (v - expected) < 1e-12) actual
+    assert
+        "BUY filled above the decision price is a positive cost"
+        (approx 0.005 (observedSlippageFraction "BUY" 100 (Just 2) (Just 201)))
+    assert
+        "SELL filled below the decision price is a positive cost"
+        (approx 0.005 (observedSlippageFraction "SELL" 100 (Just 2) (Just 199)))
+    assert
+        "price improvement measures negative"
+        (approx (-0.005) (observedSlippageFraction "BUY" 100 (Just 2) (Just 199)))
+    assert
+        "unknown side measures nothing"
+        (observedSlippageFraction "HOLD" 100 (Just 2) (Just 201) == Nothing)
+    assert
+        "unfilled orders measure nothing"
+        ( observedSlippageFraction "BUY" 100 Nothing (Just 201) == Nothing
+            && observedSlippageFraction "BUY" 100 (Just 0) (Just 201) == Nothing
+        )
+    assert
+        "non-positive decision price measures nothing"
+        (observedSlippageFraction "BUY" 0 (Just 2) (Just 201) == Nothing)
+    assert
+        "implausible measurements are rejected as data errors"
+        (observedSlippageFraction "BUY" 100 (Just 2) (Just 212) == Nothing)
+
+{- | The calibration must stay at the configured assumption until enough
+fills accumulate, then move toward realized costs with shrinkage, and obey
+the floor (price improvement can't gut the gates) and the absolute cap.
+-}
+testCalibratedSlippageShrinkage :: IO ()
+testCalibratedSlippageShrinkage = do
+    let configured = 0.0002
+    assert
+        "below the minimum observation count the configured value passes through"
+        (calibratedSlippagePerSide configured (replicate (costCalibrationMinObservations - 1) 0.003) == configured)
+    assert
+        "non-finite observations don't count toward the minimum"
+        ( calibratedSlippagePerSide
+            configured
+            (replicate (costCalibrationMinObservations - 1) 0.003 ++ [0 / 0, 1 / 0])
+            == configured
+        )
+    let calibratedUp = calibratedSlippagePerSide configured (replicate 32 0.003)
+    assert
+        "sustained worse fills raise the estimate above the configured prior"
+        (calibratedUp > configured && calibratedUp < 0.003)
+    let floored = calibratedSlippagePerSide configured (replicate 32 (-0.004))
+    assert
+        "price improvement floors at a fraction of the configured prior"
+        (abs (floored - costCalibrationFloorFactor * configured) < 1e-12)
+    assert
+        "catastrophic fills cap at the absolute per-side ceiling"
+        (calibratedSlippagePerSide configured (replicate 64 0.045) == costCalibrationMaxPerSide)
+    assert
+        "calibration moves monotonically with more evidence"
+        ( calibratedSlippagePerSide configured (replicate 8 0.003)
+            < calibratedSlippagePerSide configured (replicate 64 0.003)
+        )
 
 {- | The reinforcement semantics: starting from identical parameters, a
 fine-tune that upweights one region of the series must fit that region
