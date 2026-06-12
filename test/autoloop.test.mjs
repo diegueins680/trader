@@ -986,7 +986,6 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /runCommand\("git", \["branch", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
   assert.match(script, /runCommand\("git", \["branch", "-r", "--format=%\(refname:short\)", "--no-merged", BASE_BRANCH\], \{ trimOutput: false \}\)/);
   assert.match(script, /function buildMergeCommitMessage\(shortName = "", branchRef = ""\)/);
-  assert.match(script, /function buildConflictResolutionCommitMessage\(shortName = "", branchRef = ""\)/);
   assert.match(script, /return `autoloop: sync \$\{BASE_BRANCH\} with origin\/\$\{BASE_BRANCH\}`;/);
   assert.match(script, /return `autoloop: merge \$\{shortName \|\| branchRef\} into \$\{BASE_BRANCH\}`;/);
   assert.match(script, /function rebaseBaseBranchOntoOrigin\(\)/);
@@ -996,8 +995,33 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /const mergeArgs = \["merge", "--no-ff", "-m", mergeMessage, branchRef\];/);
   assert.match(script, /runCommand\("git", mergeArgs, \{ capture: false \}\)/);
   assert.doesNotMatch(script, /"-s", "ours"/);
-  assert.match(script, /runCommand\("git", \["restore", "--source=HEAD", "--staged", "--worktree", "--", \.\.\.conflicts\], \{ capture: false \}\)/);
-  assert.match(script, /runCommand\("git", \["commit", "-m", conflictMessage\], \{ capture: false \}\)/);
+  // Conflicts are NEVER auto-resolved (the per-file restore --source=HEAD
+  // policy produced semantically torn trees that broke main twice: PR #147,
+  // PR #150). The merge must abort and flag the branch for an operator.
+  assert.doesNotMatch(script, /restore", "--source=HEAD", "--staged", "--worktree", "--", \.\.\.conflicts/);
+  assert.doesNotMatch(script, /buildConflictResolutionCommitMessage/);
+  assert.match(script, /runCommand\("git", \["merge", "--abort"\], \{ capture: false \}\);/);
+  assert.match(script, /outcome: "conflict-aborted"/);
+  assert.match(script, /const conflictAbortedBranches = \[\];/);
+  assert.match(script, /if \(originSync\.outcome === "conflict-aborted"\) \{/);
+  assert.match(script, /automated resolution is disabled, operator must reconcile/);
+  assert.match(script, /unmerged due to conflicts — operator review required/);
+  // The push retry must also stop instead of resolving: when the retry sync
+  // conflict-aborts, nothing may be pushed on top of a diverged base, and the
+  // reconciliation must fail the cycle (ok: false) so the loop halts now
+  // rather than on the next cycle.
+  assert.match(script, /if \(retrySync\.outcome === "conflict-aborted"\) \{/);
+  assert.match(script, /return \{ pushed: false, retried: true, retrySync \};/);
+  assert.match(script, /could not push \$\{BASE_BRANCH\}: origin moved with conflicting changes/);
+  assert.match(script, /after a push retry; automated resolution is disabled, operator must reconcile/);
+  // The push-conflict guard must run BEFORE the merged-ref prune: pruning on
+  // a base whose merges never reached origin deletes the only branch refs
+  // for that work.
+  assert.ok(
+    script.indexOf('if (pushResult.retrySync?.outcome === "conflict-aborted") {') <
+      script.indexOf("const pruneResult = pruneMergedRefsOnBaseBranch(BASE_BRANCH);"),
+    "push-conflict guard must precede pruneMergedRefsOnBaseBranch",
+  );
   assert.match(script, /runCommand\("git", \["push", "origin", `\$\{BASE_BRANCH\}:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
   assert.match(script, /const pruneResult = pruneMergedRefsOnBaseBranch\(BASE_BRANCH\);/);
   assert.match(script, /runCommand\("git", \["worktree", "prune"\], \{ capture: false \}\);/);
