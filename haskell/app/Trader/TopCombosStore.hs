@@ -570,12 +570,17 @@ recalculateComboPerformanceFromOperation ::
     Double ->
     (Double, Double, Aeson.Object)
 recalculateComboPerformanceFromOperation now mInterval mStoredFinalEq mStoredAnnualized metricsObj mPrevOrderEq currentOrderEq =
-    let prevEq = fromMaybe 1 (positiveFiniteMaybe mPrevOrderEq)
-        currentEq = fromMaybe prevEq (nonNegativeFinite currentOrderEq)
+    -- No prior order equity from the SAME bot session means no measurable
+    -- equity change: the session's model equity restarts near 1.0 on every
+    -- bot start, so treating "no previous order" as prevEq=1 would book the
+    -- session's absolute equity level (warmup backtest included) as a live
+    -- ratio, and a restart would cancel whatever the previous session lost.
+    let mPrevEq = positiveFiniteMaybe mPrevOrderEq
+        currentEq = fromMaybe (fromMaybe 1 mPrevEq) (nonNegativeFinite currentOrderEq)
         ratioRaw =
-            if prevEq > 0
-                then currentEq / prevEq
-                else 1
+            case mPrevEq of
+                Just prevEq | prevEq > 0 -> currentEq / prevEq
+                _ -> 1
         ratio = fromMaybe 1 (nonNegativeFinite ratioRaw)
         baselineEqRaw =
             fromMaybe 1 (finiteMaybe mStoredFinalEq <|> comboMetricFromObject "finalEquity" metricsObj)

@@ -483,7 +483,10 @@ normalizeCombo value =
                         positioning = valueToStringMaybe (KM.lookup (Key.fromString "positioning") paramsRaw)
                         slippage = KM.lookup (Key.fromString "slippage") paramsRaw >>= coerceFloatValue
                         spread = KM.lookup (Key.fromString "spread") paramsRaw >>= coerceFloatValue
-                        costAwareEdge = fromMaybe False (KM.lookup (Key.fromString "costAwareEdge") paramsRaw >>= coerceBoolValue)
+                        -- Missing costAwareEdge must fail SAFE (cost-aware on): defaulting it
+                        -- off silently stripped the break-even edge floor from every combo
+                        -- that passed through a merge.
+                        costAwareEdge = fromMaybe True (KM.lookup (Key.fromString "costAwareEdge") paramsRaw >>= coerceBoolValue)
                         triLayer = fromMaybe False (KM.lookup (Key.fromString "triLayer") paramsRaw >>= coerceBoolValue)
                         confirmConformal = fromMaybe False (KM.lookup (Key.fromString "confirmConformal") paramsRaw >>= coerceBoolValue)
                         confirmQuantiles = fromMaybe False (KM.lookup (Key.fromString "confirmQuantiles") paramsRaw >>= coerceBoolValue)

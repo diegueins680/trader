@@ -85,6 +85,7 @@ import Text.Printf (printf)
 import Text.Read (readMaybe)
 
 import Trader.BinanceIntervals (binanceIntervalsCsv)
+import Trader.CostCalibration (venueSlippageFloor, venueSpreadFloor, venueTakerFeeFloor)
 import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
@@ -2844,7 +2845,7 @@ sampleParams
                                      in (Just val, rng'')
                                 else (Nothing, rng')
                     else (Nothing, rng24)
-            (fee, rng26) = nextUniform (max 0 feeMin) (max 0 feeMax) rng25
+            (fee, rng26) = nextUniform (max venueTakerFeeFloor feeMin) (max venueTakerFeeFloor feeMax) rng25
             (fundingRate, rng26a) =
                 let (lo, hi) = ordered fundingRateRange
                  in nextUniform lo hi rng26
@@ -2896,8 +2897,8 @@ sampleParams
                     hi' = max lo' hi
                  in nextUniform lo' hi' rng34
             (gradClip, rng36) = nextMaybe pDisableGradClip (nextLogUniform gradClipMin gradClipMax) rng35
-            (slippage, rng37) = nextUniform 0 (max 0 slippageMax) rng36
-            (spread, rng38) = nextUniform 0 (max 0 spreadMax) rng37
+            (slippage, rng37) = nextUniform venueSlippageFloor (max venueSlippageFloor slippageMax) rng36
+            (spread, rng38) = nextUniform venueSpreadFloor (max venueSpreadFloor spreadMax) rng37
             (positioning, rng39) =
                 let (r, rng') = nextDouble rng38
                  in (if r < clamp pLongShort 0 1 then "long-short" else "long-flat", rng')

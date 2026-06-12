@@ -36,6 +36,10 @@ module Trader.Binance (
     signQuery,
     placeMarketOrder,
     placeFuturesMarketOrderWithPositionSide,
+    placeFuturesPostOnlyLimitOrder,
+    BookTickerQuote (..),
+    fetchBookTickerQuote,
+    cancelFuturesOrderByClientId,
     placeFuturesTriggerMarketOrder,
     placeFuturesAlgoTriggerMarketOrder,
     fetchFuturesOpenAlgoOrders,
@@ -913,6 +917,102 @@ fetchTickerPrice env symbol = do
         Left e -> throwIO (userError ("Failed to decode ticker price: " ++ e))
         Right (TickerPrice p) -> pure p
 
+-- | Best bid/ask from the order book ticker; maker (post-only) entries price
+-- off the touch rather than the last trade.
+data BookTickerQuote = BookTickerQuote
+    { btqBid :: !Double
+    , btqAsk :: !Double
+    }
+    deriving (Eq, Show)
+
+instance FromJSON BookTickerQuote where
+    parseJSON = withObject "BookTickerQuote" $ \o -> do
+        bidTxt <- o .: "bidPrice"
+        askTxt <- o .: "askPrice"
+        bid <- parseDoubleText bidTxt
+        ask <- parseDoubleText askTxt
+        pure (BookTickerQuote bid ask)
+
+fetchBookTickerQuote :: BinanceEnv -> String -> IO BookTickerQuote
+fetchBookTickerQuote env symbol = do
+    let path =
+            case beMarket env of
+                MarketSpot -> "/api/v3/ticker/bookTicker"
+                MarketMargin -> "/api/v3/ticker/bookTicker"
+                MarketFutures -> "/fapi/v1/ticker/bookTicker"
+    req0 <- parseRequest (beBaseUrl env ++ path)
+    let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
+        req = req0{method = "GET", queryString = qs}
+    resp <- binanceHttp env "ticker/bookTicker" req
+    ensure2xx "ticker/bookTicker" resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode book ticker: " ++ e))
+        Right quote -> pure quote
+
+{- | Post-only (GTX) futures limit order. GTX never takes liquidity: if the
+price would cross the book, the exchange returns the order with status
+EXPIRED instead of filling as taker. RESULT response type so any immediate
+outcome (posted, expired) is visible to the caller.
+-}
+placeFuturesPostOnlyLimitOrder ::
+    BinanceEnv ->
+    BinanceOrderMode ->
+    String -> -- symbol
+    OrderSide ->
+    Double -> -- quantity (base)
+    Double -> -- limit price
+    Maybe Bool -> -- reduceOnly
+    Maybe String -> -- newClientOrderId
+    IO BL.ByteString
+placeFuturesPostOnlyLimitOrder env mode symbol side quantity price mReduceOnly mClientOrderId = do
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesPostOnlyLimitOrder requires MarketFutures")
+    Control.Monad.when (quantity <= 0) $ throwIO (userError "Futures LIMIT orders require quantity > 0")
+    Control.Monad.when (price <= 0) $ throwIO (userError "Futures LIMIT orders require price > 0")
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    let sideTxt = case side of Buy -> "BUY"; Sell -> "SELL"
+        baseParams ts =
+            [ ("symbol", BS.pack (map toUpperAscii symbol))
+            , ("side", sideTxt)
+            , ("type", "LIMIT")
+            , ("timeInForce", "GTX")
+            , ("quantity", renderDouble quantity)
+            , ("price", renderDouble price)
+            , ("recvWindow", binanceRecvWindowMs)
+            , ("timestamp", BS.pack (show ts))
+            ]
+        reduceOnlyParams =
+            case mReduceOnly of
+                Just True -> [("reduceOnly", "true")]
+                _ -> []
+        clientIdParam =
+            case mClientOrderId of
+                Nothing -> []
+                Just cid | null (trim cid) -> []
+                Just cid -> [("newClientOrderId", BS.pack (trim cid))]
+        (path, label) =
+            if mode == OrderTest
+                then ("/fapi/v1/order/test", "futures/order/test(limit)")
+                else ("/fapi/v1/order", "futures/order(limit)")
+        send ts = do
+            let params = baseParams ts ++ reduceOnlyParams ++ clientIdParam ++ [("newOrderRespType", "RESULT")]
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
+            req0 <- parseRequest (beBaseUrl env ++ path)
+            let req =
+                    req0
+                        { method = "POST"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env label req
+
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx label resp
+    pure (responseBody resp)
+
 newtype Ticker24hPrice = Ticker24hPrice {t24LastPrice :: Double}
 
 instance FromJSON Ticker24hPrice where
@@ -1262,10 +1362,14 @@ placeMarketOrder env mode symbol side quantity quoteOrderQty reduceOnly mClientO
                     OrderTest -> throwIO (userError "Margin does not support order test; rerun with --binance-live")
                     OrderLive -> pure ("/sapi/v1/margin/order", "margin/order", p)
             MarketFutures -> do
+                -- Futures defaults to newOrderRespType=ACK, whose response says
+                -- status=NEW/executedQty=0 even for market orders that filled
+                -- instantly; RESULT returns the real fill (executedQty, avgPrice)
+                -- so the caller can update position state on the bar it executed.
                 p <-
                     case quantity of
                         Nothing -> throwIO (userError "Futures MARKET orders require --order-quantity (or compute it from --order-quote in the caller)")
-                        Just _ -> pure (\ts -> baseParams ts ++ qtyParamsFutures ++ reduceOnlyParams ++ clientIdParam)
+                        Just _ -> pure (\ts -> baseParams ts ++ qtyParamsFutures ++ reduceOnlyParams ++ clientIdParam ++ [("newOrderRespType", "RESULT")])
                 pure
                     ( if mode == OrderTest then "/fapi/v1/order/test" else "/fapi/v1/order"
                     , if mode == OrderTest then "futures/order/test" else "futures/order"
@@ -1335,7 +1439,8 @@ placeFuturesMarketOrderWithPositionSide env mode symbol side quantity reduceOnly
                 else ("/fapi/v1/order", "futures/order")
 
         send ts = do
-            let params = baseParams ts ++ reduceOnlyParams ++ positionSideParam ++ clientIdParam
+            -- RESULT instead of the futures ACK default: see placeMarketOrder.
+            let params = baseParams ts ++ reduceOnlyParams ++ positionSideParam ++ clientIdParam ++ [("newOrderRespType", "RESULT")]
                 queryToSign = renderSimpleQuery False params
                 sig = signQuery secret queryToSign
                 paramsSigned = params ++ [("signature", sig)]

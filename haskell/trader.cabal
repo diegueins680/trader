@@ -122,6 +122,7 @@ executable optimize-equity
   hs-source-dirs:      app
   main-is:             OptimizeEquityMain.hs
   other-modules:       Trader.BinanceIntervals
+                     , Trader.CostCalibration
                      , Trader.Duration
                      , Trader.Formal.CloseTiming
                      , Trader.Formal.Optimization
