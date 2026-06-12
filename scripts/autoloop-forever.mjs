@@ -327,13 +327,6 @@ function buildMergeCommitMessage(shortName = "", branchRef = "") {
   return `autoloop: merge ${shortName || branchRef} into ${BASE_BRANCH}`;
 }
 
-function buildConflictResolutionCommitMessage(shortName = "", branchRef = "") {
-  if (shortName === BASE_BRANCH || branchRef === `origin/${BASE_BRANCH}`) {
-    return `autoloop: resolve ${BASE_BRANCH} sync conflicts`;
-  }
-  return `autoloop: resolve conflicts while merging ${shortName || branchRef} into ${BASE_BRANCH}`;
-}
-
 function mergeChangedHaskellFiles(fromRef, toRef = "HEAD") {
   const changed = splitNonEmptyLines(
     runCommand("git", ["diff", "--name-only", `${fromRef}..${toRef}`], { trimOutput: false }),
@@ -358,7 +351,6 @@ function runMergeBuildGate() {
 function mergeRefOntoBaseBranch(branchRef, shortName = normalizeGitBranchShortName(branchRef)) {
   const headBefore = runCommand("git", ["rev-parse", "HEAD"]);
   const mergeMessage = buildMergeCommitMessage(shortName, branchRef);
-  const conflictMessage = buildConflictResolutionCommitMessage(shortName, branchRef);
   const mergeArgs = ["merge", "--no-ff", "-m", mergeMessage, branchRef];
 
   try {
@@ -367,12 +359,17 @@ function mergeRefOntoBaseBranch(branchRef, shortName = normalizeGitBranchShortNa
     const conflicts = listUnmergedConflictPaths();
     if (conflicts.length === 0) throw err;
 
-    // Conflict resolution stays fail-closed toward the current main branch.
-    runCommand("git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...conflicts], { capture: false });
-    runCommand("git", ["commit", "-m", conflictMessage], { capture: false });
+    // NEVER auto-resolve conflicts. The previous policy (git restore
+    // --source=HEAD on conflicted paths) kept the base side of conflicted
+    // files while cleanly-merged files kept the branch side — a semantically
+    // torn tree that broke main twice (PR #147, PR #150) and silently
+    // dropped tested functionality. Conflicts mean two histories disagree
+    // about the same code; that judgement belongs to a human. Abort, leave
+    // the branch unmerged, and flag it for operator review.
+    runCommand("git", ["merge", "--abort"], { capture: false });
 
     return {
-      outcome: "conflict-resolved",
+      outcome: "conflict-aborted",
       ref: branchRef,
       shortName,
       headBefore,
@@ -437,6 +434,12 @@ function pushBaseBranchWithRetry() {
   } catch {
     runCommand("git", ["fetch", "origin", "--prune"], { capture: false });
     const retrySync = syncBaseBranchToOrigin();
+    if (retrySync.outcome === "conflict-aborted") {
+      // The push raced a remote update that conflicts with the local base.
+      // Resolution is disabled, so keep the work local and unpushed; the
+      // next reconcile cycle halts on the same conflict for an operator.
+      return { pushed: false, retried: true, retrySync };
+    }
     runCommand("git", ["push", "origin", `${BASE_BRANCH}:refs/heads/${BASE_BRANCH}`], { capture: false });
     return { pushed: true, retried: true, retrySync };
   }
@@ -556,6 +559,28 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
     }
 
     const originSync = syncBaseBranchToOrigin();
+    if (originSync.outcome === "conflict-aborted") {
+      // The local base branch and origin disagree in ways git cannot merge
+      // cleanly. Nothing should be merged or pushed on top of a base in this
+      // state; block the loop and wait for an operator.
+      await logRunner(
+        `branch reconciliation halted: syncing ${BASE_BRANCH} with origin conflicts in ${originSync.conflicts.length} file(s); operator must resolve`,
+      );
+      return {
+        ok: false,
+        reason: `${BASE_BRANCH} conflicts with origin/${BASE_BRANCH}; automated resolution is disabled, operator must reconcile`,
+        details: originSync.conflicts.slice(0, 40),
+        summary: {
+          startedAt,
+          endedAt: new Date().toISOString(),
+          baseBranch: BASE_BRANCH,
+          syncedOrigin: "conflict-aborted",
+          conflictedFiles: originSync.conflicts,
+          pushed: false,
+          head: runCommand("git", ["rev-parse", "HEAD"]),
+        },
+      };
+    }
     const baseHeadAfterSync = runCommand("git", ["rev-parse", "HEAD"]);
     const localBranches = splitNonEmptyLines(
       runCommand("git", ["branch", "--format=%(refname:short)", "--no-merged", BASE_BRANCH], { trimOutput: false }),
@@ -570,7 +595,7 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
     });
 
     const mergedBranches = [];
-    const conflictResolvedBranches = [];
+    const conflictAbortedBranches = [];
 
     for (const candidate of candidates) {
       const mergeResult = mergeRefOntoBaseBranch(candidate.ref, candidate.shortName);
@@ -578,8 +603,8 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
         mergedBranches.push(candidate.shortName);
         continue;
       }
-      if (mergeResult.outcome === "conflict-resolved") {
-        conflictResolvedBranches.push({
+      if (mergeResult.outcome === "conflict-aborted") {
+        conflictAbortedBranches.push({
           branch: candidate.shortName,
           conflicts: mergeResult.conflicts,
         });
@@ -587,17 +612,16 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
     }
 
     // Build gate: before pushing any newly merged work, confirm the reconciled
-    // tree still compiles. A per-file conflict resolution can leave callers in
-    // one file without their definitions in another (a clean-merge semantic
-    // break can do the same), which must never reach origin/<base>. On failure,
-    // roll the whole batch back to the origin-synced head and skip the push so
-    // the offending branches stay unmerged for the next cycle / human review.
-    const mergedAnything = mergedBranches.length > 0 || conflictResolvedBranches.length > 0;
-    if (mergedAnything && mergeChangedHaskellFiles(baseHeadAfterSync)) {
+    // tree still compiles. Even a clean merge can be a semantic break (callers
+    // in one file without their definitions in another), which must never
+    // reach origin/<base>. On failure, roll the whole batch back to the
+    // origin-synced head and skip the push so the offending branches stay
+    // unmerged for the next cycle / human review.
+    if (mergedBranches.length > 0 && mergeChangedHaskellFiles(baseHeadAfterSync)) {
       const buildGate = runMergeBuildGate();
       if (!buildGate.ok) {
         runCommand("git", ["reset", "--hard", baseHeadAfterSync], { capture: false });
-        const rolledBack = [...mergedBranches, ...conflictResolvedBranches.map((item) => item.branch)];
+        const rolledBack = [...mergedBranches];
         await logRunner(
           `branch reconciliation rolled back ${rolledBack.length} merge(s) into ${BASE_BRANCH}: build gate failed`,
         );
@@ -612,7 +636,7 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
             syncedOrigin: originSync.outcome,
             candidateBranches: candidates.map((candidate) => candidate.shortName),
             mergedBranches: [],
-            conflictResolvedBranches: [],
+            conflictAbortedBranches,
             rolledBackBranches: rolledBack,
             buildGate: "failed",
             pushed: false,
@@ -622,8 +646,7 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       }
     }
 
-    const shouldPush =
-      originSync.outcome !== "noop" || mergedBranches.length > 0 || conflictResolvedBranches.length > 0;
+    const shouldPush = originSync.outcome !== "noop" || mergedBranches.length > 0;
     const pushResult = shouldPush ? pushBaseBranchWithRetry() : { pushed: false, retried: false, retrySync: null };
     const pruneResult = pruneMergedRefsOnBaseBranch(BASE_BRANCH);
     const summary = {
@@ -633,7 +656,7 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       syncedOrigin: originSync.outcome,
       candidateBranches: candidates.map((candidate) => candidate.shortName),
       mergedBranches,
-      conflictResolvedBranches,
+      conflictAbortedBranches,
       pushed: pushResult.pushed,
       pushRetried: pushResult.retried,
       retrySyncOutcome: pushResult.retrySync?.outcome ?? null,
@@ -655,9 +678,20 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       };
     }
 
-    if (mergedBranches.length > 0 || conflictResolvedBranches.length > 0) {
+    if (mergedBranches.length > 0) {
+      await logRunner(`branch reconciliation merged ${mergedBranches.length} branch(es) into ${BASE_BRANCH}`);
+    }
+    if (conflictAbortedBranches.length > 0) {
+      const flagged = conflictAbortedBranches
+        .map((item) => `${item.branch} (${item.conflicts.slice(0, 5).join(", ")})`)
+        .join("; ");
       await logRunner(
-        `branch reconciliation merged ${mergedBranches.length + conflictResolvedBranches.length} branch(es) into ${BASE_BRANCH}`,
+        `branch reconciliation left ${conflictAbortedBranches.length} branch(es) unmerged due to conflicts — operator review required: ${flagged}`,
+      );
+    }
+    if (pushResult.retrySync?.outcome === "conflict-aborted") {
+      await logRunner(
+        `branch reconciliation could not push ${BASE_BRANCH}: origin moved with conflicting changes; operator must reconcile`,
       );
     }
     if (pruneResult.prunedLocalBranches.length > 0 || pruneResult.prunedRemoteBranches.length > 0) {
