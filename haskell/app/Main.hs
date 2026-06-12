@@ -173,8 +173,12 @@ import Trader.Binance (
     binanceMarketDataCacheStats,
     binanceProxyHealth,
     binanceTestnetBaseUrl,
+    BookTickerQuote (..),
     cancelFuturesAlgoOrderByClientId,
     cancelFuturesOpenOrdersByClientPrefix,
+    cancelFuturesOrderByClientId,
+    fetchBookTickerQuote,
+    placeFuturesPostOnlyLimitOrder,
     closeListenKey,
     createListenKey,
     fetchAccountTrades,
@@ -243,6 +247,9 @@ import Trader.CostCalibration (
     costCalibrationMinObservations,
     costCalibrationWindow,
     observedSlippageFraction,
+    venueSlippageFloor,
+    venueSpreadFloor,
+    venueTakerFeeFloor,
  )
 import Trader.Dex (
     DexEnv (..),
@@ -311,7 +318,7 @@ import Trader.Optimizer.Common (
     objectiveScore,
  )
 import Trader.Optimizer.Json (encodePretty)
-import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedQuantity)
+import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedFraction)
 import Trader.Platform (
     Platform (..),
     coinbaseIntervalSeconds,
@@ -428,6 +435,7 @@ import Trader.Trading (
     BacktestCostAttribution (..),
     BacktestResult (..),
     EnsembleConfig (..),
+    ExitReason (..),
     IntrabarFill (..),
     PositionSide (..),
     Positioning (..),
@@ -3932,9 +3940,29 @@ updateComboPerformanceFromCompletedOperation conn now comboUuid currentEq = do
     eqRows <-
         query
             conn
-            "SELECT equity FROM ops WHERE combo_uuid = ? AND kind = ? AND equity IS NOT NULL ORDER BY id DESC LIMIT 2"
+            "SELECT equity, result_json::text FROM ops WHERE combo_uuid = ? AND kind = ? AND equity IS NOT NULL ORDER BY id DESC LIMIT 2"
             (comboUuid, comboCompletedOperationKind) ::
-            IO [Only Double]
+            IO [(Double, Maybe Text)]
+    -- The bot's model equity restarts near 1.0 on every bot start, so an
+    -- equity ratio spanning two sessions cancels whatever the previous
+    -- session recorded (a1, a2, b1 telescopes to b1: the b1/a2 ratio erases
+    -- the a-session losses). Only ops stamped with the SAME session id may
+    -- form a ratio; anything else (restart, legacy rows without the stamp)
+    -- contributes no equity change.
+    let sessionIdOf mTxt = do
+            obj <- case decodeJsonTextMaybe mTxt of
+                Just (Aeson.Object o) -> Just o
+                _ -> Nothing
+            case KM.lookup "sessionStartedAtMs" obj of
+                Just (Aeson.Number n) -> Just n
+                _ -> Nothing
+        mPrevEqSameSession =
+            case eqRows of
+                ((_, curTxt) : (prevEq, prevTxt) : _) -> do
+                    curSid <- sessionIdOf curTxt
+                    prevSid <- sessionIdOf prevTxt
+                    if curSid == prevSid then Just prevEq else Nothing
+                _ -> Nothing
     comboRows <-
         query
             conn
@@ -3955,7 +3983,7 @@ updateComboPerformanceFromCompletedOperation conn now comboUuid currentEq = do
                         mFinalEq
                         mAnnualized
                         metricsObj
-                        (case eqRows of (_ : Only v : _) -> Just v; _ -> Nothing)
+                        mPrevEqSameSession
                         currentEq
                 metricsJson = encodeJsonTextMaybe (Just (Aeson.Object metricsObj'))
             void $
@@ -7129,6 +7157,7 @@ data FuturesPositionSummary = FuturesPositionSummary
     , fpsHasLong :: !Bool
     , fpsHasShort :: !Bool
     , fpsLeverage :: !(Maybe Double)
+    , fpsEntryPrice :: !(Maybe Double)
     }
     deriving (Eq, Show)
 
@@ -7150,7 +7179,15 @@ futuresPositionSummary sym positions =
         netAmt = sum signed
         validLeverage l = l > 0 && l <= 150 && not (isNaN l || isInfinite l)
         leverage = listToMaybe [fprLeverage p | p <- matches, validLeverage (fprLeverage p)]
-     in FuturesPositionSummary{fpsNetAmt = netAmt, fpsHasLong = hasLong, fpsHasShort = hasShort, fpsLeverage = leverage}
+        validPrice px = px > 0 && not (isNaN px || isInfinite px)
+        entryPrice =
+            listToMaybe
+                [ fprEntryPrice p
+                | p <- matches
+                , abs (positionAmtSigned p) > eps
+                , validPrice (fprEntryPrice p)
+                ]
+     in FuturesPositionSummary{fpsNetAmt = netAmt, fpsHasLong = hasLong, fpsHasShort = hasShort, fpsLeverage = leverage, fpsEntryPrice = entryPrice}
 
 fetchFuturesPositionSummary :: BinanceEnv -> String -> IO FuturesPositionSummary
 fetchFuturesPositionSummary env sym = do
@@ -8850,22 +8887,17 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                 Just o ->
                     let msg = aorMessage o
                      in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
-        requestedQtyFromOrder fallbackQty o =
-            case aorQuantity o of
-                Just q | not (isNaN q || isInfinite q) && q > 0 -> q
-                _ ->
-                    if not (isNaN fallbackQty || isInfinite fallbackQty) && fallbackQty > 0
-                        then fallbackQty
-                        else 0
-        executedQtyFromOrder fallbackQty o =
-            let evidence =
-                    OrderExecutionEvidence
-                        { oeeSent = aorSent o
-                        , oeeLive = argBinanceLive args
-                        , oeeStatus = aorStatus o
-                        , oeeExecutedQty = aorExecutedQty o
-                        }
-             in orderAppliedQuantity evidence fallbackQty
+        orderEvidence o =
+            OrderExecutionEvidence
+                { oeeSent = aorSent o
+                , oeeLive = argBinanceLive args
+                , oeeStatus = aorStatus o
+                , oeeExecutedQty = aorExecutedQty o
+                }
+        -- Order evidence is in base-asset units; position state is an equity
+        -- fraction. Scale the intended fraction by the filled proportion.
+        executedFractionFromOrder intendedFrac o =
+            orderAppliedFraction (orderEvidence o) (aorQuantity o) intendedFrac
         targetQtyForSwitch =
             case (startPos0, desiredPosSignal) of
                 (0, 1) -> entrySize
@@ -8876,18 +8908,14 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                 (-1, 1) -> startSize + entrySize
                 _ -> max startSize entrySize
         closeOnlySwitch = desiredPosSignal == 0 && startPos0 /= 0
-        requestedQty =
-            case mOrder of
-                Just o -> requestedQtyFromOrder targetQtyForSwitch o
-                Nothing -> 0
         executedQtyRaw
             | not wantSwitch = 0
-            | not tradeEnabled = requestedQty
-            | alreadyMsg = requestedQty
+            | not tradeEnabled = targetQtyForSwitch
+            | alreadyMsg = targetQtyForSwitch
             | otherwise =
                 case mOrder of
                     Nothing -> 0
-                    Just o -> fromMaybe 0 (executedQtyFromOrder requestedQty o)
+                    Just o -> fromMaybe 0 (executedFractionFromOrder targetQtyForSwitch o)
         (desiredPos, desiredSize, closeQty, openQty)
             | not wantSwitch =
                 let size0 =
@@ -9575,9 +9603,12 @@ parseTopComboToArgs base combo = do
                 Just Nothing -> Nothing
                 Just (Just v) -> Just (max 0 v)
 
-        fee = max 0 (pickD "fee" (argFee base))
-        slippage = max 0 (pickD "slippage" (argSlippage base))
-        spread = max 0 (pickD "spread" (argSpread base))
+        -- Combos minted before cost sampling was floored can carry near-zero
+        -- fee/slippage/spread; never let those price live entry gates below
+        -- what the venue actually charges.
+        fee = max venueTakerFeeFloor (pickD "fee" (argFee base))
+        slippage = max venueSlippageFloor (pickD "slippage" (argSlippage base))
+        spread = max venueSpreadFloor (pickD "spread" (argSpread base))
         feeFixed = max 0 (pickD "feeFixed" (argFeeFixed base))
         feeMin = max 0 (pickD "feeMin" (argFeeMin base))
         slippageVolMult = max 0 (pickD "slippageVolMult" (argSlippageVolMult base))
@@ -10924,6 +10955,119 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
 
     loop `finally` cleanup
 
+{- | Reconcile the bot's local position with the exchange before processing a
+bar. Outside of order placement nothing else compares local state with the
+exchange, so a missed fill followed by a neutral signal leaves a naked
+leveraged position the bot doesn't know it has, and an exchange-side
+stop-loss fill goes unnoticed while the model keeps marking the position to
+market. Runs only for live Binance futures bots on a freshly closed bar (so
+historical catch-up replays don't apply today's exchange state to old bars);
+any API failure keeps local state untouched.
+-}
+reconcileBotPositionWithExchange :: Maybe Journal -> Int64 -> BotState -> Kline -> IO BotState
+reconcileBotPositionWithExchange mJournal now st k = do
+    let args = botArgs st
+        settings = botSettings st
+        sym = botSymbol st
+        n = V.length (botPositions st)
+        localPos = if n > 0 then V.last (botPositions st) else 0
+        lastEq = if V.null (botEquityCurve st) then 1 else V.last (botEquityCurve st)
+        lastPrice = if V.null (botPrices st) then 0 else V.last (botPrices st)
+        freshMs = 10 * 60 * 1000
+        barFresh =
+            case kCloseTime k of
+                Just ct -> now - ct <= freshMs
+                Nothing -> True
+        liveFutures =
+            bsTradeEnabled settings
+                && argBinanceLive args
+                && argPlatform args == PlatformBinance
+                && argBinanceMarket args == MarketFutures
+    if not liveFutures || not barFresh || n <= 0
+        then pure st
+        else do
+            r <- try (fetchFuturesPositionSummary (botEnv st) sym) :: IO (Either SomeException FuturesPositionSummary)
+            case r of
+                Left _ -> pure st
+                Right summary
+                    | fpsHasLong summary && fpsHasShort summary -> pure st
+                    | otherwise -> do
+                        let exchSign = accountPosSign (fpsNetAmt summary)
+                        if exchSign == localPos
+                            then pure st
+                            else do
+                                let setLastPos p = V.update (botPositions st) (V.singleton (n - 1, p))
+                                    closedTrades =
+                                        case botOpenTrade st of
+                                            Just ot ->
+                                                botTrades st
+                                                    ++ [ Trade
+                                                            { trEntryIndex = botOpenEntryIndex ot
+                                                            , trExitIndex = n - 1
+                                                            , trEntryEquity = botOpenEntryEquity ot
+                                                            , trExitEquity = lastEq
+                                                            , trReturn = lastEq / max 1e-12 (botOpenEntryEquity ot) - 1
+                                                            , trHoldingPeriods = botOpenHoldingPeriods ot
+                                                            , trEntryHighVolProb = botOpenEntryHighVolProb ot
+                                                            , trEntrySource = botOpenEntrySource ot
+                                                            , trExitReason = Just (ExitOther "EXCHANGE_RECONCILE")
+                                                            , trFeeCost = 0.0
+                                                            , trEntryIp = botOpenEntryIp ot
+                                                            , trExitIp = botTradeOriginIp st
+                                                            }
+                                                       ]
+                                            Nothing -> botTrades st
+                                stAfterClose <-
+                                    if localPos /= 0
+                                        then do
+                                            hPutStrLn stderr ("WARN: bot/" ++ sym ++ " local position " ++ show localPos ++ " not present on exchange; booking close (exchange reconcile)")
+                                            pure
+                                                st
+                                                    { botPositions = setLastPos 0
+                                                    , botOpenTrade = Nothing
+                                                    , botTrades = closedTrades
+                                                    }
+                                        else pure st
+                                stFinal <-
+                                    if exchSign /= 0
+                                        then do
+                                            mSize <- fetchAdoptedPositionSize (botArgs stAfterClose) (botEnv stAfterClose) sym lastPrice
+                                            let entryPx = fromMaybe lastPrice (fpsEntryPrice summary)
+                                                side = if exchSign > 0 then SideLong else SideShort
+                                                adopted =
+                                                    BotOpenTrade
+                                                        { botOpenEntryIndex = n - 1
+                                                        , botOpenEntryEquity = lastEq
+                                                        , botOpenEntryIp = botTradeOriginIp stAfterClose
+                                                        , botOpenComboUuid = botComboUuid stAfterClose
+                                                        , botOpenEntryHighVolProb = Nothing
+                                                        , botOpenHoldingPeriods = 0
+                                                        , botOpenEntryPrice = if entryPx > 0 then entryPx else lastPrice
+                                                        , botOpenEntrySource = TradeEntryAdopted
+                                                        , botOpenSize = fromMaybe 1 mSize
+                                                        , botOpenTrail = if entryPx > 0 then entryPx else lastPrice
+                                                        , botOpenSide = side
+                                                        , botOpenPartialTaken = False
+                                                        }
+                                            hPutStrLn stderr ("WARN: bot/" ++ sym ++ " adopting exchange position sign " ++ show exchSign ++ " missing from local state (exchange reconcile)")
+                                            pure
+                                                stAfterClose
+                                                    { botPositions = V.update (botPositions stAfterClose) (V.singleton (n - 1, exchSign))
+                                                    , botOpenTrade = Just adopted
+                                                    }
+                                        else pure stAfterClose
+                                journalWriteMaybe
+                                    mJournal
+                                    ( object
+                                        [ "type" .= ("bot.reconcile" :: String)
+                                        , "atMs" .= now
+                                        , "symbol" .= sym
+                                        , "localPosition" .= localPos
+                                        , "exchangePosition" .= exchSign
+                                        ]
+                                    )
+                                pure stFinal
+
 botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotController -> BotState -> Kline -> IO BotState
 botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
     r <- try (botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k) :: IO (Either SomeException BotState)
@@ -10934,8 +11078,9 @@ botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
             pure st{botError = Just (show ex), botUpdatedAtMs = now, botLastOpenTime = kOpenTime k}
 
 botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotController -> BotState -> Kline -> IO BotState
-botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
+botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
     now <- getTimestampMs
+    st <- reconcileBotPositionWithExchange mJournal now st0 k
     -- Realized fills recalibrate the slippage assumption for this bar, so the
     -- entry fee-buffer gates and per-order cost accounting price trades at
     -- what execution actually costs instead of the static --slippage guess.
@@ -11332,15 +11477,22 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                          in if stopHit then stopWhy else Nothing
 
         mBracketExit =
-            case openTrade1 of
-                Just ot ->
+            case (botOpenTrade st, openTrade1) of
+                (Just ot0, Just ot) ->
                     let side = botOpenSide ot
                         expectedPos =
                             case side of
                                 SideLong -> 1
                                 SideShort -> -1
-                     in if prevPos == expectedPos
-                            then bracketExitReason side (botOpenEntryPrice ot) (botOpenTrail ot)
+                     in -- The trail must be the PRE-update one (without this
+                        -- bar's high/low): openTrade1's trail already absorbed
+                        -- the current bar, and checking the stop against it
+                        -- turns every same-bar whipsaw into an exit the
+                        -- backtest's StopFirst semantics deem survivable.
+                        -- TakeProfitFirst re-derives the updated trail
+                        -- internally, exactly like the backtest engine.
+                        if prevPos == expectedPos
+                            then bracketExitReason side (botOpenEntryPrice ot) (botOpenTrail ot0)
                             else Nothing
                 _ -> Nothing
 
@@ -11559,29 +11711,37 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         entrySize = entryScaleForSignal args (beMarket (botEnv st)) latestFinal
         qtyEps = 1e-9
         isPositiveQty q = q > qtyEps
-        requestedQtyFromOrder fallbackQty o =
-            case aorQuantity o of
-                Just q | not (isNaN q || isInfinite q) && q > 0 -> q
-                _ ->
-                    if not (isNaN fallbackQty || isInfinite fallbackQty) && fallbackQty > 0
-                        then fallbackQty
-                        else 0
-        executedQtyFromOrder fallbackQty o =
-            let evidence =
-                    OrderExecutionEvidence
-                        { oeeSent = aorSent o
-                        , oeeLive = argBinanceLive args
-                        , oeeStatus = aorStatus o
-                        , oeeExecutedQty = aorExecutedQty o
-                        }
-             in orderAppliedQuantity evidence fallbackQty
+        orderEvidence o =
+            OrderExecutionEvidence
+                { oeeSent = aorSent o
+                , oeeLive = argBinanceLive args
+                , oeeStatus = aorStatus o
+                , oeeExecutedQty = aorExecutedQty o
+                }
+        -- Order evidence is in base-asset units; position state is an equity
+        -- fraction. Scale the intended fraction by the filled proportion.
+        executedFractionFromOrder intendedFrac o =
+            orderAppliedFraction (orderEvidence o) (aorQuantity o) intendedFrac
+        -- Real average fill price (quote volume / base volume) when the venue
+        -- reported the fill; brackets and trails anchor here, not at the
+        -- decision-bar close the order was priced against.
+        avgFillPriceFromOrder o =
+            case (aorExecutedQty o, aorCummulativeQuoteQty o) of
+                (Just q, Just quote)
+                    | q > qtyEps
+                    , quote > 0
+                    , not (isNaN q || isInfinite q || isNaN quote || isInfinite quote)
+                    , let px = quote / q
+                    , px > 0 && not (isNaN px || isInfinite px) ->
+                        Just px
+                _ -> Nothing
         applyCostForSize eq size =
             if isPositiveQty size
                 then
                     let feeFrac = costPerSideTotal args size volPerBar
                      in eq * (1 - feeFrac)
                 else eq
-        openTradeFor side eqEntry size =
+        openTradeFor side pxEntry eqEntry size =
             BotOpenTrade
                 { botOpenEntryIndex = nPrev
                 , botOpenEntryEquity = eqEntry
@@ -11589,10 +11749,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 , botOpenComboUuid = botComboUuid st
                 , botOpenEntryHighVolProb = rpHighVol <$> lsRegimes latestFinal
                 , botOpenHoldingPeriods = 0
-                , botOpenEntryPrice = priceNew
+                , botOpenEntryPrice = pxEntry
                 , botOpenEntrySource = TradeEntrySignal
                 , botOpenSize = size
-                , botOpenTrail = priceNew
+                , botOpenTrail = pxEntry
                 , botOpenSide = side
                 , botOpenPartialTaken = False
                 }
@@ -11648,11 +11808,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                     ordersNew = botOrders st ++ [orderEv]
                     tradeEnabled = bsTradeEnabled settings
                     targetQty = max 0 (min prevSize (prevSize * partialTpFrac))
-                    requestedQty = requestedQtyFromOrder targetQty oPartial
                     executedQtyRaw =
                         if not tradeEnabled
-                            then requestedQty
-                            else fromMaybe 0 (executedQtyFromOrder requestedQty oPartial)
+                            then targetQty
+                            else fromMaybe 0 (executedFractionFromOrder targetQty oPartial)
                     (posAfterPartial, remainingSizeRaw, closedQty, _) =
                         applyReduceOnlyExecutedQuantity prevPos prevSize executedQtyRaw
                     partialSize = max 0 (min prevSize closedQty)
@@ -11673,7 +11832,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                     (Nothing, botTrades st ++ [closeTradeAt eqAfterFee ot])
                                 (_, newPos, _)
                                     | newPos /= 0 ->
-                                        (Just (openTradeFor (sideFromPos newPos) eqAfterFee remainingSize), botTrades st)
+                                        (Just (openTradeFor (sideFromPos newPos) (fromMaybe priceNew (avgFillPriceFromOrder oPartial)) eqAfterFee remainingSize), botTrades st)
                                 _ -> (openTrade1, botTrades st)
                     errors0 = botConsecutiveOrderErrors st
                     errors1 =
@@ -11714,6 +11873,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             , "partialSize" .= partialSize
                             , "remainingSize" .= remainingSize
                             , "originIp" .= botTradeOriginIp st
+                            , "sessionStartedAtMs" .= botStartedAtMs st
                             ]
                         )
                     )
@@ -11770,11 +11930,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             alreadyMsg =
                                 let msg = aorMessage o
                                  in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
-                            requestedQty = requestedQtyFromOrder targetQtyForSwitch o
                             executedQtyRaw
-                                | not tradeEnabled = requestedQty
-                                | alreadyMsg = requestedQty
-                                | otherwise = fromMaybe 0 (executedQtyFromOrder requestedQty o)
+                                | not tradeEnabled = targetQtyForSwitch
+                                | alreadyMsg = targetQtyForSwitch
+                                | otherwise = fromMaybe 0 (executedFractionFromOrder targetQtyForSwitch o)
                             (posNew, sizeNew, closeQty, openQty) =
                                 if closeOnlySwitch
                                     then applyReduceOnlyExecutedQuantity prevPos prevSize executedQtyRaw
@@ -11790,19 +11949,20 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 if switchedApplied1
                                     then botOps st ++ [BotOp nPrev opSide priceNew]
                                     else botOps st
+                            entryPx = fromMaybe priceNew (avgFillPriceFromOrder o)
                             (openTradeNew, tradesNew) =
                                 if not appliedExecution
                                     then (openTrade1, botTrades st)
                                     else case (prevPos, posNew, openTrade1) of
-                                        (0, 1, _) -> (Just (openTradeFor SideLong eqAfterFee sizeNew), botTrades st)
-                                        (0, -1, _) -> (Just (openTradeFor SideShort eqAfterFee sizeNew), botTrades st)
+                                        (0, 1, _) -> (Just (openTradeFor SideLong entryPx eqAfterFee sizeNew), botTrades st)
+                                        (0, -1, _) -> (Just (openTradeFor SideShort entryPx eqAfterFee sizeNew), botTrades st)
                                         (1, 0, Just ot) -> (Nothing, botTrades st ++ [closeTradeAt eqAfterFee ot])
                                         (-1, 0, Just ot) -> (Nothing, botTrades st ++ [closeTradeAt eqAfterFee ot])
                                         (1, 1, Just ot) -> (Just ot{botOpenSize = sizeNew}, botTrades st)
                                         (-1, -1, Just ot) -> (Just ot{botOpenSize = sizeNew}, botTrades st)
-                                        (1, -1, Just ot) -> (Just (openTradeFor SideShort eqAfterFee sizeNew), botTrades st ++ [closeTradeAt eqAfterFee ot])
-                                        (-1, 1, Just ot) -> (Just (openTradeFor SideLong eqAfterFee sizeNew), botTrades st ++ [closeTradeAt eqAfterFee ot])
-                                        (_, p, _) | p /= 0 -> (Just (openTradeFor (sideFromPos p) eqAfterFee sizeNew), botTrades st)
+                                        (1, -1, Just ot) -> (Just (openTradeFor SideShort entryPx eqAfterFee sizeNew), botTrades st ++ [closeTradeAt eqAfterFee ot])
+                                        (-1, 1, Just ot) -> (Just (openTradeFor SideLong entryPx eqAfterFee sizeNew), botTrades st ++ [closeTradeAt eqAfterFee ot])
+                                        (_, p, _) | p /= 0 -> (Just (openTradeFor (sideFromPos p) entryPx eqAfterFee sizeNew), botTrades st)
                                         _ -> (openTrade1, botTrades st)
                             errors0 = botConsecutiveOrderErrors st
                             errors1 =
@@ -11837,6 +11997,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                     , "signal" .= latestFinal
                                     , "position" .= posNew
                                     , "originIp" .= botTradeOriginIp st
+                                    , "sessionStartedAtMs" .= botStartedAtMs st
                                     ]
                                 )
                             )
@@ -12178,13 +12339,19 @@ placeBotCloseIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> S
 placeBotCloseIfEnabled args settings sig env sym =
     if not (bsTradeEnabled settings)
         then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
-        else placeBotCloseOrder args sym sig env
+        else placeBotCloseOrder args sym sig env (bsProtectionOrders settings)
 
-placeBotCloseOrder :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
-placeBotCloseOrder args sym sig env =
+placeBotCloseOrder :: Args -> String -> LatestSignal -> BinanceEnv -> Bool -> IO ApiOrderResult
+placeBotCloseOrder args sym sig env manageProtection =
+    -- manageProtection must reflect the bot's protection setting: with False
+    -- the close path's cancelProtectionOrders is a no-op, so the exchange-side
+    -- STOP_MARKET/TAKE_PROFIT_MARKET triggers placed at entry survive every
+    -- signal/bracket close and can later fire against an unrelated position
+    -- at a stale trigger price. The close path never PLACES protection
+    -- orders, so enabling management here only arms the cancel.
     let args' = args{argPositioning = LongFlat}
         sig' = sig{lsChosenDir = Just (-1)}
-     in placeOrderForSignalEx args' sym sig' env Nothing False
+     in placeOrderForSignalEx args' sym sig' env Nothing manageProtection
 
 runRestApi :: Args -> Maybe Webhook -> IO ()
 runRestApi cliArgs mWebhook = do
@@ -18638,9 +18805,9 @@ argsFromApi baseArgs p = do
                 , argPositioning = positioning
                 , argOptimizeOperations = pick (apOptimizeOperations p) (argOptimizeOperations baseArgs)
                 , argSweepThreshold = pick (apSweepThreshold p) (argSweepThreshold baseArgs)
-                , argFee = pick (apFee p) (argFee baseArgs)
-                , argSlippage = pick (apSlippage p) (argSlippage baseArgs)
-                , argSpread = pick (apSpread p) (argSpread baseArgs)
+                , argFee = max venueTakerFeeFloor (pick (apFee p) (argFee baseArgs))
+                , argSlippage = max venueSlippageFloor (pick (apSlippage p) (argSlippage baseArgs))
+                , argSpread = max venueSpreadFloor (pick (apSpread p) (argSpread baseArgs))
                 , argFeeFixed = pick (apFeeFixed p) (argFeeFixed baseArgs)
                 , argFeeMin = pick (apFeeMin p) (argFeeMin baseArgs)
                 , argSlippageVolMult = pick (apSlippageVolMult p) (argSlippageVolMult baseArgs)
@@ -21372,38 +21539,53 @@ gateKalmanDir ::
     Maybe Quantiles ->
     Double ->
     Maybe Int ->
+    Maybe Int ->
     (Maybe Int, Maybe String)
-gateKalmanDir args useSizing thr kalZ mReg mI mQ confScore dirRaw =
-    case dirRaw of
-        Nothing -> (Nothing, Nothing)
-        Just dir ->
-            let effectiveUseSizing = useSizing && argVolConfGate args == VolConfGateDisabled
-                zMin = max 0 (argKalmanZMin args)
-                hvOk =
-                    ( not (predictorEnabled (argPredictors args) SensorHMM)
-                        || ( case (argMaxHighVolProb args, mReg) of
-                                (Just maxHv, Just r) -> rpHighVol r <= maxHv
-                                (Just _, Nothing) -> False
-                                _ -> True
-                           )
-                    )
-                confWidthOk =
-                    ( not (predictorEnabled (argPredictors args) SensorConformal)
-                        || ( case (argMaxConformalWidth args, mI) of
-                                (Just maxW, Just i) -> intervalWidth i <= maxW
-                                (Just _, Nothing) -> False
-                                _ -> True
-                           )
-                    )
-                qWidthOk =
-                    ( not (predictorEnabled (argPredictors args) SensorQuantile)
-                        || ( case (argMaxQuantileWidth args, mQ) of
-                                (Just maxW, Just q) -> quantileWidth q <= maxW
-                                (Just _, Nothing) -> False
-                                _ -> True
-                           )
-                    )
-             in if kalZ < zMin
+gateKalmanDir args useSizing thr kalZ mReg mI mQ confScore dirRaw fallbackDir =
+    let effectiveUseSizing = useSizing && argVolConfGate args == VolConfGateDisabled
+        zMin = max 0 (argKalmanZMin args)
+        -- Missing sensor metadata fails OPEN, matching the backtest engine
+        -- (Trading.gateKalmanDir): combos are scored under those semantics,
+        -- and the live gate must not be stricter than the gate that
+        -- validated them.
+        hvOk =
+            ( not (predictorEnabled (argPredictors args) SensorHMM)
+                || ( case (argMaxHighVolProb args, mReg) of
+                        (Just maxHv, Just r) -> rpHighVol r <= maxHv
+                        (Just _, Nothing) -> True
+                        _ -> True
+                   )
+            )
+        confWidthOk =
+            ( not (predictorEnabled (argPredictors args) SensorConformal)
+                || ( case (argMaxConformalWidth args, mI) of
+                        (Just maxW, Just i) -> intervalWidth i <= maxW
+                        (Just _, Nothing) -> True
+                        _ -> True
+                   )
+            )
+        qWidthOk =
+            ( not (predictorEnabled (argPredictors args) SensorQuantile)
+                || ( case (argMaxQuantileWidth args, mQ) of
+                        (Just maxW, Just q) -> quantileWidth q <= maxW
+                        (Just _, Nothing) -> True
+                        _ -> True
+                   )
+            )
+     in case dirRaw of
+            Nothing ->
+                -- Kalman-neutral fallback, matching the backtest engine: when
+                -- the fused Kalman return sits inside the threshold band but
+                -- the high-vol regime is OK, defer to the fallback (LSTM)
+                -- direction instead of forcing neutral. Without this the live
+                -- bot closes positions the first bar Kalman reverts toward 0
+                -- even while the LSTM still says hold — an exit churn the
+                -- combos were never scored under.
+                case fallbackDir of
+                    Just dir | hvOk -> (Just dir, Nothing)
+                    _ -> (Nothing, Nothing)
+            Just dir ->
+                if kalZ < zMin
                     then (Nothing, Just "KALMAN_Z")
                     else
                         if not hvOk
@@ -21691,7 +21873,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         confScore = confidenceScoreKalman args kalZ mReg mI mQ
                         kalDirRaw = direction openThrAdj prev kalNext
                         lstmDir = direction openThrAdj prev lstmNext
-                        (kalDir, _) = gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mReg mI mQ confScore kalDirRaw
+                        (kalDir, _) = gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mReg mI mQ confScore kalDirRaw lstmDir
                         agreeOk =
                             case (kalDir, lstmDir) of
                                 (Just a, Just b) -> a == b
@@ -22038,22 +22220,111 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                 Right qMin -> Right (qMin, qMin > qtyRaw + 1e-9)
                                 Left _ -> Left err
 
-    sendMarketOrderWithMaker :: Bool -> String -> OrderSide -> Maybe Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
-    sendMarketOrderWithMaker isEntry sideLabel side mQty mQuote mReduceOnly =
-        if not isEntry
-            then sendMarketOrder sideLabel side mQty mQuote mReduceOnly
-            else do
-                waitRes <- waitForMakerEntry side
-                case waitRes of
-                    Left msg ->
-                        pure
-                            baseResult
-                                { aorSide = Just sideLabel
-                                , aorQuantity = mQty
-                                , aorQuoteQuantity = mQuote
-                                , aorMessage = msg
-                                }
-                    Right () -> sendMarketOrder sideLabel side mQty mQuote mReduceOnly
+    sendMarketOrderWithMaker :: Maybe SymbolFilters -> Bool -> String -> OrderSide -> Maybe Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
+    sendMarketOrderWithMaker mSfPx isEntry sideLabel side mQty mQuote mReduceOnly
+        | not isEntry || not makerWaitEnabled = sendMarketOrder sideLabel side mQty mQuote mReduceOnly
+        | beMarket env == MarketFutures
+        , Just qty <- mQty
+        , qty > 0 =
+            sendPostOnlyEntry mSfPx sideLabel side qty mQuote mReduceOnly
+        | otherwise = do
+            -- Spot/margin keep the legacy pacing (wait for a favorable price,
+            -- then market); the live trading path is futures.
+            waitRes <- waitForMakerEntry side
+            case waitRes of
+                Left msg ->
+                    pure
+                        baseResult
+                            { aorSide = Just sideLabel
+                            , aorQuantity = mQty
+                            , aorQuoteQuantity = mQuote
+                            , aorMessage = msg
+                            }
+                Right () -> sendMarketOrder sideLabel side mQty mQuote mReduceOnly
+
+    {- Real maker entry for futures: a post-only (GTX) limit at the touch.
+    GTX cannot take liquidity (the venue expires it instead of crossing), so
+    a posted fill earns the maker fee and the spread the taker path paid.
+    Unfilled after the configured timeout -> cancel and either fall back to
+    market or skip, per --execution-maker-fallback-market. A partial fill is
+    returned as-is: order evidence scales position state by the filled
+    proportion. -}
+    sendPostOnlyEntry :: Maybe SymbolFilters -> String -> OrderSide -> Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
+    sendPostOnlyEntry mSfPx sideLabel side qty mQuote mReduceOnly = do
+        let baseOut =
+                baseResult
+                    { aorSide = Just sideLabel
+                    , aorQuantity = Just qty
+                    , aorQuoteQuantity = mQuote
+                    }
+            fallback reason =
+                if argExecutionMakerFallbackMarket args
+                    then do
+                        out <- sendMarketOrder sideLabel side (Just qty) mQuote mReduceOnly
+                        pure out{aorMessage = aorMessage out ++ " (maker " ++ reason ++ "; market fallback)"}
+                    else pure baseOut{aorMessage = "No order: maker entry " ++ reason ++ " (market fallback disabled)."}
+        bookOrErr <- try (fetchBookTickerQuote env sym) :: IO (Either SomeException BookTickerQuote)
+        case bookOrErr of
+            Left _ -> fallback "book unavailable"
+            Right quote -> do
+                let pxRaw =
+                        case side of
+                            Buy -> btqBid quote * (1 - makerOffsetFrac)
+                            Sell -> btqAsk quote * (1 + makerOffsetFrac)
+                    -- Round AWAY from the spread (down for buys, up for
+                    -- sells) so tick rounding can never turn the post-only
+                    -- price into a crossing one.
+                    px =
+                        case mSfPx >>= sfTickSize of
+                            Just tick ->
+                                case side of
+                                    Buy -> quantizeDown tick pxRaw
+                                    Sell -> quantizeUp tick pxRaw
+                            Nothing -> pxRaw
+                if px <= 0 || isNaN px || isInfinite px
+                    then fallback "price unavailable"
+                    else do
+                        ts <- getTimestampMs
+                        let cid = take 36 ("trader_mkr_" ++ show ts)
+                            statusOf mi = map toLower <$> (mi >>= boiStatus)
+                            filledOf mi = fromMaybe 0 (mi >>= boiExecutedQty)
+                            resultFrom mi msg =
+                                let out0 = baseOut{aorSent = True, aorClientOrderId = Just cid, aorMessage = msg}
+                                 in pure (maybe out0 (`applyOrderInfo` out0) mi)
+                        r <- try (placeFuturesPostOnlyLimitOrder env mode sym side qty px mReduceOnly (Just cid)) :: IO (Either SomeException BL.ByteString)
+                        case r of
+                            Left ex -> fallback ("rejected: " ++ shortErr ex)
+                            Right body -> do
+                                let mInfo0 = decodeOrderInfo body
+                                if statusOf mInfo0 == Just "expired" && filledOf mInfo0 <= 0
+                                    then fallback "would cross the book"
+                                    else do
+                                        start <- getPOSIXTime
+                                        let terminalUnfilled s = s `elem` ["canceled", "cancelled", "expired", "rejected"]
+                                            poll = do
+                                                nowT <- getPOSIXTime
+                                                infoOrErr <- try (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
+                                                let mInfo = either (const Nothing) decodeOrderInfo infoOrErr
+                                                case statusOf mInfo of
+                                                    Just "filled" -> resultFrom mInfo "Maker order filled."
+                                                    Just s
+                                                        | terminalUnfilled s ->
+                                                            if filledOf mInfo > 0
+                                                                then resultFrom mInfo "Maker order partially filled before terminal status."
+                                                                else fallback ("ended " ++ s ++ " unfilled")
+                                                    _ ->
+                                                        if floor ((nowT - start) * 1000000) >= (makerTimeoutUs :: Int)
+                                                            then do
+                                                                _ <- try (cancelFuturesOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
+                                                                -- A fill can land between cancel and this fetch; the
+                                                                -- final read captures it.
+                                                                finalOrErr <- try (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
+                                                                let mFinal = (either (const Nothing) decodeOrderInfo finalOrErr) <|> mInfo
+                                                                if filledOf mFinal > 0
+                                                                    then resultFrom mFinal "Maker order partially filled at timeout; remainder canceled."
+                                                                    else fallback "timed out unfilled"
+                                                            else threadDelay makerPollUs >> poll
+                                        poll
 
     sendMarketOrder :: String -> OrderSide -> Maybe Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
     sendMarketOrder sideLabel side mQty mQuote mReduceOnly = do
@@ -22141,7 +22412,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                         Nothing ->
                                             if qRaw * currentPrice > quoteBal
                                                 then pure baseResult{aorMessage = "No order: insufficient quote balance."}
-                                                else sendMarketOrderWithMaker True "BUY" Buy (Just qRaw) Nothing Nothing
+                                                else sendMarketOrderWithMaker mSf True "BUY" Buy (Just qRaw) Nothing Nothing
                                         Just sf ->
                                             case normalizeEntryQty sf currentPrice qRaw of
                                                 Left e -> pure baseResult{aorMessage = "No order: " ++ e}
@@ -22156,7 +22427,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                             else "No order: insufficient quote balance."
                                                                     }
                                                         else do
-                                                            out <- sendMarketOrderWithMaker True "BUY" Buy (Just q) Nothing Nothing
+                                                            out <- sendMarketOrderWithMaker mSf True "BUY" Buy (Just q) Nothing Nothing
                                                             pure $
                                                                 if bumped && aorSent out
                                                                     then out{aorMessage = aorMessage out ++ " (min size applied)."}
@@ -22175,7 +22446,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                     else
                                                         if qq > quoteBal
                                                             then pure baseResult{aorMessage = "No order: insufficient quote balance."}
-                                                            else sendMarketOrderWithMaker True "BUY" Buy Nothing (Just qq) Nothing
+                                                            else sendMarketOrderWithMaker mSf True "BUY" Buy Nothing (Just qq) Nothing
             (-1) ->
                 if not alreadyLong
                     then pure baseResult{aorMessage = "No order: already flat."}
@@ -22528,7 +22799,12 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                 if protectionEnabled
                                     then do
                                         cancelProtectionOrders
-                                        r <- placeProtectionOrders 1 currentPrice
+                                        -- Anchor the refresh at the POSITION's entry price, not the
+                                        -- current price: re-anchoring at currentPrice every cycle
+                                        -- ratchets the stop along with an adverse move (the stop only
+                                        -- fires if price covers the whole stop width within one poll),
+                                        -- letting losers run far past the configured stop.
+                                        r <- placeProtectionOrders 1 (fromMaybe currentPrice (fpsEntryPrice summary))
                                         pure $
                                             case r of
                                                 Left e -> baseResult{aorMessage = "No market order: already long. " ++ e}
@@ -22560,7 +22836,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                     if q <= 0
                                                                         then pure baseResult{aorMessage = "No order: quantity is 0."}
                                                                         else do
-                                                                            out0 <- sendMarketOrderWithMaker True "BUY" Buy (Just q) Nothing Nothing
+                                                                            out0 <- sendMarketOrderWithMaker mSf True "BUY" Buy (Just q) Nothing Nothing
                                                                             let out =
                                                                                     if bumped && aorSent out0
                                                                                         then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
@@ -22588,7 +22864,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                         if protectionEnabled
                                             then do
                                                 cancelProtectionOrders
-                                                r <- placeProtectionOrders (-1) currentPrice
+                                                -- Entry-price anchor: see the matching long-side comment.
+                                                r <- placeProtectionOrders (-1) (fromMaybe currentPrice (fpsEntryPrice summary))
                                                 pure $
                                                     case r of
                                                         Left e -> baseResult{aorMessage = "No market order: already short. " ++ e}
@@ -22620,7 +22897,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                             if q <= 0
                                                                                 then pure baseResult{aorMessage = "No order: quantity is 0."}
                                                                                 else do
-                                                                                    out0 <- sendMarketOrderWithMaker True "SELL" Sell (Just q) Nothing Nothing
+                                                                                    out0 <- sendMarketOrderWithMaker mSf True "SELL" Sell (Just q) Nothing Nothing
                                                                                     let out =
                                                                                             if bumped && aorSent out0
                                                                                                 then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
@@ -26447,9 +26724,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             kalZMinForBlend = max 0 (argKalmanZMin args)
             kalZMaxForBlend = max kalZMinForBlend (argKalmanZMax args)
 
-            (mKalNext, mKalReturn, mKalStd, mKalZ, mRegimes, mQuantiles, mConformal, kalDirRaw, kalDir, kalCloseDir, mConfidence, mPosSize, mGateReason) =
+            (mKalNext, mKalReturn, mKalStd, mKalZ, mRegimes, mQuantiles, mConformal, kalDirRaw, kalDir, kalCloseDir, kalDirBoth, kalCloseDirBoth, mConfidence, mPosSize, mPosSizeBoth, mGateReason) =
                 case mKalmanCtx of
-                    Nothing -> (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Just 0, Nothing)
+                    Nothing -> (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Just 0, Just 0, Nothing)
                     Just (predictors, kalPrev, hmmPrev, svPrev) ->
                         let (sensorOuts, _) = predictSensorsWithInputs predictors featureInputs hmmPrev t
                             mReg = listToMaybe [r | (_sid, out) <- sensorOuts, Just r <- [soRegimes out]]
@@ -26476,14 +26753,21 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     else case dirRaw of
                                         Nothing -> 0
                                         Just _ -> 1
-                            (dirUsed, mWhy) = gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mReg mI mQ confScore dirRaw
-                            (closeDirUsed, _) = gateKalmanDir args False closeThrAdj kalZ mReg mI mQ confScore closeDirRaw
-                            sizeUsed =
-                                case dirUsed of
+                            (dirUsed, mWhy) = gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mReg mI mQ confScore dirRaw Nothing
+                            (closeDirUsed, _) = gateKalmanDir args False closeThrAdj kalZ mReg mI mQ confScore closeDirRaw Nothing
+                            -- MethodBoth variants gated with the LSTM direction
+                            -- as Kalman-neutral fallback, mirroring the backtest
+                            -- ensemble engine (Trading.hs gateKalmanDir calls).
+                            (dirUsedBoth, _) = gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mReg mI mQ confScore dirRaw lstmDir
+                            (closeDirUsedBoth, _) = gateKalmanDir args False closeThrAdj kalZ mReg mI mQ confScore closeDirRaw lstmCloseDir
+                            sizeFor mDir =
+                                case mDir of
                                     Nothing -> 0
                                     Just _ ->
                                         let s0 = if argConfidenceSizing args then sizeRaw else 1
                                          in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                            sizeUsed = sizeFor dirUsed
+                            sizeUsedBoth = sizeFor dirUsedBoth
                          in ( Just kalNext
                             , Just kalReturn
                             , Just kalStd
@@ -26494,8 +26778,11 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                             , dirRaw
                             , dirUsed
                             , closeDirUsed
+                            , dirUsedBoth
+                            , closeDirUsedBoth
                             , Just confScore
                             , Just sizeUsed
+                            , Just sizeUsedBoth
                             , mWhy
                             )
 
@@ -27260,9 +27547,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing blendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore blendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore blendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore blendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore blendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27279,9 +27566,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing confBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore confBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore confBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore confBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore confBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27298,9 +27585,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing confPickDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore confPickDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore confPickDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore confPickCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore confPickCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27317,9 +27604,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing conformalClipDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore conformalClipDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore conformalClipDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore conformalClipCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore conformalClipCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27336,9 +27623,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing costPickDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore costPickDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore costPickDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore costPickCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore costPickCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27355,9 +27642,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing harmonicBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore harmonicBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore harmonicBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore harmonicBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore harmonicBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27374,9 +27661,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing disagreementGuardDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore disagreementGuardDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore disagreementGuardDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore disagreementGuardCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore disagreementGuardCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27393,9 +27680,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing medianBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore medianBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore medianBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore medianBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore medianBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27412,9 +27699,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing neutralGuardDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore neutralGuardDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore neutralGuardDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore neutralGuardCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore neutralGuardCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27431,9 +27718,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing riskParityBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore riskParityBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore riskParityBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore riskParityBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore riskParityBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27450,9 +27737,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing consensusBoostDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore consensusBoostDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore consensusBoostDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore consensusBoostCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore consensusBoostCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27469,9 +27756,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing anchorBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore anchorBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore anchorBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore anchorBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore anchorBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27488,9 +27775,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing tensionGateDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore tensionGateDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore tensionGateDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore tensionGateCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore tensionGateCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27507,9 +27794,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing entropyBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore entropyBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore entropyBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore entropyBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore entropyBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27526,9 +27813,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing coherenceGateDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore coherenceGateDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore coherenceGateDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore coherenceGateCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore coherenceGateCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27545,9 +27832,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing divergenceGateDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore divergenceGateDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore divergenceGateDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore divergenceGateCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore divergenceGateCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27564,9 +27851,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing fractalBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore fractalBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore fractalBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore fractalBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore fractalBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27583,9 +27870,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing phaseCancelDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore phaseCancelDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore phaseCancelDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore phaseCancelCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore phaseCancelCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27602,9 +27889,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing softmaxBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore softmaxBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore softmaxBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore softmaxBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore softmaxBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27621,9 +27908,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing smoothSoftmaxBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore smoothSoftmaxBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore smoothSoftmaxBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore smoothSoftmaxBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore smoothSoftmaxBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27640,9 +27927,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing hedgeBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore hedgeBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore hedgeBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore hedgeBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore hedgeBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27659,9 +27946,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing netSoftmaxBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore netSoftmaxBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore netSoftmaxBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore netSoftmaxBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore netSoftmaxBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27678,9 +27965,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing edgeBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore edgeBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore edgeBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore edgeBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore edgeBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27697,9 +27984,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing edgePickDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore edgePickDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore edgePickDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore edgePickCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore edgePickCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27716,9 +28003,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing geoBlendDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore geoBlendDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore geoBlendDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore geoBlendCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore geoBlendCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27735,9 +28022,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | isNothing regimeSwitchDir = 0
                                 | otherwise = 1
                             (dirUsed, mWhy) =
-                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore regimeSwitchDir
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore regimeSwitchDir Nothing
                             (closeDirUsed, _) =
-                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore regimeSwitchCloseDir
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore regimeSwitchCloseDir Nothing
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -27757,9 +28044,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                             | isNothing routerDirRaw = 0
                                             | otherwise = 1
                                         (dirUsed, mWhy) =
-                                            gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore routerDirRaw
+                                            gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore routerDirRaw Nothing
                                         (closeDirUsed, _) =
-                                            gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore routerCloseDirRaw
+                                            gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore routerCloseDirRaw Nothing
                                         sizeUsed =
                                             case dirUsed of
                                                 Nothing -> 0
@@ -27843,8 +28130,12 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             closeDirBase =
                 case method of
                     MethodBoth ->
-                        if kalCloseDir == lstmCloseDir
-                            then kalCloseDir
+                        -- kalCloseDirBoth carries the LSTM fallback when Kalman
+                        -- is neutral (backtest parity): the position is held
+                        -- while the LSTM close direction still agrees, instead
+                        -- of closing the first bar Kalman reverts into the band.
+                        if kalCloseDirBoth == lstmCloseDir
+                            then kalCloseDirBoth
                             else Nothing
                     MethodKalmanOnly -> kalCloseDir
                     MethodKalmanPhysicsError -> kalCloseDir
@@ -27886,8 +28177,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodSmaCrossRegime -> taCloseDirRaw
 
             agreeDir =
-                if kalDir == lstmDir
-                    then kalDir
+                if kalDirBoth == lstmDir
+                    then kalDirBoth
                     else Nothing
             chosenDirBase =
                 case method of
@@ -28466,6 +28757,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                         MethodTaRegimeSwitch -> taPosSize
                         MethodSmaCross -> taPosSize
                         MethodSmaCrossRegime -> taPosSize
+                        MethodBoth -> mPosSizeBoth
                         _ -> mPosSize
             gateReasonForMethod =
                 case method of

@@ -1,6 +1,7 @@
 module Trader.OrderExecution (
     OrderExecutionEvidence (..),
     orderAppliedQuantity,
+    orderAppliedFraction,
     applyExecutedQuantity,
     applyReduceOnlyExecutedQuantity,
 ) where
@@ -35,6 +36,23 @@ orderAppliedQuantity ev fallbackQty =
                                 Just s | statusHasNoFill s -> Nothing
                                 Just s | statusImpliesFilled s -> fallback
                                 _ -> Nothing
+
+{- | Order evidence quantities (requested\/executed) are denominated in
+base-asset units, while bot position state tracks fractions of equity.
+Applying base units to fraction state books a 300-contract fill as a 300x
+equity position. Convert instead by scaling the intended fraction by the
+filled proportion of the requested base quantity; without a base-unit
+denominator (test mode, fill-implied statuses with no quantities) fall back
+to all-or-nothing on the intended fraction.
+-}
+orderAppliedFraction :: OrderExecutionEvidence -> Maybe Double -> Double -> Maybe Double
+orderAppliedFraction ev mRequestedBase intendedFraction = do
+    intended <- positiveFinite intendedFraction
+    case mRequestedBase >>= positiveFinite of
+        Nothing -> orderAppliedQuantity ev intended
+        Just reqBase -> do
+            appliedBase <- orderAppliedQuantity ev reqBase
+            positiveFinite (intended * (appliedBase / reqBase))
 
 applyExecutedQuantity :: Int -> Double -> Bool -> Double -> (Int, Double, Double, Double)
 applyExecutedQuantity prevPos prevSize isBuy qtyRaw =

@@ -2891,7 +2891,10 @@ testRecalculateMaintainsLiveStats = do
         Nothing -> ioError (userError "first operation did not create a live record")
         Just s -> pure s
     assert "first operation seeds the live record" (clsOperationCount stats1 == 1)
-    assert "first operation compounds live equity from the order ratio" (abs (clsFinalEquity stats1 - 1.05) < 1e-9)
+    -- No same-session previous order => no measurable equity change: the
+    -- session equity baseline is arbitrary (resets on every bot start), so
+    -- the first op of a session must not move live equity.
+    assert "first operation records no equity change without a session baseline" (abs (clsFinalEquity stats1 - 1.0) < 1e-9)
     assert "first operation pins the live span start" (clsFirstAtMs stats1 == Just t0)
     assert "no annualization before a meaningful live span" (isNothing (clsAnnualizedReturn stats1))
     let t1 = t0 + 2 * 86400000
@@ -2901,7 +2904,7 @@ testRecalculateMaintainsLiveStats = do
         Nothing -> ioError (userError "second operation lost the live record")
         Just s -> pure s
     assert "second operation increments the live order count" (clsOperationCount stats2 == 2)
-    assert "live equity compounds across operations" (abs (clsFinalEquity stats2 - 0.945) < 1e-9)
+    assert "live equity compounds across operations" (abs (clsFinalEquity stats2 - 0.9) < 1e-9)
     assert "live span start is preserved" (clsFirstAtMs stats2 == Just t0)
     assert "live span end tracks the latest operation" (clsLastAtMs stats2 == Just t1)
     assert

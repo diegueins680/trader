@@ -126,8 +126,10 @@ optimizerArgsParser =
         <*> option auto (long "epochs-max" <> value 2 <> metavar "INT")
         <*> option auto (long "slippage-max" <> value 0.0005 <> metavar "FLOAT")
         <*> option auto (long "spread-max" <> value 0.0005 <> metavar "FLOAT")
-        <*> option auto (long "fee-min" <> value 0.0004 <> metavar "FLOAT")
-        <*> option auto (long "fee-max" <> value 0.001 <> metavar "FLOAT")
+        -- Degenerate fee range on purpose: every trial scores under the same real
+        -- Binance taker rate, so cost draws can never differentiate leaderboard rank.
+        <*> option auto (long "fee-min" <> value 0.0005 <> metavar "FLOAT")
+        <*> option auto (long "fee-max" <> value 0.0005 <> metavar "FLOAT")
         <*> option auto (long "funding-rate-min" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "funding-rate-max" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "p-funding-by-side" <> value 0.0 <> metavar "FLOAT")

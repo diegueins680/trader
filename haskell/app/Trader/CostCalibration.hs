@@ -30,9 +30,29 @@ module Trader.CostCalibration (
     costCalibrationShrinkageObs,
     costCalibrationWindow,
     observedSlippageFraction,
+    venueSlippageFloor,
+    venueSpreadFloor,
+    venueTakerFeeFloor,
 ) where
 
 import Data.List (sort)
+
+{- | Floors for the costs an order on the venue can actually achieve. Every
+live order is a taker (market) order, so neither an optimizer trial nor an
+adopted combo may price entries below these: a combo carrying a sampled fee
+of 0.04 bp approves trades whose predicted edge cannot cover the real 5 bp
+taker fee, which is indistinguishable from having no entry gate at all.
+-}
+venueTakerFeeFloor :: Double
+venueTakerFeeFloor = 5.0e-4 -- Binance USDT-M standard taker (0.045% with BNB discount)
+
+-- | Per-side market-order slippage floor on liquid perps (0.5 bp).
+venueSlippageFloor :: Double
+venueSlippageFloor = 5.0e-5
+
+-- | Full bid-ask spread floor (~1 tick on liquid perps, 1 bp).
+venueSpreadFloor :: Double
+venueSpreadFloor = 1.0e-4
 
 {- | Fills required before the calibrated estimate replaces the configured
 assumption (8 fills = roughly 4 round trips).
