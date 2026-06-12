@@ -917,8 +917,9 @@ fetchTickerPrice env symbol = do
         Left e -> throwIO (userError ("Failed to decode ticker price: " ++ e))
         Right (TickerPrice p) -> pure p
 
--- | Best bid/ask from the order book ticker; maker (post-only) entries price
--- off the touch rather than the last trade.
+{- | Best bid/ask from the order book ticker; maker (post-only) entries price
+off the touch rather than the last trade.
+-}
 data BookTickerQuote = BookTickerQuote
     { btqBid :: !Double
     , btqAsk :: !Double
