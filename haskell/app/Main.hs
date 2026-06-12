@@ -22319,7 +22319,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                 -- A fill can land between cancel and this fetch; the
                                                                 -- final read captures it.
                                                                 finalOrErr <- try (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
-                                                                let mFinal = (either (const Nothing) decodeOrderInfo finalOrErr) <|> mInfo
+                                                                let mFinal = either (const Nothing) decodeOrderInfo finalOrErr <|> mInfo
                                                                 if filledOf mFinal > 0
                                                                     then resultFrom mFinal "Maker order partially filled at timeout; remainder canceled."
                                                                     else fallback "timed out unfilled"
