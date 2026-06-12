@@ -1014,6 +1014,14 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /return \{ pushed: false, retried: true, retrySync \};/);
   assert.match(script, /could not push \$\{BASE_BRANCH\}: origin moved with conflicting changes/);
   assert.match(script, /after a push retry; automated resolution is disabled, operator must reconcile/);
+  // The push-conflict guard must run BEFORE the merged-ref prune: pruning on
+  // a base whose merges never reached origin deletes the only branch refs
+  // for that work.
+  assert.ok(
+    script.indexOf('if (pushResult.retrySync?.outcome === "conflict-aborted") {') <
+      script.indexOf("const pruneResult = pruneMergedRefsOnBaseBranch(BASE_BRANCH);"),
+    "push-conflict guard must precede pruneMergedRefsOnBaseBranch",
+  );
   assert.match(script, /runCommand\("git", \["push", "origin", `\$\{BASE_BRANCH\}:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
   assert.match(script, /const pruneResult = pruneMergedRefsOnBaseBranch\(BASE_BRANCH\);/);
   assert.match(script, /runCommand\("git", \["worktree", "prune"\], \{ capture: false \}\);/);

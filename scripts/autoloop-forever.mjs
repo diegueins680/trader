@@ -648,6 +648,36 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
 
     const shouldPush = originSync.outcome !== "noop" || mergedBranches.length > 0;
     const pushResult = shouldPush ? pushBaseBranchWithRetry() : { pushed: false, retried: false, retrySync: null };
+    if (pushResult.retrySync?.outcome === "conflict-aborted") {
+      // The base now carries unpushed merges and conflicts with origin.
+      // Nothing else may run this cycle — in particular not the ref prune
+      // below, which would see those merges as --merged into the local base
+      // and delete the only branch refs for work that never reached
+      // origin/<base>. Surface the same operator block as the sync-time
+      // conflict guard.
+      await logRunner(
+        `branch reconciliation could not push ${BASE_BRANCH}: origin moved with conflicting changes; operator must reconcile`,
+      );
+      return {
+        ok: false,
+        reason: `${BASE_BRANCH} conflicts with origin/${BASE_BRANCH} after a push retry; automated resolution is disabled, operator must reconcile`,
+        details: pushResult.retrySync.conflicts.slice(0, 40),
+        summary: {
+          startedAt,
+          endedAt: new Date().toISOString(),
+          baseBranch: BASE_BRANCH,
+          syncedOrigin: originSync.outcome,
+          candidateBranches: candidates.map((candidate) => candidate.shortName),
+          mergedBranches,
+          conflictAbortedBranches,
+          pushed: false,
+          pushRetried: true,
+          retrySyncOutcome: "conflict-aborted",
+          conflictedFiles: pushResult.retrySync.conflicts,
+          head: runCommand("git", ["rev-parse", "HEAD"]),
+        },
+      };
+    }
     const pruneResult = pruneMergedRefsOnBaseBranch(BASE_BRANCH);
     const summary = {
       startedAt,
@@ -688,20 +718,6 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       await logRunner(
         `branch reconciliation left ${conflictAbortedBranches.length} branch(es) unmerged due to conflicts — operator review required: ${flagged}`,
       );
-    }
-    if (pushResult.retrySync?.outcome === "conflict-aborted") {
-      // The base now carries unpushed merges and conflicts with origin.
-      // Nothing else may run on top of it this cycle; surface the same
-      // operator block as the sync-time conflict guard.
-      await logRunner(
-        `branch reconciliation could not push ${BASE_BRANCH}: origin moved with conflicting changes; operator must reconcile`,
-      );
-      return {
-        ok: false,
-        reason: `${BASE_BRANCH} conflicts with origin/${BASE_BRANCH} after a push retry; automated resolution is disabled, operator must reconcile`,
-        details: pushResult.retrySync.conflicts.slice(0, 40),
-        summary,
-      };
     }
     if (pruneResult.prunedLocalBranches.length > 0 || pruneResult.prunedRemoteBranches.length > 0) {
       await logRunner(
