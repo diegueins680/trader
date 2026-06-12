@@ -15538,12 +15538,17 @@ persistTopCombosToDb conn export =
                                 <> "open_threshold = EXCLUDED.open_threshold, "
                                 <> "close_threshold = EXCLUDED.close_threshold, "
                                 <> "params_json = EXCLUDED.params_json, "
-                                -- A payload combo without live stats must not erase the live
-                                -- record accumulated in this DB from completed orders.
+                                -- A payload combo must not erase or downgrade the live record
+                                -- accumulated in this DB from completed orders: a payload
+                                -- without live stats keeps the DB record, and a stale payload
+                                -- with fewer live operations loses to the richer DB record
+                                -- (same comparison as the in-memory annotation path).
                                 <> "metrics_json = CASE "
                                 <> "WHEN combos.metrics_json IS NOT NULL "
                                 <> "AND jsonb_exists(combos.metrics_json, 'live') "
-                                <> "AND (EXCLUDED.metrics_json IS NULL OR NOT jsonb_exists(EXCLUDED.metrics_json, 'live')) "
+                                <> "AND (EXCLUDED.metrics_json IS NULL OR NOT jsonb_exists(EXCLUDED.metrics_json, 'live') "
+                                <> "OR COALESCE((EXCLUDED.metrics_json->'live'->>'operationCount')::numeric, 0) "
+                                <> "< COALESCE((combos.metrics_json->'live'->>'operationCount')::numeric, 0)) "
                                 <> "THEN COALESCE(EXCLUDED.metrics_json, '{}'::jsonb) || jsonb_build_object('live', combos.metrics_json->'live') "
                                 <> "ELSE EXCLUDED.metrics_json END, "
                                 <> "operation_count = EXCLUDED.operation_count, "
