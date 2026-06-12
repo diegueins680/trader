@@ -690,9 +690,18 @@ async function reconcileUnmergedBranchesOntoBaseBranch() {
       );
     }
     if (pushResult.retrySync?.outcome === "conflict-aborted") {
+      // The base now carries unpushed merges and conflicts with origin.
+      // Nothing else may run on top of it this cycle; surface the same
+      // operator block as the sync-time conflict guard.
       await logRunner(
         `branch reconciliation could not push ${BASE_BRANCH}: origin moved with conflicting changes; operator must reconcile`,
       );
+      return {
+        ok: false,
+        reason: `${BASE_BRANCH} conflicts with origin/${BASE_BRANCH} after a push retry; automated resolution is disabled, operator must reconcile`,
+        details: pushResult.retrySync.conflicts.slice(0, 40),
+        summary,
+      };
     }
     if (pruneResult.prunedLocalBranches.length > 0 || pruneResult.prunedRemoteBranches.length > 0) {
       await logRunner(

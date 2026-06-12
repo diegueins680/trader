@@ -1007,10 +1007,13 @@ test("autoloop forever script reconciles every unmerged branch onto main before 
   assert.match(script, /automated resolution is disabled, operator must reconcile/);
   assert.match(script, /unmerged due to conflicts — operator review required/);
   // The push retry must also stop instead of resolving: when the retry sync
-  // conflict-aborts, nothing may be pushed on top of a diverged base.
+  // conflict-aborts, nothing may be pushed on top of a diverged base, and the
+  // reconciliation must fail the cycle (ok: false) so the loop halts now
+  // rather than on the next cycle.
   assert.match(script, /if \(retrySync\.outcome === "conflict-aborted"\) \{/);
   assert.match(script, /return \{ pushed: false, retried: true, retrySync \};/);
   assert.match(script, /could not push \$\{BASE_BRANCH\}: origin moved with conflicting changes/);
+  assert.match(script, /after a push retry; automated resolution is disabled, operator must reconcile/);
   assert.match(script, /runCommand\("git", \["push", "origin", `\$\{BASE_BRANCH\}:refs\/heads\/\$\{BASE_BRANCH\}`\], \{ capture: false \}\)/);
   assert.match(script, /const pruneResult = pruneMergedRefsOnBaseBranch\(BASE_BRANCH\);/);
   assert.match(script, /runCommand\("git", \["worktree", "prune"\], \{ capture: false \}\);/);
