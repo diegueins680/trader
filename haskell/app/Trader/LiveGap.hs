@@ -42,23 +42,27 @@ import Trader.TopCombosStore (
     comboMetricsDouble,
  )
 
--- | Live orders a single combo needs before its gap is a measurement
--- rather than noise.
+{- | Live orders a single combo needs before its gap is a measurement
+rather than noise.
+-}
 liveGapMinComboOperations :: Int
 liveGapMinComboOperations = 10
 
--- | Total live orders a method family needs before its multiplier moves
--- off neutral.
+{- | Total live orders a method family needs before its multiplier moves
+off neutral.
+-}
 liveGapMinTotalOperations :: Int
 liveGapMinTotalOperations = 30
 
--- | A chronically overfit family keeps at least a quarter of its discovery
--- weight: the feedback re-balances the search, it doesn't kill exploration.
+{- | A chronically overfit family keeps at least a quarter of its discovery
+weight: the feedback re-balances the search, it doesn't kill exploration.
+-}
 liveGapMultiplierFloor :: Double
 liveGapMultiplierFloor = 0.25
 
--- | A family that outperforms its backtests live earns at most 1.5x its
--- base discovery weight.
+{- | A family that outperforms its backtests live earns at most 1.5x its
+base discovery weight.
+-}
 liveGapMultiplierCeiling :: Double
 liveGapMultiplierCeiling = 1.5
 

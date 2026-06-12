@@ -34,33 +34,39 @@ module Trader.CostCalibration (
 
 import Data.List (sort)
 
--- | Fills required before the calibrated estimate replaces the configured
--- assumption (8 fills = roughly 4 round trips).
+{- | Fills required before the calibrated estimate replaces the configured
+assumption (8 fills = roughly 4 round trips).
+-}
 costCalibrationMinObservations :: Int
 costCalibrationMinObservations = 8
 
--- | Pseudo-count at which realized evidence carries the same weight as the
--- configured prior (w = n / (n + k)).
+{- | Pseudo-count at which realized evidence carries the same weight as the
+configured prior (w = n / (n + k)).
+-}
 costCalibrationShrinkageObs :: Double
 costCalibrationShrinkageObs = 16
 
--- | Only the most recent fills inform the estimate, so a venue's changing
--- liquidity is tracked rather than averaged away.
+{- | Only the most recent fills inform the estimate, so a venue's changing
+liquidity is tracked rather than averaged away.
+-}
 costCalibrationWindow :: Int
 costCalibrationWindow = 64
 
--- | The calibrated estimate never drops below this fraction of the
--- configured slippage: price improvement may relax gates, but not gut them.
+{- | The calibrated estimate never drops below this fraction of the
+configured slippage: price improvement may relax gates, but not gut them.
+-}
 costCalibrationFloorFactor :: Double
 costCalibrationFloorFactor = 0.25
 
--- | Absolute per-side ceiling (1%). Worse realized costs than this tighten
--- gates at the cap rather than poisoning the cost model.
+{- | Absolute per-side ceiling (1%). Worse realized costs than this tighten
+gates at the cap rather than poisoning the cost model.
+-}
 costCalibrationMaxPerSide :: Double
 costCalibrationMaxPerSide = 0.01
 
--- | Single-fill measurements beyond this magnitude (5%) are treated as data
--- errors (bad decision price, corrupted fill) and discarded.
+{- | Single-fill measurements beyond this magnitude (5%) are treated as data
+errors (bad decision price, corrupted fill) and discarded.
+-}
 costCalibrationOutlierBound :: Double
 costCalibrationOutlierBound = 0.05
 
