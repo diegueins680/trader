@@ -347,6 +347,7 @@ main = do
     testThresholdCalibrationEmptyInputFailsClosed
     testThresholdCalibrationDistributionAccuracy
     testThresholdCalibrationPercentileMethod
+    testThresholdCalibrationInterpolatesIntermediatePercentiles
     testThresholdCalibrationStdDevMethod
     testThresholdCalibrationHybridMethod
     testThresholdCalibrationRecommendationInsufficientSample
@@ -5116,6 +5117,16 @@ testThresholdCalibrationPercentileMethod = do
             assert
                 "headroom threshold is threshold / 1.5"
                 (abs (tcHeadroomThreshold calib - tcSuggestedThreshold calib / 1.5) < 1e-9)
+
+testThresholdCalibrationInterpolatesIntermediatePercentiles :: IO ()
+testThresholdCalibrationInterpolatesIntermediatePercentiles = do
+    let edges = [fromIntegral i / 1000 | i <- [0 .. 100 :: Int]]
+        mDist = computeEdgeDistribution edges
+    case mDist of
+        Nothing -> assert "distribution computation failed" False
+        Just dist -> do
+            assertNear "p80 interpolates between p75 and p90" 0.08 (thresholdAtPercentile 80 dist) 1e-12
+            assertNear "p1 interpolates between min and p10" 0.001 (thresholdAtPercentile 1 dist) 1e-12
 
 testThresholdCalibrationStdDevMethod :: IO ()
 testThresholdCalibrationStdDevMethod = do

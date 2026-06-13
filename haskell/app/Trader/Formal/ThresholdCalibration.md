@@ -18,7 +18,7 @@ Calibrate trading thresholds from historical edge distributions instead of magic
 
 ### I3: Percentile is Monotonic
 **Statement**: For all `p1 < p2`, `thresholdAtPercentile p1 dist <= thresholdAtPercentile p2 dist`.
-**Proof**: The percentile function uses a sorted list. Higher percentiles select elements at higher indices. Since the list is sorted ascending, higher indices have greater or equal values.
+**Proof**: `computeEdgeDistribution` derives each stored percentile anchor from one sorted edge sample, so the anchor values are non-decreasing. `thresholdAtPercentile` clamps outside `[0,100]` and linearly interpolates between adjacent anchors, preserving monotonicity between anchors and at anchor boundaries.
 
 ### I4: Headroom Threshold is Proportional
 **Statement**: `tcHeadroomThreshold = tcSuggestedThreshold / 1.5`

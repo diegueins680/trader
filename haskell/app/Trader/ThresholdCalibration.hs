@@ -192,15 +192,37 @@ percentile p sorted
 
 -- | Get the threshold value at a specific percentile from the distribution.
 thresholdAtPercentile :: Double -> EdgeDistribution -> Double
-thresholdAtPercentile p dist = case () of
-    _
-        | p <= 10 -> edP10 dist
-        | p <= 25 -> edP25 dist
-        | p <= 50 -> edP50 dist
-        | p <= 75 -> edP75 dist
-        | p <= 90 -> edP90 dist
-        | p <= 95 -> edP95 dist
-        | otherwise -> edP99 dist
+thresholdAtPercentile p dist
+    | p <= 0 = edMin dist
+    | p >= 100 = edMax dist
+    | otherwise = interpolatePercentile p (percentileAnchors dist)
+
+percentileAnchors :: EdgeDistribution -> [(Double, Double)]
+percentileAnchors dist =
+    [ (0, edMin dist)
+    , (10, edP10 dist)
+    , (25, edP25 dist)
+    , (50, edP50 dist)
+    , (75, edP75 dist)
+    , (90, edP90 dist)
+    , (95, edP95 dist)
+    , (99, edP99 dist)
+    , (100, edMax dist)
+    ]
+
+interpolatePercentile :: Double -> [(Double, Double)] -> Double
+interpolatePercentile _ [] = 0
+interpolatePercentile _ [(_, v)] = v
+interpolatePercentile p ((p0, v0) : (p1, v1) : rest)
+    | p <= p0 = v0
+    | p <= p1 =
+        let width = p1 - p0
+            frac =
+                if width <= 0
+                    then 0
+                    else (p - p0) / width
+         in v0 + frac * (v1 - v0)
+    | otherwise = interpolatePercentile p ((p1, v1) : rest)
 
 -- | Compute a suggested threshold using a calibration method.
 suggestedThreshold :: CalibrationMethod -> EdgeDistribution -> Double
