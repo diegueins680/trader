@@ -23,7 +23,7 @@ import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPur
 import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
-import Trader.BotStartSemantics (BacktestVerdict (..), backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (BacktestVerdict (..), backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
 import Trader.CostCalibration (
     calibratedSlippagePerSide,
@@ -299,6 +299,9 @@ main = do
     testBotStartupBacktestVerdictPreservesDisabledBehaviour
     testApplyComboUpdatesZeroTradeDoesNotPrune
     testApplyComboUpdatesGenuineLossStillPrunes
+    testBotStartupBacktestVerdictMinTradesGuard
+    testBotStartupBacktestVerdictDefaultMinTradesIsThree
+    testBotStartupGuardShouldPruneIsFalse
     testLiveBlendShrinkageRanking
     testLiveQuarantineThresholds
     testRecalculateMaintainsLiveStats
@@ -2806,6 +2809,77 @@ testApplyComboUpdatesGenuineLossStillPrunes = do
             assert
                 "genuine loss with positive tradeCount still prunes"
                 (cbasUpdatedCount stats == 1 && cbasPrunedCount stats == 1 && length (cbasPrunedKeys stats) == 1)
+
+{- | H11 (2026-06-12) — under-min-trades smoke windows are not strong
+enough evidence to abort. AAVEUSDT today saw smoke windows produce a
+single ~5% drawdown trade (one daily ATR) which then aborted a combo
+with out-of-sample @finalEquity@ ≥ 1.42. With 'minTradesForAbort = 3'
+the verdict must be 'BacktestNoVerdict' until at least three trades
+fire, and must remain 'BacktestAbort' at and above the threshold.
+
+Falsification: any of the documented rows below disagreeing with the
+computed verdict.
+-}
+testBotStartupBacktestVerdictMinTradesGuard :: IO ()
+testBotStartupBacktestVerdictMinTradesGuard = do
+    -- minTradesForAbort = 3: AAVEUSDT-style single-trade losses are
+    -- below the noise floor.
+    assert
+        "single-trade loss under minTrades is NoVerdict, not Abort"
+        ( botStartupBacktestVerdictWithMinTrades 3 True (Just 0.954) (Just 1) == BacktestNoVerdict
+            && botStartupBacktestVerdictWithMinTrades 3 True (Just 0.95) (Just 2) == BacktestNoVerdict
+            -- At the threshold, the verdict flips to Abort.
+            && botStartupBacktestVerdictWithMinTrades 3 True (Just 0.95) (Just 3) == BacktestAbort
+            && botStartupBacktestVerdictWithMinTrades 3 True (Just 0.5) (Just 12) == BacktestAbort
+            -- Above-threshold finalEquity wins regardless of trade count.
+            && botStartupBacktestVerdictWithMinTrades 3 True (Just 1.5) (Just 1) == BacktestAllow
+            && botStartupBacktestVerdictWithMinTrades 3 True (Just 1.5) (Just 0) == BacktestAllow
+            -- Zero-trade is still NoVerdict (existing 2026-06-11 invariant).
+            && botStartupBacktestVerdictWithMinTrades 3 True (Just 1.0) (Just 0) == BacktestNoVerdict
+            -- Disabled guard always Allow.
+            && botStartupBacktestVerdictWithMinTrades 3 False (Just 0.5) (Just 99) == BacktestAllow
+            -- Pathological minTrades ≤ 0 is normalized to 1 (matches the
+            -- pre-2026-06-12 behaviour). One actual trade aborts.
+            && botStartupBacktestVerdictWithMinTrades 0 True (Just 0.5) (Just 1) == BacktestAbort
+            && botStartupBacktestVerdictWithMinTrades (-5) True (Just 0.5) (Just 1) == BacktestAbort
+            -- Backward-compat: the 2-arg verdict equals the WithMinTrades
+            -- form with minTrades = 1 for every interesting row.
+            && botStartupBacktestVerdict True (Just 0.95) (Just 1) == BacktestAbort
+            && botStartupBacktestVerdictWithMinTrades 1 True (Just 0.95) (Just 1) == BacktestAbort
+        )
+
+{- | The default minimum-trade-count for treating a sub-threshold smoke
+backtest as an abort is 3. This is the value chosen in the 2026-06-12
+review based on the AAVEUSDT smoke-window noise floor (~5% per trade
+at the active vol target); a value below 3 reintroduces the 2026-06-12
+erosion mode. We pin it so any future change is deliberate and shows
+up as a test edit alongside the policy change.
+-}
+testBotStartupBacktestVerdictDefaultMinTradesIsThree :: IO ()
+testBotStartupBacktestVerdictDefaultMinTradesIsThree = do
+    assert
+        "default minimum trade count for abort is 3"
+        (defaultBotStartupBacktestMinTrades == 3)
+
+{- | The bot-start guard must not prune the top-combos store or DB row on
+any verdict (2026-06-12). The periodic refresh path has used the
+keep-all variant since 2026-06-10 because a locally-pruned combo is
+resurrected with stale, inflated metrics by the next cross-instance
+S3 union merge — today's launchd log shows the same combo UUIDs being
+pruned 2–3 times inside one process, the fingerprint of that race.
+The guard now agrees: block the start, do not prune.
+
+Falsification: any verdict for which 'botStartupGuardShouldPrune'
+returns 'True'. The current contract is uniformly 'False'.
+-}
+testBotStartupGuardShouldPruneIsFalse :: IO ()
+testBotStartupGuardShouldPruneIsFalse = do
+    assert
+        "bot-start guard never prunes on any verdict"
+        ( not (botStartupGuardShouldPrune BacktestAllow)
+            && not (botStartupGuardShouldPrune BacktestAbort)
+            && not (botStartupGuardShouldPrune BacktestNoVerdict)
+        )
 
 liveStatsForTest :: Double -> Maybe Double -> Int -> Aeson.Value
 liveStatsForTest eq mAnn count =

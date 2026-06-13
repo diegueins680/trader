@@ -5,7 +5,10 @@ module Trader.BotStartSemantics (
     botStartupBacktestAborts,
     BacktestVerdict (..),
     botStartupBacktestVerdict,
+    botStartupBacktestVerdictWithMinTrades,
     backtestVerdictAborts,
+    defaultBotStartupBacktestMinTrades,
+    botStartupGuardShouldPrune,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
     shouldResolveOriginComboOnAutoStart,
@@ -68,6 +71,17 @@ data BacktestVerdict
     | BacktestNoVerdict
     deriving (Eq, Show)
 
+{- | Default minimum trade count below which a sub-threshold smoke backtest is
+NOT treated as an actionable verdict. The 2026-06-12 launchd review showed
+smoke windows producing a single "loss" (n=1) that aborted starts for combos
+with out-of-sample @finalEquity@ ≥ 1.42 — i.e. n=1 evidence overruling n=many
+optimizer evidence. Three trades is the smallest sample where a non-trivial
+win-rate-vs-payoff calculation can distinguish "signal lost" from "unlucky
+first trade". Tunable via @TRADER_BOT_START_BACKTEST_MIN_TRADES@.
+-}
+defaultBotStartupBacktestMinTrades :: Int
+defaultBotStartupBacktestMinTrades = 3
+
 {- | Decide the verdict for a startup combo backtest given:
 
       * whether the guard is enabled,
@@ -97,16 +111,65 @@ data BacktestVerdict
       * Guard disabled always yields 'BacktestAllow'.
 -}
 botStartupBacktestVerdict :: Bool -> Maybe Double -> Maybe Int -> BacktestVerdict
-botStartupBacktestVerdict False _ _ = BacktestAllow
-botStartupBacktestVerdict True Nothing _ = BacktestNoVerdict
-botStartupBacktestVerdict True mFinalEquity mTradeCount =
-    if botStartupBacktestRoiAcceptable mFinalEquity
-        then BacktestAllow
-        else case mTradeCount of
-            Just n | n > 0 -> BacktestAbort
-            -- Zero-trade or unknown-trade smoke window: not a verdict on the
-            -- combo. Do not abort, do not prune.
-            _ -> BacktestNoVerdict
+botStartupBacktestVerdict = botStartupBacktestVerdictWithMinTrades 1
+
+{- | Like 'botStartupBacktestVerdict' but only treats a sub-threshold reading
+as 'BacktestAbort' when the smoke window saw at least @minTrades@ trades.
+Below that, the verdict is 'BacktestNoVerdict': fail open and do not prune.
+
+    Engineering rationale (2026-06-12):
+
+      The 2026-06-11 fix correctly distinguished zero-trade smoke windows
+      (no verdict) from traded losses (verdict). But the 2026-06-12 launchd
+      log shows a more subtle erosion mode: smoke windows that fire a
+      /single/ trade and lose (e.g. @finalEquity == 0.954@ on AAVEUSDT,
+      which is one ~5% drawdown — within one daily ATR) were aborting
+      starts and prompting deletes of the combo's DB row. A single trade is
+      below the noise floor for a combo whose out-of-sample @finalEquity@
+      is ≥ 1.42 (i.e. n=many optimizer evidence). Requiring @minTrades@ ≥ 3
+      raises the evidence bar to where a sub-threshold reading is more
+      consistent with "signal lost" than "unlucky first trade".
+
+      Falsification rows (with @minTrades = 3@):
+
+        * enabled=True finalEquity=Just 1.5  tradeCount=Just 0  → Allow
+        * enabled=True finalEquity=Just 0.95 tradeCount=Just 1  → NoVerdict (below minTrades)
+        * enabled=True finalEquity=Just 0.95 tradeCount=Just 2  → NoVerdict (below minTrades)
+        * enabled=True finalEquity=Just 0.95 tradeCount=Just 3  → Abort
+        * enabled=True finalEquity=Just 0.5  tradeCount=Just 12 → Abort
+        * enabled=True finalEquity=Just 1.5  tradeCount=Just 1  → Allow (above threshold trumps minTrades)
+-}
+botStartupBacktestVerdictWithMinTrades :: Int -> Bool -> Maybe Double -> Maybe Int -> BacktestVerdict
+botStartupBacktestVerdictWithMinTrades _ False _ _ = BacktestAllow
+botStartupBacktestVerdictWithMinTrades _ True Nothing _ = BacktestNoVerdict
+botStartupBacktestVerdictWithMinTrades minTradesRaw True mFinalEquity mTradeCount =
+    let minTrades = max 1 minTradesRaw
+     in if botStartupBacktestRoiAcceptable mFinalEquity
+            then BacktestAllow
+            else case mTradeCount of
+                Just n | n >= minTrades -> BacktestAbort
+                -- Zero-trade, unknown-trade, or under-min-trades smoke window:
+                -- not a strong enough verdict to abort or prune.
+                _ -> BacktestNoVerdict
+
+{- | Should the bot-start guard's @BacktestAbort@ verdict /also/ delete the
+combo from the top-combos store and DB?
+
+As of 2026-06-12 the answer is /no/. The periodic refresh path has used
+@applyComboUpdatesKeepAllWithStats@ since 2026-06-10 for the same reason:
+when one box prunes a combo, the next cross-instance S3 union merge
+resurrects it with stale, inflated metrics; whereas a kept, stamped record
+wins the merge and falls out of the capped board by rank, fleet-wide. The
+bot-start guard had been doing the opposite: prune locally AND delete from
+the DB row. Today's launchd log shows the same combo UUIDs being pruned 2–3
+times inside one process, which is the fingerprint of that race.
+
+The guard now only /blocks/ the start; pruning is the optimizer's job.
+This function exists so the policy is referenced from one place and
+falsifiable in tests.
+-}
+botStartupGuardShouldPrune :: BacktestVerdict -> Bool
+botStartupGuardShouldPrune _ = False
 
 -- | Convenience: does this verdict block the start?
 backtestVerdictAborts :: BacktestVerdict -> Bool

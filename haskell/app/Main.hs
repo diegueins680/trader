@@ -212,8 +212,10 @@ import Trader.BotStartSemantics (
     BacktestVerdict (..),
     backtestVerdictAborts,
     botStartSymbolDisabled,
-    botStartupBacktestVerdict,
+    botStartupBacktestVerdictWithMinTrades,
+    botStartupGuardShouldPrune,
     botTradeEnabledFromApi,
+    defaultBotStartupBacktestMinTrades,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
     shouldClearPositionOriginOnStart,
@@ -7330,7 +7332,29 @@ applyStartupComboBacktestUpdate ::
     BS.ByteString ->
     ComboBacktestUpdate ->
     IO (Either String ComboBacktestApplyStats)
-applyStartupComboBacktestUpdate ctx key update = do
+applyStartupComboBacktestUpdate = applyStartupComboBacktestUpdateImpl applyComboUpdatesWithStats
+
+{- | Like 'applyStartupComboBacktestUpdate' but uses the keep-all variant of
+'applyComboUpdatesWithStats': an unprofitable refresh keeps the combo with
+its deflated metrics (and refresh stamp). This is the same policy the
+periodic refresh loop uses since 2026-06-10, and it matches the 2026-06-12
+bot-start guard fix (see 'botStartupGuardShouldPrune') — the guard should
+/block/ a start when ROI is sub-threshold, not delete a combo.
+-}
+applyStartupComboBacktestUpdateKeepAll ::
+    TopCombosBacktestCtx ->
+    BS.ByteString ->
+    ComboBacktestUpdate ->
+    IO (Either String ComboBacktestApplyStats)
+applyStartupComboBacktestUpdateKeepAll = applyStartupComboBacktestUpdateImpl applyComboUpdatesKeepAllWithStats
+
+applyStartupComboBacktestUpdateImpl ::
+    (Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)) ->
+    TopCombosBacktestCtx ->
+    BS.ByteString ->
+    ComboBacktestUpdate ->
+    IO (Either String ComboBacktestApplyStats)
+applyStartupComboBacktestUpdateImpl applyFn ctx key update = do
     let store = tcbcStore ctx
         topJsonPath = tcsPath store
         mOps = tcbcOps ctx
@@ -7341,7 +7365,7 @@ applyStartupComboBacktestUpdate ctx key update = do
                 Left err -> pure (Left ("Failed to read latest top combos before applying startup backtest: " ++ err))
                 Right latestVal -> do
                     now <- getTimestampMs
-                    case applyComboUpdatesWithStats now (HM.singleton key update) latestVal of
+                    case applyFn now (HM.singleton key update) latestVal of
                         Left err -> pure (Left err)
                         Right (updatedVal, stats) ->
                             if cbasUpdatedCount stats <= 0
@@ -7446,21 +7470,28 @@ runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
                                                     case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
                                                         Aeson.Success combo -> fromMaybe "final-equity" (tcObjectiveLabel combo)
                                                         Aeson.Error _ -> "final-equity"
-                                                verdict = botStartupBacktestVerdict (tcbcEnabled ctx) mFinalEq mTradeCount
+                                                verdict =
+                                                    botStartupBacktestVerdictWithMinTrades
+                                                        (tcbcMinTradesForAbort ctx)
+                                                        (tcbcEnabled ctx)
+                                                        mFinalEq
+                                                        mTradeCount
                                             case verdict of
                                                 BacktestNoVerdict -> do
-                                                    -- Zero-trade (or unknown-trade) smoke window. Do NOT
-                                                    -- persist the smoke metrics onto the combo and do NOT
-                                                    -- prune it: the on-disk metrics are the optimizer's
-                                                    -- out-of-sample reading, which is the right artifact
-                                                    -- to keep. Pruning here would silently delete healthy
-                                                    -- combos every quiet day (124 such erroneous prunes
-                                                    -- in the 2026-06-10 launchd log).
+                                                    -- Zero-trade, under-min-trades, or unknown-trade smoke
+                                                    -- window. Do NOT persist the smoke metrics onto the combo
+                                                    -- and do NOT prune it: the on-disk metrics are the
+                                                    -- optimizer's out-of-sample reading, which is the right
+                                                    -- artifact to keep. Pruning here would silently delete
+                                                    -- healthy combos every quiet day (124 such erroneous
+                                                    -- prunes in the 2026-06-10 launchd log).
                                                     let reason =
                                                             "top-combo startup backtest produced no verdict (tradeCount="
                                                                 ++ maybe "unknown" show mTradeCount
                                                                 ++ ", finalEquity="
                                                                 ++ maybe "unknown" (printf "%.6f") mFinalEq
+                                                                ++ ", minTradesForAbort="
+                                                                ++ show (tcbcMinTradesForAbort ctx)
                                                                 ++ "); allowing start without persisting smoke metrics."
                                                     recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_no_verdict" sym comboUuid mFinalEq (Just reason)
                                                     pure (Right ())
@@ -7472,7 +7503,18 @@ runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
                                                                 , cbuScore = objectiveScoreFromMetrics argsOk objective metricsVal
                                                                 , cbuOperations = extractBacktestOperations out
                                                                 }
-                                                    updateResult <- applyStartupComboBacktestUpdate ctx comboKey update
+                                                    -- Use the keep-all path: the bot-start guard should
+                                                    -- /block/ a start, not delete a combo. The 2026-06-10
+                                                    -- refresh loop already uses keep-all because a locally
+                                                    -- pruned combo gets resurrected with stale metrics by the
+                                                    -- next cross-instance S3 union merge (the 2026-06-12 log
+                                                    -- shows the same combo UUIDs pruned 2–3 times inside one
+                                                    -- process — the fingerprint of that race). The guard now
+                                                    -- agrees with the refresh: stamp the combo with the fresh
+                                                    -- metrics, keep it in the store, do not call
+                                                    -- 'deleteTopComboFromDbMaybe'. See
+                                                    -- 'botStartupGuardShouldPrune' in BotStartSemantics.
+                                                    updateResult <- applyStartupComboBacktestUpdateKeepAll ctx comboKey update
                                                     -- Reached only when the verdict is Allow or Abort and the
                                                     -- guard is enabled (disabled boxes return Allow above).
                                                     let acceptable = not (backtestVerdictAborts verdict)
@@ -7483,14 +7525,20 @@ runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
                                                             if acceptable
                                                                 then pure (Right ())
                                                                 else pure (Left msg)
-                                                        Right stats -> do
+                                                        Right _stats -> do
                                                             recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest" sym comboUuid mFinalEq Nothing
-                                                            let pruned = cbasPrunedCount stats > 0
-                                                            when pruned (deleteTopComboFromDbMaybe (tcbcOps ctx) comboUuid)
                                                             if acceptable
                                                                 then pure (Right ())
                                                                 else do
-                                                                    let msg = topComboStartupAbortMessage sym comboUuid mFinalEq pruned
+                                                                    -- Block the start, but DO NOT delete the
+                                                                    -- combo. The policy lives in
+                                                                    -- 'botStartupGuardShouldPrune': as of
+                                                                    -- 2026-06-12 this is False for every verdict.
+                                                                    let pruneOnAbort = botStartupGuardShouldPrune verdict
+                                                                    when
+                                                                        pruneOnAbort
+                                                                        (deleteTopComboFromDbMaybe (tcbcOps ctx) comboUuid)
+                                                                    let msg = topComboStartupAbortMessage sym comboUuid mFinalEq pruneOnAbort
                                                                     recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_aborted" sym comboUuid mFinalEq (Just msg)
                                                                     pure (Left msg)
 
@@ -10531,6 +10579,12 @@ data TopCombosBacktestCtx = TopCombosBacktestCtx
     , tcbcLock :: !(MVar ())
     , tcbcCandleQueue :: !(TBQueue ())
     , tcbcEnabled :: !Bool
+    , tcbcMinTradesForAbort :: !Int
+    -- ^ Minimum trade count for a sub-threshold smoke backtest to be
+    -- treated as 'BacktestAbort'. Below this, the verdict is
+    -- 'BacktestNoVerdict' (fail open, no prune). Tunable via
+    -- @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
+    -- 'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
     }
 
 withTopCombosBacktestLock :: TopCombosBacktestCtx -> IO a -> IO a
@@ -12551,6 +12605,11 @@ runRestApi cliArgs mWebhook = do
     backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
     topCombosEnabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
     let topCombosEnabled = readEnvBool topCombosEnabledEnv True
+    botStartMinTradesEnv <- lookupEnv "TRADER_BOT_START_BACKTEST_MIN_TRADES"
+    let botStartMinTradesForAbort =
+            case botStartMinTradesEnv >>= readMaybe . dropWhile isSpace . takeWhile (not . isSpace) of
+                Just n | n > 0 -> n
+                _ -> defaultBotStartupBacktestMinTrades
     topCombosLock <- newMVar ()
     topCombosCandleQueue <- newTBQueueIO 1
     let topCombosCtx =
@@ -12565,6 +12624,7 @@ runRestApi cliArgs mWebhook = do
                 , tcbcLock = topCombosLock
                 , tcbcCandleQueue = topCombosCandleQueue
                 , tcbcEnabled = topCombosEnabled
+                , tcbcMinTradesForAbort = botStartMinTradesForAbort
                 }
     let defaultAsyncDir = maybe (tmpRoot </> "async") (</> "async") mStateDir
     asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
