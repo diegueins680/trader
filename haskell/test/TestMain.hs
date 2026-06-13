@@ -149,6 +149,7 @@ import Trader.TopCombosStore (
     comboLiveStatsFromObject,
     comboPerformanceKey,
     liveStatsQuarantined,
+    liveStatsFamilyQuarantined,
     mergeTopCombosPayloads,
     recalculateComboPerformanceFromOperation,
  )
@@ -304,6 +305,7 @@ main = do
     testBotStartupGuardShouldPruneIsFalse
     testLiveBlendShrinkageRanking
     testLiveQuarantineThresholds
+    testLiveFamilyQuarantineAcrossUuidChurn
     testRecalculateMaintainsLiveStats
     testBacktestUpdatePreservesLiveStats
     testMergePreservesLiveStats
@@ -2958,6 +2960,42 @@ testLiveQuarantineThresholds = do
     assert
         "quarantined combo sinks below any healthy combo regardless of backtest"
         (comboPerformanceKey quarantined > comboPerformanceKey modest)
+
+{- | A combo's UUID is derived from its backtest result (objective + tuned
+thresholds), so re-discovering the same strategy mints a fresh UUID and its
+accumulated live record is orphaned. A losing symbol can therefore churn
+through several UUIDs that each individually stay under the per-combo order
+floor and never quarantine. The family-level check pools their orders so the
+strategy is still caught.
+-}
+testLiveFamilyQuarantineAcrossUuidChurn :: IO ()
+testLiveFamilyQuarantineAcrossUuidChurn = do
+    let stats eq count =
+            ComboLiveStats
+                { clsFinalEquity = eq
+                , clsAnnualizedReturn = Just (-0.5)
+                , clsOperationCount = count
+                , clsFirstAtMs = Nothing
+                , clsLastAtMs = Nothing
+                }
+        -- Same losing strategy spread across three churned UUIDs: each below
+        -- the 30-order floor, so none quarantines on its own.
+        churned = [stats 0.94 12, stats 0.95 11, stats 0.955 9]
+    assert
+        "no single churned UUID reaches the per-combo order floor"
+        (not (any liveStatsQuarantined churned))
+    assert
+        "pooled family record quarantines the churned losing strategy"
+        (liveStatsFamilyQuarantined churned)
+    assert
+        "a family of one matches the per-combo verdict"
+        (liveStatsFamilyQuarantined [stats 0.98 30] && not (liveStatsFamilyQuarantined [stats 0.98 29]))
+    assert
+        "a winning family is never quarantined even with many orders"
+        (not (liveStatsFamilyQuarantined [stats 1.05 40, stats 1.02 40]))
+    assert
+        "a mixed family that nets break-even is not quarantined"
+        (not (liveStatsFamilyQuarantined [stats 0.95 20, stats 1.06 20]))
 
 {- | 'recalculateComboPerformanceFromOperation' must accumulate a separate
 live record (compounded equity, order count, span) alongside the blended

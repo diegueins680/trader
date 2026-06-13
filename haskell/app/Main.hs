@@ -419,6 +419,7 @@ import Trader.TopCombosStore (
     compactTopCombosPayloadForSync,
     isTopCombosPayload,
     liveStatsQuarantined,
+    liveStatsFamilyQuarantined,
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStats,
     newTopCombosStore,
@@ -16078,11 +16079,43 @@ topComboMatchesSymbol symRaw mInterval combo =
                         Just v -> v == interval
      in symOk && intervalOk
 
+{- | Stable trading identity of a combo (platform, symbol, interval, method),
+independent of the backtest-derived objective/thresholds that churn its UUID.
+Re-discovered combos for the same strategy share this key, so it groups the
+live evidence that UUID-keyed quarantine scatters. 'Nothing' when there is no
+symbol to attribute losses to (those combos only ever group with themselves).
+-}
+topComboFamilyKey :: TopCombo -> Maybe (String, String, String, String)
+topComboFamilyKey combo = do
+    sym <- topComboSymbol combo
+    let str k = fromMaybe "" (topComboParamString k combo)
+    pure (str "platform", normalizeSymbol sym, str "interval", str "method")
+
+{- | Family keys whose pooled live record meets the quarantine thresholds. A
+symbol that keeps losing under a churn of fresh combo UUIDs is caught here even
+when no single UUID reaches the per-combo order floor. -}
+quarantinedFamilyKeys :: [TopCombo] -> Set.Set (String, String, String, String)
+quarantinedFamilyKeys combos =
+    let grouped =
+            M.fromListWith
+                (++)
+                [ (k, [stats])
+                | combo <- combos
+                , Just k <- [topComboFamilyKey combo]
+                , Just stats <- [topComboLiveStats combo]
+                ]
+     in Set.fromList
+            [k | (k, statsList) <- M.toList grouped, liveStatsFamilyQuarantined statsList]
+
 bestTopComboFromList :: [TopCombo] -> Maybe TopCombo
 bestTopComboFromList combos =
-    case sortOn topComboTradePriorityKey (filter (not . topComboLiveQuarantined) combos) of
-        [] -> Nothing
-        (c : _) -> Just c
+    let badFamilies = quarantinedFamilyKeys combos
+        quarantined combo =
+            topComboLiveQuarantined combo
+                || maybe False (`Set.member` badFamilies) (topComboFamilyKey combo)
+     in case sortOn topComboTradePriorityKey (filter (not . quarantined) combos) of
+            [] -> Nothing
+            (c : _) -> Just c
 
 bestTopCombo :: TopCombosExport -> Maybe TopCombo
 bestTopCombo export = bestTopComboFromList (tceCombos export)

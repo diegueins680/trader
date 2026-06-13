@@ -435,3 +435,27 @@ FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate s
 - Next owner/consumer: trader-firm-quant (validate preset semantics + JSON contract) → trader-firm-cto.
 
 FINAL_STATUS: done — reports/trader-firm-data.md appended; vol-conf-gate seam evidence captured from Args.hs L57–58/221/883–888 and Main.hs L433–435/464/536/1323/1337.
+
+## 2026-06-12 22:55 UTC — vol-conf-gate data slice probe
+- Cmd: grep on Args.hs/Main.hs/TestMain.hs for vol-conf-gate|VolConfGatePreset|argVolConfGatePreset|confidence|realized.
+- git porcelain: clean (no diff) for app/Trader/App/Args.hs, app/Main.hs, test/TestMain.hs.
+- Args.hs: imports `VolConfGatePreset(..)`, `parseVolConfGatePreset` (L57–58); field `argVolConfGate :: VolConfGatePreset` (L222); CLI parser `--vol-conf-gate` via `eitherReader parseVolConfGatePreset` with `volConfGateChoicesCsv` help (L885–890); echoed in arg-dump table.
+- Main.hs: re-exports `VolConfGatePreset(..)`, `parseVolConfGatePreset` (L457,459); ledger/bot state carry `lsVolConfGate`/`bsVolConfGate :: VolConfGatePreset` (L488,560); JSON emits `vol_conf_gate` via `volConfGateCode` and `confidence` field (L1347,1361).
+- TestMain.hs: 0 hits for any of the patterns — no test-side data validation seam for vol-conf-gate preset wiring.
+- Data path: CLI preset → Args record → ledger/bot state → JSON; no input-data dependency, no feed/dataset gate touched.
+- Status: no-existing-data-validation-seam
+- Next owner/consumer: trader-firm-qa (add TestMain seam asserting `--vol-conf-gate` preset round-trips into `lsVolConfGate` and the emitted `vol_conf_gate` JSON code).
+
+FINAL_STATUS: done — reports/trader-firm-data.md appended; evidence: app/Trader/App/Args.hs L57–58,222,885–890; app/Main.hs L457,459,488,560,1347,1361; test/TestMain.hs has 0 matches.
+
+## Finished — vol-conf-gate slice proof (2026-06-12 21:55 -05)
+Command: `(git status --porcelain=v1 -- Args.hs Main.hs TestMain.hs; grep -nE 'vol-conf-gate|VolConfGatePreset|argVolConfGatePreset|confidence|realized' ...) | sed -n '1,40p'`
+- git status: clean for Args.hs / Main.hs / TestMain.hs (no pending diffs).
+- `--vol-conf-gate` CLI: Args.hs:885-890 (`eitherReader parseVolConfGatePreset`, frozen preset, choices from `volConfGateCsv`).
+- Preset type exported: Args.hs:57-58 (`VolConfGatePreset (..)`, `parseVolConfGatePreset`); field `argVolConfGate :: VolConfGatePreset` at Args.hs:222; surfaced into echo map Args.hs:1344..1390 family.
+- Main.hs wiring: imports at 458-460, live-state field `lsVolConfGate` (489), backtest-state `bsVolConfGate` (561), JSON emit `"vol_conf_gate"` (1348) alongside `"confidence"` (1362).
+- TestMain.hs: no hits — no existing validation seam for the preset gate in the test module.
+- Realized-vol context: Args.hs:869 `--vol-lookback` exists; no `realized`-vol validator referenced from vol-conf-gate path.
+Status: no-existing-data-validation-seam
+Next owner/consumer: trader-firm-qa (add TestMain.hs preset round-trip + JSON-field assertion); cc trader-firm-cto.
+FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate slice proof

@@ -26,6 +26,8 @@ module Trader.TopCombosStore (
     liveQuarantineMinOperations,
     liveQuarantineMaxFinalEquity,
     liveStatsQuarantined,
+    liveStatsFamilyQuarantined,
+    aggregateLiveStats,
     setComboLiveStats,
     isBinancePlatformKey,
     isCoinbasePlatformKey,
@@ -517,6 +519,51 @@ liveStatsQuarantined :: ComboLiveStats -> Bool
 liveStatsQuarantined stats =
     clsOperationCount stats >= liveQuarantineMinOperations
         && clsFinalEquity stats <= liveQuarantineMaxFinalEquity
+
+{- | Aggregate the live evidence of a strategy family (every combo that shares
+the same stable trading identity — symbol/interval/method) into a single
+@(totalOrders, equity)@ verdict. Orders sum; equity is the order-count-weighted
+geometric mean of each member's compounded equity, i.e. the average per-order
+log-return of the family. Returns 'Nothing' when no member carries usable live
+evidence (positive, finite equity and at least one order).
+
+The family view exists because a combo's UUID is derived from its backtest
+result (objective + tuned thresholds), so re-discovering the same strategy
+mints a fresh UUID and its accumulated live record — keyed by the old UUID —
+is orphaned. A losing symbol can therefore churn through a sequence of UUIDs
+that each individually stay under 'liveQuarantineMinOperations' and never
+quarantine. Summing orders across the family closes that gap.
+-}
+aggregateLiveStats :: [ComboLiveStats] -> Maybe (Int, Double)
+aggregateLiveStats statsList =
+    let usable =
+            [ s
+            | s <- statsList
+            , clsOperationCount s > 0
+            , clsFinalEquity s > 0
+            , not (isNaN (clsFinalEquity s) || isInfinite (clsFinalEquity s))
+            ]
+        totalOps = sum (map clsOperationCount usable)
+     in if null usable || totalOps <= 0
+            then Nothing
+            else
+                let weightedLogSum =
+                        sum [fromIntegral (clsOperationCount s) * log (clsFinalEquity s) | s <- usable]
+                    aggEq = exp (weightedLogSum / fromIntegral totalOps)
+                 in Just (totalOps, aggEq)
+
+{- | A strategy family is quarantined when its pooled live record clears the
+same order floor and net-loss ceiling that quarantine a single combo. A
+family of one reduces exactly to 'liveStatsQuarantined', so this is a strict
+superset of the per-combo check.
+-}
+liveStatsFamilyQuarantined :: [ComboLiveStats] -> Bool
+liveStatsFamilyQuarantined statsList =
+    case aggregateLiveStats statsList of
+        Nothing -> False
+        Just (totalOps, aggEq) ->
+            totalOps >= liveQuarantineMinOperations
+                && aggEq <= liveQuarantineMaxFinalEquity
 
 {- | A quarantined combo has enough live evidence to conclude it is losing
 real money regardless of what its backtest claims. Quarantined combos sink
