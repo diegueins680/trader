@@ -2351,7 +2351,12 @@ testPredictionMarketHerdSelection = do
         (isNothing (selectPredictionMarketSignal "ETHUSDT" "5m" [btcEvent]))
     assert
         "nearest prediction market interval rounds supported exchange intervals conservatively"
-        (nearestPredictionMarketInterval "5m" == ("15m", 900) && nearestPredictionMarketInterval "1h" == ("1h", 3600))
+        ( nearestPredictionMarketInterval "5m" == ("15m", 900)
+            && nearestPredictionMarketInterval "30m" == ("1h", 3600)
+            && nearestPredictionMarketInterval "1h" == ("1h", 3600)
+            && nearestPredictionMarketInterval "2h" == ("4h", 14400)
+            && nearestPredictionMarketInterval "12h" == ("1d", 86400)
+        )
 
 -- Regression for the restored public helper surface: fresh-entry gating keeps a
 -- single normalized non-negative edge sample, and malformed raw edges still

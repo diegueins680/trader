@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading/Prediction Markets: round exchange intervals up to the next supported Polymarket horizon for herd confirmation instead of choosing the absolute nearest interval, so 30m/2h/12h signals are not confirmed by shorter 15m/1h/4h markets.
 - Trading/Top Combos: make stamped backtest refreshes beat stale duplicate combos with missing `createdAtMs`, so legacy payloads cannot resurrect an older higher score when no comparable freshness timestamp exists.
 - Trading/Coinbase: make cross-exchange Coinbase close alignment fail open when the Binance open-time grid and close vector lengths disagree, instead of emitting a mismatched feature vector with synthetic zero fallback prices.
 - Trading/Calibration: make arbitrary `PercentileMethod` threshold requests interpolate between stored distribution percentiles instead of snapping upward to the next bucket, so values like P80 and P1 behave continuously and do not overstate calibrated entry thresholds.

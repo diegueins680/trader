@@ -21,7 +21,7 @@ import Data.Aeson.Types (Object, Parser)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum)
-import Data.List (maximumBy, minimumBy)
+import Data.List (maximumBy)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Ord (comparing)
 import Data.Scientific (toRealFloat)
@@ -361,11 +361,14 @@ nearestPredictionMarketInterval :: String -> (String, Int)
 nearestPredictionMarketInterval interval =
     let seconds = fromMaybe 900 (parseIntervalSeconds interval)
         supported = [("15m", 900), ("1h", 3600), ("4h", 14400), ("1d", 86400)]
-     in minimumByDistance seconds supported
+     in firstAtLeast seconds supported
 
-minimumByDistance :: Int -> [(String, Int)] -> (String, Int)
-minimumByDistance seconds =
-    minimumBy (comparing (\(_, s) -> abs (s - seconds)))
+firstAtLeast :: Int -> [(String, Int)] -> (String, Int)
+firstAtLeast _ [] = ("15m", 900)
+firstAtLeast seconds supported =
+    case filter ((>= seconds) . snd) supported of
+        match : _ -> match
+        [] -> last supported
 
 predictionMarketSearchQuery :: String -> String -> Int -> String
 predictionMarketSearchQuery symbol intervalLabel intervalSeconds =
