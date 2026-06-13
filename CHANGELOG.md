@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading/Predictors: make TCN feature extraction, training, and prediction reject non-finite price windows, targets, weights, and outputs so malformed series data cannot produce `NaN`/`Infinity` sensor forecasts.
 - Trading/Predictors: make quantile training discard non-finite or dimension-inconsistent rows and reject non-finite learning-rate/regularization inputs, so corrupted calibration evidence cannot produce malformed quantile weights.
 - Trading/Predictors: make GBDT training discard non-finite or dimension-inconsistent rows and make prediction fail closed on malformed query/model values, preventing corrupted feature evidence from emitting `NaN`/`Infinity` forecasts.
 - Trading/Prediction Markets: round exchange intervals up to the next supported Polymarket horizon for herd confirmation instead of choosing the absolute nearest interval, so 30m/2h/12h signals are not confirmed by shorter 15m/1h/4h markets.

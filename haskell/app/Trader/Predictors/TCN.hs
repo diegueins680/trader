@@ -33,7 +33,10 @@ tcnFeaturesAtWithLags maxLag lags prices t =
             let retLag lag =
                     let p0 = prices V.! (t - lag)
                         p1 = prices V.! (t - lag + 1)
-                     in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+                        ret = p1 / p0 - 1
+                     in if not (isFiniteDouble p0 && isFiniteDouble p1) || p0 == 0 || not (isFiniteDouble ret)
+                            then Nothing
+                            else Just ret
              in traverse retLag lags
 
 tcnLags :: [Int] -> Int -> [Int]
@@ -48,11 +51,14 @@ predictTCN m prices t = do
     feats <- tcnFeaturesAt (tmDilations m) (tmKernelSize m) prices t
     let x = feats ++ [1.0] -- bias
         w = tmWeights m
-    if length w /= length x
+        safeSigma = tmSigma m >>= finiteMaybe
+    if length w /= length x || not (all isFiniteDouble w) || not (all isFiniteDouble x)
         then Nothing
         else
             let y = dot w x
-             in pure (y, tmSigma m)
+             in if isFiniteDouble y
+                    then Just (y, safeSigma)
+                    else Nothing
 
 trainTCN :: Int -> V.Vector Double -> [(Int, Double)] -> TCNModel
 trainTCN lookbackBars prices trainTargets
@@ -67,18 +73,44 @@ trainTCN lookbackBars prices trainTargets
             xsYs =
                 [ (x ++ [1.0], y)
                 | (t, y) <- trainTargets
+                , isFiniteDouble y
                 , Just x <- [tcnFeaturesAtWithLags maxLag lags prices t]
+                , all isFiniteDouble x
                 ]
+            emptyConfigured =
+                TCNModel
+                    { tmDilations = dilations
+                    , tmKernelSize = kernelSize
+                    , tmWeights = replicate (kernelSize * length dilations + 1) 0
+                    , tmSigma = Nothing
+                    }
          in if null xsYs
-                then TCNModel{tmDilations = dilations, tmKernelSize = kernelSize, tmWeights = replicate (kernelSize * length dilations + 1) 0, tmSigma = Nothing}
+                then emptyConfigured
                 else
                     let xs = map fst xsYs
                         ys = map snd xsYs
                         w = ridgeFit lambda xs ys
-                        preds = map (dot w) xs
-                        residuals = zipWith (-) ys preds
-                        sigma = sqrt (mean (map (\e -> e * e) residuals) + 1e-12)
-                     in TCNModel{tmDilations = dilations, tmKernelSize = kernelSize, tmWeights = w, tmSigma = Just sigma}
+                        expectedWeights = kernelSize * length dilations + 1
+                     in if length w /= expectedWeights || not (all isFiniteDouble w)
+                            then emptyConfigured
+                            else
+                                let preds = map (dot w) xs
+                                    residuals = zipWith (-) ys preds
+                                    sigma = sqrt (mean (map (\e -> e * e) residuals) + 1e-12)
+                                 in TCNModel
+                                        { tmDilations = dilations
+                                        , tmKernelSize = kernelSize
+                                        , tmWeights = w
+                                        , tmSigma = finiteMaybe sigma
+                                        }
+
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)
+
+finiteMaybe :: Double -> Maybe Double
+finiteMaybe x
+    | isFiniteDouble x = Just x
+    | otherwise = Nothing
 
 ridgeFit :: Double -> [[Double]] -> [Double] -> [Double]
 ridgeFit lambda xs ys =

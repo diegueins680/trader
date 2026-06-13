@@ -99,6 +99,7 @@ import Trader.Predictors.Exogenous (alignToBars)
 import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
+import Trader.Predictors.TCN (TCNModel (..), predictTCN, tcnFeaturesAt, trainTCN)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     PredictorLiveness (..),
@@ -369,6 +370,7 @@ main = do
     testMultivariateLstmInputs
     testGBDTSanitizesMalformedInputs
     testQuantileSanitizesMalformedInputs
+    testTCNSanitizesMalformedInputs
     runTechnicalAnalysisTests
     runSuite "binanceProbe" binanceProbeSuite
     runSuite "autoStartBackoff" autoStartBackoffSuite
@@ -634,6 +636,45 @@ testQuantileSanitizesMalformedInputs = do
                 LinModel{lmW = [0], lmB = 0}
                 LinModel{lmW = [0], lmB = inf}
     assert "Quantile malformed model fails closed" (isNothing (predictQuantiles malformedModel [0]))
+
+testTCNSanitizesMalformedInputs :: IO ()
+testTCNSanitizesMalformedInputs = do
+    let nan = 0 / 0
+        inf = 1 / 0
+        prices = V.fromList [100, 101, 102, 103, 104, 105, 106, 107, 108, 109]
+        poisonedPrices = prices V.// [(8, nan)]
+        trainTargets =
+            [ (3, 0.01)
+            , (4, 0.02)
+            , (5, nan)
+            , (6, 0.03)
+            , (7, inf)
+            , (8, 0.04)
+            ]
+        model = trainTCN 4 prices trainTargets
+        finite x = not (isNaN x || isInfinite x)
+    assert
+        "TCN feature extraction rejects non-finite price windows"
+        (isNothing (tcnFeaturesAt [1] 2 poisonedPrices 9))
+    assert
+        "TCN training drops malformed targets before fitting"
+        (not (null (tmWeights model)) && all finite (tmWeights model) && maybe True finite (tmSigma model))
+    assert
+        "TCN finite prediction remains finite"
+        ( case predictTCN model prices 9 of
+            Just (mu, sigma) -> finite mu && maybe True finite sigma
+            Nothing -> False
+        )
+    assert "TCN malformed prediction window fails closed" (isNothing (predictTCN model poisonedPrices 9))
+
+    let malformedModel =
+            TCNModel
+                { tmDilations = [1]
+                , tmKernelSize = 2
+                , tmWeights = [nan, 0, 1]
+                , tmSigma = Just inf
+                }
+    assert "TCN malformed model weights fail closed" (isNothing (predictTCN malformedModel prices 4))
 
 topCombosCount :: Aeson.Value -> Int
 topCombosCount val =
