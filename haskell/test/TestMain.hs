@@ -98,6 +98,7 @@ import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictIn
 import Trader.Predictors.Exogenous (alignToBars)
 import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
+import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     PredictorLiveness (..),
@@ -367,6 +368,7 @@ main = do
     testCrossExchangeCoinbaseInputs
     testMultivariateLstmInputs
     testGBDTSanitizesMalformedInputs
+    testQuantileSanitizesMalformedInputs
     runTechnicalAnalysisTests
     runSuite "binanceProbe" binanceProbeSuite
     runSuite "autoStartBackoff" autoStartBackoffSuite
@@ -557,6 +559,7 @@ testGBDTSanitizesMalformedInputs = do
             , ([1], 0.02)
             , ([nan], 100)
             , ([2], 0.03)
+            , ([inf], 0.05)
             , ([3, 4], 0.04)
             , ([4], inf)
             ]
@@ -588,6 +591,49 @@ testGBDTSanitizesMalformedInputs = do
                 , gmSigma = Just inf
                 }
     assert "GBDT malformed model fails closed" (predictGBDT malformedModel [0] == (0, Nothing))
+
+testQuantileSanitizesMalformedInputs :: IO ()
+testQuantileSanitizesMalformedInputs = do
+    let nan = 0 / 0
+        inf = 1 / 0
+        dataset =
+            [ ([0], 0.01)
+            , ([1], 0.02)
+            , ([nan], 100)
+            , ([2], 0.03)
+            , ([inf], 0.05)
+            , ([3, 4], 0.04)
+            , ([4], inf)
+            ]
+        model = trainQuantileModel 3 0.05 0.001 dataset
+        finite x = not (isNaN x || isInfinite x)
+        finiteLin LinModel{lmW = w, lmB = b} = all finite (b : w)
+    assert
+        "Quantile training drops malformed rows before fitting"
+        (all finiteLin [qm10 model, qm50 model, qm90 model])
+    assert
+        "Quantile finite query remains usable after sanitization"
+        ( case predictQuantiles model [1.5] of
+            Just (q10', q50', q90', q50Raw, mSigma) ->
+                all finite [q10', q50', q90', q50Raw]
+                    && q10' <= q50'
+                    && q50' <= q90'
+                    && maybe True finite mSigma
+            Nothing -> False
+        )
+    assert "Quantile malformed query fails closed" (isNothing (predictQuantiles model [nan]))
+
+    let emptyFromBadLearningRate = trainQuantileModel 3 nan 0.001 [([0], 0.01)]
+        emptyFromBadRegularization = trainQuantileModel 3 0.05 nan [([0], 0.01)]
+    assert "Quantile rejects non-finite learning rates" (isNothing (predictQuantiles emptyFromBadLearningRate [0]))
+    assert "Quantile rejects non-finite regularization" (isNothing (predictQuantiles emptyFromBadRegularization [0]))
+
+    let malformedModel =
+            QuantileModel
+                LinModel{lmW = [nan], lmB = 0}
+                LinModel{lmW = [0], lmB = 0}
+                LinModel{lmW = [0], lmB = inf}
+    assert "Quantile malformed model fails closed" (isNothing (predictQuantiles malformedModel [0]))
 
 topCombosCount :: Aeson.Value -> Int
 topCombosCount val =

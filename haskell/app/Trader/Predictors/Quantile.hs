@@ -33,17 +33,17 @@ featureDimFromDataset dataset =
 trainQuantileModel :: Int -> Double -> Double -> [([Double], Double)] -> QuantileModel
 trainQuantileModel epochs lr l2 dataset
     | epochs < 0 = emptyQuantileModel
-    | lr <= 0 = emptyQuantileModel
-    | l2 < 0 = emptyQuantileModel
-    | null dataset = emptyQuantileModel
+    | not (isFinite lr) || lr <= 0 = emptyQuantileModel
+    | not (isFinite l2) || l2 < 0 = emptyQuantileModel
     | otherwise =
-        let d = featureDimFromDataset dataset
-         in if d <= 0
+        let ds = sanitizeDataset dataset
+            d = featureDimFromDataset ds
+         in if d <= 0 || null ds
                 then emptyQuantileModel
                 else
                     let initM = LinModel{lmW = replicate d 0, lmB = 0}
                         qs0 = QuantileModel initM initM initM
-                     in applyN epochs (epochStep lr l2 dataset) qs0
+                     in applyN epochs (epochStep lr l2 ds) qs0
 
 predictQuantiles :: QuantileModel -> [Double] -> Maybe (Double, Double, Double, Double, Maybe Double)
 predictQuantiles qm x =
@@ -57,13 +57,38 @@ predictQuantiles qm x =
                 [] -> 0
                 (d : ds) -> if d > 0 && all (== d) ds then d else 0
         actual = length x
-     in if expected <= 0 || actual /= expected
+        modelValid =
+            expected > 0
+                && all (linModelValid expected) [qm10 qm, qm50 qm, qm90 qm]
+        queryValid = actual == expected && all isFinite x
+     in if not modelValid || not queryValid
             then Nothing
             else
                 let q10Raw = predictLin (qm10 qm) x
                     q50Raw = predictLin (qm50 qm) x
                     q90Raw = predictLin (qm90 qm) x
                  in admissibleQuantilePrediction q10Raw q50Raw q90Raw
+
+sanitizeDataset :: [([Double], Double)] -> [([Double], Double)]
+sanitizeDataset dataset =
+    let finiteRows =
+            [ (x, y)
+            | (x, y) <- dataset
+            , not (null x)
+            , all isFinite x
+            , isFinite y
+            ]
+     in case finiteRows of
+            [] -> []
+            ((x0, _) : _) ->
+                let featureDim = length x0
+                 in filter ((== featureDim) . length . fst) finiteRows
+
+linModelValid :: Int -> LinModel -> Bool
+linModelValid expected LinModel{lmW = w, lmB = b} =
+    length w == expected
+        && all isFinite w
+        && isFinite b
 
 admissibleQuantilePrediction ::
     Double ->
