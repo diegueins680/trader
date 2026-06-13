@@ -98,6 +98,7 @@ import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictIn
 import Trader.Predictors.Exogenous (alignToBars)
 import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
+import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
 import Trader.Predictors.TCN (TCNModel (..), predictTCN, tcnFeaturesAt, trainTCN)
 import Trader.SignalGates (
@@ -371,6 +372,7 @@ main = do
     testGBDTSanitizesMalformedInputs
     testQuantileSanitizesMalformedInputs
     testTCNSanitizesMalformedInputs
+    testHMMSanitizesMalformedInputs
     runTechnicalAnalysisTests
     runSuite "binanceProbe" binanceProbeSuite
     runSuite "autoStartBackoff" autoStartBackoffSuite
@@ -675,6 +677,57 @@ testTCNSanitizesMalformedInputs = do
                 , tmSigma = Just inf
                 }
     assert "TCN malformed model weights fail closed" (isNothing (predictTCN malformedModel prices 4))
+
+testHMMSanitizesMalformedInputs :: IO ()
+testHMMSanitizesMalformedInputs = do
+    let nan = 0 / 0
+        inf = 1 / 0
+        finite x = not (isNaN x || isInfinite x)
+        probsOk xs =
+            length xs == 3
+                && all finite xs
+                && all (>= 0) xs
+                && abs (sum xs - 1) < 1e-9
+        regimeOk RegimeProbs{rpTrend = trend, rpMR = mr, rpHighVol = highVol} =
+            all finite [trend, mr, highVol]
+                && all (>= 0) [trend, mr, highVol]
+        hmmOk HMM3{hmmPi = pi0, hmmA = a0, hmmMu = mu0, hmmVar = var0} =
+            probsOk pi0
+                && all probsOk a0
+                && length mu0 == 3
+                && all finite mu0
+                && length var0 == 3
+                && all (\v -> finite v && v > 0) var0
+        model = fitHMM3 4 [0.01, nan, -0.01, inf, 0.02]
+        filt = filterPosterior model [0.01, nan, 0.02, inf]
+        (reg, mu, sigma, predState) = predictNextFromPosterior model filt
+        updated = updatePosterior model predState nan
+    assert "HMM fit drops malformed observations before EM" (hmmOk model)
+    assert "HMM filter drops malformed observations" (probsOk (hfPosterior filt))
+    assert
+        "HMM prediction remains finite and normalized"
+        (regimeOk reg && finite mu && finite sigma && sigma > 0 && probsOk predState)
+    assert "HMM malformed update observation preserves a normalized posterior" (probsOk (hfPosterior updated))
+
+    let malformedModel =
+            HMM3
+                { hmmPi = [nan, inf, -1]
+                , hmmA =
+                    [ [nan, inf, -1]
+                    , [0, 0, 0]
+                    , [0.2, 0.3, 0.5]
+                    ]
+                , hmmMu = [nan, 0, inf]
+                , hmmVar = [nan, -1, inf]
+                , hmmTrendIx = 99
+                , hmmMrIx = -1
+                , hmmHighVolIx = 2
+                }
+        (reg2, mu2, sigma2, predState2) =
+            predictNextFromPosterior malformedModel HMMFilter{hfPosterior = [nan, 2, -1, 4]}
+    assert
+        "HMM malformed model normalizes to finite predictions"
+        (regimeOk reg2 && finite mu2 && finite sigma2 && sigma2 > 0 && probsOk predState2)
 
 topCombosCount :: Aeson.Value -> Int
 topCombosCount val =
