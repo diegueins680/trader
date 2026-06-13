@@ -310,6 +310,7 @@ main = do
     testBacktestUpdatePreservesLiveStats
     testMergePreservesLiveStats
     testMergeRefreshedComboBeatsStaleScore
+    testMergeRefreshedComboBeatsUntimestampedStaleScore
     testMergeNewerDiscoveryBeatsOlderRefresh
     testMergeUnstampedDuplicatesKeepBestEver
     testMergeSanitizeKeepsStampedSubOneRefresh
@@ -3156,6 +3157,31 @@ testMergeRefreshedComboBeatsStaleScore = do
     assert
         "winner is order-independent"
         (mergeWinnerScore [refreshed, stale] == Just 0.1)
+
+testMergeRefreshedComboBeatsUntimestampedStaleScore :: IO ()
+testMergeRefreshedComboBeatsUntimestampedStaleScore = do
+    let stale = freshnessComboForTest 5.0 Nothing Nothing
+        refreshed = freshnessComboForTest 0.1 Nothing (Just 5000)
+        payload combo =
+            Aeson.object
+                [ "combos" .= [combo]
+                ]
+        winnerScore :: [Aeson.Value] -> Maybe Double
+        winnerScore payloads =
+            case mergeTopCombosPayloads 10 9500 payloads of
+                Aeson.Object o -> case KM.lookup "combos" o of
+                    Just (Aeson.Array v) | not (V.null v) ->
+                        case V.head v of
+                            Aeson.Object c -> KM.lookup "score" c >>= AT.parseMaybe Aeson.parseJSON
+                            _ -> Nothing
+                    _ -> Nothing
+                _ -> Nothing
+    assert
+        "stamped refresh beats a legacy stale duplicate with no comparable timestamp"
+        (winnerScore [payload stale, payload refreshed] == Just 0.1)
+    assert
+        "stamped-vs-untimestamped winner is order-independent"
+        (winnerScore [payload refreshed, payload stale] == Just 0.1)
 
 {- | A re-discovered duplicate is itself a fresh backtest of the same
 identity: when its createdAtMs postdates the incumbent's refresh stamp, the

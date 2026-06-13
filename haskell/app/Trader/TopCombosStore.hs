@@ -1217,14 +1217,15 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
             freshPrev = comboBacktestFreshnessMs prev
             best
                 | anyStamped
-                , Just fn <- freshNew
-                , Just fp <- freshPrev
                 , fn /= fp =
                     if fn > fp then newer else prev
                 | objNew == objPrev && (isJust scoreNew || isJust scorePrev) =
                     if scoreVal scoreNew > scoreVal scorePrev then newer else prev
                 | finalEqNew > finalEqPrev = newer
                 | otherwise = prev
+              where
+                fn = freshNew
+                fp = freshPrev
          in preserveRichestLiveStats [newer, prev] best
 
     comboMetricString key val =
