@@ -10,6 +10,7 @@ import Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Types as AT
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.List (isInfixOf)
@@ -138,8 +139,10 @@ import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
+    applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     blendedAnnualizedReturn,
+    comboBacktestFreshnessMs,
     comboIdentityKey,
     comboLiveQuarantined,
     comboLiveStats,
@@ -301,6 +304,11 @@ main = do
     testRecalculateMaintainsLiveStats
     testBacktestUpdatePreservesLiveStats
     testMergePreservesLiveStats
+    testMergeRefreshedComboBeatsStaleScore
+    testMergeNewerDiscoveryBeatsOlderRefresh
+    testMergeUnstampedDuplicatesKeepBestEver
+    testMergeSanitizeKeepsStampedSubOneRefresh
+    testKeepAllUpdateKeepsUnprofitableComboStamped
     testTradeOutcomeWeightsSemantics
     testWeightedFineTuneUnitWeightsEquivalence
     testWeightedFineTunePunishesLossRegion
@@ -2976,6 +2984,151 @@ testMergePreservesLiveStats = do
                 Nothing -> ioError (userError "merge dropped the live record")
                 Just s -> pure s
             assert "merge keeps the richest live record across duplicates" (clsOperationCount stats == 10)
+
+-- | Combo with controllable score / createdAtMs / refresh stamp for merge tests.
+freshnessComboForTest :: Double -> Maybe Int64 -> Maybe Int64 -> Aeson.Value
+freshnessComboForTest score mCreatedAt mRefreshedAt =
+    Aeson.object
+        ( [ "symbol" .= ("BTCUSDT" :: T.Text)
+          , "interval" .= ("15m" :: T.Text)
+          , "platform" .= ("binance" :: T.Text)
+          , "uuid" .= ("0badc0de-1234-5678-9abc-def012345678" :: T.Text)
+          , "finalEquity" .= (1.0 + score :: Double)
+          , "score" .= score
+          , "openThreshold" .= (0.005 :: Double)
+          , "closeThreshold" .= (0.010 :: Double)
+          , "objective" .= ("final-equity" :: T.Text)
+          , "params" .= Aeson.object ["method" .= ("blend" :: T.Text), "lookback" .= (48 :: Int)]
+          , "metrics" .= Aeson.object ["finalEquity" .= (1.0 + score :: Double), "tradeCount" .= (8 :: Int)]
+          ]
+            ++ maybe [] (\t -> ["createdAtMs" .= t]) mCreatedAt
+            ++ maybe [] (\t -> ["backtestRefreshedAtMs" .= t]) mRefreshedAt
+        )
+
+mergeWinnerScore :: [Aeson.Value] -> Maybe Double
+mergeWinnerScore combos =
+    let payload =
+            Aeson.object
+                [ "combos" .= combos
+                , "generatedAtMs" .= (9000 :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+        merged = mergeTopCombosPayloads 10 9500 [payload]
+     in case merged of
+            Aeson.Object o -> case KM.lookup "combos" o of
+                Just (Aeson.Array v) | not (V.null v) ->
+                    case V.head v of
+                        Aeson.Object c -> KM.lookup "score" c >>= AT.parseMaybe Aeson.parseJSON
+                        _ -> Nothing
+                _ -> Nothing
+            _ -> Nothing
+
+{- | Identity merges prefer the most recent backtest reading once a refresh
+stamp is involved: an honest (lower-scoring) in-place refresh must beat the
+stale, higher-scoring copy a lagging replica still publishes — otherwise the
+cross-instance union merge would undo every deflating refresh.
+-}
+testMergeRefreshedComboBeatsStaleScore :: IO ()
+testMergeRefreshedComboBeatsStaleScore = do
+    let stale = freshnessComboForTest 5.0 (Just 1000) Nothing
+        refreshed = freshnessComboForTest 0.1 (Just 1000) (Just 5000)
+    assert
+        "refreshed (deflated) combo wins the merge over the stale higher score"
+        (mergeWinnerScore [stale, refreshed] == Just 0.1)
+    assert
+        "winner is order-independent"
+        (mergeWinnerScore [refreshed, stale] == Just 0.1)
+
+{- | A re-discovered duplicate is itself a fresh backtest of the same
+identity: when its createdAtMs postdates the incumbent's refresh stamp, the
+new discovery wins even against a stamped record.
+-}
+testMergeNewerDiscoveryBeatsOlderRefresh :: IO ()
+testMergeNewerDiscoveryBeatsOlderRefresh = do
+    let refreshedOld = freshnessComboForTest 0.1 (Just 1000) (Just 5000)
+        rediscovered = freshnessComboForTest 0.4 (Just 8000) Nothing
+    assert
+        "newer discovery beats an older refresh stamp"
+        (mergeWinnerScore [refreshedOld, rediscovered] == Just 0.4)
+
+{- | Without any refresh stamp the historical best-ever-score semantics are
+unchanged, whatever the createdAtMs ordering says.
+-}
+testMergeUnstampedDuplicatesKeepBestEver :: IO ()
+testMergeUnstampedDuplicatesKeepBestEver = do
+    let older = freshnessComboForTest 5.0 (Just 1000) Nothing
+        newer = freshnessComboForTest 0.1 (Just 8000) Nothing
+    assert
+        "unstamped duplicates keep best-ever score"
+        (mergeWinnerScore [older, newer] == Just 5.0)
+
+{- | A refresh that deflates a combo BELOW 1.0 equity must still survive the
+merge's sanitize pass: dropping it there would hand the merge to the stale,
+inflated copy a peer instance still publishes, resurrecting it on every
+union merge. Unstamped sub-1.0 combos remain junk and are still dropped.
+-}
+testMergeSanitizeKeepsStampedSubOneRefresh :: IO ()
+testMergeSanitizeKeepsStampedSubOneRefresh = do
+    let stale = freshnessComboForTest 5.0 (Just 1000) Nothing
+        refreshedLoss = freshnessComboForTest (-0.15) (Just 1000) (Just 5000)
+    assert
+        "stamped sub-1.0 refresh beats the stale inflated copy in the merge"
+        (mergeWinnerScore [stale, refreshedLoss] == Just (-0.15))
+    assert
+        "stamped sub-1.0 winner is order-independent"
+        (mergeWinnerScore [refreshedLoss, stale] == Just (-0.15))
+    let unstampedLoss = freshnessComboForTest (-0.15) (Just 1000) Nothing
+    assert
+        "unstamped sub-1.0 combo is still sanitized away"
+        (mergeWinnerScore [unstampedLoss] == Nothing)
+
+{- | The periodic leaderboard refresh keeps unprofitable combos (deflated and
+stamped) instead of pruning them: a pruned record would resurrect with its
+stale score via the union merge, while a kept stamped record wins merges and
+sinks out of the capped board by rank.
+-}
+testKeepAllUpdateKeepsUnprofitableComboStamped :: IO ()
+testKeepAllUpdateKeepsUnprofitableComboStamped = do
+    let combosJson =
+            Aeson.object ["combos" .= [freshnessComboForTest 5.0 (Just 1000) Nothing]]
+        firstCombo = case combosJson of
+            Aeson.Object o -> case KM.lookup "combos" o of
+                Just (Aeson.Array v) | not (V.null v) -> Just (V.head v)
+                _ -> Nothing
+            _ -> Nothing
+        key = case firstCombo >>= comboIdentityKey of
+            Just k -> k
+            Nothing -> error "test setup: combo identity key resolution failed"
+        lossUpdate =
+            ComboBacktestUpdate
+                { cbuMetrics = Aeson.object ["finalEquity" .= (0.85 :: Double), "tradeCount" .= (12 :: Int)]
+                , cbuFinalEquity = Just 0.85
+                , cbuScore = Just (-0.15)
+                , cbuOperations = Nothing
+                }
+    case applyComboUpdatesKeepAllWithStats 7777 (HM.singleton key lossUpdate) combosJson of
+        Left err -> ioError (userError ("applyComboUpdatesKeepAllWithStats failed unexpectedly: " ++ err))
+        Right (updatedVal, stats) -> do
+            assert
+                "keep-all apply updates without pruning"
+                (cbasUpdatedCount stats == 1 && cbasPrunedCount stats == 0 && null (cbasPrunedKeys stats))
+            let mUpdated = case updatedVal of
+                    Aeson.Object o -> case KM.lookup "combos" o of
+                        Just (Aeson.Array v) | not (V.null v) -> Just (V.head v)
+                        _ -> Nothing
+                    _ -> Nothing
+            case mUpdated of
+                Nothing -> ioError (userError "keep-all apply dropped the combo")
+                Just updated -> do
+                    let mEq = case updated of
+                            Aeson.Object c -> KM.lookup "finalEquity" c >>= AT.parseMaybe Aeson.parseJSON
+                            _ -> Nothing
+                    assert
+                        "unprofitable refresh persists deflated metrics"
+                        (mEq == Just (0.85 :: Double))
+                    assert
+                        "refresh stamps backtestRefreshedAtMs"
+                        (comboBacktestFreshnessMs updated == Just 7777)
 
 mkOutcomeTestTrade :: Int -> Int -> Double -> Trade
 mkOutcomeTestTrade entryIdx exitIdx ret =

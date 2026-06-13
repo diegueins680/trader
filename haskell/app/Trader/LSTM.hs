@@ -20,6 +20,7 @@ module Trader.LSTM (
 import qualified Data.Bifunctor
 import Data.List (foldl')
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
 import Numeric.AD (grad)
 import System.Random (mkStdGen, randomRs)
 
@@ -290,7 +291,7 @@ trainLoop cfg d hidden trainSet valSet initFlat =
                      in if shouldStop
                             then (bestFlat', reverse history')
                             else
-                                let g = grad (lossFromFlatWeightedDV d hidden trainSet) flat
+                                let g = gradWeightedPerSample d hidden trainSet flat
                                     g' =
                                         case clip of
                                             Nothing -> g
@@ -389,6 +390,36 @@ lossFromFlatDV d hidden dataset flat =
      in if nInt <= 0
             then 0
             else foldl' (\acc x -> acc + err x) 0 dataset / n
+
+{- | Gradient of 'lossFromFlatWeightedDV' computed sample-by-sample.
+
+Reverse-mode AD materializes a tape node for every arithmetic operation under
+the differentiated function. Differentiating the whole-dataset loss in one
+call (the old @grad (lossFromFlatWeightedDV ...)@) therefore held
+O(samples x lookback x hidden^2) boxed tape nodes live at once — gigabytes at
+research shapes (lookback 720, hidden 64), which is what OOM-killed LSTM
+optimizer trials. Differentiating per sample keeps the tape at one window and
+lets each one be collected before the next, with the identical result:
+@d/dp [ sum_i (w_i e_i^2) / sum w ] = sum_i d/dp (w_i e_i^2) / sum w@.
+The per-sample gradients are accumulated in the same left-to-right sample
+order the dataset fold used, into a strict unboxed vector so no thunk chains
+rebuild the leak.
+-}
+gradWeightedPerSample :: Int -> Int -> [(V.Vector Double, Double, Double)] -> [Double] -> [Double]
+gradWeightedPerSample d hidden dataset flat =
+    let nParams = length flat
+        sumW = foldl' (\acc (_, _, w) -> acc + w) 0 dataset :: Double
+        sampleLoss s fl =
+            let p = unflattenParamsD hidden d fl
+                (w, yTrue, wt) = s
+                yPred = forwardWindowDV d p (V.map realToFrac w)
+                e = yPred - realToFrac yTrue
+             in realToFrac wt * e * e
+        accum acc s = VU.zipWith (+) acc (VU.fromListN nParams (grad (sampleLoss s) flat))
+        total = foldl' accum (VU.replicate nParams 0) dataset
+     in if null dataset || sumW <= 0 || isNaN sumW || isInfinite sumW
+            then replicate nParams 0
+            else VU.toList (VU.map (/ sumW) total)
 
 {- | Weighted mean-squared error: @sum(w_i * e_i^2) / sum(w_i)@. With unit
 weights this is numerically identical to 'lossFromFlatDV' (multiplying by the

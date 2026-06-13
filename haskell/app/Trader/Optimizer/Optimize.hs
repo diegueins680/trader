@@ -2049,11 +2049,31 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                 else cmd36j
      in cmd37 ++ ["--json"]
 
+{- | Heap cap passed to each spawned trial process (GHC RTS @-M@; the trader
+binaries are built with @-rtsopts@). A runaway trial then dies with a clean
+heap-overflow error recorded in its trial record, instead of growing until
+the host OOM killer reaps it (and stalls every other trial on the box).
+Override with TRADER_OPTIMIZER_TRIAL_HEAP_CAP; \"0\", \"off\" or \"none\"
+disables the cap.
+-}
+trialHeapCapRtsArgs :: IO [String]
+trialHeapCapRtsArgs = do
+    raw <- lookupEnv "TRADER_OPTIMIZER_TRIAL_HEAP_CAP"
+    let val =
+            case fmap trim raw of
+                Just s | not (null s) -> s
+                _ -> "12g"
+    pure $
+        if map toLower val `elem` ["0", "off", "none", "disabled"]
+            then []
+            else ["+RTS", "-M" ++ val, "-RTS"]
+
 runTrial :: FilePath -> [String] -> TrialParams -> Double -> Bool -> Double -> Bool -> IO TrialResult
 runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disableLstm = do
     let params = normalizeTrialParams params0
     let cmd = buildCommand traderBin baseArgs params tuneRatio useSweepThreshold
-        cmdArgs = drop 1 cmd
+    rtsCapArgs <- trialHeapCapRtsArgs
+    let cmdArgs = drop 1 cmd ++ rtsCapArgs
     env0 <- getEnvironment
     let env = if disableLstm then setEnv "TRADER_LSTM_WEIGHTS_DIR" "" env0 else env0
         procSpec =

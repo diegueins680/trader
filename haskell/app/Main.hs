@@ -404,6 +404,7 @@ import Trader.TopCombosStore (
     ComboLiveStats (..),
     TopCombosMergeStats (..),
     TopCombosStore (..),
+    applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     blendedAnnualizedReturn,
     comboIdentityKey,
@@ -9975,9 +9976,15 @@ and families that hold up live gain it.
 -}
 autoOptimizerBaseMethodWeights :: [(String, String, Double)]
 autoOptimizerBaseMethodWeights =
+    -- Base mix favors LSTM-only ("01"): Kalman-only ("10") produced zero
+    -- directional trades across ~4,800 research-box trials (all
+    -- KALMAN_NEUTRAL, see 4b2dd3f1), while LSTM-only is the family that
+    -- actually trades. "10" keeps a small nonzero base so the live-gap
+    -- multiplier can re-balance toward it if its live record earns it
+    -- (a zero base stays zero forever).
     [ ("--method-weight-11", "11", 0.0)
-    , ("--method-weight-10", "10", 4.0)
-    , ("--method-weight-01", "01", 0.1)
+    , ("--method-weight-10", "10", 0.5)
+    , ("--method-weight-01", "01", 4.0)
     , ("--method-weight-edge-blend", "edge_blend", 0.0)
     , ("--method-weight-edge-pick", "edge_pick", 0.0)
     , ("--method-weight-regime-switch", "regime_switch", 0.0)
@@ -10631,6 +10638,19 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                 Nothing -> do
                                                                     recordError "optimizer.combos.backtest_failed" "Backtest missing metrics." (Just sym) mInterval
                                                                     pure Nothing
+                                                                Just metricsVal
+                                                                    -- A zero-trade window is a verdict on the window,
+                                                                    -- not the combo (2026-06-10 invariant): do not
+                                                                    -- persist smoke metrics over the optimizer's
+                                                                    -- out-of-sample reading.
+                                                                    | comboMetricInt "tradeCount" metricsVal == Just 0 -> do
+                                                                        recordEvent
+                                                                            "optimizer.combos.backtest_no_verdict"
+                                                                            [ "symbol" .= sym
+                                                                            , "interval" .= mInterval
+                                                                            , "reason" .= ("zero-trade window" :: String)
+                                                                            ]
+                                                                        pure Nothing
                                                                 Just metricsVal -> do
                                                                     let mFinalEq = comboMetricDouble "finalEquity" metricsVal
                                                                         objective = fromMaybe "final-equity" (tcObjectiveLabel combo)
@@ -10682,7 +10702,11 @@ backtestTopCombosOnce topNRaw ctx = do
                                                 Right latestVal -> do
                                                     now <- getTimestampMs
                                                     let updateMap = HM.fromList updates
-                                                    case applyComboUpdatesWithStats now updateMap latestVal of
+                                                    -- Keep (deflated) rather than prune: a locally pruned combo
+                                                    -- resurrects with its stale score via the cross-instance
+                                                    -- union merge; a kept, freshly-stamped record wins those
+                                                    -- merges and drops off the capped board by rank instead.
+                                                    case applyComboUpdatesKeepAllWithStats now updateMap latestVal of
                                                         Left err -> do
                                                             recordError "optimizer.combos.backtest_failed" err Nothing Nothing
                                                             pure False
