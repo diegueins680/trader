@@ -148,8 +148,8 @@ import Trader.TopCombosStore (
     comboLiveStats,
     comboLiveStatsFromObject,
     comboPerformanceKey,
-    liveStatsQuarantined,
     liveStatsFamilyQuarantined,
+    liveStatsQuarantined,
     mergeTopCombosPayloads,
     recalculateComboPerformanceFromOperation,
  )

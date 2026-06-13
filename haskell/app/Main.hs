@@ -418,8 +418,8 @@ import Trader.TopCombosStore (
     comboPerformanceKey,
     compactTopCombosPayloadForSync,
     isTopCombosPayload,
-    liveStatsQuarantined,
     liveStatsFamilyQuarantined,
+    liveStatsQuarantined,
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStats,
     newTopCombosStore,
@@ -16093,7 +16093,8 @@ topComboFamilyKey combo = do
 
 {- | Family keys whose pooled live record meets the quarantine thresholds. A
 symbol that keeps losing under a churn of fresh combo UUIDs is caught here even
-when no single UUID reaches the per-combo order floor. -}
+when no single UUID reaches the per-combo order floor.
+-}
 quarantinedFamilyKeys :: [TopCombo] -> Set.Set (String, String, String, String)
 quarantinedFamilyKeys combos =
     let grouped =
