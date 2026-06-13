@@ -95,6 +95,7 @@ import Trader.PredictionMarkets (
  )
 import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
+import Trader.Predictors.DecisionTree (DecisionTree (..), DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
 import Trader.Predictors.Exogenous (alignToBars)
 import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
@@ -370,6 +371,7 @@ main = do
     testCrossExchangeCoinbaseInputs
     testMultivariateLstmInputs
     testGBDTSanitizesMalformedInputs
+    testDecisionTreeSanitizesMalformedInputs
     testQuantileSanitizesMalformedInputs
     testTCNSanitizesMalformedInputs
     testHMMSanitizesMalformedInputs
@@ -595,6 +597,49 @@ testGBDTSanitizesMalformedInputs = do
                 , gmSigma = Just inf
                 }
     assert "GBDT malformed model fails closed" (predictGBDT malformedModel [0] == (0, Nothing))
+
+testDecisionTreeSanitizesMalformedInputs :: IO ()
+testDecisionTreeSanitizesMalformedInputs = do
+    let nan = 0 / 0
+        inf = 1 / 0
+        dataset =
+            [ ([0], 0.01)
+            , ([1], 0.02)
+            , ([nan], 100)
+            , ([2], 0.03)
+            , ([inf], 0.05)
+            , ([3, 4], 0.04)
+            , ([4], inf)
+            ]
+        model = trainDecisionTree 3 1 dataset
+        finite x = not (isNaN x || isInfinite x)
+        (goodPred, goodSigma) = predictDecisionTree model [1.5]
+        (badPred, badSigma) = predictDecisionTree model [nan]
+    assert "DecisionTree keeps the finite consistent feature dimension" (dmFeatureDim model == 1)
+    assert "DecisionTree finite query prediction remains finite" (finite goodPred && maybe True finite goodSigma)
+    assert "DecisionTree malformed query fails closed" (badPred == 0 && maybe True finite badSigma)
+
+    let finiteLeaf = DecisionLeaf{dtValue = 0.01, dtSigma = Just 0.02, dtCount = 1}
+        sigmaPoisonedLeaf = DecisionLeaf{dtValue = 0.01, dtSigma = Just nan, dtCount = 1}
+        valuePoisonedLeaf = DecisionLeaf{dtValue = inf, dtSigma = Just 0.02, dtCount = 1}
+        invalidThresholdRoot =
+            DecisionNode
+                { dtFeature = 0
+                , dtThreshold = nan
+                , dtLeft = finiteLeaf
+                , dtRight = finiteLeaf
+                }
+        mkModel root =
+            DecisionTreeModel
+                { dmFeatureDim = 1
+                , dmMaxDepth = 1
+                , dmMinLeafSize = 1
+                , dmRoot = Just root
+                , dmSigmaBase = Just inf
+                }
+    assert "DecisionTree drops malformed leaf sigma" (predictDecisionTree (mkModel sigmaPoisonedLeaf) [0] == (0.01, Nothing))
+    assert "DecisionTree malformed leaf value fails closed" (predictDecisionTree (mkModel valuePoisonedLeaf) [0] == (0, Nothing))
+    assert "DecisionTree malformed split threshold fails closed" (predictDecisionTree (mkModel invalidThresholdRoot) [0] == (0, Nothing))
 
 testQuantileSanitizesMalformedInputs :: IO ()
 testQuantileSanitizesMalformedInputs = do

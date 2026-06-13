@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading/Predictors: make DecisionTree prediction drop malformed sigma estimates and fail closed on non-finite leaf values or split thresholds, preventing malformed tree state from surfacing `NaN`/`Infinity` sensor output.
 - Trading/Predictors: make HMM regime fitting/filtering/update paths ignore malformed observations and normalize malformed model probabilities safely, keeping regime probabilities, expected returns, and sigma finite under corrupted evidence.
 - Trading/Predictors: make TCN feature extraction, training, and prediction reject non-finite price windows, targets, weights, and outputs so malformed series data cannot produce `NaN`/`Infinity` sensor forecasts.
 - Trading/Predictors: make quantile training discard non-finite or dimension-inconsistent rows and reject non-finite learning-rate/regularization inputs, so corrupted calibration evidence cannot produce malformed quantile weights.

@@ -6,7 +6,7 @@ module Trader.Predictors.DecisionTree (
 ) where
 
 import Data.List (minimumBy, sort)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Ord (comparing)
 
 import Trader.Text (dedupeStable)
@@ -58,27 +58,27 @@ trainDecisionTree maxDepth minLeafSize dataset
 predictDecisionTree :: DecisionTreeModel -> [Double] -> (Double, Maybe Double)
 predictDecisionTree model feats =
     let expected = dmFeatureDim model
+        safeSigmaBase = dmSigmaBase model >>= finiteMaybe
         queryOk = expected > 0 && length feats == expected && all isFiniteDouble feats
+        leafSigma sigma = (sigma >>= finiteMaybe) <|> safeSigmaBase
+        go tree =
+            case tree of
+                DecisionLeaf value sigma _count ->
+                    if isFiniteDouble value
+                        then Just (value, leafSigma sigma)
+                        else Nothing
+                DecisionNode feature threshold left right ->
+                    if feature < 0 || feature >= length feats || not (isFiniteDouble threshold)
+                        then Nothing
+                        else
+                            let x = feats !! feature
+                             in if x <= threshold then go left else go right
      in if not queryOk
-            then (0, dmSigmaBase model)
+            then (0, safeSigmaBase)
             else case dmRoot model of
-                Nothing -> (0, dmSigmaBase model)
-                Just root ->
-                    let (mu, mSigma) = go root
-                     in if isFiniteDouble mu
-                            then (mu, mSigma <|> dmSigmaBase model)
-                            else (0, dmSigmaBase model)
+                Nothing -> (0, safeSigmaBase)
+                Just root -> fromMaybe (0, safeSigmaBase) (go root)
   where
-    go tree =
-        case tree of
-            DecisionLeaf value sigma _count -> (value, sigma)
-            DecisionNode feature threshold left right ->
-                if feature < 0 || feature >= length feats
-                    then (0, dmSigmaBase model)
-                    else
-                        let x = feats !! feature
-                         in if x <= threshold then go left else go right
-
     (<|>) left right =
         case left of
             Just _ -> left
@@ -237,3 +237,8 @@ mean xs =
 
 isFiniteDouble :: Double -> Bool
 isFiniteDouble x = not (isNaN x || isInfinite x)
+
+finiteMaybe :: Double -> Maybe Double
+finiteMaybe x
+    | isFiniteDouble x = Just x
+    | otherwise = Nothing
