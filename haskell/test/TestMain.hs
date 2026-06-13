@@ -97,6 +97,7 @@ import Trader.Predictors (RegimeProbs (..))
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
 import Trader.Predictors.Exogenous (alignToBars)
 import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
+import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     PredictorLiveness (..),
@@ -365,6 +366,7 @@ main = do
     testPredictorLivenessDetectsDegenerateForecast
     testCrossExchangeCoinbaseInputs
     testMultivariateLstmInputs
+    testGBDTSanitizesMalformedInputs
     runTechnicalAnalysisTests
     runSuite "binanceProbe" binanceProbeSuite
     runSuite "autoStartBackoff" autoStartBackoffSuite
@@ -545,6 +547,47 @@ testMultivariateLstmInputs = do
     assert "two-channel paramCount matches paramCountD h 2" (length (lmParams mMulti) == paramCountD (lmHiddenSize mMulti) 2)
     assert "two-channel params differ from univariate" (lmParams mMulti /= lmParams mUni)
     assert "two-channel prediction is finite" (finite (predictNextMulti mMulti [take 4 series, take 4 series2]))
+
+testGBDTSanitizesMalformedInputs :: IO ()
+testGBDTSanitizesMalformedInputs = do
+    let nan = 0 / 0
+        inf = 1 / 0
+        dataset =
+            [ ([0], 0.01)
+            , ([1], 0.02)
+            , ([nan], 100)
+            , ([2], 0.03)
+            , ([3, 4], 0.04)
+            , ([4], inf)
+            ]
+        model = trainGBDT 4 0.1 dataset
+        finite x = not (isNaN x || isInfinite x)
+        finiteStump Stump{stThreshold = thr, stLeftValue = l, stRightValue = r} =
+            all finite [thr, l, r]
+        (goodPred, goodSigma) = predictGBDT model [1.5]
+        (badPred, badSigma) = predictGBDT model [nan]
+    assert "GBDT keeps the finite consistent feature dimension" (gmFeatureDim model == 1)
+    assert
+        "GBDT training drops malformed rows before fitting"
+        ( all finite [gmBase model, gmLearningRate model]
+            && all finiteStump (gmStumps model)
+            && maybe False finite (gmSigma model)
+        )
+    assert "GBDT finite query prediction remains finite" (finite goodPred && maybe True finite goodSigma)
+    assert "GBDT malformed query falls back to the base prediction" (badPred == gmBase model && maybe True finite badSigma)
+
+    let emptyFromBadLearningRate = trainGBDT 4 nan [([0], 0.01)]
+    assert "GBDT rejects non-finite learning rates" (emptyFromBadLearningRate == trainGBDT 0 0 [])
+
+    let malformedModel =
+            GBDTModel
+                { gmBase = nan
+                , gmLearningRate = 0.1
+                , gmFeatureDim = 1
+                , gmStumps = [Stump{stFeature = 0, stThreshold = 0, stLeftValue = 1, stRightValue = 2}]
+                , gmSigma = Just inf
+                }
+    assert "GBDT malformed model fails closed" (predictGBDT malformedModel [0] == (0, Nothing))
 
 topCombosCount :: Aeson.Value -> Int
 topCombosCount val =

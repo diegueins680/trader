@@ -34,20 +34,36 @@ predictGBDT m feats =
         actual = length feats
         base = gmBase m
         lr = gmLearningRate m
+        safeBase = if isFiniteDouble base then base else 0
+        safeSigma = gmSigma m >>= finiteMaybe
+        stumpOk Stump{stFeature = j, stThreshold = thr, stLeftValue = l, stRightValue = r} =
+            j >= 0
+                && j < expected
+                && all isFiniteDouble [thr, l, r]
+        modelOk =
+            expected > 0
+                && isFiniteDouble base
+                && isFiniteDouble lr
+                && all stumpOk (gmStumps m)
+        queryOk = actual == expected && all isFiniteDouble feats
      in -- Fall back to the base prediction when feature vectors are inconsistent.
-        if actual /= expected || expected <= 0
-            then (base, gmSigma m)
+        if not modelOk || not queryOk
+            then (safeBase, safeSigma)
             else
                 let featsV = V.fromList feats
-                    featLen = V.length featsV
                     applySt Stump{stFeature = j, stThreshold = thr, stLeftValue = l, stRightValue = r} =
-                        if j < 0 || j >= featLen
-                            then 0
-                            else
-                                let x = featsV V.! j
-                                 in if x <= thr then l else r
+                        let x = featsV V.! j
+                         in if x <= thr then l else r
                     y = base + lr * sum (map applySt (gmStumps m))
-                 in (y, gmSigma m)
+                 in (if isFiniteDouble y then y else safeBase, safeSigma)
+
+isFiniteDouble :: Double -> Bool
+isFiniteDouble x = not (isNaN x || isInfinite x)
+
+finiteMaybe :: Double -> Maybe Double
+finiteMaybe x
+    | isFiniteDouble x = Just x
+    | otherwise = Nothing
 
 featureDimFromDataset :: [([Double], Double)] -> Int
 featureDimFromDataset dataset =
@@ -61,15 +77,15 @@ featureDimFromDataset dataset =
 trainGBDT :: Int -> Double -> [([Double], Double)] -> GBDTModel
 trainGBDT nTrees learningRate dataset
     | nTrees <= 0 = emptyGBDTModel
-    | learningRate <= 0 = emptyGBDTModel
-    | null dataset = emptyGBDTModel
+    | not (isFiniteDouble learningRate) || learningRate <= 0 = emptyGBDTModel
     | otherwise =
-        let featureDim = featureDimFromDataset dataset
-         in if featureDim <= 0
+        let ds = sanitizeDataset dataset
+            featureDim = featureDimFromDataset ds
+         in if featureDim <= 0 || null ds
                 then emptyGBDTModel
                 else
-                    let featsAll = V.fromList (map (V.fromList . fst) dataset)
-                        ys = V.fromList (map snd dataset)
+                    let featsAll = V.fromList (map (V.fromList . fst) ds)
+                        ys = V.fromList (map snd ds)
                         base = meanV ys
                         preds0 = V.replicate (V.length ys) base
                         go 0 acc preds = (acc, preds)
@@ -89,6 +105,21 @@ trainGBDT nTrees learningRate dataset
                             , gmStumps = reverse stumps
                             , gmSigma = Just sigma
                             }
+
+sanitizeDataset :: [([Double], Double)] -> [([Double], Double)]
+sanitizeDataset dataset =
+    let finiteRows =
+            [ (x, y)
+            | (x, y) <- dataset
+            , not (null x)
+            , all isFiniteDouble x
+            , isFiniteDouble y
+            ]
+     in case finiteRows of
+            [] -> []
+            ((x0, _) : _) ->
+                let featureDim = length x0
+                 in filter ((== featureDim) . length . fst) finiteRows
 
 emptyGBDTModel :: GBDTModel
 emptyGBDTModel =

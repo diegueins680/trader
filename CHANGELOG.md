@@ -1,4 +1,5 @@
 ## Unreleased
+- Trading/Predictors: make GBDT training discard non-finite or dimension-inconsistent rows and make prediction fail closed on malformed query/model values, preventing corrupted feature evidence from emitting `NaN`/`Infinity` forecasts.
 - Trading/Prediction Markets: round exchange intervals up to the next supported Polymarket horizon for herd confirmation instead of choosing the absolute nearest interval, so 30m/2h/12h signals are not confirmed by shorter 15m/1h/4h markets.
 - Trading/Top Combos: make stamped backtest refreshes beat stale duplicate combos with missing `createdAtMs`, so legacy payloads cannot resurrect an older higher score when no comparable freshness timestamp exists.
 - Trading/Coinbase: make cross-exchange Coinbase close alignment fail open when the Binance open-time grid and close vector lengths disagree, instead of emitting a mismatched feature vector with synthetic zero fallback prices.
