@@ -8,7 +8,9 @@ module Trader.TopCombosStore (
     TopCombosStore (..),
     applyComboUpdates,
     applyComboUpdatesWithStats,
+    applyComboUpdatesKeepAllWithStats,
     blendedAnnualizedReturn,
+    comboBacktestFreshnessMs,
     compactTopCombosPayloadForSync,
     comboFinalEquityValue,
     comboIdentityKey,
@@ -239,7 +241,14 @@ sanitizeTopCombosValue val =
                     let combosList = V.toList combos
                         (kept, changed) = foldl' apply ([], 0) combosList
                         apply (acc, count) comboVal =
-                            if not (comboEquityAboveOne comboVal) || not (comboOpenThresholdDeployable comboVal)
+                            -- A sub-1.0 combo carrying a refresh stamp is an honest
+                            -- re-backtest reading, not junk: it must survive into the
+                            -- merge so it can beat the stale, inflated copies peer
+                            -- instances still publish (see 'pickBestCombo') and then
+                            -- sink off the capped board by rank. Dropping it here
+                            -- would resurrect the stale copy on every union merge.
+                            if (not (comboEquityAboveOne comboVal) && not (comboCarriesRefreshStamp comboVal))
+                                || not (comboOpenThresholdDeployable comboVal)
                                 then (acc, count + 1)
                                 else
                                     let (comboVal', updated) = sanitizeComboValue comboVal
@@ -559,6 +568,28 @@ coerceInt64Value value =
             case value of
                 Aeson.String s -> readMaybe (trim (T.unpack s))
                 _ -> Nothing
+
+comboTopLevelInt64 :: String -> Aeson.Value -> Maybe Int64
+comboTopLevelInt64 key val =
+    case val of
+        Aeson.Object o -> KM.lookup (AK.fromString key) o >>= coerceInt64Value
+        _ -> Nothing
+
+-- | When this combo's backtest metrics were last refreshed in place.
+comboBacktestRefreshedAtMs :: Aeson.Value -> Maybe Int64
+comboBacktestRefreshedAtMs = comboTopLevelInt64 "backtestRefreshedAtMs"
+
+comboCarriesRefreshStamp :: Aeson.Value -> Bool
+comboCarriesRefreshStamp = isJust . comboBacktestRefreshedAtMs
+
+{- | How fresh this combo's backtest reading is: the in-place refresh stamp
+when present, else the discovery time. A freshly discovered duplicate is
+itself a fresh backtest of the same identity, so 'createdAtMs' is the right
+fallback when comparing against a refreshed record.
+-}
+comboBacktestFreshnessMs :: Aeson.Value -> Maybe Int64
+comboBacktestFreshnessMs val =
+    comboBacktestRefreshedAtMs val <|> comboTopLevelInt64 "createdAtMs" val
 
 recalculateComboPerformanceFromOperation ::
     Int64 ->
@@ -1129,7 +1160,20 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
             scoreVal = fromMaybe (negate (1 / 0))
             finalEqNew = fromMaybe 0 (comboFinalEquityValue newer)
             finalEqPrev = fromMaybe 0 (comboFinalEquityValue prev)
+            -- Once either duplicate carries an in-place refresh stamp, the
+            -- most recent backtest reading is authoritative — best-ever-score
+            -- semantics would let a stale replica's inflated record undo an
+            -- honest (deflating) refresh on every union merge. Unstamped
+            -- duplicates keep the historical best-ever behavior.
+            anyStamped = isJust (comboBacktestRefreshedAtMs newer) || isJust (comboBacktestRefreshedAtMs prev)
+            freshNew = comboBacktestFreshnessMs newer
+            freshPrev = comboBacktestFreshnessMs prev
             best
+                | anyStamped
+                , Just fn <- freshNew
+                , Just fp <- freshPrev
+                , fn /= fp =
+                    if fn > fp then newer else prev
                 | objNew == objPrev && (isJust scoreNew || isJust scorePrev) =
                     if scoreVal scoreNew > scoreVal scorePrev then newer else prev
                 | finalEqNew > finalEqPrev = newer
@@ -1146,8 +1190,8 @@ data ComboBacktestUpdate = ComboBacktestUpdate
     , cbuOperations :: !(Maybe Aeson.Value)
     }
 
-updateComboWithBacktest :: ComboBacktestUpdate -> Aeson.Value -> Aeson.Value
-updateComboWithBacktest update comboVal =
+updateComboWithBacktest :: Int64 -> ComboBacktestUpdate -> Aeson.Value -> Aeson.Value
+updateComboWithBacktest now update comboVal =
     case comboVal of
         Aeson.Object o ->
             -- Backtests know nothing about live trading: carry the prior
@@ -1170,7 +1214,12 @@ updateComboWithBacktest update comboVal =
                     case cbuOperations update of
                         Nothing -> o3
                         Just ops -> KM.insert (AK.fromString "operations") ops o3
-             in Aeson.Object o4
+                -- Stamp the refresh time so identity merges can prefer the most
+                -- recent backtest reading (see 'pickBestCombo'); without the
+                -- stamp a deflating refresh would lose every union merge to a
+                -- stale replica still carrying the old, higher score.
+                o5 = KM.insert (AK.fromString "backtestRefreshedAtMs") (toJSON now) o4
+             in Aeson.Object o5
         _ -> comboVal
 
 applyComboUpdates :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, Int)
@@ -1184,7 +1233,7 @@ applyComboUpdates now updates val =
                         applyOne (acc, count) comboVal =
                             case comboIdentityKey comboVal >>= (`HM.lookup` updates) of
                                 Nothing -> (comboVal : acc, count)
-                                Just upd -> (updateComboWithBacktest upd comboVal : acc, count + 1)
+                                Just upd -> (updateComboWithBacktest now upd comboVal : acc, count + 1)
                         combosOut = Aeson.Array (V.fromList (reverse updatedCombos))
                         o' = KM.insert (AK.fromString "combos") combosOut (KM.insert (AK.fromString "generatedAtMs") (toJSON now) o)
                     Right (Aeson.Object o', updatedCount)
@@ -1208,7 +1257,20 @@ deleted 124 healthy combos in the 2026-06-10 launchd log. We detect the
 zero-trade case by reading the inbound update's metrics directly.
 -}
 applyComboUpdatesWithStats :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
-applyComboUpdatesWithStats now updates val =
+applyComboUpdatesWithStats = applyComboUpdatesWithStatsPrune True
+
+{- | Like 'applyComboUpdatesWithStats' but never prunes: an unprofitable
+refresh keeps the combo with its deflated metrics (and refresh stamp). This
+is what the periodic leaderboard refresh wants — a locally pruned combo would
+be resurrected with its stale, inflated score by the next cross-instance
+union merge, whereas a kept, stamped record wins those merges and the combo
+then falls out of the capped board by rank, fleet-wide.
+-}
+applyComboUpdatesKeepAllWithStats :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
+applyComboUpdatesKeepAllWithStats = applyComboUpdatesWithStatsPrune False
+
+applyComboUpdatesWithStatsPrune :: Bool -> Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
+applyComboUpdatesWithStatsPrune pruneUnprofitable now updates val =
     case val of
         Aeson.Object o ->
             case KM.lookup (AK.fromString "combos") o of
@@ -1219,12 +1281,12 @@ applyComboUpdatesWithStats now updates val =
                             case comboIdentityKey comboVal >>= (`HM.lookup` updates) of
                                 Nothing -> (comboVal : acc, updCount, pruneCount, pKeys)
                                 Just upd ->
-                                    let updated = updateComboWithBacktest upd comboVal
+                                    let updated = updateComboWithBacktest now upd comboVal
                                         mEquity = comboFinalEquityValue updated
                                         mTrades = comboMetricInt "tradeCount" (cbuMetrics upd)
                                         -- A zero-trade update is not a verdict; keep the combo as-is.
                                         zeroTradeUpdate = mTrades == Just 0
-                                        keep = maybe True (> 1.0) mEquity || zeroTradeUpdate
+                                        keep = not pruneUnprofitable || maybe True (> 1.0) mEquity || zeroTradeUpdate
                                      in if keep
                                             then (updated : acc, updCount + 1, pruneCount, pKeys)
                                             else case comboIdentityKey comboVal of
