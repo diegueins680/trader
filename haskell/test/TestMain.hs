@@ -3080,7 +3080,7 @@ testMergeSanitizeKeepsStampedSubOneRefresh = do
     let unstampedLoss = freshnessComboForTest (-0.15) (Just 1000) Nothing
     assert
         "unstamped sub-1.0 combo is still sanitized away"
-        (mergeWinnerScore [unstampedLoss] == Nothing)
+        (isNothing (mergeWinnerScore [unstampedLoss]))
 
 {- | The periodic leaderboard refresh keeps unprofitable combos (deflated and
 stamped) instead of pruning them: a pruned record would resurrect with its
