@@ -48,6 +48,7 @@ trainKNN maxExamples requestedK dataset
 predictKNN :: KNNModel -> [Double] -> (Double, Maybe Double)
 predictKNN model query =
     let expected = kmFeatureDim model
+        safeSigmaBase = kmSigmaBase model >>= finiteMaybe
         queryOk = expected > 0 && length query == expected && all isFiniteDouble query
         modelOk =
             expected > 0
@@ -59,7 +60,7 @@ predictKNN model query =
                 && all isFiniteDouble (kmScales model)
                 && all (\(x, y) -> length x == expected && all isFiniteDouble x && isFiniteDouble y) (kmExamples model)
      in if not modelOk || not queryOk
-            then (0, kmSigmaBase model)
+            then (0, safeSigmaBase)
             else
                 let qNorm = normalizeVector (kmMeans model) (kmScales model) query
                     neighbors =
@@ -73,7 +74,7 @@ predictKNN model query =
                         ]
                     totalW = sum weights
                  in if totalW <= 0 || not (isFiniteDouble totalW)
-                        then (0, kmSigmaBase model)
+                        then (0, safeSigmaBase)
                         else
                             let weightedYs = zip weights (map snd neighbors)
                                 mu = sum [w * y | (w, y) <- weightedYs] / totalW
@@ -82,10 +83,10 @@ predictKNN model query =
                                         / totalW
                                 sigma =
                                     let s = sqrt (max 0 var + 1e-12)
-                                     in if isFiniteDouble s then Just s else kmSigmaBase model
+                                     in if isFiniteDouble s then Just s else safeSigmaBase
                              in if isFiniteDouble mu
-                                    then (mu, sigma <|> kmSigmaBase model)
-                                    else (0, kmSigmaBase model)
+                                    then (mu, sigma <|> safeSigmaBase)
+                                    else (0, safeSigmaBase)
   where
     (<|>) left right =
         case left of
@@ -197,3 +198,8 @@ mean xs =
 
 isFiniteDouble :: Double -> Bool
 isFiniteDouble x = not (isNaN x || isInfinite x)
+
+finiteMaybe :: Double -> Maybe Double
+finiteMaybe x
+    | isFiniteDouble x = Just x
+    | otherwise = Nothing

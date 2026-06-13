@@ -100,6 +100,7 @@ import Trader.Predictors.Exogenous (alignToBars)
 import Trader.Predictors.Features (featuresAtWithInputsWithMarket, mkFeatureInputs, mkFeatureSpec, withCoinbaseInputs)
 import Trader.Predictors.GBDT (GBDTModel (..), Stump (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
+import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
 import Trader.Predictors.TCN (TCNModel (..), predictTCN, tcnFeaturesAt, trainTCN)
 import Trader.SignalGates (
@@ -372,6 +373,7 @@ main = do
     testMultivariateLstmInputs
     testGBDTSanitizesMalformedInputs
     testDecisionTreeSanitizesMalformedInputs
+    testKNNSanitizesMalformedInputs
     testQuantileSanitizesMalformedInputs
     testTCNSanitizesMalformedInputs
     testHMMSanitizesMalformedInputs
@@ -640,6 +642,46 @@ testDecisionTreeSanitizesMalformedInputs = do
     assert "DecisionTree drops malformed leaf sigma" (predictDecisionTree (mkModel sigmaPoisonedLeaf) [0] == (0.01, Nothing))
     assert "DecisionTree malformed leaf value fails closed" (predictDecisionTree (mkModel valuePoisonedLeaf) [0] == (0, Nothing))
     assert "DecisionTree malformed split threshold fails closed" (predictDecisionTree (mkModel invalidThresholdRoot) [0] == (0, Nothing))
+
+testKNNSanitizesMalformedInputs :: IO ()
+testKNNSanitizesMalformedInputs = do
+    let nan = 0 / 0
+        inf = 1 / 0
+        dataset =
+            [ ([0], 0.01)
+            , ([1], 0.02)
+            , ([nan], 100)
+            , ([2], 0.03)
+            , ([inf], 0.05)
+            , ([3, 4], 0.04)
+            , ([4], inf)
+            ]
+        model = trainKNN 16 3 dataset
+        finite x = not (isNaN x || isInfinite x)
+        finiteExample (x, y) = all finite x && finite y
+        (goodPred, goodSigma) = predictKNN model [1.5]
+        (badPred, badSigma) = predictKNN model [nan]
+    assert "KNN keeps the finite consistent feature dimension" (kmFeatureDim model == 1)
+    assert
+        "KNN training drops malformed rows before fitting"
+        ( all finite (kmMeans model)
+            && all finite (kmScales model)
+            && all finiteExample (kmExamples model)
+            && maybe True finite (kmSigmaBase model)
+        )
+    assert "KNN finite query prediction remains finite" (finite goodPred && maybe True finite goodSigma)
+    assert "KNN malformed query fails closed" (badPred == 0 && maybe True finite badSigma)
+
+    let malformedModel =
+            KNNModel
+                { kmK = 1
+                , kmFeatureDim = 1
+                , kmMeans = [0]
+                , kmScales = [1]
+                , kmExamples = [([inf], 0.01)]
+                , kmSigmaBase = Just inf
+                }
+    assert "KNN malformed model drops poisoned fallback sigma" (predictKNN malformedModel [0] == (0, Nothing))
 
 testQuantileSanitizesMalformedInputs :: IO ()
 testQuantileSanitizesMalformedInputs = do
