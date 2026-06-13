@@ -479,6 +479,11 @@ testCrossExchangeCoinbaseInputs = do
     assert
         "no Coinbase/Binance bar overlap yields Nothing"
         (isNothing (alignCoinbaseClosesToGrid [60000, 120000] (V.fromList [1, 2]) [candle 999999 5]))
+    assert
+        "mismatched Binance grid lengths fail open"
+        ( isNothing (alignCoinbaseClosesToGrid [60000] (V.fromList [1, 2]) [candle 60 10])
+            && isNothing (alignCoinbaseClosesToGrid [60000, 120000] (V.fromList [1]) [candle 60 10])
+        )
 
     -- Feature gating: attaching a Coinbase close series appends exactly 5
     -- same-asset features; absence is byte-identical to Binance-only.

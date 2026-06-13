@@ -588,6 +588,7 @@ The result has the same length as @binanceCloses@.
 -}
 alignCoinbaseClosesToGrid :: [Int64] -> V.Vector Double -> [CoinbaseCandle] -> Maybe (V.Vector Double)
 alignCoinbaseClosesToGrid binanceOpenTimesMs binanceCloses candles
+    | length binanceOpenTimesMs /= V.length binanceCloses = Nothing
     | Map.null cmap = Nothing
     | not anyCovered = Nothing
     | otherwise = Just (V.fromList (map fst rows))
@@ -601,7 +602,7 @@ alignCoinbaseClosesToGrid binanceOpenTimesMs binanceCloses candles
     walk lastV idx (otMs : rest) =
         let sec = otMs `div` 1000
             cur = Map.lookup sec cmap <|> lastV
-            fallbackClose = if idx >= 0 && idx < n then binanceCloses V.! idx else 0
+            fallbackClose = binanceCloses V.! idx
             row = case cur of
                 Just c -> (c, True)
                 Nothing -> (fallbackClose, False)
