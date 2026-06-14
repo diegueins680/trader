@@ -210,12 +210,16 @@ import Trader.Binance (
 import Trader.BinanceIntervals (binanceIntervals)
 import Trader.BotStartSemantics (
     BacktestVerdict (..),
+    adoptionMinTradeCount,
+    adoptionMinWalkForwardSharpeMean,
     backtestVerdictAborts,
     botStartSymbolDisabled,
     botStartupBacktestVerdictWithMinTrades,
     botStartupGuardShouldPrune,
     botTradeEnabledFromApi,
     capAdoptedMaxPositionSize,
+    comboTradeCountMeetsAdoptionFloor,
+    comboWalkForwardSharpeMeetsAdoptionFloor,
     defaultBotStartupBacktestMinTrades,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
@@ -7277,6 +7281,8 @@ selectCompatibleTopComboArgs limits sym args req export =
                     topComboMatchesSymbol sym Nothing c
                         && not (topComboLiveQuarantined c)
                         && not (topComboMinEdgeBelowCostFloor c)
+                        && not (topComboTradeCountBelowFloor c)
+                        && not (topComboWalkForwardSharpeBelowFloor c)
                 )
                 (tceCombos export)
         sortedCombos = sortOn topComboTradePriorityKey combos
@@ -7706,6 +7712,8 @@ topCombosTopTargets disabledSymbols topN export =
             | combo <- sorted
             , not (topComboLiveQuarantined combo)
             , not (topComboMinEdgeBelowCostFloor combo)
+            , not (topComboTradeCountBelowFloor combo)
+            , not (topComboWalkForwardSharpeBelowFloor combo)
             , Just sym <- [topComboSymbol combo]
             , not (null sym)
             , not (botStartSymbolDisabled disabledSymbols sym)
@@ -16133,6 +16141,54 @@ topComboMinEdgeBelowCostFloor combo =
      in case mMinEdge of
             Just me -> me < venueMinEdgeFloor
             Nothing -> False
+
+{- | Extract the walk-forward summary mean Sharpe from the combo's metrics if
+present. Returns 'Nothing' when the optimizer did not record a walk-forward
+summary (the dominant case for the legacy 2026-06 leaderboard). The metric
+path is @metrics.walkForwardSummary.sharpeMean@, matching the JSON shape
+emitted by 'walkForwardJson' in the backtest output.
+-}
+topComboWalkForwardSharpeMean :: TopCombo -> Maybe Double
+topComboWalkForwardSharpeMean combo = do
+    metrics <- tcMetrics combo
+    wf <- KM.lookup (AK.fromString "walkForwardSummary") metrics
+    case wf of
+        Aeson.Object obj ->
+            KM.lookup (AK.fromString "sharpeMean") obj >>= AT.parseMaybe parseJSON
+        _ -> Nothing
+
+{- | True when the combo's stored backtest @tradeCount@ falls below the
+adoption floor ('adoptionMinTradeCount'). Combos that have not generated
+at least the production-gate minimum number of trades carry too much
+sampling variance to deserve live capital; the optimizer's CLI guard
+already rejects them on production sweeps, and adoption now mirrors that.
+
+Missing readings ('topComboTradeCount' returns 0 by default) fail the
+floor as well, so a combo whose metrics blob is missing 'tradeCount'
+cannot be adopted by accident.
+
+Closed the 2026-06-14 failure mode where 500/500 leaderboard combos
+reported median @tradeCount = 4@ with median Sharpe 8.5 — statistically
+meaningless backtest estimates that the cost-floor filter caught only
+because the same combos also had a sub-floor minEdge.
+-}
+topComboTradeCountBelowFloor :: TopCombo -> Bool
+topComboTradeCountBelowFloor combo =
+    not (comboTradeCountMeetsAdoptionFloor (topComboMetricInt "tradeCount" combo))
+
+{- | True when the combo's walk-forward summary either is missing entirely
+or reports a mean Sharpe below 'adoptionMinWalkForwardSharpeMean'. The
+adoption gate mirrors the optimizer's @minWfSharpeMean@ default exactly
+so a combo that the optimizer would reject today cannot enter live
+trading through the adoption path either.
+
+Fails closed for missing readings: today's 2026-06-14 snapshot has
+0/500 combos with any walkForwardSummary at all, and adopting any of
+them would silently downgrade the firm-wide stability gate.
+-}
+topComboWalkForwardSharpeBelowFloor :: TopCombo -> Bool
+topComboWalkForwardSharpeBelowFloor combo =
+    not (comboWalkForwardSharpeMeetsAdoptionFloor (topComboWalkForwardSharpeMean combo))
 
 {- | Backtest annualized return blended with realized live performance;
 quarantined combos rank as -inf so they sink everywhere.

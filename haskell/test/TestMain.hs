@@ -23,7 +23,7 @@ import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPur
 import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
-import Trader.BotStartSemantics (BacktestVerdict (..), adoptionMaxPositionSizeCap, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, comboTradeCountMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloor, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.CapitalPreservation (CapitalPreservationConfig (..), CapitalPreservationReport (..), capitalPreservationIsEntryOnlyReason, capitalPreservationReport, defaultCapitalPreservationConfig)
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
 import Trader.CostCalibration (
@@ -229,6 +229,12 @@ main = do
     testVenueMinEdgeFloorClearsRoundTripCost
     testVenueMinEdgeFloorMatchesProductionRegressionEvidence
     testCapAdoptedMaxPositionSizeBoundsLiveExposure
+    testAdoptionMinTradeCountMatchesOptimizerProductionGate
+    testComboTradeCountMeetsAdoptionFloorMonotonicity
+    testComboTradeCountMeetsAdoptionFloorMatchesProductionRegressionEvidence
+    testAdoptionMinWalkForwardSharpeMatchesOptimizerDefault
+    testComboWalkForwardSharpeMeetsAdoptionFloorFailsClosed
+    testComboWalkForwardSharpeMeetsAdoptionFloorMonotonicity
     testFuturesPositionRiskLeverageSaneCap
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
@@ -6077,3 +6083,100 @@ testCapAdoptedMaxPositionSizeBoundsLiveExposure = do
     assert
         "cap collapses +Infinity to zero (non-finite is unsafe)"
         (capAdoptedMaxPositionSize (1 / 0) == 0)
+
+-- 2026-06-14: invariants for the adoption-time minimum-trade-count gate.
+-- The optimizer's production CLI guard (TRADER_OPTIMIZER_MIN_ROUND_TRIPS,
+-- defaulted to 3 for discovery but documented as 20 for production sweeps)
+-- already rejects trials below the floor. The adoption path must enforce
+-- the same floor so a future relaxation of the minEdge cost filter cannot
+-- let a 4-trade combo into live capital. Closes the 2026-06-14 leaderboard
+-- pathology: 500/500 prod combos with median tradeCount=4 + median Sharpe
+-- 8.5 (statistically meaningless).
+testAdoptionMinTradeCountMatchesOptimizerProductionGate :: IO ()
+testAdoptionMinTradeCountMatchesOptimizerProductionGate = do
+    assert
+        "adoptionMinTradeCount is at least the documented production gate (20)"
+        (adoptionMinTradeCount >= 20)
+    assert
+        "adoptionMinTradeCount is small enough not to exclude reasonable backtests (<= 50)"
+        (adoptionMinTradeCount <= 50)
+
+testComboTradeCountMeetsAdoptionFloorMonotonicity :: IO ()
+testComboTradeCountMeetsAdoptionFloorMonotonicity = do
+    assert
+        "missing reading fails closed (adoption requires positive evidence)"
+        (not (comboTradeCountMeetsAdoptionFloor Nothing))
+    assert
+        "zero trades fail the floor"
+        (not (comboTradeCountMeetsAdoptionFloor (Just 0)))
+    assert
+        "one trade below the floor fails"
+        (not (comboTradeCountMeetsAdoptionFloor (Just (adoptionMinTradeCount - 1))))
+    assert
+        "exactly at the floor passes (gate is >=)"
+        (comboTradeCountMeetsAdoptionFloor (Just adoptionMinTradeCount))
+    assert
+        "one trade above the floor passes"
+        (comboTradeCountMeetsAdoptionFloor (Just (adoptionMinTradeCount + 1)))
+    assert
+        "predicate is monotone in the reading (5000 passes, 5 does not)"
+        ( comboTradeCountMeetsAdoptionFloor (Just 5000)
+            && not (comboTradeCountMeetsAdoptionFloor (Just 5))
+        )
+
+-- Regression: today's snapshot (haskell/.tmp/optimizer/top-combos.json,
+-- 2026-06-14) has 500/500 combos with median tradeCount=4. The adoption
+-- floor must reject the median so a sampling regression cannot revive
+-- the pre-fix behavior.
+testComboTradeCountMeetsAdoptionFloorMatchesProductionRegressionEvidence :: IO ()
+testComboTradeCountMeetsAdoptionFloorMatchesProductionRegressionEvidence = do
+    let observedProdMedianTradeCount = 4 :: Int
+    assert
+        "the median tradeCount observed on prod 2026-06-14 fails the adoption floor"
+        (not (comboTradeCountMeetsAdoptionFloor (Just observedProdMedianTradeCount)))
+
+-- 2026-06-14: invariants for the adoption-time walk-forward Sharpe gate.
+-- The optimizer's default `minWfSharpeMean` was turned on at 0.3 by the
+-- 2026-06-13 fix. Adoption must mirror exactly so the two gates stay
+-- falsifiably equal; if one is relaxed the test fails and the other must
+-- be updated alongside it.
+testAdoptionMinWalkForwardSharpeMatchesOptimizerDefault :: IO ()
+testAdoptionMinWalkForwardSharpeMatchesOptimizerDefault = do
+    let optimizerDefaultMinWfSharpeMean = 0.3 :: Double
+    assert
+        "adoptionMinWalkForwardSharpeMean equals the optimizer default minWfSharpeMean"
+        (abs (adoptionMinWalkForwardSharpeMean - optimizerDefaultMinWfSharpeMean) < 1.0e-12)
+
+testComboWalkForwardSharpeMeetsAdoptionFloorFailsClosed :: IO ()
+testComboWalkForwardSharpeMeetsAdoptionFloorFailsClosed = do
+    assert
+        "missing walk-forward summary fails closed"
+        (not (comboWalkForwardSharpeMeetsAdoptionFloor Nothing))
+    assert
+        "NaN reading fails closed"
+        (not (comboWalkForwardSharpeMeetsAdoptionFloor (Just (0 / 0))))
+    assert
+        "+Infinity reading fails closed (non-finite is unsafe)"
+        (not (comboWalkForwardSharpeMeetsAdoptionFloor (Just (1 / 0))))
+    assert
+        "-Infinity reading fails closed"
+        (not (comboWalkForwardSharpeMeetsAdoptionFloor (Just (negate (1 / 0)))))
+
+testComboWalkForwardSharpeMeetsAdoptionFloorMonotonicity :: IO ()
+testComboWalkForwardSharpeMeetsAdoptionFloorMonotonicity = do
+    let belowFloor = adoptionMinWalkForwardSharpeMean - 0.05
+        aboveFloor = adoptionMinWalkForwardSharpeMean + 0.05
+    assert
+        "below-floor Sharpe fails"
+        (not (comboWalkForwardSharpeMeetsAdoptionFloor (Just belowFloor)))
+    assert
+        "at-floor Sharpe passes (gate is >=)"
+        (comboWalkForwardSharpeMeetsAdoptionFloor (Just adoptionMinWalkForwardSharpeMean))
+    assert
+        "above-floor Sharpe passes"
+        (comboWalkForwardSharpeMeetsAdoptionFloor (Just aboveFloor))
+    assert
+        "predicate is monotone in the reading (1.5 passes, 0.0 does not)"
+        ( comboWalkForwardSharpeMeetsAdoptionFloor (Just 1.5)
+            && not (comboWalkForwardSharpeMeetsAdoptionFloor (Just 0.0))
+        )

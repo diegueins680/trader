@@ -17,6 +17,10 @@ module Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
     adoptionMaxPositionSizeCap,
     capAdoptedMaxPositionSize,
+    adoptionMinTradeCount,
+    adoptionMinWalkForwardSharpeMean,
+    comboTradeCountMeetsAdoptionFloor,
+    comboWalkForwardSharpeMeetsAdoptionFloor,
 ) where
 
 import Data.Char (isSpace, toUpper)
@@ -46,6 +50,90 @@ capAdoptedMaxPositionSize raw
     | isNaN raw || isInfinite raw = 0
     | raw < 0 = 0
     | otherwise = min adoptionMaxPositionSizeCap raw
+
+{- | Minimum backtest @tradeCount@ a top-combo must report on its stored
+metrics before the bot-start path is allowed to adopt it for live trading.
+
+Engineering rationale (2026-06-14)
+==================================
+
+The 2026-06-13 post-fix audit found that 500/500 leaderboard combos sat
+below the new minEdge cost floor — the floor caught them. The deeper
+problem hidden behind that filter is that the same 500 combos had
+__median @tradeCount = 4__ with median Sharpe 8.5 and median annualized
+return 8.4. A 4-trade backtest cannot distinguish a real edge from
+noise: at a per-trade σ of 1% (typical for daily-bar crypto strategies)
+the Sharpe of a 4-trade window of N(0, σ²) returns has a standard
+error of ~0.5; an observed Sharpe of 8 is dominated by sampling
+variance, not signal. The optimizer's production CLI guard already
+rejects trials below 20 round trips (@TRADER_OPTIMIZER_MIN_ROUND_TRIPS@);
+the bot-start adoption path must enforce the same floor at adoption
+time so a future relaxation of the minEdge filter (e.g. when the
+predictors improve and the cost floor is recalibrated) cannot let a
+4-trade combo into live trading.
+
+Falsifiable invariants:
+
+  * @adoptionMinTradeCount >= 20@ — the optimizer-side production gate is
+    the lower bound; adoption must not be more lenient than the gate that
+    produced the combo.
+  * 'comboTradeCountMeetsAdoptionFloor' is 'False' on 'Nothing' (no metric
+    recorded) — adoption requires evidence, not the absence of evidence.
+  * 'comboTradeCountMeetsAdoptionFloor' is monotone: if @n1 <= n2@ then
+    @meets n1 ==> meets n2@.
+-}
+adoptionMinTradeCount :: Int
+adoptionMinTradeCount = 20
+
+{- | Adoption-time predicate: does the combo's backtest report at least
+'adoptionMinTradeCount' trades? A 'Nothing' reading fails closed because
+adoption is a positive assertion ("this combo's evidence is strong enough
+to put live capital behind"), not a negative one ("we have no reason to
+reject").
+-}
+comboTradeCountMeetsAdoptionFloor :: Maybe Int -> Bool
+comboTradeCountMeetsAdoptionFloor Nothing = False
+comboTradeCountMeetsAdoptionFloor (Just n) = n >= adoptionMinTradeCount
+
+{- | Minimum walk-forward mean Sharpe a top-combo must report before the
+bot-start path is allowed to adopt it.
+
+Engineering rationale (2026-06-14)
+==================================
+
+The 2026-06-13 fix turned walk-forward Sharpe gates on /by default in the
+auto optimizer/ at @minWfSharpeMean = 0.3@ and @maxWfSharpeStd = 1.5@.
+That closes the door for freshly-produced trials. Legacy combos on the
+leaderboard, however, predate that change: today's snapshot shows
+__0/500 combos with any walkForwardSummary at all__. Without an
+adoption-time mirror of the optimizer gate the legacy population can
+still leak through whenever the minEdge floor moves.
+
+The value mirrors the optimizer's default exactly so the two gates are
+falsifiably equal: if one changes, the other must change too, or the
+test 'testAdoptionMinWalkForwardSharpeMatchesOptimizerDefault' fails.
+
+Falsifiable invariants:
+
+  * Missing reading ('Nothing'): fail closed.
+  * Non-finite reading ('NaN' / +Inf / -Inf): fail closed.
+  * Below threshold (@s < adoptionMinWalkForwardSharpeMean@): fail closed.
+  * At-threshold equality: pass (the gate is @>=@, matching the optimizer's
+    @>= minWfSharpeMean@ contract).
+  * Predicate is monotone in the reading.
+-}
+adoptionMinWalkForwardSharpeMean :: Double
+adoptionMinWalkForwardSharpeMean = 0.3
+
+{- | Adoption-time predicate: does the combo's walk-forward summary report a
+mean Sharpe that clears 'adoptionMinWalkForwardSharpeMean'? Missing and
+non-finite readings fail closed.
+-}
+comboWalkForwardSharpeMeetsAdoptionFloor :: Maybe Double -> Bool
+comboWalkForwardSharpeMeetsAdoptionFloor Nothing = False
+comboWalkForwardSharpeMeetsAdoptionFloor (Just s)
+    | isNaN s || isInfinite s = False
+    | otherwise = s >= adoptionMinWalkForwardSharpeMean
 
 botTradeEnabledFromApi :: Maybe Bool -> Bool
 botTradeEnabledFromApi = fromMaybe True
