@@ -31,7 +31,7 @@ import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (foldM, forM_, unless, when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
-import Data.Aeson (Value (..), object, (.=))
+import Data.Aeson (Value (..), object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -4495,9 +4495,12 @@ runOptimizer args0 = do
                                                                             case outHandle of
                                                                                 Nothing -> pure ()
                                                                                 Just h -> do
+                                                                                    createdAtMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
                                                                                     let rec0 = trialToRecord tr symbolFinal
                                                                                         source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
-                                                                                        rec = addField "source" (String (T.pack source)) rec0
+                                                                                        rec =
+                                                                                            addField "createdAtMs" (toJSON createdAtMs) $
+                                                                                                addField "source" (String (T.pack source)) rec0
                                                                                     BL.hPutStr h (Aeson.encode rec)
                                                                                     hPutStrLn h ""
                                                                                     hFlush h
