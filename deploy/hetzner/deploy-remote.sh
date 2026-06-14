@@ -28,6 +28,9 @@ set -euo pipefail
 #                                repo dir; each key is updated-or-appended into the box's
 #                                env file before compose up, so non-secret tuning ships
 #                                from the repo instead of by hand. Missing file = no-op.
+#   TRADER_HETZNER_ENV_OVERRIDES_FILE Optional local KEY=VALUE overlay copied over SSH
+#                                and merged into the remote env file before compose up.
+#                                Use for CI-supplied secrets; the file is not rsynced.
 #   TRADER_HETZNER_COMPOSE_FILE  Compose file relative to repo dir (default: deploy/hetzner/docker-compose.yml)
 #   TRADER_HETZNER_SSH_KEY_FILE  SSH identity file (optional; for CI)
 #   TRADER_HETZNER_KNOWN_HOSTS   known_hosts file (optional; for CI)
@@ -36,7 +39,7 @@ set -euo pipefail
 #   TRADER_HETZNER_SSH_EXTRA_OPTS Extra raw ssh options (optional)
 
 usage() {
-  sed -n '4,32p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '4,39p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 host="${1:-}"
@@ -54,6 +57,7 @@ ssh_port="${TRADER_HETZNER_SSH_PORT:-22}"
 repo_dir="${TRADER_HETZNER_REPO_DIR:-/opt/trader}"
 env_file="${TRADER_HETZNER_ENV_FILE:-deploy/hetzner/trader.env}"
 managed_env_file="${TRADER_HETZNER_MANAGED_ENV_FILE:-}"
+env_overrides_file="${TRADER_HETZNER_ENV_OVERRIDES_FILE:-}"
 compose_file="${TRADER_HETZNER_COMPOSE_FILE:-deploy/hetzner/docker-compose.yml}"
 ssh_connect_timeout="${TRADER_HETZNER_SSH_CONNECT_TIMEOUT:-10}"
 ssh_connection_attempts="${TRADER_HETZNER_SSH_CONNECTION_ATTEMPTS:-3}"
@@ -86,6 +90,19 @@ if [[ ! -d "${repo_root}/haskell/web/dist" ]]; then
   exit 1
 fi
 
+if [[ -n "$env_overrides_file" && ! -f "$env_overrides_file" ]]; then
+  echo "ERROR: TRADER_HETZNER_ENV_OVERRIDES_FILE does not exist: $env_overrides_file" >&2
+  exit 1
+fi
+
+remote_env_overrides_file=""
+cleanup_remote_env_overrides() {
+  if [[ -n "$remote_env_overrides_file" ]]; then
+    ssh "${ssh_opts[@]}" "${ssh_user}@${host}" "rm -f '$remote_env_overrides_file'" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_remote_env_overrides EXIT
+
 # Stamp the build commit so the running API reports the deployed SHA.
 printf '%s\n' "$commit" > "${repo_root}/haskell/.build-commit"
 
@@ -116,9 +133,15 @@ rsync -az --human-readable \
   -e "ssh ${ssh_opts[*]}" \
   "${repo_root}/" "${ssh_user}@${host}:${repo_dir}/"
 
+if [[ -n "$env_overrides_file" ]]; then
+  echo "==> Uploading env overrides to ${host}"
+  remote_env_overrides_file="$(ssh "${ssh_opts[@]}" "${ssh_user}@${host}" "mktemp")"
+  ssh "${ssh_opts[@]}" "${ssh_user}@${host}" "cat > '$remote_env_overrides_file'" < "$env_overrides_file"
+fi
+
 echo "==> Building and starting containers on ${host}"
 ssh "${ssh_opts[@]}" "${ssh_user}@${host}" \
-  "REPO_DIR='${repo_dir}' ENV_FILE='${env_file}' MANAGED_ENV_FILE='${managed_env_file}' COMPOSE_FILE='${compose_file}'" \
+  "REPO_DIR='${repo_dir}' ENV_FILE='${env_file}' MANAGED_ENV_FILE='${managed_env_file}' ENV_OVERRIDES_FILE='${remote_env_overrides_file}' COMPOSE_FILE='${compose_file}'" \
   "TRADER_GIT_COMMIT='${commit}' bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$REPO_DIR"
@@ -128,23 +151,37 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# Merge the checked-in managed overlay into the box's env file: update each
-# overlay key in place, append keys the box doesn't have yet, leave everything
-# else (secrets, operator overrides of unmanaged keys) untouched.
-if [[ -n "$MANAGED_ENV_FILE" && -f "$MANAGED_ENV_FILE" ]]; then
+merge_env_overlay() {
+  local overlay_file="$1"
+  local target_file="$2"
+  local label="$3"
+  local merged
+  [[ -n "$overlay_file" && -f "$overlay_file" ]] || return 0
+
   merged="$(mktemp)"
   awk -F= '
     NR == FNR { if ($0 ~ /^[A-Za-z_][A-Za-z0-9_]*=/) managed[$1] = $0; next }
     /^[A-Za-z_][A-Za-z0-9_]*=/ && ($1 in managed) { print managed[$1]; delete managed[$1]; next }
     { print }
     END { for (k in managed) print managed[k] }
-  ' "$MANAGED_ENV_FILE" "$ENV_FILE" > "$merged"
-  if ! cmp -s "$merged" "$ENV_FILE"; then
-    echo "==> Applying managed env overlay ${MANAGED_ENV_FILE} -> ${ENV_FILE}"
-    cat "$merged" > "$ENV_FILE"
+  ' "$overlay_file" "$target_file" > "$merged"
+  if ! cmp -s "$merged" "$target_file"; then
+    echo "==> Applying ${label} -> ${target_file}"
+    cat "$merged" > "$target_file"
   fi
   rm -f "$merged"
-fi
+}
+
+# Merge the checked-in managed overlay into the box's env file: update each
+# overlay key in place, append keys the box doesn't have yet, leave everything
+# else (secrets, operator overrides of unmanaged keys) untouched.
+merge_env_overlay "$MANAGED_ENV_FILE" "$ENV_FILE" "managed env overlay ${MANAGED_ENV_FILE}"
+
+# Merge optional CI-supplied overrides after the managed overlay. This is for
+# secrets such as shared Binance credentials and is uploaded over SSH stdin, not
+# rsynced from the working tree.
+merge_env_overlay "$ENV_OVERRIDES_FILE" "$ENV_FILE" "runtime env overrides"
+rm -f "${ENV_OVERRIDES_FILE:-}"
 
 export TRADER_GIT_COMMIT
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build --remove-orphans

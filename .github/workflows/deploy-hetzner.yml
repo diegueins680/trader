@@ -62,6 +62,14 @@ jobs:
           HETZNER_RESEARCH_HOST: ${{ secrets.HETZNER_RESEARCH_HOST }}
           HETZNER_TRADING_KNOWN_HOSTS: ${{ secrets.HETZNER_TRADING_KNOWN_HOSTS }}
           HETZNER_RESEARCH_KNOWN_HOSTS: ${{ secrets.HETZNER_RESEARCH_KNOWN_HOSTS }}
+          # Optional shared Binance credentials. When set, both Hetzner roles get
+          # the same Binance key pair, so both derive the same tenant key.
+          HETZNER_BINANCE_API_KEY: ${{ secrets.HETZNER_BINANCE_API_KEY }}
+          HETZNER_BINANCE_API_SECRET: ${{ secrets.HETZNER_BINANCE_API_SECRET }}
+          # Backward-compatible fallback: these are also applied to both roles
+          # when the shared names above are not configured.
+          HETZNER_TRADING_BINANCE_API_KEY: ${{ secrets.HETZNER_TRADING_BINANCE_API_KEY }}
+          HETZNER_TRADING_BINANCE_API_SECRET: ${{ secrets.HETZNER_TRADING_BINANCE_API_SECRET }}
           # Optional overrides; fall back to deploy-remote.sh defaults
           # (root @ /opt/trader, env at deploy/hetzner/trader.env).
           HETZNER_SSH_USER: ${{ secrets.HETZNER_SSH_USER }}
@@ -98,7 +106,8 @@ jobs:
           key_file="$(mktemp)"
           known_hosts="$(mktemp)"
           deploy_log="$(mktemp)"
-          trap 'rm -f "$key_file" "$known_hosts" "$deploy_log"' EXIT
+          env_overrides="$(mktemp)"
+          trap 'rm -f "$key_file" "$known_hosts" "$deploy_log" "$env_overrides"' EXIT
 
           printf '%s\n' "$HETZNER_SSH_KEY" > "$key_file"
           chmod 600 "$key_file"
@@ -115,14 +124,34 @@ jobs:
           export TRADER_HETZNER_SSH_PORT="$port"
           export TRADER_HETZNER_REPO_DIR="${HETZNER_REPO_DIR:-/opt/trader}"
           export TRADER_HETZNER_ENV_FILE="${HETZNER_ENV_FILE:-deploy/hetzner/trader.env}"
-          # Checked-in, non-secret tuning overlay merged into the box's env file
-          # on every deploy (missing file = no-op, e.g. for the trading role).
+          # Checked-in, non-secret role overlay merged into the box's env file
+          # on every deploy (missing file = no-op).
           export TRADER_HETZNER_MANAGED_ENV_FILE="deploy/hetzner/trader.${ROLE}.env.managed"
           export TRADER_HETZNER_SSH_KEY_FILE="$key_file"
           export TRADER_HETZNER_KNOWN_HOSTS="$known_hosts"
           export TRADER_HETZNER_SSH_CONNECT_TIMEOUT="${HETZNER_SSH_CONNECT_TIMEOUT:-10}"
           export TRADER_HETZNER_SSH_CONNECTION_ATTEMPTS="${HETZNER_SSH_CONNECTION_ATTEMPTS:-3}"
           export TRADER_GIT_COMMIT
+
+          # Live trading derives its tenant key from BINANCE_API_KEY /
+          # BINANCE_API_SECRET. Keep research on that same tenant by applying the
+          # same shared/trading Binance credentials to both roles when CI has
+          # them, and let the backend derive TRADER_STATE_SYNC_TENANT_KEY.
+          : > "$env_overrides"
+          printf 'TRADER_STATE_SYNC_TENANT_KEY=\n' >> "$env_overrides"
+          binance_key="${HETZNER_BINANCE_API_KEY:-${HETZNER_TRADING_BINANCE_API_KEY:-}}"
+          binance_secret="${HETZNER_BINANCE_API_SECRET:-${HETZNER_TRADING_BINANCE_API_SECRET:-}}"
+          if [[ -n "$binance_key" || -n "$binance_secret" ]]; then
+            if [[ -z "$binance_key" || -z "$binance_secret" ]]; then
+              echo "::warning::Only one shared Hetzner Binance credential secret is set; leaving remote Binance credentials unchanged."
+            else
+              {
+                printf 'BINANCE_API_KEY=%s\n' "$binance_key"
+                printf 'BINANCE_API_SECRET=%s\n' "$binance_secret"
+              } >> "$env_overrides"
+            fi
+          fi
+          export TRADER_HETZNER_ENV_OVERRIDES_FILE="$env_overrides"
 
           deploy_status=0
           last_attempt=0
