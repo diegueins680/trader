@@ -7,22 +7,25 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+  workflow_dispatch:
 
 # Never let two deploys to the same box race; let an in-flight deploy finish.
 concurrency:
-  group: deploy-hetzner-${{ github.event.workflow_run.head_branch }}
+  group: deploy-hetzner-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     name: Deploy (${{ matrix.role }})
     runs-on: ubuntu-latest
-    # Only deploy a real pushed commit whose entire CI run passed, on main/master.
+    # Deploy a green CI run on main/master, or allow an operator-triggered
+    # dispatch from main/master when the CI run itself has already been checked.
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      (github.event.workflow_run.head_branch == 'main' ||
-       github.event.workflow_run.head_branch == 'master')
+      (github.event_name == 'workflow_dispatch' &&
+       (github.ref_name == 'main' || github.ref_name == 'master')) ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.head_branch == 'main' ||
+        github.event.workflow_run.head_branch == 'master'))
     permissions:
       contents: read
     strategy:
@@ -35,7 +38,7 @@ jobs:
       # have advanced) so the deploy script and the box deploy the same SHA.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       # The box serves haskell/web/dist via Caddy; it is gitignored, so build it
       # here and rsync it to the box (matches the existing local-build flow).
@@ -47,7 +50,7 @@ jobs:
 
       - name: Build web frontend
         env:
-          VITE_GIT_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          VITE_GIT_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           npm --workspaces=false --prefix haskell/web ci
           npm --prefix haskell/web run build
@@ -77,7 +80,7 @@ jobs:
           HETZNER_REPO_DIR: ${{ secrets.HETZNER_REPO_DIR }}
           HETZNER_ENV_FILE: ${{ secrets.HETZNER_ENV_FILE }}
           ROLE: ${{ matrix.role }}
-          TRADER_GIT_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          TRADER_GIT_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           set -euo pipefail
 

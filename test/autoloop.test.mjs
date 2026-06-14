@@ -1076,6 +1076,9 @@ test("Hetzner deploy retries SSH failures and keeps both roles mandatory", async
   const deployScript = await fs.readFile(new URL("../deploy/hetzner/deploy-remote.sh", import.meta.url), "utf8");
 
   assert.match(workflow, /is_transient_ssh_failure\(\)/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(workflow, /github\.event\.workflow_run\.head_sha \|\| github\.sha/);
   assert.match(workflow, /for attempt in 1 2 3; do/);
   assert.match(workflow, /Transient \$\{ROLE\} Hetzner SSH failure on attempt \$\{attempt\}; retrying\./);
   assert.match(workflow, /Hetzner \$\{ROLE\} deploy failed after \$\{last_attempt\} attempt\(s\)\./);
