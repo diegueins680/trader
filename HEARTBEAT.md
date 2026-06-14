@@ -17,9 +17,20 @@
 - `/tmp/trader-monitor/diagnostics.log` — Monitor health-check history
 - `/tmp/trader-monitor/restarts.log` — Restart events with diagnostics
 
+### Continuous Improvement auto-loop hook
+After a green CI push to `main`, `scripts/autoloop.mjs` calls
+`scripts/restart-local-stack.sh`, which rewrites `haskell/.build-commit` to
+`git rev-parse HEAD` (the SHA `/health` reports) and `launchctl kickstart -k`s
+both `ai.openclaw.trader.api` and `ai.openclaw.trader.web`, so the locally
+running stack always matches the latest green commit. Best-effort; opt out
+with `AUTOLOOP_SKIP_LOCAL_REFRESH=1`.
+
 ### Manual Commands
 ```bash
-# Restart API
+# Restart API + Web to match git HEAD (used by the auto-loop)
+scripts/restart-local-stack.sh
+
+# Restart API only
 launchctl kickstart -k gui/$(id -u)/ai.openclaw.trader.api
 
 # Install / manage monitor

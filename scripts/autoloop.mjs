@@ -432,7 +432,16 @@ async function main() {
     });
     const ci = waitForBranchCi(pushedHeadSha, LOOP_BRANCH);
     if (ci.ok) {
-      await updateStatus({ phase: "complete", iteration, outcome: "pushed", branch: LOOP_BRANCH, headSha: pushedHeadSha, ci });
+      const localRefresh = refreshLocalStack({ headSha: pushedHeadSha });
+      await updateStatus({
+        phase: "complete",
+        iteration,
+        outcome: "pushed",
+        branch: LOOP_BRANCH,
+        headSha: pushedHeadSha,
+        ci,
+        localRefresh,
+      });
       console.log(`Pushed ${pushedHeadSha} directly to ${LOOP_BRANCH}.`);
       return;
     }
@@ -1732,6 +1741,27 @@ function commitBranch(message, changedPaths) {
   runGit(["config", "user.email", "autoloop[bot]@users.noreply.github.com"], { capture: false });
   runGit(["add", "--", ...changedPaths], { capture: false });
   runGit(["commit", "-m", message], { capture: false });
+}
+
+// After a green CI on main, kick the local LaunchAgents so the running API +
+// Web UI match the pushed HEAD. Best-effort: never throws, never fails the
+// loop. Skipped when AUTOLOOP_SKIP_LOCAL_REFRESH=1.
+function refreshLocalStack({ headSha }) {
+  if (process.env.AUTOLOOP_SKIP_LOCAL_REFRESH === "1") {
+    return { skipped: true, reason: "AUTOLOOP_SKIP_LOCAL_REFRESH=1" };
+  }
+  try {
+    const out = runCommand("bash", ["scripts/restart-local-stack.sh"], {
+      capture: true,
+      env: { ...process.env, TRADER_LOCAL_STACK_QUIET: "0" },
+    });
+    console.log(`Refreshed local API + Web for ${headSha}.`);
+    return { ok: true, output: typeof out === "string" ? out.slice(-1000) : undefined };
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    console.warn(`Local stack refresh failed (non-fatal): ${message}`);
+    return { ok: false, error: message.slice(0, 500) };
+  }
 }
 
 function pushBranch() {

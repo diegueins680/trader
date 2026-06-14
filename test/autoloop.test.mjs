@@ -1365,3 +1365,28 @@ test("launchagent installer keeps the forever runner alive across login sessions
   assert.match(script, /launchctl bootstrap/);
   assert.match(script, /launchctl kickstart -k/);
 });
+
+test("autoloop calls the local stack refresh after a green CI push", async () => {
+  const script = await fs.readFile(new URL("../scripts/autoloop.mjs", import.meta.url), "utf8");
+  // The green-CI branch must invoke refreshLocalStack and surface the result in status.
+  assert.match(script, /const localRefresh = refreshLocalStack\(\{ headSha: pushedHeadSha \}\);/);
+  assert.match(script, /localRefresh,/);
+  // The helper itself must be opt-outable and call the dedicated shell script.
+  assert.match(script, /function refreshLocalStack\(\{ headSha \}\) \{/);
+  assert.match(script, /AUTOLOOP_SKIP_LOCAL_REFRESH/);
+  assert.match(script, /scripts\/restart-local-stack\.sh/);
+});
+
+test("restart-local-stack rewrites build-commit and kicks API + Web LaunchAgents", async () => {
+  const script = await fs.readFile(new URL("../scripts/restart-local-stack.sh", import.meta.url), "utf8");
+  assert.match(script, /TRADER_API_LAUNCHD_LABEL:-ai\.openclaw\.trader\.api/);
+  assert.match(script, /TRADER_WEB_LAUNCHD_LABEL:-ai\.openclaw\.trader\.web/);
+  // Best-effort: never bail out on missing tools / non-Darwin hosts.
+  assert.match(script, /uname -s/);
+  assert.match(script, /command -v launchctl/);
+  // Refresh the build-commit marker so /health reports the new SHA.
+  assert.match(script, /haskell\/\.build-commit/);
+  assert.match(script, /git rev-parse HEAD/);
+  // Kick both services.
+  assert.match(script, /launchctl kickstart -k/);
+});
