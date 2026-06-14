@@ -24,6 +24,7 @@ import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnov
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BotStartSemantics (BacktestVerdict (..), backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.CapitalPreservation (CapitalPreservationConfig (..), CapitalPreservationReport (..), capitalPreservationIsEntryOnlyReason, capitalPreservationReport, defaultCapitalPreservationConfig)
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
 import Trader.CostCalibration (
     calibratedSlippagePerSide,
@@ -274,6 +275,7 @@ main = do
     testRouterScorePnlWeightRejectsInvalidValues
     testExpectancyLookbackRejectsNegativeValue
     testPerfLookbackRejectsNegativeValue
+    testCapitalPreservationReport
     testLossStreakMaxRejectsNegativeValue
     testLossStreakCooldownBarsRejectsNegativeValue
     testVolScaleMaxRejectsInvalidValues
@@ -1864,6 +1866,28 @@ testPerfLookbackRejectsNegativeValue = do
             && case parseAndValidateCliArgs acceptedArgs of
                 Right args -> argPerfLookback args == 20
                 Left _ -> False
+        )
+
+testCapitalPreservationReport :: IO ()
+testCapitalPreservationReport = do
+    let cfg = defaultCapitalPreservationConfig
+        noRollingLossCfg = cfg{cpcMaxRollingLoss = Just 0.99}
+        drawdownReport = capitalPreservationReport cfg 0.11 0 (replicate 20 0.01)
+        streakReport = capitalPreservationReport cfg 0.01 3 (replicate 20 0.01)
+        rollingLossReport = capitalPreservationReport cfg 0.01 0 (replicate 20 (-0.003))
+        sharpeReport = capitalPreservationReport noRollingLossCfg 0.01 0 [-0.01, 0.004, -0.008, 0.003, -0.006, 0.002]
+        notReadyReport = capitalPreservationReport cfg 0.01 0 (replicate 5 (-0.003))
+        disabledReport = capitalPreservationReport cfg{cpcEnabled = False} 0.50 5 (replicate 20 (-0.01))
+    assert
+        "capital preservation reports deterministic entry-only failure reasons"
+        ( cprReason drawdownReport == Just "CAPITAL_PRESERVATION_DRAWDOWN"
+            && cprReason streakReport == Just "CAPITAL_PRESERVATION_LOSS_STREAK"
+            && cprReason rollingLossReport == Just "CAPITAL_PRESERVATION_ROLLING_LOSS"
+            && cprReason sharpeReport == Just "CAPITAL_PRESERVATION_SHARPE"
+            && isNothing (cprReason notReadyReport)
+            && isNothing (cprReason disabledReport)
+            && capitalPreservationIsEntryOnlyReason "CAPITAL_PRESERVATION_ROLLING_LOSS"
+            && not (capitalPreservationIsEntryOnlyReason "MAX_DRAWDOWN")
         )
 
 testLossStreakMaxRejectsNegativeValue :: IO ()

@@ -17,6 +17,7 @@ executable trader-hs
                      , Trader.App.Observability
                      , Trader.App.Runtime
                      , Trader.Cache
+                     , Trader.CapitalPreservation
                      , Trader.Coinbase
                      , Trader.ComboTracking
                      , Trader.Config
@@ -228,6 +229,7 @@ test-suite trader-tests
                      , Trader.App.BinanceProbe
                      , Trader.App.Env
                      , Trader.Cache
+                     , Trader.CapitalPreservation
                      , Trader.Coinbase
                      , Trader.ComboTracking
                      , Trader.Config

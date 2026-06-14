@@ -223,6 +223,13 @@ import Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
     shouldResolveOriginComboOnAutoStart,
  )
+import Trader.CapitalPreservation (
+    CapitalPreservationConfig (..),
+    CapitalPreservationReport (..),
+    capitalPreservationIsEntryOnlyReason,
+    capitalPreservationReport,
+    defaultCapitalPreservationConfig,
+ )
 import Trader.Coinbase (
     CoinbaseCandle (..),
     CoinbaseEnv (..),
@@ -5773,6 +5780,42 @@ perfGateReason args stats =
                             then Just "PERF_PROFIT_FACTOR"
                             else Nothing
 
+capitalPreservationConfigForBot :: Args -> BotSettings -> CapitalPreservationConfig
+capitalPreservationConfigForBot args settings =
+    defaultCapitalPreservationConfig
+        { cpcEnabled =
+            bsTradeEnabled settings
+                && argBinanceLive args
+                && argPlatform args == PlatformBinance
+                && argBinanceMarket args == MarketFutures
+        }
+
+capitalPreservationReportForBot :: Args -> BotSettings -> Double -> Int -> [Trade] -> CapitalPreservationReport
+capitalPreservationReportForBot args settings drawdown lossStreak trades =
+    capitalPreservationReport
+        (capitalPreservationConfigForBot args settings)
+        drawdown
+        lossStreak
+        (map trReturn trades)
+
+capitalPreservationJson :: CapitalPreservationReport -> Aeson.Value
+capitalPreservationJson report =
+    object
+        [ "enabled" .= cprEnabled report
+        , "lookback" .= cprLookback report
+        , "trades" .= cprTrades report
+        , "rollingReturn" .= cprRollingReturn report
+        , "rollingLoss" .= cprRollingLoss report
+        , "rollingSharpe" .= cprRollingSharpe report
+        , "reason" .= cprReason report
+        ]
+
+entryOnlyGateReason :: String -> Bool
+entryOnlyGateReason reason =
+    reason == "PERF_WIN_RATE"
+        || reason == "PERF_PROFIT_FACTOR"
+        || capitalPreservationIsEntryOnlyReason reason
+
 clamp01 :: Double -> Double
 clamp01 x = max 0 (min 1 x)
 
@@ -5928,6 +5971,13 @@ botStatusJson st =
         perfAll = botPerfStats st
         (perfGate, perfMode) =
             selectPerfStatsForPerfGate argsBase (botLatestSignal st) perfAll (botTrades st)
+        capitalPreservation =
+            capitalPreservationReportForBot
+                argsBase
+                (botSettings st)
+                (botStateDrawdown st)
+                (botLossStreak st)
+                (botTrades st)
         perfJson =
             object
                 [ "mode" .= perfGateModeLabel perfMode
@@ -5940,6 +5990,7 @@ botStatusJson st =
                 , "expectancy" .= bpsExpectancy perfGate
                 , "lossStreak" .= botLossStreak st
                 , "gateReason" .= perfGateReason argsBase perfGate
+                , "capitalPreservation" .= capitalPreservationJson capitalPreservation
                 , "all"
                     .= object
                         [ "lookback" .= bpsLookback perfAll
@@ -11742,6 +11793,14 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
         (perfStatsForGate, _perfMode) =
             selectPerfStatsForPerfGate args latest0Raw (botPerfStats st) (botTrades st)
         perfGateReasonMaybe = perfGateReason args perfStatsForGate
+        capitalPreservation =
+            capitalPreservationReportForBot
+                args
+                settings
+                drawdown
+                (botLossStreak st)
+                (botTrades st)
+        capitalPreservationReasonMaybe = cprReason capitalPreservation
         entryAttempt = desiredPosWanted2 /= 0 && desiredPosWanted2 /= prevPos
         entryAttemptFromFlat = prevPos == 0 && desiredPosWanted2 /= 0
         entryBlockReason
@@ -11752,22 +11811,22 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
             | entryAttempt && baseExposureBlocked = Just "MAX_EXPOSURE_PER_BASE"
             | entryAttempt && noTradeActive = Just "NO_TRADE_WINDOW"
             | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
-            | entryAttempt = perfGateReasonMaybe
+            | entryAttempt = capitalPreservationReasonMaybe <|> perfGateReasonMaybe
             | otherwise = Nothing
 
         (latest2b, desiredPosWanted2b, mExitReason2b) =
             case entryBlockReason of
                 Just reason ->
-                    let isPerfGate = reason == "PERF_WIN_RATE" || reason == "PERF_PROFIT_FACTOR"
+                    let isEntryOnlyGate = entryOnlyGateReason reason
                         flipAttempt = prevPos /= 0 && desiredPosWanted2 /= 0 && desiredPosWanted2 /= prevPos
                         action =
-                            if isPerfGate && flipAttempt
+                            if isEntryOnlyGate && flipAttempt
                                 then "EXIT_" ++ reason
                                 else "HOLD_" ++ reason
                      in if prevPos == 0
                             then (latest2{lsAction = action}, 0, Nothing)
                             else
-                                if isPerfGate && flipAttempt
+                                if isEntryOnlyGate && flipAttempt
                                     then (latest2{lsAction = action}, 0, Just reason)
                                     else (latest2{lsAction = action}, prevPos, Nothing)
                 Nothing -> (latest2, desiredPosWanted2, mExitReason2)
