@@ -100,6 +100,13 @@ rsync -az --human-readable \
   --exclude '**/node_modules/' \
   --exclude 'dist-newstyle*/' \
   --exclude 'haskell/dist-newstyle*/' \
+  --exclude '.cabal/' \
+  --exclude 'haskell/.cabal/' \
+  --exclude 'haskell/.stack-root/' \
+  --exclude 'haskell/.stack-work/' \
+  --exclude '.venv/' \
+  --exclude '.tmp/' \
+  --exclude 'haskell/.tmp/' \
   --exclude '.env' \
   --exclude '*.env' \
   --exclude 'tmp/' \

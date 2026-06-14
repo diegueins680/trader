@@ -68,9 +68,6 @@ jobs:
           HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
           HETZNER_REPO_DIR: ${{ secrets.HETZNER_REPO_DIR }}
           HETZNER_ENV_FILE: ${{ secrets.HETZNER_ENV_FILE }}
-          # Optional: set repository/org variable HETZNER_RESEARCH_REQUIRED=true
-          # if the research box should fail this deploy when it is unreachable.
-          HETZNER_RESEARCH_REQUIRED: ${{ vars.HETZNER_RESEARCH_REQUIRED }}
           ROLE: ${{ matrix.role }}
           TRADER_GIT_COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -127,11 +124,6 @@ jobs:
           export TRADER_HETZNER_SSH_CONNECTION_ATTEMPTS="${HETZNER_SSH_CONNECTION_ATTEMPTS:-3}"
           export TRADER_GIT_COMMIT
 
-          research_required=false
-          case "${HETZNER_RESEARCH_REQUIRED:-false}" in
-            1|true|TRUE|yes|YES) research_required=true ;;
-          esac
-
           deploy_status=0
           last_attempt=0
           for attempt in 1 2 3; do
@@ -154,11 +146,6 @@ jobs:
 
             break
           done
-
-          if [[ "$ROLE" == "research" && "$research_required" == "false" ]] && is_transient_ssh_failure "$deploy_log"; then
-            echo "::warning::Research Hetzner host is unreachable after ${last_attempt} attempts; skipping research deploy for this run."
-            exit 0
-          fi
 
           echo "::error::Hetzner ${ROLE} deploy failed after ${last_attempt} attempt(s)."
           exit "$deploy_status"

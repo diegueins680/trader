@@ -1071,38 +1071,46 @@ test("CI Fly deploy skips external billing blockers", async () => {
   assert.match(workflow, /Skipping \$\{label\} deploy for this run/);
 });
 
-test("Hetzner deploy retries SSH failures and treats research reachability as optional", async () => {
+test("Hetzner deploy retries SSH failures and keeps both roles mandatory", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/deploy-hetzner.yml", import.meta.url), "utf8");
   const deployScript = await fs.readFile(new URL("../deploy/hetzner/deploy-remote.sh", import.meta.url), "utf8");
 
-  assert.match(workflow, /HETZNER_RESEARCH_REQUIRED:\s+\$\{\{\s*vars\.HETZNER_RESEARCH_REQUIRED\s*\}\}/);
   assert.match(workflow, /is_transient_ssh_failure\(\)/);
   assert.match(workflow, /for attempt in 1 2 3; do/);
   assert.match(workflow, /Transient \$\{ROLE\} Hetzner SSH failure on attempt \$\{attempt\}; retrying\./);
-  assert.match(
-    workflow,
-    /if \[\[ "\$ROLE" == "research" && "\$research_required" == "false" \]\] && is_transient_ssh_failure "\$deploy_log"; then/,
-  );
-  assert.match(workflow, /Research Hetzner host is unreachable after \$\{last_attempt\} attempts; skipping research deploy for this run\./);
   assert.match(workflow, /Hetzner \$\{ROLE\} deploy failed after \$\{last_attempt\} attempt\(s\)\./);
+  assert.doesNotMatch(workflow, /HETZNER_RESEARCH_REQUIRED/);
+  assert.doesNotMatch(workflow, /skipping research deploy/);
+  assert.match(workflow, /HETZNER_BINANCE_API_KEY/);
+  assert.match(workflow, /HETZNER_TRADING_BINANCE_API_KEY/);
+  assert.match(workflow, /TRADER_STATE_SYNC_TENANT_KEY=\\n/);
+  assert.match(workflow, /TRADER_HETZNER_ENV_OVERRIDES_FILE/);
 
-    assert.match(deployScript, /TRADER_HETZNER_SSH_CONNECT_TIMEOUT/);
+  assert.match(deployScript, /TRADER_HETZNER_SSH_CONNECT_TIMEOUT/);
+  assert.match(deployScript, /TRADER_HETZNER_ENV_OVERRIDES_FILE/);
   assert.match(deployScript, /-o "ConnectTimeout=\$\{ssh_connect_timeout\}"/);
   assert.match(deployScript, /-o "ConnectionAttempts=\$\{ssh_connection_attempts\}"/);
+  assert.match(deployScript, /Uploading env overrides/);
+  assert.match(deployScript, /merge_env_overlay "\$ENV_OVERRIDES_FILE" "\$ENV_FILE" "runtime env overrides"/);
+  assert.match(deployScript, /--exclude '\.cabal\/'/);
+  assert.match(deployScript, /--exclude 'haskell\/\.stack-root\/'/);
+  assert.match(deployScript, /--exclude 'haskell\/\.stack-work\/'/);
+  assert.match(deployScript, /--exclude '\.venv\/'/);
 });
 
-test("docs pin the optional-research Hetzner deploy contract without relaxing the mandatory trading box", async () => {
+test("docs pin the mandatory Hetzner deploy contract for both roles", async () => {
   const readme = await fs.readFile(new URL("../README.md", import.meta.url), "utf8");
   const changelog = await fs.readFile(new URL("../CHANGELOG.md", import.meta.url), "utf8");
 
-  // The trading box must stay a hard failure while research is optional by default.
-  assert.match(readme, /trading box remains mandatory/);
-  assert.match(readme, /HETZNER_RESEARCH_REQUIRED=true/);
-  assert.match(changelog, /Trading deploy failures remain hard failures/);
-  assert.match(changelog, /HETZNER_RESEARCH_REQUIRED=true/);
+  assert.match(readme, /both trading and research boxes are mandatory/);
+  assert.match(readme, /latest green commit/);
+  assert.match(changelog, /both trading and research deploys mandatory/);
+  assert.match(changelog, /latest green commit/);
+  assert.doesNotMatch(readme, /HETZNER_RESEARCH_REQUIRED/);
+  assert.doesNotMatch(changelog, /HETZNER_RESEARCH_REQUIRED/);
 
-  // The optional research producer must never be documented as relaxing live
-  // risk: the adoption maxPositionSize cap stays at 0.25.
+  // Mandatory research deploys must not relax live risk: the adoption
+  // maxPositionSize cap stays at 0.25.
   assert.match(changelog, /maxPositionSize` at 0\.25/);
 });
 
