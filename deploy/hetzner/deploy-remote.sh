@@ -31,6 +31,8 @@ set -euo pipefail
 #   TRADER_HETZNER_COMPOSE_FILE  Compose file relative to repo dir (default: deploy/hetzner/docker-compose.yml)
 #   TRADER_HETZNER_SSH_KEY_FILE  SSH identity file (optional; for CI)
 #   TRADER_HETZNER_KNOWN_HOSTS   known_hosts file (optional; for CI)
+#   TRADER_HETZNER_SSH_CONNECT_TIMEOUT  SSH ConnectTimeout seconds (default: 10)
+#   TRADER_HETZNER_SSH_CONNECTION_ATTEMPTS  SSH ConnectionAttempts count (default: 3)
 #   TRADER_HETZNER_SSH_EXTRA_OPTS Extra raw ssh options (optional)
 
 usage() {
@@ -53,11 +55,20 @@ repo_dir="${TRADER_HETZNER_REPO_DIR:-/opt/trader}"
 env_file="${TRADER_HETZNER_ENV_FILE:-deploy/hetzner/trader.env}"
 managed_env_file="${TRADER_HETZNER_MANAGED_ENV_FILE:-}"
 compose_file="${TRADER_HETZNER_COMPOSE_FILE:-deploy/hetzner/docker-compose.yml}"
+ssh_connect_timeout="${TRADER_HETZNER_SSH_CONNECT_TIMEOUT:-10}"
+ssh_connection_attempts="${TRADER_HETZNER_SSH_CONNECTION_ATTEMPTS:-3}"
 
 # Keepalives: the remote `docker compose ... --build` step compiles the full
 # Haskell tree and can sit minutes without output; without these the session
 # dies with "Broken pipe" (observed on the research box, 2026-06-11).
-ssh_opts=(-p "$ssh_port" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20)
+ssh_opts=(
+  -p "$ssh_port"
+  -o BatchMode=yes
+  -o "ConnectTimeout=${ssh_connect_timeout}"
+  -o "ConnectionAttempts=${ssh_connection_attempts}"
+  -o ServerAliveInterval=30
+  -o ServerAliveCountMax=20
+)
 if [[ -n "${TRADER_HETZNER_SSH_KEY_FILE:-}" ]]; then
   ssh_opts+=(-i "$TRADER_HETZNER_SSH_KEY_FILE" -o IdentitiesOnly=yes)
 fi

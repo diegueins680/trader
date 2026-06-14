@@ -1071,6 +1071,26 @@ test("CI Fly deploy skips external billing blockers", async () => {
   assert.match(workflow, /Skipping \$\{label\} deploy for this run/);
 });
 
+test("Hetzner deploy retries SSH failures and treats research reachability as optional", async () => {
+  const workflow = await fs.readFile(new URL("../.github/workflows/deploy-hetzner.yml", import.meta.url), "utf8");
+  const deployScript = await fs.readFile(new URL("../deploy/hetzner/deploy-remote.sh", import.meta.url), "utf8");
+
+  assert.match(workflow, /HETZNER_RESEARCH_REQUIRED:\s+\$\{\{\s*vars\.HETZNER_RESEARCH_REQUIRED\s*\}\}/);
+  assert.match(workflow, /is_transient_ssh_failure\(\)/);
+  assert.match(workflow, /for attempt in 1 2 3; do/);
+  assert.match(workflow, /Transient \$\{ROLE\} Hetzner SSH failure on attempt \$\{attempt\}; retrying\./);
+  assert.match(
+    workflow,
+    /if \[\[ "\$ROLE" == "research" && "\$research_required" == "false" \]\] && is_transient_ssh_failure "\$deploy_log"; then/,
+  );
+  assert.match(workflow, /Research Hetzner host is unreachable after \$\{last_attempt\} attempts; skipping research deploy for this run\./);
+  assert.match(workflow, /Hetzner \$\{ROLE\} deploy failed after \$\{last_attempt\} attempt\(s\)\./);
+
+  assert.match(deployScript, /TRADER_HETZNER_SSH_CONNECT_TIMEOUT/);
+  assert.match(deployScript, /-o "ConnectTimeout=\$\{ssh_connect_timeout\}"/);
+  assert.match(deployScript, /-o "ConnectionAttempts=\$\{ssh_connection_attempts\}"/);
+});
+
 test("repo root package exposes the autoloop verifier script", async () => {
   const pkgRaw = await fs.readFile(new URL("../package.json", import.meta.url), "utf8");
   const pkg = JSON.parse(pkgRaw);

@@ -68,10 +68,17 @@ jobs:
           HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
           HETZNER_REPO_DIR: ${{ secrets.HETZNER_REPO_DIR }}
           HETZNER_ENV_FILE: ${{ secrets.HETZNER_ENV_FILE }}
+          # Optional: set repository/org variable HETZNER_RESEARCH_REQUIRED=true
+          # if the research box should fail this deploy when it is unreachable.
+          HETZNER_RESEARCH_REQUIRED: ${{ vars.HETZNER_RESEARCH_REQUIRED }}
           ROLE: ${{ matrix.role }}
           TRADER_GIT_COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+
+          is_transient_ssh_failure() {
+            grep -qiE "(ssh: connect to host .* (Connection timed out|Operation timed out|Connection refused|No route to host)|Connection timed out|Operation timed out|Connection refused|No route to host|Could not resolve hostname|Temporary failure in name resolution)" "$1"
+          }
 
           case "$ROLE" in
             trading)
@@ -93,7 +100,8 @@ jobs:
 
           key_file="$(mktemp)"
           known_hosts="$(mktemp)"
-          trap 'rm -f "$key_file" "$known_hosts"' EXIT
+          deploy_log="$(mktemp)"
+          trap 'rm -f "$key_file" "$known_hosts" "$deploy_log"' EXIT
 
           printf '%s\n' "$HETZNER_SSH_KEY" > "$key_file"
           chmod 600 "$key_file"
@@ -115,6 +123,42 @@ jobs:
           export TRADER_HETZNER_MANAGED_ENV_FILE="deploy/hetzner/trader.${ROLE}.env.managed"
           export TRADER_HETZNER_SSH_KEY_FILE="$key_file"
           export TRADER_HETZNER_KNOWN_HOSTS="$known_hosts"
+          export TRADER_HETZNER_SSH_CONNECT_TIMEOUT="${HETZNER_SSH_CONNECT_TIMEOUT:-10}"
+          export TRADER_HETZNER_SSH_CONNECTION_ATTEMPTS="${HETZNER_SSH_CONNECTION_ATTEMPTS:-3}"
           export TRADER_GIT_COMMIT
 
-          bash deploy/hetzner/deploy-remote.sh "$host"
+          research_required=false
+          case "${HETZNER_RESEARCH_REQUIRED:-false}" in
+            1|true|TRUE|yes|YES) research_required=true ;;
+          esac
+
+          deploy_status=0
+          last_attempt=0
+          for attempt in 1 2 3; do
+            last_attempt="$attempt"
+            : > "$deploy_log"
+            set +e
+            bash deploy/hetzner/deploy-remote.sh "$host" 2>&1 | tee "$deploy_log"
+            deploy_status=${PIPESTATUS[0]}
+            set -e
+
+            if [[ "$deploy_status" -eq 0 ]]; then
+              exit 0
+            fi
+
+            if is_transient_ssh_failure "$deploy_log" && [[ "$attempt" -lt 3 ]]; then
+              echo "::warning::Transient ${ROLE} Hetzner SSH failure on attempt ${attempt}; retrying."
+              sleep "$((attempt * 10))"
+              continue
+            fi
+
+            break
+          done
+
+          if [[ "$ROLE" == "research" && "$research_required" == "false" ]] && is_transient_ssh_failure "$deploy_log"; then
+            echo "::warning::Research Hetzner host is unreachable after ${last_attempt} attempts; skipping research deploy for this run."
+            exit 0
+          fi
+
+          echo "::error::Hetzner ${ROLE} deploy failed after ${last_attempt} attempt(s)."
+          exit "$deploy_status"
