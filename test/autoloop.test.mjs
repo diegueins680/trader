@@ -1086,9 +1086,24 @@ test("Hetzner deploy retries SSH failures and treats research reachability as op
   assert.match(workflow, /Research Hetzner host is unreachable after \$\{last_attempt\} attempts; skipping research deploy for this run\./);
   assert.match(workflow, /Hetzner \$\{ROLE\} deploy failed after \$\{last_attempt\} attempt\(s\)\./);
 
-  assert.match(deployScript, /TRADER_HETZNER_SSH_CONNECT_TIMEOUT/);
+    assert.match(deployScript, /TRADER_HETZNER_SSH_CONNECT_TIMEOUT/);
   assert.match(deployScript, /-o "ConnectTimeout=\$\{ssh_connect_timeout\}"/);
   assert.match(deployScript, /-o "ConnectionAttempts=\$\{ssh_connection_attempts\}"/);
+});
+
+test("docs pin the optional-research Hetzner deploy contract without relaxing the mandatory trading box", async () => {
+  const readme = await fs.readFile(new URL("../README.md", import.meta.url), "utf8");
+  const changelog = await fs.readFile(new URL("../CHANGELOG.md", import.meta.url), "utf8");
+
+  // The trading box must stay a hard failure while research is optional by default.
+  assert.match(readme, /trading box remains mandatory/);
+  assert.match(readme, /HETZNER_RESEARCH_REQUIRED=true/);
+  assert.match(changelog, /Trading deploy failures remain hard failures/);
+  assert.match(changelog, /HETZNER_RESEARCH_REQUIRED=true/);
+
+  // The optional research producer must never be documented as relaxing live
+  // risk: the adoption maxPositionSize cap stays at 0.25.
+  assert.match(changelog, /maxPositionSize` at 0\.25/);
 });
 
 test("repo root package exposes the autoloop verifier script", async () => {
