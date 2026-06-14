@@ -85,7 +85,7 @@ import Text.Printf (printf)
 import Text.Read (readMaybe)
 
 import Trader.BinanceIntervals (binanceIntervalsCsv)
-import Trader.CostCalibration (venueSlippageFloor, venueSpreadFloor, venueTakerFeeFloor)
+import Trader.CostCalibration (venueMinEdgeFloor, venueSlippageFloor, venueSpreadFloor, venueTakerFeeFloor)
 import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom)
 import Trader.Formal.CloseTiming (
     ComboCloseTimingReport (..),
@@ -2787,7 +2787,12 @@ sampleParams
                         let (sample, rng') = uncurry nextIntRange maxHoldBarsRange rng10
                          in if sample > 0 then (Just sample, rng') else (Nothing, rng')
                     else (Nothing, rng10)
-            (minEdge, rng12) = uncurry nextUniform minEdgeRange rng11
+            -- Clamp the sampled minEdge at the venue cost floor: a trial whose
+            -- entry threshold sits below 1.5x round-trip cost is
+            -- guaranteed-negative-expectancy on the real venue, so promoting
+            -- it to the topboard only pollutes the live fleet.
+            (minEdgeRaw, rng12) = uncurry nextUniform minEdgeRange rng11
+            minEdge = max venueMinEdgeFloor minEdgeRaw
             (minSignalToNoise, rng13) =
                 let (lo, hi) = ordered minSignalToNoiseRange
                  in nextUniform lo hi rng12
@@ -4247,88 +4252,97 @@ runOptimizer args0 = do
                                                                                                 roundTrips = metricInt (trMetrics tr0) "roundTrips" 0
                                                                                                 tradeCount = metricInt (trMetrics tr0) "tradeCount" 0
                                                                                                 activityCount = max roundTrips tradeCount
+                                                                                                -- Cost-floor gate: a trial whose minEdge sits below the
+                                                                                                -- venue round-trip cost (with 1.5x safety) cannot have
+                                                                                                -- positive live expectancy regardless of how good the
+                                                                                                -- backtest looks. Reject before scoring so the
+                                                                                                -- leaderboard never carries such combos.
+                                                                                                minEdgeOk = tpMinEdge params >= venueMinEdgeFloor
                                                                                              in if not openThresholdDeployable
                                                                                                     then (False, Just (printf "openThreshold>%.6f" signalEntryOpenThresholdFeasibilityCap), Nothing)
                                                                                                     else
-                                                                                                        if minRoundTrips > 0 && activityCount < minRoundTrips
-                                                                                                            then (False, Just ("activityCount<" ++ show minRoundTrips), Nothing)
+                                                                                                        if not minEdgeOk
+                                                                                                            then (False, Just (printf "minEdge<%.6f(costFloor)" venueMinEdgeFloor), Nothing)
                                                                                                             else
-                                                                                                                let winRate = metricFloat (trMetrics tr0) "winRate" 0
-                                                                                                                 in if minWinRate > 0 && winRate < minWinRate
-                                                                                                                        then (False, Just (printf "winRate<%.3f" minWinRate), Nothing)
-                                                                                                                        else
-                                                                                                                            let profitFactor = metricProfitFactor (trMetrics tr0)
-                                                                                                                                pfOk =
-                                                                                                                                    case profitFactor of
-                                                                                                                                        Nothing -> True
-                                                                                                                                        Just pf -> pf >= minProfitFactor
-                                                                                                                             in if minProfitFactor > 0 && not pfOk
-                                                                                                                                    then (False, Just (printf "profitFactor<%.3f" minProfitFactor), Nothing)
-                                                                                                                                    else
-                                                                                                                                        let exposure = metricFloat (trMetrics tr0) "exposure" 0
-                                                                                                                                         in if minExposure > 0 && exposure < minExposure
-                                                                                                                                                then (False, Just (printf "exposure<%.3f" minExposure), Nothing)
-                                                                                                                                                else case kellyLiteExposureFilterReason
-                                                                                                                                                    params
-                                                                                                                                                    (trStdoutJson tr0)
-                                                                                                                                                    minKellyLiteExposureReduction
-                                                                                                                                                    maxKellyLiteExposureRatio of
-                                                                                                                                                    Just reason -> (False, Just reason, Nothing)
-                                                                                                                                                    Nothing ->
-                                                                                                                                                        let sharpe = metricFloat (trMetrics tr0) "sharpe" 0
-                                                                                                                                                         in if minSharpe > 0 && sharpe < minSharpe
-                                                                                                                                                                then (False, Just (printf "sharpe<%.3f" minSharpe), Nothing)
-                                                                                                                                                                else
-                                                                                                                                                                    let annRet = metricFloat (trMetrics tr0) "annualizedReturn" 0
-                                                                                                                                                                        maxDd = metricFloat (trMetrics tr0) "maxDrawdown" 0
-                                                                                                                                                                        maxDdN = max 0 maxDd
-                                                                                                                                                                        calmar =
-                                                                                                                                                                            if maxDdN <= 0
-                                                                                                                                                                                then annRet
-                                                                                                                                                                                else annRet / max 1e-12 maxDdN
-                                                                                                                                                                     in if minAnnualizedReturn > 0 && annRet < minAnnualizedReturn
-                                                                                                                                                                            then (False, Just (printf "annualizedReturn<%.3f" minAnnualizedReturn), Nothing)
-                                                                                                                                                                            else
-                                                                                                                                                                                if minCalmar > 0 && calmar < minCalmar
-                                                                                                                                                                                    then (False, Just (printf "calmar<%.3f" minCalmar), Nothing)
+                                                                                                                if minRoundTrips > 0 && activityCount < minRoundTrips
+                                                                                                                    then (False, Just ("activityCount<" ++ show minRoundTrips), Nothing)
+                                                                                                                    else
+                                                                                                                        let winRate = metricFloat (trMetrics tr0) "winRate" 0
+                                                                                                                         in if minWinRate > 0 && winRate < minWinRate
+                                                                                                                                then (False, Just (printf "winRate<%.3f" minWinRate), Nothing)
+                                                                                                                                else
+                                                                                                                                    let profitFactor = metricProfitFactor (trMetrics tr0)
+                                                                                                                                        pfOk =
+                                                                                                                                            case profitFactor of
+                                                                                                                                                Nothing -> True
+                                                                                                                                                Just pf -> pf >= minProfitFactor
+                                                                                                                                     in if minProfitFactor > 0 && not pfOk
+                                                                                                                                            then (False, Just (printf "profitFactor<%.3f" minProfitFactor), Nothing)
+                                                                                                                                            else
+                                                                                                                                                let exposure = metricFloat (trMetrics tr0) "exposure" 0
+                                                                                                                                                 in if minExposure > 0 && exposure < minExposure
+                                                                                                                                                        then (False, Just (printf "exposure<%.3f" minExposure), Nothing)
+                                                                                                                                                        else case kellyLiteExposureFilterReason
+                                                                                                                                                            params
+                                                                                                                                                            (trStdoutJson tr0)
+                                                                                                                                                            minKellyLiteExposureReduction
+                                                                                                                                                            maxKellyLiteExposureRatio of
+                                                                                                                                                            Just reason -> (False, Just reason, Nothing)
+                                                                                                                                                            Nothing ->
+                                                                                                                                                                let sharpe = metricFloat (trMetrics tr0) "sharpe" 0
+                                                                                                                                                                 in if minSharpe > 0 && sharpe < minSharpe
+                                                                                                                                                                        then (False, Just (printf "sharpe<%.3f" minSharpe), Nothing)
+                                                                                                                                                                        else
+                                                                                                                                                                            let annRet = metricFloat (trMetrics tr0) "annualizedReturn" 0
+                                                                                                                                                                                maxDd = metricFloat (trMetrics tr0) "maxDrawdown" 0
+                                                                                                                                                                                maxDdN = max 0 maxDd
+                                                                                                                                                                                calmar =
+                                                                                                                                                                                    if maxDdN <= 0
+                                                                                                                                                                                        then annRet
+                                                                                                                                                                                        else annRet / max 1e-12 maxDdN
+                                                                                                                                                                             in if minAnnualizedReturn > 0 && annRet < minAnnualizedReturn
+                                                                                                                                                                                    then (False, Just (printf "annualizedReturn<%.3f" minAnnualizedReturn), Nothing)
                                                                                                                                                                                     else
-                                                                                                                                                                                        let turnover = metricFloat (trMetrics tr0) "turnover" 0
-                                                                                                                                                                                         in if maxTurnover > 0 && turnover > maxTurnover
-                                                                                                                                                                                                then (False, Just (printf "turnover>%.3f" maxTurnover), Nothing)
-                                                                                                                                                                                                else
-                                                                                                                                                                                                    if minWfSharpeMean > 0 || maxWfSharpeStd > 0
-                                                                                                                                                                                                        then case extractWalkForwardSummary (trStdoutJson tr0) of
-                                                                                                                                                                                                            Nothing -> (False, Just "walkForwardMissing", Nothing)
-                                                                                                                                                                                                            Just wfSummary ->
-                                                                                                                                                                                                                let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
-                                                                                                                                                                                                                    wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
-                                                                                                                                                                                                                 in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
-                                                                                                                                                                                                                        then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
-                                                                                                                                                                                                                        else
-                                                                                                                                                                                                                            if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
-                                                                                                                                                                                                                                then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
-                                                                                                                                                                                                                                else
-                                                                                                                                                                                                                                    ( True
-                                                                                                                                                                                                                                    , Nothing
-                                                                                                                                                                                                                                    , Just
-                                                                                                                                                                                                                                        ( objectiveScore
-                                                                                                                                                                                                                                            metrics
-                                                                                                                                                                                                                                            objective
-                                                                                                                                                                                                                                            (oaPenaltyMaxDrawdown args)
-                                                                                                                                                                                                                                            (oaPenaltyTurnover args)
-                                                                                                                                                                                                                                        )
-                                                                                                                                                                                                                                    )
+                                                                                                                                                                                        if minCalmar > 0 && calmar < minCalmar
+                                                                                                                                                                                            then (False, Just (printf "calmar<%.3f" minCalmar), Nothing)
+                                                                                                                                                                                            else
+                                                                                                                                                                                                let turnover = metricFloat (trMetrics tr0) "turnover" 0
+                                                                                                                                                                                                 in if maxTurnover > 0 && turnover > maxTurnover
+                                                                                                                                                                                                        then (False, Just (printf "turnover>%.3f" maxTurnover), Nothing)
                                                                                                                                                                                                         else
-                                                                                                                                                                                                            ( True
-                                                                                                                                                                                                            , Nothing
-                                                                                                                                                                                                            , Just
-                                                                                                                                                                                                                ( objectiveScore
-                                                                                                                                                                                                                    metrics
-                                                                                                                                                                                                                    objective
-                                                                                                                                                                                                                    (oaPenaltyMaxDrawdown args)
-                                                                                                                                                                                                                    (oaPenaltyTurnover args)
-                                                                                                                                                                                                                )
-                                                                                                                                                                                                            )
+                                                                                                                                                                                                            if minWfSharpeMean > 0 || maxWfSharpeStd > 0
+                                                                                                                                                                                                                then case extractWalkForwardSummary (trStdoutJson tr0) of
+                                                                                                                                                                                                                    Nothing -> (False, Just "walkForwardMissing", Nothing)
+                                                                                                                                                                                                                    Just wfSummary ->
+                                                                                                                                                                                                                        let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
+                                                                                                                                                                                                                            wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
+                                                                                                                                                                                                                         in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
+                                                                                                                                                                                                                                then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
+                                                                                                                                                                                                                                else
+                                                                                                                                                                                                                                    if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
+                                                                                                                                                                                                                                        then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
+                                                                                                                                                                                                                                        else
+                                                                                                                                                                                                                                            ( True
+                                                                                                                                                                                                                                            , Nothing
+                                                                                                                                                                                                                                            , Just
+                                                                                                                                                                                                                                                ( objectiveScore
+                                                                                                                                                                                                                                                    metrics
+                                                                                                                                                                                                                                                    objective
+                                                                                                                                                                                                                                                    (oaPenaltyMaxDrawdown args)
+                                                                                                                                                                                                                                                    (oaPenaltyTurnover args)
+                                                                                                                                                                                                                                                )
+                                                                                                                                                                                                                                            )
+                                                                                                                                                                                                                else
+                                                                                                                                                                                                                    ( True
+                                                                                                                                                                                                                    , Nothing
+                                                                                                                                                                                                                    , Just
+                                                                                                                                                                                                                        ( objectiveScore
+                                                                                                                                                                                                                            metrics
+                                                                                                                                                                                                                            objective
+                                                                                                                                                                                                                            (oaPenaltyMaxDrawdown args)
+                                                                                                                                                                                                                            (oaPenaltyTurnover args)
+                                                                                                                                                                                                                        )
+                                                                                                                                                                                                                    )
                                                                                         _ -> (False, Nothing, Nothing)
                                                                                 tr =
                                                                                     tr0

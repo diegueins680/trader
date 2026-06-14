@@ -154,8 +154,10 @@ optimizerArgsParser =
         <*> option auto (long "cooldown-bars-max" <> value 3 <> metavar "INT")
         <*> option auto (long "max-hold-bars-min" <> value 24 <> metavar "INT")
         <*> option auto (long "max-hold-bars-max" <> value 72 <> metavar "INT")
-        <*> option auto (long "min-edge-min" <> value 0.0002 <> metavar "FLOAT")
-        <*> option auto (long "min-edge-max" <> value 0.001 <> metavar "FLOAT")
+        -- Defaults must clear `venueMinEdgeFloor` (1.5x the venue round-trip
+        -- cost). Sampling below it produces negative-expectancy combos.
+        <*> option auto (long "min-edge-min" <> value 0.002 <> metavar "FLOAT")
+        <*> option auto (long "min-edge-max" <> value 0.006 <> metavar "FLOAT")
         <*> option auto (long "min-signal-to-noise-min" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "min-signal-to-noise-max" <> value 1.2 <> metavar "FLOAT")
         <*> option auto (long "snr-size-weight-min" <> value 1.0 <> metavar "FLOAT")

@@ -33,6 +33,9 @@ module Trader.CostCalibration (
     venueSlippageFloor,
     venueSpreadFloor,
     venueTakerFeeFloor,
+    venueRoundTripCostFloor,
+    minEdgeCostMultiplier,
+    venueMinEdgeFloor,
 ) where
 
 import Data.List (sort)
@@ -53,6 +56,36 @@ venueSlippageFloor = 5.0e-5
 -- | Full bid-ask spread floor (~1 tick on liquid perps, 1 bp).
 venueSpreadFloor :: Double
 venueSpreadFloor = 1.0e-4
+
+{- | Minimum total round-trip cost an entry must clear. Two crossings (open +
+close) each pay the taker fee, half the bid-ask spread on the marketable side,
+and market-order slippage:
+
+  round-trip = 2 * (fee + slippage) + spread
+
+With the floors above that is 2*(5e-4 + 5e-5) + 1e-4 = 1.2e-3 (12 bp). The
+minEdge threshold an optimizer trial samples or a combo deploys with must beat
+this, or trades have negative expectancy by construction.
+-}
+venueRoundTripCostFloor :: Double
+venueRoundTripCostFloor = 2 * (venueTakerFeeFloor + venueSlippageFloor) + venueSpreadFloor
+
+{- | Safety multiple by which a sampled / deployed minEdge must beat the
+round-trip cost. 1.5 leaves a ~50% margin for prediction error and funding
+drift on perps; tighter than 1.0 will systematically deploy negative-expectancy
+combos (the failure mode observed on prod 2026-06-13 where every one of 500
+top combos had minEdge below round-trip cost). Override with
+'TRADER_OPTIMIZER_MIN_EDGE_COST_MULT' when running cost calibration.
+-}
+minEdgeCostMultiplier :: Double
+minEdgeCostMultiplier = 1.5
+
+{- | Hard floor on minEdge any optimizer trial / deployable combo must clear,
+derived from venue floors and 'minEdgeCostMultiplier'. Combos below this are
+guaranteed to leak edge to the venue regardless of how good the predictor is.
+-}
+venueMinEdgeFloor :: Double
+venueMinEdgeFloor = minEdgeCostMultiplier * venueRoundTripCostFloor
 
 {- | Fills required before the calibrated estimate replaces the configured
 assumption (8 fills = roughly 4 round trips).

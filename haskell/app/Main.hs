@@ -249,6 +249,8 @@ import Trader.CostCalibration (
     costCalibrationMinObservations,
     costCalibrationWindow,
     observedSlippageFraction,
+    venueMinEdgeFloor,
+    venueRoundTripCostFloor,
     venueSlippageFloor,
     venueSpreadFloor,
     venueTakerFeeFloor,
@@ -7219,7 +7221,11 @@ selectCompatibleTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequi
 selectCompatibleTopComboArgs limits sym args req export =
     let combos =
             filter
-                (\c -> topComboMatchesSymbol sym Nothing c && not (topComboLiveQuarantined c))
+                ( \c ->
+                    topComboMatchesSymbol sym Nothing c
+                        && not (topComboLiveQuarantined c)
+                        && not (topComboMinEdgeBelowCostFloor c)
+                )
                 (tceCombos export)
         sortedCombos = sortOn topComboTradePriorityKey combos
         pick [] = Nothing
@@ -7647,6 +7653,7 @@ topCombosTopTargets disabledSymbols topN export =
             [ (normalizeSymbol sym, combo)
             | combo <- sorted
             , not (topComboLiveQuarantined combo)
+            , not (topComboMinEdgeBelowCostFloor combo)
             , Just sym <- [topComboSymbol combo]
             , not (null sym)
             , not (botStartSymbolDisabled disabledSymbols sym)
@@ -10431,10 +10438,15 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     , "8"
                                                                                     , "--max-hold-bars-max"
                                                                                     , "48"
-                                                                                    , "--min-edge-min"
-                                                                                    , "0"
+                                                                                    , -- Discovery-recovery min-edge range must clear the venue
+                                                                                    -- round-trip cost. Below it every sampled combo is
+                                                                                    -- guaranteed-negative-expectancy (the 2026-06-13 prod
+                                                                                    -- regression where all 500 top combos sat below 12 bp
+                                                                                    -- round-trip cost). venueMinEdgeFloor = 1.8e-3.
+                                                                                      "--min-edge-min"
+                                                                                    , show venueMinEdgeFloor
                                                                                     , "--min-edge-max"
-                                                                                    , "0.0005"
+                                                                                    , show (max (venueMinEdgeFloor * 3) 6.0e-3)
                                                                                     , "--min-signal-to-noise-min"
                                                                                     , "0"
                                                                                     , "--min-signal-to-noise-max"
@@ -16038,6 +16050,21 @@ topComboLiveStats combo = tcMetrics combo >>= comboLiveStatsFromObject
 
 topComboLiveQuarantined :: TopCombo -> Bool
 topComboLiveQuarantined combo = maybe False liveStatsQuarantined (topComboLiveStats combo)
+
+{- | True when the combo's stored 'minEdge' parameter sits below the venue
+round-trip cost floor (1.5x of fee+slippage+spread*2). Such combos are
+guaranteed to leak edge to the exchange regardless of how good the predictor
+looks in backtest, so we treat them like quarantined combos: never adopt for
+live trading. Closes the failure mode found on 2026-06-13 where every one of
+500 prod top combos sat below the floor.
+-}
+topComboMinEdgeBelowCostFloor :: TopCombo -> Bool
+topComboMinEdgeBelowCostFloor combo =
+    let mMinEdge :: Maybe Double
+        mMinEdge = KM.lookup (AK.fromString "minEdge") (tcParams combo) >>= AT.parseMaybe parseJSON
+     in case mMinEdge of
+            Just me -> me < venueMinEdgeFloor
+            Nothing -> False
 
 {- | Backtest annualized return blended with realized live performance;
 quarantined combos rank as -inf so they sink everywhere.

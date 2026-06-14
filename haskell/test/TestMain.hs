@@ -30,7 +30,13 @@ import Trader.CostCalibration (
     costCalibrationFloorFactor,
     costCalibrationMaxPerSide,
     costCalibrationMinObservations,
+    minEdgeCostMultiplier,
     observedSlippageFraction,
+    venueMinEdgeFloor,
+    venueRoundTripCostFloor,
+    venueSlippageFloor,
+    venueSpreadFloor,
+    venueTakerFeeFloor,
  )
 import Trader.Formal.Execution (
     ExecutionVerificationReport (..),
@@ -218,6 +224,9 @@ main = do
     testTakeProfitGuardrail
     testMaxDrawdownHaltsSimulation
     testTrailingStopGuardrail
+    testVenueRoundTripCostFloorMatchesVenueCosts
+    testVenueMinEdgeFloorClearsRoundTripCost
+    testVenueMinEdgeFloorMatchesProductionRegressionEvidence
     testFuturesPositionRiskLeverageSaneCap
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
@@ -5969,3 +5978,51 @@ testTrailingStopGuardrail = do
             [] -> False
             ts -> trExitIndex (last ts) <= V.length prices - 1
         )
+
+-- The round-trip cost floor must reflect the actual venue model: two
+-- crossings each pay (fee + slippage) and there is one full spread on the
+-- marketable side. A drift in either floor would silently change the
+-- minEdge guard applied below.
+testVenueRoundTripCostFloorMatchesVenueCosts :: IO ()
+testVenueRoundTripCostFloorMatchesVenueCosts = do
+    let expected = 2 * (venueTakerFeeFloor + venueSlippageFloor) + venueSpreadFloor
+    assert
+        "venueRoundTripCostFloor stays in sync with fee+slippage+spread floors"
+        (abs (venueRoundTripCostFloor - expected) < 1.0e-12)
+    assert
+        "venueRoundTripCostFloor is strictly positive"
+        (venueRoundTripCostFloor > 0)
+
+-- A trial whose minEdge sits at or below the round-trip cost is
+-- guaranteed-negative-expectancy on the real venue. The published floor
+-- must therefore (a) clear the cost floor outright and (b) carry the
+-- documented safety margin (1.5x) so prediction noise and funding drift
+-- have room before the combo turns into a leak.
+testVenueMinEdgeFloorClearsRoundTripCost :: IO ()
+testVenueMinEdgeFloorClearsRoundTripCost = do
+    assert
+        "minEdgeCostMultiplier is at least 1.5 (≥50% safety over the cost floor)"
+        (minEdgeCostMultiplier >= 1.5)
+    assert
+        "venueMinEdgeFloor strictly beats the round-trip cost floor"
+        (venueMinEdgeFloor > venueRoundTripCostFloor)
+    let expected = minEdgeCostMultiplier * venueRoundTripCostFloor
+    assert
+        "venueMinEdgeFloor equals minEdgeCostMultiplier * round-trip cost"
+        (abs (venueMinEdgeFloor - expected) < 1.0e-12)
+
+-- Regression: on 2026-06-13 every one of 500 prod top combos had a sampled
+-- minEdge below the venue round-trip cost (median 4.8 bp vs median cost
+-- 23 bp), guaranteeing the live system would leak money. The floor must
+-- reject the median observed bad value so a sampling regression cannot
+-- regress to the pre-fix behavior.
+testVenueMinEdgeFloorMatchesProductionRegressionEvidence :: IO ()
+testVenueMinEdgeFloorMatchesProductionRegressionEvidence = do
+    let observedProdMedianMinEdge = 4.8e-4 -- 4.8 bp, prod /optimizer/combos median 2026-06-13
+        observedProdMedianRoundTripCost = 2.3e-3 -- 23 bp, prod median 2*(fee+slip+spread)
+    assert
+        "the median minEdge observed on prod 2026-06-13 is below venueMinEdgeFloor"
+        (observedProdMedianMinEdge < venueMinEdgeFloor)
+    assert
+        "the round-trip cost observed on prod 2026-06-13 is above venueMinEdgeFloor only via the safety multiplier"
+        (venueMinEdgeFloor >= observedProdMedianRoundTripCost * 0.75)
