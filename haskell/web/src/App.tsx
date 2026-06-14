@@ -6626,6 +6626,82 @@ export function App() {
       .filter(isOpenBinancePosition)
       .sort((a, b) => a.symbol.localeCompare(b.symbol));
   }, [binancePositionsUi.response?.positions]);
+  const binancePositionsDigest = useMemo(() => {
+    let totalPnl = 0;
+    let totalNotional = 0;
+    let longNotional = 0;
+    let shortNotional = 0;
+    let leverageNotional = 0;
+    let weightedLeverage = 0;
+    let estimatedMargin = 0;
+    let longCount = 0;
+    let shortCount = 0;
+    let winners = 0;
+    let losers = 0;
+    let flatPnl = 0;
+    let nearestLiq: { symbol: string; distancePct: number } | null = null;
+    let largest: { symbol: string; notional: number; side: string } | null = null;
+
+    for (const pos of binancePositionsList) {
+      const sideInfo = positionSideInfo(pos.positionAmt, pos.positionSide);
+      const sideDir = sideInfo.dir;
+      const qty = Math.abs(pos.positionAmt);
+      const mark = isFiniteNumber(pos.markPrice) && pos.markPrice > 0 ? pos.markPrice : null;
+      const entry = isFiniteNumber(pos.entryPrice) && pos.entryPrice > 0 ? pos.entryPrice : null;
+      const priceForNotional = mark ?? entry;
+      const notional = priceForNotional !== null && Number.isFinite(qty) ? qty * priceForNotional : 0;
+      const pnl = isFiniteNumber(pos.unrealizedPnl) ? pos.unrealizedPnl : 0;
+
+      totalPnl += pnl;
+      totalNotional += notional;
+      if (pnl > 0) winners += 1;
+      else if (pnl < 0) losers += 1;
+      else flatPnl += 1;
+
+      if (sideDir > 0) {
+        longCount += 1;
+        longNotional += notional;
+      } else if (sideDir < 0) {
+        shortCount += 1;
+        shortNotional += notional;
+      }
+
+      if (isFiniteNumber(pos.leverage) && pos.leverage > 0 && notional > 0) {
+        weightedLeverage += notional * pos.leverage;
+        leverageNotional += notional;
+        estimatedMargin += notional / pos.leverage;
+      }
+
+      if (mark !== null && isFiniteNumber(pos.liquidationPrice) && pos.liquidationPrice > 0 && sideDir !== 0) {
+        const rawDistance = sideDir > 0 ? (mark - pos.liquidationPrice) / mark : (pos.liquidationPrice - mark) / mark;
+        if (Number.isFinite(rawDistance) && rawDistance >= 0 && (!nearestLiq || rawDistance < nearestLiq.distancePct)) {
+          nearestLiq = { symbol: pos.symbol, distancePct: rawDistance };
+        }
+      }
+
+      if (notional > 0 && (!largest || notional > largest.notional)) {
+        largest = { symbol: pos.symbol, notional, side: sideInfo.label };
+      }
+    }
+
+    return {
+      totalPnl,
+      totalNotional,
+      longNotional,
+      shortNotional,
+      netNotional: longNotional - shortNotional,
+      pnlPct: totalNotional > 0 ? totalPnl / totalNotional : null,
+      avgLeverage: leverageNotional > 0 ? weightedLeverage / leverageNotional : null,
+      estimatedMargin: estimatedMargin > 0 ? estimatedMargin : null,
+      longCount,
+      shortCount,
+      winners,
+      losers,
+      flatPnl,
+      nearestLiq,
+      largest,
+    };
+  }, [binancePositionsList]);
   const binancePositionsCharts = useMemo(() => {
     const charts = binancePositionsUi.response?.charts ?? [];
     const map = new Map<string, BinancePositionChart>();
@@ -10416,6 +10492,69 @@ export function App() {
                   <div className="hint">No open futures positions detected.</div>
                 ) : (
                   <div style={{ display: "grid", gap: 18 }}>
+                    <div className="summaryGrid">
+                      <div className="summaryItem">
+                        <div className="summaryLabel">Open PNL</div>
+                        <div className="summaryValue">
+                          <span className={`badge badgeStrong ${binancePositionsDigest.totalPnl >= 0 ? "badgeLong" : "badgeFlat"}`}>
+                            Total {fmtMoney(binancePositionsDigest.totalPnl, 4)}
+                          </span>
+                          <span className="badge">
+                            {binancePositionsDigest.pnlPct !== null ? fmtPct(binancePositionsDigest.pnlPct, 2) : "—"}
+                          </span>
+                          <span className="summaryMeta">
+                            Winners {binancePositionsDigest.winners} • Losers {binancePositionsDigest.losers}
+                            {binancePositionsDigest.flatPnl > 0 ? ` • Flat ${binancePositionsDigest.flatPnl}` : ""}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="summaryItem">
+                        <div className="summaryLabel">Exposure</div>
+                        <div className="summaryValue">
+                          <span className="badge badgeStrong">Notional {fmtMoney(binancePositionsDigest.totalNotional, 2)}</span>
+                          <span className={`badge ${binancePositionsDigest.netNotional >= 0 ? "badgeLong" : "badgeFlat"}`}>
+                            Net {fmtMoney(binancePositionsDigest.netNotional, 2)}
+                          </span>
+                          <span className="summaryMeta">
+                            Long {fmtMoney(binancePositionsDigest.longNotional, 2)} • Short {fmtMoney(binancePositionsDigest.shortNotional, 2)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="summaryItem">
+                        <div className="summaryLabel">Risk</div>
+                        <div className="summaryValue">
+                          <span className="badge badgeStrong">
+                            Avg lev {binancePositionsDigest.avgLeverage !== null ? `${fmtNum(binancePositionsDigest.avgLeverage, 2)}x` : "—"}
+                          </span>
+                          <span className="badge">
+                            Margin {binancePositionsDigest.estimatedMargin !== null ? fmtMoney(binancePositionsDigest.estimatedMargin, 2) : "—"}
+                          </span>
+                          <span className="summaryMeta">
+                            Nearest liq{" "}
+                            {binancePositionsDigest.nearestLiq
+                              ? `${binancePositionsDigest.nearestLiq.symbol} ${fmtPct(binancePositionsDigest.nearestLiq.distancePct, 2)}`
+                              : "—"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="summaryItem">
+                        <div className="summaryLabel">Composition</div>
+                        <div className="summaryValue">
+                          <span className="badge badgeStrong">{binancePositionsList.length} open</span>
+                          <span className="badge badgeLong">{binancePositionsDigest.longCount} long</span>
+                          <span className="badge badgeFlat">{binancePositionsDigest.shortCount} short</span>
+                          <span className="summaryMeta">
+                            Largest{" "}
+                            {binancePositionsDigest.largest
+                              ? `${binancePositionsDigest.largest.symbol} ${binancePositionsDigest.largest.side} ${fmtMoney(
+                                  binancePositionsDigest.largest.notional,
+                                  2,
+                                )}`
+                              : "—"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                     {binancePositionsList.map((pos) => {
                       const chart = binancePositionsCharts.get(pos.symbol);
                       const prices = chart?.prices ?? [];
