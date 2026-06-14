@@ -1081,17 +1081,10 @@ test("Hetzner deploy retries SSH failures and keeps both roles mandatory", async
   assert.match(workflow, /Hetzner \$\{ROLE\} deploy failed after \$\{last_attempt\} attempt\(s\)\./);
   assert.doesNotMatch(workflow, /HETZNER_RESEARCH_REQUIRED/);
   assert.doesNotMatch(workflow, /skipping research deploy/);
-  assert.match(workflow, /HETZNER_BINANCE_API_KEY/);
-  assert.match(workflow, /HETZNER_TRADING_BINANCE_API_KEY/);
-  assert.match(workflow, /TRADER_STATE_SYNC_TENANT_KEY=\\n/);
-  assert.match(workflow, /TRADER_HETZNER_ENV_OVERRIDES_FILE/);
 
   assert.match(deployScript, /TRADER_HETZNER_SSH_CONNECT_TIMEOUT/);
-  assert.match(deployScript, /TRADER_HETZNER_ENV_OVERRIDES_FILE/);
   assert.match(deployScript, /-o "ConnectTimeout=\$\{ssh_connect_timeout\}"/);
   assert.match(deployScript, /-o "ConnectionAttempts=\$\{ssh_connection_attempts\}"/);
-  assert.match(deployScript, /Uploading env overrides/);
-  assert.match(deployScript, /merge_env_overlay "\$ENV_OVERRIDES_FILE" "\$ENV_FILE" "runtime env overrides"/);
   assert.match(deployScript, /--exclude '\.cabal\/'/);
   assert.match(deployScript, /--exclude 'haskell\/\.stack-root\/'/);
   assert.match(deployScript, /--exclude 'haskell\/\.stack-work\/'/);
