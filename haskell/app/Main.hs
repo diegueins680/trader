@@ -215,6 +215,7 @@ import Trader.BotStartSemantics (
     botStartupBacktestVerdictWithMinTrades,
     botStartupGuardShouldPrune,
     botTradeEnabledFromApi,
+    capAdoptedMaxPositionSize,
     defaultBotStartupBacktestMinTrades,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
@@ -10246,9 +10247,17 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         minCalmar :: Double
                                         minCalmar = readNonNegativeDouble minCalmarEnv 0.2
                                         minWfSharpeMean :: Double
-                                        minWfSharpeMean = readNonNegativeDouble minWfSharpeMeanEnv 0
+                                        -- Walk-forward Sharpe gate: defaulted on. Trials whose mean
+                                        -- out-of-sample Sharpe across folds is below 0.3 are not stable
+                                        -- enough to deploy. Closes the 2026-06-13 failure mode where
+                                        -- final-equity-only ranking adopted combos that had positive ROI
+                                        -- on a single fold while losing on the rest.
+                                        minWfSharpeMean = readNonNegativeDouble minWfSharpeMeanEnv 0.3
                                         maxWfSharpeStd :: Double
-                                        maxWfSharpeStd = readNonNegativeDouble maxWfSharpeStdEnv 0
+                                        -- Walk-forward Sharpe stability cap. Trials whose Sharpe varies
+                                        -- by more than ~1.5 across folds are overfit to a single regime
+                                        -- and should not enter the live fleet.
+                                        maxWfSharpeStd = readNonNegativeDouble maxWfSharpeStdEnv 1.5
                                         epochsMax :: Int
                                         epochsMax = max 1 (readNonNegativeInt epochsMaxEnv 2)
                                         hiddenSizeMax :: Int
@@ -10489,11 +10498,11 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     , "8"
                                                                                     , "--max-hold-bars-max"
                                                                                     , "48"
-                                                                                    , -- Discovery-recovery min-edge range must clear the venue
-                                                                                    -- round-trip cost. Below it every sampled combo is
-                                                                                    -- guaranteed-negative-expectancy (the 2026-06-13 prod
-                                                                                    -- regression where all 500 top combos sat below 12 bp
-                                                                                    -- round-trip cost). venueMinEdgeFloor = 1.8e-3.
+                                                                                    , -- Discovery-recovery min-edge range must clear the venue round-trip
+                                                                                      -- cost. Below it every sampled combo is
+                                                                                      -- guaranteed-negative-expectancy (the 2026-06-13 prod regression
+                                                                                      -- where all 500 top combos sat below 12 bp round-trip cost).
+                                                                                      -- venueMinEdgeFloor = 1.8e-3.
                                                                                       "--min-edge-min"
                                                                                     , show venueMinEdgeFloor
                                                                                     , "--min-edge-max"
@@ -16233,7 +16242,17 @@ applyTopComboForStart base combo = do
             case barsOk of
                 Nothing -> args1
                 Just n -> args1{argBars = Just n}
-    pure (normalizeBarsForLookback args2)
+        -- Live-adoption safety cap: existing leaderboard combos can carry
+        -- maxPositionSize up to 1.0 from before the cost-floor guards. At
+        -- 10-20x perp leverage that is the cliff size from the 2026-06-13
+        -- incident. Clamp on adoption via 'capAdoptedMaxPositionSize' to
+        -- keep new exposure bounded until combos produced under the new
+        -- defaults take over.
+        args3 =
+            args2
+                { argMaxPositionSize = capAdoptedMaxPositionSize (argMaxPositionSize args2)
+                }
+    pure (normalizeBarsForLookback args3)
 
 applyTopComboForStartWithUuid :: Args -> TopCombo -> Either String (Args, Maybe Text)
 applyTopComboForStartWithUuid base combo = do

@@ -15,12 +15,37 @@ module Trader.BotStartSemantics (
     shouldClearPositionOriginOnStart,
     shouldPersistPositionOriginOnSwitch,
     shouldPreserveProvidedComboOnActiveAdopt,
+    adoptionMaxPositionSizeCap,
+    capAdoptedMaxPositionSize,
 ) where
 
 import Data.Char (isSpace, toUpper)
 import Data.Maybe (fromMaybe, isJust)
 
 import Trader.Text (dedupeStable)
+
+{- | Hard cap on the 'maxPositionSize' the bot will accept when adopting an
+existing top-combo for live trading. Legacy combos on the leaderboard can
+carry sizes up to 1.0 from before the cost-floor guards; combined with the
+10-20x perp leverage observed on prod (2026-06-13) that produces 18-36%
+account hits on a single 2% adverse move, which is the cliff shape of the
+incident equity curve. The optimizer's new defaults sample sizes in
+[0.15, 0.25]; this cap keeps adoption of pre-fix combos inside the same
+envelope so the live fleet de-risks as combos churn.
+-}
+adoptionMaxPositionSizeCap :: Double
+adoptionMaxPositionSizeCap = 0.25
+
+{- | Clamp a combo's 'maxPositionSize' into the safe live-adoption range
+@[0, 'adoptionMaxPositionSizeCap']@. Negative or non-finite inputs collapse
+to zero. Smaller-than-cap values are preserved so combos that already
+sample conservatively are not inflated.
+-}
+capAdoptedMaxPositionSize :: Double -> Double
+capAdoptedMaxPositionSize raw
+    | isNaN raw || isInfinite raw = 0
+    | raw < 0 = 0
+    | otherwise = min adoptionMaxPositionSizeCap raw
 
 botTradeEnabledFromApi :: Maybe Bool -> Bool
 botTradeEnabledFromApi = fromMaybe True

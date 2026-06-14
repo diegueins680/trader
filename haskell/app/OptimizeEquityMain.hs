@@ -238,8 +238,12 @@ optimizerArgsParser =
         <*> option auto (long "p-confidence-sizing" <> value 0.85 <> metavar "FLOAT")
         <*> option auto (long "min-position-size-min" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "min-position-size-max" <> value 0.3 <> metavar "FLOAT")
-        <*> option auto (long "max-position-size-min" <> value 0.6 <> metavar "FLOAT")
-        <*> option auto (long "max-position-size-max" <> value 0.9 <> metavar "FLOAT")
+        -- Position size caps must be modest until the system shows >=30 live
+        -- orders with positive expectancy under the new cost-floor guards. At
+        -- 10-20x leverage on perps a single 2% adverse move on a 0.9-sized
+        -- position is a 18-36% account hit (the 2026-06-13 cliff shape).
+        <*> option auto (long "max-position-size-min" <> value 0.15 <> metavar "FLOAT")
+        <*> option auto (long "max-position-size-max" <> value 0.25 <> metavar "FLOAT")
         <*> option auto (long "vol-target-min" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "vol-target-max" <> value 0.9 <> metavar "FLOAT")
         <*> option auto (long "p-disable-vol-target" <> value 0.2 <> metavar "FLOAT")

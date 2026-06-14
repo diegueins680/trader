@@ -23,7 +23,7 @@ import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPur
 import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
-import Trader.BotStartSemantics (BacktestVerdict (..), backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (BacktestVerdict (..), adoptionMaxPositionSizeCap, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.CapitalPreservation (CapitalPreservationConfig (..), CapitalPreservationReport (..), capitalPreservationIsEntryOnlyReason, capitalPreservationReport, defaultCapitalPreservationConfig)
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
 import Trader.CostCalibration (
@@ -228,6 +228,7 @@ main = do
     testVenueRoundTripCostFloorMatchesVenueCosts
     testVenueMinEdgeFloorClearsRoundTripCost
     testVenueMinEdgeFloorMatchesProductionRegressionEvidence
+    testCapAdoptedMaxPositionSizeBoundsLiveExposure
     testFuturesPositionRiskLeverageSaneCap
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
@@ -6050,3 +6051,29 @@ testVenueMinEdgeFloorMatchesProductionRegressionEvidence = do
     assert
         "the round-trip cost observed on prod 2026-06-13 is above venueMinEdgeFloor only via the safety multiplier"
         (venueMinEdgeFloor >= observedProdMedianRoundTripCost * 0.75)
+
+-- The adoption-time maxPositionSize cap must bound legacy combos into the
+-- new cost-floor-aware envelope. Inputs above the cap saturate at the cap;
+-- non-finite/negative inputs collapse to zero; safe values pass through.
+-- Closes the 2026-06-13 incident where adoption inherited maxPositionSize
+-- up to 1.0 at 10-20x leverage.
+testCapAdoptedMaxPositionSizeBoundsLiveExposure :: IO ()
+testCapAdoptedMaxPositionSizeBoundsLiveExposure = do
+    assert
+        "adoption cap is at most 0.25 (leaves headroom at 10-20x perp leverage)"
+        (adoptionMaxPositionSizeCap <= 0.25)
+    assert
+        "cap saturates inputs above the cap to the cap"
+        (capAdoptedMaxPositionSize 1.0 == adoptionMaxPositionSizeCap)
+    assert
+        "cap preserves inputs that are already below the cap"
+        (capAdoptedMaxPositionSize 0.10 == 0.10)
+    assert
+        "cap clamps negative inputs to zero"
+        (capAdoptedMaxPositionSize (negate 0.5) == 0)
+    assert
+        "cap collapses NaN to zero"
+        (capAdoptedMaxPositionSize (0 / 0) == 0)
+    assert
+        "cap collapses +Infinity to zero (non-finite is unsafe)"
+        (capAdoptedMaxPositionSize (1 / 0) == 0)
