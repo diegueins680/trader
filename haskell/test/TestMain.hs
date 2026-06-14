@@ -84,8 +84,11 @@ import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
 import Trader.Optimizer.Optimize (
+    OptimizerRecordsSummary (..),
+    emptyOptimizerRecordsSummary,
     kellyLiteExposureContractReason,
     optimizerOptionPresent,
+    optimizerRecordsShouldRetryDiscovery,
     qualityPresetBudget,
     qualityPresetCeiling,
     qualityPresetWeightFloor,
@@ -363,6 +366,9 @@ main = do
     testOptimizerQualityBudgetRegression
     testOptimizerQualityThresholdArgvExplicitRegression
     testOptimizerKellyLiteExposureContractRegression
+    testOptimizerRecordsRetryDiscoveryForWalkForwardFilters
+    testOptimizerRecordsRetryDiscoveryForCostFloorFilters
+    testOptimizerRecordsRetryDiscoveryStopsWhenEligible
     testTopComboBacktestPrunesRoiLosers
     testMetricsConsumesTradingPublicResults
     testGateTelemetryEmptyInvariant
@@ -5329,6 +5335,50 @@ testOptimizerKellyLiteExposureContractRegression = do
     assert
         "Kelly-lite rows with enough exposure reduction and ratio improvement pass"
         (isNothing (reason (report 0.5 0.8 0.1) 0.05 0.9))
+
+-- Auto-optimizer discovery regression: once walk-forward gates became default
+-- deployability filters, a zero-eligible primary run could be all
+-- wfSharpeMean/wfSharpeStd failures. That must trigger the broader recovery
+-- pass just like the older activity/exposure/threshold filters.
+testOptimizerRecordsRetryDiscoveryForWalkForwardFilters :: IO ()
+testOptimizerRecordsRetryDiscoveryForWalkForwardFilters = do
+    let summary =
+            emptyOptimizerRecordsSummary
+                { orsRecords = 12
+                , orsEligible = 0
+                , orsWalkForwardSharpeMeanFiltered = 9
+                , orsWalkForwardSharpeStdFiltered = 3
+                , orsRecoveryFiltered = 12
+                }
+    assert
+        "walk-forward-only zero-eligible runs trigger discovery recovery"
+        (optimizerRecordsShouldRetryDiscovery summary)
+
+testOptimizerRecordsRetryDiscoveryForCostFloorFilters :: IO ()
+testOptimizerRecordsRetryDiscoveryForCostFloorFilters = do
+    let summary =
+            emptyOptimizerRecordsSummary
+                { orsRecords = 4
+                , orsEligible = 0
+                , orsMinEdgeFiltered = 4
+                , orsRecoveryFiltered = 4
+                }
+    assert
+        "cost-floor-only zero-eligible runs trigger discovery recovery"
+        (optimizerRecordsShouldRetryDiscovery summary)
+
+testOptimizerRecordsRetryDiscoveryStopsWhenEligible :: IO ()
+testOptimizerRecordsRetryDiscoveryStopsWhenEligible = do
+    let summary =
+            emptyOptimizerRecordsSummary
+                { orsRecords = 4
+                , orsEligible = 1
+                , orsWalkForwardSharpeMeanFiltered = 3
+                , orsRecoveryFiltered = 3
+                }
+    assert
+        "a primary run with any eligible record does not spend a recovery pass"
+        (not (optimizerRecordsShouldRetryDiscovery summary))
 
 -- Public-interface invariant: metrics/reporting must be able to consume the
 -- BacktestResult/Trade/ExitReason constructors re-exported by Trader.Trading.

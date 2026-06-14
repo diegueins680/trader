@@ -2,19 +2,24 @@
 
 module Trader.Optimizer.Optimize (
     OptimizerArgs (..),
+    OptimizerRecordsSummary (..),
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
     closeTimingReportFromBacktest,
     applyQualityPreset,
+    emptyOptimizerRecordsSummary,
     kellyLiteExposureContractReason,
     normalizeObjectiveCode,
     normalizeOptionalPositiveFraction,
     objectiveScore,
     optimizerOptionPresent,
+    optimizerRecordsShouldRetryDiscovery,
+    optimizerRecordsSummaryJson,
     qualityPresetIntervalFields,
     qualityPresetBudget,
     qualityPresetCeiling,
     qualityPresetWeightFloor,
+    readOptimizerRecordsSummary,
     runOptimizer,
     sampleTakeProfitPartial,
 ) where
@@ -30,6 +35,7 @@ import Data.Aeson (Value (..), object, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Types as AT
 import Data.ByteArray (convert)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
@@ -38,7 +44,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (for_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
-import Data.List (foldl', group, intercalate, sort, sortOn, stripPrefix)
+import Data.List (foldl', group, intercalate, isPrefixOf, sort, sortOn, stripPrefix)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Ord
@@ -432,6 +438,141 @@ activityFilterDiagnostic tr = do
                              in ["latest=" ++ token | not (null token)]
                         Nothing -> []
              in Just (unwords (base ++ latest))
+
+data OptimizerRecordsSummary = OptimizerRecordsSummary
+    { orsRecords :: !Int
+    , orsEligible :: !Int
+    , orsActivityFiltered :: !Int
+    , orsExposureFiltered :: !Int
+    , orsOpenThresholdFiltered :: !Int
+    , orsMinEdgeFiltered :: !Int
+    , orsSharpeFiltered :: !Int
+    , orsCalmarFiltered :: !Int
+    , orsWalkForwardMissing :: !Int
+    , orsWalkForwardSharpeMeanFiltered :: !Int
+    , orsWalkForwardSharpeStdFiltered :: !Int
+    , orsRecoveryFiltered :: !Int
+    , orsTimeouts :: !Int
+    }
+    deriving (Eq, Show)
+
+emptyOptimizerRecordsSummary :: OptimizerRecordsSummary
+emptyOptimizerRecordsSummary =
+    OptimizerRecordsSummary
+        { orsRecords = 0
+        , orsEligible = 0
+        , orsActivityFiltered = 0
+        , orsExposureFiltered = 0
+        , orsOpenThresholdFiltered = 0
+        , orsMinEdgeFiltered = 0
+        , orsSharpeFiltered = 0
+        , orsCalmarFiltered = 0
+        , orsWalkForwardMissing = 0
+        , orsWalkForwardSharpeMeanFiltered = 0
+        , orsWalkForwardSharpeStdFiltered = 0
+        , orsRecoveryFiltered = 0
+        , orsTimeouts = 0
+        }
+
+optimizerRecordsSummaryJson :: OptimizerRecordsSummary -> Aeson.Value
+optimizerRecordsSummaryJson s =
+    object
+        [ "records" .= orsRecords s
+        , "eligible" .= orsEligible s
+        , "activityFiltered" .= orsActivityFiltered s
+        , "exposureFiltered" .= orsExposureFiltered s
+        , "openThresholdFiltered" .= orsOpenThresholdFiltered s
+        , "minEdgeFiltered" .= orsMinEdgeFiltered s
+        , "sharpeFiltered" .= orsSharpeFiltered s
+        , "calmarFiltered" .= orsCalmarFiltered s
+        , "walkForwardMissing" .= orsWalkForwardMissing s
+        , "walkForwardSharpeMeanFiltered" .= orsWalkForwardSharpeMeanFiltered s
+        , "walkForwardSharpeStdFiltered" .= orsWalkForwardSharpeStdFiltered s
+        , "recoveryFiltered" .= orsRecoveryFiltered s
+        , "timeouts" .= orsTimeouts s
+        ]
+
+optimizerRecordsShouldRetryDiscovery :: OptimizerRecordsSummary -> Bool
+optimizerRecordsShouldRetryDiscovery s =
+    orsRecords s > 0
+        && orsEligible s == 0
+        && (orsRecoveryFiltered s > 0 || orsTimeouts s > 0)
+
+readOptimizerRecordsSummary :: FilePath -> IO OptimizerRecordsSummary
+readOptimizerRecordsSummary path = do
+    exists <- doesFileExist path
+    if not exists
+        then pure emptyOptimizerRecordsSummary
+        else do
+            contentsOrErr <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+            case contentsOrErr of
+                Left _ -> pure emptyOptimizerRecordsSummary
+                Right contents ->
+                    pure $
+                        foldl'
+                            addLine
+                            emptyOptimizerRecordsSummary
+                            (filter (not . BS.null) (BS8.lines (BL.toStrict contents)))
+  where
+    addLine acc line =
+        case Aeson.eitherDecodeStrict' line of
+            Right (Aeson.Object obj) -> addRecord acc obj
+            _ -> acc
+    addRecord acc obj =
+        let eligible = fromMaybe False (KM.lookup (Key.fromString "eligible") obj >>= AT.parseMaybe Aeson.parseJSON)
+            reason =
+                fromMaybe
+                    ""
+                    ( (KM.lookup (Key.fromString "filterReason") obj >>= AT.parseMaybe Aeson.parseJSON)
+                        <|> (KM.lookup (Key.fromString "reason") obj >>= AT.parseMaybe Aeson.parseJSON)
+                    )
+            hasPrefix prefix = prefix `isPrefixOf` reason
+            recoveryFiltered =
+                any
+                    hasPrefix
+                    [ "activityCount<"
+                    , "exposure<"
+                    , "openThreshold>"
+                    , "minEdge<"
+                    , "winRate<"
+                    , "profitFactor<"
+                    , "kellyLiteExposure"
+                    , "sharpe<"
+                    , "annualizedReturn<"
+                    , "calmar<"
+                    , "turnover>"
+                    , "walkForwardMissing"
+                    , "wfSharpeMean<"
+                    , "wfSharpeStd>"
+                    ]
+            records' = orsRecords acc + 1
+            eligible' = orsEligible acc + if eligible then 1 else 0
+            activity' = orsActivityFiltered acc + if hasPrefix "activityCount<" then 1 else 0
+            exposure' = orsExposureFiltered acc + if hasPrefix "exposure<" then 1 else 0
+            openThreshold' = orsOpenThresholdFiltered acc + if hasPrefix "openThreshold>" then 1 else 0
+            minEdge' = orsMinEdgeFiltered acc + if hasPrefix "minEdge<" then 1 else 0
+            sharpe' = orsSharpeFiltered acc + if hasPrefix "sharpe<" then 1 else 0
+            calmar' = orsCalmarFiltered acc + if hasPrefix "calmar<" then 1 else 0
+            walkForwardMissing' = orsWalkForwardMissing acc + if hasPrefix "walkForwardMissing" then 1 else 0
+            walkForwardSharpeMean' = orsWalkForwardSharpeMeanFiltered acc + if hasPrefix "wfSharpeMean<" then 1 else 0
+            walkForwardSharpeStd' = orsWalkForwardSharpeStdFiltered acc + if hasPrefix "wfSharpeStd>" then 1 else 0
+            recoveryFiltered' = orsRecoveryFiltered acc + if recoveryFiltered then 1 else 0
+            timeouts' = orsTimeouts acc + if hasPrefix "timeout>" then 1 else 0
+         in acc
+                { orsRecords = records'
+                , orsEligible = eligible'
+                , orsActivityFiltered = activity'
+                , orsExposureFiltered = exposure'
+                , orsOpenThresholdFiltered = openThreshold'
+                , orsMinEdgeFiltered = minEdge'
+                , orsSharpeFiltered = sharpe'
+                , orsCalmarFiltered = calmar'
+                , orsWalkForwardMissing = walkForwardMissing'
+                , orsWalkForwardSharpeMeanFiltered = walkForwardSharpeMean'
+                , orsWalkForwardSharpeStdFiltered = walkForwardSharpeStd'
+                , orsRecoveryFiltered = recoveryFiltered'
+                , orsTimeouts = timeouts'
+                }
 
 coerceFloatValue :: Value -> Maybe Double
 coerceFloatValue value =

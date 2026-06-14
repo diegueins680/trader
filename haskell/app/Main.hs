@@ -334,6 +334,11 @@ import Trader.Optimizer.Common (
     objectiveScore,
  )
 import Trader.Optimizer.Json (encodePretty)
+import Trader.Optimizer.Optimize (
+    optimizerRecordsShouldRetryDiscovery,
+    optimizerRecordsSummaryJson,
+    readOptimizerRecordsSummary,
+ )
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, orderAppliedFraction)
 import Trader.Platform (
     Platform (..),
@@ -10182,6 +10187,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     timeoutEnv <- lookupEnv "TRADER_OPTIMIZER_TIMEOUT_SEC"
                                     objectiveEnv <- lookupEnv "TRADER_OPTIMIZER_OBJECTIVE"
                                     lookbackEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOW"
+                                    lookbackWindowsEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOWS"
                                     backtestEnv <- lookupEnv "TRADER_OPTIMIZER_BACKTEST_RATIO"
                                     tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
                                     minRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_ROUND_TRIPS"
@@ -10307,6 +10313,12 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                         Right objectiveCode -> objectiveCode
                                                         Left _ -> "roi"
                                                 _ -> "roi"
+                                        lookbackWindows =
+                                            case lookbackWindowsEnv of
+                                                Just raw ->
+                                                    let parsed = splitEnvList raw
+                                                     in if null parsed then [lookbackWindow] else parsed
+                                                Nothing -> [lookbackWindow]
                                         symbols =
                                             case symbolsEnv of
                                                 Just raw ->
@@ -10317,25 +10329,38 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                             case intervalsEnv of
                                                 Just raw -> filter (isPlatformInterval PlatformBinance) (splitEnvList raw)
                                                 Nothing -> ["1h", "2h", "4h", "6h", "12h", "1d"]
-                                        intervals =
-                                            filter
-                                                ( \v -> case lookbackBarsFrom v lookbackWindow of
-                                                    Left _ -> False
-                                                    Right lb -> lb >= 2 && lb + 3 <= maxPoints
-                                                )
-                                                intervalsRaw
-                                    if null symbols || null intervals
+                                        scopeFeasible interval lookbackWindow' =
+                                            case lookbackBarsFrom interval lookbackWindow' of
+                                                Left _ -> False
+                                                Right lb -> lb >= 2 && lb + 3 <= maxPoints
+                                        optimizerScopes =
+                                            [ (interval, lookbackWindow')
+                                            | interval <- intervalsRaw
+                                            , lookbackWindow' <- lookbackWindows
+                                            , scopeFeasible interval lookbackWindow'
+                                            ]
+                                    if null symbols || null optimizerScopes
                                         then do
                                             now <- getTimestampMs
                                             journalWriteMaybe
                                                 mJournal
-                                                (object ["type" .= ("optimizer.auto.config_invalid" :: String), "atMs" .= now, "symbols" .= symbols, "intervals" .= intervals])
+                                                ( object
+                                                    [ "type" .= ("optimizer.auto.config_invalid" :: String)
+                                                    , "atMs" .= now
+                                                    , "symbols" .= symbols
+                                                    , "intervals" .= intervalsRaw
+                                                    , "lookbackWindows" .= lookbackWindows
+                                                    , "scopes" .= optimizerScopes
+                                                    ]
+                                                )
                                         else do
                                             putStrLn
                                                 ( printf
-                                                    "Auto optimizer enabled: symbols=%d intervals=%d everySec=%d trials=%d minRoundTrips=%d minExposure=%.4f minSharpe=%.4f minCalmar=%.4f"
+                                                    "Auto optimizer enabled: symbols=%d scopes=%d intervals=%d lookbackWindows=%d everySec=%d trials=%d minRoundTrips=%d minExposure=%.4f minSharpe=%.4f minCalmar=%.4f"
                                                     (length symbols)
-                                                    (length intervals)
+                                                    (length optimizerScopes)
+                                                    (length intervalsRaw)
+                                                    (length lookbackWindows)
                                                     everySec
                                                     trials
                                                     minRoundTrips
@@ -10394,9 +10419,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                 ]
                                                             )
                                                     mSym <- pickRandom symbols
-                                                    mInterval <- pickRandom intervals
-                                                    case (mSym, mInterval) of
-                                                        (Just sym, Just interval) -> do
+                                                    mScope <- pickRandom optimizerScopes
+                                                    case (mSym, mScope) of
+                                                        (Just sym, Just (interval, selectedLookbackWindow)) -> do
                                                             let csvPath = optimizerTmp </> ("auto-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
                                                                 argsSym = baseArgs{argBinanceSymbol = Just sym}
 
@@ -10444,7 +10469,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , "--interval"
                                                                                         , interval
                                                                                         , "--lookback-window"
-                                                                                        , lookbackWindow
+                                                                                        , selectedLookbackWindow
                                                                                         , "--backtest-ratio"
                                                                                         , show backtestRatio
                                                                                         , "--tune-ratio"
@@ -10596,7 +10621,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                         Nothing
                                                                                                         "optimizer.auto.updated"
                                                                                                         Nothing
-                                                                                                        (Just (object ["symbol" .= sym, "interval" .= interval, "attempt" .= (attempt :: String)]))
+                                                                                                        (Just (object ["symbol" .= sym, "interval" .= interval, "lookbackWindow" .= selectedLookbackWindow, "attempt" .= (attempt :: String)]))
                                                                                                         Nothing
                                                                                                         Nothing
                                                                                                         Nothing
@@ -10616,6 +10641,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                 , "atMs" .= now
                                                                                                 , "symbol" .= sym
                                                                                                 , "interval" .= interval
+                                                                                                , "lookbackWindow" .= selectedLookbackWindow
                                                                                                 , "recordsSummary" .= optimizerRecordsSummaryJson primarySummary
                                                                                                 , "minRoundTrips" .= discoveryRecoveryMinRoundTrips
                                                                                                 , "minExposure" .= discoveryRecoveryMinExposure
@@ -10641,7 +10667,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                     [ "type" .= ("optimizer.auto.pick_failed" :: String)
                                                                     , "atMs" .= now
                                                                     , "symbols" .= length symbols
-                                                                    , "intervals" .= length intervals
+                                                                    , "scopes" .= length optimizerScopes
                                                                     ]
                                                                 )
                                                             sleepSec everySec
@@ -15502,91 +15528,6 @@ readLastOptimizerRecord path = do
                                 case Aeson.eitherDecodeStrict' lastLine of
                                     Left err -> pure (Left ("Failed to parse optimizer record: " ++ err))
                                     Right val -> pure (Right val)
-
-data OptimizerRecordsSummary = OptimizerRecordsSummary
-    { orsRecords :: !Int
-    , orsEligible :: !Int
-    , orsActivityFiltered :: !Int
-    , orsExposureFiltered :: !Int
-    , orsOpenThresholdFiltered :: !Int
-    , orsTimeouts :: !Int
-    }
-    deriving (Eq, Show)
-
-emptyOptimizerRecordsSummary :: OptimizerRecordsSummary
-emptyOptimizerRecordsSummary =
-    OptimizerRecordsSummary
-        { orsRecords = 0
-        , orsEligible = 0
-        , orsActivityFiltered = 0
-        , orsExposureFiltered = 0
-        , orsOpenThresholdFiltered = 0
-        , orsTimeouts = 0
-        }
-
-optimizerRecordsSummaryJson :: OptimizerRecordsSummary -> Aeson.Value
-optimizerRecordsSummaryJson s =
-    object
-        [ "records" .= orsRecords s
-        , "eligible" .= orsEligible s
-        , "activityFiltered" .= orsActivityFiltered s
-        , "exposureFiltered" .= orsExposureFiltered s
-        , "openThresholdFiltered" .= orsOpenThresholdFiltered s
-        , "timeouts" .= orsTimeouts s
-        ]
-
-optimizerRecordsShouldRetryDiscovery :: OptimizerRecordsSummary -> Bool
-optimizerRecordsShouldRetryDiscovery s =
-    orsRecords s > 0
-        && orsEligible s == 0
-        && ( orsActivityFiltered s > 0
-                || orsExposureFiltered s > 0
-                || orsOpenThresholdFiltered s > 0
-                || orsTimeouts s > 0
-           )
-
-readOptimizerRecordsSummary :: FilePath -> IO OptimizerRecordsSummary
-readOptimizerRecordsSummary path = do
-    exists <- doesFileExist path
-    if not exists
-        then pure emptyOptimizerRecordsSummary
-        else do
-            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
-            case contentsOrErr of
-                Left _ -> pure emptyOptimizerRecordsSummary
-                Right contents ->
-                    pure $
-                        foldl'
-                            addLine
-                            emptyOptimizerRecordsSummary
-                            (filter (not . BS.null) (BS.lines (BL.toStrict contents)))
-  where
-    addLine acc line =
-        case Aeson.eitherDecodeStrict' line of
-            Right (Aeson.Object obj) -> addRecord acc obj
-            _ -> acc
-    addRecord acc obj =
-        let eligible = fromMaybe False (KM.lookup (AK.fromString "eligible") obj >>= AT.parseMaybe Aeson.parseJSON)
-            reason =
-                fromMaybe
-                    ""
-                    ( (KM.lookup (AK.fromString "filterReason") obj >>= AT.parseMaybe Aeson.parseJSON)
-                        <|> (KM.lookup (AK.fromString "reason") obj >>= AT.parseMaybe Aeson.parseJSON)
-                    )
-            records' = orsRecords acc + 1
-            eligible' = orsEligible acc + if eligible then 1 else 0
-            activity' = orsActivityFiltered acc + if "activityCount<" `isPrefixOf` reason then 1 else 0
-            exposure' = orsExposureFiltered acc + if "exposure<" `isPrefixOf` reason then 1 else 0
-            openThreshold' = orsOpenThresholdFiltered acc + if "openThreshold>" `isPrefixOf` reason then 1 else 0
-            timeouts' = orsTimeouts acc + if "timeout>" `isPrefixOf` reason then 1 else 0
-         in acc
-                { orsRecords = records'
-                , orsEligible = eligible'
-                , orsActivityFiltered = activity'
-                , orsExposureFiltered = exposure'
-                , orsOpenThresholdFiltered = openThreshold'
-                , orsTimeouts = timeouts'
-                }
 
 writeKlinesCsv :: FilePath -> [Kline] -> IO ()
 writeKlinesCsv path ks = do

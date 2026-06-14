@@ -48,6 +48,7 @@ executable trader-hs
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.Optimizer.Common
+                     , Trader.Optimizer.Optimize
                      , Trader.Optimizer.Random
                      , Trader.OrderExecution
                      , Trader.Ops.Migrations
