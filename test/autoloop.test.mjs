@@ -1071,14 +1071,19 @@ test("CI Fly deploy skips external billing blockers", async () => {
   assert.match(workflow, /Skipping \$\{label\} deploy for this run/);
 });
 
-test("Hetzner deploy retries SSH failures and keeps both roles mandatory", async () => {
+test("Hetzner deploy retries SSH failures and deploys only green commits", async () => {
   const workflow = await fs.readFile(new URL("../.github/workflows/deploy-hetzner.yml", import.meta.url), "utf8");
   const deployScript = await fs.readFile(new URL("../deploy/hetzner/deploy-remote.sh", import.meta.url), "utf8");
 
   assert.match(workflow, /is_transient_ssh_failure\(\)/);
   assert.match(workflow, /workflow_dispatch:/);
-  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
-  assert.match(workflow, /github\.event\.workflow_run\.head_sha \|\| github\.sha/);
+  assert.match(workflow, /name:\s+Resolve deploy commit/);
+  assert.match(workflow, /--workflow "CI"/);
+  assert.match(workflow, /--status success/);
+  assert.match(workflow, /No successful CI run found for \$\{branch\}; refusing to deploy an unverified commit\./);
+  assert.match(workflow, /ref:\s+\$\{\{\s*needs\.resolve-deploy\.outputs\.deploy_sha\s*\}\}/);
+  assert.match(workflow, /TRADER_GIT_COMMIT:\s+\$\{\{\s*needs\.resolve-deploy\.outputs\.deploy_sha\s*\}\}/);
+  assert.doesNotMatch(workflow, /github\.event\.workflow_run\.head_sha \|\| github\.sha/);
   assert.match(workflow, /for attempt in 1 2 3; do/);
   assert.match(workflow, /Transient \$\{ROLE\} Hetzner SSH failure on attempt \$\{attempt\}; retrying\./);
   assert.match(workflow, /Hetzner \$\{ROLE\} deploy failed after \$\{last_attempt\} attempt\(s\)\./);

@@ -8,24 +8,114 @@ on:
     workflows: ["CI"]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch whose latest successful CI commit should be redeployed."
+        required: false
+        default: "main"
+        type: choice
+        options:
+          - main
+          - master
 
 # Never let two deploys to the same box race; let an in-flight deploy finish.
 concurrency:
-  group: deploy-hetzner-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  group: deploy-hetzner-${{ github.event.workflow_run.head_branch || inputs.branch || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
+  resolve-deploy:
+    name: Resolve deploy commit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      deploy: ${{ steps.resolve.outputs.deploy }}
+      deploy_branch: ${{ steps.resolve.outputs.deploy_branch }}
+      deploy_sha: ${{ steps.resolve.outputs.deploy_sha }}
+    steps:
+      - name: Resolve latest green commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_BRANCH: ${{ inputs.branch || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          set_output() {
+            printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
+          }
+
+          case "$EVENT_NAME" in
+            workflow_run)
+              branch="$WORKFLOW_RUN_HEAD_BRANCH"
+              if [[ "$WORKFLOW_RUN_CONCLUSION" != "success" ]]; then
+                echo "CI conclusion was ${WORKFLOW_RUN_CONCLUSION}; skipping deploy."
+                set_output deploy false
+                exit 0
+              fi
+              case "$branch" in
+                main|master) ;;
+                *)
+                  echo "CI passed on ${branch}, not main/master; skipping deploy."
+                  set_output deploy false
+                  exit 0
+                  ;;
+              esac
+              sha="$WORKFLOW_RUN_HEAD_SHA"
+              ;;
+            workflow_dispatch)
+              branch="${DISPATCH_BRANCH:-main}"
+              case "$branch" in
+                main|master) ;;
+                *)
+                  echo "::error::Manual Hetzner deploy branch must be main or master, got ${branch}."
+                  exit 1
+                  ;;
+              esac
+              run_json="$(
+                gh run list \
+                  -R "$REPOSITORY" \
+                  --workflow "CI" \
+                  --branch "$branch" \
+                  --status success \
+                  --limit 1 \
+                  --json databaseId,headSha,url
+              )"
+              if [[ "$(jq 'length' <<< "$run_json")" -eq 0 ]]; then
+                echo "::error::No successful CI run found for ${branch}; refusing to deploy an unverified commit."
+                exit 1
+              fi
+              sha="$(jq -r '.[0].headSha // ""' <<< "$run_json")"
+              run_id="$(jq -r '.[0].databaseId // ""' <<< "$run_json")"
+              run_url="$(jq -r '.[0].url // ""' <<< "$run_json")"
+              if [[ -z "$sha" || "$sha" == "null" ]]; then
+                echo "::error::Latest successful CI run for ${branch} did not include a head SHA."
+                exit 1
+              fi
+              echo "::notice::Manual dispatch resolved latest successful CI run ${run_id} for ${branch}: ${sha} (${run_url})"
+              ;;
+            *)
+              echo "::error::Unsupported event ${EVENT_NAME}."
+              exit 1
+              ;;
+          esac
+
+          set_output deploy true
+          set_output deploy_branch "$branch"
+          set_output deploy_sha "$sha"
+
   deploy:
     name: Deploy (${{ matrix.role }})
+    needs: resolve-deploy
     runs-on: ubuntu-latest
-    # Deploy a green CI run on main/master, or allow an operator-triggered
-    # dispatch from main/master when the CI run itself has already been checked.
-    if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       (github.ref_name == 'main' || github.ref_name == 'master')) ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       (github.event.workflow_run.head_branch == 'main' ||
-        github.event.workflow_run.head_branch == 'master'))
+    if: needs.resolve-deploy.outputs.deploy == 'true'
     permissions:
       contents: read
     strategy:
@@ -38,7 +128,7 @@ jobs:
       # have advanced) so the deploy script and the box deploy the same SHA.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ needs.resolve-deploy.outputs.deploy_sha }}
 
       # The box serves haskell/web/dist via Caddy; it is gitignored, so build it
       # here and rsync it to the box (matches the existing local-build flow).
@@ -50,7 +140,7 @@ jobs:
 
       - name: Build web frontend
         env:
-          VITE_GIT_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+          VITE_GIT_COMMIT: ${{ needs.resolve-deploy.outputs.deploy_sha }}
         run: |
           npm --workspaces=false --prefix haskell/web ci
           npm --prefix haskell/web run build
@@ -80,7 +170,7 @@ jobs:
           HETZNER_REPO_DIR: ${{ secrets.HETZNER_REPO_DIR }}
           HETZNER_ENV_FILE: ${{ secrets.HETZNER_ENV_FILE }}
           ROLE: ${{ matrix.role }}
-          TRADER_GIT_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+          TRADER_GIT_COMMIT: ${{ needs.resolve-deploy.outputs.deploy_sha }}
         run: |
           set -euo pipefail
 
