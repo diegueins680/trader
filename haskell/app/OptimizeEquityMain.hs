@@ -494,6 +494,14 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "ta-regime-switch-adx-threshold" 18 35
         <*> doubleRangeOption "ta-regime-switch-bb-width-threshold" 5.0e-4 8.0e-3
         <*> doubleRangeOption "ta-best-min-confidence" 0.2 0.6
+        <*> doubleRangeOption "ta-trend-confidence-adx-offset" 10 30
+        <*> doubleRangeOption "ta-trend-confidence-adx-scale" 10 40
+        <*> doubleRangeOption "ta-trend-confidence-ma-spread-mult" 3 15
+        <*> doubleRangeOption "ta-trend-confidence-aroon-gap-mult" 0.005 0.02
+        <*> doubleRangeOption "ta-reversion-confidence-roc-mult" 0.05 0.5
+        <*> doubleRangeOption "ta-breakout-flow-disagreement-confidence" 0.2 0.8
+        <*> doubleRangeOption "ta-breakout-confidence-distance-mult" 4 20
+        <*> doubleRangeOption "ta-sma-cross-confidence-spread-mult" 8 40
         <*> doubleRangeOption "signal-entry-edge-headroom-mult" 1.1 2.5
         <*> doubleRangeOption "signal-entry-edge-spike-mult" 200 2000
         <*> doubleRangeOption "signal-entry-edge-spike-cap" 1.0 8.0
@@ -768,6 +776,14 @@ validateTechnicalOptimizerRanges ranges = do
     unit100Range "ta-regime-switch-adx-threshold" (torTaRegimeSwitchAdxThreshold ranges)
     nonNegativeRange "ta-regime-switch-bb-width-threshold" (torTaRegimeSwitchBollingerBandwidthThreshold ranges)
     unitRange "ta-best-min-confidence" (torTaBestCandidateMinConfidence ranges)
+    unit100Range "ta-trend-confidence-adx-offset" (torTaTrendConfidenceAdxOffset ranges)
+    positiveRange "ta-trend-confidence-adx-scale" (torTaTrendConfidenceAdxScale ranges)
+    nonNegativeRange "ta-trend-confidence-ma-spread-mult" (torTaTrendConfidenceMaSpreadMult ranges)
+    nonNegativeRange "ta-trend-confidence-aroon-gap-mult" (torTaTrendConfidenceAroonGapMult ranges)
+    nonNegativeRange "ta-reversion-confidence-roc-mult" (torTaReversionConfidenceRocMult ranges)
+    unitRange "ta-breakout-flow-disagreement-confidence" (torTaBreakoutFlowDisagreementConfidence ranges)
+    nonNegativeRange "ta-breakout-confidence-distance-mult" (torTaBreakoutConfidenceDistanceMult ranges)
+    nonNegativeRange "ta-sma-cross-confidence-spread-mult" (torTaSmaCrossConfidenceSpreadMult ranges)
     positiveRange "signal-entry-edge-headroom-mult" (torSignalEntryEdgeHeadroomMult ranges)
     nonNegativeRange "signal-entry-edge-spike-mult" (torSignalEntryEdgeSpikeMult ranges)
     positiveRange "signal-entry-edge-spike-cap" (torSignalEntryEdgeSpikeCap ranges)

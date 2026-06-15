@@ -244,6 +244,14 @@ data Args = Args
     , argTaRegimeSwitchAdxThreshold :: Double
     , argTaRegimeSwitchBollingerBandwidthThreshold :: Double
     , argTaBestCandidateMinConfidence :: Double
+    , argTaTrendConfidenceAdxOffset :: Double
+    , argTaTrendConfidenceAdxScale :: Double
+    , argTaTrendConfidenceMaSpreadMult :: Double
+    , argTaTrendConfidenceAroonGapMult :: Double
+    , argTaReversionConfidenceRocMult :: Double
+    , argTaBreakoutFlowDisagreementConfidence :: Double
+    , argTaBreakoutConfidenceDistanceMult :: Double
+    , argTaSmaCrossConfidenceSpreadMult :: Double
     , argSignalEntryEdgeHeadroomMult :: Double
     , argSignalEntryEdgeSpikeMult :: Double
     , argSignalEntryEdgeSpikeCap :: Double
@@ -945,6 +953,14 @@ opts = do
     argTaRegimeSwitchAdxThreshold <- option auto (long "ta-regime-switch-adx-threshold" <> value (tscRegimeSwitchAdxThreshold defaultTa) <> showDefault <> help "ADX threshold for selecting the TA trend regime-switch branch")
     argTaRegimeSwitchBollingerBandwidthThreshold <- option auto (long "ta-regime-switch-bb-width-threshold" <> value (tscRegimeSwitchBollingerBandwidthThreshold defaultTa) <> showDefault <> help "Bollinger bandwidth threshold for selecting the TA reversion regime-switch branch")
     argTaBestCandidateMinConfidence <- option auto (long "ta-best-min-confidence" <> value (tscBestCandidateMinConfidence defaultTa) <> showDefault <> help "Minimum confidence before a TA candidate can win ta_best")
+    argTaTrendConfidenceAdxOffset <- option auto (long "ta-trend-confidence-adx-offset" <> value (tscTrendConfidenceAdxOffset defaultTa) <> showDefault <> help "ADX offset used by TA trend confidence scoring")
+    argTaTrendConfidenceAdxScale <- option auto (long "ta-trend-confidence-adx-scale" <> value (tscTrendConfidenceAdxScale defaultTa) <> showDefault <> help "ADX scale divisor used by TA trend confidence scoring")
+    argTaTrendConfidenceMaSpreadMult <- option auto (long "ta-trend-confidence-ma-spread-mult" <> value (tscTrendConfidenceMaSpreadMult defaultTa) <> showDefault <> help "MA spread multiplier used by TA trend confidence scoring")
+    argTaTrendConfidenceAroonGapMult <- option auto (long "ta-trend-confidence-aroon-gap-mult" <> value (tscTrendConfidenceAroonGapMult defaultTa) <> showDefault <> help "Aroon gap multiplier used by TA trend confidence scoring")
+    argTaReversionConfidenceRocMult <- option auto (long "ta-reversion-confidence-roc-mult" <> value (tscReversionConfidenceRocMult defaultTa) <> showDefault <> help "ROC magnitude multiplier used by TA reversion confidence scoring")
+    argTaBreakoutFlowDisagreementConfidence <- option auto (long "ta-breakout-flow-disagreement-confidence" <> value (tscBreakoutFlowDisagreementConfidence defaultTa) <> showDefault <> help "Confidence contribution when breakout OBV/A-D flow direction disagrees")
+    argTaBreakoutConfidenceDistanceMult <- option auto (long "ta-breakout-confidence-distance-mult" <> value (tscBreakoutConfidenceDistanceMult defaultTa) <> showDefault <> help "Breakout distance multiplier used by TA breakout confidence scoring")
+    argTaSmaCrossConfidenceSpreadMult <- option auto (long "ta-sma-cross-confidence-spread-mult" <> value (tscSmaCrossConfidenceSpreadMult defaultTa) <> showDefault <> help "EMA spread multiplier used by SMA-cross confidence scoring")
     argSignalEntryEdgeHeadroomMult <- option auto (long "signal-entry-edge-headroom-mult" <> value (sgcEntryEdgeHeadroomMultiple defaultSignal) <> showDefault <> help "Required entry edge as a multiple of open threshold before costs")
     argSignalEntryEdgeSpikeMult <- option auto (long "signal-entry-edge-spike-mult" <> value (sgcEntryEdgeSpikeMultiple defaultSignal) <> showDefault <> help "Entry-edge spike cap as a multiple of open threshold")
     argSignalEntryEdgeSpikeCap <- option auto (long "signal-entry-edge-spike-cap" <> value (sgcEntryEdgeSpikeCredibleCap defaultSignal) <> showDefault <> help "Absolute entry-edge spike cap")
@@ -1432,6 +1448,14 @@ validateArgs args0 = do
             , ("--ta-regime-switch-adx-threshold", argTaRegimeSwitchAdxThreshold args)
             , ("--ta-regime-switch-bb-width-threshold", argTaRegimeSwitchBollingerBandwidthThreshold args)
             , ("--ta-best-min-confidence", argTaBestCandidateMinConfidence args)
+            , ("--ta-trend-confidence-adx-offset", argTaTrendConfidenceAdxOffset args)
+            , ("--ta-trend-confidence-adx-scale", argTaTrendConfidenceAdxScale args)
+            , ("--ta-trend-confidence-ma-spread-mult", argTaTrendConfidenceMaSpreadMult args)
+            , ("--ta-trend-confidence-aroon-gap-mult", argTaTrendConfidenceAroonGapMult args)
+            , ("--ta-reversion-confidence-roc-mult", argTaReversionConfidenceRocMult args)
+            , ("--ta-breakout-flow-disagreement-confidence", argTaBreakoutFlowDisagreementConfidence args)
+            , ("--ta-breakout-confidence-distance-mult", argTaBreakoutConfidenceDistanceMult args)
+            , ("--ta-sma-cross-confidence-spread-mult", argTaSmaCrossConfidenceSpreadMult args)
             , ("--signal-entry-edge-headroom-mult", argSignalEntryEdgeHeadroomMult args)
             , ("--signal-entry-edge-spike-mult", argSignalEntryEdgeSpikeMult args)
             , ("--signal-entry-edge-spike-cap", argSignalEntryEdgeSpikeCap args)
@@ -1701,6 +1725,14 @@ validateArgs args0 = do
     ensure "--ta-regime-switch-adx-threshold must be between 0 and 100" (argTaRegimeSwitchAdxThreshold args >= 0 && argTaRegimeSwitchAdxThreshold args <= 100)
     ensure "--ta-regime-switch-bb-width-threshold must be >= 0" (argTaRegimeSwitchBollingerBandwidthThreshold args >= 0)
     ensure "--ta-best-min-confidence must be between 0 and 1" (argTaBestCandidateMinConfidence args >= 0 && argTaBestCandidateMinConfidence args <= 1)
+    ensure "--ta-trend-confidence-adx-offset must be between 0 and 100" (argTaTrendConfidenceAdxOffset args >= 0 && argTaTrendConfidenceAdxOffset args <= 100)
+    ensure "--ta-trend-confidence-adx-scale must be > 0" (argTaTrendConfidenceAdxScale args > 0)
+    ensure "--ta-trend-confidence-ma-spread-mult must be >= 0" (argTaTrendConfidenceMaSpreadMult args >= 0)
+    ensure "--ta-trend-confidence-aroon-gap-mult must be >= 0" (argTaTrendConfidenceAroonGapMult args >= 0)
+    ensure "--ta-reversion-confidence-roc-mult must be >= 0" (argTaReversionConfidenceRocMult args >= 0)
+    ensure "--ta-breakout-flow-disagreement-confidence must be between 0 and 1" (argTaBreakoutFlowDisagreementConfidence args >= 0 && argTaBreakoutFlowDisagreementConfidence args <= 1)
+    ensure "--ta-breakout-confidence-distance-mult must be >= 0" (argTaBreakoutConfidenceDistanceMult args >= 0)
+    ensure "--ta-sma-cross-confidence-spread-mult must be >= 0" (argTaSmaCrossConfidenceSpreadMult args >= 0)
     ensure "--signal-entry-edge-headroom-mult must be > 0" (argSignalEntryEdgeHeadroomMult args > 0)
     ensure "--signal-entry-edge-spike-mult must be >= 0" (argSignalEntryEdgeSpikeMult args >= 0)
     ensure "--signal-entry-edge-spike-cap must be > 0" (argSignalEntryEdgeSpikeCap args > 0)

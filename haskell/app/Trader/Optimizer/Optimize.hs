@@ -186,6 +186,14 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torTaRegimeSwitchAdxThreshold :: !(Double, Double)
     , torTaRegimeSwitchBollingerBandwidthThreshold :: !(Double, Double)
     , torTaBestCandidateMinConfidence :: !(Double, Double)
+    , torTaTrendConfidenceAdxOffset :: !(Double, Double)
+    , torTaTrendConfidenceAdxScale :: !(Double, Double)
+    , torTaTrendConfidenceMaSpreadMult :: !(Double, Double)
+    , torTaTrendConfidenceAroonGapMult :: !(Double, Double)
+    , torTaReversionConfidenceRocMult :: !(Double, Double)
+    , torTaBreakoutFlowDisagreementConfidence :: !(Double, Double)
+    , torTaBreakoutConfidenceDistanceMult :: !(Double, Double)
+    , torTaSmaCrossConfidenceSpreadMult :: !(Double, Double)
     , torSignalEntryEdgeHeadroomMult :: !(Double, Double)
     , torSignalEntryEdgeSpikeMult :: !(Double, Double)
     , torSignalEntryEdgeSpikeCap :: !(Double, Double)
@@ -220,6 +228,14 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpTaRegimeSwitchAdxThreshold :: !Double
     , ttpTaRegimeSwitchBollingerBandwidthThreshold :: !Double
     , ttpTaBestCandidateMinConfidence :: !Double
+    , ttpTaTrendConfidenceAdxOffset :: !Double
+    , ttpTaTrendConfidenceAdxScale :: !Double
+    , ttpTaTrendConfidenceMaSpreadMult :: !Double
+    , ttpTaTrendConfidenceAroonGapMult :: !Double
+    , ttpTaReversionConfidenceRocMult :: !Double
+    , ttpTaBreakoutFlowDisagreementConfidence :: !Double
+    , ttpTaBreakoutConfidenceDistanceMult :: !Double
+    , ttpTaSmaCrossConfidenceSpreadMult :: !Double
     , ttpSignalEntryEdgeHeadroomMult :: !Double
     , ttpSignalEntryEdgeSpikeMult :: !Double
     , ttpSignalEntryEdgeSpikeCap :: !Double
@@ -315,6 +331,14 @@ normalizeTechnicalTrialParams p =
             , ttpTaRegimeSwitchAdxThreshold = clamp (ttpTaRegimeSwitchAdxThreshold p) 0 100
             , ttpTaRegimeSwitchBollingerBandwidthThreshold = max 0 (ttpTaRegimeSwitchBollingerBandwidthThreshold p)
             , ttpTaBestCandidateMinConfidence = clamp (ttpTaBestCandidateMinConfidence p) 0 1
+            , ttpTaTrendConfidenceAdxOffset = clamp (ttpTaTrendConfidenceAdxOffset p) 0 100
+            , ttpTaTrendConfidenceAdxScale = max 1e-6 (ttpTaTrendConfidenceAdxScale p)
+            , ttpTaTrendConfidenceMaSpreadMult = max 0 (ttpTaTrendConfidenceMaSpreadMult p)
+            , ttpTaTrendConfidenceAroonGapMult = max 0 (ttpTaTrendConfidenceAroonGapMult p)
+            , ttpTaReversionConfidenceRocMult = max 0 (ttpTaReversionConfidenceRocMult p)
+            , ttpTaBreakoutFlowDisagreementConfidence = clamp (ttpTaBreakoutFlowDisagreementConfidence p) 0 1
+            , ttpTaBreakoutConfidenceDistanceMult = max 0 (ttpTaBreakoutConfidenceDistanceMult p)
+            , ttpTaSmaCrossConfidenceSpreadMult = max 0 (ttpTaSmaCrossConfidenceSpreadMult p)
             , ttpSignalEntryEdgeHeadroomMult = max 1e-6 (ttpSignalEntryEdgeHeadroomMult p)
             , ttpSignalEntryEdgeSpikeMult = max 0 (ttpSignalEntryEdgeSpikeMult p)
             , ttpSignalEntryEdgeSpikeCap = max 1e-6 (ttpSignalEntryEdgeSpikeCap p)
@@ -351,22 +375,30 @@ sampleTechnicalTrialParams ranges rng0 =
         (taRegimeSwitchAdxThreshold, rng17) = sampleClamped 0 100 (torTaRegimeSwitchAdxThreshold ranges) rng16
         (taRegimeSwitchBollingerBandwidthThreshold, rng18) = sampleNonNegative (torTaRegimeSwitchBollingerBandwidthThreshold ranges) rng17
         (taBestCandidateMinConfidence, rng19) = sampleClamped 0 1 (torTaBestCandidateMinConfidence ranges) rng18
-        (signalEntryEdgeHeadroomMult, rng20) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng19
-        (signalEntryEdgeSpikeMult, rng21) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng20
-        (signalEntryEdgeSpikeCap, rng22) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng21
-        (signalEntryEdgeSpikeConsecutiveLimit, rng23) =
+        (taTrendConfidenceAdxOffset, rng20) = sampleClamped 0 100 (torTaTrendConfidenceAdxOffset ranges) rng19
+        (taTrendConfidenceAdxScale, rng21) = samplePositive (torTaTrendConfidenceAdxScale ranges) rng20
+        (taTrendConfidenceMaSpreadMult, rng22) = sampleNonNegative (torTaTrendConfidenceMaSpreadMult ranges) rng21
+        (taTrendConfidenceAroonGapMult, rng23) = sampleNonNegative (torTaTrendConfidenceAroonGapMult ranges) rng22
+        (taReversionConfidenceRocMult, rng24) = sampleNonNegative (torTaReversionConfidenceRocMult ranges) rng23
+        (taBreakoutFlowDisagreementConfidence, rng25) = sampleClamped 0 1 (torTaBreakoutFlowDisagreementConfidence ranges) rng24
+        (taBreakoutConfidenceDistanceMult, rng26) = sampleNonNegative (torTaBreakoutConfidenceDistanceMult ranges) rng25
+        (taSmaCrossConfidenceSpreadMult, rng27) = sampleNonNegative (torTaSmaCrossConfidenceSpreadMult ranges) rng26
+        (signalEntryEdgeHeadroomMult, rng28) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng27
+        (signalEntryEdgeSpikeMult, rng29) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng28
+        (signalEntryEdgeSpikeCap, rng30) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng29
+        (signalEntryEdgeSpikeConsecutiveLimit, rng31) =
             let (lo, hi) = orderedPair (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
-             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng22
-        (signalTrendSlackMult, rng24) = sampleNonNegative (torSignalTrendSlackMult ranges) rng23
-        (signalTrendSlackCap, rng25) = sampleNonNegative (torSignalTrendSlackCap ranges) rng24
-        (signalDirectionalityLookbackBars, rng26) =
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng30
+        (signalTrendSlackMult, rng32) = sampleNonNegative (torSignalTrendSlackMult ranges) rng31
+        (signalTrendSlackCap, rng33) = sampleNonNegative (torSignalTrendSlackCap ranges) rng32
+        (signalDirectionalityLookbackBars, rng34) =
             let (lo, hi) = orderedPair (torSignalDirectionalityLookbackBars ranges)
-             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng25
-        (signalDirectionalityChopEfficiencyMax, rng27) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng26
-        (signalDirectionalityMrEfficiencyMax0, rng28) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng27
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng33
+        (signalDirectionalityChopEfficiencyMax, rng35) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng34
+        (signalDirectionalityMrEfficiencyMax0, rng36) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng35
         signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
-        (signalDirectionalityWeakZMin, rng29) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng28
-        (signalPredictorTrackingFloor, rng30) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng29
+        (signalDirectionalityWeakZMin, rng37) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng36
+        (signalPredictorTrackingFloor, rng38) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng37
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -388,6 +420,14 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpTaRegimeSwitchAdxThreshold = taRegimeSwitchAdxThreshold
                 , ttpTaRegimeSwitchBollingerBandwidthThreshold = taRegimeSwitchBollingerBandwidthThreshold
                 , ttpTaBestCandidateMinConfidence = taBestCandidateMinConfidence
+                , ttpTaTrendConfidenceAdxOffset = taTrendConfidenceAdxOffset
+                , ttpTaTrendConfidenceAdxScale = taTrendConfidenceAdxScale
+                , ttpTaTrendConfidenceMaSpreadMult = taTrendConfidenceMaSpreadMult
+                , ttpTaTrendConfidenceAroonGapMult = taTrendConfidenceAroonGapMult
+                , ttpTaReversionConfidenceRocMult = taReversionConfidenceRocMult
+                , ttpTaBreakoutFlowDisagreementConfidence = taBreakoutFlowDisagreementConfidence
+                , ttpTaBreakoutConfidenceDistanceMult = taBreakoutConfidenceDistanceMult
+                , ttpTaSmaCrossConfidenceSpreadMult = taSmaCrossConfidenceSpreadMult
                 , ttpSignalEntryEdgeHeadroomMult = signalEntryEdgeHeadroomMult
                 , ttpSignalEntryEdgeSpikeMult = signalEntryEdgeSpikeMult
                 , ttpSignalEntryEdgeSpikeCap = signalEntryEdgeSpikeCap
@@ -400,7 +440,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpSignalDirectionalityWeakZMin = signalDirectionalityWeakZMin
                 , ttpSignalPredictorTrackingFloor = signalPredictorTrackingFloor
                 }
-        , rng30
+        , rng38
         )
   where
     samplePositive range rng =
@@ -459,6 +499,22 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpTaRegimeSwitchBollingerBandwidthThreshold p)
     , "--ta-best-min-confidence"
     , printf "%.12g" (ttpTaBestCandidateMinConfidence p)
+    , "--ta-trend-confidence-adx-offset"
+    , printf "%.12g" (ttpTaTrendConfidenceAdxOffset p)
+    , "--ta-trend-confidence-adx-scale"
+    , printf "%.12g" (ttpTaTrendConfidenceAdxScale p)
+    , "--ta-trend-confidence-ma-spread-mult"
+    , printf "%.12g" (ttpTaTrendConfidenceMaSpreadMult p)
+    , "--ta-trend-confidence-aroon-gap-mult"
+    , printf "%.12g" (ttpTaTrendConfidenceAroonGapMult p)
+    , "--ta-reversion-confidence-roc-mult"
+    , printf "%.12g" (ttpTaReversionConfidenceRocMult p)
+    , "--ta-breakout-flow-disagreement-confidence"
+    , printf "%.12g" (ttpTaBreakoutFlowDisagreementConfidence p)
+    , "--ta-breakout-confidence-distance-mult"
+    , printf "%.12g" (ttpTaBreakoutConfidenceDistanceMult p)
+    , "--ta-sma-cross-confidence-spread-mult"
+    , printf "%.12g" (ttpTaSmaCrossConfidenceSpreadMult p)
     , "--signal-entry-edge-headroom-mult"
     , printf "%.12g" (ttpSignalEntryEdgeHeadroomMult p)
     , "--signal-entry-edge-spike-mult"
@@ -504,6 +560,14 @@ technicalTrialParamsPairs p =
     , "taRegimeSwitchAdxThreshold" .= ttpTaRegimeSwitchAdxThreshold p
     , "taRegimeSwitchBollingerBandwidthThreshold" .= ttpTaRegimeSwitchBollingerBandwidthThreshold p
     , "taBestCandidateMinConfidence" .= ttpTaBestCandidateMinConfidence p
+    , "taTrendConfidenceAdxOffset" .= ttpTaTrendConfidenceAdxOffset p
+    , "taTrendConfidenceAdxScale" .= ttpTaTrendConfidenceAdxScale p
+    , "taTrendConfidenceMaSpreadMult" .= ttpTaTrendConfidenceMaSpreadMult p
+    , "taTrendConfidenceAroonGapMult" .= ttpTaTrendConfidenceAroonGapMult p
+    , "taReversionConfidenceRocMult" .= ttpTaReversionConfidenceRocMult p
+    , "taBreakoutFlowDisagreementConfidence" .= ttpTaBreakoutFlowDisagreementConfidence p
+    , "taBreakoutConfidenceDistanceMult" .= ttpTaBreakoutConfidenceDistanceMult p
+    , "taSmaCrossConfidenceSpreadMult" .= ttpTaSmaCrossConfidenceSpreadMult p
     , "signalEntryEdgeHeadroomMult" .= ttpSignalEntryEdgeHeadroomMult p
     , "signalEntryEdgeSpikeMult" .= ttpSignalEntryEdgeSpikeMult p
     , "signalEntryEdgeSpikeCap" .= ttpSignalEntryEdgeSpikeCap p

@@ -106,6 +106,14 @@ data TechnicalStrategyCalibration = TechnicalStrategyCalibration
     , tscRegimeSwitchAdxThreshold :: !Double
     , tscRegimeSwitchBollingerBandwidthThreshold :: !Double
     , tscBestCandidateMinConfidence :: !Double
+    , tscTrendConfidenceAdxOffset :: !Double
+    , tscTrendConfidenceAdxScale :: !Double
+    , tscTrendConfidenceMaSpreadMult :: !Double
+    , tscTrendConfidenceAroonGapMult :: !Double
+    , tscReversionConfidenceRocMult :: !Double
+    , tscBreakoutFlowDisagreementConfidence :: !Double
+    , tscBreakoutConfidenceDistanceMult :: !Double
+    , tscSmaCrossConfidenceSpreadMult :: !Double
     }
     deriving (Eq, Show)
 
@@ -131,6 +139,14 @@ defaultTechnicalStrategyCalibration =
         , tscRegimeSwitchAdxThreshold = 25
         , tscRegimeSwitchBollingerBandwidthThreshold = 0.002
         , tscBestCandidateMinConfidence = 0.35
+        , tscTrendConfidenceAdxOffset = 20
+        , tscTrendConfidenceAdxScale = 25
+        , tscTrendConfidenceMaSpreadMult = 8
+        , tscTrendConfidenceAroonGapMult = 0.01
+        , tscReversionConfidenceRocMult = 0.2
+        , tscBreakoutFlowDisagreementConfidence = 0.5
+        , tscBreakoutConfidenceDistanceMult = 10
+        , tscSmaCrossConfidenceSpreadMult = 20
         }
 
 data RegimeScore = RegimeScore
@@ -301,7 +317,7 @@ trendFollowingCandidateWithCalibration strategyCal cal series = do
                 && adxValue adxNow >= tscTrendAdxThreshold strategyCal
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
-        baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
+        baseConfidence = trendCandidateConfidence strategyCal adxNow maSpread (abs (aroonUp aroonNow - aroonDown aroonNow))
      in if longTrend
             then
                 Just
@@ -362,7 +378,7 @@ momentumReversionCandidateWithCalibration strategyCal cal series = do
                 && rocNow > 0
                 && macdValue macdNow <= macdSignal macdNow
                 && nearUpperEnvelope
-        baseConfidence = clamp01 (((abs (50 - rsiNow) / 50) + (abs (50 - stochasticNow) / 50) + min 1 (abs rocNow / 5)) / 3)
+        baseConfidence = reversionCandidateConfidence strategyCal rsiNow stochasticNow rocNow
      in if longSetup
             then
                 Just
@@ -431,7 +447,7 @@ volumeConfirmedBreakoutCandidateWithCalibration strategyCal cal series = do
                 && cmfNow < 0
                 && mfiNow <= tscBreakoutMfiThreshold strategyCal
         breakoutDistance = max 0 (safeDivide (abs (closeNow - midChannel donchianNow)) closeNow)
-        baseConfidence = clamp01 (((if obvUp == adUp then 1 else 0.5) + min 1 (abs cmfNow) + min 1 (breakoutDistance * 10)) / 3)
+        baseConfidence = breakoutCandidateConfidence strategyCal obvUp adUp cmfNow breakoutDistance
      in if longBreakout
             then
                 Just
@@ -560,6 +576,32 @@ require False = Nothing
 
 clamp01 :: Double -> Double
 clamp01 = max 0 . min 1
+
+trendCandidateConfidence :: TechnicalStrategyCalibration -> AdxPoint -> Double -> Double -> Double
+trendCandidateConfidence strategyCal adxNow maSpread aroonGap =
+    clamp01 $
+        ( ((adxValue adxNow - tscTrendConfidenceAdxOffset strategyCal) / max 1e-12 (tscTrendConfidenceAdxScale strategyCal))
+            + (maSpread * tscTrendConfidenceMaSpreadMult strategyCal)
+            + (aroonGap * tscTrendConfidenceAroonGapMult strategyCal)
+        )
+            / 3
+
+reversionCandidateConfidence :: TechnicalStrategyCalibration -> Double -> Double -> Double -> Double
+reversionCandidateConfidence strategyCal rsiNow stochasticNow rocNow =
+    clamp01 (((abs (50 - rsiNow) / 50) + (abs (50 - stochasticNow) / 50) + min 1 (abs rocNow * tscReversionConfidenceRocMult strategyCal)) / 3)
+
+breakoutCandidateConfidence :: TechnicalStrategyCalibration -> Bool -> Bool -> Double -> Double -> Double
+breakoutCandidateConfidence strategyCal obvUp adUp cmfNow breakoutDistance =
+    clamp01 $
+        ( (if obvUp == adUp then 1 else clamp01 (tscBreakoutFlowDisagreementConfidence strategyCal))
+            + min 1 (abs cmfNow)
+            + min 1 (breakoutDistance * tscBreakoutConfidenceDistanceMult strategyCal)
+        )
+            / 3
+
+smaCrossCandidateConfidence :: TechnicalStrategyCalibration -> Double -> Double
+smaCrossCandidateConfidence strategyCal absSpread =
+    clamp01 (absSpread * tscSmaCrossConfidenceSpreadMult strategyCal)
 
 midChannel :: DonchianChannel -> Double
 midChannel channel = (donchianUpper channel + donchianLower channel) / 2
@@ -708,7 +750,7 @@ trendFollowingAtWithCalibration strategyCal inds t = do
                 && adxValue adxNow >= tscTrendAdxThreshold strategyCal
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
-        baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
+        baseConfidence = trendCandidateConfidence strategyCal adxNow maSpread (abs (aroonUp aroonNow - aroonDown aroonNow))
     if longTrend
         then
             Just
@@ -769,7 +811,7 @@ momentumReversionAtWithCalibration strategyCal inds t = do
                 && rocNow > 0
                 && macdValue macdNow <= macdSignal macdNow
                 && nearUpperEnvelope
-        baseConfidence = clamp01 (((abs (50 - rsiNow) / 50) + (abs (50 - stochasticNow) / 50) + min 1 (abs rocNow / 5)) / 3)
+        baseConfidence = reversionCandidateConfidence strategyCal rsiNow stochasticNow rocNow
     if longSetup
         then
             Just
@@ -822,7 +864,7 @@ volumeConfirmedBreakoutAtWithCalibration strategyCal inds t = do
         longBreakout = closeNow > donchianUpper donchianNow && obvUp && adUp && vptUp && cmfNow > 0 && mfiNow >= tscBreakoutMfiThreshold strategyCal
         shortBreakout = closeNow < donchianLower donchianNow && not obvUp && not adUp && not vptUp && cmfNow < 0 && mfiNow <= tscBreakoutMfiThreshold strategyCal
         breakoutDistance = max 0 (safeDivide (abs (closeNow - midChannel donchianNow)) closeNow)
-        baseConfidence = clamp01 (((if obvUp == adUp then 1 else 0.5) + min 1 (abs cmfNow) + min 1 (breakoutDistance * 10)) / 3)
+        baseConfidence = breakoutCandidateConfidence strategyCal obvUp adUp cmfNow breakoutDistance
     if longBreakout
         then
             Just
@@ -946,7 +988,7 @@ smaCrossAtWithCalibration strategyCal inds openThreshold closeThreshold mRequire
         -- This means when |spread| < closeThreshold we return Nothing,
         -- allowing positions to persist through small reversals.
         withinClose = absSpread < closeThreshold
-        baseConfidence = clamp01 (absSpread * 20)
+        baseConfidence = smaCrossCandidateConfidence strategyCal absSpread
     if withinClose
         then Nothing
         else
