@@ -8370,7 +8370,9 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
     autostartEnv <- lookupEnv "TRADER_BOT_AUTOSTART"
     let autostartEnabled = readEnvBool autostartEnv True
     if not autostartEnabled
-        then putStrLn "Live bot auto-start disabled (TRADER_BOT_AUTOSTART=false)."
+        then do
+            putStrLn "Live bot auto-start disabled (TRADER_BOT_AUTOSTART=false)."
+            forever (threadDelay (300 * 1000000))
         else do
             symbolsOrErr <- resolveBotSymbolsAuto baseArgs
             let baseSymbols =
