@@ -450,6 +450,7 @@ import Trader.TopCombosStore (
     resolveComboSymbol,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
+    selectCombosForBacktestRefresh,
     setComboLiveStats,
     topCombosGeneratedAtMs,
     topCombosPayloadEquivalent,
@@ -7501,10 +7502,10 @@ applyStartupComboBacktestUpdate = applyStartupComboBacktestUpdateImpl applyCombo
 
 {- | Like 'applyStartupComboBacktestUpdate' but uses the keep-all variant of
 'applyComboUpdatesWithStats': an unprofitable refresh keeps the combo with
-its deflated metrics (and refresh stamp). This is the same policy the
-periodic refresh loop uses since 2026-06-10, and it matches the 2026-06-12
-bot-start guard fix (see 'botStartupGuardShouldPrune') — the guard should
-/block/ a start when ROI is sub-threshold, not delete a combo.
+its deflated metrics (and refresh stamp). This matches the 2026-06-12
+bot-start guard fix (see 'botStartupGuardShouldPrune'): the guard should
+/block/ a start when ROI is sub-threshold, not delete a combo. Scheduled
+stale refreshes use the pruning path instead.
 -}
 applyStartupComboBacktestUpdateKeepAll ::
     TopCombosBacktestCtx ->
@@ -7669,16 +7670,11 @@ runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
                                                                 , cbuOperations = extractBacktestOperations out
                                                                 }
                                                     -- Use the keep-all path: the bot-start guard should
-                                                    -- /block/ a start, not delete a combo. The 2026-06-10
-                                                    -- refresh loop already uses keep-all because a locally
-                                                    -- pruned combo gets resurrected with stale metrics by the
-                                                    -- next cross-instance S3 union merge (the 2026-06-12 log
-                                                    -- shows the same combo UUIDs pruned 2–3 times inside one
-                                                    -- process — the fingerprint of that race). The guard now
-                                                    -- agrees with the refresh: stamp the combo with the fresh
-                                                    -- metrics, keep it in the store, do not call
-                                                    -- 'deleteTopComboFromDbMaybe'. See
-                                                    -- 'botStartupGuardShouldPrune' in BotStartSemantics.
+                                                    -- /block/ a start, not delete a combo. Scheduled stale
+                                                    -- refreshes prune losers with tombstones; startup guards
+                                                    -- keep the selected combo visible and simply refuse to
+                                                    -- start it. See 'botStartupGuardShouldPrune' in
+                                                    -- BotStartSemantics.
                                                     updateResult <- applyStartupComboBacktestUpdateKeepAll ctx comboKey update
                                                     -- Reached only when the verdict is Allow or Abort and the
                                                     -- guard is enabled (disabled boxes return Allow above).
@@ -10900,7 +10896,9 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                     -- A zero-trade window is a verdict on the window,
                                                                     -- not the combo (2026-06-10 invariant): do not
                                                                     -- persist smoke metrics over the optimizer's
-                                                                    -- out-of-sample reading.
+                                                                    -- out-of-sample reading. Stale refreshes still get a
+                                                                    -- freshness stamp so they do not run forever on every
+                                                                    -- scheduled pass.
                                                                     | comboMetricInt "tradeCount" metricsVal == Just 0 -> do
                                                                         recordEvent
                                                                             "optimizer.combos.backtest_no_verdict"
@@ -10908,7 +10906,21 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                             , "interval" .= mInterval
                                                                             , "reason" .= ("zero-trade window" :: String)
                                                                             ]
-                                                                        pure Nothing
+                                                                        let priorMetrics =
+                                                                                case comboVal of
+                                                                                    Aeson.Object comboObj ->
+                                                                                        case KM.lookup (AK.fromString "metrics") comboObj of
+                                                                                            Just prior@(Aeson.Object _) -> prior
+                                                                                            _ -> metricsVal
+                                                                                    _ -> metricsVal
+                                                                            stampOnlyUpdate =
+                                                                                ComboBacktestUpdate
+                                                                                    { cbuMetrics = priorMetrics
+                                                                                    , cbuFinalEquity = Nothing
+                                                                                    , cbuScore = Nothing
+                                                                                    , cbuOperations = Nothing
+                                                                                    }
+                                                                        pure (Just (key, stampOnlyUpdate))
                                                                 Just metricsVal -> do
                                                                     let mFinalEq = comboMetricDouble "finalEquity" metricsVal
                                                                         objective = fromMaybe "final-equity" (tcObjectiveLabel combo)
@@ -10940,9 +10952,11 @@ backtestTopCombosOnce topNRaw ctx = do
                 Aeson.Object o ->
                     case KM.lookup (AK.fromString "combos") o of
                         Just (Aeson.Array combos) -> do
+                            selectionNow <- getTimestampMs
                             let combosList = V.toList combos
-                                ranked = take topN (sortOn (\(_, v) -> comboPerformanceKey v) (zip [0 ..] combosList))
-                            updates <- fmap catMaybes (forM ranked (\(_, v) -> backtestCombo v))
+                                selected = selectCombosForBacktestRefresh topN selectionNow combosList
+                                selectedCount = length selected
+                            updates <- fmap catMaybes (forM selected backtestCombo)
                             if null updates
                                 then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String)]
                                 else do
@@ -10960,11 +10974,10 @@ backtestTopCombosOnce topNRaw ctx = do
                                                 Right latestVal -> do
                                                     now <- getTimestampMs
                                                     let updateMap = HM.fromList updates
-                                                    -- Keep (deflated) rather than prune: a locally pruned combo
-                                                    -- resurrects with its stale score via the cross-instance
-                                                    -- union merge; a kept, freshly-stamped record wins those
-                                                    -- merges and drops off the capped board by rank instead.
-                                                    case applyComboUpdatesKeepAllWithStats now updateMap latestVal of
+                                                    -- Periodic refreshes are authoritative for stale combos:
+                                                    -- prune sub-1.0 refreshed performance and carry a tombstone
+                                                    -- in the payload so stale replicas cannot resurrect it.
+                                                    case applyComboUpdatesWithStats now updateMap latestVal of
                                                         Left err -> do
                                                             recordError "optimizer.combos.backtest_failed" err Nothing Nothing
                                                             pure False
@@ -10992,6 +11005,7 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                                 [ "updated" .= updatedCount
                                                                                 , "pruned" .= prunedCount
                                                                                 , "topN" .= topN
+                                                                                , "selected" .= selectedCount
                                                                                 , "path" .= topJsonPath
                                                                                 ]
                                                                             pure True

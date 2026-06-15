@@ -268,14 +268,12 @@ botStartupBacktestVerdictWithMinTrades minTradesRaw True mFinalEquity mTradeCoun
 {- | Should the bot-start guard's @BacktestAbort@ verdict /also/ delete the
 combo from the top-combos store and DB?
 
-As of 2026-06-12 the answer is /no/. The periodic refresh path has used
-@applyComboUpdatesKeepAllWithStats@ since 2026-06-10 for the same reason:
-when one box prunes a combo, the next cross-instance S3 union merge
-resurrects it with stale, inflated metrics; whereas a kept, stamped record
-wins the merge and falls out of the capped board by rank, fleet-wide. The
-bot-start guard had been doing the opposite: prune locally AND delete from
-the DB row. Today's launchd log shows the same combo UUIDs being pruned 2–3
-times inside one process, which is the fingerprint of that race.
+As of 2026-06-12 the answer is /no/. The bot-start guard had been pruning
+locally AND deleting from the DB row; that made a noisy startup smoke window
+destructive. Scheduled stale refreshes are the pruning authority instead:
+they can drop sub-1.0 refreshed combos because the top-combos payload now
+carries a drop tombstone to prevent stale S3/DB replicas from resurrecting
+the old score.
 
 The guard now only /blocks/ the start; pruning is the optimizer's job.
 This function exists so the policy is referenced from one place and

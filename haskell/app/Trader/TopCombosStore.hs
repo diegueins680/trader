@@ -10,7 +10,9 @@ module Trader.TopCombosStore (
     applyComboUpdatesWithStats,
     applyComboUpdatesKeepAllWithStats,
     blendedAnnualizedReturn,
+    comboBacktestDueForRefresh,
     comboBacktestFreshnessMs,
+    comboBacktestStaleAfterMs,
     compactTopCombosPayloadForSync,
     comboFinalEquityValue,
     comboIdentityKey,
@@ -43,6 +45,7 @@ module Trader.TopCombosStore (
     readTopCombosValueLocal,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
+    selectCombosForBacktestRefresh,
     topCombosPayloadEquivalent,
     topCombosGeneratedAtMs,
     withTopCombosLock,
@@ -67,7 +70,9 @@ import Data.List (foldl', isPrefixOf, sortBy)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Maybe
+import qualified Data.Set as Set
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import qualified Data.Vector as V
 import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, removeDirectory, removeFile, renameFile, setModificationTime)
@@ -240,7 +245,8 @@ sanitizeTopCombosValue val =
         Aeson.Object o ->
             case KM.lookup (AK.fromString "combos") o of
                 Just (Aeson.Array combos) ->
-                    let combosList = V.toList combos
+                    let dropTombstones = comboDropTombstoneMap val
+                        combosList = V.toList combos
                         (kept, changed) = foldl' apply ([], 0) combosList
                         apply (acc, count) comboVal =
                             -- A sub-1.0 combo carrying a refresh stamp is an honest
@@ -249,14 +255,15 @@ sanitizeTopCombosValue val =
                             -- instances still publish (see 'pickBestCombo') and then
                             -- sink off the capped board by rank. Dropping it here
                             -- would resurrect the stale copy on every union merge.
-                            if (not (comboEquityAboveOne comboVal) && not (comboCarriesRefreshStamp comboVal))
+                            if comboDroppedByTombstones dropTombstones comboVal
+                                || (not (comboEquityAboveOne comboVal) && not (comboCarriesRefreshStamp comboVal))
                                 || not (comboOpenThresholdDeployable comboVal)
                                 then (acc, count + 1)
                                 else
                                     let (comboVal', updated) = sanitizeComboValue comboVal
                                      in (comboVal' : acc, count + if updated then 1 else 0)
                         combosOut = Aeson.Array (V.fromList (reverse kept))
-                        o' = KM.insert (AK.fromString "combos") combosOut o
+                        o' = insertComboDropTombstones dropTombstones (KM.insert (AK.fromString "combos") combosOut o)
                      in (Aeson.Object o', changed)
                 _ -> (val, 0)
         _ -> (val, 0)
@@ -637,6 +644,34 @@ fallback when comparing against a refreshed record.
 comboBacktestFreshnessMs :: Aeson.Value -> Maybe Int64
 comboBacktestFreshnessMs val =
     comboBacktestRefreshedAtMs val <|> comboTopLevelInt64 "createdAtMs" val
+
+comboBacktestStaleAfterMs :: Int64
+comboBacktestStaleAfterMs = 3 * 86400000
+
+comboBacktestDueForRefresh :: Int64 -> Aeson.Value -> Bool
+comboBacktestDueForRefresh now val =
+    case comboBacktestFreshnessMs val of
+        Nothing -> True
+        Just refreshedAt -> now - refreshedAt > comboBacktestStaleAfterMs
+
+selectCombosForBacktestRefresh :: Int -> Int64 -> [Aeson.Value] -> [Aeson.Value]
+selectCombosForBacktestRefresh topNRaw now combos =
+    let topN = max 1 topNRaw
+        indexed = zip [0 :: Int ..] combos
+        ranked = take topN (sortBy compareRank indexed)
+        stale = filter (comboBacktestDueForRefresh now . snd) indexed
+     in map snd (dedupeSelected (ranked ++ stale))
+  where
+    compareRank (_, a) (_, b) = compare (comboPerformanceKey a) (comboPerformanceKey b)
+
+    dedupeSelected = reverse . fst . foldl' keep ([], Set.empty)
+
+    keep (acc, seen) item@(_, comboVal) =
+        case comboIdentityKey comboVal of
+            Just key
+                | key `Set.member` seen -> (acc, seen)
+                | otherwise -> (item : acc, Set.insert key seen)
+            Nothing -> (item : acc, seen)
 
 recalculateComboPerformanceFromOperation ::
     Int64 ->
@@ -1118,7 +1153,11 @@ mergeTopCombosPayloadsWithStats :: Int -> Int64 -> [Aeson.Value] -> (Aeson.Value
 mergeTopCombosPayloadsWithStats maxItems now payloads =
     let rawCount = sum (map payloadComboCount payloads)
         sanitized = map (fst . sanitizeTopCombosValue) payloads
-        combos = concatMap extractCombos sanitized
+        dropTombstones = mergeComboDropTombstones sanitized
+        combos =
+            concatMap
+                (filter (not . comboDroppedByTombstones dropTombstones) . extractCombos)
+                sanitized
         payloadSource = listToMaybe (Data.Maybe.mapMaybe extractPayloadSource sanitized)
         payloadMetadata = mergePayloadMetadata sanitized
         mergedMap = foldl' mergeCombo M.empty combos
@@ -1134,14 +1173,15 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
                 , tcmsDedupedCount = max 0 (sanitizedCount - mergedUniqueCount)
                 }
         mergedObj =
-            KM.insert
-                (AK.fromString "generatedAtMs")
-                (toJSON now)
-                ( KM.insert
-                    (AK.fromString "source")
-                    (toJSON sourceVal)
-                    (KM.insert (AK.fromString "combos") (toJSON ranked) payloadMetadata)
-                )
+            insertComboDropTombstones dropTombstones $
+                KM.insert
+                    (AK.fromString "generatedAtMs")
+                    (toJSON now)
+                    ( KM.insert
+                        (AK.fromString "source")
+                        (toJSON sourceVal)
+                        (KM.insert (AK.fromString "combos") (toJSON ranked) payloadMetadata)
+                    )
      in ( Aeson.Object mergedObj
         , stats
         )
@@ -1181,6 +1221,7 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
         key == AK.fromString "generatedAtMs"
             || key == AK.fromString "source"
             || key == AK.fromString "combos"
+            || key == comboDropTombstonesKey
 
     mergeCombo acc comboVal =
         case comboMergeKey comboVal of
@@ -1237,6 +1278,82 @@ data ComboBacktestUpdate = ComboBacktestUpdate
     , cbuScore :: !(Maybe Double)
     , cbuOperations :: !(Maybe Aeson.Value)
     }
+
+comboDropTombstonesKey :: AK.Key
+comboDropTombstonesKey = AK.fromString "droppedComboIdentities"
+
+comboDropTombstoneIdentityKey :: AK.Key
+comboDropTombstoneIdentityKey = AK.fromString "identityKey"
+
+comboDropTombstoneDroppedAtKey :: AK.Key
+comboDropTombstoneDroppedAtKey = AK.fromString "droppedAtMs"
+
+comboDropTombstoneMap :: Aeson.Value -> M.Map BS.ByteString Int64
+comboDropTombstoneMap val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup comboDropTombstonesKey o of
+                Just (Aeson.Array arr) -> V.foldl' add M.empty arr
+                _ -> M.empty
+        _ -> M.empty
+  where
+    add acc tombstone =
+        case tombstone of
+            Aeson.Object o -> fromMaybe acc $ do
+                keyVal <- KM.lookup comboDropTombstoneIdentityKey o
+                key <- comboIdentityKeyFromJson keyVal
+                droppedAt <- KM.lookup comboDropTombstoneDroppedAtKey o >>= coerceInt64Value
+                pure (M.insertWith max key droppedAt acc)
+            _ -> acc
+
+comboIdentityKeyFromJson :: Aeson.Value -> Maybe BS.ByteString
+comboIdentityKeyFromJson raw =
+    case raw of
+        Aeson.String txt
+            | not (T.null txt) -> Just (TE.encodeUtf8 txt)
+        _ -> Nothing
+
+comboIdentityKeyToJson :: BS.ByteString -> Aeson.Value
+comboIdentityKeyToJson = Aeson.String . TE.decodeUtf8
+
+comboDropTombstonesValue :: M.Map BS.ByteString Int64 -> Aeson.Value
+comboDropTombstonesValue tombstones =
+    Aeson.Array $
+        V.fromList
+            [ object
+                [ "identityKey" .= comboIdentityKeyToJson key
+                , "droppedAtMs" .= droppedAt
+                ]
+            | (key, droppedAt) <- M.toList tombstones
+            ]
+
+insertComboDropTombstones :: M.Map BS.ByteString Int64 -> Aeson.Object -> Aeson.Object
+insertComboDropTombstones tombstones obj =
+    if M.null tombstones
+        then KM.delete comboDropTombstonesKey obj
+        else KM.insert comboDropTombstonesKey (comboDropTombstonesValue tombstones) obj
+
+mergeComboDropTombstones :: [Aeson.Value] -> M.Map BS.ByteString Int64
+mergeComboDropTombstones =
+    foldl' (M.unionWith max) M.empty . map comboDropTombstoneMap
+
+comboDroppedByTombstones :: M.Map BS.ByteString Int64 -> Aeson.Value -> Bool
+comboDroppedByTombstones tombstones comboVal =
+    case comboDropIdentityKey comboVal >>= (`M.lookup` tombstones) of
+        Nothing -> False
+        Just droppedAt ->
+            case comboBacktestFreshnessMs comboVal of
+                Nothing -> True
+                Just freshness -> droppedAt >= freshness
+
+comboDropIdentityKey :: Aeson.Value -> Maybe BS.ByteString
+comboDropIdentityKey = comboIdentityKey . comboWithoutSourceField
+
+comboWithoutSourceField :: Aeson.Value -> Aeson.Value
+comboWithoutSourceField val =
+    case val of
+        Aeson.Object o -> Aeson.Object (KM.delete (AK.fromString "source") o)
+        _ -> val
 
 updateComboWithBacktest :: Int64 -> ComboBacktestUpdate -> Aeson.Value -> Aeson.Value
 updateComboWithBacktest now update comboVal =
@@ -1308,11 +1425,11 @@ applyComboUpdatesWithStats :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpd
 applyComboUpdatesWithStats = applyComboUpdatesWithStatsPrune True
 
 {- | Like 'applyComboUpdatesWithStats' but never prunes: an unprofitable
-refresh keeps the combo with its deflated metrics (and refresh stamp). This
-is what the periodic leaderboard refresh wants — a locally pruned combo would
-be resurrected with its stale, inflated score by the next cross-instance
-union merge, whereas a kept, stamped record wins those merges and the combo
-then falls out of the capped board by rank, fleet-wide.
+refresh keeps the combo with its deflated metrics (and refresh stamp).
+Startup guards use this so an abort blocks the start without deleting the
+selected combo. Scheduled stale refreshes should use
+'applyComboUpdatesWithStats' so a sub-1.0 refreshed combo is pruned and
+tombstoned against stale replica resurrection.
 -}
 applyComboUpdatesKeepAllWithStats :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, ComboBacktestApplyStats)
 applyComboUpdatesKeepAllWithStats = applyComboUpdatesWithStatsPrune False
@@ -1323,11 +1440,12 @@ applyComboUpdatesWithStatsPrune pruneUnprofitable now updates val =
         Aeson.Object o ->
             case KM.lookup (AK.fromString "combos") o of
                 Just (Aeson.Array combos) -> do
-                    let combosList = V.toList combos
-                        (updatedCombos, updatedCount, prunedCount, prunedKeys) = foldl' applyOne ([], 0, 0, []) combosList
-                        applyOne (acc, updCount, pruneCount, pKeys) comboVal =
+                    let priorDropTombstones = comboDropTombstoneMap val
+                        combosList = V.toList combos
+                        (updatedCombos, updatedCount, prunedCount, prunedKeys, tombstoneKeys) = foldl' applyOne ([], 0, 0, [], []) combosList
+                        applyOne (acc, updCount, pruneCount, pKeys, tKeys) comboVal =
                             case comboIdentityKey comboVal >>= (`HM.lookup` updates) of
-                                Nothing -> (comboVal : acc, updCount, pruneCount, pKeys)
+                                Nothing -> (comboVal : acc, updCount, pruneCount, pKeys, tKeys)
                                 Just upd ->
                                     let updated = updateComboWithBacktest now upd comboVal
                                         mEquity = comboFinalEquityValue updated
@@ -1336,12 +1454,17 @@ applyComboUpdatesWithStatsPrune pruneUnprofitable now updates val =
                                         zeroTradeUpdate = mTrades == Just 0
                                         keep = not pruneUnprofitable || maybe True (> 1.0) mEquity || zeroTradeUpdate
                                      in if keep
-                                            then (updated : acc, updCount + 1, pruneCount, pKeys)
+                                            then (updated : acc, updCount + 1, pruneCount, pKeys, tKeys)
                                             else case comboIdentityKey comboVal of
-                                                Nothing -> (acc, updCount + 1, pruneCount + 1, pKeys)
-                                                Just k -> (acc, updCount + 1, pruneCount + 1, k : pKeys)
+                                                Nothing -> (acc, updCount + 1, pruneCount + 1, pKeys, tKeys)
+                                                Just k ->
+                                                    let tKeys' = maybe tKeys (: tKeys) (comboDropIdentityKey comboVal)
+                                                     in (acc, updCount + 1, pruneCount + 1, k : pKeys, tKeys')
                         combosOut = Aeson.Array (V.fromList (reverse updatedCombos))
-                        o' = KM.insert (AK.fromString "combos") combosOut (KM.insert (AK.fromString "generatedAtMs") (toJSON now) o)
+                        dropTombstones' = foldl' (\acc key -> M.insertWith max key now acc) priorDropTombstones tombstoneKeys
+                        o' =
+                            insertComboDropTombstones dropTombstones' $
+                                KM.insert (AK.fromString "combos") combosOut (KM.insert (AK.fromString "generatedAtMs") (toJSON now) o)
                         stats = ComboBacktestApplyStats updatedCount prunedCount (reverse prunedKeys)
                     Right (Aeson.Object o', stats)
                 _ -> Left "Top combos JSON missing combos array."

@@ -15,7 +15,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes, fromMaybe, isNothing)
+import Data.Maybe (catMaybes, fromMaybe, isNothing, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
@@ -158,7 +158,9 @@ import Trader.TopCombosStore (
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     blendedAnnualizedReturn,
+    comboBacktestDueForRefresh,
     comboBacktestFreshnessMs,
+    comboBacktestStaleAfterMs,
     comboIdentityKey,
     comboLiveQuarantined,
     comboLiveStats,
@@ -168,6 +170,7 @@ import Trader.TopCombosStore (
     liveStatsQuarantined,
     mergeTopCombosPayloads,
     recalculateComboPerformanceFromOperation,
+    selectCombosForBacktestRefresh,
  )
 import Trader.Trading (
     BacktestCostAttribution (..),
@@ -341,6 +344,8 @@ main = do
     testMergeNewerDiscoveryBeatsOlderRefresh
     testMergeUnstampedDuplicatesKeepBestEver
     testMergeSanitizeKeepsStampedSubOneRefresh
+    testSelectCombosForBacktestRefreshIncludesEveryStaleCombo
+    testPrunedBacktestTombstonePreventsStaleResurrection
     testKeepAllUpdateKeepsUnprofitableComboStamped
     testTradeOutcomeWeightsSemantics
     testWeightedFineTuneUnitWeightsEquivalence
@@ -3192,12 +3197,9 @@ testBotStartupBacktestVerdictDefaultMinTradesIsThree = do
         (defaultBotStartupBacktestMinTrades == 3)
 
 {- | The bot-start guard must not prune the top-combos store or DB row on
-any verdict (2026-06-12). The periodic refresh path has used the
-keep-all variant since 2026-06-10 because a locally-pruned combo is
-resurrected with stale, inflated metrics by the next cross-instance
-S3 union merge — today's launchd log shows the same combo UUIDs being
-pruned 2–3 times inside one process, the fingerprint of that race.
-The guard now agrees: block the start, do not prune.
+any verdict (2026-06-12). Startup smoke windows are not the pruning
+authority: block the start on a real abort, but do not delete the combo.
+Scheduled stale refreshes handle drop decisions with tombstones.
 
 Falsification: any verdict for which 'botStartupGuardShouldPrune'
 returns 'True'. The current contract is uniformly 'False'.
@@ -3547,10 +3549,111 @@ testMergeSanitizeKeepsStampedSubOneRefresh = do
         "unstamped sub-1.0 combo is still sanitized away"
         (isNothing (mergeWinnerScore [unstampedLoss]))
 
-{- | The periodic leaderboard refresh keeps unprofitable combos (deflated and
-stamped) instead of pruning them: a pruned record would resurrect with its
-stale score via the union merge, while a kept stamped record wins merges and
-sinks out of the capped board by rank.
+selectionComboForTest :: T.Text -> Double -> Maybe Int64 -> Maybe Int64 -> Aeson.Value
+selectionComboForTest method score mCreatedAt mRefreshedAt =
+    Aeson.object
+        ( [ "symbol" .= ("BTCUSDT" :: T.Text)
+          , "interval" .= ("15m" :: T.Text)
+          , "platform" .= ("binance" :: T.Text)
+          , "uuid" .= ("0badc0de-1234-5678-9abc-def012345678" :: T.Text)
+          , "finalEquity" .= (1.0 + score :: Double)
+          , "score" .= score
+          , "openThreshold" .= (0.005 :: Double)
+          , "closeThreshold" .= (0.010 :: Double)
+          , "objective" .= ("final-equity" :: T.Text)
+          , "params" .= Aeson.object ["method" .= method, "lookback" .= (48 :: Int)]
+          , "metrics" .= Aeson.object ["finalEquity" .= (1.0 + score :: Double), "tradeCount" .= (8 :: Int)]
+          ]
+            ++ maybe [] (\t -> ["createdAtMs" .= t]) mCreatedAt
+            ++ maybe [] (\t -> ["backtestRefreshedAtMs" .= t]) mRefreshedAt
+        )
+
+testSelectCombosForBacktestRefreshIncludesEveryStaleCombo :: IO ()
+testSelectCombosForBacktestRefreshIncludesEveryStaleCombo = do
+    let now = 10 * 86400000 :: Int64
+        oneDay = 86400000 :: Int64
+        topFresh = selectionComboForTest "top-fresh" 5.0 (Just (now - oneDay)) Nothing
+        staleLowRank = selectionComboForTest "stale-low-rank" 0.1 (Just (now - comboBacktestStaleAfterMs - 1)) Nothing
+        freshLowRank = selectionComboForTest "fresh-low-rank" 0.2 (Just (now - oneDay)) Nothing
+        missingFreshness = selectionComboForTest "missing-freshness" 0.3 Nothing Nothing
+        exactlyAtBoundary = selectionComboForTest "boundary" 0.4 (Just (now - comboBacktestStaleAfterMs)) Nothing
+        selected = selectCombosForBacktestRefresh 1 now [staleLowRank, freshLowRank, topFresh, missingFreshness]
+        selectedKeys = mapMaybe comboIdentityKey selected
+        has combo = maybe False (`elem` selectedKeys) (comboIdentityKey combo)
+    assert
+        "selection keeps the top-ranked combo and every stale combo outside topN"
+        ( length selected == 3
+            && has topFresh
+            && has staleLowRank
+            && has missingFreshness
+            && not (has freshLowRank)
+        )
+    assert
+        "missing freshness is due, exactly three days old is not older than three days"
+        ( comboBacktestDueForRefresh now missingFreshness
+            && not (comboBacktestDueForRefresh now exactlyAtBoundary)
+        )
+
+testPrunedBacktestTombstonePreventsStaleResurrection :: IO ()
+testPrunedBacktestTombstonePreventsStaleResurrection = do
+    let stale = freshnessComboForTest 5.0 (Just 1000) Nothing
+        payload =
+            Aeson.object
+                [ "combos" .= [stale]
+                , "generatedAtMs" .= (1000 :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+        key = case comboIdentityKey stale of
+            Just k -> k
+            Nothing -> error "test setup: combo identity key resolution failed"
+        lossUpdate =
+            ComboBacktestUpdate
+                { cbuMetrics = Aeson.object ["finalEquity" .= (0.85 :: Double), "tradeCount" .= (12 :: Int)]
+                , cbuFinalEquity = Just 0.85
+                , cbuScore = Just (-0.15)
+                , cbuOperations = Nothing
+                }
+    case applyComboUpdatesWithStats 5000 (HM.singleton key lossUpdate) payload of
+        Left err -> ioError (userError ("applyComboUpdatesWithStats failed unexpectedly: " ++ err))
+        Right (droppedPayload, stats) -> do
+            assert
+                "periodic backtest prune removes the refreshed loser"
+                (topCombosCount droppedPayload == 0 && cbasUpdatedCount stats == 1 && cbasPrunedCount stats == 1)
+            let staleReplica =
+                    Aeson.object
+                        [ "combos" .= [stale]
+                        , "generatedAtMs" .= (4000 :: Int64)
+                        , "source" .= ("stale-replica" :: T.Text)
+                        ]
+                resurrectAttempt = mergeTopCombosPayloads 10 6000 [droppedPayload, staleReplica]
+            assert
+                "drop tombstone blocks a stale replica from resurrecting the combo"
+                (topCombosCount resurrectAttempt == 0)
+            let rediscovered =
+                    Aeson.object
+                        [ "combos" .= [freshnessComboForTest 0.2 (Just 6000) Nothing]
+                        , "generatedAtMs" .= (6000 :: Int64)
+                        , "source" .= ("rediscovered" :: T.Text)
+                        ]
+                rediscoveredMerge = mergeTopCombosPayloads 10 7000 [droppedPayload, rediscovered]
+            assert
+                "a newer rediscovery after the tombstone is allowed back in"
+                (mergeWinnerScoreFromPayload rediscoveredMerge == Just 0.2)
+
+mergeWinnerScoreFromPayload :: Aeson.Value -> Maybe Double
+mergeWinnerScoreFromPayload payload =
+    case payload of
+        Aeson.Object o -> case KM.lookup "combos" o of
+            Just (Aeson.Array v) | not (V.null v) ->
+                case V.head v of
+                    Aeson.Object c -> KM.lookup "score" c >>= AT.parseMaybe Aeson.parseJSON
+                    _ -> Nothing
+            _ -> Nothing
+        _ -> Nothing
+
+{- | Startup backtest guards use the keep-all apply variant: an abort blocks
+the start, but does not delete the combo from the store. Scheduled stale
+refreshes use the pruning variant tested above.
 -}
 testKeepAllUpdateKeepsUnprofitableComboStamped :: IO ()
 testKeepAllUpdateKeepsUnprofitableComboStamped = do
