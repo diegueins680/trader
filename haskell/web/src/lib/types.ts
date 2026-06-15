@@ -266,8 +266,11 @@ export type BinanceTrade = {
   positionSide?: string | null;
   realizedPnl?: number | null;
   originIp?: string | null;
+  originInstance?: string | null;
   entryIp?: string | null;
   exitIp?: string | null;
+  entryInstance?: string | null;
+  exitInstance?: string | null;
   entryTime?: number | null;
   exitTime?: number | null;
 };
@@ -624,6 +627,9 @@ export type OpsOperation = {
   args?: unknown;
   result?: unknown;
   equity?: number;
+  serverId?: string | null;
+  serverRole?: string | null;
+  serverProvider?: string | null;
 };
 
 export type OpsResponse = {

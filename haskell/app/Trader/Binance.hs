@@ -193,6 +193,7 @@ data BinanceTrade = BinanceTrade
     , btPositionSide :: !(Maybe String)
     , btRealizedPnl :: !(Maybe Double)
     , btOriginIp :: !(Maybe Text)
+    , btOriginInstance :: !(Maybe Text)
     }
     deriving (Eq, Show)
 
@@ -220,6 +221,7 @@ instance FromJSON BinanceTrade where
         positionSide <- o AT..:? "positionSide"
         realizedPnl <- parseMaybeDoubleField o "realizedPnl"
         originIp <- o AT..:? "originIp"
+        originInstance <- o AT..:? "originInstance"
         let isBuyer = isBuyerRaw <|> buyerRaw
             isMaker = isMakerRaw <|> makerRaw
             sideDerived =
@@ -255,6 +257,7 @@ instance FromJSON BinanceTrade where
                 , btPositionSide = positionSide
                 , btRealizedPnl = realizedPnl
                 , btOriginIp = originIp
+                , btOriginInstance = originInstance
                 }
 
 instance FromJSON BinanceServerTime where
@@ -280,6 +283,7 @@ instance ToJSON BinanceTrade where
             , "positionSide" .= btPositionSide t
             , "realizedPnl" .= btRealizedPnl t
             , "originIp" .= btOriginIp t
+            , "originInstance" .= btOriginInstance t
             ]
 
 binanceBaseUrl :: String

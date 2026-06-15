@@ -121,6 +121,7 @@ import Trader.App.Env (getBuildCommit, loadEnvFile, traderVersion)
 import Trader.App.Observability (
     Journal,
     Metrics,
+    ServerIdentity (..),
     Webhook,
     WebhookEvent (..),
     incCounter,
@@ -134,6 +135,7 @@ import Trader.App.Observability (
     newWebhookFromEnv,
     renderMetricsText,
     sanitizeWebhookText,
+    serverIdentityFromEnv,
     stateDirFromEnv,
     stateSubdirFromEnv,
     webhookMaxMessageLen,
@@ -2166,6 +2168,9 @@ data PersistedOperation = PersistedOperation
     , poArgs :: !(Maybe Aeson.Value)
     , poResult :: !(Maybe Aeson.Value)
     , poEquity :: !(Maybe Double)
+    , poServerId :: !(Maybe Text)
+    , poServerRole :: !(Maybe Text)
+    , poServerProvider :: !(Maybe Text)
     }
     deriving (Eq, Show, Generic)
 
@@ -2317,6 +2322,7 @@ data OpsStore = OpsStore
     , osSymbolCache :: !(IORef (HM.HashMap (Text, Text, Text) Int64))
     , osCommitId :: !(Maybe Int64)
     , osPersistenceConfig :: !OpsPersistenceConfig
+    , osServerIdentity :: !ServerIdentity
     }
 
 tryAny :: IO a -> IO (Either SomeException a)
@@ -2820,6 +2826,9 @@ data PersistedOperationRow = PersistedOperationRow
     , porArgs :: !(Maybe Text)
     , porResult :: !(Maybe Text)
     , porEquity :: !(Maybe Double)
+    , porServerId :: !(Maybe Text)
+    , porServerRole :: !(Maybe Text)
+    , porServerProvider :: !(Maybe Text)
     }
     deriving (Eq, Show)
 
@@ -2827,6 +2836,9 @@ instance FromRow PersistedOperationRow where
     fromRow =
         PersistedOperationRow
             <$> field
+            <*> field
+            <*> field
+            <*> field
             <*> field
             <*> field
             <*> field
@@ -2850,6 +2862,9 @@ persistedOperationFromRow row =
         , poArgs = decodeJsonTextMaybe (porArgs row)
         , poResult = decodeJsonTextMaybe (porResult row)
         , poEquity = porEquity row
+        , poServerId = porServerId row
+        , poServerRole = porServerRole row
+        , poServerProvider = porServerProvider row
         }
 
 data PersistedComboRow = PersistedComboRow
@@ -3505,7 +3520,9 @@ newOpsStoreFromEnv = do
                             latestRef <- newIORef maxId
                             platformCache <- newIORef HM.empty
                             symbolCache <- newIORef HM.empty
-                            pure (Just (OpsStore lock url connRef latestRef platformCache symbolCache mCommitId persistenceConfig))
+                            Just
+                                . OpsStore lock url connRef latestRef platformCache symbolCache mCommitId persistenceConfig
+                                <$> serverIdentityFromEnv
 
 opsPersistenceConfigFromEnv :: IO OpsPersistenceConfig
 opsPersistenceConfigFromEnv = do
@@ -4058,6 +4075,10 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
         argsJson = encodeJsonTextMaybe mArgs
         resultJson = encodeJsonTextMaybe mResult
         mCommitId = osCommitId store
+        serverIdentity = osServerIdentity store
+        mServerId = normalizeMaybeText (siServerId serverIdentity)
+        mServerRole = normalizeMaybeText (siServerRole serverIdentity)
+        mServerProvider = normalizeMaybeText (siServerProvider serverIdentity)
     opId <- withOpsConnection store $ \conn ->
         withTransaction conn $ do
             mPlatformId <- case mPlatform of
@@ -4069,8 +4090,8 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
             rows <-
                 query
                     conn
-                    "INSERT INTO ops (tenant_key, at_ms, kind, platform_id, symbol_id, symbol, combo_uuid, order_id, params_json, args_json, result_json, equity, git_commit_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?) RETURNING id"
-                    (mTenantKey', now, kind, mPlatformId, mSymbolId, mSymbol', mComboUuid', mOrderId', paramsJson, argsJson, resultJson, mEquity, mCommitId)
+                    "INSERT INTO ops (tenant_key, at_ms, kind, platform_id, symbol_id, symbol, combo_uuid, order_id, server_id, server_role, server_provider, params_json, args_json, result_json, equity, git_commit_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?) RETURNING id"
+                    (mTenantKey', now, kind, mPlatformId, mSymbolId, mSymbol', mComboUuid', mOrderId', mServerId, mServerRole, mServerProvider, paramsJson, argsJson, resultJson, mEquity, mCommitId)
             let newId =
                     case rows of
                         (Only v : _) -> v
@@ -4107,6 +4128,9 @@ opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol
                 , poArgs = mArgs
                 , poResult = mResult
                 , poEquity = mEquity
+                , poServerId = mServerId
+                , poServerRole = mServerRole
+                , poServerProvider = mServerProvider
                 }
     writeIORef (osLatestId store) opId
     pure op
@@ -4223,7 +4247,7 @@ opsList store mTenantKey sinceId limit mKind mSymbol mComboUuid mOrderId mFromMs
                 then " ORDER BY id ASC"
                 else " ORDER BY id DESC"
         sql =
-            "SELECT id, at_ms, kind, symbol, combo_uuid, order_id, params_json::text, args_json::text, result_json::text, equity "
+            "SELECT id, at_ms, kind, symbol, combo_uuid, order_id, params_json::text, args_json::text, result_json::text, equity, server_id, server_role, server_provider "
                 <> "FROM ops"
                 <> whereSql
                 <> orderSql
@@ -4429,13 +4453,16 @@ data OpsOrderOriginRow = OpsOrderOriginRow
     , oorTenantKey :: !(Maybe Text)
     , oorKind :: !Text
     , oorOrderId :: !(Maybe Text)
+    , oorServerId :: !(Maybe Text)
+    , oorServerRole :: !(Maybe Text)
+    , oorServerProvider :: !(Maybe Text)
     , oorParams :: !(Maybe Aeson.Value)
     , oorResult :: !(Maybe Aeson.Value)
     }
     deriving (Eq, Show)
 
 instance FromRow OpsOrderOriginRow where
-    fromRow = OpsOrderOriginRow <$> field <*> field <*> field <*> field <*> field <*> field
+    fromRow = OpsOrderOriginRow <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
 
 trimmedTextOrNothing :: Text -> Maybe Text
 trimmedTextOrNothing raw =
@@ -4481,6 +4508,17 @@ extractOriginIpFromOp mVal =
                 , jsonLookupPathText [AK.fromString "event", AK.fromString "order", AK.fromString "originIp"] v
                 ]
 
+extractServerFieldFromOp :: Text -> Maybe Aeson.Value -> Maybe Text
+extractServerFieldFromOp fieldName mVal =
+    case mVal of
+        Nothing -> Nothing
+        Just v ->
+            let key = AK.fromString (T.unpack fieldName)
+             in listToMaybe . catMaybes $
+                    [ jsonLookupPathText [key] v
+                    , jsonLookupPathText [AK.fromString "server", key] v
+                    ]
+
 extractOrderIdFromOp :: OpsOrderOriginRow -> Maybe Text
 extractOrderIdFromOp row =
     let fromJson mVal =
@@ -4497,18 +4535,73 @@ extractOrderIdFromOp row =
 originIpFromRow :: OpsOrderOriginRow -> Maybe Text
 originIpFromRow row = extractOriginIpFromOp (oorResult row) <|> extractOriginIpFromOp (oorParams row)
 
-rowScore :: TenantKey -> OpsOrderOriginRow -> Maybe Text -> (Int, Int, Int, Int64)
-rowScore tenantKey row mIp =
+serverIdFromRow :: OpsOrderOriginRow -> Maybe Text
+serverIdFromRow row =
+    normalizeMaybeText (oorServerId row)
+        <|> extractServerFieldFromOp "serverId" (oorResult row)
+        <|> extractServerFieldFromOp "id" (oorResult row)
+        <|> extractServerFieldFromOp "serverId" (oorParams row)
+        <|> extractServerFieldFromOp "id" (oorParams row)
+
+serverRoleFromRow :: OpsOrderOriginRow -> Maybe Text
+serverRoleFromRow row =
+    normalizeMaybeText (oorServerRole row)
+        <|> extractServerFieldFromOp "serverRole" (oorResult row)
+        <|> extractServerFieldFromOp "role" (oorResult row)
+        <|> extractServerFieldFromOp "serverRole" (oorParams row)
+        <|> extractServerFieldFromOp "role" (oorParams row)
+
+serverProviderFromRow :: OpsOrderOriginRow -> Maybe Text
+serverProviderFromRow row =
+    normalizeMaybeText (oorServerProvider row)
+        <|> extractServerFieldFromOp "serverProvider" (oorResult row)
+        <|> extractServerFieldFromOp "provider" (oorResult row)
+        <|> extractServerFieldFromOp "serverProvider" (oorParams row)
+        <|> extractServerFieldFromOp "provider" (oorParams row)
+
+instanceLabelFromServerFields :: Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text
+instanceLabelFromServerFields mProvider mRole mServerId =
+    let candidates = map T.toLower (catMaybes [mProvider, mRole, mServerId])
+        contains needle = any (needle `T.isInfixOf`) candidates
+     in if contains "fly"
+            then Just "fly"
+            else
+                if contains "hetzner"
+                    then Just "hetzner"
+                    else
+                        if contains "local" || contains "laptop"
+                            then Just "laptop"
+                            else Nothing
+
+instanceLabelFromRow :: OpsOrderOriginRow -> Maybe Text
+instanceLabelFromRow row =
+    instanceLabelFromServerFields (serverProviderFromRow row) (serverRoleFromRow row) (serverIdFromRow row)
+
+data OrderAttribution = OrderAttribution
+    { oaOriginIp :: !(Maybe Text)
+    , oaOriginInstance :: !(Maybe Text)
+    }
+    deriving (Eq, Show)
+
+orderAttributionFromRow :: OpsOrderOriginRow -> OrderAttribution
+orderAttributionFromRow row =
+    OrderAttribution
+        { oaOriginIp = originIpFromRow row
+        , oaOriginInstance = instanceLabelFromRow row
+        }
+
+rowScore :: TenantKey -> OpsOrderOriginRow -> OrderAttribution -> (Int, Int, Int, Int64)
+rowScore tenantKey row attr =
     let tenantRank =
             case normalizeMaybeText (oorTenantKey row) of
                 Just t | t == tenantKey -> 1
                 _ -> 0
-        ipRank = if isJust mIp then 1 else 0
+        attributionRank = if isJust (oaOriginIp attr) || isJust (oaOriginInstance attr) then 1 else 0
         kindRank =
             if oorKind row == "trade.order"
                 then 1
                 else 0
-     in (ipRank, tenantRank, kindRank, oorId row)
+     in (attributionRank, tenantRank, kindRank, oorId row)
 
 attachBinanceTradeOriginIps :: OpsStore -> TenantKey -> [BinanceTrade] -> IO [BinanceTrade]
 attachBinanceTradeOriginIps store tenantKey trades = do
@@ -4524,7 +4617,7 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                 withOpsConnection store $ \conn ->
                     query
                         conn
-                        ( "SELECT id, tenant_key, kind, order_id, params_json, result_json "
+                        ( "SELECT id, tenant_key, kind, order_id, server_id, server_role, server_provider, params_json, result_json "
                             <> "FROM ops "
                             <> "WHERE kind IN ('trade.order', 'bot.order') "
                             <> "AND (tenant_key = ? OR tenant_key IS NULL OR tenant_key = '') "
@@ -4549,7 +4642,7 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                         , PGArray orderIds
                         )
             let orderLookup = HM.fromList [(oid, ()) | oid <- orderIds]
-                ipMapScored =
+                attributionMapScored =
                     foldl'
                         ( \acc row ->
                             case extractOrderIdFromOp row of
@@ -4558,33 +4651,35 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                                     if not (HM.member oid orderLookup)
                                         then acc
                                         else
-                                            let mIp = originIpFromRow row
-                                                score = rowScore tenantKey row mIp
+                                            let attr = orderAttributionFromRow row
+                                                score = rowScore tenantKey row attr
                                              in case HM.lookup oid acc of
-                                                    Nothing -> HM.insert oid (score, mIp) acc
-                                                    Just (prevScore, _prevIp) ->
+                                                    Nothing -> HM.insert oid (score, attr) acc
+                                                    Just (prevScore, _prevAttr) ->
                                                         if score > prevScore
-                                                            then HM.insert oid (score, mIp) acc
+                                                            then HM.insert oid (score, attr) acc
                                                             else acc
                         )
                         HM.empty
                         rows
-            let ipMap =
+            let attributionMap =
                     HM.fromList
-                        [ (oid, ip)
-                        | (oid, (_score, Just ip)) <- HM.toList ipMapScored
+                        [ (oid, attr)
+                        | (oid, (_score, attr)) <- HM.toList attributionMapScored
+                        , isJust (oaOriginIp attr) || isJust (oaOriginInstance attr)
                         ]
-                attachIp trade =
-                    case btOriginIp trade of
-                        Just _ -> trade
-                        Nothing ->
-                            case btOrderId trade of
+                attachAttribution trade =
+                    case btOrderId trade of
+                        Nothing -> trade
+                        Just oid ->
+                            case HM.lookup (T.pack (show oid)) attributionMap of
                                 Nothing -> trade
-                                Just oid ->
-                                    case HM.lookup (T.pack (show oid)) ipMap of
-                                        Just ip -> trade{btOriginIp = Just ip}
-                                        Nothing -> trade
-            pure (map attachIp trades)
+                                Just attr ->
+                                    trade
+                                        { btOriginIp = btOriginIp trade <|> oaOriginIp attr
+                                        , btOriginInstance = btOriginInstance trade <|> oaOriginInstance attr
+                                        }
+            pure (map attachAttribution trades)
 
 attachBinanceLogger :: Maybe OpsStore -> Maybe TenantKey -> BinanceEnv -> BinanceEnv
 attachBinanceLogger mOps mTenantKey env =
