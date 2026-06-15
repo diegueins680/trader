@@ -250,6 +250,11 @@ data Args = Args
     , argSignalEntryEdgeSpikeConsecutiveLimit :: Int
     , argSignalTrendSlackMult :: Double
     , argSignalTrendSlackCap :: Double
+    , argSignalDirectionalityLookbackBars :: Int
+    , argSignalDirectionalityChopEfficiencyMax :: Double
+    , argSignalDirectionalityMrEfficiencyMax :: Double
+    , argSignalDirectionalityWeakZMin :: Double
+    , argSignalPredictorTrackingFloor :: Double
     , argRebalanceBars :: Int
     , argRebalanceThreshold :: Double
     , argRebalanceCostMult :: Double
@@ -946,6 +951,11 @@ opts = do
     argSignalEntryEdgeSpikeConsecutiveLimit <- option auto (long "signal-entry-edge-spike-consecutive-limit" <> value (sgcEntryEdgeSpikeConsecutiveLimit defaultSignal) <> showDefault <> help "Audit-only edge-spike warnings allowed before blocking")
     argSignalTrendSlackMult <- option auto (long "signal-trend-slack-mult" <> value (sgcTrendConfirmationSlackMultiple defaultSignal) <> showDefault <> help "Trend SMA confirmation slack as a multiple of open threshold")
     argSignalTrendSlackCap <- option auto (long "signal-trend-slack-cap" <> value (sgcTrendConfirmationSlackCap defaultSignal) <> showDefault <> help "Maximum trend SMA confirmation slack")
+    argSignalDirectionalityLookbackBars <- option auto (long "signal-directionality-lookback-bars" <> value (sgcDirectionalityLookbackBars defaultSignal) <> showDefault <> help "Bars used by fresh-entry directionality efficiency/z-score gate")
+    argSignalDirectionalityChopEfficiencyMax <- option auto (long "signal-directionality-chop-efficiency-max" <> value (sgcDirectionalityChopEfficiencyMax defaultSignal) <> showDefault <> help "Maximum path efficiency classified as chop")
+    argSignalDirectionalityMrEfficiencyMax <- option auto (long "signal-directionality-mr-efficiency-max" <> value (sgcDirectionalityMrEfficiencyMax defaultSignal) <> showDefault <> help "Maximum path efficiency requiring weak-band MR/z-score review")
+    argSignalDirectionalityWeakZMin <- option auto (long "signal-directionality-weak-z-min" <> value (sgcDirectionalityWeakBandZMin defaultSignal) <> showDefault <> help "Minimum signed z-score for weak-band directionality confirmation")
+    argSignalPredictorTrackingFloor <- option auto (long "signal-predictor-tracking-floor" <> value (sgcPredictorTrackingFloor defaultSignal) <> showDefault <> help "Minimum predictor/price dynamic-range ratio before a no-trade method is considered live")
     argRebalanceBars <- option auto (long "rebalance-bars" <> value 24 <> showDefault <> help "Rebalance position size every N bars when size targets change (0 disables; default anchors to entry age)")
     argRebalanceThreshold <- option auto (long "rebalance-threshold" <> value 0.05 <> showDefault <> help "Minimum abs size delta required to rebalance (0 disables)")
     argRebalanceCostMult <- option auto (long "rebalance-cost-mult" <> value 0.0 <> showDefault <> help "Extra rebalance threshold as a multiple of per-side cost (0 disables)")
@@ -1427,6 +1437,10 @@ validateArgs args0 = do
             , ("--signal-entry-edge-spike-cap", argSignalEntryEdgeSpikeCap args)
             , ("--signal-trend-slack-mult", argSignalTrendSlackMult args)
             , ("--signal-trend-slack-cap", argSignalTrendSlackCap args)
+            , ("--signal-directionality-chop-efficiency-max", argSignalDirectionalityChopEfficiencyMax args)
+            , ("--signal-directionality-mr-efficiency-max", argSignalDirectionalityMrEfficiencyMax args)
+            , ("--signal-directionality-weak-z-min", argSignalDirectionalityWeakZMin args)
+            , ("--signal-predictor-tracking-floor", argSignalPredictorTrackingFloor args)
             , ("--cross-asset-min-beta", argCrossAssetMinBeta args)
             , ("--cross-asset-min-edge", argCrossAssetMinEdge args)
             , ("--pairs-stat-arb-z-entry", argPairsStatArbZEntry args)
@@ -1693,6 +1707,12 @@ validateArgs args0 = do
     ensure "--signal-entry-edge-spike-consecutive-limit must be >= 0" (argSignalEntryEdgeSpikeConsecutiveLimit args >= 0)
     ensure "--signal-trend-slack-mult must be >= 0" (argSignalTrendSlackMult args >= 0)
     ensure "--signal-trend-slack-cap must be >= 0" (argSignalTrendSlackCap args >= 0)
+    ensure "--signal-directionality-lookback-bars must be >= 1" (argSignalDirectionalityLookbackBars args >= 1)
+    ensure "--signal-directionality-chop-efficiency-max must be between 0 and 1" (argSignalDirectionalityChopEfficiencyMax args >= 0 && argSignalDirectionalityChopEfficiencyMax args <= 1)
+    ensure "--signal-directionality-mr-efficiency-max must be between 0 and 1" (argSignalDirectionalityMrEfficiencyMax args >= 0 && argSignalDirectionalityMrEfficiencyMax args <= 1)
+    ensure "--signal-directionality-chop-efficiency-max must be <= --signal-directionality-mr-efficiency-max" (argSignalDirectionalityChopEfficiencyMax args <= argSignalDirectionalityMrEfficiencyMax args)
+    ensure "--signal-directionality-weak-z-min must be >= 0" (argSignalDirectionalityWeakZMin args >= 0)
+    ensure "--signal-predictor-tracking-floor must be >= 0" (argSignalPredictorTrackingFloor args >= 0)
     ensure "--mtf-fast-bars must be >= 1" (argMtfFastBars args >= 1)
     ensure "--mtf-mid-bars must be >= 1" (argMtfMidBars args >= 1)
     ensure "--mtf-slow-bars must be >= 1" (argMtfSlowBars args >= 1)

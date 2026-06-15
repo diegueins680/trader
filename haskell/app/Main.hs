@@ -399,11 +399,11 @@ import Trader.SignalGates (
     dynamicRangePct,
     mkSignalThresholdBoundary,
     normalizeSignalThreshold,
-    predictorDegenerate,
+    predictorDegenerateWithConfig,
     predictorLiveness,
     predictorLivenessToJson,
     signalCrossAssetCheck,
-    signalDirectionalitySnapshot,
+    signalDirectionalitySnapshotWithConfig,
     signalEntryEdgeSpikeAuditWarningWithConfig,
     signalEntryEdgeSpikeEntryOkWithConfig,
     signalEntryFeeBufferOkWithConfig,
@@ -584,6 +584,7 @@ data BacktestSummary = BacktestSummary
     , bsInitialBalance :: !Double
     , bsMethodUsed :: !Method
     , bsVolConfGate :: !VolConfGatePreset
+    , bsSignalGateConfig :: !SignalGateConfig
     , bsBestOpenThreshold :: !Double
     , bsBestCloseThreshold :: !Double
     , bsMinHoldBars :: !Int
@@ -23665,9 +23666,10 @@ backtestSummaryJson summary =
                 [ "openThreshold" .= bsBestOpenThreshold summary
                 , "closedTrades" .= bmRoundTrips metrics
                 , "priceDynamicRangePct" .= priceDynamicRangePct
-                , "trackingFloor" .= (0.05 :: Double)
+                , "trackingFloor" .= sgcPredictorTrackingFloor (bsSignalGateConfig summary)
                 , "degenerate"
-                    .= predictorDegenerate
+                    .= predictorDegenerateWithConfig
+                        (bsSignalGateConfig summary)
                         (bmRoundTrips metrics)
                         predictorLivenessSeries
                 , "series" .= map predictorLivenessToJson predictorLivenessSeries
@@ -25778,6 +25780,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsInitialBalance = initialBalance
             , bsMethodUsed = methodUsed
             , bsVolConfGate = argVolConfGate args
+            , bsSignalGateConfig = signalGateConfigFromArgs args
             , bsBestOpenThreshold = bestOpenThr
             , bsBestCloseThreshold = bestCloseThr
             , bsMinHoldBars = argMinHoldBars args
@@ -27813,8 +27816,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     _ -> False
                                )
                     else snrScale > 0
-            directionalitySnapshotFor =
-                signalDirectionalitySnapshot regimeBankHysteresisRaw mRegimes pricesV t
+            directionalitySnapshotFor dir =
+                signalDirectionalitySnapshotWithConfig signalGateCfg regimeBankHysteresisRaw mRegimes pricesV t (Just dir)
             nonDirectionalCheck dir =
                 case directionalitySnapshotFor dir of
                     Just snap | dsNonDirectional snap -> (False, dsReason snap)
@@ -29286,6 +29289,11 @@ signalGateConfigFromArgs args =
         , sgcEntryEdgeSpikeConsecutiveLimit = argSignalEntryEdgeSpikeConsecutiveLimit args
         , sgcTrendConfirmationSlackMultiple = argSignalTrendSlackMult args
         , sgcTrendConfirmationSlackCap = argSignalTrendSlackCap args
+        , sgcDirectionalityLookbackBars = argSignalDirectionalityLookbackBars args
+        , sgcDirectionalityChopEfficiencyMax = argSignalDirectionalityChopEfficiencyMax args
+        , sgcDirectionalityMrEfficiencyMax = argSignalDirectionalityMrEfficiencyMax args
+        , sgcDirectionalityWeakBandZMin = argSignalDirectionalityWeakZMin args
+        , sgcPredictorTrackingFloor = argSignalPredictorTrackingFloor args
         }
 
 technicalSeriesFromFeatureInputs :: FeatureInputs -> Maybe TA.OhlcvSeries

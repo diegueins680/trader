@@ -192,6 +192,11 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torSignalEntryEdgeSpikeConsecutiveLimit :: !(Int, Int)
     , torSignalTrendSlackMult :: !(Double, Double)
     , torSignalTrendSlackCap :: !(Double, Double)
+    , torSignalDirectionalityLookbackBars :: !(Int, Int)
+    , torSignalDirectionalityChopEfficiencyMax :: !(Double, Double)
+    , torSignalDirectionalityMrEfficiencyMax :: !(Double, Double)
+    , torSignalDirectionalityWeakZMin :: !(Double, Double)
+    , torSignalPredictorTrackingFloor :: !(Double, Double)
     }
     deriving (Eq, Show)
 
@@ -221,6 +226,11 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpSignalEntryEdgeSpikeConsecutiveLimit :: !Int
     , ttpSignalTrendSlackMult :: !Double
     , ttpSignalTrendSlackCap :: !Double
+    , ttpSignalDirectionalityLookbackBars :: !Int
+    , ttpSignalDirectionalityChopEfficiencyMax :: !Double
+    , ttpSignalDirectionalityMrEfficiencyMax :: !Double
+    , ttpSignalDirectionalityWeakZMin :: !Double
+    , ttpSignalPredictorTrackingFloor :: !Double
     }
     deriving (Eq, Show)
 
@@ -311,6 +321,11 @@ normalizeTechnicalTrialParams p =
             , ttpSignalEntryEdgeSpikeConsecutiveLimit = max 0 (ttpSignalEntryEdgeSpikeConsecutiveLimit p)
             , ttpSignalTrendSlackMult = max 0 (ttpSignalTrendSlackMult p)
             , ttpSignalTrendSlackCap = max 0 (ttpSignalTrendSlackCap p)
+            , ttpSignalDirectionalityLookbackBars = max 1 (ttpSignalDirectionalityLookbackBars p)
+            , ttpSignalDirectionalityChopEfficiencyMax = clamp (ttpSignalDirectionalityChopEfficiencyMax p) 0 1
+            , ttpSignalDirectionalityMrEfficiencyMax = max (clamp (ttpSignalDirectionalityChopEfficiencyMax p) 0 1) (clamp (ttpSignalDirectionalityMrEfficiencyMax p) 0 1)
+            , ttpSignalDirectionalityWeakZMin = max 0 (ttpSignalDirectionalityWeakZMin p)
+            , ttpSignalPredictorTrackingFloor = max 0 (ttpSignalPredictorTrackingFloor p)
             }
 
 sampleTechnicalTrialParams :: TechnicalOptimizerRanges -> Rng -> (TechnicalTrialParams, Rng)
@@ -344,6 +359,14 @@ sampleTechnicalTrialParams ranges rng0 =
              in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng22
         (signalTrendSlackMult, rng24) = sampleNonNegative (torSignalTrendSlackMult ranges) rng23
         (signalTrendSlackCap, rng25) = sampleNonNegative (torSignalTrendSlackCap ranges) rng24
+        (signalDirectionalityLookbackBars, rng26) =
+            let (lo, hi) = orderedPair (torSignalDirectionalityLookbackBars ranges)
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng25
+        (signalDirectionalityChopEfficiencyMax, rng27) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng26
+        (signalDirectionalityMrEfficiencyMax0, rng28) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng27
+        signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
+        (signalDirectionalityWeakZMin, rng29) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng28
+        (signalPredictorTrackingFloor, rng30) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng29
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -371,8 +394,13 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpSignalEntryEdgeSpikeConsecutiveLimit = signalEntryEdgeSpikeConsecutiveLimit
                 , ttpSignalTrendSlackMult = signalTrendSlackMult
                 , ttpSignalTrendSlackCap = signalTrendSlackCap
+                , ttpSignalDirectionalityLookbackBars = signalDirectionalityLookbackBars
+                , ttpSignalDirectionalityChopEfficiencyMax = signalDirectionalityChopEfficiencyMax
+                , ttpSignalDirectionalityMrEfficiencyMax = signalDirectionalityMrEfficiencyMax
+                , ttpSignalDirectionalityWeakZMin = signalDirectionalityWeakZMin
+                , ttpSignalPredictorTrackingFloor = signalPredictorTrackingFloor
                 }
-        , rng25
+        , rng30
         )
   where
     samplePositive range rng =
@@ -443,6 +471,16 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpSignalTrendSlackMult p)
     , "--signal-trend-slack-cap"
     , printf "%.12g" (ttpSignalTrendSlackCap p)
+    , "--signal-directionality-lookback-bars"
+    , show (ttpSignalDirectionalityLookbackBars p)
+    , "--signal-directionality-chop-efficiency-max"
+    , printf "%.12g" (ttpSignalDirectionalityChopEfficiencyMax p)
+    , "--signal-directionality-mr-efficiency-max"
+    , printf "%.12g" (ttpSignalDirectionalityMrEfficiencyMax p)
+    , "--signal-directionality-weak-z-min"
+    , printf "%.12g" (ttpSignalDirectionalityWeakZMin p)
+    , "--signal-predictor-tracking-floor"
+    , printf "%.12g" (ttpSignalPredictorTrackingFloor p)
     ]
 
 technicalTrialParamsPairs :: TechnicalTrialParams -> [AT.Pair]
@@ -472,6 +510,11 @@ technicalTrialParamsPairs p =
     , "signalEntryEdgeSpikeConsecutiveLimit" .= ttpSignalEntryEdgeSpikeConsecutiveLimit p
     , "signalTrendSlackMult" .= ttpSignalTrendSlackMult p
     , "signalTrendSlackCap" .= ttpSignalTrendSlackCap p
+    , "signalDirectionalityLookbackBars" .= ttpSignalDirectionalityLookbackBars p
+    , "signalDirectionalityChopEfficiencyMax" .= ttpSignalDirectionalityChopEfficiencyMax p
+    , "signalDirectionalityMrEfficiencyMax" .= ttpSignalDirectionalityMrEfficiencyMax p
+    , "signalDirectionalityWeakZMin" .= ttpSignalDirectionalityWeakZMin p
+    , "signalPredictorTrackingFloor" .= ttpSignalPredictorTrackingFloor p
     ]
 
 normalizeSymbol :: Maybe String -> Maybe String

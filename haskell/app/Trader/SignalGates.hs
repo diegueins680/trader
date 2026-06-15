@@ -10,6 +10,7 @@ module Trader.SignalGates (
     dynamicRangePct,
     predictorLiveness,
     predictorDegenerate,
+    predictorDegenerateWithConfig,
     predictorLivenessToJson,
     finiteDouble,
     mkSignalThresholdBoundary,
@@ -17,9 +18,13 @@ module Trader.SignalGates (
     normalizeSignalEntryEdge,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
+    signalDirectionalitySnapshotWithConfig,
     directionalityWeakBandConfirmed,
+    directionalityWeakBandConfirmedWithConfig,
     directionalityWeakBandConfirmedWithPrediction,
+    directionalityWeakBandConfirmedWithPredictionAndConfig,
     signalDirectionalitySnapshotImplWithPrediction,
+    signalDirectionalitySnapshotImplWithPredictionAndConfig,
     signalEntryOpenThresholdFeasibilityCap,
     signalEntryOpenThresholdFeasibilityReason,
     signalEntryOpenThresholdFeasible,
@@ -83,6 +88,11 @@ data SignalGateConfig = SignalGateConfig
     , sgcEntryEdgeSpikeConsecutiveLimit :: !Int
     , sgcTrendConfirmationSlackMultiple :: !Double
     , sgcTrendConfirmationSlackCap :: !Double
+    , sgcDirectionalityLookbackBars :: !Int
+    , sgcDirectionalityChopEfficiencyMax :: !Double
+    , sgcDirectionalityMrEfficiencyMax :: !Double
+    , sgcDirectionalityWeakBandZMin :: !Double
+    , sgcPredictorTrackingFloor :: !Double
     }
     deriving (Eq, Show)
 
@@ -95,6 +105,11 @@ defaultSignalGateConfig =
         , sgcEntryEdgeSpikeConsecutiveLimit = 3
         , sgcTrendConfirmationSlackMultiple = 0.5
         , sgcTrendConfirmationSlackCap = 0.01
+        , sgcDirectionalityLookbackBars = 24
+        , sgcDirectionalityChopEfficiencyMax = 0.08
+        , sgcDirectionalityMrEfficiencyMax = 0.35
+        , sgcDirectionalityWeakBandZMin = 0.5
+        , sgcPredictorTrackingFloor = 0.05
         }
 
 class FailClosedSurface r where
@@ -200,16 +215,16 @@ instance SignalDirectionalitySurface (Double -> Maybe RegimeProbs -> V.Vector Do
         signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t (Just chosenDir)
 
 directionalityLookbackBars :: Int
-directionalityLookbackBars = 24
+directionalityLookbackBars = sgcDirectionalityLookbackBars defaultSignalGateConfig
 
 directionalityChopEfficiencyMax :: Double
-directionalityChopEfficiencyMax = 0.08
+directionalityChopEfficiencyMax = sgcDirectionalityChopEfficiencyMax defaultSignalGateConfig
 
 directionalityMrEfficiencyMax :: Double
-directionalityMrEfficiencyMax = 0.35
+directionalityMrEfficiencyMax = sgcDirectionalityMrEfficiencyMax defaultSignalGateConfig
 
 directionalityWeakBandZMin :: Double
-directionalityWeakBandZMin = 0.5
+directionalityWeakBandZMin = sgcDirectionalityWeakBandZMin defaultSignalGateConfig
 
 directionalityEfficiencyTol :: Double
 directionalityEfficiencyTol = 1e-12
@@ -238,16 +253,28 @@ signalDirectionalitySnapshotImpl ::
     Int ->
     Maybe Int ->
     Maybe DirectionalitySnapshot
-signalDirectionalitySnapshotImpl regimeBankHysteresis mRegimes pricesV t mChosenDir =
+signalDirectionalitySnapshotImpl = signalDirectionalitySnapshotWithConfig defaultSignalGateConfig
+
+signalDirectionalitySnapshotWithConfig ::
+    SignalGateConfig ->
+    Double ->
+    Maybe RegimeProbs ->
+    V.Vector Double ->
+    Int ->
+    Maybe Int ->
+    Maybe DirectionalitySnapshot
+signalDirectionalitySnapshotWithConfig cfg regimeBankHysteresis mRegimes pricesV t mChosenDir =
     signalDirectionalitySnapshotImpl'
+        cfg
         regimeBankHysteresis
         mRegimes
         pricesV
         t
         mChosenDir
-        directionalityWeakBandConfirmed
+        (directionalityWeakBandConfirmedWithConfig cfg)
 
 signalDirectionalitySnapshotImpl' ::
+    SignalGateConfig ->
     Double ->
     Maybe RegimeProbs ->
     V.Vector Double ->
@@ -255,15 +282,17 @@ signalDirectionalitySnapshotImpl' ::
     Maybe Int ->
     (Double -> Maybe Int -> Bool) ->
     Maybe DirectionalitySnapshot
-signalDirectionalitySnapshotImpl' regimeBankHysteresis mRegimes pricesV t mChosenDir weakBandCheck =
-    case directionalityWindowMetrics pricesV t of
+signalDirectionalitySnapshotImpl' cfg regimeBankHysteresis mRegimes pricesV t mChosenDir weakBandCheck =
+    case directionalityWindowMetricsWithConfig cfg pricesV t of
         Nothing -> Just malformedDirectionalitySnapshot
         Just metrics ->
             let eff0 = wmEfficiency metrics
                 eff
                     | efficiencyMalformed eff0 = Nothing
                     | otherwise = Just (clamp01 eff0)
-                weakBand = maybe False (<= directionalityMrEfficiencyMax) eff
+                chopEfficiencyMax = clamp01 (sgcDirectionalityChopEfficiencyMax cfg)
+                mrEfficiencyMax = clamp01 (max chopEfficiencyMax (sgcDirectionalityMrEfficiencyMax cfg))
+                weakBand = maybe False (<= mrEfficiencyMax) eff
                 hysteresisOk = finiteDouble regimeBankHysteresis && regimeBankHysteresis >= 0
                 weakBandRegimeContext =
                     if weakBand
@@ -273,8 +302,8 @@ signalDirectionalitySnapshotImpl' regimeBankHysteresis mRegimes pricesV t mChose
                     case eff of
                         Nothing -> Just "NON_DIRECTIONAL_MALFORMED"
                         Just efficiency
-                            | efficiency <= directionalityChopEfficiencyMax -> Just "NON_DIRECTIONAL_CHOP"
-                            | efficiency <= directionalityMrEfficiencyMax ->
+                            | efficiency <= chopEfficiencyMax -> Just "NON_DIRECTIONAL_CHOP"
+                            | efficiency <= mrEfficiencyMax ->
                                 if not hysteresisOk
                                     then Just "NON_DIRECTIONAL_MALFORMED"
                                     else case weakBandRegimeContext of
@@ -297,8 +326,12 @@ data DirectionalityWindowMetrics = DirectionalityWindowMetrics
     }
 
 directionalityWindowMetrics :: V.Vector Double -> Int -> Maybe DirectionalityWindowMetrics
-directionalityWindowMetrics pricesV t =
-    let start = max 1 (t - directionalityLookbackBars + 1)
+directionalityWindowMetrics = directionalityWindowMetricsWithConfig defaultSignalGateConfig
+
+directionalityWindowMetricsWithConfig :: SignalGateConfig -> V.Vector Double -> Int -> Maybe DirectionalityWindowMetrics
+directionalityWindowMetricsWithConfig cfg pricesV t =
+    let lookback = max 1 (sgcDirectionalityLookbackBars cfg)
+        start = max 1 (t - lookback + 1)
      in case traverse (returnAt pricesV) [start .. t] of
             Nothing -> Nothing
             Just [] -> Nothing
@@ -349,13 +382,17 @@ efficiencyMalformed efficiency =
         || efficiency > 1 + directionalityEfficiencyTol
 
 directionalityWeakBandConfirmed :: Double -> Maybe Int -> Bool
-directionalityWeakBandConfirmed zScore mChosenDir
+directionalityWeakBandConfirmed = directionalityWeakBandConfirmedWithConfig defaultSignalGateConfig
+
+directionalityWeakBandConfirmedWithConfig :: SignalGateConfig -> Double -> Maybe Int -> Bool
+directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
     | not (finiteDouble zScore) = False
     | otherwise =
-        case mChosenDir of
-            Just dir | dir > 0 -> zScore >= directionalityWeakBandZMin
-            Just dir | dir < 0 -> zScore <= negate directionalityWeakBandZMin
-            _ -> False
+        let zMin = max 0 (sgcDirectionalityWeakBandZMin cfg)
+         in case mChosenDir of
+                Just dir | dir > 0 -> zScore >= zMin
+                Just dir | dir < 0 -> zScore <= negate zMin
+                _ -> False
 
 newtype DirectionalityRegimeSummary = DirectionalityRegimeSummary
     { drsMrDominant :: Bool
@@ -694,16 +731,19 @@ signalPredictionSanityOk currentPrice (Just predVal)
     | otherwise = (True, Nothing)
 
 directionalityWeakBandConfirmedWithPrediction :: Double -> Maybe Int -> Maybe Double -> Double -> Bool
-directionalityWeakBandConfirmedWithPrediction zScore mChosenDir mPrediction _currentPrice =
+directionalityWeakBandConfirmedWithPrediction = directionalityWeakBandConfirmedWithPredictionAndConfig defaultSignalGateConfig
+
+directionalityWeakBandConfirmedWithPredictionAndConfig :: SignalGateConfig -> Double -> Maybe Int -> Maybe Double -> Double -> Bool
+directionalityWeakBandConfirmedWithPredictionAndConfig cfg zScore mChosenDir mPrediction _currentPrice =
     case mPrediction of
-        Nothing -> directionalityWeakBandConfirmed zScore mChosenDir
+        Nothing -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
         Just predVal
-            | not (finiteDouble predVal) -> directionalityWeakBandConfirmed zScore mChosenDir
+            | not (finiteDouble predVal) -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
             | otherwise ->
                 case mChosenDir of
                     Just dir | dir > 0 && predVal > 0 -> True
                     Just dir | dir < 0 && predVal < 0 -> True
-                    _ -> directionalityWeakBandConfirmed zScore mChosenDir
+                    _ -> directionalityWeakBandConfirmedWithConfig cfg zScore mChosenDir
 
 signalDirectionalitySnapshotImplWithPrediction ::
     Double ->
@@ -714,14 +754,28 @@ signalDirectionalitySnapshotImplWithPrediction ::
     Maybe Double ->
     Double ->
     Maybe DirectionalitySnapshot
-signalDirectionalitySnapshotImplWithPrediction regimeBankHysteresis mRegimes pricesV t mChosenDir mPrediction currentPrice =
+signalDirectionalitySnapshotImplWithPrediction =
+    signalDirectionalitySnapshotImplWithPredictionAndConfig defaultSignalGateConfig
+
+signalDirectionalitySnapshotImplWithPredictionAndConfig ::
+    SignalGateConfig ->
+    Double ->
+    Maybe RegimeProbs ->
+    V.Vector Double ->
+    Int ->
+    Maybe Int ->
+    Maybe Double ->
+    Double ->
+    Maybe DirectionalitySnapshot
+signalDirectionalitySnapshotImplWithPredictionAndConfig cfg regimeBankHysteresis mRegimes pricesV t mChosenDir mPrediction currentPrice =
     signalDirectionalitySnapshotImpl'
+        cfg
         regimeBankHysteresis
         mRegimes
         pricesV
         t
         mChosenDir
-        (\zScore mDir -> directionalityWeakBandConfirmedWithPrediction zScore mDir mPrediction currentPrice)
+        (\zScore mDir -> directionalityWeakBandConfirmedWithPredictionAndConfig cfg zScore mDir mPrediction currentPrice)
 
 {- | Scale the edge-spike cap by interval duration so longer intervals allow
 proportionally larger per-bar edges. Empty or unparseable intervals fall
@@ -852,7 +906,7 @@ range is treated as not tracking the market (a dead predictor). 5% leaves a
 wide margin: the observed dead LSTM tracked 0.04%, the live Kalman tracked 92%.
 -}
 predictorTrackingFloor :: Double
-predictorTrackingFloor = 0.05
+predictorTrackingFloor = sgcPredictorTrackingFloor defaultSignalGateConfig
 
 {- | A method's predictor stack is degenerate when it produced no closed trades
 AND every available forecast series tracked less than 'predictorTrackingFloor'
@@ -865,10 +919,13 @@ surfaced in the backtest payload, not a trade gate, so the safe default is to
 predictor which was merely gated out, is correctly *not* flagged.
 -}
 predictorDegenerate :: Int -> [PredictorLiveness] -> Bool
-predictorDegenerate closedTrades liveness =
+predictorDegenerate = predictorDegenerateWithConfig defaultSignalGateConfig
+
+predictorDegenerateWithConfig :: SignalGateConfig -> Int -> [PredictorLiveness] -> Bool
+predictorDegenerateWithConfig cfg closedTrades liveness =
     closedTrades == 0
         && not (null liveness)
-        && all (\pl -> plPriceTrackingRatio pl < predictorTrackingFloor) liveness
+        && all (\pl -> plPriceTrackingRatio pl < max 0 (sgcPredictorTrackingFloor cfg)) liveness
 
 -- | JSON encoding of a single predictor's liveness diagnostics.
 predictorLivenessToJson :: PredictorLiveness -> Aeson.Value

@@ -500,6 +500,11 @@ technicalOptimizerRangesParser =
         <*> intRangeOption "signal-entry-edge-spike-consecutive-limit" 1 5
         <*> doubleRangeOption "signal-trend-slack-mult" 0.0 1.0
         <*> doubleRangeOption "signal-trend-slack-cap" 2.0e-3 2.0e-2
+        <*> intRangeOption "signal-directionality-lookback-bars" 12 48
+        <*> doubleRangeOption "signal-directionality-chop-efficiency-max" 0.03 0.15
+        <*> doubleRangeOption "signal-directionality-mr-efficiency-max" 0.20 0.50
+        <*> doubleRangeOption "signal-directionality-weak-z-min" 0.20 1.00
+        <*> doubleRangeOption "signal-predictor-tracking-floor" 0.01 0.15
 
 doubleRangeOption :: String -> Double -> Double -> Parser (Double, Double)
 doubleRangeOption name lo hi =
@@ -769,6 +774,11 @@ validateTechnicalOptimizerRanges ranges = do
     nonNegativeIntRange "signal-entry-edge-spike-consecutive-limit" (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
     nonNegativeRange "signal-trend-slack-mult" (torSignalTrendSlackMult ranges)
     nonNegativeRange "signal-trend-slack-cap" (torSignalTrendSlackCap ranges)
+    positiveIntRange "signal-directionality-lookback-bars" (torSignalDirectionalityLookbackBars ranges)
+    unitRange "signal-directionality-chop-efficiency-max" (torSignalDirectionalityChopEfficiencyMax ranges)
+    unitRange "signal-directionality-mr-efficiency-max" (torSignalDirectionalityMrEfficiencyMax ranges)
+    nonNegativeRange "signal-directionality-weak-z-min" (torSignalDirectionalityWeakZMin ranges)
+    nonNegativeRange "signal-predictor-tracking-floor" (torSignalPredictorTrackingFloor ranges)
   where
     finiteRange label (lo, hi) =
         when (isNaN lo || isInfinite lo || isNaN hi || isInfinite hi) $
@@ -792,6 +802,9 @@ validateTechnicalOptimizerRanges ranges = do
     nonNegativeIntRange label (lo, hi) =
         when (lo < 0 || hi < 0) $
             Left ("--" ++ label ++ "-min/max must be >= 0.")
+    positiveIntRange label (lo, hi) =
+        when (lo < 1 || hi < 1) $
+            Left ("--" ++ label ++ "-min/max must be >= 1.")
 
 objectiveChoices :: [String]
 objectiveChoices =
