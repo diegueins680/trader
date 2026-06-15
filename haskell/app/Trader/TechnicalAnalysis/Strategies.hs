@@ -6,6 +6,7 @@ module Trader.TechnicalAnalysis.Strategies (
     RegimeCalibration (..),
     RegimeScore (..),
     StrategyCandidate (..),
+    TechnicalStrategyCalibration (..),
     TechnicalAnalysisGateInputs (..),
     TradeBias (..),
     admitStrategyCandidate,
@@ -13,20 +14,32 @@ module Trader.TechnicalAnalysis.Strategies (
     bestCandidateAt,
     candidateForMethodAt,
     candidateRewardEdge,
+    defaultTechnicalStrategyCalibration,
     momentumReversionAt,
+    momentumReversionAtWithCalibration,
     momentumReversionCandidate,
+    momentumReversionCandidateWithCalibration,
     precomputeIndicators,
+    precomputeIndicatorsWithCalibration,
     regimeSwitchAt,
+    regimeSwitchAtWithCalibration,
     regimeSwitchCandidate,
+    regimeSwitchCandidateWithCalibration,
     regimeSelector,
     regimeSelectorDecomposed,
     regimeSwitchSubMethod,
     strategyCandidates,
+    strategyCandidatesWithCalibration,
     trendFollowingAt,
+    trendFollowingAtWithCalibration,
     trendFollowingCandidate,
+    trendFollowingCandidateWithCalibration,
     volumeConfirmedBreakoutAt,
+    volumeConfirmedBreakoutAtWithCalibration,
     volumeConfirmedBreakoutCandidate,
+    volumeConfirmedBreakoutCandidateWithCalibration,
     smaCrossAt,
+    smaCrossAtWithCalibration,
 ) where
 
 import Control.Monad (join)
@@ -36,11 +49,13 @@ import Data.Ord (Down (..))
 import qualified Data.Vector as V
 import Trader.Method (Method (..))
 import Trader.SignalGates (
+    SignalGateConfig,
+    defaultSignalGateConfig,
     finiteDouble,
     normalizeSignalEntryEdge,
-    signalEntryEdgeSpikeOk,
-    signalEntryFeeBufferOk,
-    signalEntryHeadroomOk,
+    signalEntryEdgeSpikeOkWithConfig,
+    signalEntryFeeBufferOkWithConfig,
+    signalEntryHeadroomOkWithConfig,
  )
 import Trader.TechnicalAnalysis.Indicators
 import Trader.VolConfGate (
@@ -70,6 +85,53 @@ data RegimeCalibration = RegimeCalibration
     , rcRangeThreshold :: !Double
     }
     deriving (Eq, Show)
+
+data TechnicalStrategyCalibration = TechnicalStrategyCalibration
+    { tscEntryOpenThreshold :: !Double
+    , tscTrendAdxThreshold :: !Double
+    , tscTrendStopAtrMult :: !Double
+    , tscTrendTakeProfitAtrMult :: !Double
+    , tscReversionRsiLower :: !Double
+    , tscReversionRsiUpper :: !Double
+    , tscReversionStochasticLower :: !Double
+    , tscReversionStochasticUpper :: !Double
+    , tscReversionEnvelopeLowerMult :: !Double
+    , tscReversionEnvelopeUpperMult :: !Double
+    , tscReversionStopAtrMult :: !Double
+    , tscBreakoutMfiThreshold :: !Double
+    , tscBreakoutStopAtrMult :: !Double
+    , tscBreakoutTakeProfitAtrMult :: !Double
+    , tscSmaCrossStopAtrMult :: !Double
+    , tscSmaCrossTakeProfitAtrMult :: !Double
+    , tscRegimeSwitchAdxThreshold :: !Double
+    , tscRegimeSwitchBollingerBandwidthThreshold :: !Double
+    , tscBestCandidateMinConfidence :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultTechnicalStrategyCalibration :: TechnicalStrategyCalibration
+defaultTechnicalStrategyCalibration =
+    TechnicalStrategyCalibration
+        { tscEntryOpenThreshold = 0.001
+        , tscTrendAdxThreshold = 20
+        , tscTrendStopAtrMult = 2
+        , tscTrendTakeProfitAtrMult = 3
+        , tscReversionRsiLower = 35
+        , tscReversionRsiUpper = 65
+        , tscReversionStochasticLower = 20
+        , tscReversionStochasticUpper = 80
+        , tscReversionEnvelopeLowerMult = 1.02
+        , tscReversionEnvelopeUpperMult = 0.98
+        , tscReversionStopAtrMult = 1.5
+        , tscBreakoutMfiThreshold = 50
+        , tscBreakoutStopAtrMult = 2
+        , tscBreakoutTakeProfitAtrMult = 4
+        , tscSmaCrossStopAtrMult = 2
+        , tscSmaCrossTakeProfitAtrMult = 3
+        , tscRegimeSwitchAdxThreshold = 25
+        , tscRegimeSwitchBollingerBandwidthThreshold = 0.002
+        , tscBestCandidateMinConfidence = 0.35
+        }
 
 data RegimeScore = RegimeScore
     { rsTrend :: !Double
@@ -101,6 +163,8 @@ data TechnicalAnalysisGateInputs = TechnicalAnalysisGateInputs
     , tagVolatility :: !(Maybe Double)
     , tagVolConfGate :: !VolConfGatePreset
     , tagRegimeCalibration :: !RegimeCalibration
+    , tagStrategyCalibration :: !TechnicalStrategyCalibration
+    , tagSignalGateConfig :: !SignalGateConfig
     , tagOpenThreshold :: !Double
     , tagCloseThreshold :: !Double
     }
@@ -115,16 +179,21 @@ data GatedStrategyCandidate = GatedStrategyCandidate
     deriving (Eq, Show)
 
 strategyCandidates :: RegimeCalibration -> OhlcvSeries -> [StrategyCandidate]
-strategyCandidates cal series =
+strategyCandidates = strategyCandidatesWithCalibration defaultTechnicalStrategyCalibration
+
+strategyCandidatesWithCalibration :: TechnicalStrategyCalibration -> RegimeCalibration -> OhlcvSeries -> [StrategyCandidate]
+strategyCandidatesWithCalibration strategyCal cal series =
     catMaybes
-        [ trendFollowingCandidate cal series
-        , momentumReversionCandidate cal series
-        , volumeConfirmedBreakoutCandidate cal series
+        [ trendFollowingCandidateWithCalibration strategyCal cal series
+        , momentumReversionCandidateWithCalibration strategyCal cal series
+        , volumeConfirmedBreakoutCandidateWithCalibration strategyCal cal series
         ]
 
 admittedStrategyCandidates :: TechnicalAnalysisGateInputs -> OhlcvSeries -> [GatedStrategyCandidate]
 admittedStrategyCandidates inputs series =
-    mapMaybe (admitStrategyCandidate inputs) (strategyCandidates (tagRegimeCalibration inputs) series)
+    mapMaybe
+        (admitStrategyCandidate inputs)
+        (strategyCandidatesWithCalibration (tagStrategyCalibration inputs) (tagRegimeCalibration inputs) series)
 
 admitStrategyCandidate :: TechnicalAnalysisGateInputs -> StrategyCandidate -> Maybe GatedStrategyCandidate
 admitStrategyCandidate inputs candidate = do
@@ -209,7 +278,10 @@ regimeSelector cal series = do
                 else Just RegimeNeutral
 
 trendFollowingCandidate :: RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
-trendFollowingCandidate cal series = do
+trendFollowingCandidate = trendFollowingCandidateWithCalibration defaultTechnicalStrategyCalibration
+
+trendFollowingCandidateWithCalibration :: TechnicalStrategyCalibration -> RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
+trendFollowingCandidateWithCalibration strategyCal cal series = do
     validateSeries series
     closeNow <- lastValue (ohlcvClose series)
     fastNow <- latestJust (emaSeries 20 (ohlcvClose series))
@@ -221,12 +293,12 @@ trendFollowingCandidate cal series = do
     let longTrend =
             regimeNow == RegimeTrend
                 && fastNow > slowNow
-                && adxValue adxNow >= 20
+                && adxValue adxNow >= tscTrendAdxThreshold strategyCal
                 && aroonUp aroonNow > aroonDown aroonNow
         shortTrend =
             regimeNow == RegimeTrend
                 && fastNow < slowNow
-                && adxValue adxNow >= 20
+                && adxValue adxNow >= tscTrendAdxThreshold strategyCal
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
         baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
@@ -239,8 +311,8 @@ trendFollowingCandidate cal series = do
                         , scBias = BiasLong
                         , scConfidence = baseConfidence
                         , scEntryPrice = Just closeNow
-                        , scStopPrice = Just (closeNow - (2 * atrNow))
-                        , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
+                        , scStopPrice = Just (closeNow - (tscTrendStopAtrMult strategyCal * atrNow))
+                        , scTakeProfitPrice = Just (closeNow + (tscTrendTakeProfitAtrMult strategyCal * atrNow))
                         , scReason = "Fast EMA is above slow EMA with ADX/Aroon trend confirmation and ATR-based risk framing."
                         }
             else
@@ -253,14 +325,17 @@ trendFollowingCandidate cal series = do
                                 , scBias = BiasShort
                                 , scConfidence = baseConfidence
                                 , scEntryPrice = Just closeNow
-                                , scStopPrice = Just (closeNow + (2 * atrNow))
-                                , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
+                                , scStopPrice = Just (closeNow + (tscTrendStopAtrMult strategyCal * atrNow))
+                                , scTakeProfitPrice = Just (closeNow - (tscTrendTakeProfitAtrMult strategyCal * atrNow))
                                 , scReason = "Fast EMA is below slow EMA with ADX/Aroon trend confirmation and ATR-based risk framing."
                                 }
                     else Nothing
 
 momentumReversionCandidate :: RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
-momentumReversionCandidate cal series = do
+momentumReversionCandidate = momentumReversionCandidateWithCalibration defaultTechnicalStrategyCalibration
+
+momentumReversionCandidateWithCalibration :: TechnicalStrategyCalibration -> RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
+momentumReversionCandidateWithCalibration strategyCal cal series = do
     validateSeries series
     regimeNow <- regimeSelector cal series
     closeNow <- lastValue (ohlcvClose series)
@@ -271,19 +346,19 @@ momentumReversionCandidate cal series = do
     bollingerNow <- latestJust (bollingerBandsSeries 20 2 (ohlcvClose series))
     keltnerNow <- latestJust (keltnerChannelsSeries 20 1.5 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))
     atrNow <- latestJust (atrSeries 14 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))
-    let nearLowerEnvelope = closeNow <= max (bandLower bollingerNow) (bandLower keltnerNow) * 1.02
-        nearUpperEnvelope = closeNow >= min (bandUpper bollingerNow) (bandUpper keltnerNow) * 0.98
+    let nearLowerEnvelope = closeNow <= max (bandLower bollingerNow) (bandLower keltnerNow) * tscReversionEnvelopeLowerMult strategyCal
+        nearUpperEnvelope = closeNow >= min (bandUpper bollingerNow) (bandUpper keltnerNow) * tscReversionEnvelopeUpperMult strategyCal
         longSetup =
             regimeNow /= RegimeTrend
-                && rsiNow <= 35
-                && stochasticNow <= 20
+                && rsiNow <= tscReversionRsiLower strategyCal
+                && stochasticNow <= tscReversionStochasticLower strategyCal
                 && rocNow < 0
                 && macdValue macdNow >= macdSignal macdNow
                 && nearLowerEnvelope
         shortSetup =
             regimeNow /= RegimeTrend
-                && rsiNow >= 65
-                && stochasticNow >= 80
+                && rsiNow >= tscReversionRsiUpper strategyCal
+                && stochasticNow >= tscReversionStochasticUpper strategyCal
                 && rocNow > 0
                 && macdValue macdNow <= macdSignal macdNow
                 && nearUpperEnvelope
@@ -297,7 +372,7 @@ momentumReversionCandidate cal series = do
                         , scBias = BiasLong
                         , scConfidence = baseConfidence
                         , scEntryPrice = Just closeNow
-                        , scStopPrice = Just (closeNow - (1.5 * atrNow))
+                        , scStopPrice = Just (closeNow - (tscReversionStopAtrMult strategyCal * atrNow))
                         , scTakeProfitPrice = Just (bandMiddle bollingerNow)
                         , scReason = "Range-style long setup: RSI/Stochastic oversold, negative ROC, MACD confirmation, lower envelope context."
                         }
@@ -311,14 +386,17 @@ momentumReversionCandidate cal series = do
                                 , scBias = BiasShort
                                 , scConfidence = baseConfidence
                                 , scEntryPrice = Just closeNow
-                                , scStopPrice = Just (closeNow + (1.5 * atrNow))
+                                , scStopPrice = Just (closeNow + (tscReversionStopAtrMult strategyCal * atrNow))
                                 , scTakeProfitPrice = Just (bandMiddle bollingerNow)
                                 , scReason = "Range-style short setup: RSI/Stochastic overbought, positive ROC, MACD confirmation, upper envelope context."
                                 }
                     else Nothing
 
 volumeConfirmedBreakoutCandidate :: RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
-volumeConfirmedBreakoutCandidate cal series = do
+volumeConfirmedBreakoutCandidate = volumeConfirmedBreakoutCandidateWithCalibration defaultTechnicalStrategyCalibration
+
+volumeConfirmedBreakoutCandidateWithCalibration :: TechnicalStrategyCalibration -> RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
+volumeConfirmedBreakoutCandidateWithCalibration strategyCal cal series = do
     validateSeries series
     regimeNow <- regimeSelector cal series
     closeNow <- lastValue (ohlcvClose series)
@@ -343,7 +421,7 @@ volumeConfirmedBreakoutCandidate cal series = do
                 && adUp
                 && vptUp
                 && cmfNow > 0
-                && mfiNow >= 50
+                && mfiNow >= tscBreakoutMfiThreshold strategyCal
         shortBreakout =
             regimeNow /= RegimeTrend
                 && closeNow < donchianLower donchianNow
@@ -351,7 +429,7 @@ volumeConfirmedBreakoutCandidate cal series = do
                 && not adUp
                 && not vptUp
                 && cmfNow < 0
-                && mfiNow <= 50
+                && mfiNow <= tscBreakoutMfiThreshold strategyCal
         breakoutDistance = max 0 (safeDivide (abs (closeNow - midChannel donchianNow)) closeNow)
         baseConfidence = clamp01 (((if obvUp == adUp then 1 else 0.5) + min 1 (abs cmfNow) + min 1 (breakoutDistance * 10)) / 3)
      in if longBreakout
@@ -363,8 +441,8 @@ volumeConfirmedBreakoutCandidate cal series = do
                         , scBias = BiasLong
                         , scConfidence = baseConfidence
                         , scEntryPrice = Just closeNow
-                        , scStopPrice = Just (closeNow - (2 * atrNow))
-                        , scTakeProfitPrice = Just (closeNow + (4 * atrNow))
+                        , scStopPrice = Just (closeNow - (tscBreakoutStopAtrMult strategyCal * atrNow))
+                        , scTakeProfitPrice = Just (closeNow + (tscBreakoutTakeProfitAtrMult strategyCal * atrNow))
                         , scReason = "Upper-channel breakout confirmed by OBV/A-D/VPT slope plus CMF/MFI support."
                         }
             else
@@ -377,24 +455,27 @@ volumeConfirmedBreakoutCandidate cal series = do
                                 , scBias = BiasShort
                                 , scConfidence = baseConfidence
                                 , scEntryPrice = Just closeNow
-                                , scStopPrice = Just (closeNow + (2 * atrNow))
-                                , scTakeProfitPrice = Just (closeNow - (4 * atrNow))
+                                , scStopPrice = Just (closeNow + (tscBreakoutStopAtrMult strategyCal * atrNow))
+                                , scTakeProfitPrice = Just (closeNow - (tscBreakoutTakeProfitAtrMult strategyCal * atrNow))
                                 , scReason = "Lower-channel breakout confirmed by OBV/A-D/VPT weakness plus CMF/MFI support."
                                 }
                     else Nothing
 
 regimeSwitchCandidate :: RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
-regimeSwitchCandidate cal series = do
+regimeSwitchCandidate = regimeSwitchCandidateWithCalibration defaultTechnicalStrategyCalibration
+
+regimeSwitchCandidateWithCalibration :: TechnicalStrategyCalibration -> RegimeCalibration -> OhlcvSeries -> Maybe StrategyCandidate
+regimeSwitchCandidateWithCalibration strategyCal cal series = do
     validateSeries series
     closeNow <- lastValue (ohlcvClose series)
     let mAdx = latestJust (adxSeries 14 (ohlcvHigh series) (ohlcvLow series) (ohlcvClose series))
         mEma200 = latestJust (emaSeries 200 (ohlcvClose series))
         mBollinger = latestJust (bollingerBandsSeries 20 2 (ohlcvClose series))
-    candidateForSubMethod (regimeSwitchSubMethod closeNow mAdx mEma200 mBollinger)
+    candidateForSubMethod (regimeSwitchSubMethodWithCalibration strategyCal closeNow mAdx mEma200 mBollinger)
   where
-    candidateForSubMethod MethodTaTrend = trendFollowingCandidate cal series >>= longBiasOnly
-    candidateForSubMethod MethodTaReversion = momentumReversionCandidate cal series
-    candidateForSubMethod MethodTaBreakout = volumeConfirmedBreakoutCandidate cal series
+    candidateForSubMethod MethodTaTrend = trendFollowingCandidateWithCalibration strategyCal cal series >>= longBiasOnly
+    candidateForSubMethod MethodTaReversion = momentumReversionCandidateWithCalibration strategyCal cal series
+    candidateForSubMethod MethodTaBreakout = volumeConfirmedBreakoutCandidateWithCalibration strategyCal cal series
     candidateForSubMethod _ = Nothing
 
 validateSeries :: OhlcvSeries -> Maybe ()
@@ -427,18 +508,17 @@ safeDivide :: Double -> Double -> Double
 safeDivide _ 0 = 0
 safeDivide numerator denominator = numerator / denominator
 
-entryOpenThreshold :: Double
-entryOpenThreshold = 0.001
-
 entryGatesOk :: TechnicalAnalysisGateInputs -> TradeBias -> Double -> Bool
 entryGatesOk inputs bias edge
     | (tagCurrentBias inputs >>= directionalBias) == Just bias = True
     | otherwise =
         let roundTripFee = 2 * tagFeePerSide inputs
             normalizedEdge = normalizeSignalEntryEdge edge
-         in signalEntryEdgeSpikeOk entryOpenThreshold normalizedEdge
-                && signalEntryHeadroomOk entryOpenThreshold normalizedEdge
-                && signalEntryFeeBufferOk entryOpenThreshold roundTripFee normalizedEdge
+            entryThreshold = max 0 (tscEntryOpenThreshold (tagStrategyCalibration inputs))
+            gateCfg = tagSignalGateConfig inputs
+         in signalEntryEdgeSpikeOkWithConfig gateCfg entryThreshold normalizedEdge
+                && signalEntryHeadroomOkWithConfig gateCfg entryThreshold normalizedEdge
+                && signalEntryFeeBufferOkWithConfig gateCfg entryThreshold roundTripFee normalizedEdge
 
 riskFrameOk :: StrategyCandidate -> Bool
 riskFrameOk candidate =
@@ -519,7 +599,10 @@ data OhlcvIndicators = OhlcvIndicators
 This reduces backtest complexity from O(n²) to O(n).
 -}
 precomputeIndicators :: OhlcvSeries -> OhlcvIndicators
-precomputeIndicators series =
+precomputeIndicators = precomputeIndicatorsWithCalibration (RegimeCalibration 0.40 0.55 0.55)
+
+precomputeIndicatorsWithCalibration :: RegimeCalibration -> OhlcvSeries -> OhlcvIndicators
+precomputeIndicatorsWithCalibration cal series =
     let closes = ohlcvClose series
         highs = ohlcvHigh series
         lows = ohlcvLow series
@@ -556,17 +639,18 @@ precomputeIndicators series =
                 adxTrendScore = clamp01 ((adxValue adxNow - 15) / 20)
                 aroonTrendScore = clamp01 ((aroonGap - 20) / 40)
                 slopeTrendScore = clamp01 ((abs slope - 0.005) / 0.015)
-                trendScore = 0.40 * adxTrendScore + 0.35 * aroonTrendScore + 0.25 * slopeTrendScore
+                wAdx = rcAdxWeight cal
+                trendScore = wAdx * adxTrendScore + (1 - wAdx) * (0.35 / 0.60 * aroonTrendScore + 0.25 / 0.60 * slopeTrendScore)
                 adxRangeScore = clamp01 ((25 - adxValue adxNow) / 15)
                 widthRangeScore = clamp01 ((0.12 - width) / 0.08)
                 rangeScore = 0.5 * adxRangeScore + 0.5 * widthRangeScore
                 maxScore = max trendScore rangeScore
                 neutralScore = max 0 (1 - maxScore)
             pure $
-                if trendScore >= 0.55
+                if trendScore >= rcTrendThreshold cal
                     then RegimeTrend
                     else
-                        if rangeScore >= 0.55
+                        if rangeScore >= rcRangeThreshold cal
                             then RegimeRange
                             else RegimeNeutral
      in OhlcvIndicators
@@ -602,7 +686,10 @@ safeIndex vec idx
 
 -- | Trend-following candidate at a specific bar using precomputed indicators.
 trendFollowingAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
-trendFollowingAt inds t = do
+trendFollowingAt = trendFollowingAtWithCalibration defaultTechnicalStrategyCalibration
+
+trendFollowingAtWithCalibration :: TechnicalStrategyCalibration -> OhlcvIndicators -> Int -> Maybe StrategyCandidate
+trendFollowingAtWithCalibration strategyCal inds t = do
     closeNow <- safeIndex (oiClose inds) t
     fastNow <- join (safeIndex (oiEma20 inds) t)
     slowNow <- join (safeIndex (oiEma50 inds) t)
@@ -613,12 +700,12 @@ trendFollowingAt inds t = do
     let longTrend =
             regimeNow == RegimeTrend
                 && fastNow > slowNow
-                && adxValue adxNow >= 20
+                && adxValue adxNow >= tscTrendAdxThreshold strategyCal
                 && aroonUp aroonNow > aroonDown aroonNow
         shortTrend =
             regimeNow == RegimeTrend
                 && fastNow < slowNow
-                && adxValue adxNow >= 20
+                && adxValue adxNow >= tscTrendAdxThreshold strategyCal
                 && aroonDown aroonNow > aroonUp aroonNow
         maSpread = abs (safeDivide (fastNow - slowNow) closeNow)
         baseConfidence = clamp01 ((((adxValue adxNow - 20) / 25) + (maSpread * 8) + (abs (aroonUp aroonNow - aroonDown aroonNow) / 100)) / 3)
@@ -631,8 +718,8 @@ trendFollowingAt inds t = do
                     , scBias = BiasLong
                     , scConfidence = baseConfidence
                     , scEntryPrice = Just closeNow
-                    , scStopPrice = Just (closeNow - (2 * atrNow))
-                    , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
+                    , scStopPrice = Just (closeNow - (tscTrendStopAtrMult strategyCal * atrNow))
+                    , scTakeProfitPrice = Just (closeNow + (tscTrendTakeProfitAtrMult strategyCal * atrNow))
                     , scReason = "Fast EMA is above slow EMA with ADX/Aroon trend confirmation and ATR-based risk framing."
                     }
         else
@@ -645,15 +732,18 @@ trendFollowingAt inds t = do
                             , scBias = BiasShort
                             , scConfidence = baseConfidence
                             , scEntryPrice = Just closeNow
-                            , scStopPrice = Just (closeNow + (2 * atrNow))
-                            , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
+                            , scStopPrice = Just (closeNow + (tscTrendStopAtrMult strategyCal * atrNow))
+                            , scTakeProfitPrice = Just (closeNow - (tscTrendTakeProfitAtrMult strategyCal * atrNow))
                             , scReason = "Fast EMA is below slow EMA with ADX/Aroon trend confirmation and ATR-based risk framing."
                             }
                 else Nothing
 
 -- | Momentum-reversion candidate at a specific bar using precomputed indicators.
 momentumReversionAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
-momentumReversionAt inds t = do
+momentumReversionAt = momentumReversionAtWithCalibration defaultTechnicalStrategyCalibration
+
+momentumReversionAtWithCalibration :: TechnicalStrategyCalibration -> OhlcvIndicators -> Int -> Maybe StrategyCandidate
+momentumReversionAtWithCalibration strategyCal inds t = do
     regimeNow <- join (safeIndex (oiRegime inds) t)
     closeNow <- safeIndex (oiClose inds) t
     rsiNow <- join (safeIndex (oiRsi14 inds) t)
@@ -663,19 +753,19 @@ momentumReversionAt inds t = do
     bollingerNow <- join (safeIndex (oiBb202 inds) t)
     keltnerNow <- join (safeIndex (oiKeltner2015 inds) t)
     atrNow <- join (safeIndex (oiAtr14 inds) t)
-    let nearLowerEnvelope = closeNow <= max (bandLower bollingerNow) (bandLower keltnerNow) * 1.02
-        nearUpperEnvelope = closeNow >= min (bandUpper bollingerNow) (bandUpper keltnerNow) * 0.98
+    let nearLowerEnvelope = closeNow <= max (bandLower bollingerNow) (bandLower keltnerNow) * tscReversionEnvelopeLowerMult strategyCal
+        nearUpperEnvelope = closeNow >= min (bandUpper bollingerNow) (bandUpper keltnerNow) * tscReversionEnvelopeUpperMult strategyCal
         longSetup =
             regimeNow /= RegimeTrend
-                && rsiNow <= 35
-                && stochasticNow <= 20
+                && rsiNow <= tscReversionRsiLower strategyCal
+                && stochasticNow <= tscReversionStochasticLower strategyCal
                 && rocNow < 0
                 && macdValue macdNow >= macdSignal macdNow
                 && nearLowerEnvelope
         shortSetup =
             regimeNow /= RegimeTrend
-                && rsiNow >= 65
-                && stochasticNow >= 80
+                && rsiNow >= tscReversionRsiUpper strategyCal
+                && stochasticNow >= tscReversionStochasticUpper strategyCal
                 && rocNow > 0
                 && macdValue macdNow <= macdSignal macdNow
                 && nearUpperEnvelope
@@ -689,7 +779,7 @@ momentumReversionAt inds t = do
                     , scBias = BiasLong
                     , scConfidence = baseConfidence
                     , scEntryPrice = Just closeNow
-                    , scStopPrice = Just (closeNow - (1.5 * atrNow))
+                    , scStopPrice = Just (closeNow - (tscReversionStopAtrMult strategyCal * atrNow))
                     , scTakeProfitPrice = Just (bandMiddle bollingerNow)
                     , scReason = "Range-style long setup: RSI/Stochastic oversold, negative ROC, MACD confirmation, lower envelope context."
                     }
@@ -703,7 +793,7 @@ momentumReversionAt inds t = do
                             , scBias = BiasShort
                             , scConfidence = baseConfidence
                             , scEntryPrice = Just closeNow
-                            , scStopPrice = Just (closeNow + (1.5 * atrNow))
+                            , scStopPrice = Just (closeNow + (tscReversionStopAtrMult strategyCal * atrNow))
                             , scTakeProfitPrice = Just (bandMiddle bollingerNow)
                             , scReason = "Range-style short setup: RSI/Stochastic overbought, positive ROC, MACD confirmation, upper envelope context."
                             }
@@ -711,7 +801,10 @@ momentumReversionAt inds t = do
 
 -- | Volume-confirmed breakout candidate at a specific bar using precomputed indicators.
 volumeConfirmedBreakoutAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
-volumeConfirmedBreakoutAt inds t = do
+volumeConfirmedBreakoutAt = volumeConfirmedBreakoutAtWithCalibration defaultTechnicalStrategyCalibration
+
+volumeConfirmedBreakoutAtWithCalibration :: TechnicalStrategyCalibration -> OhlcvIndicators -> Int -> Maybe StrategyCandidate
+volumeConfirmedBreakoutAtWithCalibration strategyCal inds t = do
     closeNow <- safeIndex (oiClose inds) t
     donchianNow <- join (safeIndex (oiDonchian20 inds) (t - 1))
     atrNow <- join (safeIndex (oiAtr14 inds) t)
@@ -726,8 +819,8 @@ volumeConfirmedBreakoutAt inds t = do
     let obvUp = obvNow > obvPrev
         adUp = adNow > adPrev
         vptUp = vptNow > vptPrev
-        longBreakout = closeNow > donchianUpper donchianNow && obvUp && adUp && vptUp && cmfNow > 0 && mfiNow >= 50
-        shortBreakout = closeNow < donchianLower donchianNow && not obvUp && not adUp && not vptUp && cmfNow < 0 && mfiNow <= 50
+        longBreakout = closeNow > donchianUpper donchianNow && obvUp && adUp && vptUp && cmfNow > 0 && mfiNow >= tscBreakoutMfiThreshold strategyCal
+        shortBreakout = closeNow < donchianLower donchianNow && not obvUp && not adUp && not vptUp && cmfNow < 0 && mfiNow <= tscBreakoutMfiThreshold strategyCal
         breakoutDistance = max 0 (safeDivide (abs (closeNow - midChannel donchianNow)) closeNow)
         baseConfidence = clamp01 (((if obvUp == adUp then 1 else 0.5) + min 1 (abs cmfNow) + min 1 (breakoutDistance * 10)) / 3)
     if longBreakout
@@ -739,8 +832,8 @@ volumeConfirmedBreakoutAt inds t = do
                     , scBias = BiasLong
                     , scConfidence = baseConfidence
                     , scEntryPrice = Just closeNow
-                    , scStopPrice = Just (closeNow - (2 * atrNow))
-                    , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
+                    , scStopPrice = Just (closeNow - (tscBreakoutStopAtrMult strategyCal * atrNow))
+                    , scTakeProfitPrice = Just (closeNow + (tscBreakoutTakeProfitAtrMult strategyCal * atrNow))
                     , scReason = "Volume-confirmed breakout above Donchian upper band with OBV/AD/VPT divergence and CMF/MFI confirmation."
                     }
         else
@@ -753,34 +846,40 @@ volumeConfirmedBreakoutAt inds t = do
                             , scBias = BiasShort
                             , scConfidence = baseConfidence
                             , scEntryPrice = Just closeNow
-                            , scStopPrice = Just (closeNow + (2 * atrNow))
-                            , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
+                            , scStopPrice = Just (closeNow + (tscBreakoutStopAtrMult strategyCal * atrNow))
+                            , scTakeProfitPrice = Just (closeNow - (tscBreakoutTakeProfitAtrMult strategyCal * atrNow))
                             , scReason = "Volume-confirmed breakout below Donchian lower band with OBV/AD/VPT divergence and CMF/MFI confirmation."
                             }
                 else Nothing
 
 regimeSwitchAt :: OhlcvIndicators -> Int -> Maybe StrategyCandidate
-regimeSwitchAt inds t = do
+regimeSwitchAt = regimeSwitchAtWithCalibration defaultTechnicalStrategyCalibration
+
+regimeSwitchAtWithCalibration :: TechnicalStrategyCalibration -> OhlcvIndicators -> Int -> Maybe StrategyCandidate
+regimeSwitchAtWithCalibration strategyCal inds t = do
     closeNow <- safeIndex (oiClose inds) t
     let mAdx = join (safeIndex (oiAdx14 inds) t)
         mEma200 = join (safeIndex (oiEma200 inds) t)
         mBollinger = join (safeIndex (oiBb202 inds) t)
-    candidateForSubMethod (regimeSwitchSubMethod closeNow mAdx mEma200 mBollinger)
+    candidateForSubMethod (regimeSwitchSubMethodWithCalibration strategyCal closeNow mAdx mEma200 mBollinger)
   where
-    candidateForSubMethod MethodTaTrend = trendFollowingAt inds t >>= longBiasOnly
-    candidateForSubMethod MethodTaReversion = momentumReversionAt inds t
-    candidateForSubMethod MethodTaBreakout = volumeConfirmedBreakoutAt inds t
+    candidateForSubMethod MethodTaTrend = trendFollowingAtWithCalibration strategyCal inds t >>= longBiasOnly
+    candidateForSubMethod MethodTaReversion = momentumReversionAtWithCalibration strategyCal inds t
+    candidateForSubMethod MethodTaBreakout = volumeConfirmedBreakoutAtWithCalibration strategyCal inds t
     candidateForSubMethod _ = Nothing
 
 regimeSwitchSubMethod :: Double -> Maybe AdxPoint -> Maybe Double -> Maybe Band -> Method
-regimeSwitchSubMethod closeNow mAdx mEma200 mBollinger
+regimeSwitchSubMethod = regimeSwitchSubMethodWithCalibration defaultTechnicalStrategyCalibration
+
+regimeSwitchSubMethodWithCalibration :: TechnicalStrategyCalibration -> Double -> Maybe AdxPoint -> Maybe Double -> Maybe Band -> Method
+regimeSwitchSubMethodWithCalibration strategyCal closeNow mAdx mEma200 mBollinger
     | adxStrong && priceAboveEma200 = MethodTaTrend
     | bollingerSqueeze = MethodTaReversion
     | otherwise = MethodTaBreakout
   where
-    adxStrong = maybe False ((> regimeSwitchAdxThreshold) . adxValue) mAdx
+    adxStrong = maybe False ((> tscRegimeSwitchAdxThreshold strategyCal) . adxValue) mAdx
     priceAboveEma200 = maybe False (closeNow >) mEma200
-    bollingerSqueeze = maybe False ((< regimeSwitchBollingerBandwidthThreshold) . bollingerBandwidth closeNow) mBollinger
+    bollingerSqueeze = maybe False ((< tscRegimeSwitchBollingerBandwidthThreshold strategyCal) . bollingerBandwidth closeNow) mBollinger
 
 regimeSwitchAdxThreshold :: Double
 regimeSwitchAdxThreshold = 25
@@ -803,24 +902,28 @@ bestCandidateAt :: TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Mayb
 bestCandidateAt inputs inds t =
     let candidates =
             catMaybes
-                [ trendFollowingAt inds t >>= admitBestCandidate
-                , momentumReversionAt inds t >>= admitBestCandidate
-                , volumeConfirmedBreakoutAt inds t >>= admitBestCandidate
+                [ trendFollowingAtWithCalibration strategyCal inds t >>= admitBestCandidate
+                , momentumReversionAtWithCalibration strategyCal inds t >>= admitBestCandidate
+                , volumeConfirmedBreakoutAtWithCalibration strategyCal inds t >>= admitBestCandidate
                 ]
      in listToMaybe $ sortOn (Down . candidateRank) candidates
   where
+    strategyCal = tagStrategyCalibration inputs
     candidateRank candidate =
         let rawConfidence = scConfidence (gscCandidate candidate)
             confidence = if finiteDouble rawConfidence then rawConfidence else 0
             edge = if finiteDouble (gscEntryEdge candidate) then gscEntryEdge candidate else 0
          in (confidence, edge)
     admitBestCandidate candidate = do
-        require (confidenceOk 0.35 (scConfidence candidate))
+        require (confidenceOk (tscBestCandidateMinConfidence strategyCal) (scConfidence candidate))
         admitStrategyCandidate inputs candidate
 
 -- | SMA-cross candidate at a specific bar using precomputed indicators.
 smaCrossAt :: OhlcvIndicators -> Double -> Double -> Maybe Regime -> Int -> Maybe StrategyCandidate
-smaCrossAt inds openThreshold closeThreshold mRequiredRegime t = do
+smaCrossAt = smaCrossAtWithCalibration defaultTechnicalStrategyCalibration
+
+smaCrossAtWithCalibration :: TechnicalStrategyCalibration -> OhlcvIndicators -> Double -> Double -> Maybe Regime -> Int -> Maybe StrategyCandidate
+smaCrossAtWithCalibration strategyCal inds openThreshold closeThreshold mRequiredRegime t = do
     closeNow <- safeIndex (oiClose inds) t
     fastNow <- join (safeIndex (oiEma20 inds) t)
     slowNow <- join (safeIndex (oiEma50 inds) t)
@@ -856,8 +959,8 @@ smaCrossAt inds openThreshold closeThreshold mRequiredRegime t = do
                             , scBias = BiasLong
                             , scConfidence = baseConfidence
                             , scEntryPrice = Just closeNow
-                            , scStopPrice = Just (closeNow - (2 * atrNow))
-                            , scTakeProfitPrice = Just (closeNow + (3 * atrNow))
+                            , scStopPrice = Just (closeNow - (tscSmaCrossStopAtrMult strategyCal * atrNow))
+                            , scTakeProfitPrice = Just (closeNow + (tscSmaCrossTakeProfitAtrMult strategyCal * atrNow))
                             , scReason = "EMA20 crossed above EMA50 with ATR-based risk framing."
                             }
                 else
@@ -870,8 +973,8 @@ smaCrossAt inds openThreshold closeThreshold mRequiredRegime t = do
                                     , scBias = BiasShort
                                     , scConfidence = baseConfidence
                                     , scEntryPrice = Just closeNow
-                                    , scStopPrice = Just (closeNow + (2 * atrNow))
-                                    , scTakeProfitPrice = Just (closeNow - (3 * atrNow))
+                                    , scStopPrice = Just (closeNow + (tscSmaCrossStopAtrMult strategyCal * atrNow))
+                                    , scTakeProfitPrice = Just (closeNow - (tscSmaCrossTakeProfitAtrMult strategyCal * atrNow))
                                     , scReason = "EMA20 crossed below EMA50 with ATR-based risk framing."
                                     }
                         else Nothing
@@ -880,11 +983,13 @@ smaCrossAt inds openThreshold closeThreshold mRequiredRegime t = do
 candidateForMethodAt :: Method -> TechnicalAnalysisGateInputs -> OhlcvIndicators -> Int -> Maybe GatedStrategyCandidate
 candidateForMethodAt method inputs inds t =
     case method of
-        MethodTaTrend -> trendFollowingAt inds t >>= admitStrategyCandidate inputs
-        MethodTaReversion -> momentumReversionAt inds t >>= admitStrategyCandidate inputs
-        MethodTaBreakout -> volumeConfirmedBreakoutAt inds t >>= admitStrategyCandidate inputs
+        MethodTaTrend -> trendFollowingAtWithCalibration strategyCal inds t >>= admitStrategyCandidate inputs
+        MethodTaReversion -> momentumReversionAtWithCalibration strategyCal inds t >>= admitStrategyCandidate inputs
+        MethodTaBreakout -> volumeConfirmedBreakoutAtWithCalibration strategyCal inds t >>= admitStrategyCandidate inputs
         MethodTaBest -> bestCandidateAt inputs inds t
-        MethodTaRegimeSwitch -> regimeSwitchAt inds t >>= admitStrategyCandidate inputs
-        MethodSmaCross -> smaCrossAt inds (tagOpenThreshold inputs) (tagCloseThreshold inputs) Nothing t >>= admitStrategyCandidate inputs
-        MethodSmaCrossRegime -> smaCrossAt inds (tagOpenThreshold inputs) (tagCloseThreshold inputs) (Just RegimeTrend) t >>= admitStrategyCandidate inputs
+        MethodTaRegimeSwitch -> regimeSwitchAtWithCalibration strategyCal inds t >>= admitStrategyCandidate inputs
+        MethodSmaCross -> smaCrossAtWithCalibration strategyCal inds (tagOpenThreshold inputs) (tagCloseThreshold inputs) Nothing t >>= admitStrategyCandidate inputs
+        MethodSmaCrossRegime -> smaCrossAtWithCalibration strategyCal inds (tagOpenThreshold inputs) (tagCloseThreshold inputs) (Just RegimeTrend) t >>= admitStrategyCandidate inputs
         _ -> Nothing
+  where
+    strategyCal = tagStrategyCalibration inputs

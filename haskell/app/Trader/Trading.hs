@@ -47,15 +47,17 @@ import qualified Data.Vector as V
 import Trader.Duration (TimeWindow, minuteOfDayFromMs, timeWindowContains)
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
 import Trader.SignalGates (
+    SignalGateConfig,
     finiteDouble,
     normalizeSignalEntryEdge,
     normalizeSignalThreshold,
-    signalEntryEdgeSpikeConsecutiveOk,
-    signalEntryEdgeSpikeEntryOk,
+    signalEntryEdgeSpikeConsecutiveOkWithConfig,
     signalEntryEdgeSpikeOk,
     signalEntryFeeBufferOk,
+    signalEntryFeeBufferOkWithConfig,
     signalEntryHeadroomOk,
     signalTrendSmaConfirmed,
+    signalTrendSmaConfirmedWithConfig,
  )
 import Trader.VolConfGate (
     VolConfGateCell (..),
@@ -117,6 +119,7 @@ data EnsembleConfig = EnsembleConfig
     , ecPositioning :: !Positioning
     , ecIntrabarFill :: !IntrabarFill
     , ecMaxPositionSize :: !Double
+    , ecSignalGateConfig :: !SignalGateConfig
     , ecEntryEdgeSpikeAuditOnly :: !Bool
     , ecEntryEdgeSpikeConsecutive :: !Int
     , ecMinSignalToNoise :: !Double
@@ -1440,7 +1443,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                      v = V.slice start lookback pricesV
                                                      sma = meanV v
                                                      px = pricesV V.! t
-                                                  in signalTrendSmaConfirmed
+                                                  in signalTrendSmaConfirmedWithConfig
+                                                        (ecSignalGateConfig cfg)
                                                         openThreshold
                                                         px
                                                         sma
@@ -2280,7 +2284,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     entryEdgeSample = Just (max 0 edgeRaw)
 
                                                     entryEdgeSpikeOk =
-                                                        not needsEntry || signalEntryEdgeSpikeConsecutiveOk (ecEntryEdgeSpikeConsecutive cfg) (ecEntryEdgeSpikeAuditOnly cfg) openThrAdj entryEdgeSample
+                                                        not needsEntry || signalEntryEdgeSpikeConsecutiveOkWithConfig (ecSignalGateConfig cfg) (ecEntryEdgeSpikeConsecutive cfg) (ecEntryEdgeSpikeAuditOnly cfg) openThrAdj entryEdgeSample
 
                                                     entryEdgeHeadroomOk =
                                                         not needsEntry || signalEntryHeadroomOk openThrAdj entryEdgeSample
@@ -2390,7 +2394,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                                     entryFeeBufferOk =
                                                         not (Data.Maybe.isJust desiredSide2 && desiredSide2 /= posSide && sizeFinal0 > 0)
-                                                            || signalEntryFeeBufferOk openThrAdj (roundTripCostAt t sizeFinal0) entryEdgeSample
+                                                            || signalEntryFeeBufferOkWithConfig
+                                                                (ecSignalGateConfig cfg)
+                                                                openThrAdj
+                                                                (roundTripCostAt t sizeFinal0)
+                                                                entryEdgeSample
 
                                                     desiredSide =
                                                         if sizeFinal0 <= 0 || not entryFeeBufferOk then Nothing else desiredSide2

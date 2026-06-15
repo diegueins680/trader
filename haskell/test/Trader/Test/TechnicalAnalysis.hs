@@ -4,6 +4,7 @@ import Control.Monad (unless)
 import Data.Maybe (catMaybes, isJust, isNothing)
 import qualified Data.Vector as V
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod)
+import Trader.SignalGates (defaultSignalGateConfig)
 import Trader.TechnicalAnalysis.Indicators
 import Trader.TechnicalAnalysis.Strategies
 import Trader.VolConfGate (VolConfGatePreset (..))
@@ -118,6 +119,8 @@ testGatedCandidateAdmissionHonorsRiskGates = do
                 , tagVolatility = Just 0.4
                 , tagVolConfGate = VolConfGateDisabled
                 , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
+                , tagStrategyCalibration = defaultTechnicalStrategyCalibration
+                , tagSignalGateConfig = defaultSignalGateConfig
                 , tagOpenThreshold = 0.0
                 , tagCloseThreshold = 0.0
                 }
@@ -200,6 +203,8 @@ taTestInputs =
         , tagVolatility = Just 0.4
         , tagVolConfGate = VolConfGateDisabled
         , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
+        , tagStrategyCalibration = defaultTechnicalStrategyCalibration
+        , tagSignalGateConfig = defaultSignalGateConfig
         , tagOpenThreshold = 0.0
         , tagCloseThreshold = 0.0
         }

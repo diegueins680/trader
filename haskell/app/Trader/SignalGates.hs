@@ -3,8 +3,10 @@
 
 module Trader.SignalGates (
     DirectionalitySnapshot (..),
+    SignalGateConfig (..),
     SignalThresholdBoundary (..),
     PredictorLiveness (..),
+    defaultSignalGateConfig,
     dynamicRangePct,
     predictorLiveness,
     predictorDegenerate,
@@ -25,15 +27,22 @@ module Trader.SignalGates (
     normalizeSignalOpenThreshold,
     normalizeSignalFeeFloor,
     signalEntryHeadroomOk,
+    signalEntryHeadroomOkWithConfig,
     signalEntryEdgeSpikeOk,
+    signalEntryEdgeSpikeOkWithConfig,
     signalEntryEdgeSpikeEntryOk,
+    signalEntryEdgeSpikeEntryOkWithConfig,
     signalEntryEdgeSpikeAuditWarning,
+    signalEntryEdgeSpikeAuditWarningWithConfig,
     signalEntryEdgeSpikeOkInterval,
     signalEntryEdgeSpikeEntryOkInterval,
     signalEntryEdgeSpikeAuditWarningInterval,
     signalEntryEdgeSpikeConsecutiveOk,
+    signalEntryEdgeSpikeConsecutiveOkWithConfig,
     signalEntryFeeBufferOk,
+    signalEntryFeeBufferOkWithConfig,
     signalTrendSmaConfirmed,
+    signalTrendSmaConfirmedWithConfig,
     signalFundingOiCheck,
     signalMetaLabelOk,
     signalMtfConsensusCheck,
@@ -66,6 +75,27 @@ data SignalThresholdBoundary = SignalThresholdBoundary
     , stbEffectiveCloseThreshold :: !Double
     }
     deriving (Eq, Show)
+
+data SignalGateConfig = SignalGateConfig
+    { sgcEntryEdgeHeadroomMultiple :: !Double
+    , sgcEntryEdgeSpikeMultiple :: !Double
+    , sgcEntryEdgeSpikeCredibleCap :: !Double
+    , sgcEntryEdgeSpikeConsecutiveLimit :: !Int
+    , sgcTrendConfirmationSlackMultiple :: !Double
+    , sgcTrendConfirmationSlackCap :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultSignalGateConfig :: SignalGateConfig
+defaultSignalGateConfig =
+    SignalGateConfig
+        { sgcEntryEdgeHeadroomMultiple = 1.5
+        , sgcEntryEdgeSpikeMultiple = 1000.0
+        , sgcEntryEdgeSpikeCredibleCap = 5.0
+        , sgcEntryEdgeSpikeConsecutiveLimit = 3
+        , sgcTrendConfirmationSlackMultiple = 0.5
+        , sgcTrendConfirmationSlackCap = 0.01
+        }
 
 class FailClosedSurface r where
     failClosedSurface :: r
@@ -371,13 +401,50 @@ clamp01 :: Double -> Double
 clamp01 = max 0 . min 1
 
 entryEdgeHeadroomMultiple :: Double
-entryEdgeHeadroomMultiple = 1.5
+entryEdgeHeadroomMultiple = sgcEntryEdgeHeadroomMultiple defaultSignalGateConfig
 
 entryEdgeSpikeMultiple :: Double
-entryEdgeSpikeMultiple = 1000.0
+entryEdgeSpikeMultiple = sgcEntryEdgeSpikeMultiple defaultSignalGateConfig
 
 entryEdgeSpikeCredibleCap :: Double
-entryEdgeSpikeCredibleCap = 5.0
+entryEdgeSpikeCredibleCap = sgcEntryEdgeSpikeCredibleCap defaultSignalGateConfig
+
+entryEdgeSpikeConsecutiveLimit :: Int
+entryEdgeSpikeConsecutiveLimit = sgcEntryEdgeSpikeConsecutiveLimit defaultSignalGateConfig
+
+validPositiveOrDefault :: Double -> Double -> Double
+validPositiveOrDefault fallback value
+    | finiteDouble value && value > 0 = value
+    | otherwise = fallback
+
+validNonNegativeOrDefault :: Double -> Double -> Double
+validNonNegativeOrDefault fallback value
+    | finiteDouble value && value >= 0 = value
+    | otherwise = fallback
+
+signalGateHeadroomMultiple :: SignalGateConfig -> Double
+signalGateHeadroomMultiple cfg =
+    validPositiveOrDefault entryEdgeHeadroomMultiple (sgcEntryEdgeHeadroomMultiple cfg)
+
+signalGateSpikeMultiple :: SignalGateConfig -> Double
+signalGateSpikeMultiple cfg =
+    validNonNegativeOrDefault entryEdgeSpikeMultiple (sgcEntryEdgeSpikeMultiple cfg)
+
+signalGateSpikeCredibleCap :: SignalGateConfig -> Double
+signalGateSpikeCredibleCap cfg =
+    validPositiveOrDefault entryEdgeSpikeCredibleCap (sgcEntryEdgeSpikeCredibleCap cfg)
+
+signalGateSpikeConsecutiveLimit :: SignalGateConfig -> Int
+signalGateSpikeConsecutiveLimit cfg =
+    max 0 (sgcEntryEdgeSpikeConsecutiveLimit cfg)
+
+signalGateTrendSlackMultiple :: SignalGateConfig -> Double
+signalGateTrendSlackMultiple cfg =
+    validNonNegativeOrDefault trendConfirmationSlackMultiple (sgcTrendConfirmationSlackMultiple cfg)
+
+signalGateTrendSlackCap :: SignalGateConfig -> Double
+signalGateTrendSlackCap cfg =
+    validNonNegativeOrDefault trendConfirmationSlackCap (sgcTrendConfirmationSlackCap cfg)
 
 signalEntryOpenThresholdFeasibilityCap :: Double
 signalEntryOpenThresholdFeasibilityCap = entryEdgeSpikeCredibleCap / entryEdgeHeadroomMultiple
@@ -411,23 +478,38 @@ normalizeSignalFeeFloor raw
     | otherwise = Nothing
 
 signalEntryHeadroomOk :: Double -> Maybe Double -> Bool
-signalEntryHeadroomOk openThreshold = signalEntryFeeBufferOk openThreshold 0
+signalEntryHeadroomOk = signalEntryHeadroomOkWithConfig defaultSignalGateConfig
+
+signalEntryHeadroomOkWithConfig :: SignalGateConfig -> Double -> Maybe Double -> Bool
+signalEntryHeadroomOkWithConfig cfg openThreshold = signalEntryFeeBufferOkWithConfig cfg openThreshold 0
 
 signalEntryEdgeSpikeOk :: Double -> Maybe Double -> Bool
-signalEntryEdgeSpikeOk openThreshold edgeForMethod =
+signalEntryEdgeSpikeOk = signalEntryEdgeSpikeOkWithConfig defaultSignalGateConfig
+
+signalEntryEdgeSpikeOkWithConfig :: SignalGateConfig -> Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod =
     case normalizeSignalOpenThreshold openThreshold of
         Nothing -> False
         Just threshold ->
-            let spikeCap = min (entryEdgeSpikeMultiple * threshold) entryEdgeSpikeCredibleCap
+            let spikeCap =
+                    min
+                        (signalGateSpikeMultiple cfg * threshold)
+                        (signalGateSpikeCredibleCap cfg)
              in maybe False (\edge -> finiteDouble edge && edge >= 0 && edge <= spikeCap) edgeForMethod
 
 signalEntryEdgeSpikeEntryOk :: Bool -> Double -> Maybe Double -> Bool
-signalEntryEdgeSpikeEntryOk auditOnly openThreshold edgeForMethod =
-    auditOnly || signalEntryEdgeSpikeOk openThreshold edgeForMethod
+signalEntryEdgeSpikeEntryOk = signalEntryEdgeSpikeEntryOkWithConfig defaultSignalGateConfig
+
+signalEntryEdgeSpikeEntryOkWithConfig :: SignalGateConfig -> Bool -> Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeEntryOkWithConfig cfg auditOnly openThreshold edgeForMethod =
+    auditOnly || signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod
 
 signalEntryEdgeSpikeAuditWarning :: Bool -> Double -> Maybe Double -> Maybe String
-signalEntryEdgeSpikeAuditWarning auditOnly openThreshold edgeForMethod =
-    if auditOnly && not (signalEntryEdgeSpikeOk openThreshold edgeForMethod)
+signalEntryEdgeSpikeAuditWarning = signalEntryEdgeSpikeAuditWarningWithConfig defaultSignalGateConfig
+
+signalEntryEdgeSpikeAuditWarningWithConfig :: SignalGateConfig -> Bool -> Double -> Maybe Double -> Maybe String
+signalEntryEdgeSpikeAuditWarningWithConfig cfg auditOnly openThreshold edgeForMethod =
+    if auditOnly && not (signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod)
         then Just "EDGE_SPIKE"
         else Nothing
 
@@ -436,16 +518,22 @@ treat audit-only mode as blocking. This prevents severely miscalibrated
 LSTM models from generating infinite permissive audit warnings.
 -}
 signalEntryEdgeSpikeConsecutiveOk :: Int -> Bool -> Double -> Maybe Double -> Bool
-signalEntryEdgeSpikeConsecutiveOk consecutiveWarnings auditOnly openThreshold edgeForMethod =
-    let ok = signalEntryEdgeSpikeOk openThreshold edgeForMethod
-     in ok || (auditOnly && consecutiveWarnings < 3)
+signalEntryEdgeSpikeConsecutiveOk = signalEntryEdgeSpikeConsecutiveOkWithConfig defaultSignalGateConfig
+
+signalEntryEdgeSpikeConsecutiveOkWithConfig :: SignalGateConfig -> Int -> Bool -> Double -> Maybe Double -> Bool
+signalEntryEdgeSpikeConsecutiveOkWithConfig cfg consecutiveWarnings auditOnly openThreshold edgeForMethod =
+    let ok = signalEntryEdgeSpikeOkWithConfig cfg openThreshold edgeForMethod
+     in ok || (auditOnly && consecutiveWarnings < signalGateSpikeConsecutiveLimit cfg)
 
 signalEntryFeeBufferOk :: Double -> Double -> Maybe Double -> Bool
-signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
+signalEntryFeeBufferOk = signalEntryFeeBufferOkWithConfig defaultSignalGateConfig
+
+signalEntryFeeBufferOkWithConfig :: SignalGateConfig -> Double -> Double -> Maybe Double -> Bool
+signalEntryFeeBufferOkWithConfig cfg openThreshold roundTripFeeFloor edgeForMethod =
     case normalizeSignalOpenThreshold openThreshold of
         Nothing -> False
         Just threshold ->
-            let requiredHeadroom = entryEdgeHeadroomMultiple * threshold
+            let requiredHeadroom = signalGateHeadroomMultiple cfg * threshold
              in case normalizeSignalFeeFloor roundTripFeeFloor of
                     Nothing -> False
                     Just feeFloor ->
@@ -453,18 +541,21 @@ signalEntryFeeBufferOk openThreshold roundTripFeeFloor edgeForMethod =
                          in maybe False (\edge -> finiteDouble edge && edge >= requiredEdge) edgeForMethod
 
 trendConfirmationSlackMultiple :: Double
-trendConfirmationSlackMultiple = 0.5
+trendConfirmationSlackMultiple = sgcTrendConfirmationSlackMultiple defaultSignalGateConfig
 
 trendConfirmationSlackCap :: Double
-trendConfirmationSlackCap = 0.01
+trendConfirmationSlackCap = sgcTrendConfirmationSlackCap defaultSignalGateConfig
 
 signalTrendSmaConfirmed :: Double -> Double -> Double -> Int -> Bool
-signalTrendSmaConfirmed openThreshold currentPrice sma dir
+signalTrendSmaConfirmed = signalTrendSmaConfirmedWithConfig defaultSignalGateConfig
+
+signalTrendSmaConfirmedWithConfig :: SignalGateConfig -> Double -> Double -> Double -> Int -> Bool
+signalTrendSmaConfirmedWithConfig cfg openThreshold currentPrice sma dir
     | not (finiteDouble currentPrice && finiteDouble sma) = True
     | otherwise =
         let slackFrac =
                 case normalizeSignalOpenThreshold openThreshold of
-                    Just threshold -> min trendConfirmationSlackCap (trendConfirmationSlackMultiple * threshold)
+                    Just threshold -> min (signalGateTrendSlackCap cfg) (signalGateTrendSlackMultiple cfg * threshold)
                     Nothing -> 0
             lowerBound = sma * (1 - slackFrac)
             upperBound = sma * (1 + slackFrac)

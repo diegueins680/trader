@@ -394,6 +394,7 @@ import Trader.S3 (
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
+    SignalGateConfig (..),
     SignalThresholdBoundary (..),
     dynamicRangePct,
     mkSignalThresholdBoundary,
@@ -403,11 +404,10 @@ import Trader.SignalGates (
     predictorLivenessToJson,
     signalCrossAssetCheck,
     signalDirectionalitySnapshot,
-    signalEntryEdgeSpikeAuditWarning,
-    signalEntryEdgeSpikeEntryOk,
-    signalEntryEdgeSpikeOk,
-    signalEntryFeeBufferOk,
-    signalEntryHeadroomOk,
+    signalEntryEdgeSpikeAuditWarningWithConfig,
+    signalEntryEdgeSpikeEntryOkWithConfig,
+    signalEntryFeeBufferOkWithConfig,
+    signalEntryHeadroomOkWithConfig,
     signalEntryOpenThresholdFeasibilityReason,
     signalEntryOpenThresholdFeasible,
     signalFundingOiCheck,
@@ -415,7 +415,7 @@ import Trader.SignalGates (
     signalMtfConsensusCheck,
     signalRegimeEdgeOk,
     signalRunPostDirectionGates,
-    signalTrendSmaConfirmed,
+    signalTrendSmaConfirmedWithConfig,
  )
 import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
@@ -9426,6 +9426,7 @@ botOptimizeAfterOperation st = do
                                 , ecPositioning = argPositioning args
                                 , ecIntrabarFill = argIntrabarFill args
                                 , ecMaxPositionSize = argMaxPositionSize args
+                                , ecSignalGateConfig = signalGateConfigFromArgs args
                                 , ecEntryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args (argMethod args)
                                 , ecEntryEdgeSpikeConsecutive = 0
                                 , ecMinEdge = minEdge
@@ -25033,6 +25034,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecPositioning = argPositioning args
                 , ecIntrabarFill = argIntrabarFill args
                 , ecMaxPositionSize = argMaxPositionSize args
+                , ecSignalGateConfig = signalGateConfigFromArgs args
                 , ecEntryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args methodForComputation
                 , ecEntryEdgeSpikeConsecutive = 0
                 , ecMinEdge = minEdge
@@ -26866,7 +26868,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     || ( let start = n - trendLookback
                              v = V.slice start trendLookback pricesV
                              sma = V.sum v / fromIntegral trendLookback
-                          in signalTrendSmaConfirmed openThrAdj currentPrice sma dir
+                          in signalTrendSmaConfirmedWithConfig (signalGateConfigFromArgs args) openThrAdj currentPrice sma dir
                        )
 
             triLayerEnabled = argTriLayer args
@@ -28553,10 +28555,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     MethodSmaCross -> taDirRaw
                     MethodSmaCrossRegime -> taDirRaw
             entryEdgeSpikeAuditOnly = entryEdgeSpikeAuditOnlyForArgs args method
-            entryEdgeHeadroomOk = signalEntryHeadroomOk openThrAdj edgeForMethod
-            entryEdgeSpikeOk = signalEntryEdgeSpikeOk openThrAdj edgeForMethod
-            entryEdgeSpikeEntryOk = signalEntryEdgeSpikeEntryOk entryEdgeSpikeAuditOnly openThrAdj edgeForMethod
-            entryEdgeSpikeAuditWarning = signalEntryEdgeSpikeAuditWarning entryEdgeSpikeAuditOnly openThrAdj edgeForMethod
+            signalGateCfg = signalGateConfigFromArgs args
+            entryEdgeHeadroomOk = signalEntryHeadroomOkWithConfig signalGateCfg openThrAdj edgeForMethod
+            entryEdgeSpikeEntryOk = signalEntryEdgeSpikeEntryOkWithConfig signalGateCfg entryEdgeSpikeAuditOnly openThrAdj edgeForMethod
+            entryEdgeSpikeAuditWarning = signalEntryEdgeSpikeAuditWarningWithConfig signalGateCfg entryEdgeSpikeAuditOnly openThrAdj edgeForMethod
             entryOpenThresholdFeasible = signalEntryOpenThresholdFeasible openThrAdj
             mEntryThresholdReason = signalEntryOpenThresholdFeasibilityReason openThrAdj
             chosenDirBase1 =
@@ -28684,7 +28686,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 case chosenDirVolConf of
                     Just _
                         | sizeFinal1 > 0 ->
-                            signalEntryFeeBufferOk
+                            signalEntryFeeBufferOkWithConfig
+                                (signalGateConfigFromArgs args)
                                 openThrAdj
                                 (estimatedRoundTripCost args (max 1e-6 sizeFinal1) volPerBar)
                                 edgeForMethod
@@ -29247,8 +29250,42 @@ technicalGateInputs args perSideCost =
         , TA.tagVolatility = Nothing
         , TA.tagVolConfGate = VolConfGateDisabled
         , TA.tagRegimeCalibration = TA.RegimeCalibration (argRegimeAdxWeight args) (argRegimeTrendThreshold args) (argRegimeRangeThreshold args)
+        , TA.tagStrategyCalibration =
+            TA.TechnicalStrategyCalibration
+                { TA.tscEntryOpenThreshold = argTaEntryOpenThreshold args
+                , TA.tscTrendAdxThreshold = argTaTrendAdxThreshold args
+                , TA.tscTrendStopAtrMult = argTaTrendStopAtrMult args
+                , TA.tscTrendTakeProfitAtrMult = argTaTrendTakeProfitAtrMult args
+                , TA.tscReversionRsiLower = argTaReversionRsiLower args
+                , TA.tscReversionRsiUpper = argTaReversionRsiUpper args
+                , TA.tscReversionStochasticLower = argTaReversionStochasticLower args
+                , TA.tscReversionStochasticUpper = argTaReversionStochasticUpper args
+                , TA.tscReversionEnvelopeLowerMult = argTaReversionEnvelopeLowerMult args
+                , TA.tscReversionEnvelopeUpperMult = argTaReversionEnvelopeUpperMult args
+                , TA.tscReversionStopAtrMult = argTaReversionStopAtrMult args
+                , TA.tscBreakoutMfiThreshold = argTaBreakoutMfiThreshold args
+                , TA.tscBreakoutStopAtrMult = argTaBreakoutStopAtrMult args
+                , TA.tscBreakoutTakeProfitAtrMult = argTaBreakoutTakeProfitAtrMult args
+                , TA.tscSmaCrossStopAtrMult = argTaSmaCrossStopAtrMult args
+                , TA.tscSmaCrossTakeProfitAtrMult = argTaSmaCrossTakeProfitAtrMult args
+                , TA.tscRegimeSwitchAdxThreshold = argTaRegimeSwitchAdxThreshold args
+                , TA.tscRegimeSwitchBollingerBandwidthThreshold = argTaRegimeSwitchBollingerBandwidthThreshold args
+                , TA.tscBestCandidateMinConfidence = argTaBestCandidateMinConfidence args
+                }
+        , TA.tagSignalGateConfig = signalGateConfigFromArgs args
         , TA.tagOpenThreshold = argOpenThreshold args
         , TA.tagCloseThreshold = argCloseThreshold args
+        }
+
+signalGateConfigFromArgs :: Args -> SignalGateConfig
+signalGateConfigFromArgs args =
+    SignalGateConfig
+        { sgcEntryEdgeHeadroomMultiple = argSignalEntryEdgeHeadroomMult args
+        , sgcEntryEdgeSpikeMultiple = argSignalEntryEdgeSpikeMult args
+        , sgcEntryEdgeSpikeCredibleCap = argSignalEntryEdgeSpikeCap args
+        , sgcEntryEdgeSpikeConsecutiveLimit = argSignalEntryEdgeSpikeConsecutiveLimit args
+        , sgcTrendConfirmationSlackMultiple = argSignalTrendSlackMult args
+        , sgcTrendConfirmationSlackCap = argSignalTrendSlackCap args
         }
 
 technicalSeriesFromFeatureInputs :: FeatureInputs -> Maybe TA.OhlcvSeries
@@ -29335,24 +29372,25 @@ technicalCandidateForMethod ::
     Maybe TA.GatedStrategyCandidate
 technicalCandidateForMethod method inputs series =
     let cal = TA.tagRegimeCalibration inputs
+        strategyCal = TA.tagStrategyCalibration inputs
      in case method of
-            MethodTaTrend -> TA.trendFollowingCandidate cal series >>= TA.admitStrategyCandidate inputs
-            MethodTaReversion -> TA.momentumReversionCandidate cal series >>= TA.admitStrategyCandidate inputs
-            MethodTaBreakout -> TA.volumeConfirmedBreakoutCandidate cal series >>= TA.admitStrategyCandidate inputs
+            MethodTaTrend -> TA.trendFollowingCandidateWithCalibration strategyCal cal series >>= TA.admitStrategyCandidate inputs
+            MethodTaReversion -> TA.momentumReversionCandidateWithCalibration strategyCal cal series >>= TA.admitStrategyCandidate inputs
+            MethodTaBreakout -> TA.volumeConfirmedBreakoutCandidateWithCalibration strategyCal cal series >>= TA.admitStrategyCandidate inputs
             MethodTaBest ->
                 listToMaybe $
                     sortOn
                         (Data.Ord.Down . technicalCandidateRank)
                         (TA.admittedStrategyCandidates inputs series)
-            MethodTaRegimeSwitch -> TA.regimeSwitchCandidate cal series >>= TA.admitStrategyCandidate inputs
+            MethodTaRegimeSwitch -> TA.regimeSwitchCandidateWithCalibration strategyCal cal series >>= TA.admitStrategyCandidate inputs
             MethodSmaCross ->
-                let inds = TA.precomputeIndicators series
+                let inds = TA.precomputeIndicatorsWithCalibration cal series
                     t = V.length (TA.ohlcvClose series) - 1
-                 in TA.smaCrossAt inds (TA.tagOpenThreshold inputs) (TA.tagCloseThreshold inputs) Nothing t >>= TA.admitStrategyCandidate inputs
+                 in TA.smaCrossAtWithCalibration strategyCal inds (TA.tagOpenThreshold inputs) (TA.tagCloseThreshold inputs) Nothing t >>= TA.admitStrategyCandidate inputs
             MethodSmaCrossRegime ->
-                let inds = TA.precomputeIndicators series
+                let inds = TA.precomputeIndicatorsWithCalibration cal series
                     t = V.length (TA.ohlcvClose series) - 1
-                 in TA.smaCrossAt inds (TA.tagOpenThreshold inputs) (TA.tagCloseThreshold inputs) (Just TA.RegimeTrend) t >>= TA.admitStrategyCandidate inputs
+                 in TA.smaCrossAtWithCalibration strategyCal inds (TA.tagOpenThreshold inputs) (TA.tagCloseThreshold inputs) (Just TA.RegimeTrend) t >>= TA.admitStrategyCandidate inputs
             _ -> Nothing
 
 technicalCandidateRank :: TA.GatedStrategyCandidate -> (Double, Double)

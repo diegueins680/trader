@@ -21,6 +21,7 @@ import qualified Data.Vector as V
 import Trader.Duration (positiveFiniteDuration)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
+import Trader.SignalGates (defaultSignalGateConfig)
 import Trader.Trading (
     EnsembleConfig (..),
     IntrabarFill (..),
@@ -703,6 +704,7 @@ optimizerSurfacePreservedFields base updated =
         , ecTakeProfitVolMult updated == ecTakeProfitVolMult base
         , ecTrailingStopVolMult updated == ecTrailingStopVolMult base
         , ecMaxPositionSize updated == ecMaxPositionSize base
+        , ecSignalGateConfig updated == ecSignalGateConfig base
         , ecEntryEdgeSpikeAuditOnly updated == ecEntryEdgeSpikeAuditOnly base
         , ecEntryEdgeSpikeConsecutive updated == ecEntryEdgeSpikeConsecutive base
         , ecBlendWeight updated == ecBlendWeight base
@@ -767,6 +769,7 @@ optimizerPublicSurfaceBaseConfig =
         , ecPositioning = LongFlat
         , ecIntrabarFill = StopFirst
         , ecMaxPositionSize = 1
+        , ecSignalGateConfig = defaultSignalGateConfig
         , ecEntryEdgeSpikeAuditOnly = False
         , ecEntryEdgeSpikeConsecutive = 0
         , ecMinSignalToNoise = 0

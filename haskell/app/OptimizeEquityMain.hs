@@ -10,7 +10,13 @@ import System.Exit (ExitCode (..), exitSuccess, exitWith)
 import System.IO (hPutStrLn, stderr)
 
 import Trader.Optimization (TuneObjective (..), tuneObjectiveCode)
-import Trader.Optimizer.Optimize (OptimizerArgs (..), normalizeObjectiveCode, optimizerOptionPresent, runOptimizer)
+import Trader.Optimizer.Optimize (
+    OptimizerArgs (..),
+    TechnicalOptimizerRanges (..),
+    normalizeObjectiveCode,
+    optimizerOptionPresent,
+    runOptimizer,
+ )
 
 main :: IO ()
 main = do
@@ -424,6 +430,7 @@ optimizerArgsParser =
         <*> option auto (long "regime-mr-size-mult-max" <> value 0.9 <> metavar "FLOAT")
         <*> option auto (long "regime-high-vol-size-mult-min" <> value 0.7 <> metavar "FLOAT")
         <*> option auto (long "regime-high-vol-size-mult-max" <> value 0.7 <> metavar "FLOAT")
+        <*> technicalOptimizerRangesParser
         <*> option auto (long "p-multi-timeframe-consensus" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "mtf-fast-bars-min" <> value 5 <> metavar "INT")
         <*> option auto (long "mtf-fast-bars-max" <> value 5 <> metavar "INT")
@@ -464,6 +471,47 @@ optimizerArgsParser =
         <*> option auto (long "kelly-lite-cap-min" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "kelly-lite-cap-max" <> value 1.0 <> metavar "FLOAT")
         <*> switch (long "cross-exchange-coinbase" <> help "Pass --cross-exchange-coinbase to each trial so it enriches the LSTM/Kalman with same-asset Coinbase data (CSV symbol/interval must be Coinbase-eligible; fail-open otherwise)")
+
+technicalOptimizerRangesParser :: Parser TechnicalOptimizerRanges
+technicalOptimizerRangesParser =
+    TechnicalOptimizerRanges
+        <$> doubleRangeOption "ta-entry-open-threshold" 5.0e-4 3.0e-3
+        <*> doubleRangeOption "ta-trend-adx-threshold" 15 30
+        <*> doubleRangeOption "ta-trend-stop-atr-mult" 1.0 3.5
+        <*> doubleRangeOption "ta-trend-tp-atr-mult" 1.5 5.0
+        <*> doubleRangeOption "ta-reversion-rsi-lower" 25 45
+        <*> doubleRangeOption "ta-reversion-rsi-upper" 55 75
+        <*> doubleRangeOption "ta-reversion-stoch-lower" 10 35
+        <*> doubleRangeOption "ta-reversion-stoch-upper" 65 90
+        <*> doubleRangeOption "ta-reversion-envelope-lower-mult" 1.0 1.04
+        <*> doubleRangeOption "ta-reversion-envelope-upper-mult" 0.96 1.0
+        <*> doubleRangeOption "ta-reversion-stop-atr-mult" 0.8 3.0
+        <*> doubleRangeOption "ta-breakout-mfi-threshold" 40 60
+        <*> doubleRangeOption "ta-breakout-stop-atr-mult" 1.0 3.5
+        <*> doubleRangeOption "ta-breakout-tp-atr-mult" 2.0 6.0
+        <*> doubleRangeOption "ta-sma-cross-stop-atr-mult" 1.0 3.5
+        <*> doubleRangeOption "ta-sma-cross-tp-atr-mult" 1.5 5.0
+        <*> doubleRangeOption "ta-regime-switch-adx-threshold" 18 35
+        <*> doubleRangeOption "ta-regime-switch-bb-width-threshold" 5.0e-4 8.0e-3
+        <*> doubleRangeOption "ta-best-min-confidence" 0.2 0.6
+        <*> doubleRangeOption "signal-entry-edge-headroom-mult" 1.1 2.5
+        <*> doubleRangeOption "signal-entry-edge-spike-mult" 200 2000
+        <*> doubleRangeOption "signal-entry-edge-spike-cap" 1.0 8.0
+        <*> intRangeOption "signal-entry-edge-spike-consecutive-limit" 1 5
+        <*> doubleRangeOption "signal-trend-slack-mult" 0.0 1.0
+        <*> doubleRangeOption "signal-trend-slack-cap" 2.0e-3 2.0e-2
+
+doubleRangeOption :: String -> Double -> Double -> Parser (Double, Double)
+doubleRangeOption name lo hi =
+    (,)
+        <$> option auto (long (name ++ "-min") <> value lo <> metavar "FLOAT")
+        <*> option auto (long (name ++ "-max") <> value hi <> metavar "FLOAT")
+
+intRangeOption :: String -> Int -> Int -> Parser (Int, Int)
+intRangeOption name lo hi =
+    (,)
+        <$> option auto (long (name ++ "-min") <> value lo <> metavar "INT")
+        <*> option auto (long (name ++ "-max") <> value hi <> metavar "INT")
 
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
@@ -620,6 +668,7 @@ validateArgs args = do
             || oaRegimeHighVolSizeMultMax args < 0
         )
         $ Left "--regime-*-mult-min/max must be >= 0."
+    validateTechnicalOptimizerRanges (oaTechnicalRanges args)
     when (oaPMultiTimeframeConsensus args < 0 || oaPMultiTimeframeConsensus args > 1) $
         Left "--p-multi-timeframe-consensus must be between 0 and 1."
     when
@@ -692,6 +741,57 @@ validateArgs args = do
     when (oaKellyLiteCapMin args < 0 || oaKellyLiteCapMax args < 0) $
         Left "--kelly-lite-cap-min/max must be >= 0."
     pure args'
+
+validateTechnicalOptimizerRanges :: TechnicalOptimizerRanges -> Either String ()
+validateTechnicalOptimizerRanges ranges = do
+    nonNegativeRange "ta-entry-open-threshold" (torTaEntryOpenThreshold ranges)
+    unit100Range "ta-trend-adx-threshold" (torTaTrendAdxThreshold ranges)
+    positiveRange "ta-trend-stop-atr-mult" (torTaTrendStopAtrMult ranges)
+    positiveRange "ta-trend-tp-atr-mult" (torTaTrendTakeProfitAtrMult ranges)
+    unit100Range "ta-reversion-rsi-lower" (torTaReversionRsiLower ranges)
+    unit100Range "ta-reversion-rsi-upper" (torTaReversionRsiUpper ranges)
+    unit100Range "ta-reversion-stoch-lower" (torTaReversionStochLower ranges)
+    unit100Range "ta-reversion-stoch-upper" (torTaReversionStochUpper ranges)
+    positiveRange "ta-reversion-envelope-lower-mult" (torTaReversionEnvelopeLowerMult ranges)
+    positiveRange "ta-reversion-envelope-upper-mult" (torTaReversionEnvelopeUpperMult ranges)
+    positiveRange "ta-reversion-stop-atr-mult" (torTaReversionStopAtrMult ranges)
+    unit100Range "ta-breakout-mfi-threshold" (torTaBreakoutMfiThreshold ranges)
+    positiveRange "ta-breakout-stop-atr-mult" (torTaBreakoutStopAtrMult ranges)
+    positiveRange "ta-breakout-tp-atr-mult" (torTaBreakoutTakeProfitAtrMult ranges)
+    positiveRange "ta-sma-cross-stop-atr-mult" (torTaSmaCrossStopAtrMult ranges)
+    positiveRange "ta-sma-cross-tp-atr-mult" (torTaSmaCrossTakeProfitAtrMult ranges)
+    unit100Range "ta-regime-switch-adx-threshold" (torTaRegimeSwitchAdxThreshold ranges)
+    nonNegativeRange "ta-regime-switch-bb-width-threshold" (torTaRegimeSwitchBollingerBandwidthThreshold ranges)
+    unitRange "ta-best-min-confidence" (torTaBestCandidateMinConfidence ranges)
+    positiveRange "signal-entry-edge-headroom-mult" (torSignalEntryEdgeHeadroomMult ranges)
+    nonNegativeRange "signal-entry-edge-spike-mult" (torSignalEntryEdgeSpikeMult ranges)
+    positiveRange "signal-entry-edge-spike-cap" (torSignalEntryEdgeSpikeCap ranges)
+    nonNegativeIntRange "signal-entry-edge-spike-consecutive-limit" (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
+    nonNegativeRange "signal-trend-slack-mult" (torSignalTrendSlackMult ranges)
+    nonNegativeRange "signal-trend-slack-cap" (torSignalTrendSlackCap ranges)
+  where
+    finiteRange label (lo, hi) =
+        when (isNaN lo || isInfinite lo || isNaN hi || isInfinite hi) $
+            Left ("--" ++ label ++ "-min/max must be finite.")
+    nonNegativeRange label range@(lo, hi) = do
+        finiteRange label range
+        when (lo < 0 || hi < 0) $
+            Left ("--" ++ label ++ "-min/max must be >= 0.")
+    positiveRange label range@(lo, hi) = do
+        finiteRange label range
+        when (lo <= 0 || hi <= 0) $
+            Left ("--" ++ label ++ "-min/max must be > 0.")
+    unitRange label range@(lo, hi) = do
+        finiteRange label range
+        when (lo < 0 || lo > 1 || hi < 0 || hi > 1) $
+            Left ("--" ++ label ++ "-min/max must be between 0 and 1.")
+    unit100Range label range@(lo, hi) = do
+        finiteRange label range
+        when (lo < 0 || lo > 100 || hi < 0 || hi > 100) $
+            Left ("--" ++ label ++ "-min/max must be between 0 and 100.")
+    nonNegativeIntRange label (lo, hi) =
+        when (lo < 0 || hi < 0) $
+            Left ("--" ++ label ++ "-min/max must be >= 0.")
 
 objectiveChoices :: [String]
 objectiveChoices =

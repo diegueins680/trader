@@ -3,6 +3,8 @@
 module Trader.Optimizer.Optimize (
     OptimizerArgs (..),
     OptimizerRecordsSummary (..),
+    TechnicalOptimizerRanges (..),
+    TechnicalTrialParams (..),
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
     closeTimingReportFromBacktest,
@@ -164,6 +166,64 @@ normalizeOptionalUnitInterval raw =
 minPositionSizeFloor :: Double
 minPositionSizeFloor = 1e-12
 
+data TechnicalOptimizerRanges = TechnicalOptimizerRanges
+    { torTaEntryOpenThreshold :: !(Double, Double)
+    , torTaTrendAdxThreshold :: !(Double, Double)
+    , torTaTrendStopAtrMult :: !(Double, Double)
+    , torTaTrendTakeProfitAtrMult :: !(Double, Double)
+    , torTaReversionRsiLower :: !(Double, Double)
+    , torTaReversionRsiUpper :: !(Double, Double)
+    , torTaReversionStochLower :: !(Double, Double)
+    , torTaReversionStochUpper :: !(Double, Double)
+    , torTaReversionEnvelopeLowerMult :: !(Double, Double)
+    , torTaReversionEnvelopeUpperMult :: !(Double, Double)
+    , torTaReversionStopAtrMult :: !(Double, Double)
+    , torTaBreakoutMfiThreshold :: !(Double, Double)
+    , torTaBreakoutStopAtrMult :: !(Double, Double)
+    , torTaBreakoutTakeProfitAtrMult :: !(Double, Double)
+    , torTaSmaCrossStopAtrMult :: !(Double, Double)
+    , torTaSmaCrossTakeProfitAtrMult :: !(Double, Double)
+    , torTaRegimeSwitchAdxThreshold :: !(Double, Double)
+    , torTaRegimeSwitchBollingerBandwidthThreshold :: !(Double, Double)
+    , torTaBestCandidateMinConfidence :: !(Double, Double)
+    , torSignalEntryEdgeHeadroomMult :: !(Double, Double)
+    , torSignalEntryEdgeSpikeMult :: !(Double, Double)
+    , torSignalEntryEdgeSpikeCap :: !(Double, Double)
+    , torSignalEntryEdgeSpikeConsecutiveLimit :: !(Int, Int)
+    , torSignalTrendSlackMult :: !(Double, Double)
+    , torSignalTrendSlackCap :: !(Double, Double)
+    }
+    deriving (Eq, Show)
+
+data TechnicalTrialParams = TechnicalTrialParams
+    { ttpTaEntryOpenThreshold :: !Double
+    , ttpTaTrendAdxThreshold :: !Double
+    , ttpTaTrendStopAtrMult :: !Double
+    , ttpTaTrendTakeProfitAtrMult :: !Double
+    , ttpTaReversionRsiLower :: !Double
+    , ttpTaReversionRsiUpper :: !Double
+    , ttpTaReversionStochLower :: !Double
+    , ttpTaReversionStochUpper :: !Double
+    , ttpTaReversionEnvelopeLowerMult :: !Double
+    , ttpTaReversionEnvelopeUpperMult :: !Double
+    , ttpTaReversionStopAtrMult :: !Double
+    , ttpTaBreakoutMfiThreshold :: !Double
+    , ttpTaBreakoutStopAtrMult :: !Double
+    , ttpTaBreakoutTakeProfitAtrMult :: !Double
+    , ttpTaSmaCrossStopAtrMult :: !Double
+    , ttpTaSmaCrossTakeProfitAtrMult :: !Double
+    , ttpTaRegimeSwitchAdxThreshold :: !Double
+    , ttpTaRegimeSwitchBollingerBandwidthThreshold :: !Double
+    , ttpTaBestCandidateMinConfidence :: !Double
+    , ttpSignalEntryEdgeHeadroomMult :: !Double
+    , ttpSignalEntryEdgeSpikeMult :: !Double
+    , ttpSignalEntryEdgeSpikeCap :: !Double
+    , ttpSignalEntryEdgeSpikeConsecutiveLimit :: !Int
+    , ttpSignalTrendSlackMult :: !Double
+    , ttpSignalTrendSlackCap :: !Double
+    }
+    deriving (Eq, Show)
+
 normalizeTrialParams :: TrialParams -> TrialParams
 normalizeTrialParams p =
     let maxPositionSize' = max minPositionSizeFloor (tpMaxPositionSize p)
@@ -216,7 +276,203 @@ normalizeTrialParams p =
             , tpFundingOiVolLookback = max 2 (tpFundingOiVolLookback p)
             , tpFundingOiVolCap = normalizeOptionalPositiveFraction (tpFundingOiVolCap p)
             , tpFundingOiSizeMult = clamp (tpFundingOiSizeMult p) 0 1
+            , tpTechnicalParams = normalizeTechnicalTrialParams (tpTechnicalParams p)
             }
+
+normalizeTechnicalTrialParams :: TechnicalTrialParams -> TechnicalTrialParams
+normalizeTechnicalTrialParams p =
+    let rsiLower = clamp (ttpTaReversionRsiLower p) 0 100
+        rsiUpper = max rsiLower (clamp (ttpTaReversionRsiUpper p) 0 100)
+        stochLower = clamp (ttpTaReversionStochLower p) 0 100
+        stochUpper = max stochLower (clamp (ttpTaReversionStochUpper p) 0 100)
+     in p
+            { ttpTaEntryOpenThreshold = max 0 (ttpTaEntryOpenThreshold p)
+            , ttpTaTrendAdxThreshold = clamp (ttpTaTrendAdxThreshold p) 0 100
+            , ttpTaTrendStopAtrMult = max 1e-6 (ttpTaTrendStopAtrMult p)
+            , ttpTaTrendTakeProfitAtrMult = max 1e-6 (ttpTaTrendTakeProfitAtrMult p)
+            , ttpTaReversionRsiLower = rsiLower
+            , ttpTaReversionRsiUpper = rsiUpper
+            , ttpTaReversionStochLower = stochLower
+            , ttpTaReversionStochUpper = stochUpper
+            , ttpTaReversionEnvelopeLowerMult = max 1e-6 (ttpTaReversionEnvelopeLowerMult p)
+            , ttpTaReversionEnvelopeUpperMult = max 1e-6 (ttpTaReversionEnvelopeUpperMult p)
+            , ttpTaReversionStopAtrMult = max 1e-6 (ttpTaReversionStopAtrMult p)
+            , ttpTaBreakoutMfiThreshold = clamp (ttpTaBreakoutMfiThreshold p) 0 100
+            , ttpTaBreakoutStopAtrMult = max 1e-6 (ttpTaBreakoutStopAtrMult p)
+            , ttpTaBreakoutTakeProfitAtrMult = max 1e-6 (ttpTaBreakoutTakeProfitAtrMult p)
+            , ttpTaSmaCrossStopAtrMult = max 1e-6 (ttpTaSmaCrossStopAtrMult p)
+            , ttpTaSmaCrossTakeProfitAtrMult = max 1e-6 (ttpTaSmaCrossTakeProfitAtrMult p)
+            , ttpTaRegimeSwitchAdxThreshold = clamp (ttpTaRegimeSwitchAdxThreshold p) 0 100
+            , ttpTaRegimeSwitchBollingerBandwidthThreshold = max 0 (ttpTaRegimeSwitchBollingerBandwidthThreshold p)
+            , ttpTaBestCandidateMinConfidence = clamp (ttpTaBestCandidateMinConfidence p) 0 1
+            , ttpSignalEntryEdgeHeadroomMult = max 1e-6 (ttpSignalEntryEdgeHeadroomMult p)
+            , ttpSignalEntryEdgeSpikeMult = max 0 (ttpSignalEntryEdgeSpikeMult p)
+            , ttpSignalEntryEdgeSpikeCap = max 1e-6 (ttpSignalEntryEdgeSpikeCap p)
+            , ttpSignalEntryEdgeSpikeConsecutiveLimit = max 0 (ttpSignalEntryEdgeSpikeConsecutiveLimit p)
+            , ttpSignalTrendSlackMult = max 0 (ttpSignalTrendSlackMult p)
+            , ttpSignalTrendSlackCap = max 0 (ttpSignalTrendSlackCap p)
+            }
+
+sampleTechnicalTrialParams :: TechnicalOptimizerRanges -> Rng -> (TechnicalTrialParams, Rng)
+sampleTechnicalTrialParams ranges rng0 =
+    let (taEntryOpenThreshold, rng1) = sampleNonNegative (torTaEntryOpenThreshold ranges) rng0
+        (taTrendAdxThreshold, rng2) = sampleClamped 0 100 (torTaTrendAdxThreshold ranges) rng1
+        (taTrendStopAtrMult, rng3) = samplePositive (torTaTrendStopAtrMult ranges) rng2
+        (taTrendTakeProfitAtrMult, rng4) = samplePositive (torTaTrendTakeProfitAtrMult ranges) rng3
+        (taReversionRsiLower, rng5) = sampleClamped 0 100 (torTaReversionRsiLower ranges) rng4
+        (taReversionRsiUpper0, rng6) = sampleClamped 0 100 (torTaReversionRsiUpper ranges) rng5
+        taReversionRsiUpper = max taReversionRsiLower taReversionRsiUpper0
+        (taReversionStochLower, rng7) = sampleClamped 0 100 (torTaReversionStochLower ranges) rng6
+        (taReversionStochUpper0, rng8) = sampleClamped 0 100 (torTaReversionStochUpper ranges) rng7
+        taReversionStochUpper = max taReversionStochLower taReversionStochUpper0
+        (taReversionEnvelopeLowerMult, rng9) = samplePositive (torTaReversionEnvelopeLowerMult ranges) rng8
+        (taReversionEnvelopeUpperMult, rng10) = samplePositive (torTaReversionEnvelopeUpperMult ranges) rng9
+        (taReversionStopAtrMult, rng11) = samplePositive (torTaReversionStopAtrMult ranges) rng10
+        (taBreakoutMfiThreshold, rng12) = sampleClamped 0 100 (torTaBreakoutMfiThreshold ranges) rng11
+        (taBreakoutStopAtrMult, rng13) = samplePositive (torTaBreakoutStopAtrMult ranges) rng12
+        (taBreakoutTakeProfitAtrMult, rng14) = samplePositive (torTaBreakoutTakeProfitAtrMult ranges) rng13
+        (taSmaCrossStopAtrMult, rng15) = samplePositive (torTaSmaCrossStopAtrMult ranges) rng14
+        (taSmaCrossTakeProfitAtrMult, rng16) = samplePositive (torTaSmaCrossTakeProfitAtrMult ranges) rng15
+        (taRegimeSwitchAdxThreshold, rng17) = sampleClamped 0 100 (torTaRegimeSwitchAdxThreshold ranges) rng16
+        (taRegimeSwitchBollingerBandwidthThreshold, rng18) = sampleNonNegative (torTaRegimeSwitchBollingerBandwidthThreshold ranges) rng17
+        (taBestCandidateMinConfidence, rng19) = sampleClamped 0 1 (torTaBestCandidateMinConfidence ranges) rng18
+        (signalEntryEdgeHeadroomMult, rng20) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng19
+        (signalEntryEdgeSpikeMult, rng21) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng20
+        (signalEntryEdgeSpikeCap, rng22) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng21
+        (signalEntryEdgeSpikeConsecutiveLimit, rng23) =
+            let (lo, hi) = orderedPair (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng22
+        (signalTrendSlackMult, rng24) = sampleNonNegative (torSignalTrendSlackMult ranges) rng23
+        (signalTrendSlackCap, rng25) = sampleNonNegative (torSignalTrendSlackCap ranges) rng24
+     in ( normalizeTechnicalTrialParams
+            TechnicalTrialParams
+                { ttpTaEntryOpenThreshold = taEntryOpenThreshold
+                , ttpTaTrendAdxThreshold = taTrendAdxThreshold
+                , ttpTaTrendStopAtrMult = taTrendStopAtrMult
+                , ttpTaTrendTakeProfitAtrMult = taTrendTakeProfitAtrMult
+                , ttpTaReversionRsiLower = taReversionRsiLower
+                , ttpTaReversionRsiUpper = taReversionRsiUpper
+                , ttpTaReversionStochLower = taReversionStochLower
+                , ttpTaReversionStochUpper = taReversionStochUpper
+                , ttpTaReversionEnvelopeLowerMult = taReversionEnvelopeLowerMult
+                , ttpTaReversionEnvelopeUpperMult = taReversionEnvelopeUpperMult
+                , ttpTaReversionStopAtrMult = taReversionStopAtrMult
+                , ttpTaBreakoutMfiThreshold = taBreakoutMfiThreshold
+                , ttpTaBreakoutStopAtrMult = taBreakoutStopAtrMult
+                , ttpTaBreakoutTakeProfitAtrMult = taBreakoutTakeProfitAtrMult
+                , ttpTaSmaCrossStopAtrMult = taSmaCrossStopAtrMult
+                , ttpTaSmaCrossTakeProfitAtrMult = taSmaCrossTakeProfitAtrMult
+                , ttpTaRegimeSwitchAdxThreshold = taRegimeSwitchAdxThreshold
+                , ttpTaRegimeSwitchBollingerBandwidthThreshold = taRegimeSwitchBollingerBandwidthThreshold
+                , ttpTaBestCandidateMinConfidence = taBestCandidateMinConfidence
+                , ttpSignalEntryEdgeHeadroomMult = signalEntryEdgeHeadroomMult
+                , ttpSignalEntryEdgeSpikeMult = signalEntryEdgeSpikeMult
+                , ttpSignalEntryEdgeSpikeCap = signalEntryEdgeSpikeCap
+                , ttpSignalEntryEdgeSpikeConsecutiveLimit = signalEntryEdgeSpikeConsecutiveLimit
+                , ttpSignalTrendSlackMult = signalTrendSlackMult
+                , ttpSignalTrendSlackCap = signalTrendSlackCap
+                }
+        , rng25
+        )
+  where
+    samplePositive range rng =
+        let (lo, hi) = orderedPair range
+            lo' = max 1e-6 lo
+            hi' = max lo' hi
+         in nextUniform lo' hi' rng
+    sampleNonNegative range rng =
+        let (lo, hi) = orderedPair range
+            lo' = max 0 lo
+            hi' = max lo' hi
+         in nextUniform lo' hi' rng
+    sampleClamped loBound hiBound range rng =
+        let (lo, hi) = orderedPair range
+            lo' = clamp lo loBound hiBound
+            hi' = max lo' (clamp hi loBound hiBound)
+         in nextUniform lo' hi' rng
+
+technicalTrialParamsArgs :: TechnicalTrialParams -> [String]
+technicalTrialParamsArgs p =
+    [ "--ta-entry-open-threshold"
+    , printf "%.12g" (ttpTaEntryOpenThreshold p)
+    , "--ta-trend-adx-threshold"
+    , printf "%.12g" (ttpTaTrendAdxThreshold p)
+    , "--ta-trend-stop-atr-mult"
+    , printf "%.12g" (ttpTaTrendStopAtrMult p)
+    , "--ta-trend-tp-atr-mult"
+    , printf "%.12g" (ttpTaTrendTakeProfitAtrMult p)
+    , "--ta-reversion-rsi-lower"
+    , printf "%.12g" (ttpTaReversionRsiLower p)
+    , "--ta-reversion-rsi-upper"
+    , printf "%.12g" (ttpTaReversionRsiUpper p)
+    , "--ta-reversion-stoch-lower"
+    , printf "%.12g" (ttpTaReversionStochLower p)
+    , "--ta-reversion-stoch-upper"
+    , printf "%.12g" (ttpTaReversionStochUpper p)
+    , "--ta-reversion-envelope-lower-mult"
+    , printf "%.12g" (ttpTaReversionEnvelopeLowerMult p)
+    , "--ta-reversion-envelope-upper-mult"
+    , printf "%.12g" (ttpTaReversionEnvelopeUpperMult p)
+    , "--ta-reversion-stop-atr-mult"
+    , printf "%.12g" (ttpTaReversionStopAtrMult p)
+    , "--ta-breakout-mfi-threshold"
+    , printf "%.12g" (ttpTaBreakoutMfiThreshold p)
+    , "--ta-breakout-stop-atr-mult"
+    , printf "%.12g" (ttpTaBreakoutStopAtrMult p)
+    , "--ta-breakout-tp-atr-mult"
+    , printf "%.12g" (ttpTaBreakoutTakeProfitAtrMult p)
+    , "--ta-sma-cross-stop-atr-mult"
+    , printf "%.12g" (ttpTaSmaCrossStopAtrMult p)
+    , "--ta-sma-cross-tp-atr-mult"
+    , printf "%.12g" (ttpTaSmaCrossTakeProfitAtrMult p)
+    , "--ta-regime-switch-adx-threshold"
+    , printf "%.12g" (ttpTaRegimeSwitchAdxThreshold p)
+    , "--ta-regime-switch-bb-width-threshold"
+    , printf "%.12g" (ttpTaRegimeSwitchBollingerBandwidthThreshold p)
+    , "--ta-best-min-confidence"
+    , printf "%.12g" (ttpTaBestCandidateMinConfidence p)
+    , "--signal-entry-edge-headroom-mult"
+    , printf "%.12g" (ttpSignalEntryEdgeHeadroomMult p)
+    , "--signal-entry-edge-spike-mult"
+    , printf "%.12g" (ttpSignalEntryEdgeSpikeMult p)
+    , "--signal-entry-edge-spike-cap"
+    , printf "%.12g" (ttpSignalEntryEdgeSpikeCap p)
+    , "--signal-entry-edge-spike-consecutive-limit"
+    , show (ttpSignalEntryEdgeSpikeConsecutiveLimit p)
+    , "--signal-trend-slack-mult"
+    , printf "%.12g" (ttpSignalTrendSlackMult p)
+    , "--signal-trend-slack-cap"
+    , printf "%.12g" (ttpSignalTrendSlackCap p)
+    ]
+
+technicalTrialParamsPairs :: TechnicalTrialParams -> [AT.Pair]
+technicalTrialParamsPairs p =
+    [ "taEntryOpenThreshold" .= ttpTaEntryOpenThreshold p
+    , "taTrendAdxThreshold" .= ttpTaTrendAdxThreshold p
+    , "taTrendStopAtrMult" .= ttpTaTrendStopAtrMult p
+    , "taTrendTakeProfitAtrMult" .= ttpTaTrendTakeProfitAtrMult p
+    , "taReversionRsiLower" .= ttpTaReversionRsiLower p
+    , "taReversionRsiUpper" .= ttpTaReversionRsiUpper p
+    , "taReversionStochLower" .= ttpTaReversionStochLower p
+    , "taReversionStochUpper" .= ttpTaReversionStochUpper p
+    , "taReversionEnvelopeLowerMult" .= ttpTaReversionEnvelopeLowerMult p
+    , "taReversionEnvelopeUpperMult" .= ttpTaReversionEnvelopeUpperMult p
+    , "taReversionStopAtrMult" .= ttpTaReversionStopAtrMult p
+    , "taBreakoutMfiThreshold" .= ttpTaBreakoutMfiThreshold p
+    , "taBreakoutStopAtrMult" .= ttpTaBreakoutStopAtrMult p
+    , "taBreakoutTakeProfitAtrMult" .= ttpTaBreakoutTakeProfitAtrMult p
+    , "taSmaCrossStopAtrMult" .= ttpTaSmaCrossStopAtrMult p
+    , "taSmaCrossTakeProfitAtrMult" .= ttpTaSmaCrossTakeProfitAtrMult p
+    , "taRegimeSwitchAdxThreshold" .= ttpTaRegimeSwitchAdxThreshold p
+    , "taRegimeSwitchBollingerBandwidthThreshold" .= ttpTaRegimeSwitchBollingerBandwidthThreshold p
+    , "taBestCandidateMinConfidence" .= ttpTaBestCandidateMinConfidence p
+    , "signalEntryEdgeHeadroomMult" .= ttpSignalEntryEdgeHeadroomMult p
+    , "signalEntryEdgeSpikeMult" .= ttpSignalEntryEdgeSpikeMult p
+    , "signalEntryEdgeSpikeCap" .= ttpSignalEntryEdgeSpikeCap p
+    , "signalEntryEdgeSpikeConsecutiveLimit" .= ttpSignalEntryEdgeSpikeConsecutiveLimit p
+    , "signalTrendSlackMult" .= ttpSignalTrendSlackMult p
+    , "signalTrendSlackCap" .= ttpSignalTrendSlackCap p
+    ]
 
 normalizeSymbol :: Maybe String -> Maybe String
 normalizeSymbol raw =
@@ -1355,6 +1611,7 @@ data OptimizerArgs = OptimizerArgs
     , oaRegimeMrSizeMultMax :: !Double
     , oaRegimeHighVolSizeMultMin :: !Double
     , oaRegimeHighVolSizeMultMax :: !Double
+    , oaTechnicalRanges :: !TechnicalOptimizerRanges
     , oaPMultiTimeframeConsensus :: !Double
     , oaMtfFastBarsMin :: !Int
     , oaMtfFastBarsMax :: !Int
@@ -1715,6 +1972,7 @@ data TrialParams = TrialParams
     , tpRegimeTrendSizeMult :: !Double
     , tpRegimeMrSizeMult :: !Double
     , tpRegimeHighVolSizeMult :: !Double
+    , tpTechnicalParams :: !TechnicalTrialParams
     , tpMultiTimeframeConsensus :: !Bool
     , tpMtfFastBars :: !Int
     , tpMtfMidBars :: !Int
@@ -2003,6 +2261,7 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , "--funding-oi-size-mult"
                    , printf "%.12g" (clamp (tpFundingOiSizeMult params) 0 1)
                    ]
+                ++ technicalTrialParamsArgs (tpTechnicalParams params)
                 ++ (if tpMetaLabelRequireBand params then ["--meta-label-require-band"] else ["--no-meta-label-require-band"])
                 ++ (if tpRegimeParameterBank params then ["--regime-parameter-bank"] else ["--no-regime-parameter-bank"])
                 ++ (if tpMultiTimeframeConsensus params then ["--multi-timeframe-consensus"] else ["--no-multi-timeframe-consensus"])
@@ -2614,10 +2873,12 @@ trialToRecord tr symbolLabel =
             , "fundingOiVolCap" .= tpFundingOiVolCap (trParams tr)
             , "fundingOiSizeMult" .= tpFundingOiSizeMult (trParams tr)
             ]
+        paramsPairsWithTechnical =
+            paramsPairs ++ technicalTrialParamsPairs (tpTechnicalParams (trParams tr))
         paramsPairs' =
             case symbol of
-                Just sym -> paramsPairs ++ ["binanceSymbol" .= sym]
-                Nothing -> paramsPairs
+                Just sym -> paramsPairsWithTechnical ++ ["binanceSymbol" .= sym]
+                Nothing -> paramsPairsWithTechnical
         metricsWithCloseTiming =
             applyCloseTimingMetrics
                 (trMetrics tr)
@@ -2838,6 +3099,7 @@ sampleParams
     regimeTrendSizeMultRange
     regimeMrSizeMultRange
     regimeHighVolSizeMultRange
+    technicalRanges
     pMultiTimeframeConsensus
     mtfFastBarsRange
     mtfMidBarsRange
@@ -3409,8 +3671,10 @@ sampleParams
             (regimeHighVolSizeMult, rng115) =
                 let (lo, hi) = ordered regimeHighVolSizeMultRange
                  in nextUniform lo hi rng114
+            (technicalParams, rng115a) =
+                sampleTechnicalTrialParams technicalRanges rng115
             (multiTimeframeConsensusEnabled, rng116) =
-                let (r, rng') = nextDouble rng115
+                let (r, rng') = nextDouble rng115a
                  in (r < pMultiTimeframeConsensus, rng')
             (mtfFastBars, rng117) = uncurry nextIntRange mtfFastBarsRange rng116
             (mtfMidBars, rng118) = uncurry nextIntRange mtfMidBarsRange rng117
@@ -3623,6 +3887,7 @@ sampleParams
                 , tpRegimeTrendSizeMult = max 0 regimeTrendSizeMult
                 , tpRegimeMrSizeMult = max 0 regimeMrSizeMult
                 , tpRegimeHighVolSizeMult = max 0 regimeHighVolSizeMult
+                , tpTechnicalParams = technicalParams
                 , tpMultiTimeframeConsensus = multiTimeframeConsensusEnabled
                 , tpMtfFastBars = max 1 mtfFastBars
                 , tpMtfMidBars = max 1 mtfMidBars
@@ -4053,6 +4318,7 @@ runOptimizer args0 = do
                                                         regimeTrendSizeMultRange = (max 0 (oaRegimeTrendSizeMultMin args), max 0 (oaRegimeTrendSizeMultMax args))
                                                         regimeMrSizeMultRange = (max 0 (oaRegimeMrSizeMultMin args), max 0 (oaRegimeMrSizeMultMax args))
                                                         regimeHighVolSizeMultRange = (max 0 (oaRegimeHighVolSizeMultMin args), max 0 (oaRegimeHighVolSizeMultMax args))
+                                                        technicalRanges = oaTechnicalRanges args
                                                         pMultiTimeframeConsensus = clamp (oaPMultiTimeframeConsensus args) 0 1
                                                         mtfFastBarsRange = (max 1 (oaMtfFastBarsMin args), max 1 (oaMtfFastBarsMax args))
                                                         mtfMidBarsRange = (max 1 (oaMtfMidBarsMin args), max 1 (oaMtfMidBarsMax args))
@@ -4338,6 +4604,7 @@ runOptimizer args0 = do
                                                                                 regimeTrendSizeMultRange
                                                                                 regimeMrSizeMultRange
                                                                                 regimeHighVolSizeMultRange
+                                                                                technicalRanges
                                                                                 pMultiTimeframeConsensus
                                                                                 mtfFastBarsRange
                                                                                 mtfMidBarsRange
@@ -5059,6 +5326,7 @@ printBest tr = do
     putStrLn ("  regimeTrendSizeMult:" ++ show (tpRegimeTrendSizeMult p))
     putStrLn ("  regimeMrSizeMult:   " ++ show (tpRegimeMrSizeMult p))
     putStrLn ("  regimeHighVolSizeMult:" ++ show (tpRegimeHighVolSizeMult p))
+    putStrLn ("  technicalParams:    " ++ show (tpTechnicalParams p))
     putStrLn ("  multiTimeframeConsensus:" ++ show (tpMultiTimeframeConsensus p))
     putStrLn ("  mtfFastBars:        " ++ show (tpMtfFastBars p))
     putStrLn ("  mtfMidBars:         " ++ show (tpMtfMidBars p))
@@ -5376,6 +5644,7 @@ crossoverTrialParams a b rng0 =
         (tpFundingOiVolLookback', rng152) = pickValue (tpFundingOiVolLookback a) (tpFundingOiVolLookback b) rng151
         (tpFundingOiVolCap', rng153) = pickValue (tpFundingOiVolCap a) (tpFundingOiVolCap b) rng152
         (tpFundingOiSizeMult', rng154) = pickValue (tpFundingOiSizeMult a) (tpFundingOiSizeMult b) rng153
+        (tpTechnicalParams', rng155) = pickValue (tpTechnicalParams a) (tpTechnicalParams b) rng154
      in ( normalizeTrialParams
             ( a
                 { tpPlatform = tpPlatform'
@@ -5543,9 +5812,10 @@ crossoverTrialParams a b rng0 =
                 , tpFundingOiVolLookback = tpFundingOiVolLookback'
                 , tpFundingOiVolCap = tpFundingOiVolCap'
                 , tpFundingOiSizeMult = tpFundingOiSizeMult'
+                , tpTechnicalParams = tpTechnicalParams'
                 }
             )
-        , rng154
+        , rng155
         )
 
 clampBarsForPlatform :: Maybe String -> Int -> Int -> Int -> Int
@@ -5859,7 +6129,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
         metricsVal = maybe Null Object metrics
         source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
         paramsValue =
-            object
+            object $
                 [ "platform" .= tpPlatform params
                 , "interval" .= tpInterval params
                 , "bars" .= tpBars params
@@ -6012,8 +6282,9 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "fundingOiVolLookback" .= tpFundingOiVolLookback params
                 , "fundingOiVolCap" .= tpFundingOiVolCap params
                 , "fundingOiSizeMult" .= tpFundingOiSizeMult params
-                , "binanceSymbol" .= symbol
                 ]
+                    ++ technicalTrialParamsPairs (tpTechnicalParams params)
+                    ++ ["binanceSymbol" .= symbol]
         identityBase =
             object
                 [ "params" .= paramsValue

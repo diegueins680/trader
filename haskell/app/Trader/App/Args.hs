@@ -50,7 +50,9 @@ import Trader.Predictors.Types (
     predictorSetFromString,
     predictorSetToCsv,
  )
+import Trader.SignalGates (SignalGateConfig (..), defaultSignalGateConfig)
 import Trader.Symbol (sanitizeSymbolForPlatform)
+import Trader.TechnicalAnalysis.Strategies (TechnicalStrategyCalibration (..), defaultTechnicalStrategyCalibration)
 import Trader.Text (normalizeKey, trim)
 import Trader.Trading (IntrabarFill (..), Positioning (..))
 import Trader.VolConfGate (
@@ -223,6 +225,31 @@ data Args = Args
     , argRegimeAdxWeight :: Double
     , argRegimeTrendThreshold :: Double
     , argRegimeRangeThreshold :: Double
+    , argTaEntryOpenThreshold :: Double
+    , argTaTrendAdxThreshold :: Double
+    , argTaTrendStopAtrMult :: Double
+    , argTaTrendTakeProfitAtrMult :: Double
+    , argTaReversionRsiLower :: Double
+    , argTaReversionRsiUpper :: Double
+    , argTaReversionStochasticLower :: Double
+    , argTaReversionStochasticUpper :: Double
+    , argTaReversionEnvelopeLowerMult :: Double
+    , argTaReversionEnvelopeUpperMult :: Double
+    , argTaReversionStopAtrMult :: Double
+    , argTaBreakoutMfiThreshold :: Double
+    , argTaBreakoutStopAtrMult :: Double
+    , argTaBreakoutTakeProfitAtrMult :: Double
+    , argTaSmaCrossStopAtrMult :: Double
+    , argTaSmaCrossTakeProfitAtrMult :: Double
+    , argTaRegimeSwitchAdxThreshold :: Double
+    , argTaRegimeSwitchBollingerBandwidthThreshold :: Double
+    , argTaBestCandidateMinConfidence :: Double
+    , argSignalEntryEdgeHeadroomMult :: Double
+    , argSignalEntryEdgeSpikeMult :: Double
+    , argSignalEntryEdgeSpikeCap :: Double
+    , argSignalEntryEdgeSpikeConsecutiveLimit :: Int
+    , argSignalTrendSlackMult :: Double
+    , argSignalTrendSlackCap :: Double
     , argRebalanceBars :: Int
     , argRebalanceThreshold :: Double
     , argRebalanceCostMult :: Double
@@ -892,6 +919,33 @@ opts = do
     argRegimeAdxWeight <- option auto (long "regime-adx-weight" <> value 0.40 <> showDefault <> help "ADX weight in regime trend-score blend (0..1)")
     argRegimeTrendThreshold <- option auto (long "regime-trend-threshold" <> value 0.55 <> showDefault <> help "Minimum trend score to classify regime as trending (0..1)")
     argRegimeRangeThreshold <- option auto (long "regime-range-threshold" <> value 0.55 <> showDefault <> help "Minimum range score to classify regime as ranging (0..1)")
+    let defaultTa = defaultTechnicalStrategyCalibration
+        defaultSignal = defaultSignalGateConfig
+    argTaEntryOpenThreshold <- option auto (long "ta-entry-open-threshold" <> value (tscEntryOpenThreshold defaultTa) <> showDefault <> help "TA-specific entry threshold used by reward-edge gates")
+    argTaTrendAdxThreshold <- option auto (long "ta-trend-adx-threshold" <> value (tscTrendAdxThreshold defaultTa) <> showDefault <> help "Minimum ADX for TA trend entries")
+    argTaTrendStopAtrMult <- option auto (long "ta-trend-stop-atr-mult" <> value (tscTrendStopAtrMult defaultTa) <> showDefault <> help "ATR stop multiplier for TA trend entries")
+    argTaTrendTakeProfitAtrMult <- option auto (long "ta-trend-tp-atr-mult" <> value (tscTrendTakeProfitAtrMult defaultTa) <> showDefault <> help "ATR take-profit multiplier for TA trend entries")
+    argTaReversionRsiLower <- option auto (long "ta-reversion-rsi-lower" <> value (tscReversionRsiLower defaultTa) <> showDefault <> help "RSI lower threshold for TA reversion longs")
+    argTaReversionRsiUpper <- option auto (long "ta-reversion-rsi-upper" <> value (tscReversionRsiUpper defaultTa) <> showDefault <> help "RSI upper threshold for TA reversion shorts")
+    argTaReversionStochasticLower <- option auto (long "ta-reversion-stoch-lower" <> value (tscReversionStochasticLower defaultTa) <> showDefault <> help "Stochastic lower threshold for TA reversion longs")
+    argTaReversionStochasticUpper <- option auto (long "ta-reversion-stoch-upper" <> value (tscReversionStochasticUpper defaultTa) <> showDefault <> help "Stochastic upper threshold for TA reversion shorts")
+    argTaReversionEnvelopeLowerMult <- option auto (long "ta-reversion-envelope-lower-mult" <> value (tscReversionEnvelopeLowerMult defaultTa) <> showDefault <> help "Lower-envelope multiplier for TA reversion longs")
+    argTaReversionEnvelopeUpperMult <- option auto (long "ta-reversion-envelope-upper-mult" <> value (tscReversionEnvelopeUpperMult defaultTa) <> showDefault <> help "Upper-envelope multiplier for TA reversion shorts")
+    argTaReversionStopAtrMult <- option auto (long "ta-reversion-stop-atr-mult" <> value (tscReversionStopAtrMult defaultTa) <> showDefault <> help "ATR stop multiplier for TA reversion entries")
+    argTaBreakoutMfiThreshold <- option auto (long "ta-breakout-mfi-threshold" <> value (tscBreakoutMfiThreshold defaultTa) <> showDefault <> help "MFI threshold for TA breakout confirmation")
+    argTaBreakoutStopAtrMult <- option auto (long "ta-breakout-stop-atr-mult" <> value (tscBreakoutStopAtrMult defaultTa) <> showDefault <> help "ATR stop multiplier for TA breakout entries")
+    argTaBreakoutTakeProfitAtrMult <- option auto (long "ta-breakout-tp-atr-mult" <> value (tscBreakoutTakeProfitAtrMult defaultTa) <> showDefault <> help "ATR take-profit multiplier for TA breakout entries")
+    argTaSmaCrossStopAtrMult <- option auto (long "ta-sma-cross-stop-atr-mult" <> value (tscSmaCrossStopAtrMult defaultTa) <> showDefault <> help "ATR stop multiplier for SMA/EMA cross entries")
+    argTaSmaCrossTakeProfitAtrMult <- option auto (long "ta-sma-cross-tp-atr-mult" <> value (tscSmaCrossTakeProfitAtrMult defaultTa) <> showDefault <> help "ATR take-profit multiplier for SMA/EMA cross entries")
+    argTaRegimeSwitchAdxThreshold <- option auto (long "ta-regime-switch-adx-threshold" <> value (tscRegimeSwitchAdxThreshold defaultTa) <> showDefault <> help "ADX threshold for selecting the TA trend regime-switch branch")
+    argTaRegimeSwitchBollingerBandwidthThreshold <- option auto (long "ta-regime-switch-bb-width-threshold" <> value (tscRegimeSwitchBollingerBandwidthThreshold defaultTa) <> showDefault <> help "Bollinger bandwidth threshold for selecting the TA reversion regime-switch branch")
+    argTaBestCandidateMinConfidence <- option auto (long "ta-best-min-confidence" <> value (tscBestCandidateMinConfidence defaultTa) <> showDefault <> help "Minimum confidence before a TA candidate can win ta_best")
+    argSignalEntryEdgeHeadroomMult <- option auto (long "signal-entry-edge-headroom-mult" <> value (sgcEntryEdgeHeadroomMultiple defaultSignal) <> showDefault <> help "Required entry edge as a multiple of open threshold before costs")
+    argSignalEntryEdgeSpikeMult <- option auto (long "signal-entry-edge-spike-mult" <> value (sgcEntryEdgeSpikeMultiple defaultSignal) <> showDefault <> help "Entry-edge spike cap as a multiple of open threshold")
+    argSignalEntryEdgeSpikeCap <- option auto (long "signal-entry-edge-spike-cap" <> value (sgcEntryEdgeSpikeCredibleCap defaultSignal) <> showDefault <> help "Absolute entry-edge spike cap")
+    argSignalEntryEdgeSpikeConsecutiveLimit <- option auto (long "signal-entry-edge-spike-consecutive-limit" <> value (sgcEntryEdgeSpikeConsecutiveLimit defaultSignal) <> showDefault <> help "Audit-only edge-spike warnings allowed before blocking")
+    argSignalTrendSlackMult <- option auto (long "signal-trend-slack-mult" <> value (sgcTrendConfirmationSlackMultiple defaultSignal) <> showDefault <> help "Trend SMA confirmation slack as a multiple of open threshold")
+    argSignalTrendSlackCap <- option auto (long "signal-trend-slack-cap" <> value (sgcTrendConfirmationSlackCap defaultSignal) <> showDefault <> help "Maximum trend SMA confirmation slack")
     argRebalanceBars <- option auto (long "rebalance-bars" <> value 24 <> showDefault <> help "Rebalance position size every N bars when size targets change (0 disables; default anchors to entry age)")
     argRebalanceThreshold <- option auto (long "rebalance-threshold" <> value 0.05 <> showDefault <> help "Minimum abs size delta required to rebalance (0 disables)")
     argRebalanceCostMult <- option auto (long "rebalance-cost-mult" <> value 0.0 <> showDefault <> help "Extra rebalance threshold as a multiple of per-side cost (0 disables)")
@@ -1349,6 +1403,30 @@ validateArgs args0 = do
             , ("--regime-trend-size-mult", argRegimeTrendSizeMult args)
             , ("--regime-mr-size-mult", argRegimeMrSizeMult args)
             , ("--regime-high-vol-size-mult", argRegimeHighVolSizeMult args)
+            , ("--ta-entry-open-threshold", argTaEntryOpenThreshold args)
+            , ("--ta-trend-adx-threshold", argTaTrendAdxThreshold args)
+            , ("--ta-trend-stop-atr-mult", argTaTrendStopAtrMult args)
+            , ("--ta-trend-tp-atr-mult", argTaTrendTakeProfitAtrMult args)
+            , ("--ta-reversion-rsi-lower", argTaReversionRsiLower args)
+            , ("--ta-reversion-rsi-upper", argTaReversionRsiUpper args)
+            , ("--ta-reversion-stoch-lower", argTaReversionStochasticLower args)
+            , ("--ta-reversion-stoch-upper", argTaReversionStochasticUpper args)
+            , ("--ta-reversion-envelope-lower-mult", argTaReversionEnvelopeLowerMult args)
+            , ("--ta-reversion-envelope-upper-mult", argTaReversionEnvelopeUpperMult args)
+            , ("--ta-reversion-stop-atr-mult", argTaReversionStopAtrMult args)
+            , ("--ta-breakout-mfi-threshold", argTaBreakoutMfiThreshold args)
+            , ("--ta-breakout-stop-atr-mult", argTaBreakoutStopAtrMult args)
+            , ("--ta-breakout-tp-atr-mult", argTaBreakoutTakeProfitAtrMult args)
+            , ("--ta-sma-cross-stop-atr-mult", argTaSmaCrossStopAtrMult args)
+            , ("--ta-sma-cross-tp-atr-mult", argTaSmaCrossTakeProfitAtrMult args)
+            , ("--ta-regime-switch-adx-threshold", argTaRegimeSwitchAdxThreshold args)
+            , ("--ta-regime-switch-bb-width-threshold", argTaRegimeSwitchBollingerBandwidthThreshold args)
+            , ("--ta-best-min-confidence", argTaBestCandidateMinConfidence args)
+            , ("--signal-entry-edge-headroom-mult", argSignalEntryEdgeHeadroomMult args)
+            , ("--signal-entry-edge-spike-mult", argSignalEntryEdgeSpikeMult args)
+            , ("--signal-entry-edge-spike-cap", argSignalEntryEdgeSpikeCap args)
+            , ("--signal-trend-slack-mult", argSignalTrendSlackMult args)
+            , ("--signal-trend-slack-cap", argSignalTrendSlackCap args)
             , ("--cross-asset-min-beta", argCrossAssetMinBeta args)
             , ("--cross-asset-min-edge", argCrossAssetMinEdge args)
             , ("--pairs-stat-arb-z-entry", argPairsStatArbZEntry args)
@@ -1588,6 +1666,33 @@ validateArgs args0 = do
     ensure "--regime-trend-size-mult must be >= 0" (argRegimeTrendSizeMult args >= 0)
     ensure "--regime-mr-size-mult must be >= 0" (argRegimeMrSizeMult args >= 0)
     ensure "--regime-high-vol-size-mult must be >= 0" (argRegimeHighVolSizeMult args >= 0)
+    ensure "--ta-entry-open-threshold must be >= 0" (argTaEntryOpenThreshold args >= 0)
+    ensure "--ta-trend-adx-threshold must be between 0 and 100" (argTaTrendAdxThreshold args >= 0 && argTaTrendAdxThreshold args <= 100)
+    ensure "--ta-trend-stop-atr-mult must be > 0" (argTaTrendStopAtrMult args > 0)
+    ensure "--ta-trend-tp-atr-mult must be > 0" (argTaTrendTakeProfitAtrMult args > 0)
+    ensure "--ta-reversion-rsi-lower must be between 0 and 100" (argTaReversionRsiLower args >= 0 && argTaReversionRsiLower args <= 100)
+    ensure "--ta-reversion-rsi-upper must be between 0 and 100" (argTaReversionRsiUpper args >= 0 && argTaReversionRsiUpper args <= 100)
+    ensure "--ta-reversion-rsi-lower must be <= --ta-reversion-rsi-upper" (argTaReversionRsiLower args <= argTaReversionRsiUpper args)
+    ensure "--ta-reversion-stoch-lower must be between 0 and 100" (argTaReversionStochasticLower args >= 0 && argTaReversionStochasticLower args <= 100)
+    ensure "--ta-reversion-stoch-upper must be between 0 and 100" (argTaReversionStochasticUpper args >= 0 && argTaReversionStochasticUpper args <= 100)
+    ensure "--ta-reversion-stoch-lower must be <= --ta-reversion-stoch-upper" (argTaReversionStochasticLower args <= argTaReversionStochasticUpper args)
+    ensure "--ta-reversion-envelope-lower-mult must be > 0" (argTaReversionEnvelopeLowerMult args > 0)
+    ensure "--ta-reversion-envelope-upper-mult must be > 0" (argTaReversionEnvelopeUpperMult args > 0)
+    ensure "--ta-reversion-stop-atr-mult must be > 0" (argTaReversionStopAtrMult args > 0)
+    ensure "--ta-breakout-mfi-threshold must be between 0 and 100" (argTaBreakoutMfiThreshold args >= 0 && argTaBreakoutMfiThreshold args <= 100)
+    ensure "--ta-breakout-stop-atr-mult must be > 0" (argTaBreakoutStopAtrMult args > 0)
+    ensure "--ta-breakout-tp-atr-mult must be > 0" (argTaBreakoutTakeProfitAtrMult args > 0)
+    ensure "--ta-sma-cross-stop-atr-mult must be > 0" (argTaSmaCrossStopAtrMult args > 0)
+    ensure "--ta-sma-cross-tp-atr-mult must be > 0" (argTaSmaCrossTakeProfitAtrMult args > 0)
+    ensure "--ta-regime-switch-adx-threshold must be between 0 and 100" (argTaRegimeSwitchAdxThreshold args >= 0 && argTaRegimeSwitchAdxThreshold args <= 100)
+    ensure "--ta-regime-switch-bb-width-threshold must be >= 0" (argTaRegimeSwitchBollingerBandwidthThreshold args >= 0)
+    ensure "--ta-best-min-confidence must be between 0 and 1" (argTaBestCandidateMinConfidence args >= 0 && argTaBestCandidateMinConfidence args <= 1)
+    ensure "--signal-entry-edge-headroom-mult must be > 0" (argSignalEntryEdgeHeadroomMult args > 0)
+    ensure "--signal-entry-edge-spike-mult must be >= 0" (argSignalEntryEdgeSpikeMult args >= 0)
+    ensure "--signal-entry-edge-spike-cap must be > 0" (argSignalEntryEdgeSpikeCap args > 0)
+    ensure "--signal-entry-edge-spike-consecutive-limit must be >= 0" (argSignalEntryEdgeSpikeConsecutiveLimit args >= 0)
+    ensure "--signal-trend-slack-mult must be >= 0" (argSignalTrendSlackMult args >= 0)
+    ensure "--signal-trend-slack-cap must be >= 0" (argSignalTrendSlackCap args >= 0)
     ensure "--mtf-fast-bars must be >= 1" (argMtfFastBars args >= 1)
     ensure "--mtf-mid-bars must be >= 1" (argMtfMidBars args >= 1)
     ensure "--mtf-slow-bars must be >= 1" (argMtfSlowBars args >= 1)

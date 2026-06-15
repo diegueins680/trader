@@ -117,6 +117,7 @@ import Trader.SignalGates (
     DirectionalitySnapshot (..),
     PredictorLiveness (..),
     SignalThresholdBoundary (..),
+    defaultSignalGateConfig,
     directionalityWeakBandConfirmed,
     directionalityWeakBandConfirmedWithPrediction,
     dynamicRangePct,
@@ -2343,6 +2344,7 @@ sampleEnsembleConfig =
         , ecPositioning = LongFlat
         , ecIntrabarFill = StopFirst
         , ecMaxPositionSize = 1
+        , ecSignalGateConfig = defaultSignalGateConfig
         , ecEntryEdgeSpikeAuditOnly = False
         , ecMinSignalToNoise = 0
         , ecSnrSizeWeight = 0
