@@ -277,6 +277,15 @@ data Args = Args
     , argFundingOiVolCap :: Maybe Double
     , argFundingOiSizeMult :: Double
     , argBlendWeight :: Double
+    , argBlendSoftmaxScale :: Double
+    , argBlendNetSoftmaxScale :: Double
+    , argBlendSmoothAlpha :: Double
+    , argBlendHedgeEta :: Double
+    , argBlendHedgeMaxError :: Double
+    , argBlendDivergenceK :: Double
+    , argBlendRegimeHighVolCutoff :: Double
+    , argBlendRegimeKalmanZCutoff :: Double
+    , argBlendBanditExploreScale :: Double
     , argRouterLookback :: Int
     , argRouterMinScore :: Double
     , argRouterScorePnlWeight :: Double
@@ -991,6 +1000,15 @@ opts = do
     argFundingOiVolCap <- optional (option auto (long "funding-oi-vol-cap" <> help "Block entries when volatility proxy exceeds this level (0 disables)"))
     argFundingOiSizeMult <- option auto (long "funding-oi-size-mult" <> value 0.7 <> showDefault <> help "Max position-size multiplier applied by funding/OI-aware dampening (0..1)")
     argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch (0..1)")
+    argBlendSoftmaxScale <- option auto (long "blend-softmax-scale" <> value 600 <> showDefault <> help "Edge-delta scale for --method softmax_blend")
+    argBlendNetSoftmaxScale <- option auto (long "blend-net-softmax-scale" <> value 6000 <> showDefault <> help "Net-edge-delta scale for --method net_softmax_blend")
+    argBlendSmoothAlpha <- option auto (long "blend-smooth-alpha" <> value 0.2 <> showDefault <> help "EMA alpha for --method smooth_softmax_blend weights (0..1)")
+    argBlendHedgeEta <- option auto (long "blend-hedge-eta" <> value 6.0 <> showDefault <> help "Learning rate for --method hedge_blend")
+    argBlendHedgeMaxError <- option auto (long "blend-hedge-max-error" <> value 0.1 <> showDefault <> help "Maximum per-step return error used by --method hedge_blend")
+    argBlendDivergenceK <- option auto (long "blend-divergence-k" <> value 4.0 <> showDefault <> help "Open-threshold multiple controlling --method divergence_gate shrinkage")
+    argBlendRegimeHighVolCutoff <- option auto (long "blend-regime-high-vol-cutoff" <> value 0.6 <> showDefault <> help "High-volatility probability cutoff for --method regime_switch/router")
+    argBlendRegimeKalmanZCutoff <- option auto (long "blend-regime-kalman-z-cutoff" <> value 1.0 <> showDefault <> help "Kalman z-score cutoff for --method regime_switch/router")
+    argBlendBanditExploreScale <- option auto (long "blend-bandit-explore-scale" <> value 0.25 <> showDefault <> help "UCB exploration bonus scale for --method bandit_router")
     argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router/bandit_router scoring (>= 2)")
     argRouterMinScore <- option auto (long "router-min-score" <> value 0.25 <> help "Minimum router score (blend of accuracy*coverage and return) to accept a model (0..1)")
     argRouterScorePnlWeight <-
@@ -1490,6 +1508,15 @@ validateArgs args0 = do
             , ("--funding-rate", argFundingRate args)
             , ("--funding-oi-size-mult", argFundingOiSizeMult args)
             , ("--blend-weight", argBlendWeight args)
+            , ("--blend-softmax-scale", argBlendSoftmaxScale args)
+            , ("--blend-net-softmax-scale", argBlendNetSoftmaxScale args)
+            , ("--blend-smooth-alpha", argBlendSmoothAlpha args)
+            , ("--blend-hedge-eta", argBlendHedgeEta args)
+            , ("--blend-hedge-max-error", argBlendHedgeMaxError args)
+            , ("--blend-divergence-k", argBlendDivergenceK args)
+            , ("--blend-regime-high-vol-cutoff", argBlendRegimeHighVolCutoff args)
+            , ("--blend-regime-kalman-z-cutoff", argBlendRegimeKalmanZCutoff args)
+            , ("--blend-bandit-explore-scale", argBlendBanditExploreScale args)
             , ("--router-min-score", argRouterMinScore args)
             , ("--router-score-pnl-weight", argRouterScorePnlWeight args)
             , ("--tri-layer-fast-mult", argTriLayerFastMult args)
@@ -1590,6 +1617,15 @@ validateArgs args0 = do
     ensure "--router-lookback must be >= 2" (argRouterLookback args >= 2)
     ensure "--router-min-score must be between 0 and 1" (argRouterMinScore args >= 0 && argRouterMinScore args <= 1)
     ensure "--router-score-pnl-weight must be between 0 and 1" (argRouterScorePnlWeight args >= 0 && argRouterScorePnlWeight args <= 1)
+    ensure "--blend-softmax-scale must be > 0" (argBlendSoftmaxScale args > 0)
+    ensure "--blend-net-softmax-scale must be > 0" (argBlendNetSoftmaxScale args > 0)
+    ensure "--blend-smooth-alpha must be between 0 and 1" (argBlendSmoothAlpha args >= 0 && argBlendSmoothAlpha args <= 1)
+    ensure "--blend-hedge-eta must be >= 0" (argBlendHedgeEta args >= 0)
+    ensure "--blend-hedge-max-error must be > 0" (argBlendHedgeMaxError args > 0)
+    ensure "--blend-divergence-k must be > 0" (argBlendDivergenceK args > 0)
+    ensure "--blend-regime-high-vol-cutoff must be between 0 and 1" (argBlendRegimeHighVolCutoff args >= 0 && argBlendRegimeHighVolCutoff args <= 1)
+    ensure "--blend-regime-kalman-z-cutoff must be >= 0" (argBlendRegimeKalmanZCutoff args >= 0)
+    ensure "--blend-bandit-explore-scale must be >= 0" (argBlendBanditExploreScale args >= 0)
     ensure "--method router/bandit_router cannot be used with --optimize-operations/--sweep-threshold" $
         not
             ( (argMethod args == MethodRouter || argMethod args == MethodBanditRouter)

@@ -2590,6 +2590,15 @@ argsPublicJson args =
             , "fundingOiVolCap" .= argFundingOiVolCap args
             , "fundingOiSizeMult" .= argFundingOiSizeMult args
             , "blendWeight" .= argBlendWeight args
+            , "blendSoftmaxScale" .= argBlendSoftmaxScale args
+            , "blendNetSoftmaxScale" .= argBlendNetSoftmaxScale args
+            , "blendSmoothAlpha" .= argBlendSmoothAlpha args
+            , "blendHedgeEta" .= argBlendHedgeEta args
+            , "blendHedgeMaxError" .= argBlendHedgeMaxError args
+            , "blendDivergenceK" .= argBlendDivergenceK args
+            , "blendRegimeHighVolCutoff" .= argBlendRegimeHighVolCutoff args
+            , "blendRegimeKalmanZCutoff" .= argBlendRegimeKalmanZCutoff args
+            , "blendBanditExploreScale" .= argBlendBanditExploreScale args
             , "routerLookback" .= argRouterLookback args
             , "routerMinScore" .= argRouterMinScore args
             , "routerScorePnlWeight" .= argRouterScorePnlWeight args
@@ -9909,6 +9918,15 @@ parseTopComboToArgs base combo = do
         fundingOnOpen = pickBool "fundingOnOpen" (argFundingOnOpen base)
 
         blendWeight = clamp01 (pickD "blendWeight" (argBlendWeight base))
+        blendSoftmaxScale = max 1e-12 (pickD "blendSoftmaxScale" (argBlendSoftmaxScale base))
+        blendNetSoftmaxScale = max 1e-12 (pickD "blendNetSoftmaxScale" (argBlendNetSoftmaxScale base))
+        blendSmoothAlpha = clamp01 (pickD "blendSmoothAlpha" (argBlendSmoothAlpha base))
+        blendHedgeEta = max 0 (pickD "blendHedgeEta" (argBlendHedgeEta base))
+        blendHedgeMaxError = max 1e-12 (pickD "blendHedgeMaxError" (argBlendHedgeMaxError base))
+        blendDivergenceK = max 1e-12 (pickD "blendDivergenceK" (argBlendDivergenceK base))
+        blendRegimeHighVolCutoff = clamp01 (pickD "blendRegimeHighVolCutoff" (argBlendRegimeHighVolCutoff base))
+        blendRegimeKalmanZCutoff = max 0 (pickD "blendRegimeKalmanZCutoff" (argBlendRegimeKalmanZCutoff base))
+        blendBanditExploreScale = max 0 (pickD "blendBanditExploreScale" (argBlendBanditExploreScale base))
         triLayer = pickBool "triLayer" (argTriLayer base)
         triLayerFastMult = max 1e-6 (pickD "triLayerFastMult" (argTriLayerFastMult base))
         triLayerSlowMult = max 1e-6 (pickD "triLayerSlowMult" (argTriLayerSlowMult base))
@@ -10023,6 +10041,15 @@ parseTopComboToArgs base combo = do
                 , argFundingBySide = fundingBySide
                 , argFundingOnOpen = fundingOnOpen
                 , argBlendWeight = blendWeight
+                , argBlendSoftmaxScale = blendSoftmaxScale
+                , argBlendNetSoftmaxScale = blendNetSoftmaxScale
+                , argBlendSmoothAlpha = blendSmoothAlpha
+                , argBlendHedgeEta = blendHedgeEta
+                , argBlendHedgeMaxError = blendHedgeMaxError
+                , argBlendDivergenceK = blendDivergenceK
+                , argBlendRegimeHighVolCutoff = blendRegimeHighVolCutoff
+                , argBlendRegimeKalmanZCutoff = blendRegimeKalmanZCutoff
+                , argBlendBanditExploreScale = blendBanditExploreScale
                 , argTriLayer = triLayer
                 , argTriLayerFastMult = triLayerFastMult
                 , argTriLayerSlowMult = triLayerSlowMult
@@ -13337,6 +13364,15 @@ argsCacheJsonSignal args =
             , "fundingOiVolCap" .= argFundingOiVolCap args
             , "fundingOiSizeMult" .= argFundingOiSizeMult args
             , "blendWeight" .= argBlendWeight args
+            , "blendSoftmaxScale" .= argBlendSoftmaxScale args
+            , "blendNetSoftmaxScale" .= argBlendNetSoftmaxScale args
+            , "blendSmoothAlpha" .= argBlendSmoothAlpha args
+            , "blendHedgeEta" .= argBlendHedgeEta args
+            , "blendHedgeMaxError" .= argBlendHedgeMaxError args
+            , "blendDivergenceK" .= argBlendDivergenceK args
+            , "blendRegimeHighVolCutoff" .= argBlendRegimeHighVolCutoff args
+            , "blendRegimeKalmanZCutoff" .= argBlendRegimeKalmanZCutoff args
+            , "blendBanditExploreScale" .= argBlendBanditExploreScale args
             , "routerLookback" .= argRouterLookback args
             , "routerMinScore" .= argRouterMinScore args
             , "routerScorePnlWeight" .= argRouterScorePnlWeight args
@@ -13507,6 +13543,15 @@ argsCacheJsonBacktest args =
             , "fundingOiVolCap" .= argFundingOiVolCap args
             , "fundingOiSizeMult" .= argFundingOiSizeMult args
             , "blendWeight" .= argBlendWeight args
+            , "blendSoftmaxScale" .= argBlendSoftmaxScale args
+            , "blendNetSoftmaxScale" .= argBlendNetSoftmaxScale args
+            , "blendSmoothAlpha" .= argBlendSmoothAlpha args
+            , "blendHedgeEta" .= argBlendHedgeEta args
+            , "blendHedgeMaxError" .= argBlendHedgeMaxError args
+            , "blendDivergenceK" .= argBlendDivergenceK args
+            , "blendRegimeHighVolCutoff" .= argBlendRegimeHighVolCutoff args
+            , "blendRegimeKalmanZCutoff" .= argBlendRegimeKalmanZCutoff args
+            , "blendBanditExploreScale" .= argBlendBanditExploreScale args
             , "routerLookback" .= argRouterLookback args
             , "routerMinScore" .= argRouterMinScore args
             , "triLayer" .= argTriLayer args
@@ -21402,9 +21447,11 @@ softmaxBlendWeightFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-softmaxBlendWeightFromPreds fallbackWeight prev kalPred lstmPred =
+softmaxBlendWeightFromPreds edgeScale fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
+        scale = max 1e-12 edgeScale
         wFallback = clamp01 fallbackWeight
         edge x =
             if prev <= 0 || bad prev || bad x
@@ -21414,8 +21461,7 @@ softmaxBlendWeightFromPreds fallbackWeight prev kalPred lstmPred =
                      in if bad v then Nothing else Just v
      in case (edge kalPred, edge lstmPred) of
             (Just eKal, Just eLstm) ->
-                let scale = 600
-                    d = eKal - eLstm
+                let d = eKal - eLstm
                     w0 = 1 / (1 + exp (negate (scale * d)))
                     w = clamp01 (wFallback + (w0 - 0.5))
                  in if bad w then wFallback else w
@@ -21428,13 +21474,14 @@ softmaxBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-softmaxBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+softmaxBlendPredFromPreds edgeScale fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
-                let w = softmaxBlendWeightFromPreds wFallback prev kalPred lstmPred
+                let w = softmaxBlendWeightFromPreds edgeScale wFallback prev kalPred lstmPred
                     pred = w * kalPred + (1 - w) * lstmPred
                  in if bad pred then finiteBlendOrNeutral wFallback prev kalPred lstmPred else pred
             (False, True) -> kalPred
@@ -21443,17 +21490,18 @@ softmaxBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 softmaxBlendPredictionsV ::
     Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-softmaxBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+softmaxBlendPredictionsV edgeScale fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in softmaxBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+             in softmaxBlendPredFromPreds edgeScale fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 netSoftmaxBlendWeightFromPreds ::
@@ -21462,9 +21510,11 @@ netSoftmaxBlendWeightFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-netSoftmaxBlendWeightFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
+netSoftmaxBlendWeightFromPreds edgeScale fallbackWeight roundTripCost prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
+        scale = max 1e-12 edgeScale
         wFallback = clamp01 fallbackWeight
         cost = max 0 roundTripCost
         edge x =
@@ -21476,8 +21526,7 @@ netSoftmaxBlendWeightFromPreds fallbackWeight roundTripCost prev kalPred lstmPre
         netEdge x = max 0 (x - cost)
      in case (edge kalPred, edge lstmPred) of
             (Just eKal, Just eLstm) ->
-                let scale = 6000
-                    d = netEdge eKal - netEdge eLstm
+                let d = netEdge eKal - netEdge eLstm
                     w0 = 1 / (1 + exp (negate (scale * d)))
                     w = clamp01 (wFallback + (w0 - 0.5))
                  in if bad w then wFallback else w
@@ -21491,13 +21540,14 @@ netSoftmaxBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-netSoftmaxBlendPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
+netSoftmaxBlendPredFromPreds edgeScale fallbackWeight roundTripCost prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
-                let w = netSoftmaxBlendWeightFromPreds wFallback roundTripCost prev kalPred lstmPred
+                let w = netSoftmaxBlendWeightFromPreds edgeScale wFallback roundTripCost prev kalPred lstmPred
                     pred = w * kalPred + (1 - w) * lstmPred
                  in if bad pred then finiteBlendOrNeutral wFallback prev kalPred lstmPred else pred
             (False, True) -> kalPred
@@ -21507,28 +21557,31 @@ netSoftmaxBlendPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred 
 netSoftmaxBlendPredictionsV ::
     Double ->
     Double ->
-    V.Vector Double ->
-    V.Vector Double ->
-    V.Vector Double ->
-    V.Vector Double
-netSoftmaxBlendPredictionsV fallbackWeight roundTripCost pricesV kalPredV lstmPredV =
-    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
-        pick t =
-            let prev = pricesV V.! t
-                kalPred = kalPredV V.! t
-                lstmPred = lstmPredV V.! t
-             in netSoftmaxBlendPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred
-     in V.generate (max 0 stepCount) pick
-
-smoothSoftmaxBlendPredictionsV ::
     Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-smoothSoftmaxBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+netSoftmaxBlendPredictionsV edgeScale fallbackWeight roundTripCost pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
-        alpha = 0.2
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in netSoftmaxBlendPredFromPreds edgeScale fallbackWeight roundTripCost prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
+smoothSoftmaxBlendPredictionsV ::
+    Double ->
+    Double ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+smoothSoftmaxBlendPredictionsV edgeScale alphaRaw fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        alpha = clamp01 alphaRaw
         bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
         step (t, wPrev0) =
@@ -21539,7 +21592,7 @@ smoothSoftmaxBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
                         kalPred = kalPredV V.! t
                         lstmPred = lstmPredV V.! t
                         wPrev = clamp01 wPrev0
-                        wSoft = softmaxBlendWeightFromPreds wFallback prev kalPred lstmPred
+                        wSoft = softmaxBlendWeightFromPreds edgeScale wFallback prev kalPred lstmPred
                         wRaw = (1 - alpha) * wPrev + alpha * wSoft
                         w =
                             if bad wRaw
@@ -21562,11 +21615,13 @@ divergenceGatePredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred =
+divergenceGatePredFromPreds divergenceK fallbackWeight openThr prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
         thr = max 1e-12 (abs openThr)
+        k = max 1e-12 divergenceK
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -21584,7 +21639,6 @@ divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred =
                     (Just rKal, Just rLstm) ->
                         let rBlend = wFallback * rKal + (1 - wFallback) * rLstm
                             disp = abs (rKal - rLstm)
-                            k = 4
                             alpha = 1 / (1 + disp / (k * thr))
                             a = if bad alpha then 1 else clamp01 alpha
                             pred = neutralPred * (1 + a * rBlend)
@@ -21597,17 +21651,18 @@ divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred =
 divergenceGatePredictionsV ::
     Double ->
     Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-divergenceGatePredictionsV fallbackWeight openThr pricesV kalPredV lstmPredV =
+divergenceGatePredictionsV divergenceK fallbackWeight openThr pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred
+             in divergenceGatePredFromPreds divergenceK fallbackWeight openThr prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 edgeBlendWeightFromPreds ::
@@ -21850,11 +21905,13 @@ conformalClipPredictionsV fallbackWeight pricesV kalPredV lstmPredV mMetaV =
 
 hedgeBlendPredictionsV ::
     Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
+hedgeBlendPredictionsV etaRaw maxErrRaw initWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         bad x = isNaN x || isInfinite x
         w0Raw = clamp01 initWeight
@@ -21865,8 +21922,8 @@ hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
             | z >= 30 = 1
             | z <= (-30) = 0
             | otherwise = 1 / (1 + exp (negate z))
-        eta = 6.0
-        maxErr = 0.1
+        eta = max 0 etaRaw
+        maxErr = max 1e-12 maxErrRaw
         safePred w prev kalPred lstmPred =
             case (bad kalPred, bad lstmPred) of
                 (False, False) ->
@@ -22076,6 +22133,15 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 kalPred0 = phKalman hist
                 lstmPred0 = phLstm hist
                 blendWeight = clamp01 (argBlendWeight args)
+                blendSoftmaxScale = max 1e-12 (argBlendSoftmaxScale args)
+                blendNetSoftmaxScale = max 1e-12 (argBlendNetSoftmaxScale args)
+                blendSmoothAlpha = clamp01 (argBlendSmoothAlpha args)
+                blendHedgeEta = max 0 (argBlendHedgeEta args)
+                blendHedgeMaxError = max 1e-12 (argBlendHedgeMaxError args)
+                blendDivergenceK = max 1e-12 (argBlendDivergenceK args)
+                blendRegimeHighVolCutoff = clamp01 (argBlendRegimeHighVolCutoff args)
+                blendRegimeKalmanZCutoff = max 0 (argBlendRegimeKalmanZCutoff args)
+                blendBanditExploreScale = max 0 (argBlendBanditExploreScale args)
                 blendPred0 = blendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 harmonicBlendPred0 = harmonicBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 disagreementGuardPred0 = disagreementGuardPredictionsV blendWeight pricesV kalPred0 lstmPred0
@@ -22089,15 +22155,15 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 coherenceGatePred0 = coherenceGatePredictionsV blendWeight pricesV kalPred0 lstmPred0
                 fractalBlendPred0 = fractalBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 phaseCancelPred0 = phaseCancelPredictionsV blendWeight pricesV kalPred0 lstmPred0
-                softmaxBlendPred0 = softmaxBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
-                smoothSoftmaxBlendPred0 = smoothSoftmaxBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
-                netSoftmaxBlendPred0 = netSoftmaxBlendPredictionsV blendWeight roundTripCost pricesV kalPred0 lstmPred0
+                softmaxBlendPred0 = softmaxBlendPredictionsV blendSoftmaxScale blendWeight pricesV kalPred0 lstmPred0
+                smoothSoftmaxBlendPred0 = smoothSoftmaxBlendPredictionsV blendSoftmaxScale blendSmoothAlpha blendWeight pricesV kalPred0 lstmPred0
+                netSoftmaxBlendPred0 = netSoftmaxBlendPredictionsV blendNetSoftmaxScale blendWeight roundTripCost pricesV kalPred0 lstmPred0
                 edgeBlendPred0 = edgeBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 edgePickPred0 = edgePickPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 costPickPred0 = costPickPredictionsV blendWeight roundTripCost pricesV kalPred0 lstmPred0
                 geoBlendPred0 = geometricBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 confBlendOpenThr = max openThrBase' minEdge
-                divergenceGatePred0 = divergenceGatePredictionsV blendWeight confBlendOpenThr pricesV kalPred0 lstmPred0
+                divergenceGatePred0 = divergenceGatePredictionsV blendDivergenceK blendWeight confBlendOpenThr pricesV kalPred0 lstmPred0
                 confBlendPred0 =
                     confidenceBlendPredictionsV
                         blendWeight
@@ -22128,19 +22194,39 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 regimeSwitchPred0 =
                     regimeSwitchPredictionsV
                         blendWeight
-                        0.6
-                        1.0
+                        blendRegimeHighVolCutoff
+                        blendRegimeKalmanZCutoff
                         pricesV
                         kalPred0
                         lstmPred0
                         (phMeta hist)
-                hedgeBlendPred0 = hedgeBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                hedgeBlendPred0 = hedgeBlendPredictionsV blendHedgeEta blendHedgeMaxError blendWeight pricesV kalPred0 lstmPred0
                 routerPred =
                     if method == MethodRouter || method == MethodBanditRouter
                         then
-                            let runRouter f =
+                            let runRouter =
                                     let (predV, _models) =
-                                            f
+                                            routerPredictionsWithModelsV
+                                                blendRegimeHighVolCutoff
+                                                openThrBase
+                                                roundTripCost
+                                                (argRouterScorePnlWeight args)
+                                                (argRouterLookback args)
+                                                (argRouterMinScore args)
+                                                pricesV
+                                                kalPred0
+                                                lstmPred0
+                                                blendPred0
+                                                costPickPred0
+                                                regimeSwitchPred0
+                                                edgeBlendPred0
+                                                (phMeta hist)
+                                     in predV
+                                runBandit =
+                                    let (predV, _models) =
+                                            banditPredictionsWithModelsV
+                                                blendRegimeHighVolCutoff
+                                                blendBanditExploreScale
                                                 openThrBase
                                                 roundTripCost
                                                 (argRouterScorePnlWeight args)
@@ -22156,8 +22242,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                                                 (phMeta hist)
                                      in predV
                              in case method of
-                                    MethodBanditRouter -> runRouter banditPredictionsWithModelsV
-                                    _ -> runRouter routerPredictionsWithModelsV
+                                    MethodBanditRouter -> runBandit
+                                    _ -> runRouter
                         else blendPred0
                 (kalPred1, lstmPred1) =
                     case method of
@@ -25244,6 +25330,15 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         routerOpenThr = max bestOpenThr minEdge
         blendWeight0 = argBlendWeight args
         blendWeight = max 0 (min 1 blendWeight0)
+        blendSoftmaxScale = max 1e-12 (argBlendSoftmaxScale args)
+        blendNetSoftmaxScale = max 1e-12 (argBlendNetSoftmaxScale args)
+        blendSmoothAlpha = clamp01 (argBlendSmoothAlpha args)
+        blendHedgeEta = max 0 (argBlendHedgeEta args)
+        blendHedgeMaxError = max 1e-12 (argBlendHedgeMaxError args)
+        blendDivergenceK = max 1e-12 (argBlendDivergenceK args)
+        blendRegimeHighVolCutoff = clamp01 (argBlendRegimeHighVolCutoff args)
+        blendRegimeKalmanZCutoff = max 0 (argBlendRegimeKalmanZCutoff args)
+        blendBanditExploreScale = max 0 (argBlendBanditExploreScale args)
         kalZMinForBlend = max 0 (argKalmanZMin args)
         kalZMaxForBlend = max kalZMinForBlend (argKalmanZMax args)
         blendPredBacktest =
@@ -25330,22 +25425,22 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (softmaxBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+             in V.toList (softmaxBlendPredictionsV blendSoftmaxScale blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         smoothSoftmaxBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (smoothSoftmaxBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+             in V.toList (smoothSoftmaxBlendPredictionsV blendSoftmaxScale blendSmoothAlpha blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         netSoftmaxBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (netSoftmaxBlendPredictionsV blendWeight roundTripCost pricesBacktestV kalBacktestV lstmBacktestV)
+             in V.toList (netSoftmaxBlendPredictionsV blendNetSoftmaxScale blendWeight roundTripCost pricesBacktestV kalBacktestV lstmBacktestV)
         divergenceGatePredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (divergenceGatePredictionsV blendWeight routerOpenThr pricesBacktestV kalBacktestV lstmBacktestV)
+             in V.toList (divergenceGatePredictionsV blendDivergenceK blendWeight routerOpenThr pricesBacktestV kalBacktestV lstmBacktestV)
         geoBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -25397,8 +25492,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
              in V.toList
                     ( regimeSwitchPredictionsV
                         blendWeight
-                        0.6
-                        1.0
+                        blendRegimeHighVolCutoff
+                        blendRegimeKalmanZCutoff
                         pricesBacktestV
                         kalBacktestV
                         lstmBacktestV
@@ -25408,8 +25503,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (hedgeBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
-        runRouterBacktest selectFn =
+             in V.toList (hedgeBlendPredictionsV blendHedgeEta blendHedgeMaxError blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+        runRouterBacktest =
             let pricesV = V.fromList backtestPrices
                 kalV = V.fromList kalPredBacktest
                 lstmV = V.fromList lstmPredBacktest
@@ -25418,7 +25513,33 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 regimeSwitchV = V.fromList regimeSwitchPredBacktest
                 edgeBlendV = V.fromList edgeBlendPredBacktest
                 metaV = V.fromList <$> metaBacktest
-             in selectFn
+             in routerPredictionsWithModelsV
+                    blendRegimeHighVolCutoff
+                    routerOpenThr
+                    roundTripCost
+                    (argRouterScorePnlWeight args)
+                    (argRouterLookback args)
+                    (argRouterMinScore args)
+                    pricesV
+                    kalV
+                    lstmV
+                    blendV
+                    costPickV
+                    regimeSwitchV
+                    edgeBlendV
+                    metaV
+        runBanditBacktest =
+            let pricesV = V.fromList backtestPrices
+                kalV = V.fromList kalPredBacktest
+                lstmV = V.fromList lstmPredBacktest
+                blendV = V.fromList blendPredBacktest
+                costPickV = V.fromList costPickPredBacktest
+                regimeSwitchV = V.fromList regimeSwitchPredBacktest
+                edgeBlendV = V.fromList edgeBlendPredBacktest
+                metaV = V.fromList <$> metaBacktest
+             in banditPredictionsWithModelsV
+                    blendRegimeHighVolCutoff
+                    blendBanditExploreScale
                     routerOpenThr
                     roundTripCost
                     (argRouterScorePnlWeight args)
@@ -25435,9 +25556,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         routerPredBacktest =
             case methodUsed of
                 MethodRouter ->
-                    Just (runRouterBacktest routerPredictionsWithModelsV)
+                    Just runRouterBacktest
                 MethodBanditRouter ->
-                    Just (runRouterBacktest banditPredictionsWithModelsV)
+                    Just runBanditBacktest
                 _ -> Nothing
         (kalPredUsedBacktest, lstmPredUsedBacktest, metaUsedBacktest, metaMaskUsedBacktest) =
             case methodUsed of
@@ -26170,6 +26291,7 @@ routerSelectModelAt ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Int ->
     Double ->
     V.Vector Double ->
@@ -26182,7 +26304,7 @@ routerSelectModelAt ::
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
+routerSelectModelAt highVolCutoffRaw openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -26196,7 +26318,7 @@ routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
         lookback = max 1 lookback0
         minScore = max 0 (min 1 minScore0)
         windowEnd = min (t - 1) (stepCount - 1)
-        volCutoff = 0.6 :: Double
+        volCutoff = clamp01 highVolCutoffRaw
         minRegimeBars = max 3 (lookback `div` 4)
         regimeAt i =
             case mMetaV of
@@ -26256,6 +26378,8 @@ banditSelectModelAt ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
     Int ->
     Double ->
     V.Vector Double ->
@@ -26268,7 +26392,7 @@ banditSelectModelAt ::
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
+banditSelectModelAt highVolCutoffRaw exploreScaleRaw openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -26282,7 +26406,7 @@ banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
         lookback = max 1 lookback0
         minScore = max 0 (min 1 minScore0)
         windowEnd = min (t - 1) (stepCount - 1)
-        volCutoff = 0.6 :: Double
+        volCutoff = clamp01 highVolCutoffRaw
         minRegimeBars = max 3 (lookback `div` 4)
         regimeAt i =
             case mMetaV of
@@ -26300,7 +26424,7 @@ banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
                 RouterBlend -> 2
                 RouterKalman -> 1
                 RouterLstm -> 0
-        bonusScale = 0.25 :: Double
+        bonusScale = max 0 exploreScaleRaw
         scoreKey totalSignals (m, stats) =
             let n = max 0 (rsSignals stats)
                 explore = sqrt (2 * log (max 2 totalSignals) / fromIntegral (n + 1))
@@ -26357,6 +26481,7 @@ routerPredictionsWithModelsV ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Int ->
     Double ->
     V.Vector Double ->
@@ -26368,7 +26493,7 @@ routerPredictionsWithModelsV ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
+routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -26380,7 +26505,7 @@ routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore p
                 , V.length edgeBlendPredV
                 ]
         pickPred t =
-            case routerSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
+            case routerSelectModelAt highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
@@ -26395,6 +26520,8 @@ banditPredictionsWithModelsV ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
     Int ->
     Double ->
     V.Vector Double ->
@@ -26406,7 +26533,7 @@ banditPredictionsWithModelsV ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-banditPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
+banditPredictionsWithModelsV highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -26418,7 +26545,7 @@ banditPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore p
                 , V.length edgeBlendPredV
                 ]
         pickPred t =
-            case banditSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
+            case banditSelectModelAt highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
@@ -26433,6 +26560,7 @@ routerPredictionsV ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Int ->
     Double ->
     V.Vector Double ->
@@ -26443,8 +26571,8 @@ routerPredictionsV ::
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-routerPredictionsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV =
-    fst (routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV Nothing)
+routerPredictionsV highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV =
+    fst (routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV Nothing)
 
 computeLatestSignal ::
     Args ->
@@ -27136,6 +27264,15 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 )
 
             blendWeight = clamp01 (argBlendWeight args)
+            blendSoftmaxScale = max 1e-12 (argBlendSoftmaxScale args)
+            blendNetSoftmaxScale = max 1e-12 (argBlendNetSoftmaxScale args)
+            blendSmoothAlpha = clamp01 (argBlendSmoothAlpha args)
+            blendHedgeEta = max 0 (argBlendHedgeEta args)
+            blendHedgeMaxError = max 1e-12 (argBlendHedgeMaxError args)
+            blendDivergenceK = max 1e-12 (argBlendDivergenceK args)
+            blendRegimeHighVolCutoff = clamp01 (argBlendRegimeHighVolCutoff args)
+            blendRegimeKalmanZCutoff = max 0 (argBlendRegimeKalmanZCutoff args)
+            blendBanditExploreScale = max 0 (argBlendBanditExploreScale args)
             kalZMinForBlend = max 0 (argKalmanZMin args)
             kalZMaxForBlend = max kalZMinForBlend (argKalmanZMax args)
 
@@ -27275,12 +27412,12 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             softmaxBlendNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
-                        Just (softmaxBlendPredFromPreds blendWeight currentPrice k l)
+                        Just (softmaxBlendPredFromPreds blendSoftmaxScale blendWeight currentPrice k l)
                     _ -> Nothing
             smoothSoftmaxBlendNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
-                        let alpha = 0.2
+                        let alpha = blendSmoothAlpha
                             w0 = clamp01 blendWeight
                             wPrev =
                                 case mPredHistory of
@@ -27291,12 +27428,12 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                                     let prev = pricesV V.! i
                                                         kp = kalHist V.! i
                                                         lp = lstmHist V.! i
-                                                        wSoft = softmaxBlendWeightFromPreds w0 prev kp lp
+                                                        wSoft = softmaxBlendWeightFromPreds blendSoftmaxScale w0 prev kp lp
                                                         wRaw = (1 - alpha) * w + alpha * wSoft
                                                      in if bad wRaw then w else clamp01 wRaw
                                              in foldl' step w0 [0 .. histLen - 1]
                                     _ -> w0
-                            wSoftCur = softmaxBlendWeightFromPreds w0 currentPrice k l
+                            wSoftCur = softmaxBlendWeightFromPreds blendSoftmaxScale w0 currentPrice k l
                             wRaw = (1 - alpha) * wPrev + alpha * wSoftCur
                             w =
                                 if bad wRaw
@@ -27317,8 +27454,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 | z >= 30 = 1
                                 | z <= (-30) = 0
                                 | otherwise = 1 / (1 + exp (negate z))
-                            eta = 6.0
-                            maxErr = 0.1
+                            eta = blendHedgeEta
+                            maxErr = blendHedgeMaxError
                             safePred w prev kalPred lstmPred =
                                 case (bad kalPred, bad lstmPred) of
                                     (False, False) ->
@@ -27368,12 +27505,12 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             netSoftmaxBlendNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
-                        Just (netSoftmaxBlendPredFromPreds blendWeight roundTripCost currentPrice k l)
+                        Just (netSoftmaxBlendPredFromPreds blendNetSoftmaxScale blendWeight roundTripCost currentPrice k l)
                     _ -> Nothing
             divergenceGateNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
-                        Just (divergenceGatePredFromPreds blendWeight openThrAdj currentPrice k l)
+                        Just (divergenceGatePredFromPreds blendDivergenceK blendWeight openThrAdj currentPrice k l)
                     _ -> Nothing
             harmonicBlendNext =
                 case (mKalNext, mLstmNext) of
@@ -27543,15 +27680,13 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             regimeSwitchNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
-                        let highVolCutoff = 0.6
-                            kalZCutoff = 1.0
-                            blend = blendPredFromPreds blendWeight currentPrice k l
+                        let blend = blendPredFromPreds blendWeight currentPrice k l
                          in Just
                                 ( case (mKalZ, mRegimes) of
                                     (Just _, Just r)
-                                        | rpHighVol r >= highVolCutoff -> blend
+                                        | rpHighVol r >= blendRegimeHighVolCutoff -> blend
                                     (Just z, _)
-                                        | z >= kalZCutoff ->
+                                        | z >= blendRegimeKalmanZCutoff ->
                                             if bad k then blend else k
                                     _ ->
                                         if bad l then blend else l
@@ -27576,7 +27711,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                                         case metaHist of
                                                             Just mv | V.length mv >= stepCount -> Just (V.take stepCount mv)
                                                             _ -> Nothing
-                                                    regimeSwitchPredV = regimeSwitchPredictionsV blendWeight 0.6 1.0 pricesV kalPredV lstmPredV mMetaV
+                                                    regimeSwitchPredV = regimeSwitchPredictionsV blendWeight blendRegimeHighVolCutoff blendRegimeKalmanZCutoff pricesV kalPredV lstmPredV mMetaV
                                                     edgeBlendPredV = edgeBlendPredictionsV blendWeight pricesV kalPredV lstmPredV
                                                  in Just (kalPredV, lstmPredV, blendPredV, costPickPredV, regimeSwitchPredV, edgeBlendPredV, mMetaV)
                                         _ -> Nothing
@@ -27609,13 +27744,13 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                                                  in inverseNorm normState predObs
                                                 blendPredV = blendPredictionsV blendWeight pricesV kalPredV lstmPredV
                                                 costPickPredV = costPickPredictionsV blendWeight roundTripCost pricesV kalPredV lstmPredV
-                                                regimeSwitchPredV = regimeSwitchPredictionsV blendWeight 0.6 1.0 pricesV kalPredV lstmPredV metaV
+                                                regimeSwitchPredV = regimeSwitchPredictionsV blendWeight blendRegimeHighVolCutoff blendRegimeKalmanZCutoff pricesV kalPredV lstmPredV metaV
                                                 edgeBlendPredV = edgeBlendPredictionsV blendWeight pricesV kalPredV lstmPredV
                                              in (kalPredV, lstmPredV, blendPredV, costPickPredV, regimeSwitchPredV, edgeBlendPredV, metaV)
                                 selectAt =
                                     if mMethod == MethodBanditRouter
-                                        then banditSelectModelAt
-                                        else routerSelectModelAt
+                                        then banditSelectModelAt blendRegimeHighVolCutoff blendBanditExploreScale
+                                        else routerSelectModelAt blendRegimeHighVolCutoff
                                 (mChoice, _score, mReason) =
                                     selectAt
                                         openThrBase

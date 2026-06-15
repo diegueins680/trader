@@ -194,6 +194,15 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torTaBreakoutFlowDisagreementConfidence :: !(Double, Double)
     , torTaBreakoutConfidenceDistanceMult :: !(Double, Double)
     , torTaSmaCrossConfidenceSpreadMult :: !(Double, Double)
+    , torBlendSoftmaxScale :: !(Double, Double)
+    , torBlendNetSoftmaxScale :: !(Double, Double)
+    , torBlendSmoothAlpha :: !(Double, Double)
+    , torBlendHedgeEta :: !(Double, Double)
+    , torBlendHedgeMaxError :: !(Double, Double)
+    , torBlendDivergenceK :: !(Double, Double)
+    , torBlendRegimeHighVolCutoff :: !(Double, Double)
+    , torBlendRegimeKalmanZCutoff :: !(Double, Double)
+    , torBlendBanditExploreScale :: !(Double, Double)
     , torSignalEntryEdgeHeadroomMult :: !(Double, Double)
     , torSignalEntryEdgeSpikeMult :: !(Double, Double)
     , torSignalEntryEdgeSpikeCap :: !(Double, Double)
@@ -236,6 +245,15 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpTaBreakoutFlowDisagreementConfidence :: !Double
     , ttpTaBreakoutConfidenceDistanceMult :: !Double
     , ttpTaSmaCrossConfidenceSpreadMult :: !Double
+    , ttpBlendSoftmaxScale :: !Double
+    , ttpBlendNetSoftmaxScale :: !Double
+    , ttpBlendSmoothAlpha :: !Double
+    , ttpBlendHedgeEta :: !Double
+    , ttpBlendHedgeMaxError :: !Double
+    , ttpBlendDivergenceK :: !Double
+    , ttpBlendRegimeHighVolCutoff :: !Double
+    , ttpBlendRegimeKalmanZCutoff :: !Double
+    , ttpBlendBanditExploreScale :: !Double
     , ttpSignalEntryEdgeHeadroomMult :: !Double
     , ttpSignalEntryEdgeSpikeMult :: !Double
     , ttpSignalEntryEdgeSpikeCap :: !Double
@@ -339,6 +357,15 @@ normalizeTechnicalTrialParams p =
             , ttpTaBreakoutFlowDisagreementConfidence = clamp (ttpTaBreakoutFlowDisagreementConfidence p) 0 1
             , ttpTaBreakoutConfidenceDistanceMult = max 0 (ttpTaBreakoutConfidenceDistanceMult p)
             , ttpTaSmaCrossConfidenceSpreadMult = max 0 (ttpTaSmaCrossConfidenceSpreadMult p)
+            , ttpBlendSoftmaxScale = max 1e-6 (ttpBlendSoftmaxScale p)
+            , ttpBlendNetSoftmaxScale = max 1e-6 (ttpBlendNetSoftmaxScale p)
+            , ttpBlendSmoothAlpha = clamp (ttpBlendSmoothAlpha p) 0 1
+            , ttpBlendHedgeEta = max 0 (ttpBlendHedgeEta p)
+            , ttpBlendHedgeMaxError = max 1e-6 (ttpBlendHedgeMaxError p)
+            , ttpBlendDivergenceK = max 1e-6 (ttpBlendDivergenceK p)
+            , ttpBlendRegimeHighVolCutoff = clamp (ttpBlendRegimeHighVolCutoff p) 0 1
+            , ttpBlendRegimeKalmanZCutoff = max 0 (ttpBlendRegimeKalmanZCutoff p)
+            , ttpBlendBanditExploreScale = max 0 (ttpBlendBanditExploreScale p)
             , ttpSignalEntryEdgeHeadroomMult = max 1e-6 (ttpSignalEntryEdgeHeadroomMult p)
             , ttpSignalEntryEdgeSpikeMult = max 0 (ttpSignalEntryEdgeSpikeMult p)
             , ttpSignalEntryEdgeSpikeCap = max 1e-6 (ttpSignalEntryEdgeSpikeCap p)
@@ -383,22 +410,31 @@ sampleTechnicalTrialParams ranges rng0 =
         (taBreakoutFlowDisagreementConfidence, rng25) = sampleClamped 0 1 (torTaBreakoutFlowDisagreementConfidence ranges) rng24
         (taBreakoutConfidenceDistanceMult, rng26) = sampleNonNegative (torTaBreakoutConfidenceDistanceMult ranges) rng25
         (taSmaCrossConfidenceSpreadMult, rng27) = sampleNonNegative (torTaSmaCrossConfidenceSpreadMult ranges) rng26
-        (signalEntryEdgeHeadroomMult, rng28) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng27
-        (signalEntryEdgeSpikeMult, rng29) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng28
-        (signalEntryEdgeSpikeCap, rng30) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng29
-        (signalEntryEdgeSpikeConsecutiveLimit, rng31) =
+        (blendSoftmaxScale, rng28) = samplePositive (torBlendSoftmaxScale ranges) rng27
+        (blendNetSoftmaxScale, rng29) = samplePositive (torBlendNetSoftmaxScale ranges) rng28
+        (blendSmoothAlpha, rng30) = sampleClamped 0 1 (torBlendSmoothAlpha ranges) rng29
+        (blendHedgeEta, rng31) = sampleNonNegative (torBlendHedgeEta ranges) rng30
+        (blendHedgeMaxError, rng32) = samplePositive (torBlendHedgeMaxError ranges) rng31
+        (blendDivergenceK, rng33) = samplePositive (torBlendDivergenceK ranges) rng32
+        (blendRegimeHighVolCutoff, rng34) = sampleClamped 0 1 (torBlendRegimeHighVolCutoff ranges) rng33
+        (blendRegimeKalmanZCutoff, rng35) = sampleNonNegative (torBlendRegimeKalmanZCutoff ranges) rng34
+        (blendBanditExploreScale, rng36) = sampleNonNegative (torBlendBanditExploreScale ranges) rng35
+        (signalEntryEdgeHeadroomMult, rng37) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng36
+        (signalEntryEdgeSpikeMult, rng38) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng37
+        (signalEntryEdgeSpikeCap, rng39) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng38
+        (signalEntryEdgeSpikeConsecutiveLimit, rng40) =
             let (lo, hi) = orderedPair (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
-             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng30
-        (signalTrendSlackMult, rng32) = sampleNonNegative (torSignalTrendSlackMult ranges) rng31
-        (signalTrendSlackCap, rng33) = sampleNonNegative (torSignalTrendSlackCap ranges) rng32
-        (signalDirectionalityLookbackBars, rng34) =
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng39
+        (signalTrendSlackMult, rng41) = sampleNonNegative (torSignalTrendSlackMult ranges) rng40
+        (signalTrendSlackCap, rng42) = sampleNonNegative (torSignalTrendSlackCap ranges) rng41
+        (signalDirectionalityLookbackBars, rng43) =
             let (lo, hi) = orderedPair (torSignalDirectionalityLookbackBars ranges)
-             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng33
-        (signalDirectionalityChopEfficiencyMax, rng35) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng34
-        (signalDirectionalityMrEfficiencyMax0, rng36) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng35
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng42
+        (signalDirectionalityChopEfficiencyMax, rng44) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng43
+        (signalDirectionalityMrEfficiencyMax0, rng45) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng44
         signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
-        (signalDirectionalityWeakZMin, rng37) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng36
-        (signalPredictorTrackingFloor, rng38) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng37
+        (signalDirectionalityWeakZMin, rng46) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng45
+        (signalPredictorTrackingFloor, rng47) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng46
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -428,6 +464,15 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpTaBreakoutFlowDisagreementConfidence = taBreakoutFlowDisagreementConfidence
                 , ttpTaBreakoutConfidenceDistanceMult = taBreakoutConfidenceDistanceMult
                 , ttpTaSmaCrossConfidenceSpreadMult = taSmaCrossConfidenceSpreadMult
+                , ttpBlendSoftmaxScale = blendSoftmaxScale
+                , ttpBlendNetSoftmaxScale = blendNetSoftmaxScale
+                , ttpBlendSmoothAlpha = blendSmoothAlpha
+                , ttpBlendHedgeEta = blendHedgeEta
+                , ttpBlendHedgeMaxError = blendHedgeMaxError
+                , ttpBlendDivergenceK = blendDivergenceK
+                , ttpBlendRegimeHighVolCutoff = blendRegimeHighVolCutoff
+                , ttpBlendRegimeKalmanZCutoff = blendRegimeKalmanZCutoff
+                , ttpBlendBanditExploreScale = blendBanditExploreScale
                 , ttpSignalEntryEdgeHeadroomMult = signalEntryEdgeHeadroomMult
                 , ttpSignalEntryEdgeSpikeMult = signalEntryEdgeSpikeMult
                 , ttpSignalEntryEdgeSpikeCap = signalEntryEdgeSpikeCap
@@ -440,7 +485,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpSignalDirectionalityWeakZMin = signalDirectionalityWeakZMin
                 , ttpSignalPredictorTrackingFloor = signalPredictorTrackingFloor
                 }
-        , rng38
+        , rng47
         )
   where
     samplePositive range rng =
@@ -515,6 +560,24 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpTaBreakoutConfidenceDistanceMult p)
     , "--ta-sma-cross-confidence-spread-mult"
     , printf "%.12g" (ttpTaSmaCrossConfidenceSpreadMult p)
+    , "--blend-softmax-scale"
+    , printf "%.12g" (ttpBlendSoftmaxScale p)
+    , "--blend-net-softmax-scale"
+    , printf "%.12g" (ttpBlendNetSoftmaxScale p)
+    , "--blend-smooth-alpha"
+    , printf "%.12g" (ttpBlendSmoothAlpha p)
+    , "--blend-hedge-eta"
+    , printf "%.12g" (ttpBlendHedgeEta p)
+    , "--blend-hedge-max-error"
+    , printf "%.12g" (ttpBlendHedgeMaxError p)
+    , "--blend-divergence-k"
+    , printf "%.12g" (ttpBlendDivergenceK p)
+    , "--blend-regime-high-vol-cutoff"
+    , printf "%.12g" (ttpBlendRegimeHighVolCutoff p)
+    , "--blend-regime-kalman-z-cutoff"
+    , printf "%.12g" (ttpBlendRegimeKalmanZCutoff p)
+    , "--blend-bandit-explore-scale"
+    , printf "%.12g" (ttpBlendBanditExploreScale p)
     , "--signal-entry-edge-headroom-mult"
     , printf "%.12g" (ttpSignalEntryEdgeHeadroomMult p)
     , "--signal-entry-edge-spike-mult"
@@ -568,6 +631,15 @@ technicalTrialParamsPairs p =
     , "taBreakoutFlowDisagreementConfidence" .= ttpTaBreakoutFlowDisagreementConfidence p
     , "taBreakoutConfidenceDistanceMult" .= ttpTaBreakoutConfidenceDistanceMult p
     , "taSmaCrossConfidenceSpreadMult" .= ttpTaSmaCrossConfidenceSpreadMult p
+    , "blendSoftmaxScale" .= ttpBlendSoftmaxScale p
+    , "blendNetSoftmaxScale" .= ttpBlendNetSoftmaxScale p
+    , "blendSmoothAlpha" .= ttpBlendSmoothAlpha p
+    , "blendHedgeEta" .= ttpBlendHedgeEta p
+    , "blendHedgeMaxError" .= ttpBlendHedgeMaxError p
+    , "blendDivergenceK" .= ttpBlendDivergenceK p
+    , "blendRegimeHighVolCutoff" .= ttpBlendRegimeHighVolCutoff p
+    , "blendRegimeKalmanZCutoff" .= ttpBlendRegimeKalmanZCutoff p
+    , "blendBanditExploreScale" .= ttpBlendBanditExploreScale p
     , "signalEntryEdgeHeadroomMult" .= ttpSignalEntryEdgeHeadroomMult p
     , "signalEntryEdgeSpikeMult" .= ttpSignalEntryEdgeSpikeMult p
     , "signalEntryEdgeSpikeCap" .= ttpSignalEntryEdgeSpikeCap p

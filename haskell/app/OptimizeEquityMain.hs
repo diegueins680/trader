@@ -502,6 +502,15 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "ta-breakout-flow-disagreement-confidence" 0.2 0.8
         <*> doubleRangeOption "ta-breakout-confidence-distance-mult" 4 20
         <*> doubleRangeOption "ta-sma-cross-confidence-spread-mult" 8 40
+        <*> doubleRangeOption "blend-softmax-scale" 100 1500
+        <*> doubleRangeOption "blend-net-softmax-scale" 1000 12000
+        <*> doubleRangeOption "blend-smooth-alpha" 0.05 0.5
+        <*> doubleRangeOption "blend-hedge-eta" 1 12
+        <*> doubleRangeOption "blend-hedge-max-error" 0.02 0.25
+        <*> doubleRangeOption "blend-divergence-k" 1 8
+        <*> doubleRangeOption "blend-regime-high-vol-cutoff" 0.4 0.8
+        <*> doubleRangeOption "blend-regime-kalman-z-cutoff" 0.5 2.0
+        <*> doubleRangeOption "blend-bandit-explore-scale" 0.0 0.5
         <*> doubleRangeOption "signal-entry-edge-headroom-mult" 1.1 2.5
         <*> doubleRangeOption "signal-entry-edge-spike-mult" 200 2000
         <*> doubleRangeOption "signal-entry-edge-spike-cap" 1.0 8.0
@@ -784,6 +793,15 @@ validateTechnicalOptimizerRanges ranges = do
     unitRange "ta-breakout-flow-disagreement-confidence" (torTaBreakoutFlowDisagreementConfidence ranges)
     nonNegativeRange "ta-breakout-confidence-distance-mult" (torTaBreakoutConfidenceDistanceMult ranges)
     nonNegativeRange "ta-sma-cross-confidence-spread-mult" (torTaSmaCrossConfidenceSpreadMult ranges)
+    positiveRange "blend-softmax-scale" (torBlendSoftmaxScale ranges)
+    positiveRange "blend-net-softmax-scale" (torBlendNetSoftmaxScale ranges)
+    unitRange "blend-smooth-alpha" (torBlendSmoothAlpha ranges)
+    nonNegativeRange "blend-hedge-eta" (torBlendHedgeEta ranges)
+    positiveRange "blend-hedge-max-error" (torBlendHedgeMaxError ranges)
+    positiveRange "blend-divergence-k" (torBlendDivergenceK ranges)
+    unitRange "blend-regime-high-vol-cutoff" (torBlendRegimeHighVolCutoff ranges)
+    nonNegativeRange "blend-regime-kalman-z-cutoff" (torBlendRegimeKalmanZCutoff ranges)
+    nonNegativeRange "blend-bandit-explore-scale" (torBlendBanditExploreScale ranges)
     positiveRange "signal-entry-edge-headroom-mult" (torSignalEntryEdgeHeadroomMult ranges)
     nonNegativeRange "signal-entry-edge-spike-mult" (torSignalEntryEdgeSpikeMult ranges)
     positiveRange "signal-entry-edge-spike-cap" (torSignalEntryEdgeSpikeCap ranges)
