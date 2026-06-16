@@ -1285,7 +1285,10 @@ priorTrialMeetsEvidence args symbol intervals trial =
         maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
         walkForwardOk =
             case valueObjectAt (Object (ptMetrics trial)) "walkForwardSummary" of
-                Nothing -> minWfSharpeMean <= 0 && maxWfSharpeStd <= 0
+                -- Prior rows are search hints. Legacy top-combo payloads often
+                -- predate walk-forward metrics, but fresh trials still have to
+                -- clear the active walk-forward gates before ranking/deployment.
+                Nothing -> True
                 Just wf ->
                     let wfSharpeMean = metricFloat (Just wf) "sharpeMean" 0
                         wfSharpeStd = metricFloat (Just wf) "sharpeStd" 0
