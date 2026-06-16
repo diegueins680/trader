@@ -260,10 +260,9 @@ import Trader.ComboTracking (activeComboUuid, orderComboUuid)
 import Trader.Config (shouldRequireUserTradeKeys, validateRuntimeConfig)
 import Trader.Cors (CorsConfig (..), corsHeadersFor, resolveCorsConfig, withCors)
 import Trader.CostCalibration (
-    calibratedSlippagePerSide,
-    costCalibrationMinObservations,
-    costCalibrationWindow,
-    observedSlippageFraction,
+    CostCalibrationConfig (..),
+    calibratedSlippagePerSideWithConfig,
+    observedSlippageFractionWithConfig,
     venueMinEdgeFloor,
     venueRoundTripCostFloor,
     venueSlippageFloor,
@@ -891,6 +890,12 @@ data ApiParams = ApiParams
     , apSlippageImpact :: Maybe Double
     , apSlippageImpactPower :: Maybe Double
     , apSpreadVolMult :: Maybe Double
+    , apCostCalibrationMinObservations :: Maybe Int
+    , apCostCalibrationShrinkageObs :: Maybe Double
+    , apCostCalibrationWindow :: Maybe Int
+    , apCostCalibrationFloorFactor :: Maybe Double
+    , apCostCalibrationMaxPerSide :: Maybe Double
+    , apCostCalibrationOutlierBound :: Maybe Double
     , apIntrabarFill :: Maybe String
     , apStopLoss :: Maybe Double
     , apTakeProfit :: Maybe Double
@@ -2650,6 +2655,12 @@ argsPublicJson args =
             , "slippageImpact" .= argSlippageImpact args
             , "slippageImpactPower" .= argSlippageImpactPower args
             , "spreadVolMult" .= argSpreadVolMult args
+            , "costCalibrationMinObservations" .= argCostCalibrationMinObservations args
+            , "costCalibrationShrinkageObs" .= argCostCalibrationShrinkageObs args
+            , "costCalibrationWindow" .= argCostCalibrationWindow args
+            , "costCalibrationFloorFactor" .= argCostCalibrationFloorFactor args
+            , "costCalibrationMaxPerSide" .= argCostCalibrationMaxPerSide args
+            , "costCalibrationOutlierBound" .= argCostCalibrationOutlierBound args
             , "stopLoss" .= argStopLoss args
             , "takeProfit" .= argTakeProfit args
             , "trailingStop" .= argTrailingStop args
@@ -6464,11 +6475,17 @@ botStatusJson st =
             , "costCalibration"
                 .= let obs = botSlippageObservations st
                        configured = argSlippage (botArgs st)
+                       costCfg = costCalibrationConfigFromArgs (botArgs st)
                     in object
                         [ "configuredSlippage" .= configured
-                        , "calibratedSlippage" .= calibratedSlippagePerSide configured obs
+                        , "calibratedSlippage" .= calibratedSlippagePerSideWithConfig costCfg configured obs
                         , "observations" .= length obs
-                        , "minObservations" .= costCalibrationMinObservations
+                        , "minObservations" .= cccMinObservations costCfg
+                        , "shrinkageObs" .= cccShrinkageObs costCfg
+                        , "window" .= cccWindow costCfg
+                        , "floorFactor" .= cccFloorFactor costCfg
+                        , "maxPerSide" .= cccMaxPerSide costCfg
+                        , "outlierBound" .= cccOutlierBound costCfg
                         ]
             , "latestSignal" .= botLatestSignal st
             , "decisionTrace" .= botDecisionTrace st
@@ -6985,18 +7002,30 @@ lossStreakFromTrades trades =
             (reverse trades)
         )
 
+costCalibrationConfigFromArgs :: Args -> CostCalibrationConfig
+costCalibrationConfigFromArgs args =
+    CostCalibrationConfig
+        { cccMinObservations = max 0 (argCostCalibrationMinObservations args)
+        , cccShrinkageObs = max 0 (argCostCalibrationShrinkageObs args)
+        , cccWindow = max 1 (argCostCalibrationWindow args)
+        , cccFloorFactor = max 0 (argCostCalibrationFloorFactor args)
+        , cccMaxPerSide = max 0 (argCostCalibrationMaxPerSide args)
+        , cccOutlierBound = max 0 (argCostCalibrationOutlierBound args)
+        }
+
 {- | Realized fill-slippage observations (oldest-first) from this session's
 order events. Only orders that were actually sent and filled measure
 anything; dry-run and rejected orders are skipped.
 -}
-realizedSlippagesFromOrderEvents :: [BotOrderEvent] -> [Double]
-realizedSlippagesFromOrderEvents events =
+realizedSlippagesFromOrderEvents :: CostCalibrationConfig -> [BotOrderEvent] -> [Double]
+realizedSlippagesFromOrderEvents config events =
     [ slip
     | e <- events
     , let o = boeOrder e
     , aorSent o
     , Just slip <-
-        [ observedSlippageFraction
+        [ observedSlippageFractionWithConfig
+            config
             (boeOpSide e)
             (boePrice e)
             (aorExecutedQty o)
@@ -7008,8 +7037,8 @@ realizedSlippagesFromOrderEvents events =
 object (the snapshot's @orders@ array). Field names follow the
 'BotOrderEvent' / 'ApiOrderResult' ToJSON encodings.
 -}
-slippageFromOrderEventValue :: Aeson.Value -> Maybe Double
-slippageFromOrderEventValue val = do
+slippageFromOrderEventValue :: CostCalibrationConfig -> Aeson.Value -> Maybe Double
+slippageFromOrderEventValue config val = do
     o <- case val of
         Aeson.Object obj -> Just obj
         _ -> Nothing
@@ -7022,7 +7051,8 @@ slippageFromOrderEventValue val = do
     if not sent
         then Nothing
         else
-            observedSlippageFraction
+            observedSlippageFractionWithConfig
+                config
                 side
                 price
                 (KM.lookup "executedQty" orderObj >>= AT.parseMaybe Aeson.parseJSON)
@@ -7038,7 +7068,8 @@ seed.
 restoreSlippageObservationsFromSnapshotMaybe :: Maybe FilePath -> TenantKey -> Args -> String -> IO [Double]
 restoreSlippageObservationsFromSnapshotMaybe mDir tenantKey args sym = do
     mSnap <- readBotStatusSnapshotMaybe mDir tenantKey sym
-    let restored =
+    let costCfg = costCalibrationConfigFromArgs args
+        restored =
             case mSnap of
                 Nothing -> []
                 Just snap ->
@@ -7049,8 +7080,8 @@ restoreSlippageObservationsFromSnapshotMaybe mDir tenantKey args sym = do
                                 case KM.lookup "orders" o of
                                     Just (Aeson.Array ordersV) ->
                                         takeLast
-                                            costCalibrationWindow
-                                            (mapMaybe slippageFromOrderEventValue (V.toList ordersV))
+                                            (cccWindow costCfg)
+                                            (mapMaybe (slippageFromOrderEventValue costCfg) (V.toList ordersV))
                                     _ -> []
                             _ -> []
     pure restored
@@ -7060,9 +7091,10 @@ last session's restored tail, then this session's order events.
 -}
 botSlippageObservations :: BotState -> [Double]
 botSlippageObservations st =
-    takeLast
-        costCalibrationWindow
-        (botRestoredSlippages st ++ realizedSlippagesFromOrderEvents (botOrders st))
+    let costCfg = costCalibrationConfigFromArgs (botArgs st)
+     in takeLast
+            (cccWindow costCfg)
+            (botRestoredSlippages st ++ realizedSlippagesFromOrderEvents costCfg (botOrders st))
 
 data BotOp = BotOp
     { boIndex :: !Int
@@ -12092,10 +12124,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
     -- botArgs itself stays configured; the calibration is recomputed per bar
     -- from the (restored + session) fill observations.
     let argsConfigured = botArgs st
+        costCfg = costCalibrationConfigFromArgs argsConfigured
         args =
             argsConfigured
                 { argSlippage =
-                    calibratedSlippagePerSide
+                    calibratedSlippagePerSideWithConfig
+                        costCfg
                         (argSlippage argsConfigured)
                         (botSlippageObservations st)
                 }
@@ -13934,6 +13968,12 @@ argsCacheJsonSignal args =
             , "slippageImpact" .= argSlippageImpact args
             , "slippageImpactPower" .= argSlippageImpactPower args
             , "spreadVolMult" .= argSpreadVolMult args
+            , "costCalibrationMinObservations" .= argCostCalibrationMinObservations args
+            , "costCalibrationShrinkageObs" .= argCostCalibrationShrinkageObs args
+            , "costCalibrationWindow" .= argCostCalibrationWindow args
+            , "costCalibrationFloorFactor" .= argCostCalibrationFloorFactor args
+            , "costCalibrationMaxPerSide" .= argCostCalibrationMaxPerSide args
+            , "costCalibrationOutlierBound" .= argCostCalibrationOutlierBound args
             , "maxHoldBars" .= argMaxHoldBars args
             , "minEdge" .= argMinEdge args
             , "minSignalToNoise" .= argMinSignalToNoise args
@@ -14190,6 +14230,12 @@ argsCacheJsonBacktest args =
             , "slippageImpact" .= argSlippageImpact args
             , "slippageImpactPower" .= argSlippageImpactPower args
             , "spreadVolMult" .= argSpreadVolMult args
+            , "costCalibrationMinObservations" .= argCostCalibrationMinObservations args
+            , "costCalibrationShrinkageObs" .= argCostCalibrationShrinkageObs args
+            , "costCalibrationWindow" .= argCostCalibrationWindow args
+            , "costCalibrationFloorFactor" .= argCostCalibrationFloorFactor args
+            , "costCalibrationMaxPerSide" .= argCostCalibrationMaxPerSide args
+            , "costCalibrationOutlierBound" .= argCostCalibrationOutlierBound args
             , "intrabarFill" .= intrabarFillCode (argIntrabarFill args)
             , "stopLoss" .= argStopLoss args
             , "takeProfit" .= argTakeProfit args
@@ -20296,6 +20342,12 @@ argsFromApi baseArgs p = do
                 , argSlippageImpact = pick (apSlippageImpact p) (argSlippageImpact baseArgs)
                 , argSlippageImpactPower = pick (apSlippageImpactPower p) (argSlippageImpactPower baseArgs)
                 , argSpreadVolMult = pick (apSpreadVolMult p) (argSpreadVolMult baseArgs)
+                , argCostCalibrationMinObservations = pick (apCostCalibrationMinObservations p) (argCostCalibrationMinObservations baseArgs)
+                , argCostCalibrationShrinkageObs = pick (apCostCalibrationShrinkageObs p) (argCostCalibrationShrinkageObs baseArgs)
+                , argCostCalibrationWindow = pick (apCostCalibrationWindow p) (argCostCalibrationWindow baseArgs)
+                , argCostCalibrationFloorFactor = pick (apCostCalibrationFloorFactor p) (argCostCalibrationFloorFactor baseArgs)
+                , argCostCalibrationMaxPerSide = pick (apCostCalibrationMaxPerSide p) (argCostCalibrationMaxPerSide baseArgs)
+                , argCostCalibrationOutlierBound = pick (apCostCalibrationOutlierBound p) (argCostCalibrationOutlierBound baseArgs)
                 , argIntrabarFill = intrabarFill
                 , argStopLoss = pickMaybe (apStopLoss p) (argStopLoss baseArgs)
                 , argTakeProfit = pickMaybe (apTakeProfit p) (argTakeProfit baseArgs)

@@ -31,12 +31,16 @@ import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (.
 import Trader.CapitalPreservation (CapitalPreservationConfig (..), CapitalPreservationReport (..), capitalPreservationIsEntryOnlyReason, capitalPreservationReport, defaultCapitalPreservationConfig)
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
 import Trader.CostCalibration (
+    CostCalibrationConfig (..),
     calibratedSlippagePerSide,
+    calibratedSlippagePerSideWithConfig,
     costCalibrationFloorFactor,
     costCalibrationMaxPerSide,
     costCalibrationMinObservations,
+    defaultCostCalibrationConfig,
     minEdgeCostMultiplier,
     observedSlippageFraction,
+    observedSlippageFractionWithConfig,
     venueMinEdgeFloor,
     venueRoundTripCostFloor,
     venueSlippageFloor,
@@ -311,6 +315,7 @@ main = do
     testKalmanPhysicsCandidateValidationRatiosRejectInvalidValues
     testKalmanPhysicsCandidateGridKnobsRejectInvalidValues
     testTriLayerPriceActionBodyOpenThresholdMultRejectsInvalidValues
+    testCostCalibrationKnobsRejectInvalidValues
     testSensorVarianceEwmaAlphaRejectsInvalidValues
     testKalmanConservativeFusionRejectsInvalidValues
     testKalmanResidualVarianceFloor
@@ -402,6 +407,7 @@ main = do
     testWeightedFineTunePunishesLossRegion
     testObservedSlippageFractionSemantics
     testCalibratedSlippageShrinkage
+    testCostCalibrationConfigurableRoiKnobs
     testLiveGapFeedback
     testAlignToBarsPointInTime
     testNormalizeBarsForLookbackBinanceClampsAtPageCap
@@ -1678,6 +1684,54 @@ testTriLayerPriceActionBodyOpenThresholdMultRejectsInvalidValues = do
         "tri-layer-price-action-body-open-threshold-mult accepts custom values"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tri-layer-price-action-body-open-threshold-mult", "0.4"] of
             Right args -> argTriLayerPriceActionBodyOpenThresholdMult args == 0.4
+            Left _ -> False
+        )
+
+testCostCalibrationKnobsRejectInvalidValues :: IO ()
+testCostCalibrationKnobsRejectInvalidValues = do
+    assert
+        "cost-calibration-min-observations rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--cost-calibration-min-observations", "-1"] == Left "--cost-calibration-min-observations must be >= 0")
+    assert
+        "cost-calibration-shrinkage-obs rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--cost-calibration-shrinkage-obs", "-0.1"] == Left "--cost-calibration-shrinkage-obs must be >= 0")
+    assert
+        "cost-calibration-window rejects zero"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--cost-calibration-window", "0"] == Left "--cost-calibration-window must be >= 1")
+    assert
+        "cost-calibration-floor-factor rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--cost-calibration-floor-factor", "-0.1"] == Left "--cost-calibration-floor-factor must be >= 0")
+    assert
+        "cost-calibration-max-per-side rejects zero"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--cost-calibration-max-per-side", "0"] == Left "--cost-calibration-max-per-side must be > 0")
+    assert
+        "cost-calibration-outlier-bound rejects zero"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--cost-calibration-outlier-bound", "0"] == Left "--cost-calibration-outlier-bound must be > 0")
+    assert
+        "cost-calibration knobs accept custom values"
+        ( case parseAndValidateCliArgs
+            [ "--data"
+            , "sample.csv"
+            , "--cost-calibration-min-observations"
+            , "3"
+            , "--cost-calibration-shrinkage-obs"
+            , "5"
+            , "--cost-calibration-window"
+            , "12"
+            , "--cost-calibration-floor-factor"
+            , "0.4"
+            , "--cost-calibration-max-per-side"
+            , "0.02"
+            , "--cost-calibration-outlier-bound"
+            , "0.03"
+            ] of
+            Right args ->
+                argCostCalibrationMinObservations args == 3
+                    && argCostCalibrationShrinkageObs args == 5
+                    && argCostCalibrationWindow args == 12
+                    && argCostCalibrationFloorFactor args == 0.4
+                    && argCostCalibrationMaxPerSide args == 0.02
+                    && argCostCalibrationOutlierBound args == 0.03
             Left _ -> False
         )
 
@@ -4530,6 +4584,30 @@ testCalibratedSlippageShrinkage = do
         ( calibratedSlippagePerSide configured (replicate 8 0.003)
             < calibratedSlippagePerSide configured (replicate 64 0.003)
         )
+
+testCostCalibrationConfigurableRoiKnobs :: IO ()
+testCostCalibrationConfigurableRoiKnobs = do
+    let strictOutlierCfg = defaultCostCalibrationConfig{cccOutlierBound = 0.004}
+        approx expected = maybe False (\v -> abs (v - expected) < 1e-12)
+    assert
+        "configured outlier bound can reject otherwise accepted fill measurements"
+        ( isNothing (observedSlippageFractionWithConfig strictOutlierCfg "BUY" 100 (Just 2) (Just 201))
+            && approx 0.005 (observedSlippageFraction "BUY" 100 (Just 2) (Just 201))
+        )
+
+    let windowCfg =
+            defaultCostCalibrationConfig
+                { cccMinObservations = 2
+                , cccShrinkageObs = 0
+                , cccWindow = 2
+                , cccFloorFactor = 0
+                , cccMaxPerSide = 1
+                }
+        configured = 0.0002
+        calibrated = calibratedSlippagePerSideWithConfig windowCfg configured [0.001, 0.002, 0.004]
+    assert
+        "configured evidence window controls the realized median used for calibration"
+        (abs (calibrated - 0.003) < 1e-12)
 
 {- | The reinforcement semantics: starting from identical parameters, a
 fine-tune that upweights one region of the series must fit that region

@@ -33,6 +33,7 @@ import Options.Applicative
 import Trader.Binance (BinanceMarket (..))
 import Trader.BotStartSemantics (adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean)
 import Trader.CapitalPreservation (CapitalPreservationConfig (..), defaultCapitalPreservationConfig)
+import Trader.CostCalibration (CostCalibrationConfig (..), defaultCostCalibrationConfig)
 import Trader.Duration (TimeWindow, lookbackBarsFrom, parseIntervalSeconds, parseTimeWindow)
 import Trader.LstmDefaults (defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultLstmAdamEps)
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod)
@@ -201,6 +202,12 @@ data Args = Args
     , argSlippageImpact :: Double
     , argSlippageImpactPower :: Double
     , argSpreadVolMult :: Double
+    , argCostCalibrationMinObservations :: Int
+    , argCostCalibrationShrinkageObs :: Double
+    , argCostCalibrationWindow :: Int
+    , argCostCalibrationFloorFactor :: Double
+    , argCostCalibrationMaxPerSide :: Double
+    , argCostCalibrationOutlierBound :: Double
     , argIntrabarFill :: IntrabarFill
     , argStopLoss :: Maybe Double
     , argTakeProfit :: Maybe Double
@@ -1002,6 +1009,12 @@ opts = do
     argSlippageImpact <- option auto (long "slippage-impact" <> value 0 <> help "Slippage impact coefficient applied to size^power (0 disables)")
     argSlippageImpactPower <- option auto (long "slippage-impact-power" <> value 1 <> help "Exponent for slippage impact scaling (>=0)")
     argSpreadVolMult <- option auto (long "spread-vol-mult" <> value 0 <> help "Extra spread per-bar sigma multiple (0 disables)")
+    argCostCalibrationMinObservations <- option auto (long "cost-calibration-min-observations" <> value (cccMinObservations defaultCostCalibrationConfig) <> help "Filled-order slippage observations required before live slippage calibration updates")
+    argCostCalibrationShrinkageObs <- option auto (long "cost-calibration-shrinkage-obs" <> value (cccShrinkageObs defaultCostCalibrationConfig) <> help "Prior shrinkage strength for live slippage calibration, in observation units")
+    argCostCalibrationWindow <- option auto (long "cost-calibration-window" <> value (cccWindow defaultCostCalibrationConfig) <> help "Maximum recent filled-order slippage observations used for live cost calibration")
+    argCostCalibrationFloorFactor <- option auto (long "cost-calibration-floor-factor" <> value (cccFloorFactor defaultCostCalibrationConfig) <> help "Minimum calibrated live slippage as a multiple of configured --slippage")
+    argCostCalibrationMaxPerSide <- option auto (long "cost-calibration-max-per-side" <> value (cccMaxPerSide defaultCostCalibrationConfig) <> help "Maximum calibrated live slippage per side")
+    argCostCalibrationOutlierBound <- option auto (long "cost-calibration-outlier-bound" <> value (cccOutlierBound defaultCostCalibrationConfig) <> help "Absolute fill-slippage fraction above which a live calibration observation is discarded")
     argIntrabarFill <-
         option
             (eitherReader parseIntrabarFill)
@@ -1807,6 +1820,10 @@ validateArgs args0 = do
             , ("--slippage-impact", argSlippageImpact args)
             , ("--slippage-impact-power", argSlippageImpactPower args)
             , ("--spread-vol-mult", argSpreadVolMult args)
+            , ("--cost-calibration-shrinkage-obs", argCostCalibrationShrinkageObs args)
+            , ("--cost-calibration-floor-factor", argCostCalibrationFloorFactor args)
+            , ("--cost-calibration-max-per-side", argCostCalibrationMaxPerSide args)
+            , ("--cost-calibration-outlier-bound", argCostCalibrationOutlierBound args)
             , ("--stop-loss-vol-mult", argStopLossVolMult args)
             , ("--take-profit-vol-mult", argTakeProfitVolMult args)
             , ("--trailing-stop-vol-mult", argTrailingStopVolMult args)
@@ -2160,6 +2177,12 @@ validateArgs args0 = do
     ensure "--slippage-impact must be >= 0" (argSlippageImpact args >= 0)
     ensure "--slippage-impact-power must be >= 0" (argSlippageImpactPower args >= 0)
     ensure "--spread-vol-mult must be >= 0" (argSpreadVolMult args >= 0)
+    ensure "--cost-calibration-min-observations must be >= 0" (argCostCalibrationMinObservations args >= 0)
+    ensure "--cost-calibration-shrinkage-obs must be >= 0" (argCostCalibrationShrinkageObs args >= 0)
+    ensure "--cost-calibration-window must be >= 1" (argCostCalibrationWindow args >= 1)
+    ensure "--cost-calibration-floor-factor must be >= 0" (argCostCalibrationFloorFactor args >= 0)
+    ensure "--cost-calibration-max-per-side must be > 0" (argCostCalibrationMaxPerSide args > 0)
+    ensure "--cost-calibration-outlier-bound must be > 0" (argCostCalibrationOutlierBound args > 0)
     case argStopLoss args of
         Nothing -> pure ()
         Just v -> do

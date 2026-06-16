@@ -22,14 +22,18 @@ The fee rate itself (@--fee@) is contractual and stays configured; only the
 uncertain price-impact component is calibrated.
 -}
 module Trader.CostCalibration (
+    CostCalibrationConfig (..),
     calibratedSlippagePerSide,
+    calibratedSlippagePerSideWithConfig,
     costCalibrationFloorFactor,
     costCalibrationMaxPerSide,
     costCalibrationMinObservations,
     costCalibrationOutlierBound,
     costCalibrationShrinkageObs,
     costCalibrationWindow,
+    defaultCostCalibrationConfig,
     observedSlippageFraction,
+    observedSlippageFractionWithConfig,
     venueSlippageFloor,
     venueSpreadFloor,
     venueTakerFeeFloor,
@@ -39,6 +43,27 @@ module Trader.CostCalibration (
 ) where
 
 import Data.List (sort)
+
+data CostCalibrationConfig = CostCalibrationConfig
+    { cccMinObservations :: !Int
+    , cccShrinkageObs :: !Double
+    , cccWindow :: !Int
+    , cccFloorFactor :: !Double
+    , cccMaxPerSide :: !Double
+    , cccOutlierBound :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultCostCalibrationConfig :: CostCalibrationConfig
+defaultCostCalibrationConfig =
+    CostCalibrationConfig
+        { cccMinObservations = costCalibrationMinObservations
+        , cccShrinkageObs = costCalibrationShrinkageObs
+        , cccWindow = costCalibrationWindow
+        , cccFloorFactor = costCalibrationFloorFactor
+        , cccMaxPerSide = costCalibrationMaxPerSide
+        , cccOutlierBound = costCalibrationOutlierBound
+        }
 
 {- | Floors for the costs an order on the venue can actually achieve. Every
 live order is a taker (market) order, so neither an optimizer trial nor an
@@ -130,7 +155,11 @@ actually fill, any input is non-positive or non-finite, the side is
 unrecognized, or the measurement exceeds 'costCalibrationOutlierBound'.
 -}
 observedSlippageFraction :: String -> Double -> Maybe Double -> Maybe Double -> Maybe Double
-observedSlippageFraction side decisionPrice mExecutedQty mCumQuote = do
+observedSlippageFraction =
+    observedSlippageFractionWithConfig defaultCostCalibrationConfig
+
+observedSlippageFractionWithConfig :: CostCalibrationConfig -> String -> Double -> Maybe Double -> Maybe Double -> Maybe Double
+observedSlippageFractionWithConfig config side decisionPrice mExecutedQty mCumQuote = do
     direction <-
         case side of
             "BUY" -> Just 1
@@ -141,7 +170,8 @@ observedSlippageFraction side decisionPrice mExecutedQty mCumQuote = do
     quote <- mCumQuote >>= positiveFinite
     let avgFill = quote / qty
         slip = direction * (avgFill - decision) / decision
-    if isNaN slip || isInfinite slip || abs slip > costCalibrationOutlierBound
+        outlierBound = max 0 (cccOutlierBound config)
+    if isNaN slip || isInfinite slip || abs slip > outlierBound
         then Nothing
         else Just slip
 
@@ -151,21 +181,30 @@ the configured value passes through untouched, so paper bots and fresh
 sessions behave exactly as before.
 -}
 calibratedSlippagePerSide :: Double -> [Double] -> Double
-calibratedSlippagePerSide configured observations =
+calibratedSlippagePerSide =
+    calibratedSlippagePerSideWithConfig defaultCostCalibrationConfig
+
+calibratedSlippagePerSideWithConfig :: CostCalibrationConfig -> Double -> [Double] -> Double
+calibratedSlippagePerSideWithConfig config configured observations =
     let prior =
             if isNaN configured || isInfinite configured || configured < 0
                 then 0
                 else configured
-        recent = takeLastObs costCalibrationWindow (filter finiteObs observations)
+        minObservations = max 0 (cccMinObservations config)
+        shrinkageObs = max 0 (cccShrinkageObs config)
+        window = max 1 (cccWindow config)
+        floorFactor = max 0 (cccFloorFactor config)
+        maxPerSide = max 0 (cccMaxPerSide config)
+        recent = takeLastObs window (filter finiteObs observations)
         n = length recent
-     in if n < costCalibrationMinObservations
+     in if n < minObservations
             then prior
             else
                 let est = median recent
-                    w = fromIntegral n / (fromIntegral n + costCalibrationShrinkageObs)
+                    w = fromIntegral n / (fromIntegral n + shrinkageObs)
                     blended = w * est + (1 - w) * prior
-                    floorVal = costCalibrationFloorFactor * prior
-                 in min costCalibrationMaxPerSide (max floorVal blended)
+                    floorVal = floorFactor * prior
+                 in min maxPerSide (max floorVal blended)
   where
     finiteObs x = not (isNaN x || isInfinite x)
 
