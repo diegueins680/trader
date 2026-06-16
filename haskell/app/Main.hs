@@ -1053,6 +1053,12 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrLstmAdamBeta1 :: !(Maybe Double)
     , arrLstmAdamBeta2 :: !(Maybe Double)
     , arrLstmAdamEps :: !(Maybe Double)
+    , arrLstmAdamBeta1Min :: !(Maybe Double)
+    , arrLstmAdamBeta1Max :: !(Maybe Double)
+    , arrLstmAdamBeta2Min :: !(Maybe Double)
+    , arrLstmAdamBeta2Max :: !(Maybe Double)
+    , arrLstmAdamEpsMin :: !(Maybe Double)
+    , arrLstmAdamEpsMax :: !(Maybe Double)
     , arrPatienceMax :: !(Maybe Int)
     , arrGradClipMin :: !(Maybe Double)
     , arrGradClipMax :: !(Maybe Double)
@@ -10164,6 +10170,9 @@ parseTopComboToArgs base combo = do
         tuneStressVolMult = max 1e-12 (pickD "tuneStressVolMult" (argTuneStressVolMult base))
         tuneStressShock = pickD "tuneStressShock" (argTuneStressShock base)
         tuneStressWeight = max 0 (pickD "tuneStressWeight" (argTuneStressWeight base))
+        lstmAdamBeta1 = clamp01 (pickD "lstmAdamBeta1" (argLstmAdamBeta1 base))
+        lstmAdamBeta2 = clamp01 (pickD "lstmAdamBeta2" (argLstmAdamBeta2 base))
+        lstmAdamEps = max 1e-12 (pickD "lstmAdamEps" (argLstmAdamEps base))
 
         taEntryOpenThreshold = max 0 (pickD "taEntryOpenThreshold" (argTaEntryOpenThreshold base))
         taTrendAdxThreshold = clamp100 (pickD "taTrendAdxThreshold" (argTaTrendAdxThreshold base))
@@ -10218,6 +10227,9 @@ parseTopComboToArgs base combo = do
                 , argEpochs = max 1 (pickI "epochs" (argEpochs base))
                 , argHiddenSize = max 1 (pickI "hiddenSize" (argHiddenSize base))
                 , argLr = max 1e-12 (pickD "learningRate" (argLr base))
+                , argLstmAdamBeta1 = min 0.999999 lstmAdamBeta1
+                , argLstmAdamBeta2 = min 0.999999 lstmAdamBeta2
+                , argLstmAdamEps = lstmAdamEps
                 , argValRatio = clamp01 (pickD "valRatio" (argValRatio base))
                 , argPatience = max 0 (pickI "patience" (argPatience base))
                 , argGradClip = gradClip
@@ -15779,6 +15791,12 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                     maybeDoubleArg "--lstm-adam-beta1" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta1 req <|> readFiniteDoubleMaybe lstmAdamBeta1Env))
                         ++ maybeDoubleArg "--lstm-adam-beta2" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta2 req <|> readFiniteDoubleMaybe lstmAdamBeta2Env))
                         ++ maybeDoubleArg "--lstm-adam-eps" (fmap (max 1e-12) (arrLstmAdamEps req <|> readFiniteDoubleMaybe lstmAdamEpsEnv))
+                        ++ maybeDoubleArg "--lstm-adam-beta1-min" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta1Min req))
+                        ++ maybeDoubleArg "--lstm-adam-beta1-max" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta1Max req))
+                        ++ maybeDoubleArg "--lstm-adam-beta2-min" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta2Min req))
+                        ++ maybeDoubleArg "--lstm-adam-beta2-max" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta2Max req))
+                        ++ maybeDoubleArg "--lstm-adam-eps-min" (fmap (max 1e-12) (arrLstmAdamEpsMin req))
+                        ++ maybeDoubleArg "--lstm-adam-eps-max" (fmap (max 1e-12) (arrLstmAdamEpsMax req))
                 patienceArgs =
                     maybeIntArg "--patience-max" (fmap (max 0) (arrPatienceMax req))
                 gradClipArgs =

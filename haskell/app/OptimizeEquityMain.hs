@@ -370,6 +370,12 @@ optimizerArgsParser =
         <*> option auto (long "hidden-size-max" <> value 16 <> metavar "INT")
         <*> option auto (long "lr-min" <> value 1e-4 <> metavar "FLOAT")
         <*> option auto (long "lr-max" <> value 1e-2 <> metavar "FLOAT")
+        <*> optional (option auto (long "lstm-adam-beta1-min" <> metavar "FLOAT"))
+        <*> optional (option auto (long "lstm-adam-beta1-max" <> metavar "FLOAT"))
+        <*> optional (option auto (long "lstm-adam-beta2-min" <> metavar "FLOAT"))
+        <*> optional (option auto (long "lstm-adam-beta2-max" <> metavar "FLOAT"))
+        <*> optional (option auto (long "lstm-adam-eps-min" <> metavar "FLOAT"))
+        <*> optional (option auto (long "lstm-adam-eps-max" <> metavar "FLOAT"))
         <*> option auto (long "val-ratio-min" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "val-ratio-max" <> value 0.4 <> metavar "FLOAT")
         <*> option auto (long "patience-max" <> value 20 <> metavar "INT")
@@ -682,6 +688,24 @@ validateArgs args = do
         Left "--lstm-adam-beta2 must be >= 0 and < 1."
     when (not (finiteDouble (oaLstmAdamEps args)) || oaLstmAdamEps args <= 0) $
         Left "--lstm-adam-eps must be > 0."
+    let validateOptionalAdamBeta flag value =
+            case value of
+                Nothing -> pure ()
+                Just v
+                    | not (finiteDouble v) || v < 0 || v >= 1 -> Left (flag ++ " must be >= 0 and < 1.")
+                    | otherwise -> pure ()
+        validateOptionalAdamEps flag value =
+            case value of
+                Nothing -> pure ()
+                Just v
+                    | not (finiteDouble v) || v <= 0 -> Left (flag ++ " must be > 0.")
+                    | otherwise -> pure ()
+    validateOptionalAdamBeta "--lstm-adam-beta1-min" (oaLstmAdamBeta1Min args)
+    validateOptionalAdamBeta "--lstm-adam-beta1-max" (oaLstmAdamBeta1Max args)
+    validateOptionalAdamBeta "--lstm-adam-beta2-min" (oaLstmAdamBeta2Min args)
+    validateOptionalAdamBeta "--lstm-adam-beta2-max" (oaLstmAdamBeta2Max args)
+    validateOptionalAdamEps "--lstm-adam-eps-min" (oaLstmAdamEpsMin args)
+    validateOptionalAdamEps "--lstm-adam-eps-max" (oaLstmAdamEpsMax args)
     when (oaQualityMinTrials args < 1) $
         Left "--quality-min-trials must be >= 1."
     when (oaQualityMaxEpochs args < 1) $

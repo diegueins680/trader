@@ -103,6 +103,7 @@ import Trader.Formal.CloseTiming (
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
  )
+import Trader.LstmDefaults (defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultLstmAdamEps)
 import Trader.Method (methodCode, parseMethod)
 import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 import Trader.Optimizer.Json (encodePretty)
@@ -171,6 +172,31 @@ normalizeOptionalUnitInterval raw =
         Just x
             | isNaN x || isInfinite x -> Nothing
             | otherwise -> Just (clamp x 0 1)
+
+normalizeLstmAdamBeta :: Double -> Double -> Double
+normalizeLstmAdamBeta fallback x
+    | isNaN x || isInfinite x = fallback
+    | otherwise = clamp x 0 0.999999
+
+normalizeLstmAdamEps :: Double -> Double -> Double
+normalizeLstmAdamEps fallback x
+    | isNaN x || isInfinite x = fallback
+    | x <= 0 = fallback
+    | otherwise = max 1e-12 x
+
+lstmAdamBetaRange :: Double -> Maybe Double -> Maybe Double -> (Double, Double)
+lstmAdamBetaRange fallback mLo mHi =
+    orderedPair
+        ( normalizeLstmAdamBeta fallback (fromMaybe fallback mLo)
+        , normalizeLstmAdamBeta fallback (fromMaybe fallback mHi)
+        )
+
+lstmAdamEpsRange :: Double -> Maybe Double -> Maybe Double -> (Double, Double)
+lstmAdamEpsRange fallback mLo mHi =
+    orderedPair
+        ( normalizeLstmAdamEps fallback (fromMaybe fallback mLo)
+        , normalizeLstmAdamEps fallback (fromMaybe fallback mHi)
+        )
 
 minPositionSizeFloor :: Double
 minPositionSizeFloor = 1e-12
@@ -365,6 +391,9 @@ normalizeTrialParams p =
                 then 1
                 else lstmConfidenceHard'
         lstmConfidenceSoft' = clamp (tpLstmConfidenceSoft p) 0 lstmConfidenceSoftMax
+        lstmAdamBeta1' = normalizeLstmAdamBeta defaultLstmAdamBeta1 (tpLstmAdamBeta1 p)
+        lstmAdamBeta2' = normalizeLstmAdamBeta defaultLstmAdamBeta2 (tpLstmAdamBeta2 p)
+        lstmAdamEps' = normalizeLstmAdamEps defaultLstmAdamEps (tpLstmAdamEps p)
      in p
             { tpBlendWeight = clamp (tpBlendWeight p) 0 1
             , tpRouterScorePnlWeight = clamp (tpRouterScorePnlWeight p) 0 1
@@ -374,6 +403,9 @@ normalizeTrialParams p =
             , tpThresholdFactorMax = thresholdFactorMax'
             , tpMaxPositionSize = maxPositionSize'
             , tpVolEwmaAlpha = normalizeOptionalPositiveFraction (tpVolEwmaAlpha p)
+            , tpLstmAdamBeta1 = lstmAdamBeta1'
+            , tpLstmAdamBeta2 = lstmAdamBeta2'
+            , tpLstmAdamEps = lstmAdamEps'
             , tpLstmConfidenceSoft = lstmConfidenceSoft'
             , tpLstmConfidenceHard = lstmConfidenceHard'
             , tpStopLoss = normalizeOptionalPositiveFraction (tpStopLoss p)
@@ -2283,6 +2315,12 @@ data OptimizerArgs = OptimizerArgs
     , oaHiddenSizeMax :: !Int
     , oaLrMin :: !Double
     , oaLrMax :: !Double
+    , oaLstmAdamBeta1Min :: !(Maybe Double)
+    , oaLstmAdamBeta1Max :: !(Maybe Double)
+    , oaLstmAdamBeta2Min :: !(Maybe Double)
+    , oaLstmAdamBeta2Max :: !(Maybe Double)
+    , oaLstmAdamEpsMin :: !(Maybe Double)
+    , oaLstmAdamEpsMax :: !(Maybe Double)
     , oaValRatioMin :: !Double
     , oaValRatioMax :: !Double
     , oaPatienceMax :: !Int
@@ -2661,6 +2699,9 @@ data TrialParams = TrialParams
     , tpEpochs :: !Int
     , tpHiddenSize :: !Int
     , tpLearningRate :: !Double
+    , tpLstmAdamBeta1 :: !Double
+    , tpLstmAdamBeta2 :: !Double
+    , tpLstmAdamEps :: !Double
     , tpValRatio :: !Double
     , tpPatience :: !Int
     , tpWalkForwardFolds :: !Int
@@ -2949,6 +2990,12 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , show (tpHiddenSize params)
                    , "--lr"
                    , printf "%.8f" (tpLearningRate params)
+                   , "--lstm-adam-beta1"
+                   , printf "%.6f" (tpLstmAdamBeta1 params)
+                   , "--lstm-adam-beta2"
+                   , printf "%.6f" (tpLstmAdamBeta2 params)
+                   , "--lstm-adam-eps"
+                   , printf "%.12g" (tpLstmAdamEps params)
                    , "--val-ratio"
                    , printf "%.6f" (tpValRatio params)
                    , "--patience"
@@ -3559,6 +3606,9 @@ trialToRecord tr symbolLabel =
             , "epochs" .= tpEpochs (trParams tr)
             , "hiddenSize" .= tpHiddenSize (trParams tr)
             , "learningRate" .= tpLearningRate (trParams tr)
+            , "lstmAdamBeta1" .= tpLstmAdamBeta1 (trParams tr)
+            , "lstmAdamBeta2" .= tpLstmAdamBeta2 (trParams tr)
+            , "lstmAdamEps" .= tpLstmAdamEps (trParams tr)
             , "valRatio" .= tpValRatio (trParams tr)
             , "patience" .= tpPatience (trParams tr)
             , "walkForwardFolds" .= tpWalkForwardFolds (trParams tr)
@@ -3797,6 +3847,9 @@ sampleParams
     hiddenMax
     lrMin
     lrMax
+    lstmAdamBeta1Range
+    lstmAdamBeta2Range
+    lstmAdamEpsRange
     valMin
     valMax
     patienceMax
@@ -4116,7 +4169,16 @@ sampleParams
             (epochs, rng27) = nextIntRange epochsMin epochsMax rng26g
             (hiddenSize, rng28) = nextIntRange hiddenMin hiddenMax rng27
             (learningRate, rng29) = nextLogUniform lrMin lrMax rng28
-            (valRatio, rng30) = nextUniform valMin valMax rng29
+            (lstmAdamBeta1, rng29a) =
+                let (lo, hi) = ordered lstmAdamBeta1Range
+                 in nextUniform lo hi rng29
+            (lstmAdamBeta2, rng29b) =
+                let (lo, hi) = ordered lstmAdamBeta2Range
+                 in nextUniform lo hi rng29a
+            (lstmAdamEps, rng29c) =
+                let (lo, hi) = ordered lstmAdamEpsRange
+                 in nextLogUniform lo hi rng29b
+            (valRatio, rng30) = nextUniform valMin valMax rng29c
             (patience, rng31) = nextIntRange 0 patienceMax rng30
             (walkForwardFolds, rng32) =
                 let (lo, hi) = ordered walkForwardFoldsRange
@@ -4626,6 +4688,9 @@ sampleParams
                 , tpEpochs = epochs
                 , tpHiddenSize = hiddenSize
                 , tpLearningRate = learningRate
+                , tpLstmAdamBeta1 = lstmAdamBeta1
+                , tpLstmAdamBeta2 = lstmAdamBeta2
+                , tpLstmAdamEps = lstmAdamEps
                 , tpValRatio = valRatio
                 , tpPatience = patience
                 , tpWalkForwardFolds = walkForwardFolds
@@ -4884,6 +4949,21 @@ runOptimizer args0 = do
                                                         hiddenMax = max hiddenMin (oaHiddenSizeMax args)
                                                         lrMin = max 1e-9 (oaLrMin args)
                                                         lrMax = max lrMin (oaLrMax args)
+                                                        lstmAdamBeta1Range =
+                                                            lstmAdamBetaRange
+                                                                (oaLstmAdamBeta1 args)
+                                                                (oaLstmAdamBeta1Min args)
+                                                                (oaLstmAdamBeta1Max args)
+                                                        lstmAdamBeta2Range =
+                                                            lstmAdamBetaRange
+                                                                (oaLstmAdamBeta2 args)
+                                                                (oaLstmAdamBeta2Min args)
+                                                                (oaLstmAdamBeta2Max args)
+                                                        lstmAdamEpsRange' =
+                                                            lstmAdamEpsRange
+                                                                (oaLstmAdamEps args)
+                                                                (oaLstmAdamEpsMin args)
+                                                                (oaLstmAdamEpsMax args)
                                                         valMin = clamp (oaValRatioMin args) 0 0.9
                                                         valMax = max valMin (oaValRatioMax args)
                                                         patienceMax = max 0 (oaPatienceMax args)
@@ -5367,6 +5447,9 @@ runOptimizer args0 = do
                                                                                 hiddenMax
                                                                                 lrMin
                                                                                 lrMax
+                                                                                lstmAdamBeta1Range
+                                                                                lstmAdamBeta2Range
+                                                                                lstmAdamEpsRange'
                                                                                 valMin
                                                                                 valMax
                                                                                 patienceMax
@@ -6006,12 +6089,6 @@ buildBaseArgs args csvCols = do
                            , show (max 0 (oaTuneMaxThresholdCandidates args))
                            , "--sensor-variance-ewma-alpha"
                            , printf "%.6f" (clamp (oaSensorVarianceEwmaAlpha args) 0 1)
-                           , "--lstm-adam-beta1"
-                           , printf "%.6f" (clamp (oaLstmAdamBeta1 args) 0 0.999999)
-                           , "--lstm-adam-beta2"
-                           , printf "%.6f" (clamp (oaLstmAdamBeta2 args) 0 0.999999)
-                           , "--lstm-adam-eps"
-                           , printf "%.12g" (max 1e-12 (oaLstmAdamEps args))
                            , "--seed"
                            , show (oaSeed args)
                            ]
@@ -6153,6 +6230,9 @@ printBest tr = do
     putStrLn ("  epochs:        " ++ show (tpEpochs p))
     putStrLn ("  hiddenSize:    " ++ show (tpHiddenSize p))
     putStrLn ("  lr:            " ++ show (tpLearningRate p))
+    putStrLn ("  lstmAdamBeta1: " ++ show (tpLstmAdamBeta1 p))
+    putStrLn ("  lstmAdamBeta2: " ++ show (tpLstmAdamBeta2 p))
+    putStrLn ("  lstmAdamEps:   " ++ show (tpLstmAdamEps p))
     putStrLn ("  valRatio:      " ++ show (tpValRatio p))
     putStrLn ("  patience:      " ++ show (tpPatience p))
     putStrLn ("  walkForwardFolds:" ++ show (tpWalkForwardFolds p))
@@ -6446,7 +6526,10 @@ crossoverTrialParams a b rng0 =
         (tpEpochs', rng48) = pickValue (tpEpochs a) (tpEpochs b) rng47
         (tpHiddenSize', rng49) = pickValue (tpHiddenSize a) (tpHiddenSize b) rng48
         (tpLearningRate', rng50) = pickValue (tpLearningRate a) (tpLearningRate b) rng49
-        (tpValRatio', rng51) = pickValue (tpValRatio a) (tpValRatio b) rng50
+        (tpLstmAdamBeta1', rng50a) = pickValue (tpLstmAdamBeta1 a) (tpLstmAdamBeta1 b) rng50
+        (tpLstmAdamBeta2', rng50b) = pickValue (tpLstmAdamBeta2 a) (tpLstmAdamBeta2 b) rng50a
+        (tpLstmAdamEps', rng50c) = pickValue (tpLstmAdamEps a) (tpLstmAdamEps b) rng50b
+        (tpValRatio', rng51) = pickValue (tpValRatio a) (tpValRatio b) rng50c
         (tpPatience', rng52) = pickValue (tpPatience a) (tpPatience b) rng51
         (tpWalkForwardFolds', rng53) = pickValue (tpWalkForwardFolds a) (tpWalkForwardFolds b) rng52
         (tpWalkForwardEmbargoBars', rng53a) = pickValue (tpWalkForwardEmbargoBars a) (tpWalkForwardEmbargoBars b) rng53
@@ -6621,6 +6704,9 @@ crossoverTrialParams a b rng0 =
                 , tpEpochs = tpEpochs'
                 , tpHiddenSize = tpHiddenSize'
                 , tpLearningRate = tpLearningRate'
+                , tpLstmAdamBeta1 = tpLstmAdamBeta1'
+                , tpLstmAdamBeta2 = tpLstmAdamBeta2'
+                , tpLstmAdamEps = tpLstmAdamEps'
                 , tpValRatio = tpValRatio'
                 , tpPatience = tpPatience'
                 , tpWalkForwardFolds = tpWalkForwardFolds'
@@ -6798,7 +6884,10 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (rebalanceThreshold', rng31) = perturbDouble (tpRebalanceThreshold p) scaleDouble rng30
         (rebalanceCostMult', rng31a) = perturbDouble (tpRebalanceCostMult p) scaleDouble rng31
         (learningRate', rng32) = perturbDouble (tpLearningRate p) scaleDouble rng31a
-        (thresholdFactorAlpha', rng33) = perturbDouble (tpThresholdFactorAlpha p) scaleDouble rng32
+        (lstmAdamBeta1', rng32a) = perturbDouble (tpLstmAdamBeta1 p) scaleDouble rng32
+        (lstmAdamBeta2', rng32b) = perturbDouble (tpLstmAdamBeta2 p) scaleDouble rng32a
+        (lstmAdamEps', rng32c) = perturbDouble (tpLstmAdamEps p) scaleDouble rng32b
+        (thresholdFactorAlpha', rng33) = perturbDouble (tpThresholdFactorAlpha p) scaleDouble rng32c
         (thresholdFactorMin', rng34) = perturbDouble (tpThresholdFactorMin p) scaleDouble rng33
         (thresholdFactorMax', rng35) = perturbDouble (tpThresholdFactorMax p) scaleDouble rng34
         (thresholdFactorFloor', rng36) = perturbDouble (tpThresholdFactorFloor p) scaleDouble rng35
@@ -6918,6 +7007,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpRebalanceThreshold = rebalanceThreshold'
                 , tpRebalanceCostMult = rebalanceCostMult'
                 , tpLearningRate = learningRate'
+                , tpLstmAdamBeta1 = lstmAdamBeta1'
+                , tpLstmAdamBeta2 = lstmAdamBeta2'
+                , tpLstmAdamEps = lstmAdamEps'
                 , tpRouterLookback = routerLookback'
                 , tpRouterMinScore = routerMinScore'
                 , tpFeeFixed = feeFixed'
@@ -7143,6 +7235,9 @@ applyPriorOverlay allowedIntervals prior base =
                 , tpEpochs = fromMaybe (tpEpochs base) (intField ["epochs"] params)
                 , tpHiddenSize = fromMaybe (tpHiddenSize base) (intField ["hiddenSize"] params)
                 , tpLearningRate = fromMaybe (tpLearningRate base) (doubleField ["learningRate"] params)
+                , tpLstmAdamBeta1 = fromMaybe (tpLstmAdamBeta1 base) (doubleField ["lstmAdamBeta1"] params)
+                , tpLstmAdamBeta2 = fromMaybe (tpLstmAdamBeta2 base) (doubleField ["lstmAdamBeta2"] params)
+                , tpLstmAdamEps = fromMaybe (tpLstmAdamEps base) (doubleField ["lstmAdamEps"] params)
                 , tpValRatio = fromMaybe (tpValRatio base) (doubleField ["valRatio"] params)
                 , tpPatience = fromMaybe (tpPatience base) (intField ["patience"] params)
                 , tpWalkForwardFolds = fromMaybe (tpWalkForwardFolds base) (intField ["walkForwardFolds"] params)
@@ -7409,6 +7504,9 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "epochs" .= tpEpochs params
                 , "hiddenSize" .= tpHiddenSize params
                 , "learningRate" .= tpLearningRate params
+                , "lstmAdamBeta1" .= tpLstmAdamBeta1 params
+                , "lstmAdamBeta2" .= tpLstmAdamBeta2 params
+                , "lstmAdamEps" .= tpLstmAdamEps params
                 , "valRatio" .= tpValRatio params
                 , "patience" .= tpPatience params
                 , "walkForwardFolds" .= tpWalkForwardFolds params
