@@ -10876,6 +10876,10 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     discoveryRecoveryEnabledEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_ENABLED"
                                     discoveryRecoveryTrialsEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS"
                                     discoveryRecoveryTimeoutEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TIMEOUT_SEC"
+                                    discoveryRecoveryOpenThresholdMinEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_OPEN_THRESHOLD_MIN"
+                                    discoveryRecoveryOpenThresholdMaxEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_OPEN_THRESHOLD_MAX"
+                                    discoveryRecoveryCloseThresholdMinEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_CLOSE_THRESHOLD_MIN"
+                                    discoveryRecoveryCloseThresholdMaxEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_CLOSE_THRESHOLD_MAX"
                                     discoveryRecoveryMinRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_ROUND_TRIPS"
                                     discoveryRecoveryMinExposureEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_EXPOSURE"
                                     discoveryRecoveryMinSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_MIN_SHARPE"
@@ -11007,6 +11011,14 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                             max 1 (readNonNegativeInt discoveryRecoveryTrialsEnv 30)
                                         discoveryRecoveryTimeoutSec :: Int
                                         discoveryRecoveryTimeoutSec = max 1 (readNonNegativeInt discoveryRecoveryTimeoutEnv (max timeoutSec 120))
+                                        discoveryRecoveryOpenThresholdMin :: Double
+                                        discoveryRecoveryOpenThresholdMin = readNonNegativeDouble discoveryRecoveryOpenThresholdMinEnv 0.00005
+                                        discoveryRecoveryOpenThresholdMax :: Double
+                                        discoveryRecoveryOpenThresholdMax = max discoveryRecoveryOpenThresholdMin (readNonNegativeDouble discoveryRecoveryOpenThresholdMaxEnv 0.005)
+                                        discoveryRecoveryCloseThresholdMin :: Double
+                                        discoveryRecoveryCloseThresholdMin = readNonNegativeDouble discoveryRecoveryCloseThresholdMinEnv 0.000001
+                                        discoveryRecoveryCloseThresholdMax :: Double
+                                        discoveryRecoveryCloseThresholdMax = max discoveryRecoveryCloseThresholdMin (readNonNegativeDouble discoveryRecoveryCloseThresholdMaxEnv 0.005)
                                         discoveryRecoveryMinRoundTrips :: Int
                                         discoveryRecoveryMinRoundTrips = readNonNegativeInt discoveryRecoveryMinRoundTripsEnv (min minRoundTrips 1)
                                         discoveryRecoveryMinExposure :: Double
@@ -11262,13 +11274,13 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                     , "--hidden-size-max"
                                                                                     , show hiddenSizeMax
                                                                                     , "--open-threshold-min"
-                                                                                    , "0.00005"
+                                                                                    , show discoveryRecoveryOpenThresholdMin
                                                                                     , "--open-threshold-max"
-                                                                                    , "0.005"
+                                                                                    , show discoveryRecoveryOpenThresholdMax
                                                                                     , "--close-threshold-min"
-                                                                                    , "0.000001"
+                                                                                    , show discoveryRecoveryCloseThresholdMin
                                                                                     , "--close-threshold-max"
-                                                                                    , "0.005"
+                                                                                    , show discoveryRecoveryCloseThresholdMax
                                                                                     , "--min-hold-bars-min"
                                                                                     , "0"
                                                                                     , "--min-hold-bars-max"
