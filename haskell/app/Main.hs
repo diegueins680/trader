@@ -15257,6 +15257,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
     priorPerturbScaleIntEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_INT"
     priorAgeHalfLifeDaysEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_AGE_HALF_LIFE_DAYS"
     priorDiversityMaxPerBucketEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_DIVERSITY_MAX_PER_BUCKET"
+    priorSeedCountEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_SEED_COUNT"
     let priorJson = pickDefaultString (fromMaybe "" mDefaultJson) priorJsonEnv
         priorSampleProb = clamp01 (readNonNegativeDoubleMaybe priorSampleProbEnv 0.6)
         priorMethodSampleProb = clamp01 (readNonNegativeDoubleMaybe priorMethodSampleProbEnv 0.5)
@@ -15267,6 +15268,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
         priorPerturbScaleInt = readNonNegativeIntMaybe priorPerturbScaleIntEnv 1
         priorAgeHalfLifeDays = readNonNegativeDoubleMaybe priorAgeHalfLifeDaysEnv 45.0
         priorDiversityMaxPerBucket = readNonNegativeIntMaybe priorDiversityMaxPerBucketEnv 8
+        priorSeedCount = readNonNegativeIntMaybe priorSeedCountEnv 3
      in pure $
             if priorSampleProb <= 0 || null (trim priorJson)
                 then []
@@ -15291,6 +15293,8 @@ optimizerPriorArgsFromEnv mDefaultJson = do
                     , show priorAgeHalfLifeDays
                     , "--prior-diversity-max-per-bucket"
                     , show priorDiversityMaxPerBucket
+                    , "--prior-seed-count"
+                    , show priorSeedCount
                     ]
 
 prepareOptimizerArgs :: FilePath -> Maybe FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])

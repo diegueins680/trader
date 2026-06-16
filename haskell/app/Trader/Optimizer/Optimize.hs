@@ -2227,6 +2227,7 @@ data OptimizerArgs = OptimizerArgs
     , oaPriorPerturbScaleInt :: !Int
     , oaPriorAgeHalfLifeDays :: !Double
     , oaPriorDiversityMaxPerBucket :: !Int
+    , oaPriorSeedCount :: !Int
     , oaQuality :: !Bool
     , oaQualityMinTrials :: !Int
     , oaQualityMaxEpochs :: !Int
@@ -5501,6 +5502,7 @@ runOptimizer args0 = do
                                                                         priorPerturbScaleInt = max 0 (oaPriorPerturbScaleInt args)
                                                                         priorAgeHalfLifeDays = max 0 (oaPriorAgeHalfLifeDays args)
                                                                         priorDiversityMaxPerBucket = max 0 (oaPriorDiversityMaxPerBucket args)
+                                                                        priorSeedCount = max 0 (oaPriorSeedCount args)
                                                                         minRoundTrips = max 0 (oaMinRoundTrips args)
                                                                         minWinRate = max 0 (oaMinWinRate args)
                                                                         minProfitFactor = max 0 (oaMinProfitFactor args)
@@ -5550,6 +5552,7 @@ runOptimizer args0 = do
                                                                                                 count = floor (fromIntegral trials * ratio)
                                                                                              in max 0 (min trials count)
                                                                                         Nothing -> seedTrialsDefault
+                                                                        priorSeedTrials = take (min seedTrials priorSeedCount) priorTrials
                                                                         survivorCount =
                                                                             if seedTrials <= 0
                                                                                 then 0
@@ -5790,19 +5793,36 @@ runOptimizer args0 = do
                                                                                     priorTrials
                                                                                     baseParams
                                                                                     rng'
-                                                                        runTrialWith idx rng mBase mParents best recordsRev = do
+                                                                        samplePriorSeedParams prior rng =
+                                                                            let (baseParams, _) = sampleParamsWithRng rng
+                                                                                overlaid =
+                                                                                    applyPriorMethodIfEnabled True prior $
+                                                                                        applyPriorOverlay intervals prior baseParams
+                                                                             in normalizeTrialParams
+                                                                                    overlaid
+                                                                                        { tpBars =
+                                                                                            clampBarsForPlatform
+                                                                                                (tpPlatform overlaid)
+                                                                                                barsMin
+                                                                                                barsMax
+                                                                                                (tpBars overlaid)
+                                                                                        }
+                                                                        runTrialWith idx rng mPriorSeed mBase mParents best recordsRev = do
                                                                             let (params, _) =
-                                                                                    case mBase of
-                                                                                        Nothing -> sampleParamsMaybePrior rng
-                                                                                        Just base ->
-                                                                                            case mParents of
-                                                                                                Just parents@(_ : _ : _) ->
-                                                                                                    case pickParentPair parents rng of
-                                                                                                        Just ((p1, p2), rng1) ->
-                                                                                                            let (child, rng2) = crossoverTrialParams p1 p2 rng1
-                                                                                                             in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
-                                                                                                        Nothing -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
-                                                                                                _ -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                    case mPriorSeed of
+                                                                                        Just prior -> (samplePriorSeedParams prior rng, rng)
+                                                                                        Nothing ->
+                                                                                            case mBase of
+                                                                                                Nothing -> sampleParamsMaybePrior rng
+                                                                                                Just base ->
+                                                                                                    case mParents of
+                                                                                                        Just parents@(_ : _ : _) ->
+                                                                                                            case pickParentPair parents rng of
+                                                                                                                Just ((p1, p2), rng1) ->
+                                                                                                                    let (child, rng2) = crossoverTrialParams p1 p2 rng1
+                                                                                                                     in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
+                                                                                                                Nothing -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                                        _ -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
                                                                             tr0 <-
                                                                                 runTrial
                                                                                     traderBinPath
@@ -5947,7 +5967,8 @@ runOptimizer args0 = do
                                                                     (bestSeed, seedRecordsRev, seedResultsRev) <-
                                                                         foldM
                                                                             ( \(b, recs, res) (idx, rng) -> do
-                                                                                (b', recs', tr) <- runTrialWith idx rng Nothing Nothing b recs
+                                                                                let mPriorSeed = listToMaybe (drop (idx - 1) priorSeedTrials)
+                                                                                (b', recs', tr) <- runTrialWith idx rng mPriorSeed Nothing Nothing b recs
                                                                                 pure (b', recs', tr : res)
                                                                             )
                                                                             (Nothing, [], [])
@@ -5991,7 +6012,7 @@ runOptimizer args0 = do
                                                                                                     let ix = survivorsIx `mod` length survivorParams
                                                                                                      in listToMaybe (drop ix survivorParams)
                                                                                         prevScore = bestScore best
-                                                                                    (best', recs', _tr) <- runTrialWith idx rng baseParam gaParentPool best recs
+                                                                                    (best', recs', _tr) <- runTrialWith idx rng Nothing baseParam gaParentPool best recs
                                                                                     let survivorsIx' = survivorsIx + 1
                                                                                         bestScore' = bestScore best'
                                                                                         stagnant' = if bestScore' > prevScore then 0 else stagnant + 1

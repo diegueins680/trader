@@ -96,6 +96,7 @@ optimizerArgsParser =
         <*> option auto (long "prior-perturb-scale-int" <> value 1 <> metavar "INT")
         <*> option auto (long "prior-age-half-life-days" <> value 45.0 <> metavar "FLOAT")
         <*> option auto (long "prior-diversity-max-per-bucket" <> value 8 <> metavar "INT")
+        <*> option auto (long "prior-seed-count" <> value 3 <> metavar "INT")
         <*> switch (long "quality")
         <*> option auto (long "quality-min-trials" <> value 500 <> metavar "INT")
         <*> option auto (long "quality-max-epochs" <> value 50 <> metavar "INT")
@@ -701,6 +702,8 @@ validateArgs args = do
         Left "--prior-age-half-life-days must be >= 0."
     when (oaPriorDiversityMaxPerBucket args < 0) $
         Left "--prior-diversity-max-per-bucket must be >= 0."
+    when (oaPriorSeedCount args < 0) $
+        Left "--prior-seed-count must be >= 0."
     when (oaTuneMaxThresholdCandidates args < 0) $
         Left "--tune-max-threshold-candidates must be >= 0."
     when (oaSensorVarianceEwmaAlpha args < 0 || oaSensorVarianceEwmaAlpha args > 1) $
