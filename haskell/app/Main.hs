@@ -10299,28 +10299,48 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
 
     loop
 
+data AutoOptimizerMethodWeight = AutoOptimizerMethodWeight
+    { aomwFlag :: !String
+    , aomwKey :: !String
+    , aomwEnv :: !String
+    , aomwWeight :: !Double
+    }
+    deriving (Eq, Show)
+
 {- | Base discovery sampling weights for the auto-optimizer, keyed by the
 flag passed to optimize-equity and the @params.method@ code combos carry.
 Each cycle these are scaled by 'liveGapMethodMultiplier', so method
 families whose combos chronically underdeliver live lose discovery budget
 and families that hold up live gain it.
 -}
-autoOptimizerBaseMethodWeights :: [(String, String, Double)]
-autoOptimizerBaseMethodWeights =
+autoOptimizerBaseMethodWeightDefaults :: [AutoOptimizerMethodWeight]
+autoOptimizerBaseMethodWeightDefaults =
     -- Base mix favors LSTM-only ("01"): Kalman-only ("10") produced zero
     -- directional trades across ~4,800 research-box trials (all
     -- KALMAN_NEUTRAL, see 4b2dd3f1), while LSTM-only is the family that
     -- actually trades. "10" keeps a small nonzero base so the live-gap
     -- multiplier can re-balance toward it if its live record earns it
     -- (a zero base stays zero forever).
-    [ ("--method-weight-11", "11", 0.0)
-    , ("--method-weight-10", "10", 0.5)
-    , ("--method-weight-01", "01", 4.0)
-    , ("--method-weight-edge-blend", "edge_blend", 0.0)
-    , ("--method-weight-edge-pick", "edge_pick", 0.0)
-    , ("--method-weight-regime-switch", "regime_switch", 0.0)
-    , ("--method-weight-bandit-router", "bandit_router", 0.0)
+    [ AutoOptimizerMethodWeight "--method-weight-11" "11" "TRADER_OPTIMIZER_METHOD_WEIGHT_11" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-10" "10" "TRADER_OPTIMIZER_METHOD_WEIGHT_10" 0.5
+    , AutoOptimizerMethodWeight "--method-weight-01" "01" "TRADER_OPTIMIZER_METHOD_WEIGHT_01" 4.0
+    , AutoOptimizerMethodWeight "--method-weight-edge-blend" "edge_blend" "TRADER_OPTIMIZER_METHOD_WEIGHT_EDGE_BLEND" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-edge-pick" "edge_pick" "TRADER_OPTIMIZER_METHOD_WEIGHT_EDGE_PICK" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-regime-switch" "regime_switch" "TRADER_OPTIMIZER_METHOD_WEIGHT_REGIME_SWITCH" 0.0
+    , AutoOptimizerMethodWeight "--method-weight-bandit-router" "bandit_router" "TRADER_OPTIMIZER_METHOD_WEIGHT_BANDIT_ROUTER" 0.0
     ]
+
+readAutoOptimizerBaseMethodWeights :: IO [AutoOptimizerMethodWeight]
+readAutoOptimizerBaseMethodWeights =
+    traverse readOverride autoOptimizerBaseMethodWeightDefaults
+  where
+    readOverride spec = do
+        mRaw <- lookupEnv (aomwEnv spec)
+        let weight =
+                case mRaw >>= readMaybe of
+                    Just n | n >= 0 && isFiniteDouble n -> n
+                    _ -> aomwWeight spec
+        pure spec{aomwWeight = weight}
 
 autoOptimizerLoop :: Args -> Maybe StateSyncTarget -> Maybe OpsStore -> Maybe Journal -> FilePath -> TopCombosStore -> IO ()
 autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore = do
@@ -10422,6 +10442,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     maxCombos <- optimizerMaxCombosFromEnv
                                     maxOutputBytes <- optimizerOutputCapFromEnv
                                     exePath <- getExecutablePath
+                                    autoMethodWeights <- readAutoOptimizerBaseMethodWeights
 
                                     let everySec :: Int
                                         everySec =
@@ -10598,15 +10619,17 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                             liveGapStatsByMethod (V.toList combosArr)
                                                                     _ -> M.empty
                                                             _ -> pure M.empty
-                                                    let liveGapWeightArgs =
-                                                            concat
-                                                                [ [flag, printf "%.4f" (base * liveGapMethodMultiplier (M.lookup key liveGapStatsMap)) :: String]
-                                                                | (flag, key, base) <- autoOptimizerBaseMethodWeights
-                                                                ]
+                                                    let liveGapWeightArg weightSpec =
+                                                            [ aomwFlag weightSpec
+                                                            , printf
+                                                                "%.4f"
+                                                                (aomwWeight weightSpec * liveGapMethodMultiplier (M.lookup (aomwKey weightSpec) liveGapStatsMap))
+                                                            ]
+                                                        liveGapWeightArgs = concatMap liveGapWeightArg autoMethodWeights
                                                         liveGapActive =
                                                             or
-                                                                [ base > 0 && liveGapMethodMultiplier (M.lookup key liveGapStatsMap) /= 1
-                                                                | (_, key, base) <- autoOptimizerBaseMethodWeights
+                                                                [ aomwWeight weightSpec > 0 && liveGapMethodMultiplier (M.lookup (aomwKey weightSpec) liveGapStatsMap) /= 1
+                                                                | weightSpec <- autoMethodWeights
                                                                 ]
                                                     when liveGapActive $ do
                                                         nowGap <- getTimestampMs
