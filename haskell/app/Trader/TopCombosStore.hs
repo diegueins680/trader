@@ -83,6 +83,7 @@ import Text.Read (readMaybe)
 
 import Trader.BotStartSemantics (adoptionMinTradeCount, comboTradeCountMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloor)
 import Trader.Duration (inferPeriodsPerYear)
+import Trader.Formal.CloseTiming (minimumCloseTimingSamples, minimumPositiveLiftSupportSamples)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
 import qualified Trader.Symbol as Symbol
@@ -965,10 +966,10 @@ comboCloseTimingReport comboObj =
     closeTimingObject _ = Nothing
 
 closeTimingRecommendationEvidenceFloor :: Int
-closeTimingRecommendationEvidenceFloor = 3
+closeTimingRecommendationEvidenceFloor = minimumPositiveLiftSupportSamples
 
 closeTimingMinimumSampleCount :: Int
-closeTimingMinimumSampleCount = 5
+closeTimingMinimumSampleCount = minimumCloseTimingSamples
 
 closeTimingEvidenceSampleCount :: Aeson.Object -> Maybe Int
 closeTimingEvidenceSampleCount report =
