@@ -481,11 +481,14 @@ import Trader.Trading (
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
     VolConfGateCell (..),
+    VolConfGateConfig (..),
     VolConfGatePreset (..),
     applyVolConfGateBehavior,
     parseVolConfGatePreset,
-    volConfGateCell,
+    sanitizeVolConfGateConfig,
+    volConfGateCellWithConfig,
     volConfGateCode,
+    volConfGateConfigForPreset,
     volConfStatefulCloseDirection,
  )
 
@@ -510,6 +513,24 @@ predictorTrainingConfigFromArgs args =
         , ptcCalibrationRatio = argPredictorCalibrationRatio args
         , ptcConformalAlpha = argPredictorConformalAlpha args
         }
+
+volConfGateConfigFromArgs :: Args -> VolConfGateConfig
+volConfGateConfigFromArgs args =
+    let base = volConfGateConfigForPreset (argVolConfGate args)
+        pick field getter = fromMaybe (field base) (getter args)
+     in sanitizeVolConfGateConfig
+            VolConfGateConfig
+                { vcgcVolatilityEvidenceMax = pick vcgcVolatilityEvidenceMax argVolConfVolatilityEvidenceMax
+                , vcgcLowVolThreshold = pick vcgcLowVolThreshold argVolConfLowVolThreshold
+                , vcgcHighVolThreshold = pick vcgcHighVolThreshold argVolConfHighVolThreshold
+                , vcgcWeakConfidenceThreshold = pick vcgcWeakConfidenceThreshold argVolConfWeakConfidenceThreshold
+                , vcgcStrongConfidenceThreshold = pick vcgcStrongConfidenceThreshold argVolConfStrongConfidenceThreshold
+                , vcgcLowMediumSizeMult = pick vcgcLowMediumSizeMult argVolConfLowMediumSizeMult
+                , vcgcLowStrongSizeMult = pick vcgcLowStrongSizeMult argVolConfLowStrongSizeMult
+                , vcgcMediumMediumSizeMult = pick vcgcMediumMediumSizeMult argVolConfMediumMediumSizeMult
+                , vcgcMediumStrongSizeMult = pick vcgcMediumStrongSizeMult argVolConfMediumStrongSizeMult
+                , vcgcHighStrongSizeMult = pick vcgcHighStrongSizeMult argVolConfHighStrongSizeMult
+                }
 
 data PredHistory = PredHistory
     { phKalman :: !(V.Vector Double)
@@ -594,6 +615,7 @@ data BacktestSummary = BacktestSummary
     , bsInitialBalance :: !Double
     , bsMethodUsed :: !Method
     , bsVolConfGate :: !VolConfGatePreset
+    , bsVolConfGateConfig :: !VolConfGateConfig
     , bsSignalGateConfig :: !SignalGateConfig
     , bsBestOpenThreshold :: !Double
     , bsBestCloseThreshold :: !Double
@@ -9501,6 +9523,7 @@ botOptimizeAfterOperation st = do
                                 , ecVolScaleMax = argVolScaleMax args
                                 , ecMaxVolatility = argMaxVolatility args
                                 , ecVolConfGate = argVolConfGate args
+                                , ecVolConfGateConfig = volConfGateConfigFromArgs args
                                 , ecRebalanceBars = argRebalanceBars args
                                 , ecRebalanceThreshold = rebalanceThreshold
                                 , ecRebalanceGlobal = argRebalanceGlobal args
@@ -9974,6 +9997,16 @@ parseTopComboToArgs base combo = do
             case pickMaybeMaybeDbl "maxVolatility" (argMaxVolatility base) of
                 Nothing -> Nothing
                 Just v -> if v <= 0 then Nothing else Just v
+        volConfVolatilityEvidenceMax = fmap (max 1e-12) (pickMaybeMaybeDbl "volConfVolatilityEvidenceMax" (argVolConfVolatilityEvidenceMax base))
+        volConfLowVolThreshold = fmap (max 0) (pickMaybeMaybeDbl "volConfLowVolThreshold" (argVolConfLowVolThreshold base))
+        volConfHighVolThreshold = fmap (max 0) (pickMaybeMaybeDbl "volConfHighVolThreshold" (argVolConfHighVolThreshold base))
+        volConfWeakConfidenceThreshold = fmap clamp01 (pickMaybeMaybeDbl "volConfWeakConfidenceThreshold" (argVolConfWeakConfidenceThreshold base))
+        volConfStrongConfidenceThreshold = fmap clamp01 (pickMaybeMaybeDbl "volConfStrongConfidenceThreshold" (argVolConfStrongConfidenceThreshold base))
+        volConfLowMediumSizeMult = fmap clamp01 (pickMaybeMaybeDbl "volConfLowMediumSizeMult" (argVolConfLowMediumSizeMult base))
+        volConfLowStrongSizeMult = fmap clamp01 (pickMaybeMaybeDbl "volConfLowStrongSizeMult" (argVolConfLowStrongSizeMult base))
+        volConfMediumMediumSizeMult = fmap clamp01 (pickMaybeMaybeDbl "volConfMediumMediumSizeMult" (argVolConfMediumMediumSizeMult base))
+        volConfMediumStrongSizeMult = fmap clamp01 (pickMaybeMaybeDbl "volConfMediumStrongSizeMult" (argVolConfMediumStrongSizeMult base))
+        volConfHighStrongSizeMult = fmap clamp01 (pickMaybeMaybeDbl "volConfHighStrongSizeMult" (argVolConfHighStrongSizeMult base))
 
         rebalanceBars = max 0 (pickI "rebalanceBars" (argRebalanceBars base))
         rebalanceThreshold = max 0 (pickD "rebalanceThreshold" (argRebalanceThreshold base))
@@ -10125,6 +10158,16 @@ parseTopComboToArgs base combo = do
                 , argVolFloor = volFloor
                 , argVolScaleMax = volScaleMax
                 , argMaxVolatility = maxVolatility
+                , argVolConfVolatilityEvidenceMax = volConfVolatilityEvidenceMax
+                , argVolConfLowVolThreshold = volConfLowVolThreshold
+                , argVolConfHighVolThreshold = volConfHighVolThreshold
+                , argVolConfWeakConfidenceThreshold = volConfWeakConfidenceThreshold
+                , argVolConfStrongConfidenceThreshold = volConfStrongConfidenceThreshold
+                , argVolConfLowMediumSizeMult = volConfLowMediumSizeMult
+                , argVolConfLowStrongSizeMult = volConfLowStrongSizeMult
+                , argVolConfMediumMediumSizeMult = volConfMediumMediumSizeMult
+                , argVolConfMediumStrongSizeMult = volConfMediumStrongSizeMult
+                , argVolConfHighStrongSizeMult = volConfHighStrongSizeMult
                 , argRebalanceBars = rebalanceBars
                 , argRebalanceThreshold = rebalanceThreshold
                 , argRebalanceCostMult = rebalanceCostMult
@@ -24157,6 +24200,20 @@ computeBacktestFromSeries args series mBinanceEnv = do
 backtestSummaryJson :: BacktestSummary -> Aeson.Value
 backtestSummaryJson summary =
     let metrics = bsMetrics summary
+        volConfCfg = bsVolConfGateConfig summary
+        volConfGateConfigJson =
+            object
+                [ "volatilityEvidenceMax" .= vcgcVolatilityEvidenceMax volConfCfg
+                , "lowVolThreshold" .= vcgcLowVolThreshold volConfCfg
+                , "highVolThreshold" .= vcgcHighVolThreshold volConfCfg
+                , "weakConfidenceThreshold" .= vcgcWeakConfidenceThreshold volConfCfg
+                , "strongConfidenceThreshold" .= vcgcStrongConfidenceThreshold volConfCfg
+                , "lowMediumSizeMult" .= vcgcLowMediumSizeMult volConfCfg
+                , "lowStrongSizeMult" .= vcgcLowStrongSizeMult volConfCfg
+                , "mediumMediumSizeMult" .= vcgcMediumMediumSizeMult volConfCfg
+                , "mediumStrongSizeMult" .= vcgcMediumStrongSizeMult volConfCfg
+                , "highStrongSizeMult" .= vcgcHighStrongSizeMult volConfCfg
+                ]
         priceDynamicRangePct =
             fromMaybe 0 (dynamicRangePct (map Just (bsBacktestPrices summary)))
         predictorLivenessSeries =
@@ -24276,6 +24333,17 @@ backtestSummaryJson summary =
             , "method" .= methodCode (bsMethodUsed summary)
             , "volConfGate" .= volConfGateCode (bsVolConfGate summary)
             , "vol_conf_gate" .= volConfGateCode (bsVolConfGate summary)
+            , "volConfGateConfig" .= volConfGateConfigJson
+            , "volConfVolatilityEvidenceMax" .= vcgcVolatilityEvidenceMax volConfCfg
+            , "volConfLowVolThreshold" .= vcgcLowVolThreshold volConfCfg
+            , "volConfHighVolThreshold" .= vcgcHighVolThreshold volConfCfg
+            , "volConfWeakConfidenceThreshold" .= vcgcWeakConfidenceThreshold volConfCfg
+            , "volConfStrongConfidenceThreshold" .= vcgcStrongConfidenceThreshold volConfCfg
+            , "volConfLowMediumSizeMult" .= vcgcLowMediumSizeMult volConfCfg
+            , "volConfLowStrongSizeMult" .= vcgcLowStrongSizeMult volConfCfg
+            , "volConfMediumMediumSizeMult" .= vcgcMediumMediumSizeMult volConfCfg
+            , "volConfMediumStrongSizeMult" .= vcgcMediumStrongSizeMult volConfCfg
+            , "volConfHighStrongSizeMult" .= vcgcHighStrongSizeMult volConfCfg
             , "threshold" .= bsBestOpenThreshold summary
             , "openThreshold" .= bsBestOpenThreshold summary
             , "closeThreshold" .= bsBestCloseThreshold summary
@@ -25568,6 +25636,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecVolScaleMax = argVolScaleMax args
                 , ecMaxVolatility = argMaxVolatility args
                 , ecVolConfGate = argVolConfGate args
+                , ecVolConfGateConfig = volConfGateConfigFromArgs args
                 , ecRebalanceBars = argRebalanceBars args
                 , ecRebalanceThreshold = rebalanceThresholdUsed
                 , ecRebalanceGlobal = argRebalanceGlobal args
@@ -26381,6 +26450,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsInitialBalance = initialBalance
             , bsMethodUsed = methodUsed
             , bsVolConfGate = argVolConfGate args
+            , bsVolConfGateConfig = volConfGateConfigFromArgs args
             , bsSignalGateConfig = signalGateConfigFromArgs args
             , bsBestOpenThreshold = bestOpenThr
             , bsBestCloseThreshold = bestCloseThr
@@ -27292,6 +27362,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             maxPositionSize = max 0 (argMaxPositionSize args)
             ppy = max 1e-12 (periodsPerYear args)
             volConfGatePreset = argVolConfGate args
+            volConfGateConfig = volConfGateConfigFromArgs args
             volConfGateEnabled = volConfGatePreset /= VolConfGateDisabled
             confidenceSizingEnabled = argConfidenceSizing args && not volConfGateEnabled
             volTarget =
@@ -29283,7 +29354,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                     _ -> chosenDir1
 
             volConfCell =
-                volConfGateCell volConfGatePreset volEstimate volConfConfidence
+                volConfGateCellWithConfig volConfGateConfig volConfGatePreset volEstimate volConfConfidence
             volConfBehavior = vcgBehavior volConfCell
             volConfSizeMult =
                 if isJust chosenDir2
@@ -29912,6 +29983,7 @@ technicalGateInputs args perSideCost =
         , TA.tagCurrentBias = Nothing
         , TA.tagVolatility = Nothing
         , TA.tagVolConfGate = VolConfGateDisabled
+        , TA.tagVolConfGateConfig = volConfGateConfigFromArgs args
         , TA.tagRegimeCalibration = TA.RegimeCalibration (argRegimeAdxWeight args) (argRegimeTrendThreshold args) (argRegimeRangeThreshold args)
         , TA.tagStrategyCalibration =
             TA.TechnicalStrategyCalibration

@@ -7,7 +7,7 @@ import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseM
 import Trader.SignalGates (defaultSignalGateConfig)
 import Trader.TechnicalAnalysis.Indicators
 import Trader.TechnicalAnalysis.Strategies
-import Trader.VolConfGate (VolConfGatePreset (..))
+import Trader.VolConfGate (VolConfGatePreset (..), defaultVolConfGateConfig)
 
 runTechnicalAnalysisTests :: IO ()
 runTechnicalAnalysisTests = do
@@ -118,6 +118,7 @@ testGatedCandidateAdmissionHonorsRiskGates = do
                 , tagCurrentBias = Nothing
                 , tagVolatility = Just 0.4
                 , tagVolConfGate = VolConfGateDisabled
+                , tagVolConfGateConfig = defaultVolConfGateConfig
                 , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
                 , tagStrategyCalibration = defaultTechnicalStrategyCalibration
                 , tagSignalGateConfig = defaultSignalGateConfig
@@ -202,6 +203,7 @@ taTestInputs =
         , tagCurrentBias = Nothing
         , tagVolatility = Just 0.4
         , tagVolConfGate = VolConfGateDisabled
+        , tagVolConfGateConfig = defaultVolConfGateConfig
         , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
         , tagStrategyCalibration = defaultTechnicalStrategyCalibration
         , tagSignalGateConfig = defaultSignalGateConfig

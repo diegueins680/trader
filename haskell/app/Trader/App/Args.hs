@@ -226,6 +226,16 @@ data Args = Args
     , argVolScaleMax :: Double
     , argMaxVolatility :: Maybe Double
     , argVolConfGate :: VolConfGatePreset
+    , argVolConfVolatilityEvidenceMax :: Maybe Double
+    , argVolConfLowVolThreshold :: Maybe Double
+    , argVolConfHighVolThreshold :: Maybe Double
+    , argVolConfWeakConfidenceThreshold :: Maybe Double
+    , argVolConfStrongConfidenceThreshold :: Maybe Double
+    , argVolConfLowMediumSizeMult :: Maybe Double
+    , argVolConfLowStrongSizeMult :: Maybe Double
+    , argVolConfMediumMediumSizeMult :: Maybe Double
+    , argVolConfMediumStrongSizeMult :: Maybe Double
+    , argVolConfHighStrongSizeMult :: Maybe Double
     , argRegimeAdxWeight :: Double
     , argRegimeTrendThreshold :: Double
     , argRegimeRangeThreshold :: Double
@@ -968,6 +978,26 @@ opts = do
                 <> metavar "PRESET"
                 <> help ("Frozen volatility/confidence gate preset. Choices: " ++ volConfGateChoicesCsv)
             )
+    argVolConfVolatilityEvidenceMax <-
+        optional (option auto (long "vol-conf-volatility-evidence-max" <> help "Override max valid volatility evidence for the vol/conf gate"))
+    argVolConfLowVolThreshold <-
+        optional (option auto (long "vol-conf-low-vol-threshold" <> help "Override low/medium volatility split for the vol/conf gate"))
+    argVolConfHighVolThreshold <-
+        optional (option auto (long "vol-conf-high-vol-threshold" <> help "Override medium/high volatility split for the vol/conf gate"))
+    argVolConfWeakConfidenceThreshold <-
+        optional (option auto (long "vol-conf-weak-confidence-threshold" <> help "Override weak/medium confidence split for the vol/conf gate"))
+    argVolConfStrongConfidenceThreshold <-
+        optional (option auto (long "vol-conf-strong-confidence-threshold" <> help "Override medium/strong confidence split for the vol/conf gate"))
+    argVolConfLowMediumSizeMult <-
+        optional (option auto (long "vol-conf-low-medium-size" <> help "Override entry size multiplier for low-vol medium-confidence gate cells"))
+    argVolConfLowStrongSizeMult <-
+        optional (option auto (long "vol-conf-low-strong-size" <> help "Override entry size multiplier for low-vol strong-confidence gate cells"))
+    argVolConfMediumMediumSizeMult <-
+        optional (option auto (long "vol-conf-medium-medium-size" <> help "Override entry size multiplier for medium-vol medium-confidence gate cells"))
+    argVolConfMediumStrongSizeMult <-
+        optional (option auto (long "vol-conf-medium-strong-size" <> help "Override entry size multiplier for medium-vol strong-confidence gate cells"))
+    argVolConfHighStrongSizeMult <-
+        optional (option auto (long "vol-conf-high-strong-size" <> help "Override entry size multiplier for high-vol strong-confidence gate cells"))
     argRegimeAdxWeight <- option auto (long "regime-adx-weight" <> value 0.40 <> showDefault <> help "ADX weight in regime trend-score blend (0..1)")
     argRegimeTrendThreshold <- option auto (long "regime-trend-threshold" <> value 0.55 <> showDefault <> help "Minimum trend score to classify regime as trending (0..1)")
     argRegimeRangeThreshold <- option auto (long "regime-range-threshold" <> value 0.55 <> showDefault <> help "Minimum range score to classify regime as ranging (0..1)")
@@ -1646,6 +1676,16 @@ validateArgs args0 = do
             , ("--vol-target", argVolTarget args)
             , ("--vol-ewma-alpha", argVolEwmaAlpha args)
             , ("--max-volatility", argMaxVolatility args)
+            , ("--vol-conf-volatility-evidence-max", argVolConfVolatilityEvidenceMax args)
+            , ("--vol-conf-low-vol-threshold", argVolConfLowVolThreshold args)
+            , ("--vol-conf-high-vol-threshold", argVolConfHighVolThreshold args)
+            , ("--vol-conf-weak-confidence-threshold", argVolConfWeakConfidenceThreshold args)
+            , ("--vol-conf-strong-confidence-threshold", argVolConfStrongConfidenceThreshold args)
+            , ("--vol-conf-low-medium-size", argVolConfLowMediumSizeMult args)
+            , ("--vol-conf-low-strong-size", argVolConfLowStrongSizeMult args)
+            , ("--vol-conf-medium-medium-size", argVolConfMediumMediumSizeMult args)
+            , ("--vol-conf-medium-strong-size", argVolConfMediumStrongSizeMult args)
+            , ("--vol-conf-high-strong-size", argVolConfHighStrongSizeMult args)
             , ("--funding-oi-funding-cap", argFundingOiFundingCap args)
             , ("--funding-oi-vol-cap", argFundingOiVolCap args)
             , ("--periods-per-year", argPeriodsPerYear args)
@@ -1923,6 +1963,33 @@ validateArgs args0 = do
     case argMaxVolatility args of
         Nothing -> pure ()
         Just v -> ensure "--max-volatility must be >= 0" (v >= 0)
+    maybeEnsure "--vol-conf-volatility-evidence-max must be > 0" (argVolConfVolatilityEvidenceMax args) (> 0)
+    maybeEnsure "--vol-conf-low-vol-threshold must be >= 0" (argVolConfLowVolThreshold args) (>= 0)
+    maybeEnsure "--vol-conf-high-vol-threshold must be >= 0" (argVolConfHighVolThreshold args) (>= 0)
+    maybeEnsure "--vol-conf-weak-confidence-threshold must be between 0 and 1" (argVolConfWeakConfidenceThreshold args) inUnitRange
+    maybeEnsure "--vol-conf-strong-confidence-threshold must be between 0 and 1" (argVolConfStrongConfidenceThreshold args) inUnitRange
+    forM_
+        [ ("--vol-conf-low-medium-size", argVolConfLowMediumSizeMult args)
+        , ("--vol-conf-low-strong-size", argVolConfLowStrongSizeMult args)
+        , ("--vol-conf-medium-medium-size", argVolConfMediumMediumSizeMult args)
+        , ("--vol-conf-medium-strong-size", argVolConfMediumStrongSizeMult args)
+        , ("--vol-conf-high-strong-size", argVolConfHighStrongSizeMult args)
+        ]
+        ( \(flag, mValue) ->
+            maybeEnsure (flag ++ " must be between 0 and 1") mValue inUnitRange
+        )
+    case (argVolConfLowVolThreshold args, argVolConfHighVolThreshold args) of
+        (Just lo, Just hi) ->
+            ensure "--vol-conf-low-vol-threshold must be <= --vol-conf-high-vol-threshold" (lo <= hi)
+        _ -> pure ()
+    case (argVolConfHighVolThreshold args, argVolConfVolatilityEvidenceMax args) of
+        (Just hi, Just maxVol) ->
+            ensure "--vol-conf-high-vol-threshold must be <= --vol-conf-volatility-evidence-max" (hi <= maxVol)
+        _ -> pure ()
+    case (argVolConfWeakConfidenceThreshold args, argVolConfStrongConfidenceThreshold args) of
+        (Just weak, Just strong) ->
+            ensure "--vol-conf-weak-confidence-threshold must be <= --vol-conf-strong-confidence-threshold" (weak <= strong)
+        _ -> pure ()
     ensure "--rebalance-bars must be >= 0" (argRebalanceBars args >= 0)
     ensure "--rebalance-threshold must be >= 0" (argRebalanceThreshold args >= 0)
     ensure "--rebalance-cost-mult must be >= 0" (argRebalanceCostMult args >= 0)
@@ -2076,6 +2143,15 @@ validateArgs args0 = do
         case mValue of
             Nothing -> Right ()
             Just value -> ensureFinite flag value
+
+    maybeEnsure :: String -> Maybe Double -> (Double -> Bool) -> Either String ()
+    maybeEnsure msg mValue predicate =
+        case mValue of
+            Nothing -> Right ()
+            Just value -> ensure msg (predicate value)
+
+    inUnitRange :: Double -> Bool
+    inUnitRange value = value >= 0 && value <= 1
 
     isFiniteNumber :: Double -> Bool
     isFiniteNumber x = not (isNaN x || isInfinite x)

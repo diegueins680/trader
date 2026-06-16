@@ -2,11 +2,16 @@ module Trader.VolConfGate (
     VolConfGatePreset (..),
     VolConfGateBehavior (..),
     VolConfGateCell (..),
+    VolConfGateConfig (..),
+    defaultVolConfGateConfig,
     volConfGateCode,
     parseVolConfGatePreset,
     volConfGateChoices,
     volConfGateChoicesCsv,
+    volConfGateConfigForPreset,
     volConfGateCell,
+    volConfGateCellWithConfig,
+    sanitizeVolConfGateConfig,
     applyVolConfGateBehavior,
     volConfStatefulCloseDirection,
 ) where
@@ -33,6 +38,23 @@ data VolConfGateCell = VolConfGateCell
     , vcgSizeMult :: !Double
     }
     deriving (Eq, Show)
+
+data VolConfGateConfig = VolConfGateConfig
+    { vcgcVolatilityEvidenceMax :: !Double
+    , vcgcLowVolThreshold :: !Double
+    , vcgcHighVolThreshold :: !Double
+    , vcgcWeakConfidenceThreshold :: !Double
+    , vcgcStrongConfidenceThreshold :: !Double
+    , vcgcLowMediumSizeMult :: !Double
+    , vcgcLowStrongSizeMult :: !Double
+    , vcgcMediumMediumSizeMult :: !Double
+    , vcgcMediumStrongSizeMult :: !Double
+    , vcgcHighStrongSizeMult :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultVolConfGateConfig :: VolConfGateConfig
+defaultVolConfGateConfig = volConfGateConfigForPreset VolConfGateV1Default
 
 volConfGateCode :: VolConfGatePreset -> String
 volConfGateCode preset =
@@ -73,6 +95,54 @@ volConfGateChoices =
 volConfGateChoicesCsv :: String
 volConfGateChoicesCsv = intercalate ", " volConfGateChoices
 
+volConfGateConfigForPreset :: VolConfGatePreset -> VolConfGateConfig
+volConfGateConfigForPreset preset =
+    sanitizeVolConfGateConfig
+        VolConfGateConfig
+            { vcgcVolatilityEvidenceMax = 2.0
+            , vcgcLowVolThreshold = 0.5
+            , vcgcHighVolThreshold =
+                case preset of
+                    VolConfGateV1HighVolTighter -> 1.0
+                    VolConfGateV1HighVolLooser -> 1.4
+                    _ -> 1.2
+            , vcgcWeakConfidenceThreshold =
+                case preset of
+                    VolConfGateV1ConfStricter -> 0.65
+                    _ -> 0.60
+            , vcgcStrongConfidenceThreshold = 0.80
+            , vcgcLowMediumSizeMult = 0.60
+            , vcgcLowStrongSizeMult = 1.00
+            , vcgcMediumMediumSizeMult = 0.45
+            , vcgcMediumStrongSizeMult = 0.75
+            , vcgcHighStrongSizeMult =
+                case preset of
+                    VolConfGateV1HighVolTighter -> 0.25
+                    VolConfGateV1HighVolLooser -> 0.45
+                    _ -> 0.35
+            }
+
+sanitizeVolConfGateConfig :: VolConfGateConfig -> VolConfGateConfig
+sanitizeVolConfGateConfig cfg =
+    let evidenceMax = max 1e-12 (sanitizeFiniteWith 2.0 (vcgcVolatilityEvidenceMax cfg))
+        lowVol = clamp 0 evidenceMax (sanitizeFiniteWith 0.5 (vcgcLowVolThreshold cfg))
+        highVol = clamp lowVol evidenceMax (sanitizeFiniteWith 1.2 (vcgcHighVolThreshold cfg))
+        weakConf = clamp 0 1 (sanitizeFiniteWith 0.60 (vcgcWeakConfidenceThreshold cfg))
+        strongConf = clamp weakConf 1 (sanitizeFiniteWith 0.80 (vcgcStrongConfidenceThreshold cfg))
+        size = clamp 0 1 . sanitizeFiniteWith 0
+     in cfg
+            { vcgcVolatilityEvidenceMax = evidenceMax
+            , vcgcLowVolThreshold = lowVol
+            , vcgcHighVolThreshold = highVol
+            , vcgcWeakConfidenceThreshold = weakConf
+            , vcgcStrongConfidenceThreshold = strongConf
+            , vcgcLowMediumSizeMult = size (vcgcLowMediumSizeMult cfg)
+            , vcgcLowStrongSizeMult = size (vcgcLowStrongSizeMult cfg)
+            , vcgcMediumMediumSizeMult = size (vcgcMediumMediumSizeMult cfg)
+            , vcgcMediumStrongSizeMult = size (vcgcMediumStrongSizeMult cfg)
+            , vcgcHighStrongSizeMult = size (vcgcHighStrongSizeMult cfg)
+            }
+
 data VolBucket
     = VolLow
     | VolMedium
@@ -87,17 +157,22 @@ data ConfidenceBucket
     deriving (Eq, Show)
 
 volConfGateCell :: VolConfGatePreset -> Maybe Double -> Maybe Double -> VolConfGateCell
-volConfGateCell preset mVolatility mConfidence =
+volConfGateCell preset =
+    volConfGateCellWithConfig (volConfGateConfigForPreset preset) preset
+
+volConfGateCellWithConfig :: VolConfGateConfig -> VolConfGatePreset -> Maybe Double -> Maybe Double -> VolConfGateCell
+volConfGateCellWithConfig cfg0 preset mVolatility mConfidence =
     case preset of
         VolConfGateDisabled ->
             mkVolConfGateCell VolConfGateAllowEntry 1.0
         _ ->
-            case volBucket preset mVolatility of
-                VolMissing -> malformedVolConfGateCell
-                volB ->
-                    case confidenceBucket preset mConfidence of
-                        Nothing -> malformedVolConfGateCell
-                        Just confB -> gateCellFor preset volB confB
+            let cfg = sanitizeVolConfGateConfig cfg0
+             in case volBucket cfg mVolatility of
+                    VolMissing -> malformedVolConfGateCell
+                    volB ->
+                        case confidenceBucket cfg mConfidence of
+                            Nothing -> malformedVolConfGateCell
+                            Just confB -> gateCellFor cfg volB confB
 
 applyVolConfGateBehavior ::
     (Eq side) =>
@@ -144,64 +219,45 @@ volConfStatefulCloseDirection behavior preGateDir closeDirBase =
     firstJust (Just x) _ = Just x
     firstJust Nothing y = y
 
-volatilityEvidenceMax :: Double
-volatilityEvidenceMax = 2.0
-
-volBucket :: VolConfGatePreset -> Maybe Double -> VolBucket
-volBucket preset mVolatility =
+volBucket :: VolConfGateConfig -> Maybe Double -> VolBucket
+volBucket cfg mVolatility =
     case sanitizeFiniteMaybe mVolatility of
         Just vol
-            | vol >= 0 && vol <= volatilityEvidenceMax ->
-                let highThreshold =
-                        case preset of
-                            VolConfGateV1HighVolTighter -> 1.0
-                            VolConfGateV1HighVolLooser -> 1.4
-                            _ -> 1.2
-                 in if vol < 0.5
-                        then VolLow
-                        else
-                            if vol < highThreshold
-                                then VolMedium
-                                else VolHigh
+            | vol >= 0 && vol <= vcgcVolatilityEvidenceMax cfg ->
+                if vol < vcgcLowVolThreshold cfg
+                    then VolLow
+                    else
+                        if vol < vcgcHighVolThreshold cfg
+                            then VolMedium
+                            else VolHigh
         _ ->
             -- Missing, negative, non-finite, and out-of-range volatility are
             -- malformed risk inputs, so fail closed instead of classifying
             -- them as low volatility.
             VolMissing
 
-confidenceBucket :: VolConfGatePreset -> Maybe Double -> Maybe ConfidenceBucket
-confidenceBucket preset mConfidence =
-    let weakThreshold =
-            case preset of
-                VolConfGateV1ConfStricter -> 0.65
-                _ -> 0.60
-        strongThreshold = 0.80
-        classify confidence
-            | confidence < weakThreshold = ConfidenceWeak
-            | confidence < strongThreshold = ConfidenceMedium
+confidenceBucket :: VolConfGateConfig -> Maybe Double -> Maybe ConfidenceBucket
+confidenceBucket cfg mConfidence =
+    let classify confidence
+            | confidence < vcgcWeakConfidenceThreshold cfg = ConfidenceWeak
+            | confidence < vcgcStrongConfidenceThreshold cfg = ConfidenceMedium
             | otherwise = ConfidenceStrong
      in case mConfidence of
             Nothing -> Just ConfidenceWeak
             Just _ -> classify <$> sanitizeConfidenceUnitInterval mConfidence
 
-gateCellFor :: VolConfGatePreset -> VolBucket -> ConfidenceBucket -> VolConfGateCell
-gateCellFor preset volB confB =
+gateCellFor :: VolConfGateConfig -> VolBucket -> ConfidenceBucket -> VolConfGateCell
+gateCellFor cfg volB confB =
     case (volB, confB) of
         (VolLow, ConfidenceWeak) -> mkVolConfGateCell VolConfGateHold 0.0
-        (VolLow, ConfidenceMedium) -> mkVolConfGateCell VolConfGateAllowEntry 0.60
-        (VolLow, ConfidenceStrong) -> mkVolConfGateCell VolConfGateAllowEntry 1.00
+        (VolLow, ConfidenceMedium) -> mkVolConfGateCell VolConfGateAllowEntry (vcgcLowMediumSizeMult cfg)
+        (VolLow, ConfidenceStrong) -> mkVolConfGateCell VolConfGateAllowEntry (vcgcLowStrongSizeMult cfg)
         (VolMedium, ConfidenceWeak) -> mkVolConfGateCell VolConfGateHold 0.0
-        (VolMedium, ConfidenceMedium) -> mkVolConfGateCell VolConfGateAllowEntry 0.45
-        (VolMedium, ConfidenceStrong) -> mkVolConfGateCell VolConfGateAllowEntry 0.75
+        (VolMedium, ConfidenceMedium) -> mkVolConfGateCell VolConfGateAllowEntry (vcgcMediumMediumSizeMult cfg)
+        (VolMedium, ConfidenceStrong) -> mkVolConfGateCell VolConfGateAllowEntry (vcgcMediumStrongSizeMult cfg)
         (VolHigh, ConfidenceWeak) -> mkVolConfGateCell VolConfGateBlock 0.0
         (VolHigh, ConfidenceMedium) -> mkVolConfGateCell VolConfGateAllowExitOnly 0.0
-        (VolHigh, ConfidenceStrong) ->
-            let highStrongSize =
-                    case preset of
-                        VolConfGateV1HighVolTighter -> 0.25
-                        VolConfGateV1HighVolLooser -> 0.45
-                        _ -> 0.35
-             in mkVolConfGateCell VolConfGateAllowEntry highStrongSize
+        (VolHigh, ConfidenceStrong) -> mkVolConfGateCell VolConfGateAllowEntry (vcgcHighStrongSizeMult cfg)
         (VolMissing, _) -> malformedVolConfGateCell
 
 isFinite :: Double -> Bool

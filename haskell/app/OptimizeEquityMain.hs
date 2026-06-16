@@ -548,6 +548,16 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "predictor-gbdt-learning-rate" 0.03 0.20
         <*> doubleRangeOption "predictor-calibration-ratio" 0.10 0.35
         <*> doubleRangeOption "predictor-conformal-alpha" 0.05 0.35
+        <*> doubleRangeOption "vol-conf-volatility-evidence-max" 1.0 3.0
+        <*> doubleRangeOption "vol-conf-low-vol-threshold" 0.25 0.75
+        <*> doubleRangeOption "vol-conf-high-vol-threshold" 0.80 1.60
+        <*> doubleRangeOption "vol-conf-weak-confidence-threshold" 0.45 0.75
+        <*> doubleRangeOption "vol-conf-strong-confidence-threshold" 0.70 0.95
+        <*> doubleRangeOption "vol-conf-low-medium-size" 0.35 0.85
+        <*> doubleRangeOption "vol-conf-low-strong-size" 0.75 1.00
+        <*> doubleRangeOption "vol-conf-medium-medium-size" 0.20 0.70
+        <*> doubleRangeOption "vol-conf-medium-strong-size" 0.45 0.95
+        <*> doubleRangeOption "vol-conf-high-strong-size" 0.10 0.60
 
 doubleRangeOption :: String -> Double -> Double -> Parser (Double, Double)
 doubleRangeOption name lo hi =
@@ -865,6 +875,16 @@ validateTechnicalOptimizerRanges ranges = do
     positiveRange "predictor-gbdt-learning-rate" (torPredictorGbdtLearningRate ranges)
     unitRange "predictor-calibration-ratio" (torPredictorCalibrationRatio ranges)
     unitRange "predictor-conformal-alpha" (torPredictorConformalAlpha ranges)
+    positiveRange "vol-conf-volatility-evidence-max" (torVolConfVolatilityEvidenceMax ranges)
+    nonNegativeRange "vol-conf-low-vol-threshold" (torVolConfLowVolThreshold ranges)
+    nonNegativeRange "vol-conf-high-vol-threshold" (torVolConfHighVolThreshold ranges)
+    unitRange "vol-conf-weak-confidence-threshold" (torVolConfWeakConfidenceThreshold ranges)
+    unitRange "vol-conf-strong-confidence-threshold" (torVolConfStrongConfidenceThreshold ranges)
+    unitRange "vol-conf-low-medium-size" (torVolConfLowMediumSizeMult ranges)
+    unitRange "vol-conf-low-strong-size" (torVolConfLowStrongSizeMult ranges)
+    unitRange "vol-conf-medium-medium-size" (torVolConfMediumMediumSizeMult ranges)
+    unitRange "vol-conf-medium-strong-size" (torVolConfMediumStrongSizeMult ranges)
+    unitRange "vol-conf-high-strong-size" (torVolConfHighStrongSizeMult ranges)
   where
     finiteRange label (lo, hi) =
         when (isNaN lo || isInfinite lo || isNaN hi || isInfinite hi) $

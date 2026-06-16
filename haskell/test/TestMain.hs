@@ -210,6 +210,7 @@ import Trader.VolConfGate (
     VolConfGateCell (..),
     VolConfGatePreset (..),
     applyVolConfGateBehavior,
+    defaultVolConfGateConfig,
     volConfGateCell,
     volConfStatefulCloseDirection,
  )
@@ -2370,6 +2371,7 @@ sampleEnsembleConfig =
         , ecVolScaleMax = 1
         , ecMaxVolatility = Nothing
         , ecVolConfGate = VolConfGateDisabled
+        , ecVolConfGateConfig = defaultVolConfGateConfig
         , ecRebalanceBars = 0
         , ecRebalanceThreshold = 0
         , ecRebalanceGlobal = False

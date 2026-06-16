@@ -240,6 +240,16 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torPredictorGbdtLearningRate :: !(Double, Double)
     , torPredictorCalibrationRatio :: !(Double, Double)
     , torPredictorConformalAlpha :: !(Double, Double)
+    , torVolConfVolatilityEvidenceMax :: !(Double, Double)
+    , torVolConfLowVolThreshold :: !(Double, Double)
+    , torVolConfHighVolThreshold :: !(Double, Double)
+    , torVolConfWeakConfidenceThreshold :: !(Double, Double)
+    , torVolConfStrongConfidenceThreshold :: !(Double, Double)
+    , torVolConfLowMediumSizeMult :: !(Double, Double)
+    , torVolConfLowStrongSizeMult :: !(Double, Double)
+    , torVolConfMediumMediumSizeMult :: !(Double, Double)
+    , torVolConfMediumStrongSizeMult :: !(Double, Double)
+    , torVolConfHighStrongSizeMult :: !(Double, Double)
     }
     deriving (Eq, Show)
 
@@ -317,6 +327,16 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpPredictorGbdtLearningRate :: !Double
     , ttpPredictorCalibrationRatio :: !Double
     , ttpPredictorConformalAlpha :: !Double
+    , ttpVolConfVolatilityEvidenceMax :: !Double
+    , ttpVolConfLowVolThreshold :: !Double
+    , ttpVolConfHighVolThreshold :: !Double
+    , ttpVolConfWeakConfidenceThreshold :: !Double
+    , ttpVolConfStrongConfidenceThreshold :: !Double
+    , ttpVolConfLowMediumSizeMult :: !Double
+    , ttpVolConfLowStrongSizeMult :: !Double
+    , ttpVolConfMediumMediumSizeMult :: !Double
+    , ttpVolConfMediumStrongSizeMult :: !Double
+    , ttpVolConfHighStrongSizeMult :: !Double
     }
     deriving (Eq, Show)
 
@@ -381,6 +401,11 @@ normalizeTechnicalTrialParams p =
         rsiUpper = max rsiLower (clamp (ttpTaReversionRsiUpper p) 0 100)
         stochLower = clamp (ttpTaReversionStochLower p) 0 100
         stochUpper = max stochLower (clamp (ttpTaReversionStochUpper p) 0 100)
+        volConfEvidenceMax = max 1e-6 (ttpVolConfVolatilityEvidenceMax p)
+        volConfLowVolThreshold = clamp (ttpVolConfLowVolThreshold p) 0 volConfEvidenceMax
+        volConfHighVolThreshold = clamp (max volConfLowVolThreshold (ttpVolConfHighVolThreshold p)) volConfLowVolThreshold volConfEvidenceMax
+        volConfWeakConfidenceThreshold = clamp (ttpVolConfWeakConfidenceThreshold p) 0 1
+        volConfStrongConfidenceThreshold = clamp (max volConfWeakConfidenceThreshold (ttpVolConfStrongConfidenceThreshold p)) volConfWeakConfidenceThreshold 1
      in p
             { ttpTaEntryOpenThreshold = max 0 (ttpTaEntryOpenThreshold p)
             , ttpTaTrendAdxThreshold = clamp (ttpTaTrendAdxThreshold p) 0 100
@@ -455,6 +480,16 @@ normalizeTechnicalTrialParams p =
             , ttpPredictorGbdtLearningRate = max 1e-6 (ttpPredictorGbdtLearningRate p)
             , ttpPredictorCalibrationRatio = clamp (ttpPredictorCalibrationRatio p) 0 0.95
             , ttpPredictorConformalAlpha = clamp (ttpPredictorConformalAlpha p) 1e-6 0.999999
+            , ttpVolConfVolatilityEvidenceMax = volConfEvidenceMax
+            , ttpVolConfLowVolThreshold = volConfLowVolThreshold
+            , ttpVolConfHighVolThreshold = volConfHighVolThreshold
+            , ttpVolConfWeakConfidenceThreshold = volConfWeakConfidenceThreshold
+            , ttpVolConfStrongConfidenceThreshold = volConfStrongConfidenceThreshold
+            , ttpVolConfLowMediumSizeMult = clamp (ttpVolConfLowMediumSizeMult p) 0 1
+            , ttpVolConfLowStrongSizeMult = clamp (ttpVolConfLowStrongSizeMult p) 0 1
+            , ttpVolConfMediumMediumSizeMult = clamp (ttpVolConfMediumMediumSizeMult p) 0 1
+            , ttpVolConfMediumStrongSizeMult = clamp (ttpVolConfMediumStrongSizeMult p) 0 1
+            , ttpVolConfHighStrongSizeMult = clamp (ttpVolConfHighStrongSizeMult p) 0 1
             }
 
 sampleTechnicalTrialParams :: TechnicalOptimizerRanges -> Rng -> (TechnicalTrialParams, Rng)
@@ -541,6 +576,20 @@ sampleTechnicalTrialParams ranges rng0 =
         (predictorGbdtLearningRate, rng71) = samplePositive (torPredictorGbdtLearningRate ranges) rng70
         (predictorCalibrationRatio, rng72) = sampleClamped 0 0.95 (torPredictorCalibrationRatio ranges) rng71
         (predictorConformalAlpha, rng73) = sampleClamped 1e-6 0.999999 (torPredictorConformalAlpha ranges) rng72
+        (volConfVolatilityEvidenceMax, rng74) = samplePositive (torVolConfVolatilityEvidenceMax ranges) rng73
+        (volConfLowVolThreshold0, rng75) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfLowVolThreshold ranges) rng74
+        (volConfHighVolThreshold0, rng76) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfHighVolThreshold ranges) rng75
+        volConfLowVolThreshold = min volConfLowVolThreshold0 volConfHighVolThreshold0
+        volConfHighVolThreshold = max volConfLowVolThreshold0 volConfHighVolThreshold0
+        (volConfWeakConfidenceThreshold0, rng77) = sampleClamped 0 1 (torVolConfWeakConfidenceThreshold ranges) rng76
+        (volConfStrongConfidenceThreshold0, rng78) = sampleClamped 0 1 (torVolConfStrongConfidenceThreshold ranges) rng77
+        volConfWeakConfidenceThreshold = min volConfWeakConfidenceThreshold0 volConfStrongConfidenceThreshold0
+        volConfStrongConfidenceThreshold = max volConfWeakConfidenceThreshold0 volConfStrongConfidenceThreshold0
+        (volConfLowMediumSizeMult, rng79) = sampleClamped 0 1 (torVolConfLowMediumSizeMult ranges) rng78
+        (volConfLowStrongSizeMult, rng80) = sampleClamped 0 1 (torVolConfLowStrongSizeMult ranges) rng79
+        (volConfMediumMediumSizeMult, rng81) = sampleClamped 0 1 (torVolConfMediumMediumSizeMult ranges) rng80
+        (volConfMediumStrongSizeMult, rng82) = sampleClamped 0 1 (torVolConfMediumStrongSizeMult ranges) rng81
+        (volConfHighStrongSizeMult, rng83) = sampleClamped 0 1 (torVolConfHighStrongSizeMult ranges) rng82
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -616,8 +665,18 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpPredictorGbdtLearningRate = predictorGbdtLearningRate
                 , ttpPredictorCalibrationRatio = predictorCalibrationRatio
                 , ttpPredictorConformalAlpha = predictorConformalAlpha
+                , ttpVolConfVolatilityEvidenceMax = volConfVolatilityEvidenceMax
+                , ttpVolConfLowVolThreshold = volConfLowVolThreshold
+                , ttpVolConfHighVolThreshold = volConfHighVolThreshold
+                , ttpVolConfWeakConfidenceThreshold = volConfWeakConfidenceThreshold
+                , ttpVolConfStrongConfidenceThreshold = volConfStrongConfidenceThreshold
+                , ttpVolConfLowMediumSizeMult = volConfLowMediumSizeMult
+                , ttpVolConfLowStrongSizeMult = volConfLowStrongSizeMult
+                , ttpVolConfMediumMediumSizeMult = volConfMediumMediumSizeMult
+                , ttpVolConfMediumStrongSizeMult = volConfMediumStrongSizeMult
+                , ttpVolConfHighStrongSizeMult = volConfHighStrongSizeMult
                 }
-        , rng73
+        , rng83
         )
   where
     samplePositive range rng =
@@ -784,6 +843,26 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpPredictorCalibrationRatio p)
     , "--predictor-conformal-alpha"
     , printf "%.12g" (ttpPredictorConformalAlpha p)
+    , "--vol-conf-volatility-evidence-max"
+    , printf "%.12g" (ttpVolConfVolatilityEvidenceMax p)
+    , "--vol-conf-low-vol-threshold"
+    , printf "%.12g" (ttpVolConfLowVolThreshold p)
+    , "--vol-conf-high-vol-threshold"
+    , printf "%.12g" (ttpVolConfHighVolThreshold p)
+    , "--vol-conf-weak-confidence-threshold"
+    , printf "%.12g" (ttpVolConfWeakConfidenceThreshold p)
+    , "--vol-conf-strong-confidence-threshold"
+    , printf "%.12g" (ttpVolConfStrongConfidenceThreshold p)
+    , "--vol-conf-low-medium-size"
+    , printf "%.12g" (ttpVolConfLowMediumSizeMult p)
+    , "--vol-conf-low-strong-size"
+    , printf "%.12g" (ttpVolConfLowStrongSizeMult p)
+    , "--vol-conf-medium-medium-size"
+    , printf "%.12g" (ttpVolConfMediumMediumSizeMult p)
+    , "--vol-conf-medium-strong-size"
+    , printf "%.12g" (ttpVolConfMediumStrongSizeMult p)
+    , "--vol-conf-high-strong-size"
+    , printf "%.12g" (ttpVolConfHighStrongSizeMult p)
     ]
 
 technicalTrialParamsPairs :: TechnicalTrialParams -> [AT.Pair]
@@ -861,6 +940,16 @@ technicalTrialParamsPairs p =
     , "predictorGbdtLearningRate" .= ttpPredictorGbdtLearningRate p
     , "predictorCalibrationRatio" .= ttpPredictorCalibrationRatio p
     , "predictorConformalAlpha" .= ttpPredictorConformalAlpha p
+    , "volConfVolatilityEvidenceMax" .= ttpVolConfVolatilityEvidenceMax p
+    , "volConfLowVolThreshold" .= ttpVolConfLowVolThreshold p
+    , "volConfHighVolThreshold" .= ttpVolConfHighVolThreshold p
+    , "volConfWeakConfidenceThreshold" .= ttpVolConfWeakConfidenceThreshold p
+    , "volConfStrongConfidenceThreshold" .= ttpVolConfStrongConfidenceThreshold p
+    , "volConfLowMediumSizeMult" .= ttpVolConfLowMediumSizeMult p
+    , "volConfLowStrongSizeMult" .= ttpVolConfLowStrongSizeMult p
+    , "volConfMediumMediumSizeMult" .= ttpVolConfMediumMediumSizeMult p
+    , "volConfMediumStrongSizeMult" .= ttpVolConfMediumStrongSizeMult p
+    , "volConfHighStrongSizeMult" .= ttpVolConfHighStrongSizeMult p
     ]
 
 normalizeSymbol :: Maybe String -> Maybe String

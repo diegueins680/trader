@@ -60,11 +60,12 @@ import Trader.SignalGates (
 import Trader.TechnicalAnalysis.Indicators
 import Trader.VolConfGate (
     VolConfGateBehavior,
+    VolConfGateConfig,
     VolConfGatePreset,
     applyVolConfGateBehavior,
     vcgBehavior,
     vcgSizeMult,
-    volConfGateCell,
+    volConfGateCellWithConfig,
  )
 
 data OhlcvSeries = OhlcvSeries
@@ -178,6 +179,7 @@ data TechnicalAnalysisGateInputs = TechnicalAnalysisGateInputs
     , tagCurrentBias :: !(Maybe TradeBias)
     , tagVolatility :: !(Maybe Double)
     , tagVolConfGate :: !VolConfGatePreset
+    , tagVolConfGateConfig :: !VolConfGateConfig
     , tagRegimeCalibration :: !RegimeCalibration
     , tagStrategyCalibration :: !TechnicalStrategyCalibration
     , tagSignalGateConfig :: !SignalGateConfig
@@ -220,7 +222,12 @@ admitStrategyCandidate inputs candidate = do
     require (entryGatesOk inputs bias edge)
     let currentBias = tagCurrentBias inputs >>= directionalBias
         currentSize = if currentBias == Just bias then 1 else 0
-        volConfCell = volConfGateCell (tagVolConfGate inputs) (tagVolatility inputs) (Just (scConfidence candidate))
+        volConfCell =
+            volConfGateCellWithConfig
+                (tagVolConfGateConfig inputs)
+                (tagVolConfGate inputs)
+                (tagVolatility inputs)
+                (Just (scConfidence candidate))
         (gatedBias, gatedSize) =
             applyVolConfGateBehavior
                 (vcgBehavior volConfCell)

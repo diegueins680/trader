@@ -32,6 +32,7 @@ import Trader.VolConfGate (
     VolConfGateBehavior (..),
     VolConfGateCell (..),
     VolConfGatePreset (..),
+    defaultVolConfGateConfig,
     volConfGateCell,
  )
 
@@ -827,6 +828,7 @@ optimizerPublicSurfaceBaseConfig =
         , ecVolScaleMax = 1
         , ecMaxVolatility = Nothing
         , ecVolConfGate = VolConfGateDisabled
+        , ecVolConfGateConfig = defaultVolConfGateConfig
         , ecRebalanceBars = 0
         , ecRebalanceThreshold = 0
         , ecRebalanceGlobal = False

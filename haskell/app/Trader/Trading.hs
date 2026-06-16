@@ -61,9 +61,10 @@ import Trader.SignalGates (
  )
 import Trader.VolConfGate (
     VolConfGateCell (..),
+    VolConfGateConfig,
     VolConfGatePreset (..),
     applyVolConfGateBehavior,
-    volConfGateCell,
+    volConfGateCellWithConfig,
  )
 
 -- Keep the optimizer/reporting simulation surface anchored in Trader.Trading so
@@ -146,6 +147,7 @@ data EnsembleConfig = EnsembleConfig
     , ecVolScaleMax :: !Double
     , ecMaxVolatility :: !(Maybe Double)
     , ecVolConfGate :: !VolConfGatePreset
+    , ecVolConfGateConfig :: !VolConfGateConfig
     , ecRebalanceBars :: !Int
     , ecRebalanceThreshold :: !Double
     , ecRebalanceGlobal :: !Bool
@@ -1062,6 +1064,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                     volFloor = max 0 (ecVolFloor cfg)
                                     volScaleMax = max 0 (ecVolScaleMax cfg)
                                     volConfGatePreset = ecVolConfGate cfg
+                                    volConfGateConfig = ecVolConfGateConfig cfg
                                     volConfGateEnabled = volConfGatePreset /= VolConfGateDisabled
                                     confidenceSizingEnabled = ecConfidenceSizing cfg && not volConfGateEnabled
                                     kellyLiteEnabled = ecKellyLiteSizing cfg
@@ -2381,7 +2384,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                             else desiredSide1
 
                                                     volConfCell =
-                                                        volConfGateCell
+                                                        volConfGateCellWithConfig
+                                                            volConfGateConfig
                                                             volConfGatePreset
                                                             (volEstimateAt t)
                                                             ( case metaNow of
