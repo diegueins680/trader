@@ -133,6 +133,9 @@ optimizerArgsParser =
         <*> option auto (long "tune-penalty-turnover" <> value 0.2 <> metavar "FLOAT")
         <*> option auto (long "tune-max-threshold-candidates" <> value defaultMaxThresholdCandidates <> showDefault <> metavar "INT")
         <*> option auto (long "sensor-variance-ewma-alpha" <> value defaultSensorVarianceEwmaAlpha <> showDefault <> metavar "FLOAT")
+        <*> option auto (long "kalman-sensor-correlation-inflation" <> value 0 <> showDefault <> metavar "FLOAT")
+        <*> option auto (long "kalman-innovation-inflation-threshold" <> value 0 <> showDefault <> metavar "FLOAT")
+        <*> option auto (long "kalman-innovation-inflation-max" <> value 10 <> showDefault <> metavar "FLOAT")
         <*> option auto (long "lstm-adam-beta1" <> value defaultLstmAdamBeta1 <> showDefault <> metavar "FLOAT")
         <*> option auto (long "lstm-adam-beta2" <> value defaultLstmAdamBeta2 <> showDefault <> metavar "FLOAT")
         <*> option auto (long "lstm-adam-eps" <> value defaultLstmAdamEps <> showDefault <> metavar "FLOAT")
@@ -723,6 +726,12 @@ validateArgs args = do
         Left "--tune-max-threshold-candidates must be >= 0."
     when (oaSensorVarianceEwmaAlpha args < 0 || oaSensorVarianceEwmaAlpha args > 1) $
         Left "--sensor-variance-ewma-alpha must be between 0 and 1."
+    when (oaKalmanSensorCorrelationInflation args < 0 || oaKalmanSensorCorrelationInflation args > 1) $
+        Left "--kalman-sensor-correlation-inflation must be between 0 and 1."
+    when (oaKalmanInnovationInflationThreshold args < 0) $
+        Left "--kalman-innovation-inflation-threshold must be >= 0."
+    when (oaKalmanInnovationInflationMax args < 1) $
+        Left "--kalman-innovation-inflation-max must be >= 1."
     when (not (finiteDouble (oaLstmAdamBeta1 args)) || oaLstmAdamBeta1 args < 0 || oaLstmAdamBeta1 args >= 1) $
         Left "--lstm-adam-beta1 must be >= 0 and < 1."
     when (not (finiteDouble (oaLstmAdamBeta2 args)) || oaLstmAdamBeta2 args < 0 || oaLstmAdamBeta2 args >= 1) $

@@ -2384,6 +2384,9 @@ data OptimizerArgs = OptimizerArgs
     , oaTunePenaltyTurnover :: !Double
     , oaTuneMaxThresholdCandidates :: !Int
     , oaSensorVarianceEwmaAlpha :: !Double
+    , oaKalmanSensorCorrelationInflation :: !Double
+    , oaKalmanInnovationInflationThreshold :: !Double
+    , oaKalmanInnovationInflationMax :: !Double
     , oaLstmAdamBeta1 :: !Double
     , oaLstmAdamBeta2 :: !Double
     , oaLstmAdamEps :: !Double
@@ -6121,53 +6124,70 @@ runOptimizer args0 = do
                                                                                 { otsAppliedSobolSeeding = seedTrials > 0
                                                                                 , otsAppliedSuccessiveHalving = length survivorsRaw < length seedResults
                                                                                 }
-                                                                        survivorParams = map trParams survivorsRaw
-                                                                        gaParents =
-                                                                            [ trParams tr
-                                                                            | tr <- survivorsRaw
-                                                                            , trEligible tr
-                                                                            , let opCount =
-                                                                                    max
-                                                                                        (metricInt (trMetrics tr) "operationCount" 0)
-                                                                                        (metricInt (trMetrics tr) "tradeCount" 0)
-                                                                            , opCount > 5
-                                                                            , metricFloat (trMetrics tr) "annualizedReturn" 0 > 1
-                                                                            ]
-                                                                        gaParentPool =
-                                                                            case gaParents of
-                                                                                _ : _ : _ -> Just gaParents
-                                                                                _ -> Nothing
+                                                                        eliteCapacity = max 1 survivorCount
+                                                                        eliteScore tr = fromMaybe (-1e18) (trScore tr)
+                                                                        eligibleElite tr = trEligible tr && isJust (trScore tr)
+                                                                        trimElitePool =
+                                                                            take eliteCapacity
+                                                                                . sortOn (Data.Ord.Down . eliteScore)
+                                                                                . filter eligibleElite
+                                                                        initialElitePool = trimElitePool survivorsRaw
+                                                                        fallbackSurvivorParams = map trParams survivorsRaw
+                                                                        hasExploitationBase = not (null initialElitePool) || not (null fallbackSurvivorParams)
+                                                                        eliteBaseParams elitePool =
+                                                                            case map trParams elitePool of
+                                                                                [] -> fallbackSurvivorParams
+                                                                                params -> params
+                                                                        updateElitePool tr elitePool = trimElitePool (tr : elitePool)
+                                                                        gaParentPoolFrom elitePool =
+                                                                            let gaParents =
+                                                                                    [ trParams tr
+                                                                                    | tr <- elitePool
+                                                                                    , let opCount =
+                                                                                            max
+                                                                                                (metricInt (trMetrics tr) "operationCount" 0)
+                                                                                                (metricInt (trMetrics tr) "tradeCount" 0)
+                                                                                    , opCount > 5
+                                                                                    , metricFloat (trMetrics tr) "annualizedReturn" 0 > 1
+                                                                                    ]
+                                                                             in case gaParents of
+                                                                                    _ : _ : _ -> Just gaParents
+                                                                                    _ -> Nothing
                                                                         bestScore b = fromMaybe (-1e18) (trScore =<< b)
-                                                                        runTrialsWithEarlyStop best recs survivorsIx stagnant trialsList =
+                                                                        runTrialsWithEarlyStop best recs survivorsIx stagnant elitePool trialsList =
                                                                             case trialsList of
-                                                                                [] -> pure (best, recs, survivorsIx)
+                                                                                [] -> pure (best, recs, survivorsIx, elitePool)
                                                                                 (idx, rng) : rest -> do
-                                                                                    let baseParam =
+                                                                                    let survivorParams = eliteBaseParams elitePool
+                                                                                        gaParentPool = gaParentPoolFrom elitePool
+                                                                                        baseParam =
                                                                                             case survivorParams of
                                                                                                 [] -> Nothing
                                                                                                 _ ->
                                                                                                     let ix = survivorsIx `mod` length survivorParams
                                                                                                      in listToMaybe (drop ix survivorParams)
                                                                                         prevScore = bestScore best
-                                                                                    (best', recs', _tr) <- runTrialWith idx rng Nothing baseParam gaParentPool best recs
+                                                                                    (best', recs', tr) <- runTrialWith idx rng Nothing baseParam gaParentPool best recs
                                                                                     let survivorsIx' = survivorsIx + 1
                                                                                         bestScore' = bestScore best'
                                                                                         stagnant' = if bestScore' > prevScore then 0 else stagnant + 1
+                                                                                        elitePool' = updateElitePool tr elitePool
                                                                                     if earlyStopNoImprove > 0 && stagnant' >= earlyStopNoImprove
-                                                                                        then pure (best', recs', survivorsIx')
-                                                                                        else runTrialsWithEarlyStop best' recs' survivorsIx' stagnant' rest
-                                                                    (bestFinal, allRecordsRev, _) <-
+                                                                                        then pure (best', recs', survivorsIx', elitePool')
+                                                                                        else runTrialsWithEarlyStop best' recs' survivorsIx' stagnant' elitePool' rest
+                                                                    (bestFinal, allRecordsRev, _, _) <-
                                                                         runTrialsWithEarlyStop
                                                                             bestSeed
                                                                             seedRecordsRev
                                                                             0
                                                                             0
+                                                                            initialElitePool
                                                                             (zip [seedTrials + 1 .. seedTrials + remainingTrials] exploitationRngs)
                                                                     let records = reverse allRecordsRev
                                                                         best = bestFinal
                                                                         techniqueSummaryFinal =
                                                                             techniqueSummarySeed
-                                                                                { otsAppliedBayesianEi = remainingTrials > 0 && not (null survivorParams)
+                                                                                { otsAppliedBayesianEi = remainingTrials > 0 && hasExploitationBase
                                                                                 , otsAppliedEnsemble =
                                                                                     case records of
                                                                                         _ : _ : _ -> True
@@ -6434,6 +6454,12 @@ buildBaseArgs args csvCols = do
                            , show (max 0 (oaTuneMaxThresholdCandidates args))
                            , "--sensor-variance-ewma-alpha"
                            , printf "%.6f" (clamp (oaSensorVarianceEwmaAlpha args) 0 1)
+                           , "--kalman-sensor-correlation-inflation"
+                           , printf "%.6f" (clamp (oaKalmanSensorCorrelationInflation args) 0 1)
+                           , "--kalman-innovation-inflation-threshold"
+                           , printf "%.6f" (max 0 (oaKalmanInnovationInflationThreshold args))
+                           , "--kalman-innovation-inflation-max"
+                           , printf "%.6f" (max 1 (oaKalmanInnovationInflationMax args))
                            , "--seed"
                            , show (oaSeed args)
                            ]

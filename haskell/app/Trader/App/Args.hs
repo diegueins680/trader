@@ -154,6 +154,9 @@ data Args = Args
     , argKalmanProcessVar :: Double
     , argKalmanMeasurementVar :: Double
     , argSensorVarianceEwmaAlpha :: Double
+    , argKalmanSensorCorrelationInflation :: Double
+    , argKalmanInnovationInflationThreshold :: Double
+    , argKalmanInnovationInflationMax :: Double
     , argPredictors :: PredictorSet
     , argPredictorGbdtTrees :: Int
     , argPredictorGbdtLearningRate :: Double
@@ -811,6 +814,30 @@ opts = do
     argKalmanProcessVar <- option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
     argKalmanMeasurementVar <- option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
     argSensorVarianceEwmaAlpha <- option auto (long "sensor-variance-ewma-alpha" <> value defaultSensorVarianceEwmaAlpha <> showDefault <> help "EWMA alpha for learned sensor residual variance used by Kalman fusion (0 keeps the initial residual variance; 1 uses only the latest residual)")
+    argKalmanSensorCorrelationInflation <-
+        option
+            auto
+            ( long "kalman-sensor-correlation-inflation"
+                <> value 0
+                <> showDefault
+                <> help "Conservative Kalman fusion inflation for correlated sensors, 0..1; 1 treats duplicate sensors as one effective measurement"
+            )
+    argKalmanInnovationInflationThreshold <-
+        option
+            auto
+            ( long "kalman-innovation-inflation-threshold"
+                <> value 0
+                <> showDefault
+                <> help "Normalized innovation squared threshold for adaptive Kalman uncertainty inflation (0 disables)"
+            )
+    argKalmanInnovationInflationMax <-
+        option
+            auto
+            ( long "kalman-innovation-inflation-max"
+                <> value 10
+                <> showDefault
+                <> help "Maximum Kalman variance multiplier used when innovation inflation is active"
+            )
     argPredictors <-
         option
             (eitherReader predictorSetFromString)
@@ -1672,6 +1699,9 @@ validateArgs args0 = do
             , ("--kalman-process-var", argKalmanProcessVar args)
             , ("--kalman-measurement-var", argKalmanMeasurementVar args)
             , ("--sensor-variance-ewma-alpha", argSensorVarianceEwmaAlpha args)
+            , ("--kalman-sensor-correlation-inflation", argKalmanSensorCorrelationInflation args)
+            , ("--kalman-innovation-inflation-threshold", argKalmanInnovationInflationThreshold args)
+            , ("--kalman-innovation-inflation-max", argKalmanInnovationInflationMax args)
             , ("--open-threshold/--threshold", argOpenThreshold args)
             , ("--close-threshold", argCloseThreshold args)
             , ("--fee", argFee args)
@@ -1945,6 +1975,9 @@ validateArgs args0 = do
     ensure "--kalman-process-var must be > 0" (argKalmanProcessVar args > 0)
     ensure "--kalman-measurement-var must be > 0" (argKalmanMeasurementVar args > 0)
     ensure "--sensor-variance-ewma-alpha must be between 0 and 1" (argSensorVarianceEwmaAlpha args >= 0 && argSensorVarianceEwmaAlpha args <= 1)
+    ensure "--kalman-sensor-correlation-inflation must be between 0 and 1" (argKalmanSensorCorrelationInflation args >= 0 && argKalmanSensorCorrelationInflation args <= 1)
+    ensure "--kalman-innovation-inflation-threshold must be >= 0" (argKalmanInnovationInflationThreshold args >= 0)
+    ensure "--kalman-innovation-inflation-max must be >= 1" (argKalmanInnovationInflationMax args >= 1)
     ensure "--predictor-gbdt-trees must be >= 1" (argPredictorGbdtTrees args >= 1)
     ensure "--predictor-gbdt-learning-rate must be > 0" (argPredictorGbdtLearningRate args > 0)
     ensure "--predictor-calibration-ratio must be between 0 and 0.95" (argPredictorCalibrationRatio args >= 0 && argPredictorCalibrationRatio args <= 0.95)

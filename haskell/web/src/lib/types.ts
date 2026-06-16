@@ -61,6 +61,10 @@ export type ApiParams = {
   kalmanDt?: number;
   kalmanProcessVar?: number;
   kalmanMeasurementVar?: number;
+  sensorVarianceEwmaAlpha?: number;
+  kalmanSensorCorrelationInflation?: number;
+  kalmanInnovationInflationThreshold?: number;
+  kalmanInnovationInflationMax?: number;
   predictors?: string;
   threshold?: number; // legacy (maps to open/close)
   openThreshold?: number;

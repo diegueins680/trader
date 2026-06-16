@@ -291,7 +291,7 @@ import Trader.Duration (
  )
 import Trader.Formal.CloseTiming (ComboCloseTimingReport)
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
-import Trader.KalmanFusion (Kalman1 (..), initKalman1, stepMulti)
+import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), initKalman1, measurementVarianceWithResidualFloor, stepMultiWithConfig)
 import Trader.KalmanPhysics (OhlcvBar (..), predictKalmanPhysicsError)
 import Trader.Kraken (KrakenCandle (..), fetchKrakenCandles, krakenBaseUrl, krakenCandlesCacheStats)
 import Trader.LSTM (
@@ -858,6 +858,9 @@ data ApiParams = ApiParams
     , apKalmanProcessVar :: Maybe Double
     , apKalmanMeasurementVar :: Maybe Double
     , apSensorVarianceEwmaAlpha :: Maybe Double
+    , apKalmanSensorCorrelationInflation :: Maybe Double
+    , apKalmanInnovationInflationThreshold :: Maybe Double
+    , apKalmanInnovationInflationMax :: Maybe Double
     , apPredictors :: Maybe String
     , apPredictorTcnRidgeLambda :: Maybe Double
     , apPredictorQuantileEpochs :: Maybe Int
@@ -1140,6 +1143,9 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrTunePenaltyTurnover :: !(Maybe Double)
     , arrTuneMaxThresholdCandidates :: !(Maybe Int)
     , arrSensorVarianceEwmaAlpha :: !(Maybe Double)
+    , arrKalmanSensorCorrelationInflation :: !(Maybe Double)
+    , arrKalmanInnovationInflationThreshold :: !(Maybe Double)
+    , arrKalmanInnovationInflationMax :: !(Maybe Double)
     , arrTuneStressVolMult :: !(Maybe Double)
     , arrTuneStressShock :: !(Maybe Double)
     , arrTuneStressWeight :: !(Maybe Double)
@@ -2603,6 +2609,9 @@ argsPublicJson args =
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
+            , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
+            , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
+            , "kalmanInnovationInflationMax" .= argKalmanInnovationInflationMax args
             , "threshold" .= argOpenThreshold args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -9140,7 +9149,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                             realizedR = if priceT == 0 then 0 else nextP / priceT - 1
                             (sensorOuts, predState) = predictSensorsWithInputs predictors featureInputs hmm t
                             meas = mapMaybe (toMeasurement args sv) sensorOuts
-                            kal' = stepMulti meas kal
+                            kal' = stepKalmanFusion args meas kal
                             fusedR = kMean kal'
                             kalNext = priceT * (1 + fusedR)
                             sv' =
@@ -9153,7 +9162,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                     lastPrice = vectorLastOr 0 pricesV
                     (sensorOutsLast, _) = predictSensorsWithInputs predictors featureInputs hmmPrev (n - 1)
                     measLast = mapMaybe (toMeasurement args svPrev) sensorOutsLast
-                    kalLast = stepMulti measLast kalPrev
+                    kalLast = stepKalmanFusion args measLast kalPrev
                     kalLastNext = lastPrice * (1 + kMean kalLast)
                     kalPred = V.fromList (preds ++ [kalLastNext])
 
@@ -9972,7 +9981,7 @@ rebuildKalmanCtx args lookback featureInputs =
                             realizedR = if priceT == 0 then 0 else nextP / priceT - 1
                             (sensorOuts, predState) = predictSensorsWithInputs predictors featureInputs hmm t
                             meas = mapMaybe (toMeasurement args sv) sensorOuts
-                            kal' = stepMulti meas kal
+                            kal' = stepKalmanFusion args meas kal
                             sv' =
                                 updateSensorVarianceFromOutputs args realizedR sv sensorOuts
                             hmm' = updateHMM predictors predState realizedR
@@ -10223,6 +10232,9 @@ parseTopComboToArgs base combo = do
         predictorTransformerMaxExamples = max 1 (pickI "predictorTransformerMaxExamples" (argPredictorTransformerMaxExamples base))
         predictorHmmIterations = max 0 (pickI "predictorHmmIterations" (argPredictorHmmIterations base))
         kalmanMarketTopN = max 0 (pickI "kalmanMarketTopN" (argKalmanMarketTopN base))
+        kalmanSensorCorrelationInflation = clamp01 (pickD "kalmanSensorCorrelationInflation" (argKalmanSensorCorrelationInflation base))
+        kalmanInnovationInflationThreshold = max 0 (pickD "kalmanInnovationInflationThreshold" (argKalmanInnovationInflationThreshold base))
+        kalmanInnovationInflationMax = max 1 (pickD "kalmanInnovationInflationMax" (argKalmanInnovationInflationMax base))
 
         walkForwardFolds = max 1 (pickI "walkForwardFolds" (argWalkForwardFolds base))
         walkForwardEmbargoBars = max 0 (pickI "walkForwardEmbargoBars" (argWalkForwardEmbargoBars base))
@@ -10403,6 +10415,9 @@ parseTopComboToArgs base combo = do
                 , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
                 , argKalmanMeasurementVar = max 1e-12 (pickD "kalmanMeasurementVar" (argKalmanMeasurementVar base))
                 , argSensorVarianceEwmaAlpha = clamp01 (pickD "sensorVarianceEwmaAlpha" (argSensorVarianceEwmaAlpha base))
+                , argKalmanSensorCorrelationInflation = kalmanSensorCorrelationInflation
+                , argKalmanInnovationInflationThreshold = kalmanInnovationInflationThreshold
+                , argKalmanInnovationInflationMax = kalmanInnovationInflationMax
                 , argPredictorGbdtTrees = predictorGbdtTrees
                 , argPredictorGbdtLearningRate = predictorGbdtLearningRate
                 , argPredictorCalibrationRatio = predictorCalibrationRatio
@@ -10822,6 +10837,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
                                     tuneMaxThresholdCandidatesEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_MAX_THRESHOLD_CANDIDATES"
                                     sensorVarianceEwmaAlphaEnv <- lookupEnv "TRADER_OPTIMIZER_SENSOR_VARIANCE_EWMA_ALPHA"
+                                    kalmanSensorCorrelationInflationEnv <- lookupEnv "TRADER_OPTIMIZER_KALMAN_SENSOR_CORRELATION_INFLATION"
+                                    kalmanInnovationInflationThresholdEnv <- lookupEnv "TRADER_OPTIMIZER_KALMAN_INNOVATION_INFLATION_THRESHOLD"
+                                    kalmanInnovationInflationMaxEnv <- lookupEnv "TRADER_OPTIMIZER_KALMAN_INNOVATION_INFLATION_MAX"
                                     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
                                     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
                                     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
@@ -10902,6 +10920,12 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         tuneMaxThresholdCandidates = readNonNegativeInt tuneMaxThresholdCandidatesEnv defaultMaxThresholdCandidates
                                         sensorVarianceEwmaAlpha :: Double
                                         sensorVarianceEwmaAlpha = clamp01 (readNonNegativeDouble sensorVarianceEwmaAlphaEnv (argSensorVarianceEwmaAlpha baseArgs))
+                                        kalmanSensorCorrelationInflation :: Double
+                                        kalmanSensorCorrelationInflation = clamp01 (readNonNegativeDouble kalmanSensorCorrelationInflationEnv (argKalmanSensorCorrelationInflation baseArgs))
+                                        kalmanInnovationInflationThreshold :: Double
+                                        kalmanInnovationInflationThreshold = readNonNegativeDouble kalmanInnovationInflationThresholdEnv (argKalmanInnovationInflationThreshold baseArgs)
+                                        kalmanInnovationInflationMax :: Double
+                                        kalmanInnovationInflationMax = max 1 (readNonNegativeDouble kalmanInnovationInflationMaxEnv (argKalmanInnovationInflationMax baseArgs))
                                         lstmAdamBeta1 :: Double
                                         lstmAdamBeta1 = min 0.999999 (max 0 (readNonNegativeDouble lstmAdamBeta1Env (argLstmAdamBeta1 baseArgs)))
                                         lstmAdamBeta2 :: Double
@@ -11154,6 +11178,12 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , show tuneMaxThresholdCandidates
                                                                                         , "--sensor-variance-ewma-alpha"
                                                                                         , show sensorVarianceEwmaAlpha
+                                                                                        , "--kalman-sensor-correlation-inflation"
+                                                                                        , show kalmanSensorCorrelationInflation
+                                                                                        , "--kalman-innovation-inflation-threshold"
+                                                                                        , show kalmanInnovationInflationThreshold
+                                                                                        , "--kalman-innovation-inflation-max"
+                                                                                        , show kalmanInnovationInflationMax
                                                                                         , "--lstm-adam-beta1"
                                                                                         , show lstmAdamBeta1
                                                                                         , "--lstm-adam-beta2"
@@ -12120,7 +12150,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                     realizedR = if prevPrice == 0 then 0 else priceNew / prevPrice - 1
                     (sensorOuts, predState) = predictSensorsWithInputs predictors featureInputs hmmPrev t
                     meas = mapMaybe (toMeasurement args svPrev) sensorOuts
-                    kal' = stepMulti meas kalPrev
+                    kal' = stepKalmanFusion args meas kalPrev
                     sv' =
                         updateSensorVarianceFromOutputs args realizedR svPrev sensorOuts
                     hmm' = updateHMM predictors predState realizedR
@@ -13778,6 +13808,9 @@ argsCacheJsonSignal args =
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
+            , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
+            , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
+            , "kalmanInnovationInflationMax" .= argKalmanInnovationInflationMax args
             , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
             , "predictorGbdtTrees" .= argPredictorGbdtTrees args
             , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
@@ -13991,6 +14024,9 @@ argsCacheJsonBacktest args =
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
+            , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
+            , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
+            , "kalmanInnovationInflationMax" .= argKalmanInnovationInflationMax args
             , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
             , "predictorGbdtTrees" .= argPredictorGbdtTrees args
             , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
@@ -15381,6 +15417,9 @@ prepareOptimizerArgs outputPath mPriorJson req = do
     maxBarsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_BARS"
     tuneMaxThresholdCandidatesEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_MAX_THRESHOLD_CANDIDATES"
     sensorVarianceEwmaAlphaEnv <- lookupEnv "TRADER_OPTIMIZER_SENSOR_VARIANCE_EWMA_ALPHA"
+    kalmanSensorCorrelationInflationEnv <- lookupEnv "TRADER_OPTIMIZER_KALMAN_SENSOR_CORRELATION_INFLATION"
+    kalmanInnovationInflationThresholdEnv <- lookupEnv "TRADER_OPTIMIZER_KALMAN_INNOVATION_INFLATION_THRESHOLD"
+    kalmanInnovationInflationMaxEnv <- lookupEnv "TRADER_OPTIMIZER_KALMAN_INNOVATION_INFLATION_MAX"
     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
@@ -15574,6 +15613,16 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                     maybeDoubleArg
                         "--sensor-variance-ewma-alpha"
                         (fmap clamp01 (arrSensorVarianceEwmaAlpha req <|> (sensorVarianceEwmaAlphaEnv >>= readMaybe)))
+                kalmanConservativeArgs =
+                    maybeDoubleArg
+                        "--kalman-sensor-correlation-inflation"
+                        (fmap clamp01 (arrKalmanSensorCorrelationInflation req <|> (kalmanSensorCorrelationInflationEnv >>= readMaybe)))
+                        ++ maybeDoubleArg
+                            "--kalman-innovation-inflation-threshold"
+                            (fmap (max 0) (arrKalmanInnovationInflationThreshold req <|> (kalmanInnovationInflationThresholdEnv >>= readMaybe)))
+                        ++ maybeDoubleArg
+                            "--kalman-innovation-inflation-max"
+                            (fmap (max 1) (arrKalmanInnovationInflationMax req <|> (kalmanInnovationInflationMaxEnv >>= readMaybe)))
                 tuneStressVolMultArgs =
                     maybeDoubleArg "--tune-stress-vol-mult" (fmap (max 1e-12) (arrTuneStressVolMult req))
                 tuneStressShockArgs = maybeDoubleArg "--tune-stress-shock" (arrTuneStressShock req)
@@ -16054,6 +16103,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ tunePenaltyTurnoverArgs
                         ++ tuneMaxThresholdCandidatesArgs
                         ++ sensorVarianceEwmaAlphaArgs
+                        ++ kalmanConservativeArgs
                         ++ tuneStressVolMultArgs
                         ++ tuneStressShockArgs
                         ++ tuneStressWeightArgs
@@ -20091,6 +20141,9 @@ argsFromApi baseArgs p = do
                 , argKalmanProcessVar = pick (apKalmanProcessVar p) (argKalmanProcessVar baseArgs)
                 , argKalmanMeasurementVar = pick (apKalmanMeasurementVar p) (argKalmanMeasurementVar baseArgs)
                 , argSensorVarianceEwmaAlpha = clamp01 (pick (apSensorVarianceEwmaAlpha p) (argSensorVarianceEwmaAlpha baseArgs))
+                , argKalmanSensorCorrelationInflation = clamp01 (pick (apKalmanSensorCorrelationInflation p) (argKalmanSensorCorrelationInflation baseArgs))
+                , argKalmanInnovationInflationThreshold = max 0 (pick (apKalmanInnovationInflationThreshold p) (argKalmanInnovationInflationThreshold baseArgs))
+                , argKalmanInnovationInflationMax = max 1 (pick (apKalmanInnovationInflationMax p) (argKalmanInnovationInflationMax baseArgs))
                 , argPredictors = predictors
                 , argPredictorTcnRidgeLambda = max 0 (pick (apPredictorTcnRidgeLambda p) (argPredictorTcnRidgeLambda baseArgs))
                 , argPredictorQuantileEpochs = max 0 (pick (apPredictorQuantileEpochs p) (argPredictorQuantileEpochs baseArgs))
@@ -25609,7 +25662,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                             realizedR = if priceT == 0 then 0 else nextP / priceT - 1
                             (sensorOuts, predState) = predictSensorsWithInputs predictors featureInputs hmm t
                             meas = mapMaybe (toMeasurement args sv) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
-                            kal' = stepMulti meas kal
+                            kal' = stepKalmanFusion args meas kal
                             sv' =
                                 updateSensorVarianceFromOutputs args realizedR sv sensorOuts
                             hmm' = updateHMM predictors predState realizedR
@@ -28421,7 +28474,7 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                             mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
                             mI = listToMaybe [i | (_sid, out) <- sensorOuts, Just i <- [soInterval out]]
                             meas = mapMaybe (toMeasurement args svPrev) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
-                            kalNow = stepMulti meas kalPrev
+                            kalNow = stepKalmanFusion args meas kalPrev
                             kalReturnRaw = kMean kalNow
                             kalVar = max 0 (kVar kalNow)
                             kalStd = sqrt kalVar
@@ -31376,12 +31429,19 @@ forwardReturns ps =
 toMeasurement :: Args -> SensorVar -> (SensorId, SensorOutput) -> Maybe (Double, Double)
 toMeasurement args sv (sid, out) =
     let fallbackVar = max 1e-12 (argKalmanMeasurementVar args)
-        var =
-            case soSigma out of
-                Just s | s > 0 -> s * s
-                _ -> fromMaybe fallbackVar (varianceFor sid sv)
-        var' = max 1e-12 var
+        var' = measurementVarianceWithResidualFloor fallbackVar (soSigma out) (varianceFor sid sv)
      in Just (soMu out, var')
+
+kalmanFusionConfigFromArgs :: Args -> KalmanFusionConfig
+kalmanFusionConfigFromArgs args =
+    KalmanFusionConfig
+        { kfcSensorCorrelationInflation = argKalmanSensorCorrelationInflation args
+        , kfcInnovationInflationThreshold = argKalmanInnovationInflationThreshold args
+        , kfcInnovationInflationMax = argKalmanInnovationInflationMax args
+        }
+
+stepKalmanFusion :: Args -> [(Double, Double)] -> Kalman1 -> Kalman1
+stepKalmanFusion args = stepMultiWithConfig (kalmanFusionConfigFromArgs args)
 
 sensorVarianceConfigFromArgs :: Args -> SensorVarianceConfig
 sensorVarianceConfigFromArgs args =
@@ -31418,7 +31478,7 @@ backtestStepKalmanOnly args inputs predictors trainEnd mMarketModel (kal, hmm, s
         mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
         mI = listToMaybe [i' | (_sid, out) <- sensorOuts, Just i' <- [soInterval out]]
         meas = mapMaybe (toMeasurement args sv) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
-        kal' = stepMulti meas kal
+        kal' = stepKalmanFusion args meas kal
         fusedR = kMean kal'
         kalNext = priceT * (1 + fusedR)
         meta =
@@ -31463,7 +31523,7 @@ backtestStep args lookback normState obsAll mBasisObs inputs lstmModel predictor
         mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
         mI = listToMaybe [i' | (_sid, out) <- sensorOuts, Just i' <- [soInterval out]]
         meas = mapMaybe (toMeasurement args sv) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
-        kal' = stepMulti meas kal
+        kal' = stepKalmanFusion args meas kal
         fusedR = kMean kal'
         kalNext = priceT * (1 + fusedR)
         meta =

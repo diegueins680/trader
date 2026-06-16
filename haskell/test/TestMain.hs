@@ -62,6 +62,7 @@ import Trader.Formal.Risk (
     verifyFormalRisk,
  )
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
+import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), defaultKalmanFusionConfig, initKalman1, innovationInflationFactor, measurementVarianceWithResidualFloor, predict, stepMulti, stepMultiWithConfig)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultLstmAdamEps, evaluateLoss, fineTuneLSTM, fineTuneLSTMWeighted, inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
 import Trader.LiveGap (
     LiveGapConfig (..),
@@ -305,6 +306,11 @@ main = do
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
     testSensorVarianceEwmaAlphaRejectsInvalidValues
+    testKalmanConservativeFusionRejectsInvalidValues
+    testKalmanResidualVarianceFloor
+    testKalmanSensorCorrelationInflation
+    testKalmanInnovationInflation
+    testKalmanVarianceKnobsAffectPrediction
     testKalmanMarketTopNRejectsInvalidValues
     testTuneRatioRejectsInvalidValues
     testTunePenaltyMaxDrawdownRejectsInvalidValues
@@ -1579,6 +1585,82 @@ testSensorVarianceEwmaAlphaRejectsInvalidValues = do
             Right args -> argSensorVarianceEwmaAlpha args == 1
             Left _ -> False
         )
+
+testKalmanConservativeFusionRejectsInvalidValues :: IO ()
+testKalmanConservativeFusionRejectsInvalidValues = do
+    assert
+        "kalman-sensor-correlation-inflation rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-sensor-correlation-inflation", "-0.1"] == Left "--kalman-sensor-correlation-inflation must be between 0 and 1")
+    assert
+        "kalman-sensor-correlation-inflation rejects values above one"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-sensor-correlation-inflation", "1.1"] == Left "--kalman-sensor-correlation-inflation must be between 0 and 1")
+    assert
+        "kalman-sensor-correlation-inflation accepts a conservative midpoint"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-sensor-correlation-inflation", "0.5"] of
+            Right args -> argKalmanSensorCorrelationInflation args == 0.5
+            Left _ -> False
+        )
+    assert
+        "kalman-innovation-inflation-threshold rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-innovation-inflation-threshold", "-1"] == Left "--kalman-innovation-inflation-threshold must be >= 0")
+    assert
+        "kalman-innovation-inflation-threshold accepts a 3-sigma NIS"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-innovation-inflation-threshold", "9"] of
+            Right args -> argKalmanInnovationInflationThreshold args == 9
+            Left _ -> False
+        )
+    assert
+        "kalman-innovation-inflation-max rejects values below one"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-innovation-inflation-max", "0.5"] == Left "--kalman-innovation-inflation-max must be >= 1")
+    assert
+        "kalman-innovation-inflation-max accepts a multiplier"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-innovation-inflation-max", "25"] of
+            Right args -> argKalmanInnovationInflationMax args == 25
+            Left _ -> False
+        )
+
+testKalmanResidualVarianceFloor :: IO ()
+testKalmanResidualVarianceFloor = do
+    let withLearned = measurementVarianceWithResidualFloor 0.001 (Just 0.01) (Just 0.04)
+        withModel = measurementVarianceWithResidualFloor 0.001 (Just 0.05) Nothing
+        withFallback = measurementVarianceWithResidualFloor 0.001 (Just (0 / 0)) (Just (-1))
+    assert "learned residual variance floors an overconfident model sigma" (abs (withLearned - 0.04) < 1e-12)
+    assert "model sigma variance is used when it exceeds the fallback" (abs (withModel - 0.0025) < 1e-12)
+    assert "malformed model and learned variances fall back safely" (abs (withFallback - 0.001) < 1e-12)
+
+testKalmanSensorCorrelationInflation :: IO ()
+testKalmanSensorCorrelationInflation = do
+    let prior = initKalman1 0 1 0
+        independent = stepMulti [(1, 1), (1, 1)] prior
+        conservative =
+            stepMultiWithConfig
+                defaultKalmanFusionConfig{kfcSensorCorrelationInflation = 1}
+                [(1, 1), (1, 1)]
+                prior
+    assert "independent duplicate sensors halve measurement variance" (abs (kVar independent - (1 / 3)) < 1e-12)
+    assert "fully correlated duplicate sensors count as one effective observation" (abs (kVar conservative - 0.5) < 1e-12)
+    assert "correlated duplicate sensors move the posterior less" (kMean conservative < kMean independent)
+
+testKalmanInnovationInflation :: IO ()
+testKalmanInnovationInflation = do
+    let cfg = KalmanFusionConfig{kfcSensorCorrelationInflation = 0, kfcInnovationInflationThreshold = 1, kfcInnovationInflationMax = 100}
+        prior = initKalman1 0 1e-6 0
+        outlier = [(1, 1e-6)]
+        factor = innovationInflationFactor cfg (predict prior) outlier
+        base = stepMulti outlier prior
+        inflated = stepMultiWithConfig cfg outlier prior
+    assert "large normalized innovation reaches the configured inflation cap" (abs (factor - 100) < 1e-9)
+    assert "innovation inflation increases posterior covariance for an outlier" (kVar inflated > kVar base * 10)
+    assert "innovation inflation tempers the immediate outlier pull" (kMean inflated < kMean base)
+
+testKalmanVarianceKnobsAffectPrediction :: IO ()
+testKalmanVarianceKnobsAffectPrediction = do
+    let lowProcess = stepMulti [(1, 1)] (initKalman1 0 1e-6 0)
+        highProcess = stepMulti [(1, 1)] (initKalman1 0 1e-6 1)
+        tightMeasurement = stepMulti [(1, 0.01)] (initKalman1 0 1 0)
+        looseMeasurement = stepMulti [(1, 100)] (initKalman1 0 1 0)
+    assert "process variance changes Kalman prediction gain" (kMean highProcess > kMean lowProcess)
+    assert "measurement variance changes Kalman prediction gain" (kMean tightMeasurement > kMean looseMeasurement)
 
 testKalmanMarketTopNRejectsInvalidValues :: IO ()
 testKalmanMarketTopNRejectsInvalidValues = do

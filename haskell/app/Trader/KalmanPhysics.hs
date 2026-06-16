@@ -140,7 +140,7 @@ buildPhysicsRows dt barsV statesV =
                 c = obClose (barsV V.! t)
                 cNext = obClose (barsV V.! (t + 1))
                 physicsPred = c + v + 0.5 * a
-                discrim = v * v - 2 * a * (c - cNext)
+                discrim = v * v
                 targetErr = cNext - physicsPred
              in PhysicsRow
                     { prVelocity = v
