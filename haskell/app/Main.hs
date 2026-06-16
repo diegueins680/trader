@@ -10724,6 +10724,12 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
                                     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
                                     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
+                                    lstmAdamBeta1MinEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1_MIN"
+                                    lstmAdamBeta1MaxEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1_MAX"
+                                    lstmAdamBeta2MinEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2_MIN"
+                                    lstmAdamBeta2MaxEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2_MAX"
+                                    lstmAdamEpsMinEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS_MIN"
+                                    lstmAdamEpsMaxEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS_MAX"
                                     minRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_ROUND_TRIPS"
                                     minExposureEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_EXPOSURE"
                                     minSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_SHARPE"
@@ -10801,6 +10807,17 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         lstmAdamBeta2 = min 0.999999 (max 0 (readNonNegativeDouble lstmAdamBeta2Env (argLstmAdamBeta2 baseArgs)))
                                         lstmAdamEps :: Double
                                         lstmAdamEps = max 1e-12 (readNonNegativeDouble lstmAdamEpsEnv (argLstmAdamEps baseArgs))
+                                        lstmAdamBetaEnvValue raw =
+                                            fmap (min 0.999999 . max 0) (readFiniteDoubleMaybe raw)
+                                        lstmAdamEpsEnvValue raw =
+                                            fmap (max 1e-12) (readFiniteDoubleMaybe raw)
+                                        lstmAdamRangeArgs =
+                                            maybeDoubleArg "--lstm-adam-beta1-min" (lstmAdamBetaEnvValue lstmAdamBeta1MinEnv)
+                                                ++ maybeDoubleArg "--lstm-adam-beta1-max" (lstmAdamBetaEnvValue lstmAdamBeta1MaxEnv)
+                                                ++ maybeDoubleArg "--lstm-adam-beta2-min" (lstmAdamBetaEnvValue lstmAdamBeta2MinEnv)
+                                                ++ maybeDoubleArg "--lstm-adam-beta2-max" (lstmAdamBetaEnvValue lstmAdamBeta2MaxEnv)
+                                                ++ maybeDoubleArg "--lstm-adam-eps-min" (lstmAdamEpsEnvValue lstmAdamEpsMinEnv)
+                                                ++ maybeDoubleArg "--lstm-adam-eps-max" (lstmAdamEpsEnvValue lstmAdamEpsMaxEnv)
                                         minExposure :: Double
                                         minExposure = clamp01 (readNonNegativeDouble minExposureEnv 0.02)
                                         minSharpe :: Double
@@ -11072,6 +11089,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , exePath
                                                                                         , "--disable-lstm-persistence"
                                                                                         ]
+                                                                                            ++ lstmAdamRangeArgs
                                                                                             ++ priorArgs
                                                                                             ++ extraArgs
                                                                                             ++ crossExchangeArgs
@@ -15193,6 +15211,12 @@ prepareOptimizerArgs outputPath mPriorJson req = do
     lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
     lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
     lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
+    lstmAdamBeta1MinEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1_MIN"
+    lstmAdamBeta1MaxEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1_MAX"
+    lstmAdamBeta2MinEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2_MIN"
+    lstmAdamBeta2MaxEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2_MAX"
+    lstmAdamEpsMinEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS_MIN"
+    lstmAdamEpsMaxEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS_MAX"
     let source = fromMaybe OptimizerSourceBinance (arrSource req)
         defaultPriorJson =
             case source of
@@ -15787,16 +15811,20 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                 lrArgs =
                     maybeDoubleArg "--lr-min" (fmap (max 1e-12) (arrLrMin req))
                         ++ maybeDoubleArg "--lr-max" (fmap (max 1e-12) (arrLrMax req))
+                lstmAdamBetaEnvValue raw =
+                    fmap (min 0.999999 . max 0) (readFiniteDoubleMaybe raw)
+                lstmAdamEpsEnvValue raw =
+                    fmap (max 1e-12) (readFiniteDoubleMaybe raw)
                 lstmAdamArgs =
                     maybeDoubleArg "--lstm-adam-beta1" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta1 req <|> readFiniteDoubleMaybe lstmAdamBeta1Env))
                         ++ maybeDoubleArg "--lstm-adam-beta2" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta2 req <|> readFiniteDoubleMaybe lstmAdamBeta2Env))
                         ++ maybeDoubleArg "--lstm-adam-eps" (fmap (max 1e-12) (arrLstmAdamEps req <|> readFiniteDoubleMaybe lstmAdamEpsEnv))
-                        ++ maybeDoubleArg "--lstm-adam-beta1-min" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta1Min req))
-                        ++ maybeDoubleArg "--lstm-adam-beta1-max" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta1Max req))
-                        ++ maybeDoubleArg "--lstm-adam-beta2-min" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta2Min req))
-                        ++ maybeDoubleArg "--lstm-adam-beta2-max" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta2Max req))
-                        ++ maybeDoubleArg "--lstm-adam-eps-min" (fmap (max 1e-12) (arrLstmAdamEpsMin req))
-                        ++ maybeDoubleArg "--lstm-adam-eps-max" (fmap (max 1e-12) (arrLstmAdamEpsMax req))
+                        ++ maybeDoubleArg "--lstm-adam-beta1-min" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta1Min req) <|> lstmAdamBetaEnvValue lstmAdamBeta1MinEnv)
+                        ++ maybeDoubleArg "--lstm-adam-beta1-max" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta1Max req) <|> lstmAdamBetaEnvValue lstmAdamBeta1MaxEnv)
+                        ++ maybeDoubleArg "--lstm-adam-beta2-min" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta2Min req) <|> lstmAdamBetaEnvValue lstmAdamBeta2MinEnv)
+                        ++ maybeDoubleArg "--lstm-adam-beta2-max" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta2Max req) <|> lstmAdamBetaEnvValue lstmAdamBeta2MaxEnv)
+                        ++ maybeDoubleArg "--lstm-adam-eps-min" (fmap (max 1e-12) (arrLstmAdamEpsMin req) <|> lstmAdamEpsEnvValue lstmAdamEpsMinEnv)
+                        ++ maybeDoubleArg "--lstm-adam-eps-max" (fmap (max 1e-12) (arrLstmAdamEpsMax req) <|> lstmAdamEpsEnvValue lstmAdamEpsMaxEnv)
                 patienceArgs =
                     maybeIntArg "--patience-max" (fmap (max 0) (arrPatienceMax req))
                 gradClipArgs =
