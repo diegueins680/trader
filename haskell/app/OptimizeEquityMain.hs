@@ -87,6 +87,7 @@ optimizerArgsParser =
         <*> strOption (long "top-json" <> value "" <> metavar "PATH")
         <*> strOption (long "prior-json" <> value "" <> metavar "PATH")
         <*> option auto (long "prior-sample-prob" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "prior-method-sample-prob" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "prior-top-fraction" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "prior-min-samples" <> value 1 <> metavar "INT")
         <*> switch (long "quality")
@@ -655,6 +656,8 @@ validateArgs args = do
         Left "--early-stop-no-improve must be >= 0."
     when (oaPriorSampleProb args < 0 || oaPriorSampleProb args > 1) $
         Left "--prior-sample-prob must be between 0 and 1."
+    when (oaPriorMethodSampleProb args < 0 || oaPriorMethodSampleProb args > 1) $
+        Left "--prior-method-sample-prob must be between 0 and 1."
     when (oaPriorTopFraction args < 0 || oaPriorTopFraction args > 1) $
         Left "--prior-top-fraction must be between 0 and 1."
     when (oaPriorMinSamples args < 0) $

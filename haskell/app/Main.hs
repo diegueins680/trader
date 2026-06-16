@@ -15097,10 +15097,12 @@ optimizerPriorArgsFromEnv :: Maybe FilePath -> IO [String]
 optimizerPriorArgsFromEnv mDefaultJson = do
     priorJsonEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_JSON"
     priorSampleProbEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_SAMPLE_PROB"
+    priorMethodSampleProbEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_METHOD_SAMPLE_PROB"
     priorTopFractionEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_TOP_FRACTION"
     priorMinSamplesEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_MIN_SAMPLES"
     let priorJson = pickDefaultString (fromMaybe "" mDefaultJson) priorJsonEnv
         priorSampleProb = clamp01 (readNonNegativeDoubleMaybe priorSampleProbEnv 0.6)
+        priorMethodSampleProb = clamp01 (readNonNegativeDoubleMaybe priorMethodSampleProbEnv 0.5)
         priorTopFraction = clamp01 (readNonNegativeDoubleMaybe priorTopFractionEnv 0.5)
         priorMinSamples = readNonNegativeIntMaybe priorMinSamplesEnv 3
      in pure $
@@ -15111,6 +15113,8 @@ optimizerPriorArgsFromEnv mDefaultJson = do
                     , priorJson
                     , "--prior-sample-prob"
                     , show priorSampleProb
+                    , "--prior-method-sample-prob"
+                    , show priorMethodSampleProb
                     , "--prior-top-fraction"
                     , show priorTopFraction
                     , "--prior-min-samples"

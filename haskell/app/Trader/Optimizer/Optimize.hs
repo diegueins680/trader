@@ -103,6 +103,7 @@ import Trader.Formal.CloseTiming (
     minimumCloseTimingSamples,
     minimumPositiveLiftSupportSamples,
  )
+import Trader.Method (methodCode, parseMethod)
 import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Random (
@@ -1980,6 +1981,7 @@ data OptimizerArgs = OptimizerArgs
     , oaTopJson :: !String
     , oaPriorJson :: !String
     , oaPriorSampleProb :: !Double
+    , oaPriorMethodSampleProb :: !Double
     , oaPriorTopFraction :: !Double
     , oaPriorMinSamples :: !Int
     , oaQuality :: !Bool
@@ -5198,6 +5200,7 @@ runOptimizer args0 = do
                                                                         perturbScaleInt = max 0 (oaPerturbScaleInt args)
                                                                         earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
                                                                         priorSampleProb = clamp (oaPriorSampleProb args) 0 1
+                                                                        priorMethodSampleProb = clamp (oaPriorMethodSampleProb args) 0 1
                                                                         minRoundTrips = max 0 (oaMinRoundTrips args)
                                                                         minWinRate = max 0 (oaMinWinRate args)
                                                                         minProfitFactor = max 0 (oaMinProfitFactor args)
@@ -5478,6 +5481,7 @@ runOptimizer args0 = do
                                                                                     barsMax
                                                                                     perturbScaleDouble
                                                                                     perturbScaleInt
+                                                                                    priorMethodSampleProb
                                                                                     priorTrials
                                                                                     baseParams
                                                                                     rng'
@@ -6940,26 +6944,36 @@ samplePriorParams ::
     Int ->
     Double ->
     Int ->
+    Double ->
     [PriorTrial] ->
     TrialParams ->
     Rng ->
     (TrialParams, Rng)
-samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleInt priors base rng0
+samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleInt priorMethodProb priors base rng0
     | null priors = (base, rng0)
     | priorProb <= 0 = (base, rng0)
     | otherwise =
         let (r, rng1) = nextDouble rng0
          in if r >= clamp priorProb 0 1
                 then (base, rng1)
-                else case priorPoolForBase base priors of
-                    [] -> (base, rng1)
-                    pool ->
-                        let (picked, rng2) = nextChoice pool rng1
-                         in case picked of
-                                Nothing -> (base, rng2)
-                                Just prior ->
-                                    let overlaid = applyPriorOverlay allowedIntervals prior base
-                                     in perturbTrialParams barsMin barsMax scaleDouble scaleInt overlaid rng2
+                else
+                    let (methodR, rng1a) = nextDouble rng1
+                        usePriorMethod = methodR < clamp priorMethodProb 0 1
+                        pool =
+                            if usePriorMethod
+                                then priorMethodSteeringPool base priors
+                                else priorPoolForBase base priors
+                     in case pool of
+                            [] -> (base, rng1a)
+                            pool ->
+                                let (picked, rng2) = nextChoice pool rng1a
+                                 in case picked of
+                                        Nothing -> (base, rng2)
+                                        Just prior ->
+                                            let overlaid =
+                                                    applyPriorMethodIfEnabled usePriorMethod prior $
+                                                        applyPriorOverlay allowedIntervals prior base
+                                             in perturbTrialParams barsMin barsMax scaleDouble scaleInt overlaid rng2
 
 priorPoolForBase :: TrialParams -> [PriorTrial] -> [PriorTrial]
 priorPoolForBase base priors =
@@ -6985,6 +6999,42 @@ priorPoolForBase base priors =
         case filter (not . null) pools of
             pool : _ -> pool
             [] -> []
+
+priorMethodSteeringPool :: TrialParams -> [PriorTrial] -> [PriorTrial]
+priorMethodSteeringPool base priors =
+    firstNonEmpty
+        [ filter (\p -> samePlatform p && sameInterval p && priorMethodEnabled p) priors
+        , filter (\p -> samePlatform p && priorMethodEnabled p) priors
+        , filter priorMethodEnabled priors
+        ]
+  where
+    samePlatform prior =
+        case ptPlatform prior of
+            Nothing -> True
+            Just platform -> isNothing (tpPlatform base) || tpPlatform base == Just platform
+    sameInterval prior =
+        case ptInterval prior of
+            Nothing -> True
+            Just interval -> interval == tpInterval base
+    firstNonEmpty pools =
+        case filter (not . null) pools of
+            pool : _ -> pool
+            [] -> []
+
+priorMethodEnabled :: PriorTrial -> Bool
+priorMethodEnabled prior =
+    isJust (priorMethodCode prior)
+
+priorMethodCode :: PriorTrial -> Maybe String
+priorMethodCode prior = do
+    method <- ptMethod prior
+    either (const Nothing) (Just . methodCode) (parseMethod method)
+
+applyPriorMethodIfEnabled :: Bool -> PriorTrial -> TrialParams -> TrialParams
+applyPriorMethodIfEnabled usePriorMethod prior params =
+    if usePriorMethod
+        then maybe params (\method -> params{tpMethod = method}) (priorMethodCode prior)
+        else params
 
 applyPriorOverlay :: [String] -> PriorTrial -> TrialParams -> TrialParams
 applyPriorOverlay allowedIntervals prior base =
