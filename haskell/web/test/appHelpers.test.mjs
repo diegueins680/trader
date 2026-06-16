@@ -153,14 +153,17 @@ test("buildOptimizerRunRequest normalizes known integer extra overrides before m
   const request = buildOptimizerRunRequest(form, {
     trials: "12",
     barsMin: "250",
+    survivorParentActivityFloor: "7",
     objective: "roi",
   });
 
   assert.equal(request.trials, 12);
   assert.equal(request.barsMin, 250);
+  assert.equal(request.survivorParentActivityFloor, 7);
   assert.equal(request.objective, "roi");
   assert.equal(typeof request.trials, "number");
   assert.equal(typeof request.barsMin, "number");
+  assert.equal(typeof request.survivorParentActivityFloor, "number");
 });
 
 test("buildOptimizerRunRequest canonicalizes known source, symbol, and finite numeric extra overrides while enforcing source compatibility", () => {
@@ -177,6 +180,7 @@ test("buildOptimizerRunRequest canonicalizes known source, symbol, and finite nu
     timeoutSec: "12",
     backtestRatio: "0.2",
     tuneRatio: "0.25",
+    survivorParentAnnualizedReturnFloor: "0.75",
   });
 
   assert.equal(request.source, "coinbase");
@@ -185,9 +189,11 @@ test("buildOptimizerRunRequest canonicalizes known source, symbol, and finite nu
   assert.equal(request.timeoutSec, 12);
   assert.equal(request.backtestRatio, 0.2);
   assert.equal(request.tuneRatio, 0.25);
+  assert.equal(request.survivorParentAnnualizedReturnFloor, 0.75);
   assert.equal(typeof request.timeoutSec, "number");
   assert.equal(typeof request.backtestRatio, "number");
   assert.equal(typeof request.tuneRatio, "number");
+  assert.equal(typeof request.survivorParentAnnualizedReturnFloor, "number");
 });
 
 test("buildOptimizerRunRequest drops invalid known integer extra overrides instead of emitting stringly payloads", () => {

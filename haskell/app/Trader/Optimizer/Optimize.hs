@@ -2333,6 +2333,8 @@ data OptimizerArgs = OptimizerArgs
     , oaSeedTrials :: !(Maybe Int)
     , oaSeedRatio :: !(Maybe Double)
     , oaSurvivorFraction :: !Double
+    , oaSurvivorParentActivityFloor :: !Int
+    , oaSurvivorParentAnnualizedReturnFloor :: !Double
     , oaPerturbScaleDouble :: !Double
     , oaPerturbScaleInt :: !Int
     , oaEarlyStopNoImprove :: !Int
@@ -5676,6 +5678,10 @@ runOptimizer args0 = do
                                                                         seedTrialsOverride = oaSeedTrials args
                                                                         seedRatioOverride = oaSeedRatio args
                                                                         survivorFraction = clamp (oaSurvivorFraction args) 0 1
+                                                                        survivorParentActivityFloor = max 0 (oaSurvivorParentActivityFloor args)
+                                                                        survivorParentAnnualizedReturnFloor =
+                                                                            let raw = oaSurvivorParentAnnualizedReturnFloor args
+                                                                             in if isNaN raw || isInfinite raw then 1 else raw
                                                                         perturbScaleDouble = max 0 (oaPerturbScaleDouble args)
                                                                         perturbScaleInt = max 0 (oaPerturbScaleInt args)
                                                                         earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
@@ -6207,8 +6213,8 @@ runOptimizer args0 = do
                                                                                             max
                                                                                                 (metricInt (trMetrics tr) "operationCount" 0)
                                                                                                 (metricInt (trMetrics tr) "tradeCount" 0)
-                                                                                    , opCount > 5
-                                                                                    , metricFloat (trMetrics tr) "annualizedReturn" 0 > 1
+                                                                                    , opCount > survivorParentActivityFloor
+                                                                                    , metricFloat (trMetrics tr) "annualizedReturn" 0 > survivorParentAnnualizedReturnFloor
                                                                                     ]
                                                                              in case gaParents of
                                                                                     _ : _ : _ -> Just gaParents

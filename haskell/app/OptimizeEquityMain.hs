@@ -76,6 +76,8 @@ optimizerArgsParser =
         <*> optional (option auto (long "seed-trials" <> metavar "INT"))
         <*> optional (option auto (long "seed-ratio" <> metavar "FLOAT"))
         <*> option auto (long "survivor-fraction" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "survivor-parent-activity-floor" <> value 5 <> metavar "INT")
+        <*> option auto (long "survivor-parent-annualized-return-floor" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "perturb-scale-double" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "perturb-scale-int" <> value 2 <> metavar "INT")
         <*> option auto (long "early-stop-no-improve" <> value 0 <> metavar "INT")
@@ -700,6 +702,10 @@ validateArgs args = do
         Left "--seed-ratio must be between 0 and 1."
     when (oaSurvivorFraction args < 0 || oaSurvivorFraction args > 1) $
         Left "--survivor-fraction must be between 0 and 1."
+    when (oaSurvivorParentActivityFloor args < 0) $
+        Left "--survivor-parent-activity-floor must be >= 0."
+    unless (finiteDouble (oaSurvivorParentAnnualizedReturnFloor args)) $
+        Left "--survivor-parent-annualized-return-floor must be finite."
     when (oaPerturbScaleDouble args < 0) $
         Left "--perturb-scale-double must be >= 0."
     when (oaPerturbScaleInt args < 0) $

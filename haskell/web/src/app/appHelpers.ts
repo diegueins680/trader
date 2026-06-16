@@ -1281,6 +1281,7 @@ const OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS = [
   "trials",
   "seed",
   "seedTrials",
+  "survivorParentActivityFloor",
   "perturbScaleInt",
   "earlyStopNoImprove",
   "epochsMin",
@@ -1305,7 +1306,14 @@ const OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS = [
   "routerRegimeMinBarsMax",
 ] as const;
 
-const OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS = ["timeoutSec", "backtestRatio", "tuneRatio", "routerRegimeMinFractionMin", "routerRegimeMinFractionMax"] as const;
+const OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS = [
+  "timeoutSec",
+  "backtestRatio",
+  "tuneRatio",
+  "survivorParentAnnualizedReturnFloor",
+  "routerRegimeMinFractionMin",
+  "routerRegimeMinFractionMax",
+] as const;
 
 const OPTIMIZER_EXTRA_TRIMMED_STRING_KEYS = [
   "data",
@@ -1614,6 +1622,8 @@ export type OptimizerRunForm = {
   seedTrials: string;
   seedRatio: string;
   survivorFraction: string;
+  survivorParentActivityFloor: string;
+  survivorParentAnnualizedReturnFloor: string;
   perturbScaleDouble: string;
   perturbScaleInt: string;
   earlyStopNoImprove: string;
@@ -1971,6 +1981,8 @@ export function buildOptimizerCorrelationGuess(combos: OptimizationCombo[]): Opt
     timeoutSec: "120",
     seedRatio: "0.55",
     survivorFraction: "0.5",
+    survivorParentActivityFloor: "5",
+    survivorParentAnnualizedReturnFloor: "1.0",
     perturbScaleDouble: "0.2",
     perturbScaleInt: "4",
   };
@@ -2079,6 +2091,8 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     seedTrials: "",
     seedRatio: "",
     survivorFraction: "",
+    survivorParentActivityFloor: "",
+    survivorParentAnnualizedReturnFloor: "",
     perturbScaleDouble: "",
     perturbScaleInt: "",
     earlyStopNoImprove: "",
@@ -2237,6 +2251,10 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (seedRatio != null) req.seedRatio = seedRatio;
   const survivorFraction = parseOptionalNumber(form.survivorFraction);
   if (survivorFraction != null) req.survivorFraction = survivorFraction;
+  const survivorParentActivityFloor = parseOptionalInt(form.survivorParentActivityFloor);
+  if (survivorParentActivityFloor != null) req.survivorParentActivityFloor = survivorParentActivityFloor;
+  const survivorParentAnnualizedReturnFloor = parseOptionalNumber(form.survivorParentAnnualizedReturnFloor);
+  if (survivorParentAnnualizedReturnFloor != null) req.survivorParentAnnualizedReturnFloor = survivorParentAnnualizedReturnFloor;
   const perturbScaleDouble = parseOptionalNumber(form.perturbScaleDouble);
   if (perturbScaleDouble != null) req.perturbScaleDouble = perturbScaleDouble;
   const perturbScaleInt = parseOptionalInt(form.perturbScaleInt);

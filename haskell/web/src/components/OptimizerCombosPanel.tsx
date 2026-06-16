@@ -1191,6 +1191,37 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               />
             </div>
           </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerSurvivorParentActivityFloor">
+                Parent activity floor
+              </label>
+              <input
+                id="optimizerSurvivorParentActivityFloor"
+                className="input"
+                type="number"
+                min={0}
+                step="1"
+                value={optimizerRunForm.survivorParentActivityFloor}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, survivorParentActivityFloor: e.target.value }))}
+                placeholder="5"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerSurvivorParentAnnualizedReturnFloor">
+                Parent return floor
+              </label>
+              <input
+                id="optimizerSurvivorParentAnnualizedReturnFloor"
+                className="input"
+                type="number"
+                step="0.01"
+                value={optimizerRunForm.survivorParentAnnualizedReturnFloor}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, survivorParentAnnualizedReturnFloor: e.target.value }))}
+                placeholder="1.0"
+              />
+            </div>
+          </div>
           <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerPerturbScaleDouble">

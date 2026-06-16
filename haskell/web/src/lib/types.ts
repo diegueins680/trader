@@ -743,6 +743,8 @@ export type OptimizerRunRequest = {
   seedTrials?: number;
   seedRatio?: number;
   survivorFraction?: number;
+  survivorParentActivityFloor?: number;
+  survivorParentAnnualizedReturnFloor?: number;
   perturbScaleDouble?: number;
   perturbScaleInt?: number;
   earlyStopNoImprove?: number;
