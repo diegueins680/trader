@@ -2599,6 +2599,10 @@ argsPublicJson args =
             , "blendRegimeHighVolCutoff" .= argBlendRegimeHighVolCutoff args
             , "blendRegimeKalmanZCutoff" .= argBlendRegimeKalmanZCutoff args
             , "blendBanditExploreScale" .= argBlendBanditExploreScale args
+            , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
+            , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
+            , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
+            , "blendPhaseCancelAlignmentScale" .= argBlendPhaseCancelAlignmentScale args
             , "routerLookback" .= argRouterLookback args
             , "routerMinScore" .= argRouterMinScore args
             , "routerScorePnlWeight" .= argRouterScorePnlWeight args
@@ -9482,6 +9486,10 @@ botOptimizeAfterOperation st = do
                                 , ecBlendRegimeHighVolCutoff = argBlendRegimeHighVolCutoff args
                                 , ecBlendRegimeKalmanZCutoff = argBlendRegimeKalmanZCutoff args
                                 , ecBlendBanditExploreScale = argBlendBanditExploreScale args
+                                , ecBlendPhaseCancelReturnClamp = argBlendPhaseCancelReturnClamp args
+                                , ecBlendPhaseCancelConflictFloor = argBlendPhaseCancelConflictFloor args
+                                , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
+                                , ecBlendPhaseCancelAlignmentScale = argBlendPhaseCancelAlignmentScale args
                                 , ecRouterLookback = argRouterLookback args
                                 , ecRouterMinScore = argRouterMinScore args
                                 , ecRouterScorePnlWeight = argRouterScorePnlWeight args
@@ -9936,6 +9944,10 @@ parseTopComboToArgs base combo = do
         blendRegimeHighVolCutoff = clamp01 (pickD "blendRegimeHighVolCutoff" (argBlendRegimeHighVolCutoff base))
         blendRegimeKalmanZCutoff = max 0 (pickD "blendRegimeKalmanZCutoff" (argBlendRegimeKalmanZCutoff base))
         blendBanditExploreScale = max 0 (pickD "blendBanditExploreScale" (argBlendBanditExploreScale base))
+        blendPhaseCancelReturnClamp = max 1e-12 (pickD "blendPhaseCancelReturnClamp" (argBlendPhaseCancelReturnClamp base))
+        blendPhaseCancelConflictFloor = max 0 (pickD "blendPhaseCancelConflictFloor" (argBlendPhaseCancelConflictFloor base))
+        blendPhaseCancelConflictScale = max 0 (pickD "blendPhaseCancelConflictScale" (argBlendPhaseCancelConflictScale base))
+        blendPhaseCancelAlignmentScale = max 0 (pickD "blendPhaseCancelAlignmentScale" (argBlendPhaseCancelAlignmentScale base))
         triLayer = pickBool "triLayer" (argTriLayer base)
         triLayerFastMult = max 1e-6 (pickD "triLayerFastMult" (argTriLayerFastMult base))
         triLayerSlowMult = max 1e-6 (pickD "triLayerSlowMult" (argTriLayerSlowMult base))
@@ -10059,6 +10071,10 @@ parseTopComboToArgs base combo = do
                 , argBlendRegimeHighVolCutoff = blendRegimeHighVolCutoff
                 , argBlendRegimeKalmanZCutoff = blendRegimeKalmanZCutoff
                 , argBlendBanditExploreScale = blendBanditExploreScale
+                , argBlendPhaseCancelReturnClamp = blendPhaseCancelReturnClamp
+                , argBlendPhaseCancelConflictFloor = blendPhaseCancelConflictFloor
+                , argBlendPhaseCancelConflictScale = blendPhaseCancelConflictScale
+                , argBlendPhaseCancelAlignmentScale = blendPhaseCancelAlignmentScale
                 , argTriLayer = triLayer
                 , argTriLayerFastMult = triLayerFastMult
                 , argTriLayerSlowMult = triLayerSlowMult
@@ -13405,6 +13421,10 @@ argsCacheJsonSignal args =
             , "blendRegimeHighVolCutoff" .= argBlendRegimeHighVolCutoff args
             , "blendRegimeKalmanZCutoff" .= argBlendRegimeKalmanZCutoff args
             , "blendBanditExploreScale" .= argBlendBanditExploreScale args
+            , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
+            , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
+            , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
+            , "blendPhaseCancelAlignmentScale" .= argBlendPhaseCancelAlignmentScale args
             , "routerLookback" .= argRouterLookback args
             , "routerMinScore" .= argRouterMinScore args
             , "routerScorePnlWeight" .= argRouterScorePnlWeight args
@@ -13584,6 +13604,10 @@ argsCacheJsonBacktest args =
             , "blendRegimeHighVolCutoff" .= argBlendRegimeHighVolCutoff args
             , "blendRegimeKalmanZCutoff" .= argBlendRegimeKalmanZCutoff args
             , "blendBanditExploreScale" .= argBlendBanditExploreScale args
+            , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
+            , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
+            , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
+            , "blendPhaseCancelAlignmentScale" .= argBlendPhaseCancelAlignmentScale args
             , "routerLookback" .= argRouterLookback args
             , "routerMinScore" .= argRouterMinScore args
             , "triLayer" .= argTriLayer args
@@ -21416,10 +21440,18 @@ phaseCancelPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     Double
-phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
+phaseCancelPredFromPreds returnClampRaw conflictFloorRaw conflictScaleRaw alignmentScaleRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        returnClamp = max 1e-12 returnClampRaw
+        conflictFloor = max 0 conflictFloorRaw
+        conflictScale = max 0 conflictScaleRaw
+        alignmentScale = max 0 alignmentScaleRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -21431,7 +21463,7 @@ phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
                 else
                     let v = x / prev - 1
                      in if bad v then Nothing else Just v
-        clampRet r = max (-0.75) (min 0.75 r)
+        clampRet r = max (negate returnClamp) (min returnClamp r)
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
                 case (ret kalPred, ret lstmPred) of
@@ -21450,8 +21482,8 @@ phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
                             blendRet = wFallback * rKal + (1 - wFallback) * rLstm
                             predRet =
                                 if conflict
-                                    then (0.1 + 0.6 * (1 - cancellation)) * blendRet
-                                    else (1 + 0.4 * alignment) * blendRet
+                                    then (conflictFloor + conflictScale * (1 - cancellation)) * blendRet
+                                    else (1 + alignmentScale * alignment) * blendRet
                             pred = neutralPred * (1 + clampRet predRet)
                          in if bad pred then blend else pred
                     _ -> blend
@@ -21461,17 +21493,21 @@ phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 phaseCancelPredictionsV ::
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-phaseCancelPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+phaseCancelPredictionsV returnClamp conflictFloor conflictScale alignmentScale fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred
+             in phaseCancelPredFromPreds returnClamp conflictFloor conflictScale alignmentScale fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 softmaxBlendWeightFromPreds ::
@@ -22174,6 +22210,10 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 blendRegimeHighVolCutoff = clamp01 (argBlendRegimeHighVolCutoff args)
                 blendRegimeKalmanZCutoff = max 0 (argBlendRegimeKalmanZCutoff args)
                 blendBanditExploreScale = max 0 (argBlendBanditExploreScale args)
+                blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
+                blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
+                blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
+                blendPhaseCancelAlignmentScale = max 0 (argBlendPhaseCancelAlignmentScale args)
                 blendPred0 = blendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 harmonicBlendPred0 = harmonicBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 disagreementGuardPred0 = disagreementGuardPredictionsV blendWeight pricesV kalPred0 lstmPred0
@@ -22186,7 +22226,16 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 entropyBlendPred0 = entropyBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 coherenceGatePred0 = coherenceGatePredictionsV blendWeight pricesV kalPred0 lstmPred0
                 fractalBlendPred0 = fractalBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
-                phaseCancelPred0 = phaseCancelPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                phaseCancelPred0 =
+                    phaseCancelPredictionsV
+                        blendPhaseCancelReturnClamp
+                        blendPhaseCancelConflictFloor
+                        blendPhaseCancelConflictScale
+                        blendPhaseCancelAlignmentScale
+                        blendWeight
+                        pricesV
+                        kalPred0
+                        lstmPred0
                 softmaxBlendPred0 = softmaxBlendPredictionsV blendSoftmaxScale blendWeight pricesV kalPred0 lstmPred0
                 smoothSoftmaxBlendPred0 = smoothSoftmaxBlendPredictionsV blendSoftmaxScale blendSmoothAlpha blendWeight pricesV kalPred0 lstmPred0
                 netSoftmaxBlendPred0 = netSoftmaxBlendPredictionsV blendNetSoftmaxScale blendWeight roundTripCost pricesV kalPred0 lstmPred0
@@ -25279,6 +25328,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecBlendRegimeHighVolCutoff = argBlendRegimeHighVolCutoff args
                 , ecBlendRegimeKalmanZCutoff = argBlendRegimeKalmanZCutoff args
                 , ecBlendBanditExploreScale = argBlendBanditExploreScale args
+                , ecBlendPhaseCancelReturnClamp = argBlendPhaseCancelReturnClamp args
+                , ecBlendPhaseCancelConflictFloor = argBlendPhaseCancelConflictFloor args
+                , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
+                , ecBlendPhaseCancelAlignmentScale = argBlendPhaseCancelAlignmentScale args
                 , ecRouterLookback = argRouterLookback args
                 , ecRouterMinScore = argRouterMinScore args
                 , ecRouterScorePnlWeight = argRouterScorePnlWeight args
@@ -25380,6 +25433,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         blendRegimeHighVolCutoff = clamp01 (argBlendRegimeHighVolCutoff args)
         blendRegimeKalmanZCutoff = max 0 (argBlendRegimeKalmanZCutoff args)
         blendBanditExploreScale = max 0 (argBlendBanditExploreScale args)
+        blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
+        blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
+        blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
+        blendPhaseCancelAlignmentScale = max 0 (argBlendPhaseCancelAlignmentScale args)
         kalZMinForBlend = max 0 (argKalmanZMin args)
         kalZMaxForBlend = max kalZMinForBlend (argKalmanZMax args)
         blendPredBacktest =
@@ -25461,7 +25518,17 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (phaseCancelPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+             in V.toList
+                    ( phaseCancelPredictionsV
+                        blendPhaseCancelReturnClamp
+                        blendPhaseCancelConflictFloor
+                        blendPhaseCancelConflictScale
+                        blendPhaseCancelAlignmentScale
+                        blendWeight
+                        pricesBacktestV
+                        kalBacktestV
+                        lstmBacktestV
+                    )
         softmaxBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -27314,6 +27381,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             blendRegimeHighVolCutoff = clamp01 (argBlendRegimeHighVolCutoff args)
             blendRegimeKalmanZCutoff = max 0 (argBlendRegimeKalmanZCutoff args)
             blendBanditExploreScale = max 0 (argBlendBanditExploreScale args)
+            blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
+            blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
+            blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
+            blendPhaseCancelAlignmentScale = max 0 (argBlendPhaseCancelAlignmentScale args)
             kalZMinForBlend = max 0 (argKalmanZMin args)
             kalZMaxForBlend = max kalZMinForBlend (argKalmanZMax args)
 
@@ -27679,6 +27750,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     (Just k, Just l) ->
                         Just
                             ( phaseCancelPredFromPreds
+                                blendPhaseCancelReturnClamp
+                                blendPhaseCancelConflictFloor
+                                blendPhaseCancelConflictScale
+                                blendPhaseCancelAlignmentScale
                                 blendWeight
                                 currentPrice
                                 k

@@ -286,6 +286,10 @@ data Args = Args
     , argBlendRegimeHighVolCutoff :: Double
     , argBlendRegimeKalmanZCutoff :: Double
     , argBlendBanditExploreScale :: Double
+    , argBlendPhaseCancelReturnClamp :: Double
+    , argBlendPhaseCancelConflictFloor :: Double
+    , argBlendPhaseCancelConflictScale :: Double
+    , argBlendPhaseCancelAlignmentScale :: Double
     , argRouterLookback :: Int
     , argRouterMinScore :: Double
     , argRouterScorePnlWeight :: Double
@@ -1009,6 +1013,10 @@ opts = do
     argBlendRegimeHighVolCutoff <- option auto (long "blend-regime-high-vol-cutoff" <> value 0.6 <> showDefault <> help "High-volatility probability cutoff for --method regime_switch/router")
     argBlendRegimeKalmanZCutoff <- option auto (long "blend-regime-kalman-z-cutoff" <> value 1.0 <> showDefault <> help "Kalman z-score cutoff for --method regime_switch/router")
     argBlendBanditExploreScale <- option auto (long "blend-bandit-explore-scale" <> value 0.25 <> showDefault <> help "UCB exploration bonus scale for --method bandit_router")
+    argBlendPhaseCancelReturnClamp <- option auto (long "blend-phase-cancel-return-clamp" <> value 0.75 <> showDefault <> help "Maximum absolute per-bar return emitted by --method phase_cancel")
+    argBlendPhaseCancelConflictFloor <- option auto (long "blend-phase-cancel-conflict-floor" <> value 0.1 <> showDefault <> help "Base return multiplier when phase_cancel sources conflict")
+    argBlendPhaseCancelConflictScale <- option auto (long "blend-phase-cancel-conflict-scale" <> value 0.6 <> showDefault <> help "Cancellation-sensitive return multiplier for --method phase_cancel conflicts")
+    argBlendPhaseCancelAlignmentScale <- option auto (long "blend-phase-cancel-alignment-scale" <> value 0.4 <> showDefault <> help "Agreement-sensitive return boost for --method phase_cancel")
     argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router/bandit_router scoring (>= 2)")
     argRouterMinScore <- option auto (long "router-min-score" <> value 0.25 <> help "Minimum router score (blend of accuracy*coverage and return) to accept a model (0..1)")
     argRouterScorePnlWeight <-
@@ -1517,6 +1525,10 @@ validateArgs args0 = do
             , ("--blend-regime-high-vol-cutoff", argBlendRegimeHighVolCutoff args)
             , ("--blend-regime-kalman-z-cutoff", argBlendRegimeKalmanZCutoff args)
             , ("--blend-bandit-explore-scale", argBlendBanditExploreScale args)
+            , ("--blend-phase-cancel-return-clamp", argBlendPhaseCancelReturnClamp args)
+            , ("--blend-phase-cancel-conflict-floor", argBlendPhaseCancelConflictFloor args)
+            , ("--blend-phase-cancel-conflict-scale", argBlendPhaseCancelConflictScale args)
+            , ("--blend-phase-cancel-alignment-scale", argBlendPhaseCancelAlignmentScale args)
             , ("--router-min-score", argRouterMinScore args)
             , ("--router-score-pnl-weight", argRouterScorePnlWeight args)
             , ("--tri-layer-fast-mult", argTriLayerFastMult args)
@@ -1626,6 +1638,10 @@ validateArgs args0 = do
     ensure "--blend-regime-high-vol-cutoff must be between 0 and 1" (argBlendRegimeHighVolCutoff args >= 0 && argBlendRegimeHighVolCutoff args <= 1)
     ensure "--blend-regime-kalman-z-cutoff must be >= 0" (argBlendRegimeKalmanZCutoff args >= 0)
     ensure "--blend-bandit-explore-scale must be >= 0" (argBlendBanditExploreScale args >= 0)
+    ensure "--blend-phase-cancel-return-clamp must be > 0" (argBlendPhaseCancelReturnClamp args > 0)
+    ensure "--blend-phase-cancel-conflict-floor must be >= 0" (argBlendPhaseCancelConflictFloor args >= 0)
+    ensure "--blend-phase-cancel-conflict-scale must be >= 0" (argBlendPhaseCancelConflictScale args >= 0)
+    ensure "--blend-phase-cancel-alignment-scale must be >= 0" (argBlendPhaseCancelAlignmentScale args >= 0)
     ensure "--method router/bandit_router cannot be used with --optimize-operations/--sweep-threshold" $
         not
             ( (argMethod args == MethodRouter || argMethod args == MethodBanditRouter)

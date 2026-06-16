@@ -163,6 +163,10 @@ data EnsembleConfig = EnsembleConfig
     , ecBlendRegimeHighVolCutoff :: !Double
     , ecBlendRegimeKalmanZCutoff :: !Double
     , ecBlendBanditExploreScale :: !Double
+    , ecBlendPhaseCancelReturnClamp :: !Double
+    , ecBlendPhaseCancelConflictFloor :: !Double
+    , ecBlendPhaseCancelConflictScale :: !Double
+    , ecBlendPhaseCancelAlignmentScale :: !Double
     , ecKalmanDt :: !Double
     , ecKalmanProcessVar :: !Double
     , ecKalmanMeasurementVar :: !Double

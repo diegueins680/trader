@@ -511,6 +511,10 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "blend-regime-high-vol-cutoff" 0.4 0.8
         <*> doubleRangeOption "blend-regime-kalman-z-cutoff" 0.5 2.0
         <*> doubleRangeOption "blend-bandit-explore-scale" 0.0 0.5
+        <*> doubleRangeOption "blend-phase-cancel-return-clamp" 0.25 1.5
+        <*> doubleRangeOption "blend-phase-cancel-conflict-floor" 0.0 0.5
+        <*> doubleRangeOption "blend-phase-cancel-conflict-scale" 0.0 1.2
+        <*> doubleRangeOption "blend-phase-cancel-alignment-scale" 0.0 1.0
         <*> doubleRangeOption "signal-entry-edge-headroom-mult" 1.1 2.5
         <*> doubleRangeOption "signal-entry-edge-spike-mult" 200 2000
         <*> doubleRangeOption "signal-entry-edge-spike-cap" 1.0 8.0
@@ -802,6 +806,10 @@ validateTechnicalOptimizerRanges ranges = do
     unitRange "blend-regime-high-vol-cutoff" (torBlendRegimeHighVolCutoff ranges)
     nonNegativeRange "blend-regime-kalman-z-cutoff" (torBlendRegimeKalmanZCutoff ranges)
     nonNegativeRange "blend-bandit-explore-scale" (torBlendBanditExploreScale ranges)
+    positiveRange "blend-phase-cancel-return-clamp" (torBlendPhaseCancelReturnClamp ranges)
+    nonNegativeRange "blend-phase-cancel-conflict-floor" (torBlendPhaseCancelConflictFloor ranges)
+    nonNegativeRange "blend-phase-cancel-conflict-scale" (torBlendPhaseCancelConflictScale ranges)
+    nonNegativeRange "blend-phase-cancel-alignment-scale" (torBlendPhaseCancelAlignmentScale ranges)
     positiveRange "signal-entry-edge-headroom-mult" (torSignalEntryEdgeHeadroomMult ranges)
     nonNegativeRange "signal-entry-edge-spike-mult" (torSignalEntryEdgeSpikeMult ranges)
     positiveRange "signal-entry-edge-spike-cap" (torSignalEntryEdgeSpikeCap ranges)

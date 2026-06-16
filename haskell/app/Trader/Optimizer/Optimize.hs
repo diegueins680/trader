@@ -203,6 +203,10 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torBlendRegimeHighVolCutoff :: !(Double, Double)
     , torBlendRegimeKalmanZCutoff :: !(Double, Double)
     , torBlendBanditExploreScale :: !(Double, Double)
+    , torBlendPhaseCancelReturnClamp :: !(Double, Double)
+    , torBlendPhaseCancelConflictFloor :: !(Double, Double)
+    , torBlendPhaseCancelConflictScale :: !(Double, Double)
+    , torBlendPhaseCancelAlignmentScale :: !(Double, Double)
     , torSignalEntryEdgeHeadroomMult :: !(Double, Double)
     , torSignalEntryEdgeSpikeMult :: !(Double, Double)
     , torSignalEntryEdgeSpikeCap :: !(Double, Double)
@@ -254,6 +258,10 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpBlendRegimeHighVolCutoff :: !Double
     , ttpBlendRegimeKalmanZCutoff :: !Double
     , ttpBlendBanditExploreScale :: !Double
+    , ttpBlendPhaseCancelReturnClamp :: !Double
+    , ttpBlendPhaseCancelConflictFloor :: !Double
+    , ttpBlendPhaseCancelConflictScale :: !Double
+    , ttpBlendPhaseCancelAlignmentScale :: !Double
     , ttpSignalEntryEdgeHeadroomMult :: !Double
     , ttpSignalEntryEdgeSpikeMult :: !Double
     , ttpSignalEntryEdgeSpikeCap :: !Double
@@ -366,6 +374,10 @@ normalizeTechnicalTrialParams p =
             , ttpBlendRegimeHighVolCutoff = clamp (ttpBlendRegimeHighVolCutoff p) 0 1
             , ttpBlendRegimeKalmanZCutoff = max 0 (ttpBlendRegimeKalmanZCutoff p)
             , ttpBlendBanditExploreScale = max 0 (ttpBlendBanditExploreScale p)
+            , ttpBlendPhaseCancelReturnClamp = max 1e-6 (ttpBlendPhaseCancelReturnClamp p)
+            , ttpBlendPhaseCancelConflictFloor = max 0 (ttpBlendPhaseCancelConflictFloor p)
+            , ttpBlendPhaseCancelConflictScale = max 0 (ttpBlendPhaseCancelConflictScale p)
+            , ttpBlendPhaseCancelAlignmentScale = max 0 (ttpBlendPhaseCancelAlignmentScale p)
             , ttpSignalEntryEdgeHeadroomMult = max 1e-6 (ttpSignalEntryEdgeHeadroomMult p)
             , ttpSignalEntryEdgeSpikeMult = max 0 (ttpSignalEntryEdgeSpikeMult p)
             , ttpSignalEntryEdgeSpikeCap = max 1e-6 (ttpSignalEntryEdgeSpikeCap p)
@@ -419,22 +431,26 @@ sampleTechnicalTrialParams ranges rng0 =
         (blendRegimeHighVolCutoff, rng34) = sampleClamped 0 1 (torBlendRegimeHighVolCutoff ranges) rng33
         (blendRegimeKalmanZCutoff, rng35) = sampleNonNegative (torBlendRegimeKalmanZCutoff ranges) rng34
         (blendBanditExploreScale, rng36) = sampleNonNegative (torBlendBanditExploreScale ranges) rng35
-        (signalEntryEdgeHeadroomMult, rng37) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng36
-        (signalEntryEdgeSpikeMult, rng38) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng37
-        (signalEntryEdgeSpikeCap, rng39) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng38
-        (signalEntryEdgeSpikeConsecutiveLimit, rng40) =
+        (blendPhaseCancelReturnClamp, rng37) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng36
+        (blendPhaseCancelConflictFloor, rng38) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng37
+        (blendPhaseCancelConflictScale, rng39) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng38
+        (blendPhaseCancelAlignmentScale, rng40) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng39
+        (signalEntryEdgeHeadroomMult, rng41) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng40
+        (signalEntryEdgeSpikeMult, rng42) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng41
+        (signalEntryEdgeSpikeCap, rng43) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng42
+        (signalEntryEdgeSpikeConsecutiveLimit, rng44) =
             let (lo, hi) = orderedPair (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
-             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng39
-        (signalTrendSlackMult, rng41) = sampleNonNegative (torSignalTrendSlackMult ranges) rng40
-        (signalTrendSlackCap, rng42) = sampleNonNegative (torSignalTrendSlackCap ranges) rng41
-        (signalDirectionalityLookbackBars, rng43) =
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng43
+        (signalTrendSlackMult, rng45) = sampleNonNegative (torSignalTrendSlackMult ranges) rng44
+        (signalTrendSlackCap, rng46) = sampleNonNegative (torSignalTrendSlackCap ranges) rng45
+        (signalDirectionalityLookbackBars, rng47) =
             let (lo, hi) = orderedPair (torSignalDirectionalityLookbackBars ranges)
-             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng42
-        (signalDirectionalityChopEfficiencyMax, rng44) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng43
-        (signalDirectionalityMrEfficiencyMax0, rng45) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng44
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng46
+        (signalDirectionalityChopEfficiencyMax, rng48) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng47
+        (signalDirectionalityMrEfficiencyMax0, rng49) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng48
         signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
-        (signalDirectionalityWeakZMin, rng46) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng45
-        (signalPredictorTrackingFloor, rng47) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng46
+        (signalDirectionalityWeakZMin, rng50) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng49
+        (signalPredictorTrackingFloor, rng51) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng50
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -473,6 +489,10 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpBlendRegimeHighVolCutoff = blendRegimeHighVolCutoff
                 , ttpBlendRegimeKalmanZCutoff = blendRegimeKalmanZCutoff
                 , ttpBlendBanditExploreScale = blendBanditExploreScale
+                , ttpBlendPhaseCancelReturnClamp = blendPhaseCancelReturnClamp
+                , ttpBlendPhaseCancelConflictFloor = blendPhaseCancelConflictFloor
+                , ttpBlendPhaseCancelConflictScale = blendPhaseCancelConflictScale
+                , ttpBlendPhaseCancelAlignmentScale = blendPhaseCancelAlignmentScale
                 , ttpSignalEntryEdgeHeadroomMult = signalEntryEdgeHeadroomMult
                 , ttpSignalEntryEdgeSpikeMult = signalEntryEdgeSpikeMult
                 , ttpSignalEntryEdgeSpikeCap = signalEntryEdgeSpikeCap
@@ -578,6 +598,14 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpBlendRegimeKalmanZCutoff p)
     , "--blend-bandit-explore-scale"
     , printf "%.12g" (ttpBlendBanditExploreScale p)
+    , "--blend-phase-cancel-return-clamp"
+    , printf "%.12g" (ttpBlendPhaseCancelReturnClamp p)
+    , "--blend-phase-cancel-conflict-floor"
+    , printf "%.12g" (ttpBlendPhaseCancelConflictFloor p)
+    , "--blend-phase-cancel-conflict-scale"
+    , printf "%.12g" (ttpBlendPhaseCancelConflictScale p)
+    , "--blend-phase-cancel-alignment-scale"
+    , printf "%.12g" (ttpBlendPhaseCancelAlignmentScale p)
     , "--signal-entry-edge-headroom-mult"
     , printf "%.12g" (ttpSignalEntryEdgeHeadroomMult p)
     , "--signal-entry-edge-spike-mult"
@@ -640,6 +668,10 @@ technicalTrialParamsPairs p =
     , "blendRegimeHighVolCutoff" .= ttpBlendRegimeHighVolCutoff p
     , "blendRegimeKalmanZCutoff" .= ttpBlendRegimeKalmanZCutoff p
     , "blendBanditExploreScale" .= ttpBlendBanditExploreScale p
+    , "blendPhaseCancelReturnClamp" .= ttpBlendPhaseCancelReturnClamp p
+    , "blendPhaseCancelConflictFloor" .= ttpBlendPhaseCancelConflictFloor p
+    , "blendPhaseCancelConflictScale" .= ttpBlendPhaseCancelConflictScale p
+    , "blendPhaseCancelAlignmentScale" .= ttpBlendPhaseCancelAlignmentScale p
     , "signalEntryEdgeHeadroomMult" .= ttpSignalEntryEdgeHeadroomMult p
     , "signalEntryEdgeSpikeMult" .= ttpSignalEntryEdgeSpikeMult p
     , "signalEntryEdgeSpikeCap" .= ttpSignalEntryEdgeSpikeCap p

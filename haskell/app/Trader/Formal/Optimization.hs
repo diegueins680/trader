@@ -717,6 +717,10 @@ optimizerSurfacePreservedFields base updated =
         , ecBlendRegimeHighVolCutoff updated == ecBlendRegimeHighVolCutoff base
         , ecBlendRegimeKalmanZCutoff updated == ecBlendRegimeKalmanZCutoff base
         , ecBlendBanditExploreScale updated == ecBlendBanditExploreScale base
+        , ecBlendPhaseCancelReturnClamp updated == ecBlendPhaseCancelReturnClamp base
+        , ecBlendPhaseCancelConflictFloor updated == ecBlendPhaseCancelConflictFloor base
+        , ecBlendPhaseCancelConflictScale updated == ecBlendPhaseCancelConflictScale base
+        , ecBlendPhaseCancelAlignmentScale updated == ecBlendPhaseCancelAlignmentScale base
         , ecKalmanZMin updated == ecKalmanZMin base
         , ecKalmanZMax updated == ecKalmanZMax base
         , ecKellyLiteSizing updated == ecKellyLiteSizing base
@@ -822,6 +826,10 @@ optimizerPublicSurfaceBaseConfig =
         , ecBlendRegimeHighVolCutoff = 0.6
         , ecBlendRegimeKalmanZCutoff = 1
         , ecBlendBanditExploreScale = 0.25
+        , ecBlendPhaseCancelReturnClamp = 0.75
+        , ecBlendPhaseCancelConflictFloor = 0.1
+        , ecBlendPhaseCancelConflictScale = 0.6
+        , ecBlendPhaseCancelAlignmentScale = 0.4
         , ecKalmanDt = 1
         , ecKalmanProcessVar = 1
         , ecKalmanMeasurementVar = 1

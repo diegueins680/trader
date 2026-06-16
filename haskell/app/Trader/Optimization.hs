@@ -1133,10 +1133,18 @@ phaseCancelPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     Double
-phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
+phaseCancelPredFromPreds returnClampRaw conflictFloorRaw conflictScaleRaw alignmentScaleRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        returnClamp = max 1e-12 returnClampRaw
+        conflictFloor = max 0 conflictFloorRaw
+        conflictScale = max 0 conflictScaleRaw
+        alignmentScale = max 0 alignmentScaleRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -1148,7 +1156,7 @@ phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
                 else
                     let v = x / prev - 1
                      in if bad v then Nothing else Just v
-        clampRet r = max (-0.75) (min 0.75 r)
+        clampRet r = max (negate returnClamp) (min returnClamp r)
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
                 case (ret kalPred, ret lstmPred) of
@@ -1167,8 +1175,8 @@ phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
                             blendRet = wFallback * rKal + (1 - wFallback) * rLstm
                             predRet =
                                 if conflict
-                                    then (0.1 + 0.6 * (1 - cancellation)) * blendRet
-                                    else (1 + 0.4 * alignment) * blendRet
+                                    then (conflictFloor + conflictScale * (1 - cancellation)) * blendRet
+                                    else (1 + alignmentScale * alignment) * blendRet
                             pred = neutralPred * (1 + clampRet predRet)
                          in if bad pred then blend else pred
                     _ -> blend
@@ -1178,17 +1186,21 @@ phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 phaseCancelPredictionsV ::
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-phaseCancelPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+phaseCancelPredictionsV returnClamp conflictFloor conflictScale alignmentScale fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in phaseCancelPredFromPreds fallbackWeight prev kalPred lstmPred
+             in phaseCancelPredFromPreds returnClamp conflictFloor conflictScale alignmentScale fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 softmaxBlendWeightFromPreds ::
@@ -1976,6 +1988,10 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         blendRegimeHighVolCutoff = clamp01 (ecBlendRegimeHighVolCutoff baseCfg)
         blendRegimeKalmanZCutoff = max 0 (ecBlendRegimeKalmanZCutoff baseCfg)
         blendBanditExploreScale = max 0 (ecBlendBanditExploreScale baseCfg)
+        blendPhaseCancelReturnClamp = max 1e-12 (ecBlendPhaseCancelReturnClamp baseCfg)
+        blendPhaseCancelConflictFloor = max 0 (ecBlendPhaseCancelConflictFloor baseCfg)
+        blendPhaseCancelConflictScale = max 0 (ecBlendPhaseCancelConflictScale baseCfg)
+        blendPhaseCancelAlignmentScale = max 0 (ecBlendPhaseCancelAlignmentScale baseCfg)
         blendV = blendPredictionsV blendWeight pricesV kalV lstmV
         edgeBlendV0 = edgeBlendPredictionsV blendWeight pricesV kalV lstmV
         edgePickV0 = edgePickPredictionsV blendWeight pricesV kalV lstmV
@@ -1991,7 +2007,16 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         entropyBlendV0 = entropyBlendPredictionsV blendWeight pricesV kalV lstmV
         coherenceGateV0 = coherenceGatePredictionsV blendWeight pricesV kalV lstmV
         fractalBlendV0 = fractalBlendPredictionsV blendWeight pricesV kalV lstmV
-        phaseCancelV0 = phaseCancelPredictionsV blendWeight pricesV kalV lstmV
+        phaseCancelV0 =
+            phaseCancelPredictionsV
+                blendPhaseCancelReturnClamp
+                blendPhaseCancelConflictFloor
+                blendPhaseCancelConflictScale
+                blendPhaseCancelAlignmentScale
+                blendWeight
+                pricesV
+                kalV
+                lstmV
         softmaxBlendV0 = softmaxBlendPredictionsV blendSoftmaxScale blendWeight pricesV kalV lstmV
         smoothSoftmaxBlendV0 = smoothSoftmaxBlendPredictionsV blendSoftmaxScale blendSmoothAlpha blendWeight pricesV kalV lstmV
         netSoftmaxBlendV0 = netSoftmaxBlendPredictionsV blendNetSoftmaxScale blendWeight roundTripCost pricesV kalV lstmV
