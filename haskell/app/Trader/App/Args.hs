@@ -1249,7 +1249,7 @@ opts = do
                 <> help "Min confidence required to place exchange protection orders (stop-loss / take-profit) when enabled (0 disables)."
             )
     let capitalDefaults = defaultCapitalPreservationConfig
-        defaultMaybeDouble = maybe 0 id
+        defaultMaybeDouble = fromMaybe 0
     argCapitalPreservationLookback <- option auto (long "capital-preservation-lookback" <> value (cpcLookback capitalDefaults) <> showDefault <> help "Closed-trade lookback for live capital-preservation rolling loss/Sharpe gates")
     argCapitalPreservationMinTrades <- option auto (long "capital-preservation-min-trades" <> value (cpcMinTrades capitalDefaults) <> showDefault <> help "Minimum closed trades required before rolling capital-preservation gates engage")
     argCapitalPreservationMaxDrawdown <- option auto (long "capital-preservation-max-drawdown" <> value (defaultMaybeDouble (cpcMaxDrawdown capitalDefaults)) <> showDefault <> help "Live drawdown that blocks fresh entries (0 disables)")
