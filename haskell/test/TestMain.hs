@@ -346,6 +346,7 @@ main = do
     testMergeNewerDiscoveryBeatsOlderRefresh
     testMergeUnstampedDuplicatesKeepBestEver
     testMergeSanitizeKeepsStampedSubOneRefresh
+    testLowTradeTopCombosSinkBelowEvidenceFloor
     testSelectCombosForBacktestRefreshIncludesEveryStaleCombo
     testPrunedBacktestTombstonePreventsStaleResurrection
     testKeepAllUpdateKeepsUnprofitableComboStamped
@@ -3272,7 +3273,7 @@ liveComboForTest sym backtestAnn mLive =
         , "params" .= Aeson.object ["method" .= ("blend" :: T.Text)]
         , "metrics"
             .= Aeson.object
-                ( ["finalEquity" .= (1.4 :: Double), "tradeCount" .= (8 :: Int)]
+                ( ["finalEquity" .= (1.4 :: Double), "tradeCount" .= adoptionMinTradeCount]
                     ++ maybe [] (\live -> ["live" .= live]) mLive
                 )
         ]
@@ -3585,6 +3586,53 @@ testMergeSanitizeKeepsStampedSubOneRefresh = do
     assert
         "unstamped sub-1.0 combo is still sanitized away"
         (isNothing (mergeWinnerScore [unstampedLoss]))
+
+evidenceFloorComboForTest :: T.Text -> Double -> Int -> Aeson.Value
+evidenceFloorComboForTest label annualizedReturn tradeCount =
+    Aeson.object
+        [ "uuid" .= label
+        , "symbol" .= ("BTCUSDT" :: T.Text)
+        , "interval" .= ("15m" :: T.Text)
+        , "platform" .= ("binance" :: T.Text)
+        , "finalEquity" .= (1.02 :: Double)
+        , "score" .= annualizedReturn
+        , "openThreshold" .= (0.005 :: Double)
+        , "closeThreshold" .= (0.010 :: Double)
+        , "objective" .= ("annualized-equity" :: T.Text)
+        , "params" .= Aeson.object ["method" .= label, "lookback" .= (48 :: Int)]
+        , "metrics"
+            .= Aeson.object
+                [ "finalEquity" .= (1.02 :: Double)
+                , "annualizedReturn" .= annualizedReturn
+                , "tradeCount" .= tradeCount
+                ]
+        ]
+
+testLowTradeTopCombosSinkBelowEvidenceFloor :: IO ()
+testLowTradeTopCombosSinkBelowEvidenceFloor = do
+    let lowTradeOutlier = evidenceFloorComboForTest "one-trade-outlier" 2500.0 1
+        deployable = evidenceFloorComboForTest "deployable" 1.0 adoptionMinTradeCount
+        payload =
+            Aeson.object
+                [ "combos" .= [lowTradeOutlier, deployable]
+                , "generatedAtMs" .= (9000 :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+        merged = mergeTopCombosPayloads 10 9500 [payload]
+        firstMethod =
+            case merged of
+                Aeson.Object o -> case KM.lookup "combos" o of
+                    Just (Aeson.Array v) | not (V.null v) ->
+                        case V.head v of
+                            Aeson.Object c -> do
+                                Aeson.Object params <- KM.lookup "params" c
+                                KM.lookup "method" params >>= AT.parseMaybe Aeson.parseJSON
+                            _ -> Nothing
+                    _ -> Nothing
+                _ -> Nothing
+    assert
+        "one-trade annualized-return outlier sinks below a combo that meets the evidence floor"
+        (firstMethod == Just ("deployable" :: T.Text))
 
 selectionComboForTest :: T.Text -> Double -> Maybe Int64 -> Maybe Int64 -> Aeson.Value
 selectionComboForTest method score mCreatedAt mRefreshedAt =

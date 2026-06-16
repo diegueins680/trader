@@ -81,6 +81,7 @@ import System.IO (Handle, hClose, openTempFile)
 import System.IO.Error (isAlreadyExistsError)
 import Text.Read (readMaybe)
 
+import Trader.BotStartSemantics (comboTradeCountMeetsAdoptionFloor)
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
@@ -380,6 +381,11 @@ comboMetricsDouble :: String -> Aeson.Value -> Maybe Double
 comboMetricsDouble key val = do
     metrics <- comboMetricValue "metrics" val
     comboMetricDouble key metrics
+
+comboMetricsInt :: String -> Aeson.Value -> Maybe Int
+comboMetricsInt key val = do
+    metrics <- comboMetricValue "metrics" val
+    comboMetricInt key metrics
 
 comboFinalEquityValue :: Aeson.Value -> Maybe Double
 comboFinalEquityValue val =
@@ -1082,8 +1088,12 @@ comboMergeKey val = do
     pure (BL.toStrict (encodePretty identity))
 
 {- | Ranking key: primarily the backtest annualized return blended with
-realized live performance ('blendedAnnualizedReturn'); quarantined combos
-('comboLiveQuarantined') sink to the bottom unconditionally.
+realized live performance ('blendedAnnualizedReturn').
+
+Quarantined combos and combos whose stored backtest evidence does not meet the
+same trade-count floor required for live adoption sink to the bottom. This
+keeps legacy one- or two-trade annualized-return outliers from occupying the
+top leaderboard slots and blocking freshly discovered deployable candidates.
 -}
 comboPerformanceKey :: Aeson.Value -> (Double, Double, Double, Int)
 comboPerformanceKey val =
@@ -1097,8 +1107,11 @@ comboPerformanceKey val =
             case val of
                 Aeson.Object o -> fromMaybe maxBound (KM.lookup (AK.fromString "rank") o >>= AT.parseMaybe Aeson.parseJSON)
                 _ -> maxBound
+        tradeCountMeetsFloor =
+            comboTradeCountMeetsAdoptionFloor (comboMetricsInt "tradeCount" val <|> comboMetricInt "tradeCount" val)
         ann'
             | comboLiveQuarantined val = negate (1 / 0)
+            | not tradeCountMeetsFloor = negate (1 / 0)
             | isNaN ann || isInfinite ann = negate (1 / 0)
             | otherwise = blendedAnnualizedReturn ann (comboLiveStats val)
         eq' = if isNaN eq || isInfinite eq then 0 else eq
