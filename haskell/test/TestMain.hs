@@ -89,6 +89,7 @@ import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, 
 import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
     OptimizerRecordsSummary (..),
+    applyWalkForwardSummaryMetrics,
     emptyOptimizerRecordsSummary,
     kellyLiteExposureContractReason,
     optimizerOptionPresent,
@@ -382,6 +383,7 @@ main = do
     testOptimizerQualityThresholdArgvExplicitRegression
     testOptimizerKellyLiteExposureContractRegression
     testOptimizerRecordsRetryDiscoveryForWalkForwardFilters
+    testOptimizerRecordMetricsCarryWalkForwardSummary
     testOptimizerRecordsRetryDiscoveryForCostFloorFilters
     testOptimizerRecordsRetryDiscoveryStopsWhenEligible
     testTopComboBacktestPrunesRoiLosers
@@ -5709,6 +5711,38 @@ testOptimizerRecordsRetryDiscoveryForWalkForwardFilters = do
     assert
         "walk-forward-only zero-eligible runs trigger discovery recovery"
         (optimizerRecordsShouldRetryDiscovery summary)
+
+testOptimizerRecordMetricsCarryWalkForwardSummary :: IO ()
+testOptimizerRecordMetricsCarryWalkForwardSummary = do
+    let baseMetrics = KM.fromList [(AK.fromString "tradeCount", Aeson.toJSON (20 :: Int))]
+        rawBacktest =
+            Aeson.object
+                [ "backtest"
+                    .= Aeson.object
+                        [ "walkForward"
+                            .= Aeson.object
+                                [ "summary"
+                                    .= Aeson.object
+                                        [ "sharpeMean" .= (0.42 :: Double)
+                                        , "sharpeStd" .= (0.11 :: Double)
+                                        ]
+                                ]
+                        ]
+                ]
+        metrics = applyWalkForwardSummaryMetrics (Just baseMetrics) (Just rawBacktest)
+        tradeCount = metrics >>= KM.lookup (AK.fromString "tradeCount") >>= AT.parseMaybe Aeson.parseJSON
+        wfSharpeMean = do
+            m <- metrics
+            case KM.lookup (AK.fromString "walkForwardSummary") m of
+                Just (Aeson.Object wf) ->
+                    KM.lookup (AK.fromString "sharpeMean") wf >>= AT.parseMaybe Aeson.parseJSON
+                _ -> Nothing
+    assert
+        "optimizer metrics preserve existing values when attaching walk-forward evidence"
+        (tradeCount == Just (20 :: Int))
+    assert
+        "optimizer metrics carry walk-forward summary for top-combo processing"
+        (wfSharpeMean == Just (0.42 :: Double))
 
 testOptimizerRecordsRetryDiscoveryForCostFloorFilters :: IO ()
 testOptimizerRecordsRetryDiscoveryForCostFloorFilters = do

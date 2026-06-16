@@ -7,6 +7,7 @@ module Trader.Optimizer.Optimize (
     TechnicalTrialParams (..),
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
+    applyWalkForwardSummaryMetrics,
     closeTimingReportFromBacktest,
     applyQualityPreset,
     emptyOptimizerRecordsSummary,
@@ -1648,6 +1649,16 @@ applyCloseTimingMetrics metrics currentMaxHoldBars appliedMaxHoldBars report =
     let base = fromMaybe KM.empty metrics
         reportValue = closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report
      in Just (KM.insert (Key.fromString "closeTiming") reportValue base)
+
+applyWalkForwardSummaryMetrics ::
+    Maybe (KM.KeyMap Value) ->
+    Maybe Value ->
+    Maybe (KM.KeyMap Value)
+applyWalkForwardSummaryMetrics metrics raw =
+    case extractWalkForwardSummary raw of
+        Nothing -> metrics
+        Just summary ->
+            Just (KM.insert (Key.fromString "walkForwardSummary") (Object summary) (fromMaybe KM.empty metrics))
 
 closeTimingReportToValue :: Maybe Int -> Maybe Int -> ComboCloseTimingReport -> Value
 closeTimingReportToValue currentMaxHoldBars appliedMaxHoldBars report =
@@ -3425,9 +3436,13 @@ trialToRecord tr symbolLabel =
             case symbol of
                 Just sym -> paramsPairsWithTechnical ++ ["binanceSymbol" .= sym]
                 Nothing -> paramsPairsWithTechnical
+        metricsWithWalkForward =
+            applyWalkForwardSummaryMetrics
+                (trMetrics tr)
+                (trStdoutJson tr)
         metricsWithCloseTiming =
             applyCloseTimingMetrics
-                (trMetrics tr)
+                metricsWithWalkForward
                 currentMaxHoldBars
                 currentMaxHoldBars
                 closeTimingReport
@@ -6746,7 +6761,8 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
         currentMaxHoldBars = tpMaxHoldBars params
         closeTimingReport = trialCloseTimingReport params symbol (trStdoutJson tr)
         metrics0 = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear (tpBars params)
-        metrics = applyCloseTimingMetrics metrics0 currentMaxHoldBars currentMaxHoldBars closeTimingReport
+        metricsWithWalkForward = applyWalkForwardSummaryMetrics metrics0 (trStdoutJson tr)
+        metrics = applyCloseTimingMetrics metricsWithWalkForward currentMaxHoldBars currentMaxHoldBars closeTimingReport
         metricsVal = maybe Null Object metrics
         source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
         paramsValue =
