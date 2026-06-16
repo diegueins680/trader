@@ -211,6 +211,7 @@ import Trader.Trading (
     StepMeta (..),
     Trade (..),
     TradeEntrySource (..),
+    defaultTriLayerPriceActionBodyOpenThresholdMult,
     desiredSide1,
     edgeHeadroomOk,
     edgeSpikeOk,
@@ -309,6 +310,7 @@ main = do
     testKalmanPhysicsMeasurementKnobsRejectInvalidValues
     testKalmanPhysicsCandidateValidationRatiosRejectInvalidValues
     testKalmanPhysicsCandidateGridKnobsRejectInvalidValues
+    testTriLayerPriceActionBodyOpenThresholdMultRejectsInvalidValues
     testSensorVarianceEwmaAlphaRejectsInvalidValues
     testKalmanConservativeFusionRejectsInvalidValues
     testKalmanResidualVarianceFloor
@@ -1667,6 +1669,18 @@ testKalmanPhysicsCandidateGridKnobsRejectInvalidValues = do
             Left _ -> False
         )
 
+testTriLayerPriceActionBodyOpenThresholdMultRejectsInvalidValues :: IO ()
+testTriLayerPriceActionBodyOpenThresholdMultRejectsInvalidValues = do
+    assert
+        "tri-layer-price-action-body-open-threshold-mult rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--tri-layer-price-action-body-open-threshold-mult", "-0.1"] == Left "--tri-layer-price-action-body-open-threshold-mult must be >= 0")
+    assert
+        "tri-layer-price-action-body-open-threshold-mult accepts custom values"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tri-layer-price-action-body-open-threshold-mult", "0.4"] of
+            Right args -> argTriLayerPriceActionBodyOpenThresholdMult args == 0.4
+            Left _ -> False
+        )
+
 testSensorVarianceEwmaAlphaRejectsInvalidValues :: IO ()
 testSensorVarianceEwmaAlphaRejectsInvalidValues = do
     assert
@@ -2744,6 +2758,7 @@ sampleEnsembleConfig =
         , ecTriLayerTouchLookback = 0
         , ecTriLayerRequirePriceAction = False
         , ecTriLayerPriceActionBody = 0
+        , ecTriLayerPriceActionBodyOpenThresholdMult = defaultTriLayerPriceActionBodyOpenThresholdMult
         , ecTriLayerPriceActionWickRatio = 2
         , ecTriLayerPriceActionOppositeWickMax = 0.5
         , ecTriLayerPriceActionBodyTolerance = 0.2

@@ -672,6 +672,7 @@ data BacktestSummary = BacktestSummary
     , bsTriLayerTouchLookback :: !Int
     , bsTriLayerPriceAction :: !Bool
     , bsTriLayerPriceActionBody :: !Double
+    , bsTriLayerPriceActionBodyOpenThresholdMult :: !Double
     , bsTriLayerPriceActionWickRatio :: !Double
     , bsTriLayerPriceActionOppositeWickMax :: !Double
     , bsTriLayerPriceActionBodyTolerance :: !Double
@@ -974,6 +975,7 @@ data ApiParams = ApiParams
     , apTriLayerCloudPadding :: Maybe Double
     , apTriLayerPriceAction :: Maybe Bool
     , apTriLayerPriceActionBody :: Maybe Double
+    , apTriLayerPriceActionBodyOpenThresholdMult :: Maybe Double
     , apTriLayerPriceActionWickRatio :: Maybe Double
     , apTriLayerPriceActionOppositeWickMax :: Maybe Double
     , apTriLayerPriceActionBodyTolerance :: Maybe Double
@@ -1208,6 +1210,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrTriLayerTouchLookbackMax :: !(Maybe Int)
     , arrTriLayerPriceActionBodyMin :: !(Maybe Double)
     , arrTriLayerPriceActionBodyMax :: !(Maybe Double)
+    , arrTriLayerPriceActionBodyOpenThresholdMultMin :: !(Maybe Double)
+    , arrTriLayerPriceActionBodyOpenThresholdMultMax :: !(Maybe Double)
     , arrTriLayerPriceActionWickRatioMin :: !(Maybe Double)
     , arrTriLayerPriceActionWickRatioMax :: !(Maybe Double)
     , arrTriLayerPriceActionOppositeWickMaxMin :: !(Maybe Double)
@@ -2813,6 +2817,7 @@ argsPublicJson args =
             , "triLayerTouchLookback" .= argTriLayerTouchLookback args
             , "triLayerPriceAction" .= argTriLayerRequirePriceAction args
             , "triLayerPriceActionBody" .= argTriLayerPriceActionBody args
+            , "triLayerPriceActionBodyOpenThresholdMult" .= argTriLayerPriceActionBodyOpenThresholdMult args
             , "triLayerPriceActionWickRatio" .= argTriLayerPriceActionWickRatio args
             , "triLayerPriceActionOppositeWickMax" .= argTriLayerPriceActionOppositeWickMax args
             , "triLayerPriceActionBodyTolerance" .= argTriLayerPriceActionBodyTolerance args
@@ -9751,6 +9756,7 @@ botOptimizeAfterOperation st = do
                                 , ecTriLayerTouchLookback = argTriLayerTouchLookback args
                                 , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
                                 , ecTriLayerPriceActionBody = argTriLayerPriceActionBody args
+                                , ecTriLayerPriceActionBodyOpenThresholdMult = argTriLayerPriceActionBodyOpenThresholdMult args
                                 , ecTriLayerPriceActionWickRatio = argTriLayerPriceActionWickRatio args
                                 , ecTriLayerPriceActionOppositeWickMax = argTriLayerPriceActionOppositeWickMax args
                                 , ecTriLayerPriceActionBodyTolerance = argTriLayerPriceActionBodyTolerance args
@@ -10230,6 +10236,7 @@ parseTopComboToArgs base combo = do
         triLayerFastMult = max 1e-6 (pickD "triLayerFastMult" (argTriLayerFastMult base))
         triLayerSlowMult = max 1e-6 (pickD "triLayerSlowMult" (argTriLayerSlowMult base))
         triLayerPriceActionBody = max 0 (pickD "triLayerPriceActionBody" (argTriLayerPriceActionBody base))
+        triLayerPriceActionBodyOpenThresholdMult = max 0 (pickD "triLayerPriceActionBodyOpenThresholdMult" (argTriLayerPriceActionBodyOpenThresholdMult base))
         triLayerPriceActionWickRatio = max 0 (pickD "triLayerPriceActionWickRatio" (argTriLayerPriceActionWickRatio base))
         triLayerPriceActionOppositeWickMax = max 0 (pickD "triLayerPriceActionOppositeWickMax" (argTriLayerPriceActionOppositeWickMax base))
         triLayerPriceActionBodyTolerance = max 0 (pickD "triLayerPriceActionBodyTolerance" (argTriLayerPriceActionBodyTolerance base))
@@ -10429,6 +10436,7 @@ parseTopComboToArgs base combo = do
                 , argTriLayerFastMult = triLayerFastMult
                 , argTriLayerSlowMult = triLayerSlowMult
                 , argTriLayerPriceActionBody = triLayerPriceActionBody
+                , argTriLayerPriceActionBodyOpenThresholdMult = triLayerPriceActionBodyOpenThresholdMult
                 , argTriLayerPriceActionWickRatio = triLayerPriceActionWickRatio
                 , argTriLayerPriceActionOppositeWickMax = triLayerPriceActionOppositeWickMax
                 , argTriLayerPriceActionBodyTolerance = triLayerPriceActionBodyTolerance
@@ -14046,6 +14054,7 @@ argsCacheJsonSignal args =
             , "triLayerFastMult" .= argTriLayerFastMult args
             , "triLayerSlowMult" .= argTriLayerSlowMult args
             , "triLayerPriceActionBody" .= argTriLayerPriceActionBody args
+            , "triLayerPriceActionBodyOpenThresholdMult" .= argTriLayerPriceActionBodyOpenThresholdMult args
             , "triLayerPriceActionWickRatio" .= argTriLayerPriceActionWickRatio args
             , "triLayerPriceActionOppositeWickMax" .= argTriLayerPriceActionOppositeWickMax args
             , "triLayerPriceActionBodyTolerance" .= argTriLayerPriceActionBodyTolerance args
@@ -14313,6 +14322,7 @@ argsCacheJsonBacktest args =
             , "triLayerFastMult" .= argTriLayerFastMult args
             , "triLayerSlowMult" .= argTriLayerSlowMult args
             , "triLayerPriceActionBody" .= argTriLayerPriceActionBody args
+            , "triLayerPriceActionBodyOpenThresholdMult" .= argTriLayerPriceActionBodyOpenThresholdMult args
             , "triLayerPriceActionWickRatio" .= argTriLayerPriceActionWickRatio args
             , "triLayerPriceActionOppositeWickMax" .= argTriLayerPriceActionOppositeWickMax args
             , "triLayerPriceActionBodyTolerance" .= argTriLayerPriceActionBodyTolerance args
@@ -15841,6 +15851,8 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ maybeIntArg "--tri-layer-touch-lookback-max" (fmap (max 1) (arrTriLayerTouchLookbackMax req))
                         ++ maybeDoubleArg "--tri-layer-price-action-body-min" (fmap (max 0) (arrTriLayerPriceActionBodyMin req))
                         ++ maybeDoubleArg "--tri-layer-price-action-body-max" (fmap (max 0) (arrTriLayerPriceActionBodyMax req))
+                        ++ maybeDoubleArg "--tri-layer-price-action-body-open-threshold-mult-min" (fmap (max 0) (arrTriLayerPriceActionBodyOpenThresholdMultMin req))
+                        ++ maybeDoubleArg "--tri-layer-price-action-body-open-threshold-mult-max" (fmap (max 0) (arrTriLayerPriceActionBodyOpenThresholdMultMax req))
                         ++ maybeDoubleArg "--tri-layer-price-action-wick-ratio-min" (fmap (max 0) (arrTriLayerPriceActionWickRatioMin req))
                         ++ maybeDoubleArg "--tri-layer-price-action-wick-ratio-max" (fmap (max 0) (arrTriLayerPriceActionWickRatioMax req))
                         ++ maybeDoubleArg "--tri-layer-price-action-opposite-wick-max-min" (fmap (max 0) (arrTriLayerPriceActionOppositeWickMaxMin req))
@@ -20368,6 +20380,7 @@ argsFromApi baseArgs p = do
                 , argTriLayerCloudPadding = pick (apTriLayerCloudPadding p) (argTriLayerCloudPadding baseArgs)
                 , argTriLayerRequirePriceAction = pick (apTriLayerPriceAction p) (argTriLayerRequirePriceAction baseArgs)
                 , argTriLayerPriceActionBody = max 0 (pick (apTriLayerPriceActionBody p) (argTriLayerPriceActionBody baseArgs))
+                , argTriLayerPriceActionBodyOpenThresholdMult = max 0 (pick (apTriLayerPriceActionBodyOpenThresholdMult p) (argTriLayerPriceActionBodyOpenThresholdMult baseArgs))
                 , argTriLayerPriceActionWickRatio = max 0 (pick (apTriLayerPriceActionWickRatio p) (argTriLayerPriceActionWickRatio baseArgs))
                 , argTriLayerPriceActionOppositeWickMax = max 0 (pick (apTriLayerPriceActionOppositeWickMax p) (argTriLayerPriceActionOppositeWickMax baseArgs))
                 , argTriLayerPriceActionBodyTolerance = max 0 (pick (apTriLayerPriceActionBodyTolerance p) (argTriLayerPriceActionBodyTolerance baseArgs))
@@ -25179,6 +25192,7 @@ backtestSummaryJson summary =
             , "triLayerTouchLookback" .= bsTriLayerTouchLookback summary
             , "triLayerPriceAction" .= bsTriLayerPriceAction summary
             , "triLayerPriceActionBody" .= bsTriLayerPriceActionBody summary
+            , "triLayerPriceActionBodyOpenThresholdMult" .= bsTriLayerPriceActionBodyOpenThresholdMult summary
             , "triLayerPriceActionWickRatio" .= bsTriLayerPriceActionWickRatio summary
             , "triLayerPriceActionOppositeWickMax" .= bsTriLayerPriceActionOppositeWickMax summary
             , "triLayerPriceActionBodyTolerance" .= bsTriLayerPriceActionBodyTolerance summary
@@ -26510,6 +26524,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecTriLayerTouchLookback = argTriLayerTouchLookback args
                 , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
                 , ecTriLayerPriceActionBody = argTriLayerPriceActionBody args
+                , ecTriLayerPriceActionBodyOpenThresholdMult = argTriLayerPriceActionBodyOpenThresholdMult args
                 , ecTriLayerPriceActionWickRatio = argTriLayerPriceActionWickRatio args
                 , ecTriLayerPriceActionOppositeWickMax = argTriLayerPriceActionOppositeWickMax args
                 , ecTriLayerPriceActionBodyTolerance = argTriLayerPriceActionBodyTolerance args
@@ -27317,6 +27332,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsTriLayerTouchLookback = argTriLayerTouchLookback args
             , bsTriLayerPriceAction = argTriLayerRequirePriceAction args
             , bsTriLayerPriceActionBody = argTriLayerPriceActionBody args
+            , bsTriLayerPriceActionBodyOpenThresholdMult = argTriLayerPriceActionBodyOpenThresholdMult args
             , bsTriLayerPriceActionWickRatio = argTriLayerPriceActionWickRatio args
             , bsTriLayerPriceActionOppositeWickMax = argTriLayerPriceActionOppositeWickMax args
             , bsTriLayerPriceActionBodyTolerance = argTriLayerPriceActionBodyTolerance args
@@ -28406,10 +28422,11 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             triLayerEnabled = argTriLayer args
             requirePriceAction = argTriLayerRequirePriceAction args
             priceActionBodyMin = max 0 (argTriLayerPriceActionBody args)
+            priceActionBodyOpenThresholdMult = max 0 (argTriLayerPriceActionBodyOpenThresholdMult args)
             priceActionWickRatio = max 0 (argTriLayerPriceActionWickRatio args)
             priceActionOppositeWickMax = max 0 (argTriLayerPriceActionOppositeWickMax args)
             priceActionBodyTolerance = max 0 (argTriLayerPriceActionBodyTolerance args)
-            bodyMinFracBase = max 1e-6 (0.25 * openThrBase)
+            bodyMinFracBase = max 1e-6 (priceActionBodyOpenThresholdMult * openThrBase)
             bodyMinFrac =
                 if priceActionBodyMin > 0
                     then priceActionBodyMin

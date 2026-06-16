@@ -75,7 +75,7 @@ import Trader.SignalGates (SignalGateConfig (..), defaultSignalGateConfig)
 import Trader.Symbol (sanitizeSymbolForPlatform)
 import Trader.TechnicalAnalysis.Strategies (RegimeCalibration (..), TechnicalStrategyCalibration (..), defaultRegimeCalibration, defaultTechnicalStrategyCalibration)
 import Trader.Text (normalizeKey, trim)
-import Trader.Trading (IntrabarFill (..), Positioning (..))
+import Trader.Trading (IntrabarFill (..), Positioning (..), defaultTriLayerPriceActionBodyOpenThresholdMult)
 import Trader.VolConfGate (
     VolConfGatePreset (..),
     parseVolConfGatePreset,
@@ -413,6 +413,7 @@ data Args = Args
     , argTriLayerTouchLookback :: Int
     , argTriLayerRequirePriceAction :: Bool
     , argTriLayerPriceActionBody :: Double
+    , argTriLayerPriceActionBodyOpenThresholdMult :: Double
     , argTriLayerPriceActionWickRatio :: Double
     , argTriLayerPriceActionOppositeWickMax :: Double
     , argTriLayerPriceActionBodyTolerance :: Double
@@ -1374,6 +1375,7 @@ opts = do
             "Require price-action triggers when tri-layer is enabled (default on)."
             "Disable price-action triggers for tri-layer."
     argTriLayerPriceActionBody <- option auto (long "tri-layer-price-action-body" <> value 0.0 <> showDefault <> help "Override min candle body fraction for tri-layer price-action patterns (0 = default)")
+    argTriLayerPriceActionBodyOpenThresholdMult <- option auto (long "tri-layer-price-action-body-open-threshold-mult" <> value defaultTriLayerPriceActionBodyOpenThresholdMult <> showDefault <> help "Default min candle body fraction as a multiple of open threshold when --tri-layer-price-action-body is 0")
     argTriLayerPriceActionWickRatio <- option auto (long "tri-layer-price-action-wick-ratio" <> value 2.0 <> showDefault <> help "Minimum long-wick/body ratio for tri-layer hammer and shooting-star triggers")
     argTriLayerPriceActionOppositeWickMax <- option auto (long "tri-layer-price-action-opposite-wick-max" <> value 0.5 <> showDefault <> help "Maximum opposite-wick/body ratio for tri-layer hammer and shooting-star triggers")
     argTriLayerPriceActionBodyTolerance <- option auto (long "tri-layer-price-action-body-tolerance" <> value 0.2 <> showDefault <> help "Maximum relative body-size mismatch for tri-layer railroad-track triggers")
@@ -1951,6 +1953,7 @@ validateArgs args0 = do
             , ("--tri-layer-cloud-slope", argTriLayerCloudSlope args)
             , ("--tri-layer-cloud-width", argTriLayerCloudWidth args)
             , ("--tri-layer-price-action-body", argTriLayerPriceActionBody args)
+            , ("--tri-layer-price-action-body-open-threshold-mult", argTriLayerPriceActionBodyOpenThresholdMult args)
             , ("--tri-layer-price-action-wick-ratio", argTriLayerPriceActionWickRatio args)
             , ("--tri-layer-price-action-opposite-wick-max", argTriLayerPriceActionOppositeWickMax args)
             , ("--tri-layer-price-action-body-tolerance", argTriLayerPriceActionBodyTolerance args)
@@ -2396,6 +2399,7 @@ validateArgs args0 = do
     ensure "--tri-layer-cloud-width must be >= 0" (argTriLayerCloudWidth args >= 0)
     ensure "--tri-layer-touch-lookback must be >= 1" (argTriLayerTouchLookback args >= 1)
     ensure "--tri-layer-price-action-body must be >= 0" (argTriLayerPriceActionBody args >= 0)
+    ensure "--tri-layer-price-action-body-open-threshold-mult must be >= 0" (argTriLayerPriceActionBodyOpenThresholdMult args >= 0)
     ensure "--tri-layer-price-action-wick-ratio must be >= 0" (argTriLayerPriceActionWickRatio args >= 0)
     ensure "--tri-layer-price-action-opposite-wick-max must be >= 0" (argTriLayerPriceActionOppositeWickMax args >= 0)
     ensure "--tri-layer-price-action-body-tolerance must be >= 0" (argTriLayerPriceActionBodyTolerance args >= 0)

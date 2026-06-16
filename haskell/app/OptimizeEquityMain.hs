@@ -20,6 +20,7 @@ import Trader.Optimizer.Optimize (
  )
 import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig)
 import Trader.SensorVariance (defaultSensorVarianceEwmaAlpha)
+import Trader.Trading (defaultTriLayerPriceActionBodyOpenThresholdMult)
 
 main :: IO ()
 main = do
@@ -237,6 +238,8 @@ optimizerArgsParser =
         <*> option auto (long "tri-layer-touch-lookback-max" <> value 1 <> metavar "INT")
         <*> option auto (long "tri-layer-price-action-body-min" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "tri-layer-price-action-body-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "tri-layer-price-action-body-open-threshold-mult-min" <> value defaultTriLayerPriceActionBodyOpenThresholdMult <> metavar "FLOAT")
+        <*> option auto (long "tri-layer-price-action-body-open-threshold-mult-max" <> value defaultTriLayerPriceActionBodyOpenThresholdMult <> metavar "FLOAT")
         <*> option auto (long "tri-layer-price-action-wick-ratio-min" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "tri-layer-price-action-wick-ratio-max" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "tri-layer-price-action-opposite-wick-max-min" <> value 0.5 <> metavar "FLOAT")
@@ -914,6 +917,8 @@ validateArgs args = do
         $ Left "--take-profit-partial-min/max must be >= 0 and < 1."
     when (oaMaxTradesPerDayMin args < 0 || oaMaxTradesPerDayMax args < 0) $
         Left "--max-trades-per-day-min/max must be >= 0."
+    when (oaTriLayerPriceActionBodyOpenThresholdMultMin args < 0 || oaTriLayerPriceActionBodyOpenThresholdMultMax args < 0) $
+        Left "--tri-layer-price-action-body-open-threshold-mult-min/max must be >= 0."
     when (oaTriLayerPriceActionWickRatioMin args < 0 || oaTriLayerPriceActionWickRatioMax args < 0) $
         Left "--tri-layer-price-action-wick-ratio-min/max must be >= 0."
     when (oaTriLayerPriceActionOppositeWickMaxMin args < 0 || oaTriLayerPriceActionOppositeWickMaxMax args < 0) $

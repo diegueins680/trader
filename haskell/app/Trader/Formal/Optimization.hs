@@ -42,6 +42,7 @@ import Trader.Trading (
     IntrabarFill (..),
     PositionSide (..),
     Positioning (..),
+    defaultTriLayerPriceActionBodyOpenThresholdMult,
  )
 import Trader.VolConfGate (
     VolConfGateBehavior (..),
@@ -902,6 +903,7 @@ optimizerPublicSurfaceBaseConfig =
         , ecTriLayerTouchLookback = 0
         , ecTriLayerRequirePriceAction = False
         , ecTriLayerPriceActionBody = 0
+        , ecTriLayerPriceActionBodyOpenThresholdMult = defaultTriLayerPriceActionBodyOpenThresholdMult
         , ecTriLayerPriceActionWickRatio = 2
         , ecTriLayerPriceActionOppositeWickMax = 0.5
         , ecTriLayerPriceActionBodyTolerance = 0.2

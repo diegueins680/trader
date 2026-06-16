@@ -494,6 +494,7 @@ normalizeTrialParams p =
             , tpAdaptiveWinRateSlack = max 0 (tpAdaptiveWinRateSlack p)
             , tpAdaptiveProfitFactorSlack = max 0 (tpAdaptiveProfitFactorSlack p)
             , tpTriLayerPriceActionBody = max 0 (tpTriLayerPriceActionBody p)
+            , tpTriLayerPriceActionBodyOpenThresholdMult = max 0 (tpTriLayerPriceActionBodyOpenThresholdMult p)
             , tpTriLayerPriceActionWickRatio = max 0 (tpTriLayerPriceActionWickRatio p)
             , tpTriLayerPriceActionOppositeWickMax = max 0 (tpTriLayerPriceActionOppositeWickMax p)
             , tpTriLayerPriceActionBodyTolerance = max 0 (tpTriLayerPriceActionBodyTolerance p)
@@ -2498,6 +2499,8 @@ data OptimizerArgs = OptimizerArgs
     , oaTriLayerTouchLookbackMax :: !Int
     , oaTriLayerPriceActionBodyMin :: !Double
     , oaTriLayerPriceActionBodyMax :: !Double
+    , oaTriLayerPriceActionBodyOpenThresholdMultMin :: !Double
+    , oaTriLayerPriceActionBodyOpenThresholdMultMax :: !Double
     , oaTriLayerPriceActionWickRatioMin :: !Double
     , oaTriLayerPriceActionWickRatioMax :: !Double
     , oaTriLayerPriceActionOppositeWickMaxMin :: !Double
@@ -3067,6 +3070,7 @@ data TrialParams = TrialParams
     , tpTriLayerTouchLookback :: !Int
     , tpTriLayerPriceAction :: !Bool
     , tpTriLayerPriceActionBody :: !Double
+    , tpTriLayerPriceActionBodyOpenThresholdMult :: !Double
     , tpTriLayerPriceActionWickRatio :: !Double
     , tpTriLayerPriceActionOppositeWickMax :: !Double
     , tpTriLayerPriceActionBodyTolerance :: !Double
@@ -3489,6 +3493,8 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , show (max 1 (tpTriLayerTouchLookback params))
                    , "--tri-layer-price-action-body"
                    , printf "%.8f" (max 0 (tpTriLayerPriceActionBody params))
+                   , "--tri-layer-price-action-body-open-threshold-mult"
+                   , printf "%.8f" (max 0 (tpTriLayerPriceActionBodyOpenThresholdMult params))
                    , "--tri-layer-price-action-wick-ratio"
                    , printf "%.8f" (max 0 (tpTriLayerPriceActionWickRatio params))
                    , "--tri-layer-price-action-opposite-wick-max"
@@ -4025,6 +4031,7 @@ trialToRecord tr symbolLabel =
             , "triLayerTouchLookback" .= tpTriLayerTouchLookback (trParams tr)
             , "triLayerPriceAction" .= tpTriLayerPriceAction (trParams tr)
             , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody (trParams tr)
+            , "triLayerPriceActionBodyOpenThresholdMult" .= tpTriLayerPriceActionBodyOpenThresholdMult (trParams tr)
             , "triLayerPriceActionWickRatio" .= tpTriLayerPriceActionWickRatio (trParams tr)
             , "triLayerPriceActionOppositeWickMax" .= tpTriLayerPriceActionOppositeWickMax (trParams tr)
             , "triLayerPriceActionBodyTolerance" .= tpTriLayerPriceActionBodyTolerance (trParams tr)
@@ -4241,6 +4248,7 @@ sampleParams
     triLayerCloudWidthRange
     triLayerTouchLookbackRange
     triLayerPriceActionBodyRange
+    triLayerPriceActionBodyOpenThresholdMultRange
     triLayerPriceActionWickRatioRange
     triLayerPriceActionOppositeWickMaxRange
     triLayerPriceActionBodyToleranceRange
@@ -4689,27 +4697,32 @@ sampleParams
                     lo' = max 0 lo
                     hi' = max lo' hi
                  in nextUniform lo' hi' rng40h
-            (triLayerPriceActionWickRatio, rng40i1) =
-                let (lo, hi) = ordered triLayerPriceActionWickRatioRange
+            (triLayerPriceActionBodyOpenThresholdMult, rng40i1) =
+                let (lo, hi) = ordered triLayerPriceActionBodyOpenThresholdMultRange
                     lo' = max 0 lo
                     hi' = max lo' hi
                  in nextUniform lo' hi' rng40i
-            (triLayerPriceActionOppositeWickMax, rng40i2) =
-                let (lo, hi) = ordered triLayerPriceActionOppositeWickMaxRange
+            (triLayerPriceActionWickRatio, rng40i2) =
+                let (lo, hi) = ordered triLayerPriceActionWickRatioRange
                     lo' = max 0 lo
                     hi' = max lo' hi
                  in nextUniform lo' hi' rng40i1
-            (triLayerPriceActionBodyTolerance, rng40i3) =
-                let (lo, hi) = ordered triLayerPriceActionBodyToleranceRange
+            (triLayerPriceActionOppositeWickMax, rng40i3) =
+                let (lo, hi) = ordered triLayerPriceActionOppositeWickMaxRange
                     lo' = max 0 lo
                     hi' = max lo' hi
                  in nextUniform lo' hi' rng40i2
+            (triLayerPriceActionBodyTolerance, rng40i4) =
+                let (lo, hi) = ordered triLayerPriceActionBodyToleranceRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40i3
             triLayerExitOnSlow = triLayerExitOnSlowInput
             (kalmanBandLookback0, rng40j) =
                 let (lo, hi) = ordered kalmanBandLookbackRange
                     lo' = max 0 lo
                     hi' = max lo' hi
-                 in nextIntRange lo' hi' rng40i3
+                 in nextIntRange lo' hi' rng40i4
             (kalmanBandStdMult0, rng40k) =
                 let (lo, hi) = ordered kalmanBandStdMultRange
                     lo' = max 0 lo
@@ -5168,6 +5181,7 @@ sampleParams
                 , tpTriLayerTouchLookback = triLayerTouchLookback
                 , tpTriLayerPriceAction = triLayerPriceAction
                 , tpTriLayerPriceActionBody = triLayerPriceActionBody
+                , tpTriLayerPriceActionBodyOpenThresholdMult = triLayerPriceActionBodyOpenThresholdMult
                 , tpTriLayerPriceActionWickRatio = triLayerPriceActionWickRatio
                 , tpTriLayerPriceActionOppositeWickMax = triLayerPriceActionOppositeWickMax
                 , tpTriLayerPriceActionBodyTolerance = triLayerPriceActionBodyTolerance
@@ -5544,6 +5558,12 @@ runOptimizer args0 = do
                                                         triLayerPriceActionBodyMin = max 0 (oaTriLayerPriceActionBodyMin args)
                                                         triLayerPriceActionBodyMax = max triLayerPriceActionBodyMin (oaTriLayerPriceActionBodyMax args)
                                                         triLayerPriceActionBodyRange = (triLayerPriceActionBodyMin, triLayerPriceActionBodyMax)
+                                                        triLayerPriceActionBodyOpenThresholdMultMin = max 0 (oaTriLayerPriceActionBodyOpenThresholdMultMin args)
+                                                        triLayerPriceActionBodyOpenThresholdMultMax =
+                                                            max
+                                                                triLayerPriceActionBodyOpenThresholdMultMin
+                                                                (oaTriLayerPriceActionBodyOpenThresholdMultMax args)
+                                                        triLayerPriceActionBodyOpenThresholdMultRange = (triLayerPriceActionBodyOpenThresholdMultMin, triLayerPriceActionBodyOpenThresholdMultMax)
                                                         triLayerPriceActionWickRatioMin = max 0 (oaTriLayerPriceActionWickRatioMin args)
                                                         triLayerPriceActionWickRatioMax = max triLayerPriceActionWickRatioMin (oaTriLayerPriceActionWickRatioMax args)
                                                         triLayerPriceActionWickRatioRange = (triLayerPriceActionWickRatioMin, triLayerPriceActionWickRatioMax)
@@ -5956,6 +5976,7 @@ runOptimizer args0 = do
                                                                                 triLayerCloudWidthRange
                                                                                 triLayerTouchLookbackRange
                                                                                 triLayerPriceActionBodyRange
+                                                                                triLayerPriceActionBodyOpenThresholdMultRange
                                                                                 triLayerPriceActionWickRatioRange
                                                                                 triLayerPriceActionOppositeWickMaxRange
                                                                                 triLayerPriceActionBodyToleranceRange
@@ -6857,6 +6878,7 @@ printBest tr = do
     putStrLn ("  triLayerTouchLookback: " ++ show (tpTriLayerTouchLookback p))
     putStrLn ("  triLayerPriceAction: " ++ show (tpTriLayerPriceAction p))
     putStrLn ("  triLayerPriceActionBody: " ++ show (tpTriLayerPriceActionBody p))
+    putStrLn ("  triLayerPriceActionBodyOpenThresholdMult: " ++ show (tpTriLayerPriceActionBodyOpenThresholdMult p))
     putStrLn ("  triLayerPriceActionWickRatio: " ++ show (tpTriLayerPriceActionWickRatio p))
     putStrLn ("  triLayerPriceActionOppositeWickMax: " ++ show (tpTriLayerPriceActionOppositeWickMax p))
     putStrLn ("  triLayerPriceActionBodyTolerance: " ++ show (tpTriLayerPriceActionBodyTolerance p))
@@ -7155,10 +7177,12 @@ crossoverTrialParams a b rng0 =
         (tpTriLayerTouchLookback', rng67) = pickValue (tpTriLayerTouchLookback a) (tpTriLayerTouchLookback b) rng66
         (tpTriLayerPriceAction', rng68) = pickValue (tpTriLayerPriceAction a) (tpTriLayerPriceAction b) rng67
         (tpTriLayerPriceActionBody', rng69) = pickValue (tpTriLayerPriceActionBody a) (tpTriLayerPriceActionBody b) rng68
-        (tpTriLayerPriceActionWickRatio', rng69a) = pickValue (tpTriLayerPriceActionWickRatio a) (tpTriLayerPriceActionWickRatio b) rng69
-        (tpTriLayerPriceActionOppositeWickMax', rng69b) = pickValue (tpTriLayerPriceActionOppositeWickMax a) (tpTriLayerPriceActionOppositeWickMax b) rng69a
-        (tpTriLayerPriceActionBodyTolerance', rng69c) = pickValue (tpTriLayerPriceActionBodyTolerance a) (tpTriLayerPriceActionBodyTolerance b) rng69b
-        (tpTriLayerExitOnSlow', rng70) = pickValue (tpTriLayerExitOnSlow a) (tpTriLayerExitOnSlow b) rng69c
+        (tpTriLayerPriceActionBodyOpenThresholdMult', rng69a) =
+            pickValue (tpTriLayerPriceActionBodyOpenThresholdMult a) (tpTriLayerPriceActionBodyOpenThresholdMult b) rng69
+        (tpTriLayerPriceActionWickRatio', rng69b) = pickValue (tpTriLayerPriceActionWickRatio a) (tpTriLayerPriceActionWickRatio b) rng69a
+        (tpTriLayerPriceActionOppositeWickMax', rng69c) = pickValue (tpTriLayerPriceActionOppositeWickMax a) (tpTriLayerPriceActionOppositeWickMax b) rng69b
+        (tpTriLayerPriceActionBodyTolerance', rng69d) = pickValue (tpTriLayerPriceActionBodyTolerance a) (tpTriLayerPriceActionBodyTolerance b) rng69c
+        (tpTriLayerExitOnSlow', rng70) = pickValue (tpTriLayerExitOnSlow a) (tpTriLayerExitOnSlow b) rng69d
         (tpKalmanBandLookback', rng71) = pickValue (tpKalmanBandLookback a) (tpKalmanBandLookback b) rng70
         (tpKalmanBandStdMult', rng72) = pickValue (tpKalmanBandStdMult a) (tpKalmanBandStdMult b) rng71
         (tpLstmExitFlipBars', rng73) = pickValue (tpLstmExitFlipBars a) (tpLstmExitFlipBars b) rng72
@@ -7360,6 +7384,7 @@ crossoverTrialParams a b rng0 =
                 , tpTriLayerTouchLookback = tpTriLayerTouchLookback'
                 , tpTriLayerPriceAction = tpTriLayerPriceAction'
                 , tpTriLayerPriceActionBody = tpTriLayerPriceActionBody'
+                , tpTriLayerPriceActionBodyOpenThresholdMult = tpTriLayerPriceActionBodyOpenThresholdMult'
                 , tpTriLayerPriceActionWickRatio = tpTriLayerPriceActionWickRatio'
                 , tpTriLayerPriceActionOppositeWickMax = tpTriLayerPriceActionOppositeWickMax'
                 , tpTriLayerPriceActionBodyTolerance = tpTriLayerPriceActionBodyTolerance'
@@ -7609,9 +7634,12 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (kellyLiteFraction', rng91a) = perturbDouble (tpKellyLiteFraction p) scaleDouble rng91
         (kellyLiteFloor', rng91b) = perturbDouble (tpKellyLiteFloor p) scaleDouble rng91a
         (kellyLiteCap', rng91c) = perturbDouble (tpKellyLiteCap p) scaleDouble rng91b
-        (triLayerPriceActionWickRatio', rng91d) = perturbDouble (tpTriLayerPriceActionWickRatio p) scaleDouble rng91c
-        (triLayerPriceActionOppositeWickMax', rng91e) = perturbDouble (tpTriLayerPriceActionOppositeWickMax p) scaleDouble rng91d
-        (triLayerPriceActionBodyTolerance', rng91f) = perturbDouble (tpTriLayerPriceActionBodyTolerance p) scaleDouble rng91e
+        (triLayerPriceActionBody', rng91d) = perturbDouble (tpTriLayerPriceActionBody p) scaleDouble rng91c
+        (triLayerPriceActionBodyOpenThresholdMult', rng91e) =
+            perturbDouble (tpTriLayerPriceActionBodyOpenThresholdMult p) scaleDouble rng91d
+        (triLayerPriceActionWickRatio', rng91f) = perturbDouble (tpTriLayerPriceActionWickRatio p) scaleDouble rng91e
+        (triLayerPriceActionOppositeWickMax', rng91g) = perturbDouble (tpTriLayerPriceActionOppositeWickMax p) scaleDouble rng91f
+        (triLayerPriceActionBodyTolerance', rng91h) = perturbDouble (tpTriLayerPriceActionBodyTolerance p) scaleDouble rng91g
      in ( normalizeTrialParams
             ( p
                 { tpBars = bars'
@@ -7687,6 +7715,8 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpSlippageVolMult = slippageVolMult'
                 , tpSpreadVolMult = spreadVolMult'
                 , tpTakeProfitPartial = takeProfitPartial'
+                , tpTriLayerPriceActionBody = max 0 triLayerPriceActionBody'
+                , tpTriLayerPriceActionBodyOpenThresholdMult = max 0 triLayerPriceActionBodyOpenThresholdMult'
                 , tpTriLayerPriceActionWickRatio = max 0 triLayerPriceActionWickRatio'
                 , tpTriLayerPriceActionOppositeWickMax = max 0 triLayerPriceActionOppositeWickMax'
                 , tpTriLayerPriceActionBodyTolerance = max 0 triLayerPriceActionBodyTolerance'
@@ -8242,6 +8272,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "triLayerTouchLookback" .= tpTriLayerTouchLookback params
                 , "triLayerPriceAction" .= tpTriLayerPriceAction params
                 , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody params
+                , "triLayerPriceActionBodyOpenThresholdMult" .= tpTriLayerPriceActionBodyOpenThresholdMult params
                 , "triLayerPriceActionWickRatio" .= tpTriLayerPriceActionWickRatio params
                 , "triLayerPriceActionOppositeWickMax" .= tpTriLayerPriceActionOppositeWickMax params
                 , "triLayerPriceActionBodyTolerance" .= tpTriLayerPriceActionBodyTolerance params

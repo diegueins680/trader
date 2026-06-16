@@ -737,6 +737,7 @@ normalizeCombo value =
                                     , (Key.fromString "triLayerTouchLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "triLayerTouchLookback") paramsRaw >>= coerceIntValue))
                                     , (Key.fromString "triLayerPriceAction", maybe Null Bool (KM.lookup (Key.fromString "triLayerPriceAction") paramsRaw >>= coerceBoolValue))
                                     , (Key.fromString "triLayerPriceActionBody", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerPriceActionBody") paramsRaw >>= coerceFloatValue))
+                                    , (Key.fromString "triLayerPriceActionBodyOpenThresholdMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerPriceActionBodyOpenThresholdMult") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "triLayerPriceActionWickRatio", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerPriceActionWickRatio") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "triLayerPriceActionOppositeWickMax", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerPriceActionOppositeWickMax") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "triLayerPriceActionBodyTolerance", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerPriceActionBodyTolerance") paramsRaw >>= coerceFloatValue))

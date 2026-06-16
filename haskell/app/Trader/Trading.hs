@@ -26,6 +26,7 @@ module Trader.Trading (
     exitReasonCode,
     exitReasonFromCode,
     mkEntryGateState,
+    defaultTriLayerPriceActionBodyOpenThresholdMult,
     outcomeWeightCap,
     outcomeWeightLossScale,
     outcomeWeightWinScale,
@@ -203,6 +204,7 @@ data EnsembleConfig = EnsembleConfig
     , ecTriLayerTouchLookback :: !Int
     , ecTriLayerRequirePriceAction :: !Bool
     , ecTriLayerPriceActionBody :: !Double
+    , ecTriLayerPriceActionBodyOpenThresholdMult :: !Double
     , ecTriLayerPriceActionWickRatio :: !Double
     , ecTriLayerPriceActionOppositeWickMax :: !Double
     , ecTriLayerPriceActionBodyTolerance :: !Double
@@ -447,6 +449,9 @@ drifting apart.
 -}
 positionSizeScaleHardFailMultiplier :: Double
 positionSizeScaleHardFailMultiplier = 2.0
+
+defaultTriLayerPriceActionBodyOpenThresholdMult :: Double
+defaultTriLayerPriceActionBodyOpenThresholdMult = 0.25
 
 {- | Check whether any configured risk limit is non-finite (NaN or Infinity).
 This is a FIRM-CRITICAL hygiene gate: non-finite limits silently disable
@@ -930,10 +935,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             _ -> 0.5
                                     openThr0 = normalizeSignalThreshold (max openThrRawBase minEdgeBase)
                                     priceActionBodyMin = max 0 (ecTriLayerPriceActionBody cfg)
+                                    priceActionBodyOpenThresholdMult = max 0 (ecTriLayerPriceActionBodyOpenThresholdMult cfg)
                                     priceActionWickRatio = max 0 (ecTriLayerPriceActionWickRatio cfg)
                                     priceActionOppositeWickMax = max 0 (ecTriLayerPriceActionOppositeWickMax cfg)
                                     priceActionBodyTolerance = max 0 (ecTriLayerPriceActionBodyTolerance cfg)
-                                    bodyMinFracBase = max 1e-6 (0.25 * openThr0)
+                                    bodyMinFracBase = max 1e-6 (priceActionBodyOpenThresholdMult * openThr0)
                                     bodyMinFrac =
                                         if priceActionBodyMin > 0
                                             then priceActionBodyMin
