@@ -40,6 +40,7 @@ executable trader-hs
                      , Trader.KalmanPhysics
                      , Trader.Kraken
                      , Trader.LSTM
+                     , Trader.LstmDefaults
                      , Trader.LstmPersistence
                      , Trader.Metrics
                      , Trader.Method
@@ -134,6 +135,7 @@ executable optimize-equity
                      , Trader.Formal.Risk
                      , Trader.KalmanFusion
                      , Trader.Kalman3
+                     , Trader.LstmDefaults
                      , Trader.Method
                      , Trader.Metrics
                      , Trader.OrderExecution
@@ -262,6 +264,7 @@ test-suite trader-tests
                      , Trader.KalmanPhysics
                      , Trader.Kraken
                      , Trader.LSTM
+                     , Trader.LstmDefaults
                      , Trader.LstmPersistence
                      , Trader.Metrics
                      , Trader.Method
@@ -359,6 +362,7 @@ benchmark trader-bench
                      , Trader.KalmanPhysics
                      , Trader.Kraken
                      , Trader.LSTM
+                     , Trader.LstmDefaults
                      , Trader.LstmPersistence
                      , Trader.Metrics
                      , Trader.Method

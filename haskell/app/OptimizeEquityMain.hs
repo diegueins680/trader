@@ -9,6 +9,7 @@ import System.Environment (getArgs, getProgName)
 import System.Exit (ExitCode (..), exitSuccess, exitWith)
 import System.IO (hPutStrLn, stderr)
 
+import Trader.LstmDefaults (defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultLstmAdamEps)
 import Trader.Optimization (TuneObjective (..), defaultMaxThresholdCandidates, tuneObjectiveCode)
 import Trader.Optimizer.Optimize (
     OptimizerArgs (..),
@@ -88,6 +89,7 @@ optimizerArgsParser =
         <*> strOption (long "prior-json" <> value "" <> metavar "PATH")
         <*> option auto (long "prior-sample-prob" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "prior-method-sample-prob" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "prior-rank-bias" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "prior-top-fraction" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "prior-min-samples" <> value 1 <> metavar "INT")
         <*> switch (long "quality")
@@ -126,6 +128,9 @@ optimizerArgsParser =
         <*> option auto (long "tune-penalty-turnover" <> value 0.2 <> metavar "FLOAT")
         <*> option auto (long "tune-max-threshold-candidates" <> value defaultMaxThresholdCandidates <> showDefault <> metavar "INT")
         <*> option auto (long "sensor-variance-ewma-alpha" <> value defaultSensorVarianceEwmaAlpha <> showDefault <> metavar "FLOAT")
+        <*> option auto (long "lstm-adam-beta1" <> value defaultLstmAdamBeta1 <> showDefault <> metavar "FLOAT")
+        <*> option auto (long "lstm-adam-beta2" <> value defaultLstmAdamBeta2 <> showDefault <> metavar "FLOAT")
+        <*> option auto (long "lstm-adam-eps" <> value defaultLstmAdamEps <> showDefault <> metavar "FLOAT")
         <*> option auto (long "tune-stress-vol-mult" <> value 1.25 <> metavar "FLOAT")
         <*> option auto (long "tune-stress-shock" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "tune-stress-weight" <> value 0.2 <> metavar "FLOAT")
@@ -609,6 +614,9 @@ intRangeOption name lo hi =
         <$> option auto (long (name ++ "-min") <> value lo <> metavar "INT")
         <*> option auto (long (name ++ "-max") <> value hi <> metavar "INT")
 
+finiteDouble :: Double -> Bool
+finiteDouble x = not (isNaN x || isInfinite x)
+
 validateArgs :: OptimizerArgs -> Either String OptimizerArgs
 validateArgs args = do
     let dataVal = normalizeMaybe (oaData args)
@@ -658,6 +666,8 @@ validateArgs args = do
         Left "--prior-sample-prob must be between 0 and 1."
     when (oaPriorMethodSampleProb args < 0 || oaPriorMethodSampleProb args > 1) $
         Left "--prior-method-sample-prob must be between 0 and 1."
+    when (oaPriorRankBias args < 1) $
+        Left "--prior-rank-bias must be >= 1."
     when (oaPriorTopFraction args < 0 || oaPriorTopFraction args > 1) $
         Left "--prior-top-fraction must be between 0 and 1."
     when (oaPriorMinSamples args < 0) $
@@ -666,6 +676,12 @@ validateArgs args = do
         Left "--tune-max-threshold-candidates must be >= 0."
     when (oaSensorVarianceEwmaAlpha args < 0 || oaSensorVarianceEwmaAlpha args > 1) $
         Left "--sensor-variance-ewma-alpha must be between 0 and 1."
+    when (not (finiteDouble (oaLstmAdamBeta1 args)) || oaLstmAdamBeta1 args < 0 || oaLstmAdamBeta1 args >= 1) $
+        Left "--lstm-adam-beta1 must be >= 0 and < 1."
+    when (not (finiteDouble (oaLstmAdamBeta2 args)) || oaLstmAdamBeta2 args < 0 || oaLstmAdamBeta2 args >= 1) $
+        Left "--lstm-adam-beta2 must be >= 0 and < 1."
+    when (not (finiteDouble (oaLstmAdamEps args)) || oaLstmAdamEps args <= 0) $
+        Left "--lstm-adam-eps must be > 0."
     when (oaQualityMinTrials args < 1) $
         Left "--quality-min-trials must be >= 1."
     when (oaQualityMaxEpochs args < 1) $

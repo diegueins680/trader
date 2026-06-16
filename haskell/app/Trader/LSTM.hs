@@ -2,6 +2,9 @@ module Trader.LSTM (
     LSTMConfig (..),
     EpochStats (..),
     LSTMModel (..),
+    defaultLstmAdamBeta1,
+    defaultLstmAdamBeta2,
+    defaultLstmAdamEps,
     paramCount,
     paramCountD,
     inputDimFromModel,
@@ -24,11 +27,16 @@ import qualified Data.Vector.Unboxed as VU
 import Numeric.AD (grad)
 import System.Random (mkStdGen, randomRs)
 
+import Trader.LstmDefaults (defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultLstmAdamEps)
+
 data LSTMConfig = LSTMConfig
     { lcLookback :: !Int
     , lcHiddenSize :: !Int
     , lcEpochs :: !Int
     , lcLearningRate :: !Double
+    , lcAdamBeta1 :: !Double
+    , lcAdamBeta2 :: !Double
+    , lcAdamEps :: !Double
     , lcValRatio :: !Double
     , lcPatience :: !Int
     , lcGradClip :: !(Maybe Double)
@@ -263,9 +271,9 @@ exactly the unweighted MSE.
 -}
 trainLoop :: LSTMConfig -> Int -> Int -> [(V.Vector Double, Double, Double)] -> [(V.Vector Double, Double, Double)] -> [Double] -> ([Double], [EpochStats])
 trainLoop cfg d hidden trainSet valSet initFlat =
-    let beta1 = 0.9
-        beta2 = 0.999
-        eps = 1e-8
+    let beta1 = adamBetaOrDefault defaultLstmAdamBeta1 (lcAdamBeta1 cfg)
+        beta2 = adamBetaOrDefault defaultLstmAdamBeta2 (lcAdamBeta2 cfg)
+        eps = adamEpsOrDefault defaultLstmAdamEps (lcAdamEps cfg)
         lr = lcLearningRate cfg
         clip = lcGradClip cfg
         maxEpochs = lcEpochs cfg
@@ -305,6 +313,16 @@ trainLoop cfg d hidden trainSet valSet initFlat =
                                     flat' = zipWith (-) flat stepVec
                                  in go (epoch + 1) flat' m' v' bestFlat' bestValLoss' wait' history'
      in go 1 initFlat zeroVec zeroVec initFlat (1 / 0) 0 []
+
+adamBetaOrDefault :: Double -> Double -> Double
+adamBetaOrDefault fallback value
+    | isFiniteDouble value && value >= 0 && value < 1 = value
+    | otherwise = fallback
+
+adamEpsOrDefault :: Double -> Double -> Double
+adamEpsOrDefault fallback value
+    | isFiniteDouble value && value > 0 = value
+    | otherwise = fallback
 
 clipByL2 :: Double -> [Double] -> [Double]
 clipByL2 maxNorm g =

@@ -62,7 +62,7 @@ import Trader.Formal.Risk (
     verifyFormalRisk,
  )
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
-import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, fineTuneLSTM, fineTuneLSTMWeighted, inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
+import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultLstmAdamEps, evaluateLoss, fineTuneLSTM, fineTuneLSTMWeighted, inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
 import Trader.LiveGap (
     LiveGapConfig (..),
     LiveGapStats (..),
@@ -600,6 +600,9 @@ testMultivariateLstmInputs = do
                 , lcHiddenSize = 3
                 , lcEpochs = 2
                 , lcLearningRate = 0.01
+                , lcAdamBeta1 = defaultLstmAdamBeta1
+                , lcAdamBeta2 = defaultLstmAdamBeta2
+                , lcAdamEps = defaultLstmAdamEps
                 , lcValRatio = 0
                 , lcPatience = 0
                 , lcGradClip = Nothing
@@ -4087,6 +4090,9 @@ testWeightedFineTuneUnitWeightsEquivalence = do
                 , lcHiddenSize = 4
                 , lcEpochs = 8
                 , lcLearningRate = 0.01
+                , lcAdamBeta1 = defaultLstmAdamBeta1
+                , lcAdamBeta2 = defaultLstmAdamBeta2
+                , lcAdamEps = defaultLstmAdamEps
                 , lcValRatio = 0
                 , lcPatience = 0
                 , lcGradClip = Nothing
@@ -4291,6 +4297,9 @@ testWeightedFineTunePunishesLossRegion = do
                 , lcHiddenSize = hidden
                 , lcEpochs = 40
                 , lcLearningRate = 0.02
+                , lcAdamBeta1 = defaultLstmAdamBeta1
+                , lcAdamBeta2 = defaultLstmAdamBeta2
+                , lcAdamEps = defaultLstmAdamEps
                 , lcValRatio = 0
                 , lcPatience = 0
                 , lcGradClip = Nothing

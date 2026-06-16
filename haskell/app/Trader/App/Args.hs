@@ -34,6 +34,7 @@ import Trader.Binance (BinanceMarket (..))
 import Trader.BotStartSemantics (adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean)
 import Trader.CapitalPreservation (CapitalPreservationConfig (..), defaultCapitalPreservationConfig)
 import Trader.Duration (TimeWindow, lookbackBarsFrom, parseIntervalSeconds, parseTimeWindow)
+import Trader.LstmDefaults (defaultLstmAdamBeta1, defaultLstmAdamBeta2, defaultLstmAdamEps)
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod)
 import Trader.Normalization (NormType (..), parseNormType)
 import Trader.Optimization (TuneObjective (..), defaultMaxThresholdCandidates, parseTuneObjective, tuneObjectiveCode)
@@ -103,6 +104,9 @@ data Args = Args
     , argHiddenSize :: Int
     , argEpochs :: Int
     , argLr :: Double
+    , argLstmAdamBeta1 :: Double
+    , argLstmAdamBeta2 :: Double
+    , argLstmAdamEps :: Double
     , argValRatio :: Double
     , argBacktestRatio :: Double
     , argBacktestFrom :: Maybe String
@@ -708,6 +712,9 @@ opts = do
     argHiddenSize <- option auto (long "hidden-size" <> value 16 <> help "LSTM hidden size")
     argEpochs <- option auto (long "epochs" <> value 30 <> help "LSTM training epochs (Adam)")
     argLr <- option auto (long "lr" <> value 1e-3 <> help "LSTM learning rate")
+    argLstmAdamBeta1 <- option auto (long "lstm-adam-beta1" <> value defaultLstmAdamBeta1 <> showDefault <> help "LSTM Adam beta1 momentum coefficient (0 <= beta1 < 1)")
+    argLstmAdamBeta2 <- option auto (long "lstm-adam-beta2" <> value defaultLstmAdamBeta2 <> showDefault <> help "LSTM Adam beta2 variance coefficient (0 <= beta2 < 1)")
+    argLstmAdamEps <- option auto (long "lstm-adam-eps" <> value defaultLstmAdamEps <> showDefault <> help "LSTM Adam epsilon denominator stabilizer (>0)")
     argValRatio <- option auto (long "val-ratio" <> value 0.3 <> help "Validation split ratio (within training set)")
     argBacktestRatio <- option auto (long "backtest-ratio" <> value 0.2 <> help "Backtest holdout ratio (last portion of series)")
     argBacktestFrom <- optional (strOption (long "from" <> metavar "TIME" <> help "Optional backtest start timestamp (epoch seconds/ms or ISO-8601)"))
@@ -1579,6 +1586,9 @@ validateArgs args0 = do
 
     let finiteRequired =
             [ ("--lr", argLr args)
+            , ("--lstm-adam-beta1", argLstmAdamBeta1 args)
+            , ("--lstm-adam-beta2", argLstmAdamBeta2 args)
+            , ("--lstm-adam-eps", argLstmAdamEps args)
             , ("--val-ratio", argValRatio args)
             , ("--backtest-ratio", argBacktestRatio args)
             , ("--initial-balance", argInitialBalance args)
@@ -1809,6 +1819,9 @@ validateArgs args0 = do
     ensure "--hidden-size must be >= 1" (argHiddenSize args >= 1)
     ensure "--epochs must be >= 0" (argEpochs args >= 0)
     ensure "--lr must be > 0" (argLr args > 0)
+    ensure "--lstm-adam-beta1 must be >= 0 and < 1" (argLstmAdamBeta1 args >= 0 && argLstmAdamBeta1 args < 1)
+    ensure "--lstm-adam-beta2 must be >= 0 and < 1" (argLstmAdamBeta2 args >= 0 && argLstmAdamBeta2 args < 1)
+    ensure "--lstm-adam-eps must be > 0" (argLstmAdamEps args > 0)
     ensure "--val-ratio must be >= 0 and < 1" (argValRatio args >= 0 && argValRatio args < 1)
     ensure "--backtest-ratio must be between 0 and 1" (argBacktestRatio args > 0 && argBacktestRatio args < 1)
     let parseWindowBound flag raw =

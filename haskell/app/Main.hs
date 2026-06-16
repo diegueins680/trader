@@ -825,6 +825,9 @@ data ApiParams = ApiParams
     , apHiddenSize :: Maybe Int
     , apEpochs :: Maybe Int
     , apLr :: Maybe Double
+    , apLstmAdamBeta1 :: Maybe Double
+    , apLstmAdamBeta2 :: Maybe Double
+    , apLstmAdamEps :: Maybe Double
     , apValRatio :: Maybe Double
     , apBacktestRatio :: Maybe Double
     , apFrom :: Maybe String
@@ -1047,6 +1050,9 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrHiddenSizeMax :: !(Maybe Int)
     , arrLrMin :: !(Maybe Double)
     , arrLrMax :: !(Maybe Double)
+    , arrLstmAdamBeta1 :: !(Maybe Double)
+    , arrLstmAdamBeta2 :: !(Maybe Double)
+    , arrLstmAdamEps :: !(Maybe Double)
     , arrPatienceMax :: !(Maybe Int)
     , arrGradClipMin :: !(Maybe Double)
     , arrGradClipMax :: !(Maybe Double)
@@ -2538,6 +2544,9 @@ argsPublicJson args =
             , "hiddenSize" .= argHiddenSize args
             , "epochs" .= argEpochs args
             , "lr" .= argLr args
+            , "lstmAdamBeta1" .= argLstmAdamBeta1 args
+            , "lstmAdamBeta2" .= argLstmAdamBeta2 args
+            , "lstmAdamEps" .= argLstmAdamEps args
             , "valRatio" .= argValRatio args
             , "backtestRatio" .= argBacktestRatio args
             , "from" .= argBacktestFrom args
@@ -9046,6 +9055,9 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                             , lcHiddenSize = argHiddenSize args
                             , lcEpochs = argEpochs args
                             , lcLearningRate = argLr args
+                            , lcAdamBeta1 = argLstmAdamBeta1 args
+                            , lcAdamBeta2 = argLstmAdamBeta2 args
+                            , lcAdamEps = argLstmAdamEps args
                             , lcValRatio = argValRatio args
                             , lcPatience = argPatience args
                             , lcGradClip = argGradClip args
@@ -9873,6 +9885,9 @@ rebuildLstmCtx args lookback pricesV =
                             , lcHiddenSize = argHiddenSize args
                             , lcEpochs = argEpochs args
                             , lcLearningRate = argLr args
+                            , lcAdamBeta1 = argLstmAdamBeta1 args
+                            , lcAdamBeta2 = argLstmAdamBeta2 args
+                            , lcAdamEps = argLstmAdamEps args
                             , lcValRatio = argValRatio args
                             , lcPatience = argPatience args
                             , lcGradClip = argGradClip args
@@ -10694,6 +10709,9 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
                                     tuneMaxThresholdCandidatesEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_MAX_THRESHOLD_CANDIDATES"
                                     sensorVarianceEwmaAlphaEnv <- lookupEnv "TRADER_OPTIMIZER_SENSOR_VARIANCE_EWMA_ALPHA"
+                                    lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
+                                    lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
+                                    lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
                                     minRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_ROUND_TRIPS"
                                     minExposureEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_EXPOSURE"
                                     minSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_SHARPE"
@@ -10765,6 +10783,12 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         tuneMaxThresholdCandidates = readNonNegativeInt tuneMaxThresholdCandidatesEnv defaultMaxThresholdCandidates
                                         sensorVarianceEwmaAlpha :: Double
                                         sensorVarianceEwmaAlpha = clamp01 (readNonNegativeDouble sensorVarianceEwmaAlphaEnv (argSensorVarianceEwmaAlpha baseArgs))
+                                        lstmAdamBeta1 :: Double
+                                        lstmAdamBeta1 = min 0.999999 (max 0 (readNonNegativeDouble lstmAdamBeta1Env (argLstmAdamBeta1 baseArgs)))
+                                        lstmAdamBeta2 :: Double
+                                        lstmAdamBeta2 = min 0.999999 (max 0 (readNonNegativeDouble lstmAdamBeta2Env (argLstmAdamBeta2 baseArgs)))
+                                        lstmAdamEps :: Double
+                                        lstmAdamEps = max 1e-12 (readNonNegativeDouble lstmAdamEpsEnv (argLstmAdamEps baseArgs))
                                         minExposure :: Double
                                         minExposure = clamp01 (readNonNegativeDouble minExposureEnv 0.02)
                                         minSharpe :: Double
@@ -11000,6 +11024,12 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , show tuneMaxThresholdCandidates
                                                                                         , "--sensor-variance-ewma-alpha"
                                                                                         , show sensorVarianceEwmaAlpha
+                                                                                        , "--lstm-adam-beta1"
+                                                                                        , show lstmAdamBeta1
+                                                                                        , "--lstm-adam-beta2"
+                                                                                        , show lstmAdamBeta2
+                                                                                        , "--lstm-adam-eps"
+                                                                                        , show lstmAdamEps
                                                                                         , "--trials"
                                                                                         , show (trialsVal :: Int)
                                                                                         , "--timeout-sec"
@@ -11986,6 +12016,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                             , lcHiddenSize = argHiddenSize args
                             , lcEpochs = epochs
                             , lcLearningRate = argLr args
+                            , lcAdamBeta1 = argLstmAdamBeta1 args
+                            , lcAdamBeta2 = argLstmAdamBeta2 args
+                            , lcAdamEps = argLstmAdamEps args
                             , lcValRatio = 0
                             , lcPatience = 0
                             , lcGradClip = argGradClip args
@@ -13603,6 +13636,9 @@ argsCacheJsonSignal args =
             , "hiddenSize" .= argHiddenSize args
             , "epochs" .= argEpochs args
             , "lr" .= argLr args
+            , "lstmAdamBeta1" .= argLstmAdamBeta1 args
+            , "lstmAdamBeta2" .= argLstmAdamBeta2 args
+            , "lstmAdamEps" .= argLstmAdamEps args
             , "valRatio" .= argValRatio args
             , "patience" .= argPatience args
             , "gradClip" .= argGradClip args
@@ -13787,6 +13823,9 @@ argsCacheJsonBacktest args =
             , "hiddenSize" .= argHiddenSize args
             , "epochs" .= argEpochs args
             , "lr" .= argLr args
+            , "lstmAdamBeta1" .= argLstmAdamBeta1 args
+            , "lstmAdamBeta2" .= argLstmAdamBeta2 args
+            , "lstmAdamEps" .= argLstmAdamEps args
             , "valRatio" .= argValRatio args
             , "patience" .= argPatience args
             , "gradClip" .= argGradClip args
@@ -15093,16 +15132,24 @@ readNonNegativeDoubleMaybe raw fallback =
         Just n | n >= 0 && isFiniteDouble n -> n
         _ -> fallback
 
+readFiniteDoubleMaybe :: Maybe String -> Maybe Double
+readFiniteDoubleMaybe raw =
+    case raw >>= readMaybe of
+        Just n | isFiniteDouble n -> Just n
+        _ -> Nothing
+
 optimizerPriorArgsFromEnv :: Maybe FilePath -> IO [String]
 optimizerPriorArgsFromEnv mDefaultJson = do
     priorJsonEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_JSON"
     priorSampleProbEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_SAMPLE_PROB"
     priorMethodSampleProbEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_METHOD_SAMPLE_PROB"
+    priorRankBiasEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_RANK_BIAS"
     priorTopFractionEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_TOP_FRACTION"
     priorMinSamplesEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_MIN_SAMPLES"
     let priorJson = pickDefaultString (fromMaybe "" mDefaultJson) priorJsonEnv
         priorSampleProb = clamp01 (readNonNegativeDoubleMaybe priorSampleProbEnv 0.6)
         priorMethodSampleProb = clamp01 (readNonNegativeDoubleMaybe priorMethodSampleProbEnv 0.5)
+        priorRankBias = max 1 (readNonNegativeDoubleMaybe priorRankBiasEnv 2.0)
         priorTopFraction = clamp01 (readNonNegativeDoubleMaybe priorTopFractionEnv 0.5)
         priorMinSamples = readNonNegativeIntMaybe priorMinSamplesEnv 3
      in pure $
@@ -15115,6 +15162,8 @@ optimizerPriorArgsFromEnv mDefaultJson = do
                     , show priorSampleProb
                     , "--prior-method-sample-prob"
                     , show priorMethodSampleProb
+                    , "--prior-rank-bias"
+                    , show priorRankBias
                     , "--prior-top-fraction"
                     , show priorTopFraction
                     , "--prior-min-samples"
@@ -15129,6 +15178,9 @@ prepareOptimizerArgs outputPath mPriorJson req = do
     maxBarsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_BARS"
     tuneMaxThresholdCandidatesEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_MAX_THRESHOLD_CANDIDATES"
     sensorVarianceEwmaAlphaEnv <- lookupEnv "TRADER_OPTIMIZER_SENSOR_VARIANCE_EWMA_ALPHA"
+    lstmAdamBeta1Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA1"
+    lstmAdamBeta2Env <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2"
+    lstmAdamEpsEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS"
     let source = fromMaybe OptimizerSourceBinance (arrSource req)
         defaultPriorJson =
             case source of
@@ -15723,6 +15775,10 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                 lrArgs =
                     maybeDoubleArg "--lr-min" (fmap (max 1e-12) (arrLrMin req))
                         ++ maybeDoubleArg "--lr-max" (fmap (max 1e-12) (arrLrMax req))
+                lstmAdamArgs =
+                    maybeDoubleArg "--lstm-adam-beta1" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta1 req <|> readFiniteDoubleMaybe lstmAdamBeta1Env))
+                        ++ maybeDoubleArg "--lstm-adam-beta2" (fmap (min 0.999999 . max 0) (arrLstmAdamBeta2 req <|> readFiniteDoubleMaybe lstmAdamBeta2Env))
+                        ++ maybeDoubleArg "--lstm-adam-eps" (fmap (max 1e-12) (arrLstmAdamEps req <|> readFiniteDoubleMaybe lstmAdamEpsEnv))
                 patienceArgs =
                     maybeIntArg "--patience-max" (fmap (max 0) (arrPatienceMax req))
                 gradClipArgs =
@@ -15788,6 +15844,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ walkForwardFoldsArgs
                         ++ walkForwardEmbargoArgs
                         ++ lrArgs
+                        ++ lstmAdamArgs
                         ++ patienceArgs
                         ++ gradClipArgs
                         ++ minHoldBarsArgs
@@ -19790,6 +19847,9 @@ argsFromApi baseArgs p = do
                 , argHiddenSize = pick (apHiddenSize p) (argHiddenSize baseArgs)
                 , argEpochs = pick (apEpochs p) (argEpochs baseArgs)
                 , argLr = pick (apLr p) (argLr baseArgs)
+                , argLstmAdamBeta1 = pick (apLstmAdamBeta1 p) (argLstmAdamBeta1 baseArgs)
+                , argLstmAdamBeta2 = pick (apLstmAdamBeta2 p) (argLstmAdamBeta2 baseArgs)
+                , argLstmAdamEps = pick (apLstmAdamEps p) (argLstmAdamEps baseArgs)
                 , argValRatio = pick (apValRatio p) (argValRatio baseArgs)
                 , argBacktestRatio = pick (apBacktestRatio p) (argBacktestRatio baseArgs)
                 , argBacktestFrom = pickMaybe (apFrom p) (argBacktestFrom baseArgs)
@@ -25257,6 +25317,9 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                             , lcHiddenSize = argHiddenSize args
                             , lcEpochs = argEpochs args
                             , lcLearningRate = argLr args
+                            , lcAdamBeta1 = argLstmAdamBeta1 args
+                            , lcAdamBeta2 = argLstmAdamBeta2 args
+                            , lcAdamEps = argLstmAdamEps args
                             , lcValRatio = argValRatio args
                             , lcPatience = argPatience args
                             , lcGradClip = argGradClip args
@@ -25665,6 +25728,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , lcHiddenSize = argHiddenSize args
                 , lcEpochs = argEpochs args
                 , lcLearningRate = argLr args
+                , lcAdamBeta1 = argLstmAdamBeta1 args
+                , lcAdamBeta2 = argLstmAdamBeta2 args
+                , lcAdamEps = argLstmAdamEps args
                 , lcValRatio = argValRatio args
                 , lcPatience = argPatience args
                 , lcGradClip = argGradClip args

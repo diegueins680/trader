@@ -2010,6 +2010,7 @@ data OptimizerArgs = OptimizerArgs
     , oaPriorJson :: !String
     , oaPriorSampleProb :: !Double
     , oaPriorMethodSampleProb :: !Double
+    , oaPriorRankBias :: !Double
     , oaPriorTopFraction :: !Double
     , oaPriorMinSamples :: !Int
     , oaQuality :: !Bool
@@ -2048,6 +2049,9 @@ data OptimizerArgs = OptimizerArgs
     , oaTunePenaltyTurnover :: !Double
     , oaTuneMaxThresholdCandidates :: !Int
     , oaSensorVarianceEwmaAlpha :: !Double
+    , oaLstmAdamBeta1 :: !Double
+    , oaLstmAdamBeta2 :: !Double
+    , oaLstmAdamEps :: !Double
     , oaTuneStressVolMult :: !Double
     , oaTuneStressShock :: !Double
     , oaTuneStressWeight :: !Double
@@ -5229,6 +5233,7 @@ runOptimizer args0 = do
                                                                         earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
                                                                         priorSampleProb = clamp (oaPriorSampleProb args) 0 1
                                                                         priorMethodSampleProb = clamp (oaPriorMethodSampleProb args) 0 1
+                                                                        priorRankBias = max 1 (oaPriorRankBias args)
                                                                         minRoundTrips = max 0 (oaMinRoundTrips args)
                                                                         minWinRate = max 0 (oaMinWinRate args)
                                                                         minProfitFactor = max 0 (oaMinProfitFactor args)
@@ -5511,6 +5516,7 @@ runOptimizer args0 = do
                                                                                     perturbScaleDouble
                                                                                     perturbScaleInt
                                                                                     priorMethodSampleProb
+                                                                                    priorRankBias
                                                                                     priorTrials
                                                                                     baseParams
                                                                                     rng'
@@ -6000,6 +6006,12 @@ buildBaseArgs args csvCols = do
                            , show (max 0 (oaTuneMaxThresholdCandidates args))
                            , "--sensor-variance-ewma-alpha"
                            , printf "%.6f" (clamp (oaSensorVarianceEwmaAlpha args) 0 1)
+                           , "--lstm-adam-beta1"
+                           , printf "%.6f" (clamp (oaLstmAdamBeta1 args) 0 0.999999)
+                           , "--lstm-adam-beta2"
+                           , printf "%.6f" (clamp (oaLstmAdamBeta2 args) 0 0.999999)
+                           , "--lstm-adam-eps"
+                           , printf "%.12g" (max 1e-12 (oaLstmAdamEps args))
                            , "--seed"
                            , show (oaSeed args)
                            ]
@@ -6974,11 +6986,12 @@ samplePriorParams ::
     Double ->
     Int ->
     Double ->
+    Double ->
     [PriorTrial] ->
     TrialParams ->
     Rng ->
     (TrialParams, Rng)
-samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleInt priorMethodProb priors base rng0
+samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleInt priorMethodProb priorRankBias priors base rng0
     | null priors = (base, rng0)
     | priorProb <= 0 = (base, rng0)
     | otherwise =
@@ -6995,7 +7008,7 @@ samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleIn
                      in case pool of
                             [] -> (base, rng1a)
                             pool ->
-                                let (picked, rng2) = nextChoice pool rng1a
+                                let (picked, rng2) = pickRankBiasedPrior priorRankBias pool rng1a
                                  in case picked of
                                         Nothing -> (base, rng2)
                                         Just prior ->
@@ -7003,6 +7016,17 @@ samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleIn
                                                     applyPriorMethodIfEnabled usePriorMethod prior $
                                                         applyPriorOverlay allowedIntervals prior base
                                              in perturbTrialParams barsMin barsMax scaleDouble scaleInt overlaid rng2
+
+pickRankBiasedPrior :: Double -> [PriorTrial] -> Rng -> (Maybe PriorTrial, Rng)
+pickRankBiasedPrior bias pool rng
+    | null pool = (Nothing, rng)
+    | bias <= 1 = nextChoice pool rng
+    | otherwise =
+        let (u0, rng1) = nextDouble rng
+            n = length pool
+            u = clamp u0 0 0.999999999999
+            idx = min (n - 1) (floor (fromIntegral n * (u ** bias)))
+         in (listToMaybe (drop idx pool), rng1)
 
 priorPoolForBase :: TrialParams -> [PriorTrial] -> [PriorTrial]
 priorPoolForBase base priors =
