@@ -49,7 +49,7 @@ import Data.Foldable (for_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (foldl', group, intercalate, isPrefixOf, sort, sortOn, stripPrefix)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Ord
 import Data.Scientific (Scientific, toBoundedInteger, toRealFloat)
 import qualified Data.Set as Set
@@ -1136,6 +1136,197 @@ valueObjectAt val key =
                 _ -> Nothing
         _ -> Nothing
 
+data PriorTrial = PriorTrial
+    { ptParams :: !(KM.KeyMap Value)
+    , ptMetrics :: !(KM.KeyMap Value)
+    , ptScore :: !Double
+    , ptEligible :: !Bool
+    , ptSymbol :: !(Maybe String)
+    , ptPlatform :: !(Maybe String)
+    , ptInterval :: !(Maybe String)
+    , ptMethod :: !(Maybe String)
+    }
+    deriving (Eq, Show)
+
+readOptimizerPriorTrials :: FilePath -> IO [PriorTrial]
+readOptimizerPriorTrials rawPath = do
+    let raw = trim rawPath
+    if null raw
+        then pure []
+        else do
+            path <- expandUser raw
+            exists <- doesFileExist path
+            if not exists
+                then pure []
+                else do
+                    contentsOrErr <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+                    case contentsOrErr of
+                        Left _ -> pure []
+                        Right contents ->
+                            case Aeson.eitherDecode contents :: Either String Value of
+                                Right value -> pure (priorTrialsFromValue value)
+                                Left _ ->
+                                    pure $
+                                        concatMap
+                                            priorTrialsFromJsonLine
+                                            (filter (not . BS.null) (BS8.lines (BL.toStrict contents)))
+
+priorTrialsFromJsonLine :: BS.ByteString -> [PriorTrial]
+priorTrialsFromJsonLine line =
+    case Aeson.eitherDecodeStrict' line :: Either String Value of
+        Right value -> priorTrialsFromValue value
+        Left _ -> []
+
+priorTrialsFromValue :: Value -> [PriorTrial]
+priorTrialsFromValue value =
+    case value of
+        Object obj ->
+            case KM.lookup (Key.fromString "combos") obj of
+                Just (Array combos) -> mapMaybe priorTrialFromValue (V.toList combos)
+                _ -> maybeToList (priorTrialFromObject obj)
+        Array xs -> mapMaybe priorTrialFromValue (V.toList xs)
+        _ -> []
+
+priorTrialFromValue :: Value -> Maybe PriorTrial
+priorTrialFromValue value =
+    case value of
+        Object obj -> priorTrialFromObject obj
+        _ -> Nothing
+
+priorTrialFromObject :: KM.KeyMap Value -> Maybe PriorTrial
+priorTrialFromObject obj = do
+    params <- objectField "params" obj
+    let metrics = fromMaybe KM.empty (objectField "metrics" obj)
+        eligible = fromMaybe True (boolField "eligible" obj)
+        score =
+            fromMaybe
+                (metricFloat (Just metrics) "annualizedReturn" 0)
+                (doubleField ["score", "finalEquity"] obj)
+        symbol =
+            normalizeSymbol
+                ( stringField ["binanceSymbol", "symbol", "binance_symbol"] params
+                    <|> stringField ["binanceSymbol", "symbol", "binance_symbol"] obj
+                )
+        platform = fmap (map toLower) (stringField ["platform"] params)
+        interval = stringField ["interval"] params
+        method = fmap (map toLower) (stringField ["method"] params)
+     in Just
+            PriorTrial
+                { ptParams = params
+                , ptMetrics = metrics
+                , ptScore = if isNaN score || isInfinite score then -(1 / 0) else score
+                , ptEligible = eligible
+                , ptSymbol = symbol
+                , ptPlatform = platform
+                , ptInterval = interval
+                , ptMethod = method
+                }
+
+selectOptimizerPriorTrials :: OptimizerArgs -> Maybe String -> [String] -> [PriorTrial] -> [PriorTrial]
+selectOptimizerPriorTrials args symbol intervals rawTrials =
+    let eligible =
+            filter
+                (priorTrialMeetsEvidence args symbol intervals)
+                rawTrials
+        sorted = sortOn (Data.Ord.Down . ptScore) eligible
+        fraction = clamp (oaPriorTopFraction args) 0 1
+        total = length sorted
+        requested =
+            if fraction <= 0 || total <= 0
+                then 0
+                else
+                    let byFraction = ceiling (fromIntegral total * fraction :: Double)
+                     in max (max 0 (oaPriorMinSamples args)) byFraction
+     in take (min total requested) sorted
+
+priorTrialMeetsEvidence :: OptimizerArgs -> Maybe String -> [String] -> PriorTrial -> Bool
+priorTrialMeetsEvidence args symbol intervals trial =
+    let metrics = Just (ptMetrics trial)
+        roundTrips = metricInt metrics "roundTrips" 0
+        tradeCount = metricInt metrics "tradeCount" 0
+        activityCount = max roundTrips tradeCount
+        exposure = metricFloat metrics "exposure" 0
+        sharpe = metricFloat metrics "sharpe" 0
+        annRet = metricFloat metrics "annualizedReturn" 0
+        maxDd = max 0 (metricFloat metrics "maxDrawdown" 0)
+        calmar = if maxDd <= 0 then annRet else annRet / max 1e-12 maxDd
+        turnover = metricFloat metrics "turnover" 0
+        winRate = metricFloat metrics "winRate" 0
+        profitFactorOk =
+            case metricProfitFactor metrics of
+                Nothing -> True
+                Just pf -> pf >= max 0 (oaMinProfitFactor args)
+        symbolOk =
+            case symbol of
+                Nothing -> True
+                Just sym -> maybe True (== sym) (ptSymbol trial)
+        intervalOk =
+            case ptInterval trial of
+                Nothing -> True
+                Just interval -> interval `elem` intervals
+        minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
+        maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
+        walkForwardOk =
+            case valueObjectAt (Object (ptMetrics trial)) "walkForwardSummary" of
+                Nothing -> minWfSharpeMean <= 0 && maxWfSharpeStd <= 0
+                Just wf ->
+                    let wfSharpeMean = metricFloat (Just wf) "sharpeMean" 0
+                        wfSharpeStd = metricFloat (Just wf) "sharpeStd" 0
+                     in (minWfSharpeMean <= 0 || wfSharpeMean >= minWfSharpeMean)
+                            && (maxWfSharpeStd <= 0 || wfSharpeStd <= maxWfSharpeStd)
+     in ptEligible trial
+            && symbolOk
+            && intervalOk
+            && (oaMinRoundTrips args <= 0 || activityCount >= oaMinRoundTrips args)
+            && (oaMinWinRate args <= 0 || winRate >= oaMinWinRate args)
+            && profitFactorOk
+            && (oaMinExposure args <= 0 || exposure >= oaMinExposure args)
+            && (oaMinSharpe args <= 0 || sharpe >= oaMinSharpe args)
+            && (oaMinAnnualizedReturn args <= 0 || annRet >= oaMinAnnualizedReturn args)
+            && (oaMinCalmar args <= 0 || calmar >= oaMinCalmar args)
+            && (oaMaxTurnover args <= 0 || turnover <= oaMaxTurnover args)
+            && walkForwardOk
+
+objectField :: String -> KM.KeyMap Value -> Maybe (KM.KeyMap Value)
+objectField key obj =
+    case KM.lookup (Key.fromString key) obj of
+        Just (Object value) -> Just value
+        _ -> Nothing
+
+stringField :: [String] -> KM.KeyMap Value -> Maybe String
+stringField keys obj =
+    listToMaybe (mapMaybe (`stringFieldOne` obj) keys)
+
+stringFieldOne :: String -> KM.KeyMap Value -> Maybe String
+stringFieldOne key obj =
+    case KM.lookup (Key.fromString key) obj of
+        Just (String value) ->
+            let raw = trim (T.unpack value)
+             in if null raw then Nothing else Just raw
+        _ -> Nothing
+
+doubleField :: [String] -> KM.KeyMap Value -> Maybe Double
+doubleField keys obj =
+    listToMaybe (mapMaybe (`doubleFieldOne` obj) keys)
+
+doubleFieldOne :: String -> KM.KeyMap Value -> Maybe Double
+doubleFieldOne key obj =
+    KM.lookup (Key.fromString key) obj >>= coerceFloatValue
+
+intField :: [String] -> KM.KeyMap Value -> Maybe Int
+intField keys obj =
+    listToMaybe (mapMaybe (`intFieldOne` obj) keys)
+
+intFieldOne :: String -> KM.KeyMap Value -> Maybe Int
+intFieldOne key obj =
+    KM.lookup (Key.fromString key) obj >>= coerceIntValue
+
+boolField :: String -> KM.KeyMap Value -> Maybe Bool
+boolField key obj =
+    case KM.lookup (Key.fromString key) obj of
+        Just (Bool value) -> Just value
+        _ -> Nothing
+
 extractKellyLiteSummary :: Maybe Value -> Maybe (KM.KeyMap Value)
 extractKellyLiteSummary raw = do
     v <- raw
@@ -1771,6 +1962,10 @@ data OptimizerArgs = OptimizerArgs
     , oaNoSweepThreshold :: !Bool
     , oaDisableLstmPersistence :: !Bool
     , oaTopJson :: !String
+    , oaPriorJson :: !String
+    , oaPriorSampleProb :: !Double
+    , oaPriorTopFraction :: !Double
+    , oaPriorMinSamples :: !Int
     , oaQuality :: !Bool
     , oaQualityMinTrials :: !Int
     , oaQualityMaxEpochs :: !Int
@@ -4957,6 +5152,10 @@ runOptimizer args0 = do
                                                                     hPutStrLn stderr err
                                                                     pure 2
                                                                 Right baseArgs -> do
+                                                                    priorTrialsRaw <-
+                                                                        if oaPriorSampleProb args <= 0
+                                                                            then pure []
+                                                                            else readOptimizerPriorTrials (oaPriorJson args)
                                                                     let rngStart = seedRng (oaSeed args)
                                                                         dataSource = if isNothing (oaData args) then "binance" else "csv"
                                                                         sourceOverride = map toLower (trim (oaSourceLabel args))
@@ -4980,6 +5179,7 @@ runOptimizer args0 = do
                                                                         perturbScaleDouble = max 0 (oaPerturbScaleDouble args)
                                                                         perturbScaleInt = max 0 (oaPerturbScaleInt args)
                                                                         earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
+                                                                        priorSampleProb = clamp (oaPriorSampleProb args) 0 1
                                                                         minRoundTrips = max 0 (oaMinRoundTrips args)
                                                                         minWinRate = max 0 (oaMinWinRate args)
                                                                         minProfitFactor = max 0 (oaMinProfitFactor args)
@@ -4992,6 +5192,17 @@ runOptimizer args0 = do
                                                                         maxTurnover = max 0 (oaMaxTurnover args)
                                                                         minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
                                                                         maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
+                                                                        priorTrials = selectOptimizerPriorTrials args symbolFinal intervals priorTrialsRaw
+                                                                    when (priorSampleProb > 0 && not (null (trim (oaPriorJson args)))) $
+                                                                        hPutStrLn
+                                                                            stderr
+                                                                            ( "Empirical optimizer priors: using "
+                                                                                ++ show (length priorTrials)
+                                                                                ++ "/"
+                                                                                ++ show (length priorTrialsRaw)
+                                                                                ++ " rows from "
+                                                                                ++ oaPriorJson args
+                                                                            )
                                                                     outHandle <-
                                                                         if null (trim (oaOutput args))
                                                                             then pure Nothing
@@ -5002,7 +5213,10 @@ runOptimizer args0 = do
                                                                                 hSetEncoding h utf8
                                                                                 pure (Just h)
                                                                     let techniqueSummaryBase =
-                                                                            emptyTechniqueSummary{otsAppliedWalkForward = walkForwardFoldsMax > 1 || walkForwardFoldsMin > 1}
+                                                                            emptyTechniqueSummary
+                                                                                { otsAppliedWalkForward = walkForwardFoldsMax > 1 || walkForwardFoldsMin > 1
+                                                                                , otsAppliedEmpiricalPriors = priorSampleProb > 0 && not (null priorTrials)
+                                                                                }
                                                                         seedTrialsDefault = max 1 (min trials (max 3 (trials `div` 2)))
                                                                         seedTrials =
                                                                             case seedTrialsOverride of
@@ -5237,10 +5451,22 @@ runOptimizer args0 = do
                                                                                 kellyLiteFractionRange
                                                                                 kellyLiteFloorRange
                                                                                 kellyLiteCapRange
+                                                                        sampleParamsMaybePrior rng =
+                                                                            let (baseParams, rng') = sampleParamsWithRng rng
+                                                                             in samplePriorParams
+                                                                                    priorSampleProb
+                                                                                    intervals
+                                                                                    barsMin
+                                                                                    barsMax
+                                                                                    perturbScaleDouble
+                                                                                    perturbScaleInt
+                                                                                    priorTrials
+                                                                                    baseParams
+                                                                                    rng'
                                                                         runTrialWith idx rng mBase mParents best recordsRev = do
                                                                             let (params, _) =
                                                                                     case mBase of
-                                                                                        Nothing -> sampleParamsWithRng rng
+                                                                                        Nothing -> sampleParamsMaybePrior rng
                                                                                         Just base ->
                                                                                             case mParents of
                                                                                                 Just parents@(_ : _ : _) ->
@@ -5986,6 +6212,7 @@ data OptimizationTechniqueSummary = OptimizationTechniqueSummary
     { otsAppliedSobolSeeding :: !Bool
     , otsAppliedSuccessiveHalving :: !Bool
     , otsAppliedBayesianEi :: !Bool
+    , otsAppliedEmpiricalPriors :: !Bool
     , otsAppliedWalkForward :: !Bool
     , otsAppliedEnsemble :: !Bool
     }
@@ -5997,6 +6224,7 @@ emptyTechniqueSummary =
         { otsAppliedSobolSeeding = False
         , otsAppliedSuccessiveHalving = False
         , otsAppliedBayesianEi = False
+        , otsAppliedEmpiricalPriors = False
         , otsAppliedWalkForward = False
         , otsAppliedEnsemble = False
         }
@@ -6017,6 +6245,11 @@ bestOptimizationTechniques =
         { otName = "Sobol / Latin hypercube seeding"
         , otSummary = "Start the search with low-discrepancy samples that cover the space more uniformly than pure random draws."
         , otWhyItHelps = "Reduces blind spots and gives later exploitation steps better anchor points."
+        }
+    , OptimizationTechnique
+        { otName = "Empirical prior sampling"
+        , otSummary = "Bias new trials toward validated historical parameter neighborhoods before broad survivor exploitation."
+        , otWhyItHelps = "Spends more budget near symbol, interval, and method contexts that already cleared live-relevant evidence gates."
         }
     , OptimizationTechnique
         { otName = "Walk-forward / blocked cross-validation"
@@ -6678,12 +6911,256 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         , rng91f
         )
 
+samplePriorParams ::
+    Double ->
+    [String] ->
+    Int ->
+    Int ->
+    Double ->
+    Int ->
+    [PriorTrial] ->
+    TrialParams ->
+    Rng ->
+    (TrialParams, Rng)
+samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleInt priors base rng0
+    | null priors = (base, rng0)
+    | priorProb <= 0 = (base, rng0)
+    | otherwise =
+        let (r, rng1) = nextDouble rng0
+         in if r >= clamp priorProb 0 1
+                then (base, rng1)
+                else case priorPoolForBase base priors of
+                    [] -> (base, rng1)
+                    pool ->
+                        let (picked, rng2) = nextChoice pool rng1
+                         in case picked of
+                                Nothing -> (base, rng2)
+                                Just prior ->
+                                    let overlaid = applyPriorOverlay allowedIntervals prior base
+                                     in perturbTrialParams barsMin barsMax scaleDouble scaleInt overlaid rng2
+
+priorPoolForBase :: TrialParams -> [PriorTrial] -> [PriorTrial]
+priorPoolForBase base priors =
+    firstNonEmpty
+        [ filter (\p -> samePlatform p && sameInterval p && sameMethod p) priors
+        , filter (\p -> samePlatform p && sameMethod p) priors
+        , filter sameMethod priors
+        ]
+  where
+    samePlatform prior =
+        case ptPlatform prior of
+            Nothing -> True
+            Just platform -> isNothing (tpPlatform base) || tpPlatform base == Just platform
+    sameInterval prior =
+        case ptInterval prior of
+            Nothing -> True
+            Just interval -> interval == tpInterval base
+    sameMethod prior =
+        case ptMethod prior of
+            Nothing -> True
+            Just method -> method == map toLower (tpMethod base)
+    firstNonEmpty pools =
+        case filter (not . null) pools of
+            pool : _ -> pool
+            [] -> []
+
+applyPriorOverlay :: [String] -> PriorTrial -> TrialParams -> TrialParams
+applyPriorOverlay allowedIntervals prior base =
+    let params = ptParams prior
+        interval' =
+            case stringField ["interval"] params of
+                Just interval | interval `elem` allowedIntervals -> interval
+                _ -> tpInterval base
+        priorMinEdge =
+            case doubleField ["minEdge"] params of
+                Just v -> Just (max venueMinEdgeFloor v)
+                Nothing -> Nothing
+        overlaid =
+            base
+                { tpInterval = interval'
+                , tpBars = fromMaybe (tpBars base) (intField ["bars"] params)
+                , tpBlendWeight = fromMaybe (tpBlendWeight base) (doubleField ["blendWeight"] params)
+                , tpRouterScorePnlWeight = fromMaybe (tpRouterScorePnlWeight base) (doubleField ["routerScorePnlWeight"] params)
+                , tpPositioning = fromMaybe (tpPositioning base) (stringField ["positioning"] params)
+                , tpNormalization = fromMaybe (tpNormalization base) (stringField ["normalization"] params)
+                , tpBaseOpenThreshold = fromMaybe (tpBaseOpenThreshold base) (doubleField ["baseOpenThreshold", "openThreshold"] params)
+                , tpBaseCloseThreshold = fromMaybe (tpBaseCloseThreshold base) (doubleField ["baseCloseThreshold", "closeThreshold"] params)
+                , tpMinHoldBars = fromMaybe (tpMinHoldBars base) (intField ["minHoldBars"] params)
+                , tpCooldownBars = fromMaybe (tpCooldownBars base) (intField ["cooldownBars"] params)
+                , tpMaxHoldBars = fromMaybe (tpMaxHoldBars base) (optionalIntField ["maxHoldBars"] params)
+                , tpMinEdge = fromMaybe (tpMinEdge base) priorMinEdge
+                , tpMinSignalToNoise = fromMaybe (tpMinSignalToNoise base) (doubleField ["minSignalToNoise"] params)
+                , tpSnrSizeWeight = fromMaybe (tpSnrSizeWeight base) (doubleField ["snrSizeWeight"] params)
+                , tpThresholdFactorEnabled = fromMaybe (tpThresholdFactorEnabled base) (boolField "thresholdFactorEnabled" params)
+                , tpThresholdFactorAlpha = fromMaybe (tpThresholdFactorAlpha base) (doubleField ["thresholdFactorAlpha"] params)
+                , tpThresholdFactorMin = fromMaybe (tpThresholdFactorMin base) (doubleField ["thresholdFactorMin"] params)
+                , tpThresholdFactorMax = fromMaybe (tpThresholdFactorMax base) (doubleField ["thresholdFactorMax"] params)
+                , tpThresholdFactorFloor = fromMaybe (tpThresholdFactorFloor base) (doubleField ["thresholdFactorFloor"] params)
+                , tpThresholdFactorEdgeKalWeight = fromMaybe (tpThresholdFactorEdgeKalWeight base) (doubleField ["thresholdFactorEdgeKalWeight"] params)
+                , tpThresholdFactorEdgeLstmWeight = fromMaybe (tpThresholdFactorEdgeLstmWeight base) (doubleField ["thresholdFactorEdgeLstmWeight"] params)
+                , tpThresholdFactorKalmanZWeight = fromMaybe (tpThresholdFactorKalmanZWeight base) (doubleField ["thresholdFactorKalmanZWeight"] params)
+                , tpThresholdFactorHighVolWeight = fromMaybe (tpThresholdFactorHighVolWeight base) (doubleField ["thresholdFactorHighVolWeight"] params)
+                , tpThresholdFactorConformalWeight = fromMaybe (tpThresholdFactorConformalWeight base) (doubleField ["thresholdFactorConformalWeight"] params)
+                , tpThresholdFactorQuantileWeight = fromMaybe (tpThresholdFactorQuantileWeight base) (doubleField ["thresholdFactorQuantileWeight"] params)
+                , tpThresholdFactorLstmConfWeight = fromMaybe (tpThresholdFactorLstmConfWeight base) (doubleField ["thresholdFactorLstmConfWeight"] params)
+                , tpThresholdFactorLstmHealthWeight = fromMaybe (tpThresholdFactorLstmHealthWeight base) (doubleField ["thresholdFactorLstmHealthWeight"] params)
+                , tpEdgeBuffer = fromMaybe (tpEdgeBuffer base) (doubleField ["edgeBuffer"] params)
+                , tpCostAwareEdge = fromMaybe (tpCostAwareEdge base) (boolField "costAwareEdge" params)
+                , tpTrendLookback = fromMaybe (tpTrendLookback base) (intField ["trendLookback"] params)
+                , tpVolTarget = fromMaybe (tpVolTarget base) (optionalDoubleField ["volTarget"] params)
+                , tpVolLookback = fromMaybe (tpVolLookback base) (intField ["volLookback"] params)
+                , tpVolEwmaAlpha = fromMaybe (tpVolEwmaAlpha base) (optionalDoubleField ["volEwmaAlpha"] params)
+                , tpVolFloor = fromMaybe (tpVolFloor base) (doubleField ["volFloor"] params)
+                , tpVolScaleMax = fromMaybe (tpVolScaleMax base) (doubleField ["volScaleMax"] params)
+                , tpMaxVolatility = fromMaybe (tpMaxVolatility base) (optionalDoubleField ["maxVolatility"] params)
+                , tpPeriodsPerYear = fromMaybe (tpPeriodsPerYear base) (optionalDoubleField ["periodsPerYear"] params)
+                , tpKalmanMarketTopN = fromMaybe (tpKalmanMarketTopN base) (intField ["kalmanMarketTopN"] params)
+                , tpEpochs = fromMaybe (tpEpochs base) (intField ["epochs"] params)
+                , tpHiddenSize = fromMaybe (tpHiddenSize base) (intField ["hiddenSize"] params)
+                , tpLearningRate = fromMaybe (tpLearningRate base) (doubleField ["learningRate"] params)
+                , tpValRatio = fromMaybe (tpValRatio base) (doubleField ["valRatio"] params)
+                , tpPatience = fromMaybe (tpPatience base) (intField ["patience"] params)
+                , tpWalkForwardFolds = fromMaybe (tpWalkForwardFolds base) (intField ["walkForwardFolds"] params)
+                , tpWalkForwardEmbargoBars = fromMaybe (tpWalkForwardEmbargoBars base) (intField ["walkForwardEmbargoBars"] params)
+                , tpTuneStressVolMult = fromMaybe (tpTuneStressVolMult base) (doubleField ["tuneStressVolMult"] params)
+                , tpTuneStressShock = fromMaybe (tpTuneStressShock base) (doubleField ["tuneStressShock"] params)
+                , tpTuneStressWeight = fromMaybe (tpTuneStressWeight base) (doubleField ["tuneStressWeight"] params)
+                , tpGradClip = fromMaybe (tpGradClip base) (optionalDoubleField ["gradClip"] params)
+                , tpIntrabarFill = fromMaybe (tpIntrabarFill base) (stringField ["intrabarFill"] params)
+                , tpKalmanBandLookback = fromMaybe (tpKalmanBandLookback base) (intField ["kalmanBandLookback"] params)
+                , tpKalmanBandStdMult = fromMaybe (tpKalmanBandStdMult base) (doubleField ["kalmanBandStdMult"] params)
+                , tpLstmExitFlipBars = fromMaybe (tpLstmExitFlipBars base) (intField ["lstmExitFlipBars"] params)
+                , tpLstmExitFlipGraceBars = fromMaybe (tpLstmExitFlipGraceBars base) (intField ["lstmExitFlipGraceBars"] params)
+                , tpLstmExitFlipStrong = fromMaybe (tpLstmExitFlipStrong base) (boolField "lstmExitFlipStrong" params)
+                , tpLstmConfidenceSoft = fromMaybe (tpLstmConfidenceSoft base) (doubleField ["lstmConfidenceSoft"] params)
+                , tpLstmConfidenceHard = fromMaybe (tpLstmConfidenceHard base) (doubleField ["lstmConfidenceHard"] params)
+                , tpStopLoss = fromMaybe (tpStopLoss base) (optionalDoubleField ["stopLoss"] params)
+                , tpTakeProfit = fromMaybe (tpTakeProfit base) (optionalDoubleField ["takeProfit"] params)
+                , tpTrailingStop = fromMaybe (tpTrailingStop base) (optionalDoubleField ["trailingStop"] params)
+                , tpStopLossVolMult = fromMaybe (tpStopLossVolMult base) (optionalDoubleField ["stopLossVolMult"] params)
+                , tpTakeProfitVolMult = fromMaybe (tpTakeProfitVolMult base) (optionalDoubleField ["takeProfitVolMult"] params)
+                , tpTrailingStopVolMult = fromMaybe (tpTrailingStopVolMult base) (optionalDoubleField ["trailingStopVolMult"] params)
+                , tpKalmanDt = fromMaybe (tpKalmanDt base) (doubleField ["kalmanDt"] params)
+                , tpKalmanProcessVar = fromMaybe (tpKalmanProcessVar base) (doubleField ["kalmanProcessVar"] params)
+                , tpKalmanMeasurementVar = fromMaybe (tpKalmanMeasurementVar base) (doubleField ["kalmanMeasurementVar"] params)
+                , tpKalmanZMin = fromMaybe (tpKalmanZMin base) (doubleField ["kalmanZMin"] params)
+                , tpKalmanZMax = fromMaybe (tpKalmanZMax base) (doubleField ["kalmanZMax"] params)
+                , tpMaxHighVolProb = fromMaybe (tpMaxHighVolProb base) (optionalDoubleField ["maxHighVolProb"] params)
+                , tpMaxConformalWidth = fromMaybe (tpMaxConformalWidth base) (optionalDoubleField ["maxConformalWidth"] params)
+                , tpMaxQuantileWidth = fromMaybe (tpMaxQuantileWidth base) (optionalDoubleField ["maxQuantileWidth"] params)
+                , tpConfirmConformal = fromMaybe (tpConfirmConformal base) (boolField "confirmConformal" params)
+                , tpConfirmQuantiles = fromMaybe (tpConfirmQuantiles base) (boolField "confirmQuantiles" params)
+                , tpConfidenceSizing = fromMaybe (tpConfidenceSizing base) (boolField "confidenceSizing" params)
+                , tpProtectionMinConfidence = fromMaybe (tpProtectionMinConfidence base) (doubleField ["protectionMinConfidence"] params)
+                , tpMinPositionSize = fromMaybe (tpMinPositionSize base) (doubleField ["minPositionSize"] params)
+                , tpKellyLiteSizing = fromMaybe (tpKellyLiteSizing base) (boolField "kellyLiteSizing" params)
+                , tpKellyLiteFraction = fromMaybe (tpKellyLiteFraction base) (doubleField ["kellyLiteFraction"] params)
+                , tpKellyLiteFloor = fromMaybe (tpKellyLiteFloor base) (doubleField ["kellyLiteFloor"] params)
+                , tpKellyLiteCap = fromMaybe (tpKellyLiteCap base) (doubleField ["kellyLiteCap"] params)
+                , tpPredictors = fromMaybe (tpPredictors base) (stringField ["predictors"] params)
+                , tpRouterLookback = fromMaybe (tpRouterLookback base) (intField ["routerLookback"] params)
+                , tpRouterMinScore = fromMaybe (tpRouterMinScore base) (doubleField ["routerMinScore"] params)
+                , tpFeeFixed = fromMaybe (tpFeeFixed base) (doubleField ["feeFixed"] params)
+                , tpSlippageImpact = fromMaybe (tpSlippageImpact base) (doubleField ["slippageImpact"] params)
+                , tpSlippageImpactPower = fromMaybe (tpSlippageImpactPower base) (doubleField ["slippageImpactPower"] params)
+                , tpSlippageVolMult = fromMaybe (tpSlippageVolMult base) (doubleField ["slippageVolMult"] params)
+                , tpSpreadVolMult = fromMaybe (tpSpreadVolMult base) (doubleField ["spreadVolMult"] params)
+                , tpTakeProfitPartial = fromMaybe (tpTakeProfitPartial base) (optionalDoubleField ["takeProfitPartial"] params)
+                , tpMaxTradesPerDay = fromMaybe (tpMaxTradesPerDay base) (optionalIntField ["maxTradesPerDay"] params)
+                , tpExpectancyLookback = fromMaybe (tpExpectancyLookback base) (intField ["expectancyLookback"] params)
+                , tpMinExpectancy = fromMaybe (tpMinExpectancy base) (optionalDoubleField ["minExpectancy"] params)
+                , tpAdaptiveEdgeBufferMax = fromMaybe (tpAdaptiveEdgeBufferMax base) (doubleField ["adaptiveEdgeBufferMax"] params)
+                , tpAdaptiveMinSignalToNoiseMax = fromMaybe (tpAdaptiveMinSignalToNoiseMax base) (doubleField ["adaptiveMinSignalToNoiseMax"] params)
+                , tpAdaptiveTrendLookbackMax = fromMaybe (tpAdaptiveTrendLookbackMax base) (intField ["adaptiveTrendLookbackMax"] params)
+                , tpAdaptiveKalmanZMinMax = fromMaybe (tpAdaptiveKalmanZMinMax base) (doubleField ["adaptiveKalmanZMinMax"] params)
+                , tpAdaptiveWinRateSlack = fromMaybe (tpAdaptiveWinRateSlack base) (doubleField ["adaptiveWinRateSlack"] params)
+                , tpAdaptiveProfitFactorSlack = fromMaybe (tpAdaptiveProfitFactorSlack base) (doubleField ["adaptiveProfitFactorSlack"] params)
+                , tpAdaptiveFilters = fromMaybe (tpAdaptiveFilters base) (boolField "adaptiveFilters" params)
+                , tpPerfLookback = fromMaybe (tpPerfLookback base) (intField ["perfLookback"] params)
+                , tpPerfMinWinRate = fromMaybe (tpPerfMinWinRate base) (optionalDoubleField ["perfMinWinRate"] params)
+                , tpPerfMinProfitFactor = fromMaybe (tpPerfMinProfitFactor base) (optionalDoubleField ["perfMinProfitFactor"] params)
+                , tpMetaLabelFilter = fromMaybe (tpMetaLabelFilter base) (boolField "metaLabelFilter" params)
+                , tpMetaLabelMinEdge = fromMaybe (tpMetaLabelMinEdge base) (doubleField ["metaLabelMinEdge"] params)
+                , tpMetaLabelMinConfidence = fromMaybe (tpMetaLabelMinConfidence base) (doubleField ["metaLabelMinConfidence"] params)
+                , tpMetaLabelRequireBand = fromMaybe (tpMetaLabelRequireBand base) (boolField "metaLabelRequireBand" params)
+                , tpRegimeParameterBank = fromMaybe (tpRegimeParameterBank base) (boolField "regimeParameterBank" params)
+                , tpRegimeBankHysteresis = fromMaybe (tpRegimeBankHysteresis base) (doubleField ["regimeBankHysteresis"] params)
+                , tpRegimeTrendOpenMult = fromMaybe (tpRegimeTrendOpenMult base) (doubleField ["regimeTrendOpenMult"] params)
+                , tpRegimeMrOpenMult = fromMaybe (tpRegimeMrOpenMult base) (doubleField ["regimeMrOpenMult"] params)
+                , tpRegimeHighVolOpenMult = fromMaybe (tpRegimeHighVolOpenMult base) (doubleField ["regimeHighVolOpenMult"] params)
+                , tpRegimeTrendSizeMult = fromMaybe (tpRegimeTrendSizeMult base) (doubleField ["regimeTrendSizeMult"] params)
+                , tpRegimeMrSizeMult = fromMaybe (tpRegimeMrSizeMult base) (doubleField ["regimeMrSizeMult"] params)
+                , tpRegimeHighVolSizeMult = fromMaybe (tpRegimeHighVolSizeMult base) (doubleField ["regimeHighVolSizeMult"] params)
+                , tpMultiTimeframeConsensus = fromMaybe (tpMultiTimeframeConsensus base) (boolField "multiTimeframeConsensus" params)
+                , tpMtfFastBars = fromMaybe (tpMtfFastBars base) (intField ["mtfFastBars"] params)
+                , tpMtfMidBars = fromMaybe (tpMtfMidBars base) (intField ["mtfMidBars"] params)
+                , tpMtfSlowBars = fromMaybe (tpMtfSlowBars base) (intField ["mtfSlowBars"] params)
+                , tpMtfMinAgree = fromMaybe (tpMtfMinAgree base) (intField ["mtfMinAgree"] params)
+                , tpTechnicalParams = applyTechnicalPriorOverlay params (tpTechnicalParams base)
+                }
+     in normalizeTrialParams overlaid
+
+applyTechnicalPriorOverlay :: KM.KeyMap Value -> TechnicalTrialParams -> TechnicalTrialParams
+applyTechnicalPriorOverlay params base =
+    normalizeTechnicalTrialParams
+        base
+            { ttpTaEntryOpenThreshold = fromMaybe (ttpTaEntryOpenThreshold base) (doubleField ["taEntryOpenThreshold"] params)
+            , ttpTaTrendAdxThreshold = fromMaybe (ttpTaTrendAdxThreshold base) (doubleField ["taTrendAdxThreshold"] params)
+            , ttpTaTrendStopAtrMult = fromMaybe (ttpTaTrendStopAtrMult base) (doubleField ["taTrendStopAtrMult"] params)
+            , ttpTaTrendTakeProfitAtrMult = fromMaybe (ttpTaTrendTakeProfitAtrMult base) (doubleField ["taTrendTakeProfitAtrMult"] params)
+            , ttpTaBestCandidateMinConfidence = fromMaybe (ttpTaBestCandidateMinConfidence base) (doubleField ["taBestCandidateMinConfidence"] params)
+            , ttpBlendSoftmaxScale = fromMaybe (ttpBlendSoftmaxScale base) (doubleField ["blendSoftmaxScale"] params)
+            , ttpBlendNetSoftmaxScale = fromMaybe (ttpBlendNetSoftmaxScale base) (doubleField ["blendNetSoftmaxScale"] params)
+            , ttpBlendEdgePower = fromMaybe (ttpBlendEdgePower base) (doubleField ["blendEdgePower"] params)
+            , ttpBlendSmoothAlpha = fromMaybe (ttpBlendSmoothAlpha base) (doubleField ["blendSmoothAlpha"] params)
+            , ttpBlendHedgeEta = fromMaybe (ttpBlendHedgeEta base) (doubleField ["blendHedgeEta"] params)
+            , ttpBlendHedgeMaxError = fromMaybe (ttpBlendHedgeMaxError base) (doubleField ["blendHedgeMaxError"] params)
+            , ttpSignalEntryEdgeHeadroomMult = fromMaybe (ttpSignalEntryEdgeHeadroomMult base) (doubleField ["signalEntryEdgeHeadroomMult"] params)
+            , ttpSignalEntryEdgeSpikeMult = fromMaybe (ttpSignalEntryEdgeSpikeMult base) (doubleField ["signalEntryEdgeSpikeMult"] params)
+            , ttpSignalEntryEdgeSpikeCap = fromMaybe (ttpSignalEntryEdgeSpikeCap base) (doubleField ["signalEntryEdgeSpikeCap"] params)
+            , ttpSignalEntryEdgeSpikeConsecutiveLimit = fromMaybe (ttpSignalEntryEdgeSpikeConsecutiveLimit base) (intField ["signalEntryEdgeSpikeConsecutiveLimit"] params)
+            , ttpSignalTrendSlackMult = fromMaybe (ttpSignalTrendSlackMult base) (doubleField ["signalTrendSlackMult"] params)
+            , ttpSignalTrendSlackCap = fromMaybe (ttpSignalTrendSlackCap base) (doubleField ["signalTrendSlackCap"] params)
+            , ttpSignalDirectionalityLookbackBars = fromMaybe (ttpSignalDirectionalityLookbackBars base) (intField ["signalDirectionalityLookbackBars"] params)
+            , ttpSignalDirectionalityChopEfficiencyMax = fromMaybe (ttpSignalDirectionalityChopEfficiencyMax base) (doubleField ["signalDirectionalityChopEfficiencyMax"] params)
+            , ttpSignalDirectionalityMrEfficiencyMax = fromMaybe (ttpSignalDirectionalityMrEfficiencyMax base) (doubleField ["signalDirectionalityMrEfficiencyMax"] params)
+            , ttpSignalDirectionalityWeakZMin = fromMaybe (ttpSignalDirectionalityWeakZMin base) (doubleField ["signalDirectionalityWeakZMin"] params)
+            , ttpSignalPredictorTrackingFloor = fromMaybe (ttpSignalPredictorTrackingFloor base) (doubleField ["signalPredictorTrackingFloor"] params)
+            , ttpPredictorGbdtTrees = fromMaybe (ttpPredictorGbdtTrees base) (intField ["predictorGbdtTrees"] params)
+            , ttpPredictorGbdtLearningRate = fromMaybe (ttpPredictorGbdtLearningRate base) (doubleField ["predictorGbdtLearningRate"] params)
+            , ttpPredictorCalibrationRatio = fromMaybe (ttpPredictorCalibrationRatio base) (doubleField ["predictorCalibrationRatio"] params)
+            , ttpPredictorConformalAlpha = fromMaybe (ttpPredictorConformalAlpha base) (doubleField ["predictorConformalAlpha"] params)
+            }
+
+optionalDoubleField :: [String] -> KM.KeyMap Value -> Maybe (Maybe Double)
+optionalDoubleField keys obj =
+    listToMaybe (mapMaybe (`optionalDoubleFieldOne` obj) keys)
+
+optionalDoubleFieldOne :: String -> KM.KeyMap Value -> Maybe (Maybe Double)
+optionalDoubleFieldOne key obj =
+    case KM.lookup (Key.fromString key) obj of
+        Nothing -> Nothing
+        Just Null -> Just Nothing
+        Just value -> Just <$> coerceFloatValue value
+
+optionalIntField :: [String] -> KM.KeyMap Value -> Maybe (Maybe Int)
+optionalIntField keys obj =
+    listToMaybe (mapMaybe (`optionalIntFieldOne` obj) keys)
+
+optionalIntFieldOne :: String -> KM.KeyMap Value -> Maybe (Maybe Int)
+optionalIntFieldOne key obj =
+    case KM.lookup (Key.fromString key) obj of
+        Nothing -> Nothing
+        Just Null -> Just Nothing
+        Just value -> Just <$> coerceIntValue value
+
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
 techniqueSummaryToJson t =
     object
         [ "sobolSeeding" .= otsAppliedSobolSeeding t
         , "successiveHalving" .= otsAppliedSuccessiveHalving t
         , "bayesianExpectedImprovement" .= otsAppliedBayesianEi t
+        , "empiricalPriorSampling" .= otsAppliedEmpiricalPriors t
         , "walkForwardCrossValidation" .= otsAppliedWalkForward t
         , "ensembleTopPerformers" .= otsAppliedEnsemble t
         ]

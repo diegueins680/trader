@@ -84,6 +84,10 @@ optimizerArgsParser =
         <*> switch (long "no-sweep-threshold")
         <*> switch (long "disable-lstm-persistence")
         <*> strOption (long "top-json" <> value "" <> metavar "PATH")
+        <*> strOption (long "prior-json" <> value "" <> metavar "PATH")
+        <*> option auto (long "prior-sample-prob" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "prior-top-fraction" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "prior-min-samples" <> value 1 <> metavar "INT")
         <*> switch (long "quality")
         <*> option auto (long "quality-min-trials" <> value 500 <> metavar "INT")
         <*> option auto (long "quality-max-epochs" <> value 50 <> metavar "INT")
@@ -646,6 +650,12 @@ validateArgs args = do
         Left "--perturb-scale-int must be >= 0."
     when (oaEarlyStopNoImprove args < 0) $
         Left "--early-stop-no-improve must be >= 0."
+    when (oaPriorSampleProb args < 0 || oaPriorSampleProb args > 1) $
+        Left "--prior-sample-prob must be between 0 and 1."
+    when (oaPriorTopFraction args < 0 || oaPriorTopFraction args > 1) $
+        Left "--prior-top-fraction must be between 0 and 1."
+    when (oaPriorMinSamples args < 0) $
+        Left "--prior-min-samples must be >= 0."
     when (oaQualityMinTrials args < 1) $
         Left "--quality-min-trials must be >= 1."
     when (oaQualityMaxEpochs args < 1) $

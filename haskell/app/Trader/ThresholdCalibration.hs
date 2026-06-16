@@ -29,12 +29,17 @@ module Trader.ThresholdCalibration (
     -- * Types
     EdgeDistribution (..),
     ThresholdCalibration (..),
+    ThresholdCalibrationConfig (..),
     CalibrationMethod (..),
 
     -- * Calibration
     calibrateThreshold,
+    calibrateThresholdWithConfig,
     calibrateThresholdFromEdges,
+    calibrateThresholdFromEdgesWithConfig,
     computeEdgeDistribution,
+    defaultThresholdCalibrationConfig,
+    validateThresholdCalibrationConfig,
 
     -- * Analysis
     suggestedThreshold,
@@ -67,6 +72,51 @@ instance ToJSON CalibrationMethod where
     toJSON (PercentileMethod p) = Aeson.object ["type" .= ("percentile" :: Text), "value" .= p]
     toJSON (StdDevMethod n) = Aeson.object ["type" .= ("stddev" :: Text), "multiplier" .= n]
     toJSON (HybridMethod p n) = Aeson.object ["type" .= ("hybrid" :: Text), "percentile" .= p, "stddevMult" .= n]
+
+data ThresholdCalibrationConfig = ThresholdCalibrationConfig
+    { tccHeadroomDivisor :: !Double
+    , tccFeeFloor :: !Double
+    , tccMinimumSampleSize :: !Int
+    , tccConservativePercentile :: !Double
+    , tccAggressivePercentile :: !Double
+    }
+    deriving (Eq, Show, Generic)
+
+defaultThresholdCalibrationConfig :: ThresholdCalibrationConfig
+defaultThresholdCalibrationConfig =
+    ThresholdCalibrationConfig
+        { tccHeadroomDivisor = 1.5
+        , tccFeeFloor = 0.001
+        , tccMinimumSampleSize = 100
+        , tccConservativePercentile = 95
+        , tccAggressivePercentile = 25
+        }
+
+validateThresholdCalibrationConfig :: ThresholdCalibrationConfig -> Either String ThresholdCalibrationConfig
+validateThresholdCalibrationConfig config = do
+    finitePositive "threshold calibration headroom divisor" (tccHeadroomDivisor config)
+    finiteNonNegative "threshold calibration fee floor" (tccFeeFloor config)
+    ensure "threshold calibration minimum sample size must be >= 0" (tccMinimumSampleSize config >= 0)
+    percentileRange "threshold calibration conservative percentile" (tccConservativePercentile config)
+    percentileRange "threshold calibration aggressive percentile" (tccAggressivePercentile config)
+    ensure
+        "threshold calibration aggressive percentile must be <= conservative percentile"
+        (tccAggressivePercentile config <= tccConservativePercentile config)
+    pure config
+  where
+    ensure msg ok =
+        if ok then Right () else Left msg
+    finite label value =
+        ensure (label ++ " must be finite") (not (isNaN value || isInfinite value))
+    finitePositive label value = do
+        finite label value
+        ensure (label ++ " must be > 0") (value > 0)
+    finiteNonNegative label value = do
+        finite label value
+        ensure (label ++ " must be >= 0") (value >= 0)
+    percentileRange label value = do
+        finite label value
+        ensure (label ++ " must be between 0 and 100") (value >= 0 && value <= 100)
 
 -- | Statistical summary of historical edge values.
 data EdgeDistribution = EdgeDistribution
@@ -241,18 +291,24 @@ suggestedThreshold (HybridMethod p n) dist =
 This is the primary entry point for calibration.
 -}
 calibrateThreshold :: [Double] -> CalibrationMethod -> Maybe ThresholdCalibration
-calibrateThreshold edges method = do
+calibrateThreshold = calibrateThresholdWithConfig defaultThresholdCalibrationConfig
+
+calibrateThresholdWithConfig :: ThresholdCalibrationConfig -> [Double] -> CalibrationMethod -> Maybe ThresholdCalibration
+calibrateThresholdWithConfig rawConfig edges method = do
+    config <- either (const Nothing) Just (validateThresholdCalibrationConfig rawConfig)
     dist <- computeEdgeDistribution edges
     let threshold = suggestedThreshold method dist
-        headroom = threshold / 1.5
-        feeFloor = 0.001 -- Default 0.1% round-trip estimate
+        headroom = threshold / tccHeadroomDivisor config
+        feeFloor = tccFeeFloor config
         feeBuffer = threshold + feeFloor
         ciLower = max 0 (threshold - 1.96 * edStdDev dist / sqrt (fromIntegral (edSampleSize dist)))
         ciUpper = threshold + 1.96 * edStdDev dist / sqrt (fromIntegral (edSampleSize dist))
+        conservativeThreshold = thresholdAtPercentile (tccConservativePercentile config) dist
+        aggressiveThreshold = thresholdAtPercentile (tccAggressivePercentile config) dist
         rec
-            | edSampleSize dist < 100 = "INSUFFICIENT_SAMPLE: Need >= 100 edges for reliable calibration (got " <> T.pack (show (edSampleSize dist)) <> ")"
-            | threshold > edP95 dist = "CONSERVATIVE: Threshold above 95th percentile — may produce very few trades"
-            | threshold < edP25 dist = "AGGRESSIVE: Threshold below 25th percentile — may produce excessive trades"
+            | edSampleSize dist < tccMinimumSampleSize config = "INSUFFICIENT_SAMPLE: Need >= " <> T.pack (show (tccMinimumSampleSize config)) <> " edges for reliable calibration (got " <> T.pack (show (edSampleSize dist)) <> ")"
+            | threshold > conservativeThreshold = "CONSERVATIVE: Threshold above configured conservative percentile — may produce very few trades"
+            | threshold < aggressiveThreshold = "AGGRESSIVE: Threshold below configured aggressive percentile — may produce excessive trades"
             | otherwise = "BALANCED: Threshold within interquartile range — recommended for production"
     pure
         ThresholdCalibration
@@ -271,10 +327,13 @@ calibrateThreshold edges method = do
 
 -- | Calibrate with full context (symbol, interval, method).
 calibrateThresholdFromEdges :: [Double] -> CalibrationMethod -> Text -> Text -> Text -> Maybe ThresholdCalibration
-calibrateThresholdFromEdges edges method sym intvl meth =
+calibrateThresholdFromEdges = calibrateThresholdFromEdgesWithConfig defaultThresholdCalibrationConfig
+
+calibrateThresholdFromEdgesWithConfig :: ThresholdCalibrationConfig -> [Double] -> CalibrationMethod -> Text -> Text -> Text -> Maybe ThresholdCalibration
+calibrateThresholdFromEdgesWithConfig config edges method sym intvl meth =
     fmap
         (\tc -> tc{tcSymbol = Just sym, tcInterval = Just intvl, tcMethod = Just meth})
-        (calibrateThreshold edges method)
+        (calibrateThresholdWithConfig config edges method)
 
 -- | Generate a human-readable calibration report.
 calibrationReport :: ThresholdCalibration -> Text

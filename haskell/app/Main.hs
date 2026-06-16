@@ -10712,6 +10712,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     maxCombos <- optimizerMaxCombosFromEnv
                                     maxOutputBytes <- optimizerOutputCapFromEnv
                                     exePath <- getExecutablePath
+                                    priorArgs <- optimizerPriorArgsFromEnv (Just topJsonPath)
                                     autoMethodWeights <- readAutoOptimizerBaseMethodWeights
                                     liveGapConfig <- readAutoOptimizerLiveGapConfig
 
@@ -11017,6 +11018,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , exePath
                                                                                         , "--disable-lstm-persistence"
                                                                                         ]
+                                                                                            ++ priorArgs
                                                                                             ++ extraArgs
                                                                                             ++ crossExchangeArgs
                                                                                 discoveryRecoveryArgs =
@@ -15067,12 +15069,54 @@ maybeDoubleArg :: String -> Maybe Double -> [String]
 maybeDoubleArg _ Nothing = []
 maybeDoubleArg flag (Just n) = [flag, show n]
 
-prepareOptimizerArgs :: FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
-prepareOptimizerArgs outputPath req = do
+readNonNegativeIntMaybe :: Maybe String -> Int -> Int
+readNonNegativeIntMaybe raw fallback =
+    case raw >>= readMaybe of
+        Just n | n >= 0 -> n
+        _ -> fallback
+
+readNonNegativeDoubleMaybe :: Maybe String -> Double -> Double
+readNonNegativeDoubleMaybe raw fallback =
+    case raw >>= readMaybe of
+        Just n | n >= 0 && isFiniteDouble n -> n
+        _ -> fallback
+
+optimizerPriorArgsFromEnv :: Maybe FilePath -> IO [String]
+optimizerPriorArgsFromEnv mDefaultJson = do
+    priorJsonEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_JSON"
+    priorSampleProbEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_SAMPLE_PROB"
+    priorTopFractionEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_TOP_FRACTION"
+    priorMinSamplesEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_MIN_SAMPLES"
+    let priorJson = pickDefaultString (fromMaybe "" mDefaultJson) priorJsonEnv
+        priorSampleProb = clamp01 (readNonNegativeDoubleMaybe priorSampleProbEnv 0.6)
+        priorTopFraction = clamp01 (readNonNegativeDoubleMaybe priorTopFractionEnv 0.5)
+        priorMinSamples = readNonNegativeIntMaybe priorMinSamplesEnv 3
+     in pure $
+            if priorSampleProb <= 0 || null (trim priorJson)
+                then []
+                else
+                    [ "--prior-json"
+                    , priorJson
+                    , "--prior-sample-prob"
+                    , show priorSampleProb
+                    , "--prior-top-fraction"
+                    , show priorTopFraction
+                    , "--prior-min-samples"
+                    , show priorMinSamples
+                    ]
+
+prepareOptimizerArgs :: FilePath -> Maybe FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
+prepareOptimizerArgs outputPath mPriorJson req = do
     exePath <- getExecutablePath
     maxTrialsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_TRIALS"
     maxTimeoutEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_TIMEOUT_SEC"
     maxBarsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_BARS"
+    let source = fromMaybe OptimizerSourceBinance (arrSource req)
+        defaultPriorJson =
+            case source of
+                OptimizerSourceCsv -> Nothing
+                _ -> mPriorJson
+    priorArgs <- optimizerPriorArgsFromEnv defaultPriorJson
     let maxTrialsCap =
             case maxTrialsEnv >>= readMaybe of
                 Just n | n >= 1 -> n
@@ -15085,8 +15129,7 @@ prepareOptimizerArgs outputPath req = do
             case maxBarsEnv >>= readMaybe of
                 Just n | n >= 1 -> n
                 _ -> 1500
-    let source = fromMaybe OptimizerSourceBinance (arrSource req)
-        sourcePlatform = optimizerSourcePlatform source
+    let sourcePlatform = optimizerSourcePlatform source
         platformsRaw = fmap trim (arrPlatforms req)
         platformsResult =
             case source of
@@ -15870,6 +15913,7 @@ prepareOptimizerArgs outputPath req = do
                                             ++ epochArgs
                                             ++ hiddenArgs
                                             ++ ["--binary", exePath]
+                                            ++ priorArgs
                                             ++ boolArg "--disable-lstm-persistence" disableLstm
                                             ++ boolArg "--no-sweep-threshold" noSweep
                                         )
@@ -17002,7 +17046,7 @@ handleOptimizerRun requestProgressStore reqLimits mOps mStateSyncTarget projectR
             let recordsPath = optimizerTmp </> printf "optimizer-%d-%016x.jsonl" (ts :: Integer) randId
                 maxOutputBytes = arlMaxOptimizerOutputBytes reqLimits
                 truncateOut = truncateProcessOutput maxOutputBytes
-            argsOrErr <- prepareOptimizerArgs recordsPath payload
+            argsOrErr <- prepareOptimizerArgs recordsPath (Just topJsonPath) payload
             case argsOrErr of
                 Left msg -> do
                     failRequestProgressMaybe mTracker msg

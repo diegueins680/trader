@@ -12,6 +12,7 @@ import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Lazy as BL
+import Data.Either (isLeft)
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.List (isInfixOf)
@@ -161,7 +162,21 @@ import Trader.SignalGates (
 import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
-import Trader.ThresholdCalibration (CalibrationMethod (..), EdgeDistribution (..), ThresholdCalibration (..), calibrateThreshold, calibrationReport, calibrationToJson, computeEdgeDistribution, suggestedThreshold, thresholdAtPercentile)
+import Trader.ThresholdCalibration (
+    CalibrationMethod (..),
+    EdgeDistribution (..),
+    ThresholdCalibration (..),
+    ThresholdCalibrationConfig (..),
+    calibrateThreshold,
+    calibrateThresholdWithConfig,
+    calibrationReport,
+    calibrationToJson,
+    computeEdgeDistribution,
+    defaultThresholdCalibrationConfig,
+    suggestedThreshold,
+    thresholdAtPercentile,
+    validateThresholdCalibrationConfig,
+ )
 import Trader.TopComboScoring (defaultTopComboScoringConfig)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
@@ -403,6 +418,7 @@ main = do
     testThresholdCalibrationEmptyInputFailsClosed
     testThresholdCalibrationDistributionAccuracy
     testThresholdCalibrationPercentileMethod
+    testThresholdCalibrationConfigurableRoiKnobs
     testThresholdCalibrationInterpolatesIntermediatePercentiles
     testThresholdCalibrationStdDevMethod
     testThresholdCalibrationHybridMethod
@@ -5932,6 +5948,52 @@ testThresholdCalibrationPercentileMethod = do
             assert
                 "headroom threshold is threshold / 1.5"
                 (abs (tcHeadroomThreshold calib - tcSuggestedThreshold calib / 1.5) < 1e-9)
+
+testThresholdCalibrationConfigurableRoiKnobs :: IO ()
+testThresholdCalibrationConfigurableRoiKnobs = do
+    let edges = [0.001 * fromIntegral i | i <- [1 .. 200 :: Int]]
+        tunedConfig =
+            defaultThresholdCalibrationConfig
+                { tccHeadroomDivisor = 2.0
+                , tccFeeFloor = 0.002
+                , tccMinimumSampleSize = 0
+                , tccConservativePercentile = 80
+                , tccAggressivePercentile = 40
+                }
+        mConservative = calibrateThresholdWithConfig tunedConfig edges (PercentileMethod 90)
+        mAggressive = calibrateThresholdWithConfig tunedConfig edges (PercentileMethod 30)
+    case mConservative of
+        Nothing -> assert "configured calibration failed" False
+        Just calib -> do
+            assert
+                "configured headroom divisor controls headroom threshold"
+                (abs (tcHeadroomThreshold calib - tcSuggestedThreshold calib / 2.0) < 1e-9)
+            assert
+                "configured fee floor controls fee-buffer threshold"
+                (abs (tcFeeBufferThreshold calib - (tcSuggestedThreshold calib + 0.002)) < 1e-12)
+            assert
+                "configured conservative percentile controls warning boundary"
+                (T.isInfixOf "CONSERVATIVE" (tcRecommendation calib))
+    case mAggressive of
+        Nothing -> assert "configured aggressive calibration failed" False
+        Just calib ->
+            assert
+                "configured aggressive percentile controls warning boundary"
+                (T.isInfixOf "AGGRESSIVE" (tcRecommendation calib))
+    let sampleConfig = defaultThresholdCalibrationConfig{tccMinimumSampleSize = 250}
+    case calibrateThresholdWithConfig sampleConfig edges (PercentileMethod 75) of
+        Nothing -> assert "configured sample-floor calibration failed" False
+        Just calib ->
+            assert
+                "configured minimum sample size controls insufficient-sample warning"
+                (T.isInfixOf "Need >= 250" (tcRecommendation calib))
+    assert
+        "invalid threshold calibration configs fail validation"
+        ( isLeft
+            ( validateThresholdCalibrationConfig
+                defaultThresholdCalibrationConfig{tccHeadroomDivisor = 0}
+            )
+        )
 
 testThresholdCalibrationInterpolatesIntermediatePercentiles :: IO ()
 testThresholdCalibrationInterpolatesIntermediatePercentiles = do
