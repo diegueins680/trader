@@ -2045,6 +2045,8 @@ data OptimizerArgs = OptimizerArgs
     , oaPriorRankBias :: !Double
     , oaPriorTopFraction :: !Double
     , oaPriorMinSamples :: !Int
+    , oaPriorPerturbScaleDouble :: !Double
+    , oaPriorPerturbScaleInt :: !Int
     , oaQuality :: !Bool
     , oaQualityMinTrials :: !Int
     , oaQualityMaxEpochs :: !Int
@@ -5314,6 +5316,8 @@ runOptimizer args0 = do
                                                                         priorSampleProb = clamp (oaPriorSampleProb args) 0 1
                                                                         priorMethodSampleProb = clamp (oaPriorMethodSampleProb args) 0 1
                                                                         priorRankBias = max 1 (oaPriorRankBias args)
+                                                                        priorPerturbScaleDouble = max 0 (oaPriorPerturbScaleDouble args)
+                                                                        priorPerturbScaleInt = max 0 (oaPriorPerturbScaleInt args)
                                                                         minRoundTrips = max 0 (oaMinRoundTrips args)
                                                                         minWinRate = max 0 (oaMinWinRate args)
                                                                         minProfitFactor = max 0 (oaMinProfitFactor args)
@@ -5596,8 +5600,8 @@ runOptimizer args0 = do
                                                                                     intervals
                                                                                     barsMin
                                                                                     barsMax
-                                                                                    perturbScaleDouble
-                                                                                    perturbScaleInt
+                                                                                    priorPerturbScaleDouble
+                                                                                    priorPerturbScaleInt
                                                                                     priorMethodSampleProb
                                                                                     priorRankBias
                                                                                     priorTrials

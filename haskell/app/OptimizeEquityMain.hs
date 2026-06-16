@@ -92,6 +92,8 @@ optimizerArgsParser =
         <*> option auto (long "prior-rank-bias" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "prior-top-fraction" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "prior-min-samples" <> value 1 <> metavar "INT")
+        <*> option auto (long "prior-perturb-scale-double" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "prior-perturb-scale-int" <> value 1 <> metavar "INT")
         <*> switch (long "quality")
         <*> option auto (long "quality-min-trials" <> value 500 <> metavar "INT")
         <*> option auto (long "quality-max-epochs" <> value 50 <> metavar "INT")
@@ -678,6 +680,10 @@ validateArgs args = do
         Left "--prior-top-fraction must be between 0 and 1."
     when (oaPriorMinSamples args < 0) $
         Left "--prior-min-samples must be >= 0."
+    when (oaPriorPerturbScaleDouble args < 0) $
+        Left "--prior-perturb-scale-double must be >= 0."
+    when (oaPriorPerturbScaleInt args < 0) $
+        Left "--prior-perturb-scale-int must be >= 0."
     when (oaTuneMaxThresholdCandidates args < 0) $
         Left "--tune-max-threshold-candidates must be >= 0."
     when (oaSensorVarianceEwmaAlpha args < 0 || oaSensorVarianceEwmaAlpha args > 1) $

@@ -15176,12 +15176,16 @@ optimizerPriorArgsFromEnv mDefaultJson = do
     priorRankBiasEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_RANK_BIAS"
     priorTopFractionEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_TOP_FRACTION"
     priorMinSamplesEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_MIN_SAMPLES"
+    priorPerturbScaleDoubleEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_DOUBLE"
+    priorPerturbScaleIntEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_INT"
     let priorJson = pickDefaultString (fromMaybe "" mDefaultJson) priorJsonEnv
         priorSampleProb = clamp01 (readNonNegativeDoubleMaybe priorSampleProbEnv 0.6)
         priorMethodSampleProb = clamp01 (readNonNegativeDoubleMaybe priorMethodSampleProbEnv 0.5)
         priorRankBias = max 1 (readNonNegativeDoubleMaybe priorRankBiasEnv 2.0)
         priorTopFraction = clamp01 (readNonNegativeDoubleMaybe priorTopFractionEnv 0.5)
         priorMinSamples = readNonNegativeIntMaybe priorMinSamplesEnv 3
+        priorPerturbScaleDouble = readNonNegativeDoubleMaybe priorPerturbScaleDoubleEnv 0.05
+        priorPerturbScaleInt = readNonNegativeIntMaybe priorPerturbScaleIntEnv 1
      in pure $
             if priorSampleProb <= 0 || null (trim priorJson)
                 then []
@@ -15198,6 +15202,10 @@ optimizerPriorArgsFromEnv mDefaultJson = do
                     , show priorTopFraction
                     , "--prior-min-samples"
                     , show priorMinSamples
+                    , "--prior-perturb-scale-double"
+                    , show priorPerturbScaleDouble
+                    , "--prior-perturb-scale-int"
+                    , show priorPerturbScaleInt
                     ]
 
 prepareOptimizerArgs :: FilePath -> Maybe FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
