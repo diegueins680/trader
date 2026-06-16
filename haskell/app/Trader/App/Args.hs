@@ -1067,7 +1067,7 @@ opts = do
     argBlendHedgeEta <- option auto (long "blend-hedge-eta" <> value 6.0 <> showDefault <> help "Learning rate for --method hedge_blend")
     argBlendHedgeMaxError <- option auto (long "blend-hedge-max-error" <> value 0.1 <> showDefault <> help "Maximum per-step return error used by --method hedge_blend")
     argBlendDivergenceK <- option auto (long "blend-divergence-k" <> value 4.0 <> showDefault <> help "Open-threshold multiple controlling --method divergence_gate shrinkage")
-    argBlendRegimeHighVolCutoff <- option auto (long "blend-regime-high-vol-cutoff" <> value 0.6 <> showDefault <> help "High-volatility probability cutoff for --method regime_switch/router")
+    argBlendRegimeHighVolCutoff <- option auto (long "blend-regime-high-vol-cutoff" <> value 0.6 <> showDefault <> help "High-volatility probability cutoff for --method regime_switch/router and performance-regime gates")
     argBlendRegimeKalmanZCutoff <- option auto (long "blend-regime-kalman-z-cutoff" <> value 1.0 <> showDefault <> help "Kalman z-score cutoff for --method regime_switch/router")
     argBlendBanditExploreScale <- option auto (long "blend-bandit-explore-scale" <> value 0.25 <> showDefault <> help "UCB exploration bonus scale for --method bandit_router")
     argBlendFractalReturnClamp <- option auto (long "blend-fractal-return-clamp" <> value 0.75 <> showDefault <> help "Maximum absolute per-bar return emitted by --method fractal_blend")

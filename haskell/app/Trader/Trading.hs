@@ -1938,7 +1938,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     nextClose = pricesV V.! (t + 1)
                                                     hi = barHigh (t + 1)
                                                     lo = barLow (t + 1)
-                                                    highVolCutoff = 0.6
+                                                    highVolCutoff = max 0 (min 1 (ecBlendRegimeHighVolCutoff cfg))
                                                     tradeHighVolFlag tr =
                                                         case trEntryHighVolProb tr of
                                                             Just hv -> Just (hv >= highVolCutoff)

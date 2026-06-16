@@ -5852,20 +5852,17 @@ computeBotPerfStats lookback trades =
             , bpsExpectancy = expectancy
             }
 
-highVolCutoff :: Double
-highVolCutoff = 0.6
-
-botCurrentHighVolFlag :: LatestSignal -> Maybe Bool
-botCurrentHighVolFlag sig =
+botCurrentHighVolFlag :: Double -> LatestSignal -> Maybe Bool
+botCurrentHighVolFlag cutoff sig =
     case lsRegimes sig of
         Nothing -> Nothing
-        Just r -> Just (rpHighVol r >= highVolCutoff)
+        Just r -> Just (rpHighVol r >= cutoff)
 
-tradeEntryHighVolFlag :: Trade -> Maybe Bool
-tradeEntryHighVolFlag tr =
+tradeEntryHighVolFlag :: Double -> Trade -> Maybe Bool
+tradeEntryHighVolFlag cutoff tr =
     case trEntryHighVolProb tr of
         Nothing -> Nothing
-        Just hv -> Just (hv >= highVolCutoff)
+        Just hv -> Just (hv >= cutoff)
 
 computeBotPerfStatsFiltered :: Int -> (Trade -> Bool) -> [Trade] -> BotPerfStats
 computeBotPerfStatsFiltered lookback keep trades =
@@ -5915,11 +5912,12 @@ perfGateModeLabel mode =
 selectPerfStatsForPerfGate :: Args -> LatestSignal -> BotPerfStats -> [Trade] -> (BotPerfStats, PerfGateMode)
 selectPerfStatsForPerfGate args sig statsAll trades =
     let lb = max 0 (argPerfLookback args)
-        mHighVolNow = botCurrentHighVolFlag sig
+        cutoff = clamp01 (argBlendRegimeHighVolCutoff args)
+        mHighVolNow = botCurrentHighVolFlag cutoff sig
      in case mHighVolNow of
             Nothing -> (statsAll, PerfGateGlobal)
             Just wantHigh ->
-                let statsRegime = computeBotPerfStatsFiltered lb (\tr -> tradeEntryHighVolFlag tr == Just wantHigh) trades
+                let statsRegime = computeBotPerfStatsFiltered lb (\tr -> tradeEntryHighVolFlag cutoff tr == Just wantHigh) trades
                     ready = lb > 0 && bpsTrades statsRegime >= lb
                     mode =
                         if wantHigh
