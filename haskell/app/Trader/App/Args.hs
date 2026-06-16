@@ -336,6 +336,9 @@ data Args = Args
     , argTriLayerTouchLookback :: Int
     , argTriLayerRequirePriceAction :: Bool
     , argTriLayerPriceActionBody :: Double
+    , argTriLayerPriceActionWickRatio :: Double
+    , argTriLayerPriceActionOppositeWickMax :: Double
+    , argTriLayerPriceActionBodyTolerance :: Double
     , argTriLayerExitOnSlow :: Bool
     , argKalmanBandLookback :: Int
     , argKalmanBandStdMult :: Double
@@ -1132,6 +1135,9 @@ opts = do
             "Require price-action triggers when tri-layer is enabled (default on)."
             "Disable price-action triggers for tri-layer."
     argTriLayerPriceActionBody <- option auto (long "tri-layer-price-action-body" <> value 0.0 <> showDefault <> help "Override min candle body fraction for tri-layer price-action patterns (0 = default)")
+    argTriLayerPriceActionWickRatio <- option auto (long "tri-layer-price-action-wick-ratio" <> value 2.0 <> showDefault <> help "Minimum long-wick/body ratio for tri-layer hammer and shooting-star triggers")
+    argTriLayerPriceActionOppositeWickMax <- option auto (long "tri-layer-price-action-opposite-wick-max" <> value 0.5 <> showDefault <> help "Maximum opposite-wick/body ratio for tri-layer hammer and shooting-star triggers")
+    argTriLayerPriceActionBodyTolerance <- option auto (long "tri-layer-price-action-body-tolerance" <> value 0.2 <> showDefault <> help "Maximum relative body-size mismatch for tri-layer railroad-track triggers")
     argTriLayerExitOnSlow <- switch (long "tri-layer-exit-on-slow" <> help "Exit when price closes across the slow Kalman line (requires --tri-layer)")
     argKalmanBandLookback <- option auto (long "kalman-band-lookback" <> value 0 <> showDefault <> help "Lookback bars for Kalman-band exits (0 disables; must be >= 2)")
     argKalmanBandStdMult <- option auto (long "kalman-band-std-mult" <> value 0 <> showDefault <> help "Std-dev multiple for Kalman-band exits (0 disables)")
@@ -1652,6 +1658,9 @@ validateArgs args0 = do
             , ("--tri-layer-cloud-slope", argTriLayerCloudSlope args)
             , ("--tri-layer-cloud-width", argTriLayerCloudWidth args)
             , ("--tri-layer-price-action-body", argTriLayerPriceActionBody args)
+            , ("--tri-layer-price-action-wick-ratio", argTriLayerPriceActionWickRatio args)
+            , ("--tri-layer-price-action-opposite-wick-max", argTriLayerPriceActionOppositeWickMax args)
+            , ("--tri-layer-price-action-body-tolerance", argTriLayerPriceActionBodyTolerance args)
             , ("--kalman-band-std-mult", argKalmanBandStdMult args)
             , ("--execution-maker-offset-bps", argExecutionMakerOffsetBps args)
             , ("--execution-maker-timeout-sec", argExecutionMakerTimeoutSec args)
@@ -2033,6 +2042,9 @@ validateArgs args0 = do
     ensure "--tri-layer-cloud-width must be >= 0" (argTriLayerCloudWidth args >= 0)
     ensure "--tri-layer-touch-lookback must be >= 1" (argTriLayerTouchLookback args >= 1)
     ensure "--tri-layer-price-action-body must be >= 0" (argTriLayerPriceActionBody args >= 0)
+    ensure "--tri-layer-price-action-wick-ratio must be >= 0" (argTriLayerPriceActionWickRatio args >= 0)
+    ensure "--tri-layer-price-action-opposite-wick-max must be >= 0" (argTriLayerPriceActionOppositeWickMax args >= 0)
+    ensure "--tri-layer-price-action-body-tolerance must be >= 0" (argTriLayerPriceActionBodyTolerance args >= 0)
     ensure "--kalman-band-lookback must be >= 0" (argKalmanBandLookback args >= 0)
     ensure "--kalman-band-std-mult must be >= 0" (argKalmanBandStdMult args >= 0)
     case argKalmanBandStdMult args of

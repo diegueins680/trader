@@ -201,6 +201,9 @@ data EnsembleConfig = EnsembleConfig
     , ecTriLayerTouchLookback :: !Int
     , ecTriLayerRequirePriceAction :: !Bool
     , ecTriLayerPriceActionBody :: !Double
+    , ecTriLayerPriceActionWickRatio :: !Double
+    , ecTriLayerPriceActionOppositeWickMax :: !Double
+    , ecTriLayerPriceActionBodyTolerance :: !Double
     , ecTriLayerExitOnSlow :: !Bool
     , ecKalmanBandLookback :: !Int
     , ecKalmanBandStdMult :: !Double
@@ -925,6 +928,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             _ -> 0.5
                                     openThr0 = normalizeSignalThreshold (max openThrRawBase minEdgeBase)
                                     priceActionBodyMin = max 0 (ecTriLayerPriceActionBody cfg)
+                                    priceActionWickRatio = max 0 (ecTriLayerPriceActionWickRatio cfg)
+                                    priceActionOppositeWickMax = max 0 (ecTriLayerPriceActionOppositeWickMax cfg)
+                                    priceActionBodyTolerance = max 0 (ecTriLayerPriceActionBodyTolerance cfg)
                                     bodyMinFracBase = max 1e-6 (0.25 * openThr0)
                                     bodyMinFrac =
                                         if priceActionBodyMin > 0
@@ -1278,8 +1284,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                          in candleBull candle
                                                 && body > 0
                                                 && bodyOk closePx body
-                                                && lower >= 2 * body
-                                                && upper <= 0.5 * body
+                                                && lower >= priceActionWickRatio * body
+                                                && upper <= priceActionOppositeWickMax * body
 
                                     shootingStar candle =
                                         let body = candleBody candle
@@ -1289,8 +1295,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                          in candleBear candle
                                                 && body > 0
                                                 && bodyOk closePx body
-                                                && upper >= 2 * body
-                                                && lower <= 0.5 * body
+                                                && upper >= priceActionWickRatio * body
+                                                && lower <= priceActionOppositeWickMax * body
 
                                     bullishEngulf cur prev =
                                         let bodyCur = candleBody cur
@@ -1318,12 +1324,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         let bodyCur = candleBody cur
                                             bodyPrev = candleBody prev
                                             closePx = candleClose cur
-                                            tol = 0.2
                                          in candleBull cur
                                                 && candleBear prev
                                                 && bodyPrev > 0
                                                 && bodyOk closePx bodyCur
-                                                && abs (bodyCur - bodyPrev) / bodyPrev <= tol
+                                                && abs (bodyCur - bodyPrev) / bodyPrev <= priceActionBodyTolerance
 
                                     darkCloudCover cur prev =
                                         let midPrev = (candleOpen prev + candleClose prev) / 2

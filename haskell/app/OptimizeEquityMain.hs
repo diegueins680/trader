@@ -202,6 +202,12 @@ optimizerArgsParser =
         <*> option auto (long "tri-layer-touch-lookback-max" <> value 1 <> metavar "INT")
         <*> option auto (long "tri-layer-price-action-body-min" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "tri-layer-price-action-body-max" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "tri-layer-price-action-wick-ratio-min" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "tri-layer-price-action-wick-ratio-max" <> value 2.0 <> metavar "FLOAT")
+        <*> option auto (long "tri-layer-price-action-opposite-wick-max-min" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "tri-layer-price-action-opposite-wick-max-max" <> value 0.5 <> metavar "FLOAT")
+        <*> option auto (long "tri-layer-price-action-body-tolerance-min" <> value 0.2 <> metavar "FLOAT")
+        <*> option auto (long "tri-layer-price-action-body-tolerance-max" <> value 0.2 <> metavar "FLOAT")
         <*> switch (long "tri-layer-exit-on-slow")
         <*> option auto (long "kalman-band-lookback-min" <> value 0 <> metavar "INT")
         <*> option auto (long "kalman-band-lookback-max" <> value 0 <> metavar "INT")
@@ -660,6 +666,12 @@ validateArgs args = do
         $ Left "--take-profit-partial-min/max must be >= 0 and < 1."
     when (oaMaxTradesPerDayMin args < 0 || oaMaxTradesPerDayMax args < 0) $
         Left "--max-trades-per-day-min/max must be >= 0."
+    when (oaTriLayerPriceActionWickRatioMin args < 0 || oaTriLayerPriceActionWickRatioMax args < 0) $
+        Left "--tri-layer-price-action-wick-ratio-min/max must be >= 0."
+    when (oaTriLayerPriceActionOppositeWickMaxMin args < 0 || oaTriLayerPriceActionOppositeWickMaxMax args < 0) $
+        Left "--tri-layer-price-action-opposite-wick-max-min/max must be >= 0."
+    when (oaTriLayerPriceActionBodyToleranceMin args < 0 || oaTriLayerPriceActionBodyToleranceMax args < 0) $
+        Left "--tri-layer-price-action-body-tolerance-min/max must be >= 0."
     when (oaExpectancyLookbackMin args < 1 || oaExpectancyLookbackMax args < 1) $
         Left "--expectancy-lookback-min/max must be >= 1."
     when (oaLossStreakMaxMin args < 0 || oaLossStreakMaxMax args < 0) $

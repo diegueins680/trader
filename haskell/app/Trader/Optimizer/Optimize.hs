@@ -386,6 +386,10 @@ normalizeTrialParams p =
             , tpTakeProfitPartial = normalizeOptionalPositiveFraction (tpTakeProfitPartial p)
             , tpAdaptiveWinRateSlack = max 0 (tpAdaptiveWinRateSlack p)
             , tpAdaptiveProfitFactorSlack = max 0 (tpAdaptiveProfitFactorSlack p)
+            , tpTriLayerPriceActionBody = max 0 (tpTriLayerPriceActionBody p)
+            , tpTriLayerPriceActionWickRatio = max 0 (tpTriLayerPriceActionWickRatio p)
+            , tpTriLayerPriceActionOppositeWickMax = max 0 (tpTriLayerPriceActionOppositeWickMax p)
+            , tpTriLayerPriceActionBodyTolerance = max 0 (tpTriLayerPriceActionBodyTolerance p)
             , tpPerfMinWinRate = normalizeOptionalUnitInterval (tpPerfMinWinRate p)
             , tpMetaLabelMinConfidence = clamp (tpMetaLabelMinConfidence p) 0 1
             , tpRegimeBankHysteresis = clamp (tpRegimeBankHysteresis p) 0 1
@@ -1867,6 +1871,12 @@ data OptimizerArgs = OptimizerArgs
     , oaTriLayerTouchLookbackMax :: !Int
     , oaTriLayerPriceActionBodyMin :: !Double
     , oaTriLayerPriceActionBodyMax :: !Double
+    , oaTriLayerPriceActionWickRatioMin :: !Double
+    , oaTriLayerPriceActionWickRatioMax :: !Double
+    , oaTriLayerPriceActionOppositeWickMaxMin :: !Double
+    , oaTriLayerPriceActionOppositeWickMaxMax :: !Double
+    , oaTriLayerPriceActionBodyToleranceMin :: !Double
+    , oaTriLayerPriceActionBodyToleranceMax :: !Double
     , oaTriLayerExitOnSlow :: !Bool
     , oaKalmanBandLookbackMin :: !Int
     , oaKalmanBandLookbackMax :: !Int
@@ -2381,6 +2391,9 @@ data TrialParams = TrialParams
     , tpTriLayerTouchLookback :: !Int
     , tpTriLayerPriceAction :: !Bool
     , tpTriLayerPriceActionBody :: !Double
+    , tpTriLayerPriceActionWickRatio :: !Double
+    , tpTriLayerPriceActionOppositeWickMax :: !Double
+    , tpTriLayerPriceActionBodyTolerance :: !Double
     , tpTriLayerExitOnSlow :: !Bool
     , tpKalmanBandLookback :: !Int
     , tpKalmanBandStdMult :: !Double
@@ -2775,6 +2788,12 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , show (max 1 (tpTriLayerTouchLookback params))
                    , "--tri-layer-price-action-body"
                    , printf "%.8f" (max 0 (tpTriLayerPriceActionBody params))
+                   , "--tri-layer-price-action-wick-ratio"
+                   , printf "%.8f" (max 0 (tpTriLayerPriceActionWickRatio params))
+                   , "--tri-layer-price-action-opposite-wick-max"
+                   , printf "%.8f" (max 0 (tpTriLayerPriceActionOppositeWickMax params))
+                   , "--tri-layer-price-action-body-tolerance"
+                   , printf "%.8f" (max 0 (tpTriLayerPriceActionBodyTolerance params))
                    ]
                 ++ (["--no-tri-layer-price-action" | tpTriLayer params && not (tpTriLayerPriceAction params)])
                 ++ (["--tri-layer-exit-on-slow" | tpTriLayerExitOnSlow params])
@@ -3270,6 +3289,9 @@ trialToRecord tr symbolLabel =
             , "triLayerTouchLookback" .= tpTriLayerTouchLookback (trParams tr)
             , "triLayerPriceAction" .= tpTriLayerPriceAction (trParams tr)
             , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody (trParams tr)
+            , "triLayerPriceActionWickRatio" .= tpTriLayerPriceActionWickRatio (trParams tr)
+            , "triLayerPriceActionOppositeWickMax" .= tpTriLayerPriceActionOppositeWickMax (trParams tr)
+            , "triLayerPriceActionBodyTolerance" .= tpTriLayerPriceActionBodyTolerance (trParams tr)
             , "triLayerExitOnSlow" .= tpTriLayerExitOnSlow (trParams tr)
             , "kalmanBandLookback" .= tpKalmanBandLookback (trParams tr)
             , "kalmanBandStdMult" .= tpKalmanBandStdMult (trParams tr)
@@ -3464,6 +3486,9 @@ sampleParams
     triLayerCloudWidthRange
     triLayerTouchLookbackRange
     triLayerPriceActionBodyRange
+    triLayerPriceActionWickRatioRange
+    triLayerPriceActionOppositeWickMaxRange
+    triLayerPriceActionBodyToleranceRange
     triLayerExitOnSlowInput
     kalmanBandLookbackRange
     kalmanBandStdMultRange
@@ -3873,12 +3898,27 @@ sampleParams
                     lo' = max 0 lo
                     hi' = max lo' hi
                  in nextUniform lo' hi' rng40h
+            (triLayerPriceActionWickRatio, rng40i1) =
+                let (lo, hi) = ordered triLayerPriceActionWickRatioRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40i
+            (triLayerPriceActionOppositeWickMax, rng40i2) =
+                let (lo, hi) = ordered triLayerPriceActionOppositeWickMaxRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40i1
+            (triLayerPriceActionBodyTolerance, rng40i3) =
+                let (lo, hi) = ordered triLayerPriceActionBodyToleranceRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40i2
             triLayerExitOnSlow = triLayerExitOnSlowInput
             (kalmanBandLookback0, rng40j) =
                 let (lo, hi) = ordered kalmanBandLookbackRange
                     lo' = max 0 lo
                     hi' = max lo' hi
-                 in nextIntRange lo' hi' rng40i
+                 in nextIntRange lo' hi' rng40i3
             (kalmanBandStdMult0, rng40k) =
                 let (lo, hi) = ordered kalmanBandStdMultRange
                     lo' = max 0 lo
@@ -4312,6 +4352,9 @@ sampleParams
                 , tpTriLayerTouchLookback = triLayerTouchLookback
                 , tpTriLayerPriceAction = triLayerPriceAction
                 , tpTriLayerPriceActionBody = triLayerPriceActionBody
+                , tpTriLayerPriceActionWickRatio = triLayerPriceActionWickRatio
+                , tpTriLayerPriceActionOppositeWickMax = triLayerPriceActionOppositeWickMax
+                , tpTriLayerPriceActionBodyTolerance = triLayerPriceActionBodyTolerance
                 , tpTriLayerExitOnSlow = triLayerExitOnSlow
                 , tpKalmanBandLookback = kalmanBandLookback
                 , tpKalmanBandStdMult = kalmanBandStdMult
@@ -4655,6 +4698,15 @@ runOptimizer args0 = do
                                                         triLayerPriceActionBodyMin = max 0 (oaTriLayerPriceActionBodyMin args)
                                                         triLayerPriceActionBodyMax = max triLayerPriceActionBodyMin (oaTriLayerPriceActionBodyMax args)
                                                         triLayerPriceActionBodyRange = (triLayerPriceActionBodyMin, triLayerPriceActionBodyMax)
+                                                        triLayerPriceActionWickRatioMin = max 0 (oaTriLayerPriceActionWickRatioMin args)
+                                                        triLayerPriceActionWickRatioMax = max triLayerPriceActionWickRatioMin (oaTriLayerPriceActionWickRatioMax args)
+                                                        triLayerPriceActionWickRatioRange = (triLayerPriceActionWickRatioMin, triLayerPriceActionWickRatioMax)
+                                                        triLayerPriceActionOppositeWickMaxMin = max 0 (oaTriLayerPriceActionOppositeWickMaxMin args)
+                                                        triLayerPriceActionOppositeWickMaxMax = max triLayerPriceActionOppositeWickMaxMin (oaTriLayerPriceActionOppositeWickMaxMax args)
+                                                        triLayerPriceActionOppositeWickMaxRange = (triLayerPriceActionOppositeWickMaxMin, triLayerPriceActionOppositeWickMaxMax)
+                                                        triLayerPriceActionBodyToleranceMin = max 0 (oaTriLayerPriceActionBodyToleranceMin args)
+                                                        triLayerPriceActionBodyToleranceMax = max triLayerPriceActionBodyToleranceMin (oaTriLayerPriceActionBodyToleranceMax args)
+                                                        triLayerPriceActionBodyToleranceRange = (triLayerPriceActionBodyToleranceMin, triLayerPriceActionBodyToleranceMax)
                                                         kalmanBandLookbackMin = max 0 (oaKalmanBandLookbackMin args)
                                                         kalmanBandLookbackMax = max kalmanBandLookbackMin (oaKalmanBandLookbackMax args)
                                                         kalmanBandLookbackRange = (kalmanBandLookbackMin, kalmanBandLookbackMax)
@@ -4981,6 +5033,9 @@ runOptimizer args0 = do
                                                                                 triLayerCloudWidthRange
                                                                                 triLayerTouchLookbackRange
                                                                                 triLayerPriceActionBodyRange
+                                                                                triLayerPriceActionWickRatioRange
+                                                                                triLayerPriceActionOppositeWickMaxRange
+                                                                                triLayerPriceActionBodyToleranceRange
                                                                                 (oaTriLayerExitOnSlow args)
                                                                                 kalmanBandLookbackRange
                                                                                 kalmanBandStdMultRange
@@ -5784,6 +5839,9 @@ printBest tr = do
     putStrLn ("  triLayerTouchLookback: " ++ show (tpTriLayerTouchLookback p))
     putStrLn ("  triLayerPriceAction: " ++ show (tpTriLayerPriceAction p))
     putStrLn ("  triLayerPriceActionBody: " ++ show (tpTriLayerPriceActionBody p))
+    putStrLn ("  triLayerPriceActionWickRatio: " ++ show (tpTriLayerPriceActionWickRatio p))
+    putStrLn ("  triLayerPriceActionOppositeWickMax: " ++ show (tpTriLayerPriceActionOppositeWickMax p))
+    putStrLn ("  triLayerPriceActionBodyTolerance: " ++ show (tpTriLayerPriceActionBodyTolerance p))
     putStrLn ("  triLayerExitOnSlow: " ++ show (tpTriLayerExitOnSlow p))
     putStrLn ("  kalmanBandLookback: " ++ show (tpKalmanBandLookback p))
     putStrLn ("  kalmanBandStdMult: " ++ show (tpKalmanBandStdMult p))
@@ -6058,7 +6116,10 @@ crossoverTrialParams a b rng0 =
         (tpTriLayerTouchLookback', rng67) = pickValue (tpTriLayerTouchLookback a) (tpTriLayerTouchLookback b) rng66
         (tpTriLayerPriceAction', rng68) = pickValue (tpTriLayerPriceAction a) (tpTriLayerPriceAction b) rng67
         (tpTriLayerPriceActionBody', rng69) = pickValue (tpTriLayerPriceActionBody a) (tpTriLayerPriceActionBody b) rng68
-        (tpTriLayerExitOnSlow', rng70) = pickValue (tpTriLayerExitOnSlow a) (tpTriLayerExitOnSlow b) rng69
+        (tpTriLayerPriceActionWickRatio', rng69a) = pickValue (tpTriLayerPriceActionWickRatio a) (tpTriLayerPriceActionWickRatio b) rng69
+        (tpTriLayerPriceActionOppositeWickMax', rng69b) = pickValue (tpTriLayerPriceActionOppositeWickMax a) (tpTriLayerPriceActionOppositeWickMax b) rng69a
+        (tpTriLayerPriceActionBodyTolerance', rng69c) = pickValue (tpTriLayerPriceActionBodyTolerance a) (tpTriLayerPriceActionBodyTolerance b) rng69b
+        (tpTriLayerExitOnSlow', rng70) = pickValue (tpTriLayerExitOnSlow a) (tpTriLayerExitOnSlow b) rng69c
         (tpKalmanBandLookback', rng71) = pickValue (tpKalmanBandLookback a) (tpKalmanBandLookback b) rng70
         (tpKalmanBandStdMult', rng72) = pickValue (tpKalmanBandStdMult a) (tpKalmanBandStdMult b) rng71
         (tpLstmExitFlipBars', rng73) = pickValue (tpLstmExitFlipBars a) (tpLstmExitFlipBars b) rng72
@@ -6230,6 +6291,9 @@ crossoverTrialParams a b rng0 =
                 , tpTriLayerTouchLookback = tpTriLayerTouchLookback'
                 , tpTriLayerPriceAction = tpTriLayerPriceAction'
                 , tpTriLayerPriceActionBody = tpTriLayerPriceActionBody'
+                , tpTriLayerPriceActionWickRatio = tpTriLayerPriceActionWickRatio'
+                , tpTriLayerPriceActionOppositeWickMax = tpTriLayerPriceActionOppositeWickMax'
+                , tpTriLayerPriceActionBodyTolerance = tpTriLayerPriceActionBodyTolerance'
                 , tpTriLayerExitOnSlow = tpTriLayerExitOnSlow'
                 , tpKalmanBandLookback = tpKalmanBandLookback'
                 , tpKalmanBandStdMult = tpKalmanBandStdMult'
@@ -6448,6 +6512,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (kellyLiteFraction', rng91a) = perturbDouble (tpKellyLiteFraction p) scaleDouble rng91
         (kellyLiteFloor', rng91b) = perturbDouble (tpKellyLiteFloor p) scaleDouble rng91a
         (kellyLiteCap', rng91c) = perturbDouble (tpKellyLiteCap p) scaleDouble rng91b
+        (triLayerPriceActionWickRatio', rng91d) = perturbDouble (tpTriLayerPriceActionWickRatio p) scaleDouble rng91c
+        (triLayerPriceActionOppositeWickMax', rng91e) = perturbDouble (tpTriLayerPriceActionOppositeWickMax p) scaleDouble rng91d
+        (triLayerPriceActionBodyTolerance', rng91f) = perturbDouble (tpTriLayerPriceActionBodyTolerance p) scaleDouble rng91e
      in ( normalizeTrialParams
             ( p
                 { tpBars = bars'
@@ -6509,6 +6576,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpSlippageVolMult = slippageVolMult'
                 , tpSpreadVolMult = spreadVolMult'
                 , tpTakeProfitPartial = takeProfitPartial'
+                , tpTriLayerPriceActionWickRatio = max 0 triLayerPriceActionWickRatio'
+                , tpTriLayerPriceActionOppositeWickMax = max 0 triLayerPriceActionOppositeWickMax'
+                , tpTriLayerPriceActionBodyTolerance = max 0 triLayerPriceActionBodyTolerance'
                 , tpKellyLiteFraction = max 0 kellyLiteFraction'
                 , tpKellyLiteFloor = max 0 kellyLiteFloor'
                 , tpKellyLiteCap = max (max 0 kellyLiteFloor') kellyLiteCap'
@@ -6555,7 +6625,7 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpFundingOiSizeMult = clamp fundingOiSizeMult' 0 1
                 }
             )
-        , rng91c
+        , rng91f
         )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
@@ -6706,6 +6776,9 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "triLayerTouchLookback" .= tpTriLayerTouchLookback params
                 , "triLayerPriceAction" .= tpTriLayerPriceAction params
                 , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody params
+                , "triLayerPriceActionWickRatio" .= tpTriLayerPriceActionWickRatio params
+                , "triLayerPriceActionOppositeWickMax" .= tpTriLayerPriceActionOppositeWickMax params
+                , "triLayerPriceActionBodyTolerance" .= tpTriLayerPriceActionBodyTolerance params
                 , "triLayerExitOnSlow" .= tpTriLayerExitOnSlow params
                 , "kalmanBandLookback" .= tpKalmanBandLookback params
                 , "kalmanBandStdMult" .= tpKalmanBandStdMult params

@@ -655,6 +655,9 @@ data BacktestSummary = BacktestSummary
     , bsTriLayerTouchLookback :: !Int
     , bsTriLayerPriceAction :: !Bool
     , bsTriLayerPriceActionBody :: !Double
+    , bsTriLayerPriceActionWickRatio :: !Double
+    , bsTriLayerPriceActionOppositeWickMax :: !Double
+    , bsTriLayerPriceActionBodyTolerance :: !Double
     , bsTriLayerExitOnSlow :: !Bool
     , bsKalmanBandLookback :: !Int
     , bsKalmanBandStdMult :: !Double
@@ -931,6 +934,10 @@ data ApiParams = ApiParams
     , apTriLayerSlowMult :: Maybe Double
     , apTriLayerCloudPadding :: Maybe Double
     , apTriLayerPriceAction :: Maybe Bool
+    , apTriLayerPriceActionBody :: Maybe Double
+    , apTriLayerPriceActionWickRatio :: Maybe Double
+    , apTriLayerPriceActionOppositeWickMax :: Maybe Double
+    , apTriLayerPriceActionBodyTolerance :: Maybe Double
     , apLstmExitFlipBars :: Maybe Int
     , apMaxOrderErrors :: Maybe Int
     , apPeriodsPerYear :: Maybe Double
@@ -1129,6 +1136,12 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrTriLayerTouchLookbackMax :: !(Maybe Int)
     , arrTriLayerPriceActionBodyMin :: !(Maybe Double)
     , arrTriLayerPriceActionBodyMax :: !(Maybe Double)
+    , arrTriLayerPriceActionWickRatioMin :: !(Maybe Double)
+    , arrTriLayerPriceActionWickRatioMax :: !(Maybe Double)
+    , arrTriLayerPriceActionOppositeWickMaxMin :: !(Maybe Double)
+    , arrTriLayerPriceActionOppositeWickMaxMax :: !(Maybe Double)
+    , arrTriLayerPriceActionBodyToleranceMin :: !(Maybe Double)
+    , arrTriLayerPriceActionBodyToleranceMax :: !(Maybe Double)
     , arrTriLayerExitOnSlow :: !(Maybe Bool)
     , arrKalmanBandLookbackMin :: !(Maybe Int)
     , arrKalmanBandLookbackMax :: !(Maybe Int)
@@ -2677,6 +2690,9 @@ argsPublicJson args =
             , "triLayerTouchLookback" .= argTriLayerTouchLookback args
             , "triLayerPriceAction" .= argTriLayerRequirePriceAction args
             , "triLayerPriceActionBody" .= argTriLayerPriceActionBody args
+            , "triLayerPriceActionWickRatio" .= argTriLayerPriceActionWickRatio args
+            , "triLayerPriceActionOppositeWickMax" .= argTriLayerPriceActionOppositeWickMax args
+            , "triLayerPriceActionBodyTolerance" .= argTriLayerPriceActionBodyTolerance args
             , "triLayerExitOnSlow" .= argTriLayerExitOnSlow args
             , "kalmanBandLookback" .= argKalmanBandLookback args
             , "kalmanBandStdMult" .= argKalmanBandStdMult args
@@ -9586,6 +9602,9 @@ botOptimizeAfterOperation st = do
                                 , ecTriLayerTouchLookback = argTriLayerTouchLookback args
                                 , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
                                 , ecTriLayerPriceActionBody = argTriLayerPriceActionBody args
+                                , ecTriLayerPriceActionWickRatio = argTriLayerPriceActionWickRatio args
+                                , ecTriLayerPriceActionOppositeWickMax = argTriLayerPriceActionOppositeWickMax args
+                                , ecTriLayerPriceActionBodyTolerance = argTriLayerPriceActionBodyTolerance args
                                 , ecTriLayerExitOnSlow = argTriLayerExitOnSlow args
                                 , ecKalmanBandLookback = argKalmanBandLookback args
                                 , ecKalmanBandStdMult = argKalmanBandStdMult args
@@ -10060,6 +10079,10 @@ parseTopComboToArgs base combo = do
         triLayer = pickBool "triLayer" (argTriLayer base)
         triLayerFastMult = max 1e-6 (pickD "triLayerFastMult" (argTriLayerFastMult base))
         triLayerSlowMult = max 1e-6 (pickD "triLayerSlowMult" (argTriLayerSlowMult base))
+        triLayerPriceActionBody = max 0 (pickD "triLayerPriceActionBody" (argTriLayerPriceActionBody base))
+        triLayerPriceActionWickRatio = max 0 (pickD "triLayerPriceActionWickRatio" (argTriLayerPriceActionWickRatio base))
+        triLayerPriceActionOppositeWickMax = max 0 (pickD "triLayerPriceActionOppositeWickMax" (argTriLayerPriceActionOppositeWickMax base))
+        triLayerPriceActionBodyTolerance = max 0 (pickD "triLayerPriceActionBodyTolerance" (argTriLayerPriceActionBodyTolerance base))
         periodsPerYear =
             case pickMaybeMaybeDbl "periodsPerYear" (argPeriodsPerYear base) of
                 Nothing -> Nothing
@@ -10219,6 +10242,10 @@ parseTopComboToArgs base combo = do
                 , argTriLayer = triLayer
                 , argTriLayerFastMult = triLayerFastMult
                 , argTriLayerSlowMult = triLayerSlowMult
+                , argTriLayerPriceActionBody = triLayerPriceActionBody
+                , argTriLayerPriceActionWickRatio = triLayerPriceActionWickRatio
+                , argTriLayerPriceActionOppositeWickMax = triLayerPriceActionOppositeWickMax
+                , argTriLayerPriceActionBodyTolerance = triLayerPriceActionBodyTolerance
                 , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
                 , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
                 , argKalmanMeasurementVar = max 1e-12 (pickD "kalmanMeasurementVar" (argKalmanMeasurementVar base))
@@ -13598,6 +13625,10 @@ argsCacheJsonSignal args =
             , "triLayer" .= argTriLayer args
             , "triLayerFastMult" .= argTriLayerFastMult args
             , "triLayerSlowMult" .= argTriLayerSlowMult args
+            , "triLayerPriceActionBody" .= argTriLayerPriceActionBody args
+            , "triLayerPriceActionWickRatio" .= argTriLayerPriceActionWickRatio args
+            , "triLayerPriceActionOppositeWickMax" .= argTriLayerPriceActionOppositeWickMax args
+            , "triLayerPriceActionBodyTolerance" .= argTriLayerPriceActionBodyTolerance args
             , "triLayerExitOnSlow" .= argTriLayerExitOnSlow args
             , "kalmanBandLookback" .= argKalmanBandLookback args
             , "kalmanBandStdMult" .= argKalmanBandStdMult args
@@ -13802,6 +13833,10 @@ argsCacheJsonBacktest args =
             , "triLayer" .= argTriLayer args
             , "triLayerFastMult" .= argTriLayerFastMult args
             , "triLayerSlowMult" .= argTriLayerSlowMult args
+            , "triLayerPriceActionBody" .= argTriLayerPriceActionBody args
+            , "triLayerPriceActionWickRatio" .= argTriLayerPriceActionWickRatio args
+            , "triLayerPriceActionOppositeWickMax" .= argTriLayerPriceActionOppositeWickMax args
+            , "triLayerPriceActionBodyTolerance" .= argTriLayerPriceActionBodyTolerance args
             , "triLayerExitOnSlow" .= argTriLayerExitOnSlow args
             , "kalmanBandLookback" .= argKalmanBandLookback args
             , "kalmanBandStdMult" .= argKalmanBandStdMult args
@@ -15199,6 +15234,12 @@ prepareOptimizerArgs outputPath req = do
                         ++ maybeIntArg "--tri-layer-touch-lookback-max" (fmap (max 1) (arrTriLayerTouchLookbackMax req))
                         ++ maybeDoubleArg "--tri-layer-price-action-body-min" (fmap (max 0) (arrTriLayerPriceActionBodyMin req))
                         ++ maybeDoubleArg "--tri-layer-price-action-body-max" (fmap (max 0) (arrTriLayerPriceActionBodyMax req))
+                        ++ maybeDoubleArg "--tri-layer-price-action-wick-ratio-min" (fmap (max 0) (arrTriLayerPriceActionWickRatioMin req))
+                        ++ maybeDoubleArg "--tri-layer-price-action-wick-ratio-max" (fmap (max 0) (arrTriLayerPriceActionWickRatioMax req))
+                        ++ maybeDoubleArg "--tri-layer-price-action-opposite-wick-max-min" (fmap (max 0) (arrTriLayerPriceActionOppositeWickMaxMin req))
+                        ++ maybeDoubleArg "--tri-layer-price-action-opposite-wick-max-max" (fmap (max 0) (arrTriLayerPriceActionOppositeWickMaxMax req))
+                        ++ maybeDoubleArg "--tri-layer-price-action-body-tolerance-min" (fmap (max 0) (arrTriLayerPriceActionBodyToleranceMin req))
+                        ++ maybeDoubleArg "--tri-layer-price-action-body-tolerance-max" (fmap (max 0) (arrTriLayerPriceActionBodyToleranceMax req))
                         ++ maybeBoolArg "--tri-layer-exit-on-slow" (arrTriLayerExitOnSlow req)
                         ++ maybeIntArg "--kalman-band-lookback-min" (fmap (max 0) (arrKalmanBandLookbackMin req))
                         ++ maybeIntArg "--kalman-band-lookback-max" (fmap (max 0) (arrKalmanBandLookbackMax req))
@@ -19599,6 +19640,10 @@ argsFromApi baseArgs p = do
                 , argTriLayerSlowMult = pick (apTriLayerSlowMult p) (argTriLayerSlowMult baseArgs)
                 , argTriLayerCloudPadding = pick (apTriLayerCloudPadding p) (argTriLayerCloudPadding baseArgs)
                 , argTriLayerRequirePriceAction = pick (apTriLayerPriceAction p) (argTriLayerRequirePriceAction baseArgs)
+                , argTriLayerPriceActionBody = max 0 (pick (apTriLayerPriceActionBody p) (argTriLayerPriceActionBody baseArgs))
+                , argTriLayerPriceActionWickRatio = max 0 (pick (apTriLayerPriceActionWickRatio p) (argTriLayerPriceActionWickRatio baseArgs))
+                , argTriLayerPriceActionOppositeWickMax = max 0 (pick (apTriLayerPriceActionOppositeWickMax p) (argTriLayerPriceActionOppositeWickMax baseArgs))
+                , argTriLayerPriceActionBodyTolerance = max 0 (pick (apTriLayerPriceActionBodyTolerance p) (argTriLayerPriceActionBodyTolerance baseArgs))
                 , argLstmExitFlipBars = pick (apLstmExitFlipBars p) (argLstmExitFlipBars baseArgs)
                 , argMaxOrderErrors = pickMaybe (apMaxOrderErrors p) (argMaxOrderErrors baseArgs)
                 , argPeriodsPerYear =
@@ -24397,6 +24442,9 @@ backtestSummaryJson summary =
             , "triLayerTouchLookback" .= bsTriLayerTouchLookback summary
             , "triLayerPriceAction" .= bsTriLayerPriceAction summary
             , "triLayerPriceActionBody" .= bsTriLayerPriceActionBody summary
+            , "triLayerPriceActionWickRatio" .= bsTriLayerPriceActionWickRatio summary
+            , "triLayerPriceActionOppositeWickMax" .= bsTriLayerPriceActionOppositeWickMax summary
+            , "triLayerPriceActionBodyTolerance" .= bsTriLayerPriceActionBodyTolerance summary
             , "triLayerExitOnSlow" .= bsTriLayerExitOnSlow summary
             , "kalmanBandLookback" .= bsKalmanBandLookback summary
             , "kalmanBandStdMult" .= bsKalmanBandStdMult summary
@@ -25707,6 +25755,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecTriLayerTouchLookback = argTriLayerTouchLookback args
                 , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
                 , ecTriLayerPriceActionBody = argTriLayerPriceActionBody args
+                , ecTriLayerPriceActionWickRatio = argTriLayerPriceActionWickRatio args
+                , ecTriLayerPriceActionOppositeWickMax = argTriLayerPriceActionOppositeWickMax args
+                , ecTriLayerPriceActionBodyTolerance = argTriLayerPriceActionBodyTolerance args
                 , ecTriLayerExitOnSlow = argTriLayerExitOnSlow args
                 , ecKalmanBandLookback = argKalmanBandLookback args
                 , ecKalmanBandStdMult = argKalmanBandStdMult args
@@ -26506,6 +26557,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsTriLayerTouchLookback = argTriLayerTouchLookback args
             , bsTriLayerPriceAction = argTriLayerRequirePriceAction args
             , bsTriLayerPriceActionBody = argTriLayerPriceActionBody args
+            , bsTriLayerPriceActionWickRatio = argTriLayerPriceActionWickRatio args
+            , bsTriLayerPriceActionOppositeWickMax = argTriLayerPriceActionOppositeWickMax args
+            , bsTriLayerPriceActionBodyTolerance = argTriLayerPriceActionBodyTolerance args
             , bsTriLayerExitOnSlow = argTriLayerExitOnSlow args
             , bsKalmanBandLookback = argKalmanBandLookback args
             , bsKalmanBandStdMult = argKalmanBandStdMult args
@@ -27572,6 +27626,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             triLayerEnabled = argTriLayer args
             requirePriceAction = argTriLayerRequirePriceAction args
             priceActionBodyMin = max 0 (argTriLayerPriceActionBody args)
+            priceActionWickRatio = max 0 (argTriLayerPriceActionWickRatio args)
+            priceActionOppositeWickMax = max 0 (argTriLayerPriceActionOppositeWickMax args)
+            priceActionBodyTolerance = max 0 (argTriLayerPriceActionBodyTolerance args)
             bodyMinFracBase = max 1e-6 (0.25 * openThrBase)
             bodyMinFrac =
                 if priceActionBodyMin > 0
@@ -27638,8 +27695,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                  in candleBull candle
                         && body > 0
                         && bodyOk closePx body
-                        && lower >= 2 * body
-                        && upper <= 0.5 * body
+                        && lower >= priceActionWickRatio * body
+                        && upper <= priceActionOppositeWickMax * body
 
             shootingStar candle =
                 let body = candleBody candle
@@ -27649,8 +27706,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                  in candleBear candle
                         && body > 0
                         && bodyOk closePx body
-                        && upper >= 2 * body
-                        && lower <= 0.5 * body
+                        && upper >= priceActionWickRatio * body
+                        && lower <= priceActionOppositeWickMax * body
 
             bullishEngulf cur prev =
                 let bodyCur = candleBody cur
@@ -27678,12 +27735,11 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                 let bodyCur = candleBody cur
                     bodyPrev = candleBody prev
                     closePx = candleClose cur
-                    tol = 0.2
                  in candleBull cur
                         && candleBear prev
                         && bodyPrev > 0
                         && bodyOk closePx bodyCur
-                        && abs (bodyCur - bodyPrev) / bodyPrev <= tol
+                        && abs (bodyCur - bodyPrev) / bodyPrev <= priceActionBodyTolerance
 
             darkCloudCover cur prev =
                 let midPrev = (candleOpen prev + candleClose prev) / 2
