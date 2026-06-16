@@ -275,6 +275,10 @@ optimizerArgsParser =
         <*> option auto (long "kalman-physics-volume-signal-clamp-max" <> value 3 <> metavar "FLOAT")
         <*> option auto (long "kalman-physics-close-bias-scale-min" <> value 0.05 <> metavar "FLOAT")
         <*> option auto (long "kalman-physics-close-bias-scale-max" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-candidate-validation-ratio-min" <> value 0.2 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-candidate-validation-ratio-max" <> value 0.2 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-small-sample-validation-ratio-min" <> value (1 / 3) <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-small-sample-validation-ratio-max" <> value (1 / 3) <> metavar "FLOAT")
         <*> option auto (long "kalman-z-min-min" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-min-max" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-max-min" <> value 0.0 <> metavar "FLOAT")
@@ -784,6 +788,24 @@ validateArgs args = do
             || not (finiteDouble (oaKalmanPhysicsCloseBiasScaleMax args))
         )
         $ Left "--kalman-physics-close-bias-scale-min/max must be finite."
+    when
+        ( not (finiteDouble (oaKalmanPhysicsCandidateValidationRatioMin args))
+            || not (finiteDouble (oaKalmanPhysicsCandidateValidationRatioMax args))
+            || oaKalmanPhysicsCandidateValidationRatioMin args < 0
+            || oaKalmanPhysicsCandidateValidationRatioMin args >= 1
+            || oaKalmanPhysicsCandidateValidationRatioMax args < 0
+            || oaKalmanPhysicsCandidateValidationRatioMax args >= 1
+        )
+        $ Left "--kalman-physics-candidate-validation-ratio-min/max must be >= 0 and < 1."
+    when
+        ( not (finiteDouble (oaKalmanPhysicsSmallSampleValidationRatioMin args))
+            || not (finiteDouble (oaKalmanPhysicsSmallSampleValidationRatioMax args))
+            || oaKalmanPhysicsSmallSampleValidationRatioMin args < 0
+            || oaKalmanPhysicsSmallSampleValidationRatioMin args >= 1
+            || oaKalmanPhysicsSmallSampleValidationRatioMax args < 0
+            || oaKalmanPhysicsSmallSampleValidationRatioMax args >= 1
+        )
+        $ Left "--kalman-physics-small-sample-validation-ratio-min/max must be >= 0 and < 1."
     when (not (finiteDouble (oaLstmAdamBeta1 args)) || oaLstmAdamBeta1 args < 0 || oaLstmAdamBeta1 args >= 1) $
         Left "--lstm-adam-beta1 must be >= 0 and < 1."
     when (not (finiteDouble (oaLstmAdamBeta2 args)) || oaLstmAdamBeta2 args < 0 || oaLstmAdamBeta2 args >= 1) $

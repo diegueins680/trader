@@ -307,6 +307,7 @@ main = do
     testKalmanMeasurementVarRejectsInvalidValues
     testKalmanPhysicsKnobsRejectInvalidValues
     testKalmanPhysicsMeasurementKnobsRejectInvalidValues
+    testKalmanPhysicsCandidateValidationRatiosRejectInvalidValues
     testSensorVarianceEwmaAlphaRejectsInvalidValues
     testKalmanConservativeFusionRejectsInvalidValues
     testKalmanResidualVarianceFloor
@@ -1614,6 +1615,33 @@ testKalmanPhysicsMeasurementKnobsRejectInvalidValues = do
         "kalman-physics-close-bias-scale accepts signed values"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-close-bias-scale", "-0.03"] of
             Right args -> argKalmanPhysicsCloseBiasScale args == -0.03
+            Left _ -> False
+        )
+
+testKalmanPhysicsCandidateValidationRatiosRejectInvalidValues :: IO ()
+testKalmanPhysicsCandidateValidationRatiosRejectInvalidValues = do
+    assert
+        "kalman-physics-candidate-validation-ratio rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-candidate-validation-ratio", "-0.1"] == Left "--kalman-physics-candidate-validation-ratio must be >= 0 and < 1")
+    assert
+        "kalman-physics-candidate-validation-ratio rejects one"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-candidate-validation-ratio", "1"] == Left "--kalman-physics-candidate-validation-ratio must be >= 0 and < 1")
+    assert
+        "kalman-physics-candidate-validation-ratio accepts custom values"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-candidate-validation-ratio", "0.25"] of
+            Right args -> argKalmanPhysicsCandidateValidationRatio args == 0.25
+            Left _ -> False
+        )
+    assert
+        "kalman-physics-small-sample-validation-ratio rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-small-sample-validation-ratio", "-0.1"] == Left "--kalman-physics-small-sample-validation-ratio must be >= 0 and < 1")
+    assert
+        "kalman-physics-small-sample-validation-ratio rejects one"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-small-sample-validation-ratio", "1"] == Left "--kalman-physics-small-sample-validation-ratio must be >= 0 and < 1")
+    assert
+        "kalman-physics-small-sample-validation-ratio accepts custom values"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-small-sample-validation-ratio", "0.4"] of
+            Right args -> argKalmanPhysicsSmallSampleValidationRatio args == 0.4
             Left _ -> False
         )
 

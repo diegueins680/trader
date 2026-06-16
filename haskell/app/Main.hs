@@ -2621,6 +2621,8 @@ argsPublicJson args =
             , "kalmanPhysicsVolumeEwmaAlpha" .= argKalmanPhysicsVolumeEwmaAlpha args
             , "kalmanPhysicsVolumeSignalClamp" .= argKalmanPhysicsVolumeSignalClamp args
             , "kalmanPhysicsCloseBiasScale" .= argKalmanPhysicsCloseBiasScale args
+            , "kalmanPhysicsCandidateValidationRatio" .= argKalmanPhysicsCandidateValidationRatio args
+            , "kalmanPhysicsSmallSampleValidationRatio" .= argKalmanPhysicsSmallSampleValidationRatio args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -10442,6 +10444,14 @@ parseTopComboToArgs base combo = do
                     max 0 (pickD "kalmanPhysicsVolumeSignalClamp" (argKalmanPhysicsVolumeSignalClamp base))
                 , argKalmanPhysicsCloseBiasScale =
                     pickD "kalmanPhysicsCloseBiasScale" (argKalmanPhysicsCloseBiasScale base)
+                , argKalmanPhysicsCandidateValidationRatio =
+                    max
+                        0
+                        (min 0.999999 (pickD "kalmanPhysicsCandidateValidationRatio" (argKalmanPhysicsCandidateValidationRatio base)))
+                , argKalmanPhysicsSmallSampleValidationRatio =
+                    max
+                        0
+                        (min 0.999999 (pickD "kalmanPhysicsSmallSampleValidationRatio" (argKalmanPhysicsSmallSampleValidationRatio base)))
                 , argSensorVarianceEwmaAlpha = clamp01 (pickD "sensorVarianceEwmaAlpha" (argSensorVarianceEwmaAlpha base))
                 , argKalmanSensorCorrelationInflation = kalmanSensorCorrelationInflation
                 , argKalmanInnovationInflationThreshold = kalmanInnovationInflationThreshold
@@ -13872,6 +13882,8 @@ argsCacheJsonSignal args =
             , "kalmanPhysicsVolumeEwmaAlpha" .= argKalmanPhysicsVolumeEwmaAlpha args
             , "kalmanPhysicsVolumeSignalClamp" .= argKalmanPhysicsVolumeSignalClamp args
             , "kalmanPhysicsCloseBiasScale" .= argKalmanPhysicsCloseBiasScale args
+            , "kalmanPhysicsCandidateValidationRatio" .= argKalmanPhysicsCandidateValidationRatio args
+            , "kalmanPhysicsSmallSampleValidationRatio" .= argKalmanPhysicsSmallSampleValidationRatio args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -14095,6 +14107,8 @@ argsCacheJsonBacktest args =
             , "kalmanPhysicsVolumeEwmaAlpha" .= argKalmanPhysicsVolumeEwmaAlpha args
             , "kalmanPhysicsVolumeSignalClamp" .= argKalmanPhysicsVolumeSignalClamp args
             , "kalmanPhysicsCloseBiasScale" .= argKalmanPhysicsCloseBiasScale args
+            , "kalmanPhysicsCandidateValidationRatio" .= argKalmanPhysicsCandidateValidationRatio args
+            , "kalmanPhysicsSmallSampleValidationRatio" .= argKalmanPhysicsSmallSampleValidationRatio args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -26212,6 +26226,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                             { kpcVolumeEwmaAlpha = argKalmanPhysicsVolumeEwmaAlpha args
                             , kpcVolumeSignalClamp = argKalmanPhysicsVolumeSignalClamp args
                             , kpcCloseBiasScale = argKalmanPhysicsCloseBiasScale args
+                            , kpcCandidateValidationRatio = argKalmanPhysicsCandidateValidationRatio args
+                            , kpcSmallSampleValidationRatio = argKalmanPhysicsSmallSampleValidationRatio args
                             }
                     barsV =
                         V.generate n $ \i ->

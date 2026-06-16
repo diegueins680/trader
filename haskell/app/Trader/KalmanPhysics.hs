@@ -45,6 +45,8 @@ data KalmanPhysicsConfig = KalmanPhysicsConfig
     { kpcVolumeEwmaAlpha :: !Double
     , kpcVolumeSignalClamp :: !Double
     , kpcCloseBiasScale :: !Double
+    , kpcCandidateValidationRatio :: !Double
+    , kpcSmallSampleValidationRatio :: !Double
     }
     deriving (Eq, Show)
 
@@ -54,6 +56,8 @@ defaultKalmanPhysicsConfig =
         { kpcVolumeEwmaAlpha = 0.1
         , kpcVolumeSignalClamp = 3
         , kpcCloseBiasScale = 0.05
+        , kpcCandidateValidationRatio = 0.2
+        , kpcSmallSampleValidationRatio = 1 / 3
         }
 
 data PhysicsRow = PhysicsRow
@@ -102,7 +106,7 @@ predictKalmanPhysicsErrorWithConfig cfg dt processVar measurementVar trainEnd ba
                     if null trainRows
                         then Right (map prPhysicsPred testRows)
                         else
-                            let best = chooseBestCandidate trainRows
+                            let best = chooseBestCandidate cfg trainRows
                                 model = fitCandidate best trainRows
                                 preds = map (predictRow model (cdMode best)) testRows
                              in Right preds
@@ -187,8 +191,8 @@ buildPhysicsRows dt barsV statesV =
                     }
      in if n <= 1 then [] else map rowAt [0 .. n - 2]
 
-chooseBestCandidate :: [PhysicsRow] -> Candidate
-chooseBestCandidate trainRows =
+chooseBestCandidate :: KalmanPhysicsConfig -> [PhysicsRow] -> Candidate
+chooseBestCandidate cfg trainRows =
     let candidates =
             [ Candidate FeatureDeltaAccel 40 0.05
             , Candidate FeatureDeltaAccel 80 0.08
@@ -197,18 +201,20 @@ chooseBestCandidate trainRows =
             , Candidate FeatureJerk 80 0.08
             , Candidate FeatureJerk 120 0.05
             ]
-        scored = map (\c -> (scoreCandidate c trainRows, c)) candidates
+        scored = map (\c -> (scoreCandidate cfg c trainRows, c)) candidates
         bad x = isNaN x || isInfinite x
         scoreOrInf x = if bad x then 1 / 0 else x
      in snd (minimumBy (comparing (scoreOrInf . fst)) scored)
 
-scoreCandidate :: Candidate -> [PhysicsRow] -> Double
-scoreCandidate cand rows =
+scoreCandidate :: KalmanPhysicsConfig -> Candidate -> [PhysicsRow] -> Double
+scoreCandidate cfg cand rows =
     let total = length rows
-        valCount =
+        ratio =
             if total < 5
-                then max 1 (total `div` 3)
-                else max 1 (total `div` 5)
+                then kpcSmallSampleValidationRatio cfg
+                else kpcCandidateValidationRatio cfg
+        valCount =
+            max 1 (floor (fromIntegral total * clamp 0 0.999999 ratio))
         trainCount = max 1 (total - valCount)
         trainRows = take trainCount rows
         valRows = drop trainCount rows
