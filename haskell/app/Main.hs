@@ -967,6 +967,12 @@ data ApiParams = ApiParams
     , apBotTrade :: Maybe Bool
     , apBotProtectionOrders :: Maybe Bool
     , apProtectionMinConfidence :: Maybe Double
+    , apCapitalPreservationLookback :: Maybe Int
+    , apCapitalPreservationMinTrades :: Maybe Int
+    , apCapitalPreservationMaxDrawdown :: Maybe Double
+    , apCapitalPreservationMaxRollingLoss :: Maybe Double
+    , apCapitalPreservationMinSharpe :: Maybe Double
+    , apCapitalPreservationLossStreakMax :: Maybe Int
     , apBotAdoptExistingPosition :: Maybe Bool
     , apKalmanZMin :: Maybe Double
     , apKalmanZMax :: Maybe Double
@@ -2721,6 +2727,12 @@ argsPublicJson args =
             , "lstmConfidenceSoft" .= argLstmConfidenceSoft args
             , "lstmConfidenceHard" .= argLstmConfidenceHard args
             , "protectionMinConfidence" .= argProtectionMinConfidence args
+            , "capitalPreservationLookback" .= argCapitalPreservationLookback args
+            , "capitalPreservationMinTrades" .= argCapitalPreservationMinTrades args
+            , "capitalPreservationMaxDrawdown" .= argCapitalPreservationMaxDrawdown args
+            , "capitalPreservationMaxRollingLoss" .= argCapitalPreservationMaxRollingLoss args
+            , "capitalPreservationMinSharpe" .= argCapitalPreservationMinSharpe args
+            , "capitalPreservationLossStreakMax" .= argCapitalPreservationLossStreakMax args
             , "minPositionSize" .= argMinPositionSize args
             , "kellyLiteSizing" .= argKellyLiteSizing args
             , "kellyLiteFraction" .= argKellyLiteFraction args
@@ -6003,7 +6015,18 @@ capitalPreservationConfigForBot args settings =
                 && argBinanceLive args
                 && argPlatform args == PlatformBinance
                 && argBinanceMarket args == MarketFutures
+        , cpcLookback = argCapitalPreservationLookback args
+        , cpcMinTrades = argCapitalPreservationMinTrades args
+        , cpcMaxDrawdown = positiveMaybe (argCapitalPreservationMaxDrawdown args)
+        , cpcMaxRollingLoss = positiveMaybe (argCapitalPreservationMaxRollingLoss args)
+        , cpcMinSharpe = Just (argCapitalPreservationMinSharpe args)
+        , cpcLossStreakMax = argCapitalPreservationLossStreakMax args
         }
+  where
+    positiveMaybe value =
+        if value > 0 && isFiniteDouble value
+            then Just value
+            else Nothing
 
 capitalPreservationReportForBot :: Args -> BotSettings -> Double -> Int -> [Trade] -> CapitalPreservationReport
 capitalPreservationReportForBot args settings drawdown lossStreak trades =
@@ -19805,6 +19828,12 @@ argsFromApi baseArgs p = do
                 , argConfirmQuantiles = pick (apConfirmQuantiles p) (argConfirmQuantiles baseArgs)
                 , argConfidenceSizing = pick (apConfidenceSizing p) (argConfidenceSizing baseArgs)
                 , argProtectionMinConfidence = pick (apProtectionMinConfidence p) (argProtectionMinConfidence baseArgs)
+                , argCapitalPreservationLookback = max 0 (pick (apCapitalPreservationLookback p) (argCapitalPreservationLookback baseArgs))
+                , argCapitalPreservationMinTrades = max 0 (pick (apCapitalPreservationMinTrades p) (argCapitalPreservationMinTrades baseArgs))
+                , argCapitalPreservationMaxDrawdown = max 0 (pick (apCapitalPreservationMaxDrawdown p) (argCapitalPreservationMaxDrawdown baseArgs))
+                , argCapitalPreservationMaxRollingLoss = max 0 (pick (apCapitalPreservationMaxRollingLoss p) (argCapitalPreservationMaxRollingLoss baseArgs))
+                , argCapitalPreservationMinSharpe = pick (apCapitalPreservationMinSharpe p) (argCapitalPreservationMinSharpe baseArgs)
+                , argCapitalPreservationLossStreakMax = max 0 (pick (apCapitalPreservationLossStreakMax p) (argCapitalPreservationLossStreakMax baseArgs))
                 , argMinPositionSize = pick (apMinPositionSize p) (argMinPositionSize baseArgs)
                 , argPredictionMarketHerd = pick (apPredictionMarketHerd p) (argPredictionMarketHerd baseArgs)
                 , argPredictionMarketHerdMinProbability = pick (apPredictionMarketHerdMinProbability p) (argPredictionMarketHerdMinProbability baseArgs)

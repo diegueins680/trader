@@ -32,6 +32,7 @@ import Options.Applicative
 
 import Trader.Binance (BinanceMarket (..))
 import Trader.BotStartSemantics (adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean)
+import Trader.CapitalPreservation (CapitalPreservationConfig (..), defaultCapitalPreservationConfig)
 import Trader.Duration (TimeWindow, lookbackBarsFrom, parseIntervalSeconds, parseTimeWindow)
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod)
 import Trader.Normalization (NormType (..), parseNormType)
@@ -380,6 +381,12 @@ data Args = Args
     , argConfirmQuantiles :: Bool
     , argConfidenceSizing :: Bool
     , argProtectionMinConfidence :: Double
+    , argCapitalPreservationLookback :: Int
+    , argCapitalPreservationMinTrades :: Int
+    , argCapitalPreservationMaxDrawdown :: Double
+    , argCapitalPreservationMaxRollingLoss :: Double
+    , argCapitalPreservationMinSharpe :: Double
+    , argCapitalPreservationLossStreakMax :: Int
     , argLstmConfidenceSoft :: Double
     , argLstmConfidenceHard :: Double
     , argRsiPeriod :: Int
@@ -1241,6 +1248,14 @@ opts = do
                 <> showDefault
                 <> help "Min confidence required to place exchange protection orders (stop-loss / take-profit) when enabled (0 disables)."
             )
+    let capitalDefaults = defaultCapitalPreservationConfig
+        defaultMaybeDouble = maybe 0 id
+    argCapitalPreservationLookback <- option auto (long "capital-preservation-lookback" <> value (cpcLookback capitalDefaults) <> showDefault <> help "Closed-trade lookback for live capital-preservation rolling loss/Sharpe gates")
+    argCapitalPreservationMinTrades <- option auto (long "capital-preservation-min-trades" <> value (cpcMinTrades capitalDefaults) <> showDefault <> help "Minimum closed trades required before rolling capital-preservation gates engage")
+    argCapitalPreservationMaxDrawdown <- option auto (long "capital-preservation-max-drawdown" <> value (defaultMaybeDouble (cpcMaxDrawdown capitalDefaults)) <> showDefault <> help "Live drawdown that blocks fresh entries (0 disables)")
+    argCapitalPreservationMaxRollingLoss <- option auto (long "capital-preservation-max-rolling-loss" <> value (defaultMaybeDouble (cpcMaxRollingLoss capitalDefaults)) <> showDefault <> help "Rolling closed-trade loss that blocks fresh entries (0 disables)")
+    argCapitalPreservationMinSharpe <- option auto (long "capital-preservation-min-sharpe" <> value (defaultMaybeDouble (cpcMinSharpe capitalDefaults)) <> showDefault <> help "Minimum rolling closed-trade Sharpe for fresh entries")
+    argCapitalPreservationLossStreakMax <- option auto (long "capital-preservation-loss-streak-max" <> value (cpcLossStreakMax capitalDefaults) <> showDefault <> help "Consecutive closed-trade losses that block fresh entries (0 disables)")
     argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (linear ramp to --lstm-confidence-hard; requires --confidence-sizing)")
     argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
     argRsiPeriod <- option auto (long "rsi-period" <> value 14 <> showDefault <> help "RSI lookback period in bars (>= 1)")
@@ -1715,6 +1730,9 @@ validateArgs args0 = do
             , ("--execution-maker-offset-bps", argExecutionMakerOffsetBps args)
             , ("--execution-maker-timeout-sec", argExecutionMakerTimeoutSec args)
             , ("--protection-min-confidence", argProtectionMinConfidence args)
+            , ("--capital-preservation-max-drawdown", argCapitalPreservationMaxDrawdown args)
+            , ("--capital-preservation-max-rolling-loss", argCapitalPreservationMaxRollingLoss args)
+            , ("--capital-preservation-min-sharpe", argCapitalPreservationMinSharpe args)
             , ("--lstm-confidence-soft", argLstmConfidenceSoft args)
             , ("--lstm-confidence-hard", argLstmConfidenceHard args)
             , ("--rsi-lower", argRsiLower args)
@@ -2130,6 +2148,11 @@ validateArgs args0 = do
     ensure "--lstm-confidence-soft must be between 0 and 1" (argLstmConfidenceSoft args >= 0 && argLstmConfidenceSoft args <= 1)
     ensure "--lstm-confidence-hard must be between 0 and 1" (argLstmConfidenceHard args >= 0 && argLstmConfidenceHard args <= 1)
     ensure "--protection-min-confidence must be between 0 and 1" (argProtectionMinConfidence args >= 0 && argProtectionMinConfidence args <= 1)
+    ensure "--capital-preservation-lookback must be >= 0" (argCapitalPreservationLookback args >= 0)
+    ensure "--capital-preservation-min-trades must be >= 0" (argCapitalPreservationMinTrades args >= 0)
+    ensure "--capital-preservation-max-drawdown must be >= 0" (argCapitalPreservationMaxDrawdown args >= 0)
+    ensure "--capital-preservation-max-rolling-loss must be >= 0" (argCapitalPreservationMaxRollingLoss args >= 0)
+    ensure "--capital-preservation-loss-streak-max must be >= 0" (argCapitalPreservationLossStreakMax args >= 0)
     ensure
         "--lstm-confidence-soft must be <= --lstm-confidence-hard (unless hard=0 to disable)"
         (argLstmConfidenceHard args <= 0 || argLstmConfidenceSoft args <= argLstmConfidenceHard args)
