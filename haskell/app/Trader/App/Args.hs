@@ -297,6 +297,12 @@ data Args = Args
     , argBlendAnchorConflictBase :: Double
     , argBlendAnchorConflictScale :: Double
     , argBlendAnchorAlignedScale :: Double
+    , argBlendTensionConflictShrink :: Double
+    , argBlendTensionNeutralShrink :: Double
+    , argBlendEntropyConflictFloor :: Double
+    , argBlendEntropyConflictScale :: Double
+    , argBlendEntropyAlignedBase :: Double
+    , argBlendEntropyAlignedEntropyScale :: Double
     , argBlendPhaseCancelReturnClamp :: Double
     , argBlendPhaseCancelConflictFloor :: Double
     , argBlendPhaseCancelConflictScale :: Double
@@ -1035,6 +1041,12 @@ opts = do
     argBlendAnchorConflictBase <- option auto (long "blend-anchor-conflict-base" <> value 0.6 <> showDefault <> help "Base neutral-anchor weight when anchor_blend sources conflict (0..1)")
     argBlendAnchorConflictScale <- option auto (long "blend-anchor-conflict-scale" <> value 0.4 <> showDefault <> help "Conflict-strength neutral-anchor scale for --method anchor_blend (0..1)")
     argBlendAnchorAlignedScale <- option auto (long "blend-anchor-aligned-scale" <> value 0.2 <> showDefault <> help "Agreement neutral-anchor scale for --method anchor_blend (0..1)")
+    argBlendTensionConflictShrink <- option auto (long "blend-tension-conflict-shrink" <> value 0.25 <> showDefault <> help "Shrink factor applied to weaker conflicting source in --method tension_gate (0..1)")
+    argBlendTensionNeutralShrink <- option auto (long "blend-tension-neutral-shrink" <> value 0.5 <> showDefault <> help "Shrink factor applied to neutral tension_gate tie cases (0..1)")
+    argBlendEntropyConflictFloor <- option auto (long "blend-entropy-conflict-floor" <> value 0.35 <> showDefault <> help "Base blend alpha when entropy_blend sources conflict (0..1)")
+    argBlendEntropyConflictScale <- option auto (long "blend-entropy-conflict-scale" <> value 0.5 <> showDefault <> help "Entropy-weighted alpha scale when entropy_blend sources conflict (0..1)")
+    argBlendEntropyAlignedBase <- option auto (long "blend-entropy-aligned-base" <> value 0.95 <> showDefault <> help "Base blend alpha when entropy_blend sources agree (0..1)")
+    argBlendEntropyAlignedEntropyScale <- option auto (long "blend-entropy-aligned-entropy-scale" <> value 0.25 <> showDefault <> help "Entropy-weighted alpha reduction when entropy_blend sources agree (0..1)")
     argBlendPhaseCancelReturnClamp <- option auto (long "blend-phase-cancel-return-clamp" <> value 0.75 <> showDefault <> help "Maximum absolute per-bar return emitted by --method phase_cancel")
     argBlendPhaseCancelConflictFloor <- option auto (long "blend-phase-cancel-conflict-floor" <> value 0.1 <> showDefault <> help "Base return multiplier when phase_cancel sources conflict")
     argBlendPhaseCancelConflictScale <- option auto (long "blend-phase-cancel-conflict-scale" <> value 0.6 <> showDefault <> help "Cancellation-sensitive return multiplier for --method phase_cancel conflicts")
@@ -1558,6 +1570,12 @@ validateArgs args0 = do
             , ("--blend-anchor-conflict-base", argBlendAnchorConflictBase args)
             , ("--blend-anchor-conflict-scale", argBlendAnchorConflictScale args)
             , ("--blend-anchor-aligned-scale", argBlendAnchorAlignedScale args)
+            , ("--blend-tension-conflict-shrink", argBlendTensionConflictShrink args)
+            , ("--blend-tension-neutral-shrink", argBlendTensionNeutralShrink args)
+            , ("--blend-entropy-conflict-floor", argBlendEntropyConflictFloor args)
+            , ("--blend-entropy-conflict-scale", argBlendEntropyConflictScale args)
+            , ("--blend-entropy-aligned-base", argBlendEntropyAlignedBase args)
+            , ("--blend-entropy-aligned-entropy-scale", argBlendEntropyAlignedEntropyScale args)
             , ("--blend-phase-cancel-return-clamp", argBlendPhaseCancelReturnClamp args)
             , ("--blend-phase-cancel-conflict-floor", argBlendPhaseCancelConflictFloor args)
             , ("--blend-phase-cancel-conflict-scale", argBlendPhaseCancelConflictScale args)
@@ -1682,6 +1700,12 @@ validateArgs args0 = do
     ensure "--blend-anchor-conflict-base must be between 0 and 1" (argBlendAnchorConflictBase args >= 0 && argBlendAnchorConflictBase args <= 1)
     ensure "--blend-anchor-conflict-scale must be between 0 and 1" (argBlendAnchorConflictScale args >= 0 && argBlendAnchorConflictScale args <= 1)
     ensure "--blend-anchor-aligned-scale must be between 0 and 1" (argBlendAnchorAlignedScale args >= 0 && argBlendAnchorAlignedScale args <= 1)
+    ensure "--blend-tension-conflict-shrink must be between 0 and 1" (argBlendTensionConflictShrink args >= 0 && argBlendTensionConflictShrink args <= 1)
+    ensure "--blend-tension-neutral-shrink must be between 0 and 1" (argBlendTensionNeutralShrink args >= 0 && argBlendTensionNeutralShrink args <= 1)
+    ensure "--blend-entropy-conflict-floor must be between 0 and 1" (argBlendEntropyConflictFloor args >= 0 && argBlendEntropyConflictFloor args <= 1)
+    ensure "--blend-entropy-conflict-scale must be between 0 and 1" (argBlendEntropyConflictScale args >= 0 && argBlendEntropyConflictScale args <= 1)
+    ensure "--blend-entropy-aligned-base must be between 0 and 1" (argBlendEntropyAlignedBase args >= 0 && argBlendEntropyAlignedBase args <= 1)
+    ensure "--blend-entropy-aligned-entropy-scale must be between 0 and 1" (argBlendEntropyAlignedEntropyScale args >= 0 && argBlendEntropyAlignedEntropyScale args <= 1)
     ensure "--blend-phase-cancel-return-clamp must be > 0" (argBlendPhaseCancelReturnClamp args > 0)
     ensure "--blend-phase-cancel-conflict-floor must be >= 0" (argBlendPhaseCancelConflictFloor args >= 0)
     ensure "--blend-phase-cancel-conflict-scale must be >= 0" (argBlendPhaseCancelConflictScale args >= 0)

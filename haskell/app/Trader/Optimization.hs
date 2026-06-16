@@ -869,10 +869,14 @@ tensionGatePredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
     Double
-tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
+tensionGatePredFromPreds conflictShrinkRaw neutralShrinkRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        conflictShrink = clamp01 conflictShrinkRaw
+        neutralShrink = clamp01 neutralShrinkRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -907,10 +911,10 @@ tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
                         | dKal == dLstm && dKal /= 0 ->
                             chooseStrong eKal eLstm
                         | dKal /= dLstm ->
-                            let pred = shrink 0.25 (chooseWeak eKal eLstm)
+                            let pred = shrink conflictShrink (chooseWeak eKal eLstm)
                              in if bad pred then neutralPred else pred
                         | otherwise ->
-                            shrink 0.5 (if wFallback >= 0.5 then kalPred else lstmPred)
+                            shrink neutralShrink (if wFallback >= 0.5 then kalPred else lstmPred)
                     _ -> if wFallback >= 0.5 then kalPred else lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
@@ -918,17 +922,19 @@ tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
 
 tensionGatePredictionsV ::
     Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-tensionGatePredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+tensionGatePredictionsV conflictShrink neutralShrink fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred
+             in tensionGatePredFromPreds conflictShrink neutralShrink fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 entropyBlendPredFromPreds ::
@@ -936,10 +942,18 @@ entropyBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     Double
-entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+entropyBlendPredFromPreds conflictFloorRaw conflictScaleRaw alignedBaseRaw alignedEntropyScaleRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        conflictFloor = clamp01 conflictFloorRaw
+        conflictScale = clamp01 conflictScaleRaw
+        alignedBase = clamp01 alignedBaseRaw
+        alignedEntropyScale = clamp01 alignedEntropyScaleRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -975,8 +989,8 @@ entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                             conflict = dKal /= dLstm
                             alpha =
                                 if conflict
-                                    then clamp01 (0.35 + 0.5 * h)
-                                    else clamp01 (0.95 - 0.25 * h)
+                                    then clamp01 (conflictFloor + conflictScale * h)
+                                    else clamp01 (alignedBase - alignedEntropyScale * h)
                             pred = neutralPred + alpha * (blend - neutralPred)
                          in if bad pred then blend else pred
                     _ -> blend
@@ -986,17 +1000,21 @@ entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 entropyBlendPredictionsV ::
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-entropyBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+entropyBlendPredictionsV conflictFloor conflictScale alignedBase alignedEntropyScale fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+             in entropyBlendPredFromPreds conflictFloor conflictScale alignedBase alignedEntropyScale fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 coherenceGatePredFromPreds ::
@@ -2032,6 +2050,12 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         blendAnchorConflictBase = clamp01 (ecBlendAnchorConflictBase baseCfg)
         blendAnchorConflictScale = clamp01 (ecBlendAnchorConflictScale baseCfg)
         blendAnchorAlignedScale = clamp01 (ecBlendAnchorAlignedScale baseCfg)
+        blendTensionConflictShrink = clamp01 (ecBlendTensionConflictShrink baseCfg)
+        blendTensionNeutralShrink = clamp01 (ecBlendTensionNeutralShrink baseCfg)
+        blendEntropyConflictFloor = clamp01 (ecBlendEntropyConflictFloor baseCfg)
+        blendEntropyConflictScale = clamp01 (ecBlendEntropyConflictScale baseCfg)
+        blendEntropyAlignedBase = clamp01 (ecBlendEntropyAlignedBase baseCfg)
+        blendEntropyAlignedEntropyScale = clamp01 (ecBlendEntropyAlignedEntropyScale baseCfg)
         blendPhaseCancelReturnClamp = max 1e-12 (ecBlendPhaseCancelReturnClamp baseCfg)
         blendPhaseCancelConflictFloor = max 0 (ecBlendPhaseCancelConflictFloor baseCfg)
         blendPhaseCancelConflictScale = max 0 (ecBlendPhaseCancelConflictScale baseCfg)
@@ -2055,8 +2079,24 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 pricesV
                 kalV
                 lstmV
-        tensionGateV0 = tensionGatePredictionsV blendWeight pricesV kalV lstmV
-        entropyBlendV0 = entropyBlendPredictionsV blendWeight pricesV kalV lstmV
+        tensionGateV0 =
+            tensionGatePredictionsV
+                blendTensionConflictShrink
+                blendTensionNeutralShrink
+                blendWeight
+                pricesV
+                kalV
+                lstmV
+        entropyBlendV0 =
+            entropyBlendPredictionsV
+                blendEntropyConflictFloor
+                blendEntropyConflictScale
+                blendEntropyAlignedBase
+                blendEntropyAlignedEntropyScale
+                blendWeight
+                pricesV
+                kalV
+                lstmV
         coherenceGateV0 =
             coherenceGatePredictionsV
                 blendCoherenceConflictFloor

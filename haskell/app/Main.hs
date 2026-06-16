@@ -2610,6 +2610,12 @@ argsPublicJson args =
             , "blendAnchorConflictBase" .= argBlendAnchorConflictBase args
             , "blendAnchorConflictScale" .= argBlendAnchorConflictScale args
             , "blendAnchorAlignedScale" .= argBlendAnchorAlignedScale args
+            , "blendTensionConflictShrink" .= argBlendTensionConflictShrink args
+            , "blendTensionNeutralShrink" .= argBlendTensionNeutralShrink args
+            , "blendEntropyConflictFloor" .= argBlendEntropyConflictFloor args
+            , "blendEntropyConflictScale" .= argBlendEntropyConflictScale args
+            , "blendEntropyAlignedBase" .= argBlendEntropyAlignedBase args
+            , "blendEntropyAlignedEntropyScale" .= argBlendEntropyAlignedEntropyScale args
             , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
             , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
@@ -9508,6 +9514,12 @@ botOptimizeAfterOperation st = do
                                 , ecBlendAnchorConflictBase = argBlendAnchorConflictBase args
                                 , ecBlendAnchorConflictScale = argBlendAnchorConflictScale args
                                 , ecBlendAnchorAlignedScale = argBlendAnchorAlignedScale args
+                                , ecBlendTensionConflictShrink = argBlendTensionConflictShrink args
+                                , ecBlendTensionNeutralShrink = argBlendTensionNeutralShrink args
+                                , ecBlendEntropyConflictFloor = argBlendEntropyConflictFloor args
+                                , ecBlendEntropyConflictScale = argBlendEntropyConflictScale args
+                                , ecBlendEntropyAlignedBase = argBlendEntropyAlignedBase args
+                                , ecBlendEntropyAlignedEntropyScale = argBlendEntropyAlignedEntropyScale args
                                 , ecBlendPhaseCancelReturnClamp = argBlendPhaseCancelReturnClamp args
                                 , ecBlendPhaseCancelConflictFloor = argBlendPhaseCancelConflictFloor args
                                 , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
@@ -9977,6 +9989,12 @@ parseTopComboToArgs base combo = do
         blendAnchorConflictBase = clamp01 (pickD "blendAnchorConflictBase" (argBlendAnchorConflictBase base))
         blendAnchorConflictScale = clamp01 (pickD "blendAnchorConflictScale" (argBlendAnchorConflictScale base))
         blendAnchorAlignedScale = clamp01 (pickD "blendAnchorAlignedScale" (argBlendAnchorAlignedScale base))
+        blendTensionConflictShrink = clamp01 (pickD "blendTensionConflictShrink" (argBlendTensionConflictShrink base))
+        blendTensionNeutralShrink = clamp01 (pickD "blendTensionNeutralShrink" (argBlendTensionNeutralShrink base))
+        blendEntropyConflictFloor = clamp01 (pickD "blendEntropyConflictFloor" (argBlendEntropyConflictFloor base))
+        blendEntropyConflictScale = clamp01 (pickD "blendEntropyConflictScale" (argBlendEntropyConflictScale base))
+        blendEntropyAlignedBase = clamp01 (pickD "blendEntropyAlignedBase" (argBlendEntropyAlignedBase base))
+        blendEntropyAlignedEntropyScale = clamp01 (pickD "blendEntropyAlignedEntropyScale" (argBlendEntropyAlignedEntropyScale base))
         blendPhaseCancelReturnClamp = max 1e-12 (pickD "blendPhaseCancelReturnClamp" (argBlendPhaseCancelReturnClamp base))
         blendPhaseCancelConflictFloor = max 0 (pickD "blendPhaseCancelConflictFloor" (argBlendPhaseCancelConflictFloor base))
         blendPhaseCancelConflictScale = max 0 (pickD "blendPhaseCancelConflictScale" (argBlendPhaseCancelConflictScale base))
@@ -10115,6 +10133,12 @@ parseTopComboToArgs base combo = do
                 , argBlendAnchorConflictBase = blendAnchorConflictBase
                 , argBlendAnchorConflictScale = blendAnchorConflictScale
                 , argBlendAnchorAlignedScale = blendAnchorAlignedScale
+                , argBlendTensionConflictShrink = blendTensionConflictShrink
+                , argBlendTensionNeutralShrink = blendTensionNeutralShrink
+                , argBlendEntropyConflictFloor = blendEntropyConflictFloor
+                , argBlendEntropyConflictScale = blendEntropyConflictScale
+                , argBlendEntropyAlignedBase = blendEntropyAlignedBase
+                , argBlendEntropyAlignedEntropyScale = blendEntropyAlignedEntropyScale
                 , argBlendPhaseCancelReturnClamp = blendPhaseCancelReturnClamp
                 , argBlendPhaseCancelConflictFloor = blendPhaseCancelConflictFloor
                 , argBlendPhaseCancelConflictScale = blendPhaseCancelConflictScale
@@ -13476,6 +13500,12 @@ argsCacheJsonSignal args =
             , "blendAnchorConflictBase" .= argBlendAnchorConflictBase args
             , "blendAnchorConflictScale" .= argBlendAnchorConflictScale args
             , "blendAnchorAlignedScale" .= argBlendAnchorAlignedScale args
+            , "blendTensionConflictShrink" .= argBlendTensionConflictShrink args
+            , "blendTensionNeutralShrink" .= argBlendTensionNeutralShrink args
+            , "blendEntropyConflictFloor" .= argBlendEntropyConflictFloor args
+            , "blendEntropyConflictScale" .= argBlendEntropyConflictScale args
+            , "blendEntropyAlignedBase" .= argBlendEntropyAlignedBase args
+            , "blendEntropyAlignedEntropyScale" .= argBlendEntropyAlignedEntropyScale args
             , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
             , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
@@ -13670,6 +13700,12 @@ argsCacheJsonBacktest args =
             , "blendAnchorConflictBase" .= argBlendAnchorConflictBase args
             , "blendAnchorConflictScale" .= argBlendAnchorConflictScale args
             , "blendAnchorAlignedScale" .= argBlendAnchorAlignedScale args
+            , "blendTensionConflictShrink" .= argBlendTensionConflictShrink args
+            , "blendTensionNeutralShrink" .= argBlendTensionNeutralShrink args
+            , "blendEntropyConflictFloor" .= argBlendEntropyConflictFloor args
+            , "blendEntropyConflictScale" .= argBlendEntropyConflictScale args
+            , "blendEntropyAlignedBase" .= argBlendEntropyAlignedBase args
+            , "blendEntropyAlignedEntropyScale" .= argBlendEntropyAlignedEntropyScale args
             , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
             , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
@@ -21247,10 +21283,14 @@ tensionGatePredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
     Double
-tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
+tensionGatePredFromPreds conflictShrinkRaw neutralShrinkRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        conflictShrink = clamp01 conflictShrinkRaw
+        neutralShrink = clamp01 neutralShrinkRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -21285,10 +21325,10 @@ tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
                         | dKal == dLstm && dKal /= 0 ->
                             chooseStrong eKal eLstm
                         | dKal /= dLstm ->
-                            let pred = shrink 0.25 (chooseWeak eKal eLstm)
+                            let pred = shrink conflictShrink (chooseWeak eKal eLstm)
                              in if bad pred then neutralPred else pred
                         | otherwise ->
-                            shrink 0.5 (if wFallback >= 0.5 then kalPred else lstmPred)
+                            shrink neutralShrink (if wFallback >= 0.5 then kalPred else lstmPred)
                     _ -> if wFallback >= 0.5 then kalPred else lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
@@ -21296,17 +21336,19 @@ tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
 
 tensionGatePredictionsV ::
     Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-tensionGatePredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+tensionGatePredictionsV conflictShrink neutralShrink fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred
+             in tensionGatePredFromPreds conflictShrink neutralShrink fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 entropyBlendPredFromPreds ::
@@ -21314,10 +21356,18 @@ entropyBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     Double
-entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+entropyBlendPredFromPreds conflictFloorRaw conflictScaleRaw alignedBaseRaw alignedEntropyScaleRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        conflictFloor = clamp01 conflictFloorRaw
+        conflictScale = clamp01 conflictScaleRaw
+        alignedBase = clamp01 alignedBaseRaw
+        alignedEntropyScale = clamp01 alignedEntropyScaleRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -21353,8 +21403,8 @@ entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                             conflict = dKal /= dLstm
                             alpha =
                                 if conflict
-                                    then clamp01 (0.35 + 0.5 * h)
-                                    else clamp01 (0.95 - 0.25 * h)
+                                    then clamp01 (conflictFloor + conflictScale * h)
+                                    else clamp01 (alignedBase - alignedEntropyScale * h)
                             pred = neutralPred + alpha * (blend - neutralPred)
                          in if bad pred then blend else pred
                     _ -> blend
@@ -21364,17 +21414,21 @@ entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 entropyBlendPredictionsV ::
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-entropyBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+entropyBlendPredictionsV conflictFloor conflictScale alignedBase alignedEntropyScale fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in entropyBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+             in entropyBlendPredFromPreds conflictFloor conflictScale alignedBase alignedEntropyScale fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 coherenceGatePredFromPreds ::
@@ -22320,6 +22374,12 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 blendAnchorConflictBase = clamp01 (argBlendAnchorConflictBase args)
                 blendAnchorConflictScale = clamp01 (argBlendAnchorConflictScale args)
                 blendAnchorAlignedScale = clamp01 (argBlendAnchorAlignedScale args)
+                blendTensionConflictShrink = clamp01 (argBlendTensionConflictShrink args)
+                blendTensionNeutralShrink = clamp01 (argBlendTensionNeutralShrink args)
+                blendEntropyConflictFloor = clamp01 (argBlendEntropyConflictFloor args)
+                blendEntropyConflictScale = clamp01 (argBlendEntropyConflictScale args)
+                blendEntropyAlignedBase = clamp01 (argBlendEntropyAlignedBase args)
+                blendEntropyAlignedEntropyScale = clamp01 (argBlendEntropyAlignedEntropyScale args)
                 blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
                 blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
                 blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
@@ -22340,8 +22400,24 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         pricesV
                         kalPred0
                         lstmPred0
-                tensionGatePred0 = tensionGatePredictionsV blendWeight pricesV kalPred0 lstmPred0
-                entropyBlendPred0 = entropyBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                tensionGatePred0 =
+                    tensionGatePredictionsV
+                        blendTensionConflictShrink
+                        blendTensionNeutralShrink
+                        blendWeight
+                        pricesV
+                        kalPred0
+                        lstmPred0
+                entropyBlendPred0 =
+                    entropyBlendPredictionsV
+                        blendEntropyConflictFloor
+                        blendEntropyConflictScale
+                        blendEntropyAlignedBase
+                        blendEntropyAlignedEntropyScale
+                        blendWeight
+                        pricesV
+                        kalPred0
+                        lstmPred0
                 coherenceGatePred0 =
                     coherenceGatePredictionsV
                         blendCoherenceConflictFloor
@@ -25475,6 +25551,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecBlendAnchorConflictBase = argBlendAnchorConflictBase args
                 , ecBlendAnchorConflictScale = argBlendAnchorConflictScale args
                 , ecBlendAnchorAlignedScale = argBlendAnchorAlignedScale args
+                , ecBlendTensionConflictShrink = argBlendTensionConflictShrink args
+                , ecBlendTensionNeutralShrink = argBlendTensionNeutralShrink args
+                , ecBlendEntropyConflictFloor = argBlendEntropyConflictFloor args
+                , ecBlendEntropyConflictScale = argBlendEntropyConflictScale args
+                , ecBlendEntropyAlignedBase = argBlendEntropyAlignedBase args
+                , ecBlendEntropyAlignedEntropyScale = argBlendEntropyAlignedEntropyScale args
                 , ecBlendPhaseCancelReturnClamp = argBlendPhaseCancelReturnClamp args
                 , ecBlendPhaseCancelConflictFloor = argBlendPhaseCancelConflictFloor args
                 , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
@@ -25591,6 +25673,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         blendAnchorConflictBase = clamp01 (argBlendAnchorConflictBase args)
         blendAnchorConflictScale = clamp01 (argBlendAnchorConflictScale args)
         blendAnchorAlignedScale = clamp01 (argBlendAnchorAlignedScale args)
+        blendTensionConflictShrink = clamp01 (argBlendTensionConflictShrink args)
+        blendTensionNeutralShrink = clamp01 (argBlendTensionNeutralShrink args)
+        blendEntropyConflictFloor = clamp01 (argBlendEntropyConflictFloor args)
+        blendEntropyConflictScale = clamp01 (argBlendEntropyConflictScale args)
+        blendEntropyAlignedBase = clamp01 (argBlendEntropyAlignedBase args)
+        blendEntropyAlignedEntropyScale = clamp01 (argBlendEntropyAlignedEntropyScale args)
         blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
         blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
         blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
@@ -25656,12 +25744,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (tensionGatePredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+             in V.toList (tensionGatePredictionsV blendTensionConflictShrink blendTensionNeutralShrink blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         entropyBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (entropyBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+             in V.toList (entropyBlendPredictionsV blendEntropyConflictFloor blendEntropyConflictScale blendEntropyAlignedBase blendEntropyAlignedEntropyScale blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         coherenceGatePredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -27550,6 +27638,12 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             blendAnchorConflictBase = clamp01 (argBlendAnchorConflictBase args)
             blendAnchorConflictScale = clamp01 (argBlendAnchorConflictScale args)
             blendAnchorAlignedScale = clamp01 (argBlendAnchorAlignedScale args)
+            blendTensionConflictShrink = clamp01 (argBlendTensionConflictShrink args)
+            blendTensionNeutralShrink = clamp01 (argBlendTensionNeutralShrink args)
+            blendEntropyConflictFloor = clamp01 (argBlendEntropyConflictFloor args)
+            blendEntropyConflictScale = clamp01 (argBlendEntropyConflictScale args)
+            blendEntropyAlignedBase = clamp01 (argBlendEntropyAlignedBase args)
+            blendEntropyAlignedEntropyScale = clamp01 (argBlendEntropyAlignedEntropyScale args)
             blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
             blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
             blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
@@ -27878,6 +27972,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     (Just k, Just l) ->
                         Just
                             ( tensionGatePredFromPreds
+                                blendTensionConflictShrink
+                                blendTensionNeutralShrink
                                 blendWeight
                                 currentPrice
                                 k
@@ -27889,6 +27985,10 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     (Just k, Just l) ->
                         Just
                             ( entropyBlendPredFromPreds
+                                blendEntropyConflictFloor
+                                blendEntropyConflictScale
+                                blendEntropyAlignedBase
+                                blendEntropyAlignedEntropyScale
                                 blendWeight
                                 currentPrice
                                 k

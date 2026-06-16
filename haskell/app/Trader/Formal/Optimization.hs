@@ -728,6 +728,12 @@ optimizerSurfacePreservedFields base updated =
         , ecBlendAnchorConflictBase updated == ecBlendAnchorConflictBase base
         , ecBlendAnchorConflictScale updated == ecBlendAnchorConflictScale base
         , ecBlendAnchorAlignedScale updated == ecBlendAnchorAlignedScale base
+        , ecBlendTensionConflictShrink updated == ecBlendTensionConflictShrink base
+        , ecBlendTensionNeutralShrink updated == ecBlendTensionNeutralShrink base
+        , ecBlendEntropyConflictFloor updated == ecBlendEntropyConflictFloor base
+        , ecBlendEntropyConflictScale updated == ecBlendEntropyConflictScale base
+        , ecBlendEntropyAlignedBase updated == ecBlendEntropyAlignedBase base
+        , ecBlendEntropyAlignedEntropyScale updated == ecBlendEntropyAlignedEntropyScale base
         , ecBlendPhaseCancelReturnClamp updated == ecBlendPhaseCancelReturnClamp base
         , ecBlendPhaseCancelConflictFloor updated == ecBlendPhaseCancelConflictFloor base
         , ecBlendPhaseCancelConflictScale updated == ecBlendPhaseCancelConflictScale base
@@ -848,6 +854,12 @@ optimizerPublicSurfaceBaseConfig =
         , ecBlendAnchorConflictBase = 0.6
         , ecBlendAnchorConflictScale = 0.4
         , ecBlendAnchorAlignedScale = 0.2
+        , ecBlendTensionConflictShrink = 0.25
+        , ecBlendTensionNeutralShrink = 0.5
+        , ecBlendEntropyConflictFloor = 0.35
+        , ecBlendEntropyConflictScale = 0.5
+        , ecBlendEntropyAlignedBase = 0.95
+        , ecBlendEntropyAlignedEntropyScale = 0.25
         , ecBlendPhaseCancelReturnClamp = 0.75
         , ecBlendPhaseCancelConflictFloor = 0.1
         , ecBlendPhaseCancelConflictScale = 0.6

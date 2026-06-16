@@ -522,6 +522,12 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "blend-anchor-conflict-base" 0.2 0.9
         <*> doubleRangeOption "blend-anchor-conflict-scale" 0.0 0.8
         <*> doubleRangeOption "blend-anchor-aligned-scale" 0.0 0.5
+        <*> doubleRangeOption "blend-tension-conflict-shrink" 0.0 0.6
+        <*> doubleRangeOption "blend-tension-neutral-shrink" 0.0 0.9
+        <*> doubleRangeOption "blend-entropy-conflict-floor" 0.0 0.8
+        <*> doubleRangeOption "blend-entropy-conflict-scale" 0.0 1.0
+        <*> doubleRangeOption "blend-entropy-aligned-base" 0.6 1.0
+        <*> doubleRangeOption "blend-entropy-aligned-entropy-scale" 0.0 0.6
         <*> doubleRangeOption "blend-phase-cancel-return-clamp" 0.25 1.5
         <*> doubleRangeOption "blend-phase-cancel-conflict-floor" 0.0 0.5
         <*> doubleRangeOption "blend-phase-cancel-conflict-scale" 0.0 1.2
@@ -828,6 +834,12 @@ validateTechnicalOptimizerRanges ranges = do
     unitRange "blend-anchor-conflict-base" (torBlendAnchorConflictBase ranges)
     unitRange "blend-anchor-conflict-scale" (torBlendAnchorConflictScale ranges)
     unitRange "blend-anchor-aligned-scale" (torBlendAnchorAlignedScale ranges)
+    unitRange "blend-tension-conflict-shrink" (torBlendTensionConflictShrink ranges)
+    unitRange "blend-tension-neutral-shrink" (torBlendTensionNeutralShrink ranges)
+    unitRange "blend-entropy-conflict-floor" (torBlendEntropyConflictFloor ranges)
+    unitRange "blend-entropy-conflict-scale" (torBlendEntropyConflictScale ranges)
+    unitRange "blend-entropy-aligned-base" (torBlendEntropyAlignedBase ranges)
+    unitRange "blend-entropy-aligned-entropy-scale" (torBlendEntropyAlignedEntropyScale ranges)
     positiveRange "blend-phase-cancel-return-clamp" (torBlendPhaseCancelReturnClamp ranges)
     nonNegativeRange "blend-phase-cancel-conflict-floor" (torBlendPhaseCancelConflictFloor ranges)
     nonNegativeRange "blend-phase-cancel-conflict-scale" (torBlendPhaseCancelConflictScale ranges)

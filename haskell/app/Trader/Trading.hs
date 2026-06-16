@@ -174,6 +174,12 @@ data EnsembleConfig = EnsembleConfig
     , ecBlendAnchorConflictBase :: !Double
     , ecBlendAnchorConflictScale :: !Double
     , ecBlendAnchorAlignedScale :: !Double
+    , ecBlendTensionConflictShrink :: !Double
+    , ecBlendTensionNeutralShrink :: !Double
+    , ecBlendEntropyConflictFloor :: !Double
+    , ecBlendEntropyConflictScale :: !Double
+    , ecBlendEntropyAlignedBase :: !Double
+    , ecBlendEntropyAlignedEntropyScale :: !Double
     , ecBlendPhaseCancelReturnClamp :: !Double
     , ecBlendPhaseCancelConflictFloor :: !Double
     , ecBlendPhaseCancelConflictScale :: !Double

@@ -214,6 +214,12 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torBlendAnchorConflictBase :: !(Double, Double)
     , torBlendAnchorConflictScale :: !(Double, Double)
     , torBlendAnchorAlignedScale :: !(Double, Double)
+    , torBlendTensionConflictShrink :: !(Double, Double)
+    , torBlendTensionNeutralShrink :: !(Double, Double)
+    , torBlendEntropyConflictFloor :: !(Double, Double)
+    , torBlendEntropyConflictScale :: !(Double, Double)
+    , torBlendEntropyAlignedBase :: !(Double, Double)
+    , torBlendEntropyAlignedEntropyScale :: !(Double, Double)
     , torBlendPhaseCancelReturnClamp :: !(Double, Double)
     , torBlendPhaseCancelConflictFloor :: !(Double, Double)
     , torBlendPhaseCancelConflictScale :: !(Double, Double)
@@ -280,6 +286,12 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpBlendAnchorConflictBase :: !Double
     , ttpBlendAnchorConflictScale :: !Double
     , ttpBlendAnchorAlignedScale :: !Double
+    , ttpBlendTensionConflictShrink :: !Double
+    , ttpBlendTensionNeutralShrink :: !Double
+    , ttpBlendEntropyConflictFloor :: !Double
+    , ttpBlendEntropyConflictScale :: !Double
+    , ttpBlendEntropyAlignedBase :: !Double
+    , ttpBlendEntropyAlignedEntropyScale :: !Double
     , ttpBlendPhaseCancelReturnClamp :: !Double
     , ttpBlendPhaseCancelConflictFloor :: !Double
     , ttpBlendPhaseCancelConflictScale :: !Double
@@ -407,6 +419,12 @@ normalizeTechnicalTrialParams p =
             , ttpBlendAnchorConflictBase = clamp (ttpBlendAnchorConflictBase p) 0 1
             , ttpBlendAnchorConflictScale = clamp (ttpBlendAnchorConflictScale p) 0 1
             , ttpBlendAnchorAlignedScale = clamp (ttpBlendAnchorAlignedScale p) 0 1
+            , ttpBlendTensionConflictShrink = clamp (ttpBlendTensionConflictShrink p) 0 1
+            , ttpBlendTensionNeutralShrink = clamp (ttpBlendTensionNeutralShrink p) 0 1
+            , ttpBlendEntropyConflictFloor = clamp (ttpBlendEntropyConflictFloor p) 0 1
+            , ttpBlendEntropyConflictScale = clamp (ttpBlendEntropyConflictScale p) 0 1
+            , ttpBlendEntropyAlignedBase = clamp (ttpBlendEntropyAlignedBase p) 0 1
+            , ttpBlendEntropyAlignedEntropyScale = clamp (ttpBlendEntropyAlignedEntropyScale p) 0 1
             , ttpBlendPhaseCancelReturnClamp = max 1e-6 (ttpBlendPhaseCancelReturnClamp p)
             , ttpBlendPhaseCancelConflictFloor = max 0 (ttpBlendPhaseCancelConflictFloor p)
             , ttpBlendPhaseCancelConflictScale = max 0 (ttpBlendPhaseCancelConflictScale p)
@@ -475,26 +493,32 @@ sampleTechnicalTrialParams ranges rng0 =
         (blendAnchorConflictBase, rng45) = sampleClamped 0 1 (torBlendAnchorConflictBase ranges) rng44
         (blendAnchorConflictScale, rng46) = sampleClamped 0 1 (torBlendAnchorConflictScale ranges) rng45
         (blendAnchorAlignedScale, rng47) = sampleClamped 0 1 (torBlendAnchorAlignedScale ranges) rng46
-        (blendPhaseCancelReturnClamp, rng48) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng47
-        (blendPhaseCancelConflictFloor, rng49) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng48
-        (blendPhaseCancelConflictScale, rng50) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng49
-        (blendPhaseCancelAlignmentScale, rng51) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng50
-        (signalEntryEdgeHeadroomMult, rng52) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng51
-        (signalEntryEdgeSpikeMult, rng53) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng52
-        (signalEntryEdgeSpikeCap, rng54) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng53
-        (signalEntryEdgeSpikeConsecutiveLimit, rng55) =
+        (blendTensionConflictShrink, rng48) = sampleClamped 0 1 (torBlendTensionConflictShrink ranges) rng47
+        (blendTensionNeutralShrink, rng49) = sampleClamped 0 1 (torBlendTensionNeutralShrink ranges) rng48
+        (blendEntropyConflictFloor, rng50) = sampleClamped 0 1 (torBlendEntropyConflictFloor ranges) rng49
+        (blendEntropyConflictScale, rng51) = sampleClamped 0 1 (torBlendEntropyConflictScale ranges) rng50
+        (blendEntropyAlignedBase, rng52) = sampleClamped 0 1 (torBlendEntropyAlignedBase ranges) rng51
+        (blendEntropyAlignedEntropyScale, rng53) = sampleClamped 0 1 (torBlendEntropyAlignedEntropyScale ranges) rng52
+        (blendPhaseCancelReturnClamp, rng54) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng53
+        (blendPhaseCancelConflictFloor, rng55) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng54
+        (blendPhaseCancelConflictScale, rng56) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng55
+        (blendPhaseCancelAlignmentScale, rng57) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng56
+        (signalEntryEdgeHeadroomMult, rng58) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng57
+        (signalEntryEdgeSpikeMult, rng59) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng58
+        (signalEntryEdgeSpikeCap, rng60) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng59
+        (signalEntryEdgeSpikeConsecutiveLimit, rng61) =
             let (lo, hi) = orderedPair (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
-             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng54
-        (signalTrendSlackMult, rng56) = sampleNonNegative (torSignalTrendSlackMult ranges) rng55
-        (signalTrendSlackCap, rng57) = sampleNonNegative (torSignalTrendSlackCap ranges) rng56
-        (signalDirectionalityLookbackBars, rng58) =
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng60
+        (signalTrendSlackMult, rng62) = sampleNonNegative (torSignalTrendSlackMult ranges) rng61
+        (signalTrendSlackCap, rng63) = sampleNonNegative (torSignalTrendSlackCap ranges) rng62
+        (signalDirectionalityLookbackBars, rng64) =
             let (lo, hi) = orderedPair (torSignalDirectionalityLookbackBars ranges)
-             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng57
-        (signalDirectionalityChopEfficiencyMax, rng59) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng58
-        (signalDirectionalityMrEfficiencyMax0, rng60) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng59
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng63
+        (signalDirectionalityChopEfficiencyMax, rng65) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng64
+        (signalDirectionalityMrEfficiencyMax0, rng66) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng65
         signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
-        (signalDirectionalityWeakZMin, rng61) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng60
-        (signalPredictorTrackingFloor, rng62) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng61
+        (signalDirectionalityWeakZMin, rng67) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng66
+        (signalPredictorTrackingFloor, rng68) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng67
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -544,6 +568,12 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpBlendAnchorConflictBase = blendAnchorConflictBase
                 , ttpBlendAnchorConflictScale = blendAnchorConflictScale
                 , ttpBlendAnchorAlignedScale = blendAnchorAlignedScale
+                , ttpBlendTensionConflictShrink = blendTensionConflictShrink
+                , ttpBlendTensionNeutralShrink = blendTensionNeutralShrink
+                , ttpBlendEntropyConflictFloor = blendEntropyConflictFloor
+                , ttpBlendEntropyConflictScale = blendEntropyConflictScale
+                , ttpBlendEntropyAlignedBase = blendEntropyAlignedBase
+                , ttpBlendEntropyAlignedEntropyScale = blendEntropyAlignedEntropyScale
                 , ttpBlendPhaseCancelReturnClamp = blendPhaseCancelReturnClamp
                 , ttpBlendPhaseCancelConflictFloor = blendPhaseCancelConflictFloor
                 , ttpBlendPhaseCancelConflictScale = blendPhaseCancelConflictScale
@@ -560,7 +590,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpSignalDirectionalityWeakZMin = signalDirectionalityWeakZMin
                 , ttpSignalPredictorTrackingFloor = signalPredictorTrackingFloor
                 }
-        , rng62
+        , rng68
         )
   where
     samplePositive range rng =
@@ -675,6 +705,18 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpBlendAnchorConflictScale p)
     , "--blend-anchor-aligned-scale"
     , printf "%.12g" (ttpBlendAnchorAlignedScale p)
+    , "--blend-tension-conflict-shrink"
+    , printf "%.12g" (ttpBlendTensionConflictShrink p)
+    , "--blend-tension-neutral-shrink"
+    , printf "%.12g" (ttpBlendTensionNeutralShrink p)
+    , "--blend-entropy-conflict-floor"
+    , printf "%.12g" (ttpBlendEntropyConflictFloor p)
+    , "--blend-entropy-conflict-scale"
+    , printf "%.12g" (ttpBlendEntropyConflictScale p)
+    , "--blend-entropy-aligned-base"
+    , printf "%.12g" (ttpBlendEntropyAlignedBase p)
+    , "--blend-entropy-aligned-entropy-scale"
+    , printf "%.12g" (ttpBlendEntropyAlignedEntropyScale p)
     , "--blend-phase-cancel-return-clamp"
     , printf "%.12g" (ttpBlendPhaseCancelReturnClamp p)
     , "--blend-phase-cancel-conflict-floor"
@@ -756,6 +798,12 @@ technicalTrialParamsPairs p =
     , "blendAnchorConflictBase" .= ttpBlendAnchorConflictBase p
     , "blendAnchorConflictScale" .= ttpBlendAnchorConflictScale p
     , "blendAnchorAlignedScale" .= ttpBlendAnchorAlignedScale p
+    , "blendTensionConflictShrink" .= ttpBlendTensionConflictShrink p
+    , "blendTensionNeutralShrink" .= ttpBlendTensionNeutralShrink p
+    , "blendEntropyConflictFloor" .= ttpBlendEntropyConflictFloor p
+    , "blendEntropyConflictScale" .= ttpBlendEntropyConflictScale p
+    , "blendEntropyAlignedBase" .= ttpBlendEntropyAlignedBase p
+    , "blendEntropyAlignedEntropyScale" .= ttpBlendEntropyAlignedEntropyScale p
     , "blendPhaseCancelReturnClamp" .= ttpBlendPhaseCancelReturnClamp p
     , "blendPhaseCancelConflictFloor" .= ttpBlendPhaseCancelConflictFloor p
     , "blendPhaseCancelConflictScale" .= ttpBlendPhaseCancelConflictScale p
