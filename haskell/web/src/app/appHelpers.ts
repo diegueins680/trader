@@ -3161,6 +3161,8 @@ export function applyComboToForm(
   const fundingOnOpen = combo.params.fundingOnOpen ?? prev.fundingOnOpen;
   const blendWeight = clamp(coerceNumber(combo.params.blendWeight ?? prev.blendWeight, prev.blendWeight), 0, 1);
   const routerLookback = clamp(coerceExactSafeInteger(combo.params.routerLookback, prev.routerLookback), 2, 1_000_000);
+  const routerRegimeMinBars = clamp(coerceExactSafeInteger(combo.params.routerRegimeMinBars, prev.routerRegimeMinBars), 0, 1_000_000);
+  const routerRegimeMinFraction = clamp(coerceNumber(combo.params.routerRegimeMinFraction, prev.routerRegimeMinFraction), 0, 1);
   const routerMinScore = clamp(coerceNumber(combo.params.routerMinScore, prev.routerMinScore), 0, 1);
   const tuneStressVolMult = Math.max(0, coerceNumber(combo.params.tuneStressVolMult ?? prev.tuneStressVolMult, prev.tuneStressVolMult));
   const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
@@ -3307,6 +3309,8 @@ export function applyComboToForm(
     fundingOnOpen,
     blendWeight,
     routerLookback,
+    routerRegimeMinBars,
+    routerRegimeMinFraction,
     routerMinScore,
     kalmanZMin,
     kalmanZMax,
@@ -3427,6 +3431,8 @@ export function formApplySignature(form: FormState): string {
     sigBool(form.fundingOnOpen),
     sigNumber(form.blendWeight),
     sigNumber(form.routerLookback),
+    sigNumber(form.routerRegimeMinBars),
+    sigNumber(form.routerRegimeMinFraction),
     sigNumber(form.routerMinScore),
     sigNumber(form.kalmanZMin),
     sigNumber(form.kalmanZMax),

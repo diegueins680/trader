@@ -72,6 +72,8 @@ export type OptimizationComboParams = {
   fundingBySide?: boolean | null;
   fundingOnOpen?: boolean | null;
   routerLookback?: number | null;
+  routerRegimeMinBars?: number | null;
+  routerRegimeMinFraction?: number | null;
   routerMinScore?: number | null;
   periodsPerYear?: number | null;
   walkForwardFolds?: number | null;

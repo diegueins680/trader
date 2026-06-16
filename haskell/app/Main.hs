@@ -964,6 +964,8 @@ data ApiParams = ApiParams
     , apFundingOnOpen :: Maybe Bool
     , apBlendWeight :: Maybe Double
     , apRouterLookback :: Maybe Int
+    , apRouterRegimeMinBars :: Maybe Int
+    , apRouterRegimeMinFraction :: Maybe Double
     , apRouterMinScore :: Maybe Double
     , apRouterScorePnlWeight :: Maybe Double
     , apTriLayer :: Maybe Bool
@@ -1329,6 +1331,10 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrBlendWeightMax :: !(Maybe Double)
     , arrRouterScorePnlWeightMin :: !(Maybe Double)
     , arrRouterScorePnlWeightMax :: !(Maybe Double)
+    , arrRouterRegimeMinBarsMin :: !(Maybe Int)
+    , arrRouterRegimeMinBarsMax :: !(Maybe Int)
+    , arrRouterRegimeMinFractionMin :: !(Maybe Double)
+    , arrRouterRegimeMinFractionMax :: !(Maybe Double)
     , arrAdaptiveEdgeBufferMaxMin :: !(Maybe Double)
     , arrAdaptiveEdgeBufferMaxMax :: !(Maybe Double)
     , arrAdaptiveMinSignalToNoiseMaxMin :: !(Maybe Double)
@@ -2783,6 +2789,8 @@ argsPublicJson args =
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
             , "blendPhaseCancelAlignmentScale" .= argBlendPhaseCancelAlignmentScale args
             , "routerLookback" .= argRouterLookback args
+            , "routerRegimeMinBars" .= argRouterRegimeMinBars args
+            , "routerRegimeMinFraction" .= argRouterRegimeMinFraction args
             , "routerMinScore" .= argRouterMinScore args
             , "routerScorePnlWeight" .= argRouterScorePnlWeight args
             , "triLayer" .= argTriLayer args
@@ -9716,6 +9724,8 @@ botOptimizeAfterOperation st = do
                                 , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
                                 , ecBlendPhaseCancelAlignmentScale = argBlendPhaseCancelAlignmentScale args
                                 , ecRouterLookback = argRouterLookback args
+                                , ecRouterRegimeMinBars = argRouterRegimeMinBars args
+                                , ecRouterRegimeMinFraction = argRouterRegimeMinFraction args
                                 , ecRouterMinScore = argRouterMinScore args
                                 , ecRouterScorePnlWeight = argRouterScorePnlWeight args
                                 , ecKalmanDt = argKalmanDt args
@@ -10849,6 +10859,10 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     lstmAdamBeta2MaxEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_BETA2_MAX"
                                     lstmAdamEpsMinEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS_MIN"
                                     lstmAdamEpsMaxEnv <- lookupEnv "TRADER_OPTIMIZER_LSTM_ADAM_EPS_MAX"
+                                    routerRegimeMinBarsMinEnv <- lookupEnv "TRADER_OPTIMIZER_ROUTER_REGIME_MIN_BARS_MIN"
+                                    routerRegimeMinBarsMaxEnv <- lookupEnv "TRADER_OPTIMIZER_ROUTER_REGIME_MIN_BARS_MAX"
+                                    routerRegimeMinFractionMinEnv <- lookupEnv "TRADER_OPTIMIZER_ROUTER_REGIME_MIN_FRACTION_MIN"
+                                    routerRegimeMinFractionMaxEnv <- lookupEnv "TRADER_OPTIMIZER_ROUTER_REGIME_MIN_FRACTION_MAX"
                                     minRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_ROUND_TRIPS"
                                     minExposureEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_EXPOSURE"
                                     minSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_SHARPE"
@@ -10914,6 +10928,10 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                             case raw >>= readMaybe of
                                                 Just n | n >= 0 && isFiniteDouble n -> n
                                                 _ -> fallback
+                                        readNonNegativeIntArg raw =
+                                            case raw >>= readMaybe of
+                                                Just n | n >= 0 -> Just n
+                                                _ -> Nothing
                                         minRoundTrips :: Int
                                         minRoundTrips = readNonNegativeInt minRoundTripsEnv 3
                                         tuneMaxThresholdCandidates :: Int
@@ -10943,6 +10961,11 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                 ++ maybeDoubleArg "--lstm-adam-beta2-max" (lstmAdamBetaEnvValue lstmAdamBeta2MaxEnv)
                                                 ++ maybeDoubleArg "--lstm-adam-eps-min" (lstmAdamEpsEnvValue lstmAdamEpsMinEnv)
                                                 ++ maybeDoubleArg "--lstm-adam-eps-max" (lstmAdamEpsEnvValue lstmAdamEpsMaxEnv)
+                                        routerRegimeArgs =
+                                            maybeIntArg "--router-regime-min-bars-min" (readNonNegativeIntArg routerRegimeMinBarsMinEnv)
+                                                ++ maybeIntArg "--router-regime-min-bars-max" (readNonNegativeIntArg routerRegimeMinBarsMaxEnv)
+                                                ++ maybeDoubleArg "--router-regime-min-fraction-min" (fmap clamp01 (readFiniteDoubleMaybe routerRegimeMinFractionMinEnv))
+                                                ++ maybeDoubleArg "--router-regime-min-fraction-max" (fmap clamp01 (readFiniteDoubleMaybe routerRegimeMinFractionMaxEnv))
                                         minExposure :: Double
                                         minExposure = clamp01 (readNonNegativeDouble minExposureEnv 0.02)
                                         minSharpe :: Double
@@ -11221,6 +11244,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , "--disable-lstm-persistence"
                                                                                         ]
                                                                                             ++ lstmAdamRangeArgs
+                                                                                            ++ routerRegimeArgs
                                                                                             ++ priorArgs
                                                                                             ++ extraArgs
                                                                                             ++ crossExchangeArgs
@@ -13953,6 +13977,8 @@ argsCacheJsonSignal args =
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
             , "blendPhaseCancelAlignmentScale" .= argBlendPhaseCancelAlignmentScale args
             , "routerLookback" .= argRouterLookback args
+            , "routerRegimeMinBars" .= argRouterRegimeMinBars args
+            , "routerRegimeMinFraction" .= argRouterRegimeMinFraction args
             , "routerMinScore" .= argRouterMinScore args
             , "routerScorePnlWeight" .= argRouterScorePnlWeight args
             , "triLayer" .= argTriLayer args
@@ -14210,6 +14236,8 @@ argsCacheJsonBacktest args =
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
             , "blendPhaseCancelAlignmentScale" .= argBlendPhaseCancelAlignmentScale args
             , "routerLookback" .= argRouterLookback args
+            , "routerRegimeMinBars" .= argRouterRegimeMinBars args
+            , "routerRegimeMinFraction" .= argRouterRegimeMinFraction args
             , "routerMinScore" .= argRouterMinScore args
             , "triLayer" .= argTriLayer args
             , "triLayerFastMult" .= argTriLayerFastMult args
@@ -15932,6 +15960,11 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                 routerScorePnlWeightArgs =
                     maybeDoubleArg "--router-score-pnl-weight-min" (fmap clamp01 (arrRouterScorePnlWeightMin req))
                         ++ maybeDoubleArg "--router-score-pnl-weight-max" (fmap clamp01 (arrRouterScorePnlWeightMax req))
+                routerRegimeArgs =
+                    maybeIntArg "--router-regime-min-bars-min" (fmap (max 0) (arrRouterRegimeMinBarsMin req))
+                        ++ maybeIntArg "--router-regime-min-bars-max" (fmap (max 0) (arrRouterRegimeMinBarsMax req))
+                        ++ maybeDoubleArg "--router-regime-min-fraction-min" (fmap clamp01 (arrRouterRegimeMinFractionMin req))
+                        ++ maybeDoubleArg "--router-regime-min-fraction-max" (fmap clamp01 (arrRouterRegimeMinFractionMax req))
                 adaptiveFilterArgs =
                     maybeDoubleArg "--adaptive-edge-buffer-max-min" (fmap (max 0) (arrAdaptiveEdgeBufferMaxMin req))
                         ++ maybeDoubleArg "--adaptive-edge-buffer-max-max" (fmap (max 0) (arrAdaptiveEdgeBufferMaxMax req))
@@ -16193,6 +16226,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ methodWeightBanditRouterArgs
                         ++ blendWeightArgs
                         ++ routerScorePnlWeightArgs
+                        ++ routerRegimeArgs
                         ++ kalmanMarketTopNArgs
                         ++ ["--output", outputPath]
             let intervalsList = splitEnvList intervalsVal
@@ -20246,6 +20280,8 @@ argsFromApi baseArgs p = do
                 , argFundingOnOpen = pick (apFundingOnOpen p) (argFundingOnOpen baseArgs)
                 , argBlendWeight = pick (apBlendWeight p) (argBlendWeight baseArgs)
                 , argRouterLookback = pick (apRouterLookback p) (argRouterLookback baseArgs)
+                , argRouterRegimeMinBars = max 0 (pick (apRouterRegimeMinBars p) (argRouterRegimeMinBars baseArgs))
+                , argRouterRegimeMinFraction = clamp01 (pick (apRouterRegimeMinFraction p) (argRouterRegimeMinFraction baseArgs))
                 , argRouterMinScore = pick (apRouterMinScore p) (argRouterMinScore baseArgs)
                 , argRouterScorePnlWeight = pick (apRouterScorePnlWeight p) (argRouterScorePnlWeight baseArgs)
                 , argTriLayer = pick (apTriLayer p) (argTriLayer baseArgs)
@@ -23271,6 +23307,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                                                 roundTripCost
                                                 (argRouterScorePnlWeight args)
                                                 (argRouterLookback args)
+                                                (argRouterRegimeMinBars args)
+                                                (argRouterRegimeMinFraction args)
                                                 (argRouterMinScore args)
                                                 pricesV
                                                 kalPred0
@@ -23290,6 +23328,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                                                 roundTripCost
                                                 (argRouterScorePnlWeight args)
                                                 (argRouterLookback args)
+                                                (argRouterRegimeMinBars args)
+                                                (argRouterRegimeMinFraction args)
                                                 (argRouterMinScore args)
                                                 pricesV
                                                 kalPred0
@@ -26363,6 +26403,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
                 , ecBlendPhaseCancelAlignmentScale = argBlendPhaseCancelAlignmentScale args
                 , ecRouterLookback = argRouterLookback args
+                , ecRouterRegimeMinBars = argRouterRegimeMinBars args
+                , ecRouterRegimeMinFraction = argRouterRegimeMinFraction args
                 , ecRouterMinScore = argRouterMinScore args
                 , ecRouterScorePnlWeight = argRouterScorePnlWeight args
                 , ecKalmanDt = argKalmanDt args
@@ -26679,6 +26721,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     roundTripCost
                     (argRouterScorePnlWeight args)
                     (argRouterLookback args)
+                    (argRouterRegimeMinBars args)
+                    (argRouterRegimeMinFraction args)
                     (argRouterMinScore args)
                     pricesV
                     kalV
@@ -26704,6 +26748,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     roundTripCost
                     (argRouterScorePnlWeight args)
                     (argRouterLookback args)
+                    (argRouterRegimeMinBars args)
+                    (argRouterRegimeMinFraction args)
                     (argRouterMinScore args)
                     pricesV
                     kalV
@@ -27451,12 +27497,24 @@ routerStatsWindow :: Double -> Double -> Double -> V.Vector Double -> V.Vector D
 routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV =
     routerStatsWindowWith openThr roundTripCost pnlWeight pricesV predsV (const True)
 
+routerRegimeMinBarsFromKnobs :: Int -> Double -> Int -> Int
+routerRegimeMinBarsFromKnobs minBarsRaw minFractionRaw lookback =
+    let minBars = max 0 minBarsRaw
+        minFraction =
+            if isNaN minFractionRaw || isInfinite minFractionRaw
+                then 0
+                else clamp01 minFractionRaw
+        fractionBars = floor (fromIntegral (max 0 lookback) * minFraction)
+     in max minBars fractionBars
+
 routerSelectModelAt ::
     Double ->
     Double ->
     Double ->
     Double ->
     Int ->
+    Int ->
+    Double ->
     Double ->
     V.Vector Double ->
     V.Vector Double ->
@@ -27468,7 +27526,7 @@ routerSelectModelAt ::
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-routerSelectModelAt highVolCutoffRaw openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
+routerSelectModelAt highVolCutoffRaw openThr roundTripCost pnlWeight lookback0 regimeMinBars0 regimeMinFraction0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -27483,7 +27541,7 @@ routerSelectModelAt highVolCutoffRaw openThr roundTripCost pnlWeight lookback0 m
         minScore = max 0 (min 1 minScore0)
         windowEnd = min (t - 1) (stepCount - 1)
         volCutoff = clamp01 highVolCutoffRaw
-        minRegimeBars = max 3 (lookback `div` 4)
+        minRegimeBars = routerRegimeMinBarsFromKnobs regimeMinBars0 regimeMinFraction0 lookback
         regimeAt i =
             case mMetaV of
                 Just metaV
@@ -27545,6 +27603,8 @@ banditSelectModelAt ::
     Double ->
     Double ->
     Int ->
+    Int ->
+    Double ->
     Double ->
     V.Vector Double ->
     V.Vector Double ->
@@ -27556,7 +27616,7 @@ banditSelectModelAt ::
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-banditSelectModelAt highVolCutoffRaw exploreScaleRaw openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
+banditSelectModelAt highVolCutoffRaw exploreScaleRaw openThr roundTripCost pnlWeight lookback0 regimeMinBars0 regimeMinFraction0 minScore0 pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -27571,7 +27631,7 @@ banditSelectModelAt highVolCutoffRaw exploreScaleRaw openThr roundTripCost pnlWe
         minScore = max 0 (min 1 minScore0)
         windowEnd = min (t - 1) (stepCount - 1)
         volCutoff = clamp01 highVolCutoffRaw
-        minRegimeBars = max 3 (lookback `div` 4)
+        minRegimeBars = routerRegimeMinBarsFromKnobs regimeMinBars0 regimeMinFraction0 lookback
         regimeAt i =
             case mMetaV of
                 Just metaV
@@ -27647,6 +27707,8 @@ routerPredictionsWithModelsV ::
     Double ->
     Double ->
     Int ->
+    Int ->
+    Double ->
     Double ->
     V.Vector Double ->
     V.Vector Double ->
@@ -27657,7 +27719,7 @@ routerPredictionsWithModelsV ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
+routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -27669,7 +27731,7 @@ routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookb
                 , V.length edgeBlendPredV
                 ]
         pickPred t =
-            case routerSelectModelAt highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
+            case routerSelectModelAt highVolCutoff openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
@@ -27687,6 +27749,8 @@ banditPredictionsWithModelsV ::
     Double ->
     Double ->
     Int ->
+    Int ->
+    Double ->
     Double ->
     V.Vector Double ->
     V.Vector Double ->
@@ -27697,7 +27761,7 @@ banditPredictionsWithModelsV ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-banditPredictionsWithModelsV highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
+banditPredictionsWithModelsV highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -27709,7 +27773,7 @@ banditPredictionsWithModelsV highVolCutoff exploreScale openThr roundTripCost pn
                 , V.length edgeBlendPredV
                 ]
         pickPred t =
-            case banditSelectModelAt highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
+            case banditSelectModelAt highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
@@ -27726,6 +27790,8 @@ routerPredictionsV ::
     Double ->
     Double ->
     Int ->
+    Int ->
+    Double ->
     Double ->
     V.Vector Double ->
     V.Vector Double ->
@@ -27735,8 +27801,8 @@ routerPredictionsV ::
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-routerPredictionsV highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV =
-    fst (routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV Nothing)
+routerPredictionsV highVolCutoff openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV =
+    fst (routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV costPickPredV regimeSwitchPredV edgeBlendPredV Nothing)
 
 computeLatestSignal ::
     Args ->
@@ -28905,6 +28971,11 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                 )
                     _ -> Nothing
             routerLookback = max 1 (argRouterLookback args)
+            routerRegimeMinBars = max 0 (argRouterRegimeMinBars args)
+            routerRegimeMinFraction =
+                if isNaN (argRouterRegimeMinFraction args) || isInfinite (argRouterRegimeMinFraction args)
+                    then 0
+                    else clamp01 (argRouterRegimeMinFraction args)
             routerMinScore = max 0 (min 1 (argRouterMinScore args))
             (mRouterModel, mRouterReason) =
                 case (method, mKalmanCtx, mLstmCtxSafe) of
@@ -28969,6 +29040,8 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                                         roundTripCost
                                         (argRouterScorePnlWeight args)
                                         routerLookback
+                                        routerRegimeMinBars
+                                        routerRegimeMinFraction
                                         routerMinScore
                                         pricesV
                                         kalPredV

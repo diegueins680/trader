@@ -55,6 +55,8 @@ export type FormState = {
   fundingOnOpen: boolean;
   blendWeight: number;
   routerLookback: number;
+  routerRegimeMinBars: number;
+  routerRegimeMinFraction: number;
   routerMinScore: number;
   backtestRatio: number;
   tuneRatio: number;
@@ -158,6 +160,8 @@ export const defaultForm: FormState = {
   fundingOnOpen: false,
   blendWeight: 0.5,
   routerLookback: 30,
+  routerRegimeMinBars: 3,
+  routerRegimeMinFraction: 0.25,
   routerMinScore: 0.25,
   backtestRatio: 0.2,
   tuneRatio: 0.25,
@@ -514,6 +518,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   const volLookback = normalizeWholeNumber(rawRec.volLookback ?? merged.volLookback, defaultForm.volLookback, 0, 1e9);
   const rebalanceBars = normalizeWholeNumber(rawRec.rebalanceBars ?? merged.rebalanceBars, defaultForm.rebalanceBars, 0, 1e9);
   const routerLookback = normalizeWholeNumber(rawRec.routerLookback ?? merged.routerLookback, defaultForm.routerLookback, 2, 1_000_000);
+  const routerRegimeMinBars = normalizeWholeNumber(rawRec.routerRegimeMinBars ?? merged.routerRegimeMinBars, defaultForm.routerRegimeMinBars, 0, 1_000_000);
   const botPollSeconds = normalizeWholeNumber(rawRec.botPollSeconds ?? merged.botPollSeconds, defaultForm.botPollSeconds, 0, 3600);
   const botOnlineEpochs = normalizeWholeNumber(
     rawRec.botOnlineEpochs ?? merged.botOnlineEpochs,
@@ -632,6 +637,8 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     fundingOnOpen: normalizeBool(rawRec.fundingOnOpen ?? merged.fundingOnOpen, defaultForm.fundingOnOpen),
     blendWeight: normalizeFiniteNumber(rawRec.blendWeight ?? merged.blendWeight, defaultForm.blendWeight, 0, 1),
     routerLookback,
+    routerRegimeMinBars,
+    routerRegimeMinFraction: normalizeFiniteNumber(rawRec.routerRegimeMinFraction ?? merged.routerRegimeMinFraction, defaultForm.routerRegimeMinFraction, 0, 1),
     routerMinScore: normalizeFiniteNumber(rawRec.routerMinScore ?? merged.routerMinScore, defaultForm.routerMinScore, 0, 1),
     maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
     maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),

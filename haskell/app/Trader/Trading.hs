@@ -75,6 +75,8 @@ data EnsembleConfig = EnsembleConfig
     , ecCloseThreshold :: !Double
     , ecMinEdge :: !Double
     , ecRouterLookback :: !Int
+    , ecRouterRegimeMinBars :: !Int
+    , ecRouterRegimeMinFraction :: !Double
     , ecRouterMinScore :: !Double
     , ecRouterScorePnlWeight :: !Double
     , ecFee :: !Double

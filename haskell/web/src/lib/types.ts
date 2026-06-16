@@ -122,6 +122,8 @@ export type ApiParams = {
   fundingOnOpen?: boolean;
   blendWeight?: number;
   routerLookback?: number;
+  routerRegimeMinBars?: number;
+  routerRegimeMinFraction?: number;
   routerMinScore?: number;
   periodsPerYear?: number;
   binanceLive?: boolean;
@@ -821,6 +823,10 @@ export type OptimizerRunRequest = {
   methodWeightBanditRouter?: number;
   blendWeightMin?: number;
   blendWeightMax?: number;
+  routerRegimeMinBarsMin?: number;
+  routerRegimeMinBarsMax?: number;
+  routerRegimeMinFractionMin?: number;
+  routerRegimeMinFractionMax?: number;
   disableLstmPersistence?: boolean;
   noSweepThreshold?: boolean;
 } & Record<string, unknown>;

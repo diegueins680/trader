@@ -1975,6 +1975,11 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         minRoundTripsReq = max 0 (tcMinRoundTrips cfg)
         ineligibleScore = -1e18 :: Double
         routerLookback = max 2 (ecRouterLookback baseCfg)
+        routerRegimeMinBars = max 0 (ecRouterRegimeMinBars baseCfg)
+        routerRegimeMinFraction =
+            if isNaN (ecRouterRegimeMinFraction baseCfg) || isInfinite (ecRouterRegimeMinFraction baseCfg)
+                then 0
+                else clamp01 (ecRouterRegimeMinFraction baseCfg)
         routerMinScore = clamp01 (ecRouterMinScore baseCfg)
         routerScorePnlWeight = clamp01 (ecRouterScorePnlWeight baseCfg)
         costPerSideTotal size volPerBar =
@@ -2862,6 +2867,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                         roundTripCost
                                         routerScorePnlWeight
                                         routerLookback
+                                        routerRegimeMinBars
+                                        routerRegimeMinFraction
                                         routerMinScore
                                         pricesV
                                         kalV
@@ -2880,6 +2887,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                         roundTripCost
                                         routerScorePnlWeight
                                         routerLookback
+                                        routerRegimeMinBars
+                                        routerRegimeMinFraction
                                         routerMinScore
                                         pricesV
                                         kalV
@@ -3110,12 +3119,24 @@ routerStatsWindow :: Double -> Double -> Double -> V.Vector Double -> V.Vector D
 routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV =
     routerStatsWindowWith openThr roundTripCost pnlWeight pricesV predsV (const True)
 
+routerRegimeMinBarsFromKnobs :: Int -> Double -> Int -> Int
+routerRegimeMinBarsFromKnobs minBarsRaw minFractionRaw lookback =
+    let minBars = max 0 minBarsRaw
+        minFraction =
+            if isNaN minFractionRaw || isInfinite minFractionRaw
+                then 0
+                else clamp01 minFractionRaw
+        fractionBars = floor (fromIntegral (max 0 lookback) * minFraction)
+     in max minBars fractionBars
+
 routerSelectModelAt ::
     Double ->
     Double ->
     Double ->
     Double ->
     Int ->
+    Int ->
+    Double ->
     Double ->
     V.Vector Double ->
     V.Vector Double ->
@@ -3124,7 +3145,7 @@ routerSelectModelAt ::
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-routerSelectModelAt highVolCutoffRaw openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
+routerSelectModelAt highVolCutoffRaw openThr roundTripCost pnlWeight lookback0 regimeMinBars0 regimeMinFraction0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -3136,7 +3157,7 @@ routerSelectModelAt highVolCutoffRaw openThr roundTripCost pnlWeight lookback0 m
         minScore = max 0 (min 1 minScore0)
         windowEnd = min (t - 1) (stepCount - 1)
         volCutoff = clamp01 highVolCutoffRaw
-        minRegimeBars = max 3 (lookback `div` 4)
+        minRegimeBars = routerRegimeMinBarsFromKnobs regimeMinBars0 regimeMinFraction0 lookback
         regimeAt i =
             case mMetaV of
                 Just metaV
@@ -3183,6 +3204,8 @@ routerPredictionsWithModelsV ::
     Double ->
     Double ->
     Int ->
+    Int ->
+    Double ->
     Double ->
     V.Vector Double ->
     V.Vector Double ->
@@ -3190,7 +3213,7 @@ routerPredictionsWithModelsV ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
+routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -3199,7 +3222,7 @@ routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookb
                 , V.length blendPredV
                 ]
         pickPred t =
-            case routerSelectModelAt highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
+            case routerSelectModelAt highVolCutoff openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
@@ -3214,6 +3237,8 @@ banditSelectModelAt ::
     Double ->
     Double ->
     Int ->
+    Int ->
+    Double ->
     Double ->
     V.Vector Double ->
     V.Vector Double ->
@@ -3222,7 +3247,7 @@ banditSelectModelAt ::
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-banditSelectModelAt highVolCutoffRaw exploreScaleRaw openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
+banditSelectModelAt highVolCutoffRaw exploreScaleRaw openThr roundTripCost pnlWeight lookback0 regimeMinBars0 regimeMinFraction0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -3234,7 +3259,7 @@ banditSelectModelAt highVolCutoffRaw exploreScaleRaw openThr roundTripCost pnlWe
         minScore = max 0 (min 1 minScore0)
         windowEnd = min (t - 1) (stepCount - 1)
         volCutoff = clamp01 highVolCutoffRaw
-        minRegimeBars = max 3 (lookback `div` 4)
+        minRegimeBars = routerRegimeMinBarsFromKnobs regimeMinBars0 regimeMinFraction0 lookback
         regimeAt i =
             case mMetaV of
                 Just metaV
@@ -3288,6 +3313,8 @@ banditPredictionsWithModelsV ::
     Double ->
     Double ->
     Int ->
+    Int ->
+    Double ->
     Double ->
     V.Vector Double ->
     V.Vector Double ->
@@ -3295,7 +3322,7 @@ banditPredictionsWithModelsV ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-banditPredictionsWithModelsV highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
+banditPredictionsWithModelsV highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -3304,7 +3331,7 @@ banditPredictionsWithModelsV highVolCutoff exploreScale openThr roundTripCost pn
                 , V.length blendPredV
                 ]
         pickPred t =
-            case banditSelectModelAt highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
+            case banditSelectModelAt highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback regimeMinBars regimeMinFraction minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)

@@ -393,6 +393,10 @@ optimizerArgsParser =
         <*> strOption (long "predictors" <> value "all" <> metavar "LIST")
         <*> option auto (long "router-lookback-min" <> value 20 <> metavar "INT")
         <*> option auto (long "router-lookback-max" <> value 180 <> metavar "INT")
+        <*> option auto (long "router-regime-min-bars-min" <> value 3 <> metavar "INT")
+        <*> option auto (long "router-regime-min-bars-max" <> value 45 <> metavar "INT")
+        <*> option auto (long "router-regime-min-fraction-min" <> value 0.10 <> metavar "FLOAT")
+        <*> option auto (long "router-regime-min-fraction-max" <> value 0.50 <> metavar "FLOAT")
         <*> option auto (long "router-min-score-min" <> value 0.05 <> metavar "FLOAT")
         <*> option auto (long "router-min-score-max" <> value 0.7 <> metavar "FLOAT")
         <*> option auto (long "fee-fixed-min" <> value 0.0 <> metavar "FLOAT")
@@ -809,6 +813,15 @@ validateArgs args = do
         Left "--threshold-factor-floor-min/max must be >= 0."
     when (oaRouterLookbackMin args < 2 || oaRouterLookbackMax args < 2) $
         Left "--router-lookback-min/max must be >= 2."
+    when (oaRouterRegimeMinBarsMin args < 0 || oaRouterRegimeMinBarsMax args < 0) $
+        Left "--router-regime-min-bars-min/max must be >= 0."
+    when
+        ( oaRouterRegimeMinFractionMin args < 0
+            || oaRouterRegimeMinFractionMin args > 1
+            || oaRouterRegimeMinFractionMax args < 0
+            || oaRouterRegimeMinFractionMax args > 1
+        )
+        $ Left "--router-regime-min-fraction-min/max must be between 0 and 1."
     when
         ( oaTakeProfitPartialMin args < 0
             || oaTakeProfitPartialMin args >= 1

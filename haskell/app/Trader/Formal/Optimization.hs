@@ -703,6 +703,8 @@ optimizerSurfacePreservedFields base updated =
         [ ecPeriodsPerYear updated == ecPeriodsPerYear base
         , ecMinEdge updated == ecMinEdge base
         , ecRouterLookback updated == ecRouterLookback base
+        , ecRouterRegimeMinBars updated == ecRouterRegimeMinBars base
+        , ecRouterRegimeMinFraction updated == ecRouterRegimeMinFraction base
         , ecRouterMinScore updated == ecRouterMinScore base
         , ecRouterScorePnlWeight updated == ecRouterScorePnlWeight base
         , ecFee updated == ecFee base
@@ -772,6 +774,8 @@ optimizerPublicSurfaceBaseConfig =
         , ecCloseThreshold = 0.01
         , ecMinEdge = 0.001
         , ecRouterLookback = 8
+        , ecRouterRegimeMinBars = 3
+        , ecRouterRegimeMinFraction = 0.25
         , ecRouterMinScore = 0.55
         , ecRouterScorePnlWeight = 0.25
         , ecFee = 0.001

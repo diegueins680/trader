@@ -323,6 +323,7 @@ main = do
     testOpenThresholdRejectsInvalidValues
     testCloseThresholdRejectsInvalidValues
     testRouterLookbackRejectsInvalidValues
+    testRouterRegimeFloorRejectsInvalidValues
     testRouterMinScoreRejectsInvalidValues
     testRouterScorePnlWeightRejectsInvalidValues
     testExpectancyLookbackRejectsNegativeValue
@@ -1952,6 +1953,30 @@ testRouterLookbackRejectsInvalidValues = do
             Left _ -> False
         )
 
+testRouterRegimeFloorRejectsInvalidValues :: IO ()
+testRouterRegimeFloorRejectsInvalidValues = do
+    assert
+        "router-regime-min-bars rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--router-regime-min-bars", "-1"] == Left "--router-regime-min-bars must be >= 0")
+    assert
+        "router-regime-min-fraction rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--router-regime-min-fraction", "-0.1"] == Left "--router-regime-min-fraction must be between 0 and 1")
+    assert
+        "router-regime-min-fraction rejects values above 1"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--router-regime-min-fraction", "1.1"] == Left "--router-regime-min-fraction must be between 0 and 1")
+    assert
+        "router-regime floor defaults preserve prior behavior"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv"] of
+            Right args -> argRouterRegimeMinBars args == 3 && argRouterRegimeMinFraction args == 0.25
+            Left _ -> False
+        )
+    assert
+        "router-regime floor accepts zero bars and full fraction"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--router-regime-min-bars", "0", "--router-regime-min-fraction", "1"] of
+            Right args -> argRouterRegimeMinBars args == 0 && argRouterRegimeMinFraction args == 1
+            Left _ -> False
+        )
+
 testRouterMinScoreRejectsInvalidValues :: IO ()
 testRouterMinScoreRejectsInvalidValues = do
     assert
@@ -2486,6 +2511,8 @@ sampleEnsembleConfig =
         , ecCloseThreshold = 0.005
         , ecMinEdge = 0
         , ecRouterLookback = 20
+        , ecRouterRegimeMinBars = 3
+        , ecRouterRegimeMinFraction = 0.25
         , ecRouterMinScore = 0
         , ecRouterScorePnlWeight = 1
         , ecFee = 0.001
@@ -2646,6 +2673,8 @@ optimizerPublicSurfaceWitnessConfig =
         , ecCloseThreshold = 0.01
         , ecMinEdge = 0.001
         , ecRouterLookback = 8
+        , ecRouterRegimeMinBars = 4
+        , ecRouterRegimeMinFraction = 0.5
         , ecRouterMinScore = 0.55
         , ecRouterScorePnlWeight = 0.25
         , ecSlippage = 0.0005

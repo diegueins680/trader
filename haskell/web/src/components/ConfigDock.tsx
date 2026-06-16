@@ -1667,6 +1667,54 @@ export const ConfigDock = (props: ConfigDockProps) => {
           </div>
         </div>
 
+        <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr" }}>
+          <div className="field">
+            <div className="labelRow">
+              <label className="label" htmlFor="routerRegimeMinBars">
+                Router regime bars
+              </label>
+              <InfoPopover label="Router settings">
+                <InfoList items={COMPLEX_TIPS.router} />
+              </InfoPopover>
+            </div>
+            <input
+              id="routerRegimeMinBars"
+              className="input"
+              type="number"
+              step="1"
+              min={0}
+              value={form.routerRegimeMinBars}
+              onChange={(e) => setForm((f) => ({ ...f, routerRegimeMinBars: numFromInput(e.target.value, f.routerRegimeMinBars) }))}
+              disabled={form.method !== "router" && form.method !== "bandit_router"}
+            />
+            <div className="hint">Same-regime sample floor before regime-only scoring.</div>
+          </div>
+          <div className="field">
+            <div className="labelRow">
+              <label className="label" htmlFor="routerRegimeMinFraction">
+                Router regime fraction
+              </label>
+              <InfoPopover label="Router settings">
+                <InfoList items={COMPLEX_TIPS.router} />
+              </InfoPopover>
+              {pctTag(form.routerRegimeMinFraction, 0)}
+            </div>
+            <input
+              id="routerRegimeMinFraction"
+              className="input"
+              type="number"
+              step="0.05"
+              min={0}
+              max={1}
+              inputMode="decimal"
+              value={form.routerRegimeMinFraction}
+              onChange={(e) => setForm((f) => ({ ...f, routerRegimeMinFraction: numFromInput(e.target.value, f.routerRegimeMinFraction) }))}
+              disabled={form.method !== "router" && form.method !== "bandit_router"}
+            />
+            <div className="hint">Lookback fraction required for regime-only scoring.</div>
+          </div>
+        </div>
+
         <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
           <div className="field">
             <div className="labelRow">

@@ -391,6 +391,8 @@ data Args = Args
     , argBlendPhaseCancelConflictScale :: Double
     , argBlendPhaseCancelAlignmentScale :: Double
     , argRouterLookback :: Int
+    , argRouterRegimeMinBars :: Int
+    , argRouterRegimeMinFraction :: Double
     , argRouterMinScore :: Double
     , argRouterScorePnlWeight :: Double
     , argTriLayer :: Bool
@@ -1267,6 +1269,8 @@ opts = do
     argBlendPhaseCancelConflictScale <- option auto (long "blend-phase-cancel-conflict-scale" <> value 0.6 <> showDefault <> help "Cancellation-sensitive return multiplier for --method phase_cancel conflicts")
     argBlendPhaseCancelAlignmentScale <- option auto (long "blend-phase-cancel-alignment-scale" <> value 0.4 <> showDefault <> help "Agreement-sensitive return boost for --method phase_cancel")
     argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router/bandit_router scoring (>= 2)")
+    argRouterRegimeMinBars <- option auto (long "router-regime-min-bars" <> value 3 <> showDefault <> help "Minimum same-regime bars before router/bandit_router restricts scoring to the current volatility regime")
+    argRouterRegimeMinFraction <- option auto (long "router-regime-min-fraction" <> value 0.25 <> showDefault <> help "Minimum same-regime lookback fraction before router/bandit_router restricts scoring to the current volatility regime")
     argRouterMinScore <- option auto (long "router-min-score" <> value 0.25 <> help "Minimum router score (blend of accuracy*coverage and return) to accept a model (0..1)")
     argRouterScorePnlWeight <-
         option
@@ -1850,6 +1854,7 @@ validateArgs args0 = do
             , ("--blend-phase-cancel-conflict-floor", argBlendPhaseCancelConflictFloor args)
             , ("--blend-phase-cancel-conflict-scale", argBlendPhaseCancelConflictScale args)
             , ("--blend-phase-cancel-alignment-scale", argBlendPhaseCancelAlignmentScale args)
+            , ("--router-regime-min-fraction", argRouterRegimeMinFraction args)
             , ("--router-min-score", argRouterMinScore args)
             , ("--router-score-pnl-weight", argRouterScorePnlWeight args)
             , ("--tri-layer-fast-mult", argTriLayerFastMult args)
@@ -1998,6 +2003,8 @@ validateArgs args0 = do
     ensure "--open-threshold/--threshold must be <= 1" (argOpenThreshold args <= 1)
     ensure "--close-threshold must be >= 0" (argCloseThreshold args >= 0)
     ensure "--router-lookback must be >= 2" (argRouterLookback args >= 2)
+    ensure "--router-regime-min-bars must be >= 0" (argRouterRegimeMinBars args >= 0)
+    ensure "--router-regime-min-fraction must be between 0 and 1" (argRouterRegimeMinFraction args >= 0 && argRouterRegimeMinFraction args <= 1)
     ensure "--router-min-score must be between 0 and 1" (argRouterMinScore args >= 0 && argRouterMinScore args <= 1)
     ensure "--router-score-pnl-weight must be between 0 and 1" (argRouterScorePnlWeight args >= 0 && argRouterScorePnlWeight args <= 1)
     ensure "--blend-softmax-scale must be > 0" (argBlendSoftmaxScale args > 0)

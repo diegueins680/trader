@@ -77,6 +77,8 @@ const PARAM_LABELS: Record<string, string> = {
   rebalanceCostMult: "Rebalance cost mult",
   rebalanceThreshold: "Rebalance threshold",
   routerLookback: "Router lookback",
+  routerRegimeMinBars: "Router regime bars",
+  routerRegimeMinFraction: "Router regime fraction",
   routerMinScore: "Router min score",
   slippage: "Slippage",
   spread: "Spread",

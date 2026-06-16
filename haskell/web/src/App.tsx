@@ -3904,6 +3904,8 @@ export function App() {
       fundingOnOpen,
       blendWeight: clamp(form.blendWeight, 0, 1),
       routerLookback: clamp(Math.trunc(form.routerLookback), 2, 1_000_000),
+      routerRegimeMinBars: clamp(Math.trunc(form.routerRegimeMinBars), 0, 1_000_000),
+      routerRegimeMinFraction: clamp(form.routerRegimeMinFraction, 0, 1),
       routerMinScore: clamp(form.routerMinScore, 0, 1),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       tuneRatio: clamp(form.tuneRatio, 0, 0.99),

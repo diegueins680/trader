@@ -479,6 +479,8 @@ normalizeTrialParams p =
             , tpKellyLiteFraction = max 0 (tpKellyLiteFraction p)
             , tpKellyLiteFloor = kellyLiteFloor'
             , tpKellyLiteCap = kellyLiteCap'
+            , tpRouterRegimeMinBars = max 0 (tpRouterRegimeMinBars p)
+            , tpRouterRegimeMinFraction = clamp (tpRouterRegimeMinFraction p) 0 1
             , tpRouterMinScore = clamp (tpRouterMinScore p) 0 1
             , tpTakeProfitPartial = normalizeOptionalPositiveFraction (tpTakeProfitPartial p)
             , tpAdaptiveWinRateSlack = max 0 (tpAdaptiveWinRateSlack p)
@@ -2640,6 +2642,10 @@ data OptimizerArgs = OptimizerArgs
     , oaPredictors :: !String
     , oaRouterLookbackMin :: !Int
     , oaRouterLookbackMax :: !Int
+    , oaRouterRegimeMinBarsMin :: !Int
+    , oaRouterRegimeMinBarsMax :: !Int
+    , oaRouterRegimeMinFractionMin :: !Double
+    , oaRouterRegimeMinFractionMax :: !Double
     , oaRouterMinScoreMin :: !Double
     , oaRouterMinScoreMax :: !Double
     , oaFeeFixedMin :: !Double
@@ -3077,6 +3083,8 @@ data TrialParams = TrialParams
     , tpKellyLiteCap :: !Double
     , tpPredictors :: !String
     , tpRouterLookback :: !Int
+    , tpRouterRegimeMinBars :: !Int
+    , tpRouterRegimeMinFraction :: !Double
     , tpRouterMinScore :: !Double
     , tpFeeFixed :: !Double
     , tpSlippageImpact :: !Double
@@ -3354,6 +3362,10 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , tpPredictors params
                    , "--router-lookback"
                    , show (max 2 (tpRouterLookback params))
+                   , "--router-regime-min-bars"
+                   , show (max 0 (tpRouterRegimeMinBars params))
+                   , "--router-regime-min-fraction"
+                   , printf "%.12g" (clamp (tpRouterRegimeMinFraction params) 0 1)
                    , "--router-min-score"
                    , printf "%.12g" (tpRouterMinScore params)
                    , "--adaptive-edge-buffer-max"
@@ -4002,6 +4014,8 @@ trialToRecord tr symbolLabel =
             , "kellyLiteCap" .= tpKellyLiteCap (trParams tr)
             , "predictors" .= tpPredictors (trParams tr)
             , "routerLookback" .= tpRouterLookback (trParams tr)
+            , "routerRegimeMinBars" .= tpRouterRegimeMinBars (trParams tr)
+            , "routerRegimeMinFraction" .= tpRouterRegimeMinFraction (trParams tr)
             , "routerMinScore" .= tpRouterMinScore (trParams tr)
             , "feeFixed" .= tpFeeFixed (trParams tr)
             , "slippageImpact" .= tpSlippageImpact (trParams tr)
@@ -4251,6 +4265,8 @@ sampleParams
     maxOeRange
     predictorChoices
     routerLookbackRange
+    routerRegimeMinBarsRange
+    routerRegimeMinFractionRange
     routerMinScoreRange
     feeFixedRange
     slippageImpactRange
@@ -4784,7 +4800,11 @@ sampleParams
             (predictorsChoice, rng75) = nextChoice predictorChoices rng74
             predictors = fromMaybe "all" predictorsChoice
             (routerLookback, rng76) = uncurry nextIntRange routerLookbackRange rng75
-            (routerMinScore, rng77) = uncurry nextUniform routerMinScoreRange rng76
+            (routerRegimeMinBars, rng76a) = uncurry nextIntRange routerRegimeMinBarsRange rng76
+            (routerRegimeMinFraction, rng76b) =
+                let (lo, hi) = ordered routerRegimeMinFractionRange
+                 in nextUniform (clamp lo 0 1) (clamp hi 0 1) rng76a
+            (routerMinScore, rng77) = uncurry nextUniform routerMinScoreRange rng76b
             (feeFixed, rng78) =
                 let (lo, hi) = ordered feeFixedRange
                  in nextUniform (max 0 lo) (max 0 hi) rng77
@@ -5093,6 +5113,8 @@ sampleParams
                 , tpKellyLiteCap = max (max 0 kellyLiteFloor) kellyLiteCap
                 , tpPredictors = predictors
                 , tpRouterLookback = routerLookback
+                , tpRouterRegimeMinBars = routerRegimeMinBars
+                , tpRouterRegimeMinFraction = routerRegimeMinFraction
                 , tpRouterMinScore = routerMinScore
                 , tpFeeFixed = feeFixed
                 , tpSlippageImpact = slippageImpact
@@ -5539,6 +5561,10 @@ runOptimizer args0 = do
                                                             [trim s | s <- splitCsv (oaPredictors args), not (null (trim s))]
                                                         routerLookbackRange =
                                                             (max 2 (oaRouterLookbackMin args), max 2 (oaRouterLookbackMax args))
+                                                        routerRegimeMinBarsRange =
+                                                            (max 0 (oaRouterRegimeMinBarsMin args), max 0 (oaRouterRegimeMinBarsMax args))
+                                                        routerRegimeMinFractionRange =
+                                                            (clamp (oaRouterRegimeMinFractionMin args) 0 1, clamp (oaRouterRegimeMinFractionMax args) 0 1)
                                                         routerMinScoreRange = (oaRouterMinScoreMin args, oaRouterMinScoreMax args)
                                                         feeFixedRange = (max 0 (oaFeeFixedMin args), max 0 (oaFeeFixedMax args))
                                                         slippageImpactRange = (max 0 (oaSlippageImpactMin args), max 0 (oaSlippageImpactMax args))
@@ -5866,6 +5892,8 @@ runOptimizer args0 = do
                                                                                 (oaMaxOeMin args, oaMaxOeMax args)
                                                                                 predictorChoices
                                                                                 routerLookbackRange
+                                                                                routerRegimeMinBarsRange
+                                                                                routerRegimeMinFractionRange
                                                                                 routerMinScoreRange
                                                                                 feeFixedRange
                                                                                 slippageImpactRange
@@ -6580,6 +6608,8 @@ printBest tr = do
     putStrLn ("  base thresholds: open=" ++ show (tpBaseOpenThreshold p) ++ " close=" ++ show (tpBaseCloseThreshold p))
     putStrLn ("  blendWeight:  " ++ show (tpBlendWeight p))
     putStrLn ("  routerScorePnlWeight: " ++ show (tpRouterScorePnlWeight p))
+    putStrLn ("  routerRegimeMinBars: " ++ show (tpRouterRegimeMinBars p))
+    putStrLn ("  routerRegimeMinFraction: " ++ show (tpRouterRegimeMinFraction p))
     putStrLn ("  minHoldBars:  " ++ show (tpMinHoldBars p))
     putStrLn ("  cooldownBars: " ++ show (tpCooldownBars p))
     putStrLn ("  maxHoldBars:  " ++ showMaybe (tpMaxHoldBars p))
@@ -6994,7 +7024,10 @@ crossoverTrialParams a b rng0 =
         (tpKellyLiteCap', rng98d) = pickValue (tpKellyLiteCap a) (tpKellyLiteCap b) rng98c
         (tpPredictors', rng99) = pickValue (tpPredictors a) (tpPredictors b) rng98d
         (tpRouterLookback', rng100) = pickValue (tpRouterLookback a) (tpRouterLookback b) rng99
-        (tpRouterMinScore', rng101) = pickValue (tpRouterMinScore a) (tpRouterMinScore b) rng100
+        (tpRouterRegimeMinBars', rng100a) = pickValue (tpRouterRegimeMinBars a) (tpRouterRegimeMinBars b) rng100
+        (tpRouterRegimeMinFraction', rng100b) =
+            pickValue (tpRouterRegimeMinFraction a) (tpRouterRegimeMinFraction b) rng100a
+        (tpRouterMinScore', rng101) = pickValue (tpRouterMinScore a) (tpRouterMinScore b) rng100b
         (tpFeeFixed', rng102) = pickValue (tpFeeFixed a) (tpFeeFixed b) rng101
         (tpSlippageImpact', rng103) = pickValue (tpSlippageImpact a) (tpSlippageImpact b) rng102
         (tpSlippageImpactPower', rng104) = pickValue (tpSlippageImpactPower a) (tpSlippageImpactPower b) rng103
@@ -7175,6 +7208,8 @@ crossoverTrialParams a b rng0 =
                 , tpKellyLiteCap = tpKellyLiteCap'
                 , tpPredictors = tpPredictors'
                 , tpRouterLookback = tpRouterLookback'
+                , tpRouterRegimeMinBars = tpRouterRegimeMinBars'
+                , tpRouterRegimeMinFraction = tpRouterRegimeMinFraction'
                 , tpRouterMinScore = tpRouterMinScore'
                 , tpFeeFixed = tpFeeFixed'
                 , tpSlippageImpact = tpSlippageImpact'
@@ -7307,7 +7342,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (thresholdFactorLstmConfWeight', rng43) = perturbDoubleSigned (tpThresholdFactorLstmConfWeight p) scaleDouble rng42
         (thresholdFactorLstmHealthWeight', rng44) = perturbDoubleSigned (tpThresholdFactorLstmHealthWeight p) scaleDouble rng43
         (routerLookback', rng45) = perturbInt (tpRouterLookback p) scaleInt rng44
-        (routerMinScore', rng46) = perturbDouble (tpRouterMinScore p) scaleDouble rng45
+        (routerRegimeMinBars', rng45a) = perturbInt (tpRouterRegimeMinBars p) scaleInt rng45
+        (routerRegimeMinFraction', rng45b) = perturbDouble (tpRouterRegimeMinFraction p) scaleDouble rng45a
+        (routerMinScore', rng46) = perturbDouble (tpRouterMinScore p) scaleDouble rng45b
         (feeFixed', rng47) = perturbDouble (tpFeeFixed p) scaleDouble rng46
         (slippageImpact', rng48) = perturbDouble (tpSlippageImpact p) scaleDouble rng47
         (slippageImpactPower', rng49) = perturbDouble (tpSlippageImpactPower p) scaleDouble rng48
@@ -7418,6 +7455,8 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpLstmAdamBeta2 = lstmAdamBeta2'
                 , tpLstmAdamEps = lstmAdamEps'
                 , tpRouterLookback = routerLookback'
+                , tpRouterRegimeMinBars = max 0 routerRegimeMinBars'
+                , tpRouterRegimeMinFraction = clamp routerRegimeMinFraction' 0 1
                 , tpRouterMinScore = routerMinScore'
                 , tpFeeFixed = feeFixed'
                 , tpSlippageImpact = slippageImpact'
@@ -7695,6 +7734,8 @@ applyPriorOverlay allowedIntervals prior base =
                 , tpKellyLiteCap = fromMaybe (tpKellyLiteCap base) (doubleField ["kellyLiteCap"] params)
                 , tpPredictors = fromMaybe (tpPredictors base) (stringField ["predictors"] params)
                 , tpRouterLookback = fromMaybe (tpRouterLookback base) (intField ["routerLookback"] params)
+                , tpRouterRegimeMinBars = fromMaybe (tpRouterRegimeMinBars base) (intField ["routerRegimeMinBars"] params)
+                , tpRouterRegimeMinFraction = fromMaybe (tpRouterRegimeMinFraction base) (doubleField ["routerRegimeMinFraction"] params)
                 , tpRouterMinScore = fromMaybe (tpRouterMinScore base) (doubleField ["routerMinScore"] params)
                 , tpFeeFixed = fromMaybe (tpFeeFixed base) (doubleField ["feeFixed"] params)
                 , tpSlippageImpact = fromMaybe (tpSlippageImpact base) (doubleField ["slippageImpact"] params)
@@ -8014,6 +8055,8 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "kellyLiteCap" .= tpKellyLiteCap params
                 , "predictors" .= tpPredictors params
                 , "routerLookback" .= tpRouterLookback params
+                , "routerRegimeMinBars" .= tpRouterRegimeMinBars params
+                , "routerRegimeMinFraction" .= tpRouterRegimeMinFraction params
                 , "routerMinScore" .= tpRouterMinScore params
                 , "feeFixed" .= tpFeeFixed params
                 , "slippageImpact" .= tpSlippageImpact params
