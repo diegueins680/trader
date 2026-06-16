@@ -308,9 +308,12 @@ import Trader.LSTM (
     trainLSTMMulti,
  )
 import Trader.LiveGap (
+    LiveGapConfig (..),
     LiveGapStats (..),
-    liveGapMethodMultiplier,
-    liveGapStatsByMethod,
+    defaultLiveGapConfig,
+    liveGapMethodMultiplierWithConfig,
+    liveGapStatsByMethodWithConfig,
+    validateLiveGapConfig,
  )
 import Trader.LstmPersistence (lstmModelKey)
 import Trader.MarketContext (MarketModel (..), buildMarketModel, marketMeasurementAt)
@@ -10578,6 +10581,37 @@ readAutoOptimizerBaseMethodWeights =
                     _ -> aomwWeight spec
         pure spec{aomwWeight = weight}
 
+readAutoOptimizerLiveGapConfig :: IO LiveGapConfig
+readAutoOptimizerLiveGapConfig = do
+    minComboOperations <- readInt "TRADER_OPTIMIZER_LIVE_GAP_MIN_COMBO_OPERATIONS" (lgcMinComboOperations defaultLiveGapConfig)
+    minTotalOperations <- readInt "TRADER_OPTIMIZER_LIVE_GAP_MIN_TOTAL_OPERATIONS" (lgcMinTotalOperations defaultLiveGapConfig)
+    multiplierFloor <- readDouble "TRADER_OPTIMIZER_LIVE_GAP_MULTIPLIER_FLOOR" (lgcMultiplierFloor defaultLiveGapConfig)
+    multiplierCeiling <- readDouble "TRADER_OPTIMIZER_LIVE_GAP_MULTIPLIER_CEILING" (lgcMultiplierCeiling defaultLiveGapConfig)
+    let config =
+            LiveGapConfig
+                { lgcMinComboOperations = minComboOperations
+                , lgcMinTotalOperations = minTotalOperations
+                , lgcMultiplierFloor = multiplierFloor
+                , lgcMultiplierCeiling = multiplierCeiling
+                }
+    pure $
+        case validateLiveGapConfig config of
+            Right valid -> valid
+            Left _ -> defaultLiveGapConfig
+  where
+    readInt name fallback = do
+        raw <- lookupEnv name
+        pure $
+            case raw >>= readMaybe of
+                Just value | value >= 0 -> value
+                _ -> fallback
+    readDouble name fallback = do
+        raw <- lookupEnv name
+        pure $
+            case raw >>= readMaybe of
+                Just value | value >= 0 && isFiniteDouble value -> value
+                _ -> fallback
+
 autoOptimizerLoop :: Args -> Maybe StateSyncTarget -> Maybe OpsStore -> Maybe Journal -> FilePath -> TopCombosStore -> IO ()
 autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore = do
     enabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
@@ -10679,6 +10713,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     maxOutputBytes <- optimizerOutputCapFromEnv
                                     exePath <- getExecutablePath
                                     autoMethodWeights <- readAutoOptimizerBaseMethodWeights
+                                    liveGapConfig <- readAutoOptimizerLiveGapConfig
 
                                     let everySec :: Int
                                         everySec =
@@ -10852,19 +10887,21 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                 pure $ case v' of
                                                                     Aeson.Object o
                                                                         | Just (Aeson.Array combosArr) <- KM.lookup "combos" o ->
-                                                                            liveGapStatsByMethod (V.toList combosArr)
+                                                                            liveGapStatsByMethodWithConfig liveGapConfig (V.toList combosArr)
                                                                     _ -> M.empty
                                                             _ -> pure M.empty
                                                     let liveGapWeightArg weightSpec =
                                                             [ aomwFlag weightSpec
                                                             , printf
                                                                 "%.4f"
-                                                                (aomwWeight weightSpec * liveGapMethodMultiplier (M.lookup (aomwKey weightSpec) liveGapStatsMap))
+                                                                (aomwWeight weightSpec * liveGapMultiplierFor weightSpec)
                                                             ]
                                                         liveGapWeightArgs = concatMap liveGapWeightArg autoMethodWeights
+                                                        liveGapMultiplierFor weightSpec =
+                                                            liveGapMethodMultiplierWithConfig liveGapConfig (M.lookup (aomwKey weightSpec) liveGapStatsMap)
                                                         liveGapActive =
                                                             or
-                                                                [ aomwWeight weightSpec > 0 && liveGapMethodMultiplier (M.lookup (aomwKey weightSpec) liveGapStatsMap) /= 1
+                                                                [ aomwWeight weightSpec > 0 && liveGapMultiplierFor weightSpec /= 1
                                                                 | weightSpec <- autoMethodWeights
                                                                 ]
                                                     when liveGapActive $ do
@@ -10874,6 +10911,13 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                             ( object
                                                                 [ "type" .= ("optimizer.auto.live_gap" :: String)
                                                                 , "atMs" .= nowGap
+                                                                , "config"
+                                                                    .= object
+                                                                        [ "minComboOperations" .= lgcMinComboOperations liveGapConfig
+                                                                        , "minTotalOperations" .= lgcMinTotalOperations liveGapConfig
+                                                                        , "multiplierFloor" .= lgcMultiplierFloor liveGapConfig
+                                                                        , "multiplierCeiling" .= lgcMultiplierCeiling liveGapConfig
+                                                                        ]
                                                                 , "methods"
                                                                     .= object
                                                                         [ AK.fromString m
@@ -10881,7 +10925,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                 [ "combos" .= lgsCombos s
                                                                                 , "operations" .= lgsOperations s
                                                                                 , "opsWeightedGap" .= lgsOpsWeightedGap s
-                                                                                , "multiplier" .= liveGapMethodMultiplier (Just s)
+                                                                                , "multiplier" .= liveGapMethodMultiplierWithConfig liveGapConfig (Just s)
                                                                                 ]
                                                                         | (m, s) <- M.toList liveGapStatsMap
                                                                         ]

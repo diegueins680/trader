@@ -16,7 +16,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
@@ -63,14 +63,19 @@ import Trader.Formal.Risk (
 import Trader.GateTelemetry (GateName (..), GateRejection (..), GateTelemetry (..), RejectionReason (..), bindingGate, emptyTelemetry, recordRejection, rejectionHistogram, telemetrySummary, telemetryToJson)
 import Trader.LSTM (LSTMConfig (..), LSTMModel (..), buildSequences, evaluateLoss, fineTuneLSTM, fineTuneLSTMWeighted, inputDimFromModel, paramCount, paramCountD, predictNext, predictNextMulti, trainLSTM, trainLSTMMulti)
 import Trader.LiveGap (
+    LiveGapConfig (..),
     LiveGapStats (..),
     comboLiveGapEntry,
+    comboLiveGapEntryWithConfig,
+    defaultLiveGapConfig,
     liveGapMethodMultiplier,
+    liveGapMethodMultiplierWithConfig,
     liveGapMinComboOperations,
     liveGapMinTotalOperations,
     liveGapMultiplierCeiling,
     liveGapMultiplierFloor,
     liveGapStatsByMethod,
+    liveGapStatsByMethodWithConfig,
  )
 import Trader.MarketContext (fitLinearRange)
 import Trader.MarketDataIntegrity (
@@ -4119,6 +4124,26 @@ testLiveGapFeedback = do
     assert
         "mild outperformance earns a proportional boost"
         (abs (liveGapMethodMultiplier (Just (statsWith 0.2 60)) - 1.2) < 1e-9)
+    let strictComboConfig = defaultLiveGapConfig{lgcMinComboOperations = liveGapMinComboOperations + 5}
+    assert
+        "configured per-combo evidence floor rejects weaker live samples"
+        (isNothing (comboLiveGapEntryWithConfig strictComboConfig (gapComboForTest "10" 2.0 0.5 liveGapMinComboOperations)))
+    assert
+        "configured per-combo evidence floor admits enough live samples"
+        (isJust (comboLiveGapEntryWithConfig strictComboConfig (gapComboForTest "10" 2.0 0.5 (liveGapMinComboOperations + 5))))
+    let strictFamilyConfig = defaultLiveGapConfig{lgcMinTotalOperations = 100}
+    assert
+        "configured family evidence floor keeps low-sample multipliers neutral"
+        (liveGapMethodMultiplierWithConfig strictFamilyConfig (Just (statsWith (-0.5) 60)) == 1)
+    let clampConfig = defaultLiveGapConfig{lgcMultiplierFloor = 0.4, lgcMultiplierCeiling = 1.1}
+    assert
+        "configured live-gap multiplier clamps are honored"
+        ( liveGapMethodMultiplierWithConfig clampConfig (Just (statsWith (-3) 60)) == 0.4
+            && liveGapMethodMultiplierWithConfig clampConfig (Just (statsWith 2 60)) == 1.1
+        )
+    assert
+        "configured aggregation floor feeds per-method stats"
+        (Map.null (liveGapStatsByMethodWithConfig strictComboConfig [gapComboForTest "10" 2.0 0.5 liveGapMinComboOperations]))
 
 {- | Fill measurements: positive when execution was worse than the decision
 price on either side, negative on improvement, Nothing whenever the inputs

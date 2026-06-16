@@ -16,14 +16,20 @@ and ops-weighted so one heavily-traded combo counts for more than ten
 barely-traded ones.
 -}
 module Trader.LiveGap (
+    LiveGapConfig (..),
     LiveGapStats (..),
     comboLiveGapEntry,
+    comboLiveGapEntryWithConfig,
+    defaultLiveGapConfig,
     liveGapStatsByMethod,
+    liveGapStatsByMethodWithConfig,
     liveGapMethodMultiplier,
+    liveGapMethodMultiplierWithConfig,
     liveGapMinComboOperations,
     liveGapMinTotalOperations,
     liveGapMultiplierFloor,
     liveGapMultiplierCeiling,
+    validateLiveGapConfig,
 ) where
 
 import Control.Applicative ((<|>))
@@ -42,29 +48,61 @@ import Trader.TopCombosStore (
     comboMetricsDouble,
  )
 
+data LiveGapConfig = LiveGapConfig
+    { lgcMinComboOperations :: !Int
+    , lgcMinTotalOperations :: !Int
+    , lgcMultiplierFloor :: !Double
+    , lgcMultiplierCeiling :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultLiveGapConfig :: LiveGapConfig
+defaultLiveGapConfig =
+    LiveGapConfig
+        { lgcMinComboOperations = 10
+        , lgcMinTotalOperations = 30
+        , lgcMultiplierFloor = 0.25
+        , lgcMultiplierCeiling = 1.5
+        }
+
+validateLiveGapConfig :: LiveGapConfig -> Either String LiveGapConfig
+validateLiveGapConfig config = do
+    ensure "live-gap min combo operations must be >= 0" (lgcMinComboOperations config >= 0)
+    ensure "live-gap min total operations must be >= 0" (lgcMinTotalOperations config >= 0)
+    finiteNonNegative "live-gap multiplier floor" (lgcMultiplierFloor config)
+    finiteNonNegative "live-gap multiplier ceiling" (lgcMultiplierCeiling config)
+    ensure "live-gap multiplier ceiling must be >= floor" (lgcMultiplierCeiling config >= lgcMultiplierFloor config)
+    pure config
+  where
+    ensure msg ok =
+        if ok then Right () else Left msg
+    finiteNonNegative label value = do
+        ensure (label ++ " must be finite") (not (isNaN value || isInfinite value))
+        ensure (label ++ " must be >= 0") (value >= 0)
+
 {- | Live orders a single combo needs before its gap is a measurement
 rather than noise.
 -}
 liveGapMinComboOperations :: Int
-liveGapMinComboOperations = 10
+liveGapMinComboOperations = lgcMinComboOperations defaultLiveGapConfig
 
 {- | Total live orders a method family needs before its multiplier moves
 off neutral.
 -}
 liveGapMinTotalOperations :: Int
-liveGapMinTotalOperations = 30
+liveGapMinTotalOperations = lgcMinTotalOperations defaultLiveGapConfig
 
 {- | A chronically overfit family keeps at least a quarter of its discovery
 weight: the feedback re-balances the search, it doesn't kill exploration.
 -}
 liveGapMultiplierFloor :: Double
-liveGapMultiplierFloor = 0.25
+liveGapMultiplierFloor = lgcMultiplierFloor defaultLiveGapConfig
 
 {- | A family that outperforms its backtests live earns at most 1.5x its
 base discovery weight.
 -}
 liveGapMultiplierCeiling :: Double
-liveGapMultiplierCeiling = 1.5
+liveGapMultiplierCeiling = lgcMultiplierCeiling defaultLiveGapConfig
 
 {- | Per-method-family aggregation of live-vs-backtest gaps.
 'lgsOpsWeightedGap' is the operations-weighted mean of
@@ -84,7 +122,10 @@ record with an annualized reading, or fewer than
 'liveGapMinComboOperations' live orders.
 -}
 comboLiveGapEntry :: Aeson.Value -> Maybe (String, Double, Int)
-comboLiveGapEntry val = do
+comboLiveGapEntry = comboLiveGapEntryWithConfig defaultLiveGapConfig
+
+comboLiveGapEntryWithConfig :: LiveGapConfig -> Aeson.Value -> Maybe (String, Double, Int)
+comboLiveGapEntryWithConfig config val = do
     method <- comboMethodString val
     stats <- comboLiveStats val
     liveAnn <- clsAnnualizedReturn stats
@@ -93,7 +134,7 @@ comboLiveGapEntry val = do
         comboMetricsDouble "annualizedReturn" val
             <|> comboMetricDouble "annualizedReturn" val
     let gap = liveAnn - backtestAnn
-    if ops < liveGapMinComboOperations || isNaN gap || isInfinite gap
+    if ops < lgcMinComboOperations config || isNaN gap || isInfinite gap
         then Nothing
         else Just (method, gap, ops)
 
@@ -114,8 +155,11 @@ comboMethodString val = do
 
 -- | Aggregate gap evidence per method family from top-combos JSON values.
 liveGapStatsByMethod :: [Aeson.Value] -> M.Map String LiveGapStats
-liveGapStatsByMethod combos =
-    M.map finalize (foldl' step M.empty (mapMaybe comboLiveGapEntry combos))
+liveGapStatsByMethod = liveGapStatsByMethodWithConfig defaultLiveGapConfig
+
+liveGapStatsByMethodWithConfig :: LiveGapConfig -> [Aeson.Value] -> M.Map String LiveGapStats
+liveGapStatsByMethodWithConfig config combos =
+    M.map finalize (foldl' step M.empty (mapMaybe (comboLiveGapEntryWithConfig config) combos))
   where
     -- During accumulation lgsOpsWeightedGap holds the weighted SUM;
     -- 'finalize' divides it into the weighted mean.
@@ -146,13 +190,16 @@ evidence ('liveGapMinTotalOperations' live orders across the family), then
 samples at half weight; beyond −75 points it bottoms out at the floor.
 -}
 liveGapMethodMultiplier :: Maybe LiveGapStats -> Double
-liveGapMethodMultiplier mStats =
+liveGapMethodMultiplier = liveGapMethodMultiplierWithConfig defaultLiveGapConfig
+
+liveGapMethodMultiplierWithConfig :: LiveGapConfig -> Maybe LiveGapStats -> Double
+liveGapMethodMultiplierWithConfig config mStats =
     case mStats of
         Nothing -> 1
         Just stats
-            | lgsOperations stats < liveGapMinTotalOperations -> 1
+            | lgsOperations stats < lgcMinTotalOperations config -> 1
             | isNaN (lgsOpsWeightedGap stats) || isInfinite (lgsOpsWeightedGap stats) -> 1
             | otherwise ->
                 max
-                    liveGapMultiplierFloor
-                    (min liveGapMultiplierCeiling (1 + lgsOpsWeightedGap stats))
+                    (lgcMultiplierFloor config)
+                    (min (lgcMultiplierCeiling config) (1 + lgsOpsWeightedGap stats))
