@@ -265,6 +265,10 @@ optimizerArgsParser =
         <*> option auto (long "kalman-process-var-max" <> value 1e-3 <> metavar "FLOAT")
         <*> option auto (long "kalman-measurement-var-min" <> value 1e-6 <> metavar "FLOAT")
         <*> option auto (long "kalman-measurement-var-max" <> value 1e-1 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-bars-min" <> value 1000 <> metavar "INT")
+        <*> option auto (long "kalman-physics-bars-max" <> value 1000 <> metavar "INT")
+        <*> option auto (long "kalman-physics-backtest-ratio-min" <> value 0.3 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-backtest-ratio-max" <> value 0.3 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-min-min" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-min-max" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-max-min" <> value 0.0 <> metavar "FLOAT")
@@ -742,6 +746,17 @@ validateArgs args = do
         Left "--kalman-innovation-inflation-threshold must be >= 0."
     when (oaKalmanInnovationInflationMax args < 1) $
         Left "--kalman-innovation-inflation-max must be >= 1."
+    when (oaKalmanPhysicsBarsMin args < 4 || oaKalmanPhysicsBarsMax args < 4) $
+        Left "--kalman-physics-bars-min/max must be >= 4."
+    when
+        ( not (finiteDouble (oaKalmanPhysicsBacktestRatioMin args))
+            || not (finiteDouble (oaKalmanPhysicsBacktestRatioMax args))
+            || oaKalmanPhysicsBacktestRatioMin args <= 0
+            || oaKalmanPhysicsBacktestRatioMin args >= 1
+            || oaKalmanPhysicsBacktestRatioMax args <= 0
+            || oaKalmanPhysicsBacktestRatioMax args >= 1
+        )
+        $ Left "--kalman-physics-backtest-ratio-min/max must be between 0 and 1."
     when (not (finiteDouble (oaLstmAdamBeta1 args)) || oaLstmAdamBeta1 args < 0 || oaLstmAdamBeta1 args >= 1) $
         Left "--lstm-adam-beta1 must be >= 0 and < 1."
     when (not (finiteDouble (oaLstmAdamBeta2 args)) || oaLstmAdamBeta2 args < 0 || oaLstmAdamBeta2 args >= 1) $

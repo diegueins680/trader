@@ -305,6 +305,7 @@ main = do
     testKalmanDtRejectsInvalidValues
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
+    testKalmanPhysicsKnobsRejectInvalidValues
     testSensorVarianceEwmaAlphaRejectsInvalidValues
     testKalmanConservativeFusionRejectsInvalidValues
     testKalmanResidualVarianceFloor
@@ -1558,6 +1559,30 @@ testKalmanMeasurementVarRejectsInvalidValues = do
         "kalman-measurement-var accepts 1e-3 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-measurement-var", "1e-3"] of
             Right args -> argKalmanMeasurementVar args == 1e-3
+            Left _ -> False
+        )
+
+testKalmanPhysicsKnobsRejectInvalidValues :: IO ()
+testKalmanPhysicsKnobsRejectInvalidValues = do
+    assert
+        "kalman-physics-bars rejects too-small windows"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-bars", "3"] == Left "--kalman-physics-bars must be >= 4")
+    assert
+        "kalman-physics-bars accepts custom windows"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-bars", "500"] of
+            Right args -> argKalmanPhysicsBars args == 500
+            Left _ -> False
+        )
+    assert
+        "kalman-physics-backtest-ratio rejects zero"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-backtest-ratio", "0"] == Left "--kalman-physics-backtest-ratio must be between 0 and 1")
+    assert
+        "kalman-physics-backtest-ratio rejects one"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-backtest-ratio", "1"] == Left "--kalman-physics-backtest-ratio must be between 0 and 1")
+    assert
+        "kalman-physics-backtest-ratio accepts custom ratios"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-backtest-ratio", "0.4"] of
+            Right args -> argKalmanPhysicsBacktestRatio args == 0.4
             Left _ -> False
         )
 

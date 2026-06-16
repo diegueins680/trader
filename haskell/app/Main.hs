@@ -2616,6 +2616,8 @@ argsPublicJson args =
             , "kalmanDt" .= argKalmanDt args
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+            , "kalmanPhysicsBars" .= argKalmanPhysicsBars args
+            , "kalmanPhysicsBacktestRatio" .= argKalmanPhysicsBacktestRatio args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -10426,6 +10428,11 @@ parseTopComboToArgs base combo = do
                 , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
                 , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
                 , argKalmanMeasurementVar = max 1e-12 (pickD "kalmanMeasurementVar" (argKalmanMeasurementVar base))
+                , argKalmanPhysicsBars = max 4 (pickI "kalmanPhysicsBars" (argKalmanPhysicsBars base))
+                , argKalmanPhysicsBacktestRatio =
+                    max
+                        0.000001
+                        (min 0.999999 (pickD "kalmanPhysicsBacktestRatio" (argKalmanPhysicsBacktestRatio base)))
                 , argSensorVarianceEwmaAlpha = clamp01 (pickD "sensorVarianceEwmaAlpha" (argSensorVarianceEwmaAlpha base))
                 , argKalmanSensorCorrelationInflation = kalmanSensorCorrelationInflation
                 , argKalmanInnovationInflationThreshold = kalmanInnovationInflationThreshold
@@ -13851,6 +13858,8 @@ argsCacheJsonSignal args =
             , "kalmanDt" .= argKalmanDt args
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+            , "kalmanPhysicsBars" .= argKalmanPhysicsBars args
+            , "kalmanPhysicsBacktestRatio" .= argKalmanPhysicsBacktestRatio args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -14069,6 +14078,8 @@ argsCacheJsonBacktest args =
             , "kalmanDt" .= argKalmanDt args
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+            , "kalmanPhysicsBars" .= argKalmanPhysicsBars args
+            , "kalmanPhysicsBacktestRatio" .= argKalmanPhysicsBacktestRatio args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -25912,9 +25923,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             if useKalmanPhysics
                 then MethodKalmanPhysicsError
                 else methodRequested
+        kalmanPhysicsBars = max 4 (argKalmanPhysicsBars args)
         trimForMethod xs =
             if useKalmanPhysics
-                then takeLast 1000 xs
+                then takeLast kalmanPhysicsBars xs
                 else xs
         pricesRaw = psClose seriesWindow
         nRaw = length pricesRaw
@@ -25930,10 +25942,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     when useKalmanPhysics $ do
         when (argOptimizeOperations args || argSweepThreshold args) $
             throwIO (userError "Method kalman_physics_error does not support --optimize-operations/--sweep-threshold.")
-        when (n < 1000) $
+        when (n < kalmanPhysicsBars) $
             throwIO
                 ( userError
-                    ( "Method kalman_physics_error requires 1000 bars (got "
+                    ( "Method kalman_physics_error requires "
+                        ++ show kalmanPhysicsBars
+                        ++ " bars (got "
                         ++ show n
                         ++ "). Increase --bars and ensure data source has enough rows."
                     )
@@ -25943,7 +25957,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     let initialBalance = argInitialBalance args
         backtestRatio =
             if useKalmanPhysics
-                then 0.3
+                then argKalmanPhysicsBacktestRatio args
                 else argBacktestRatio args
         splitLookback =
             if methodIsTechnicalAnalysis methodRequested

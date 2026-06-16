@@ -153,6 +153,8 @@ data Args = Args
     , argKalmanDt :: Double
     , argKalmanProcessVar :: Double
     , argKalmanMeasurementVar :: Double
+    , argKalmanPhysicsBars :: Int
+    , argKalmanPhysicsBacktestRatio :: Double
     , argSensorVarianceEwmaAlpha :: Double
     , argKalmanSensorCorrelationInflation :: Double
     , argKalmanInnovationInflationThreshold :: Double
@@ -815,6 +817,22 @@ opts = do
     argKalmanDt <- option auto (long "kalman-dt" <> value 1.0 <> help "Kalman dt")
     argKalmanProcessVar <- option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
     argKalmanMeasurementVar <- option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
+    argKalmanPhysicsBars <-
+        option
+            auto
+            ( long "kalman-physics-bars"
+                <> value 1000
+                <> showDefault
+                <> help "Bars retained by --method kalman_physics_error before fitting/testing"
+            )
+    argKalmanPhysicsBacktestRatio <-
+        option
+            auto
+            ( long "kalman-physics-backtest-ratio"
+                <> value 0.3
+                <> showDefault
+                <> help "Backtest holdout ratio used by --method kalman_physics_error"
+            )
     argSensorVarianceEwmaAlpha <- option auto (long "sensor-variance-ewma-alpha" <> value defaultSensorVarianceEwmaAlpha <> showDefault <> help "EWMA alpha for learned sensor residual variance used by Kalman fusion (0 keeps the initial residual variance; 1 uses only the latest residual)")
     argKalmanSensorCorrelationInflation <-
         option
@@ -896,7 +914,7 @@ opts = do
             ( long "method"
                 <> value MethodBoth
                 <> showDefaultWith methodCode
-                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, conf_pick=confidence winner-take-all, conformal_clip=clip blended return to conformal/quantile band, cost_pick=cost-aware winner-take-all, harmonic_blend=harmonic-return blend, disagreement_guard=disagreement-aware model pick, median_blend=median-robust blend, neutral_guard=neutral-on-disagreement guard, risk_parity_blend=inverse-edge risk-parity blend, consensus_boost=consensus-strength guard, anchor_blend=disagreement-aware anchor blend, tension_gate=partial-neutral conflict gate, entropy_blend=uncertainty-aware blend shrink, coherence_gate=coherence-aware conflict gate, divergence_gate=shrink blend when model returns diverge, fractal_blend=signed-root nonlinear blend, phase_cancel=anti-phase cancellation gate, softmax_blend=softmax edge-weighted blend, smooth_softmax_blend=EMA-smoothed softmax blend, hedge_blend=online Hedge-style exp-weights blend, net_softmax_blend=post-cost softmax edge-weighted blend, edge_blend=edge-weighted blend, edge_pick=edge winner-take-all, geo_blend=geometric blend, regime_switch=volatility/z-score model switch, router=adaptive model selection, bandit_router=UCB-style adaptive router, ta_trend=EMA/ADX/Aroon/ATR trend-following, ta_reversion=RSI/Stochastic/ROC/MACD envelope reversion, ta_breakout=Donchian plus volume-flow breakout, ta_best=best admitted TA setup, ta_regime_switch=ADX/EMA200/Bollinger regime-conditioned TA setup, kalman_physics_error=Kalman state+physics-error model (latest 1000 bars, train 700/test 300), 10|kalman=Kalman only, 01|lstm=LSTM only"
+                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, conf_pick=confidence winner-take-all, conformal_clip=clip blended return to conformal/quantile band, cost_pick=cost-aware winner-take-all, harmonic_blend=harmonic-return blend, disagreement_guard=disagreement-aware model pick, median_blend=median-robust blend, neutral_guard=neutral-on-disagreement guard, risk_parity_blend=inverse-edge risk-parity blend, consensus_boost=consensus-strength guard, anchor_blend=disagreement-aware anchor blend, tension_gate=partial-neutral conflict gate, entropy_blend=uncertainty-aware blend shrink, coherence_gate=coherence-aware conflict gate, divergence_gate=shrink blend when model returns diverge, fractal_blend=signed-root nonlinear blend, phase_cancel=anti-phase cancellation gate, softmax_blend=softmax edge-weighted blend, smooth_softmax_blend=EMA-smoothed softmax blend, hedge_blend=online Hedge-style exp-weights blend, net_softmax_blend=post-cost softmax edge-weighted blend, edge_blend=edge-weighted blend, edge_pick=edge winner-take-all, geo_blend=geometric blend, regime_switch=volatility/z-score model switch, router=adaptive model selection, bandit_router=UCB-style adaptive router, ta_trend=EMA/ADX/Aroon/ATR trend-following, ta_reversion=RSI/Stochastic/ROC/MACD envelope reversion, ta_breakout=Donchian plus volume-flow breakout, ta_best=best admitted TA setup, ta_regime_switch=ADX/EMA200/Bollinger regime-conditioned TA setup, kalman_physics_error=Kalman state+physics-error model (latest --kalman-physics-bars, default 1000), 10|kalman=Kalman only, 01|lstm=LSTM only"
             )
     argPositioning <-
         option
@@ -1702,6 +1720,7 @@ validateArgs args0 = do
             , ("--kalman-dt", argKalmanDt args)
             , ("--kalman-process-var", argKalmanProcessVar args)
             , ("--kalman-measurement-var", argKalmanMeasurementVar args)
+            , ("--kalman-physics-backtest-ratio", argKalmanPhysicsBacktestRatio args)
             , ("--sensor-variance-ewma-alpha", argSensorVarianceEwmaAlpha args)
             , ("--kalman-sensor-correlation-inflation", argKalmanSensorCorrelationInflation args)
             , ("--kalman-innovation-inflation-threshold", argKalmanInnovationInflationThreshold args)
@@ -1979,6 +1998,8 @@ validateArgs args0 = do
     ensure "--kalman-dt must be > 0" (argKalmanDt args > 0)
     ensure "--kalman-process-var must be > 0" (argKalmanProcessVar args > 0)
     ensure "--kalman-measurement-var must be > 0" (argKalmanMeasurementVar args > 0)
+    ensure "--kalman-physics-bars must be >= 4" (argKalmanPhysicsBars args >= 4)
+    ensure "--kalman-physics-backtest-ratio must be between 0 and 1" (argKalmanPhysicsBacktestRatio args > 0 && argKalmanPhysicsBacktestRatio args < 1)
     ensure "--sensor-variance-ewma-alpha must be between 0 and 1" (argSensorVarianceEwmaAlpha args >= 0 && argSensorVarianceEwmaAlpha args <= 1)
     ensure "--kalman-sensor-correlation-inflation must be between 0 and 1" (argKalmanSensorCorrelationInflation args >= 0 && argKalmanSensorCorrelationInflation args <= 1)
     ensure "--kalman-innovation-inflation-threshold must be >= 0" (argKalmanInnovationInflationThreshold args >= 0)

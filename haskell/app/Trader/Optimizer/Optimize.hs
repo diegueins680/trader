@@ -468,6 +468,8 @@ normalizeTrialParams p =
             , tpMaxDrawdown = normalizeOptionalPositiveFraction (tpMaxDrawdown p)
             , tpMaxDailyLoss = normalizeOptionalPositiveFraction (tpMaxDailyLoss p)
             , tpMaxWeeklyLoss = normalizeOptionalPositiveFraction (tpMaxWeeklyLoss p)
+            , tpKalmanPhysicsBars = max 4 (tpKalmanPhysicsBars p)
+            , tpKalmanPhysicsBacktestRatio = clamp (tpKalmanPhysicsBacktestRatio p) 0.000001 0.999999
             , tpKalmanZMin = kalmanZMin'
             , tpKalmanZMax = kalmanZMax'
             , tpKalmanSensorCorrelationInflation = clamp (tpKalmanSensorCorrelationInflation p) 0 1
@@ -2518,6 +2520,10 @@ data OptimizerArgs = OptimizerArgs
     , oaKalmanProcessVarMax :: !Double
     , oaKalmanMeasurementVarMin :: !Double
     , oaKalmanMeasurementVarMax :: !Double
+    , oaKalmanPhysicsBarsMin :: !Int
+    , oaKalmanPhysicsBarsMax :: !Int
+    , oaKalmanPhysicsBacktestRatioMin :: !Double
+    , oaKalmanPhysicsBacktestRatioMax :: !Double
     , oaKalmanZMinMin :: !Double
     , oaKalmanZMinMax :: !Double
     , oaKalmanZMaxMin :: !Double
@@ -3066,6 +3072,8 @@ data TrialParams = TrialParams
     , tpKalmanDt :: !Double
     , tpKalmanProcessVar :: !Double
     , tpKalmanMeasurementVar :: !Double
+    , tpKalmanPhysicsBars :: !Int
+    , tpKalmanPhysicsBacktestRatio :: !Double
     , tpKalmanSensorCorrelationInflation :: !Double
     , tpKalmanInnovationInflationThreshold :: !Double
     , tpKalmanInnovationInflationMax :: !Double
@@ -3532,6 +3540,10 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , printf "%.12g" (max 1e-12 (tpKalmanProcessVar params))
                    , "--kalman-measurement-var"
                    , printf "%.12g" (max 1e-12 (tpKalmanMeasurementVar params))
+                   , "--kalman-physics-bars"
+                   , show (max 4 (tpKalmanPhysicsBars params))
+                   , "--kalman-physics-backtest-ratio"
+                   , printf "%.6f" (clamp (tpKalmanPhysicsBacktestRatio params) 0.000001 0.999999)
                    , "--sensor-variance-ewma-alpha"
                    , printf "%.6f" (clamp (tpSensorVarianceEwmaAlpha params) 0 1)
                    , "--kalman-sensor-correlation-inflation"
@@ -3997,6 +4009,8 @@ trialToRecord tr symbolLabel =
             , "kalmanDt" .= tpKalmanDt (trParams tr)
             , "kalmanProcessVar" .= tpKalmanProcessVar (trParams tr)
             , "kalmanMeasurementVar" .= tpKalmanMeasurementVar (trParams tr)
+            , "kalmanPhysicsBars" .= tpKalmanPhysicsBars (trParams tr)
+            , "kalmanPhysicsBacktestRatio" .= tpKalmanPhysicsBacktestRatio (trParams tr)
             , "kalmanSensorCorrelationInflation" .= tpKalmanSensorCorrelationInflation (trParams tr)
             , "kalmanInnovationInflationThreshold" .= tpKalmanInnovationInflationThreshold (trParams tr)
             , "kalmanInnovationInflationMax" .= tpKalmanInnovationInflationMax (trParams tr)
@@ -4217,6 +4231,10 @@ sampleParams
     kalmanProcessVarMax
     kalmanMeasurementVarMin
     kalmanMeasurementVarMax
+    kalmanPhysicsBarsMin
+    kalmanPhysicsBarsMax
+    kalmanPhysicsBacktestRatioMin
+    kalmanPhysicsBacktestRatioMax
     sensorVarianceEwmaAlpha
     kalmanSensorCorrelationInflation
     kalmanInnovationInflationThreshold
@@ -4667,7 +4685,10 @@ sampleParams
                 nextLogUniform (max 1e-12 kalmanProcessVarMin) (max 1e-12 kalmanProcessVarMax) rng41
             (kalmanMeasurementVar, rng43) =
                 nextLogUniform (max 1e-12 kalmanMeasurementVarMin) (max 1e-12 kalmanMeasurementVarMax) rng42
-            (kalmanZMin, rng44) = nextUniform (max 0 kalmanZMinMin) (max 0 kalmanZMinMax) rng43
+            (kalmanPhysicsBars, rng43a) = nextIntRange kalmanPhysicsBarsMin kalmanPhysicsBarsMax rng43
+            (kalmanPhysicsBacktestRatio, rng43b) =
+                nextUniform kalmanPhysicsBacktestRatioMin kalmanPhysicsBacktestRatioMax rng43a
+            (kalmanZMin, rng44) = nextUniform (max 0 kalmanZMinMin) (max 0 kalmanZMinMax) rng43b
             (kalmanZMax, rng45) =
                 let zMaxLo = max kalmanZMin (max 0 kalmanZMaxMin)
                     zMaxHi = max zMaxLo kalmanZMaxMax
@@ -5096,6 +5117,8 @@ sampleParams
                 , tpKalmanDt = kalmanDt
                 , tpKalmanProcessVar = kalmanProcessVar
                 , tpKalmanMeasurementVar = kalmanMeasurementVar
+                , tpKalmanPhysicsBars = max 4 kalmanPhysicsBars
+                , tpKalmanPhysicsBacktestRatio = clamp kalmanPhysicsBacktestRatio 0.000001 0.999999
                 , tpKalmanSensorCorrelationInflation = clamp kalmanSensorCorrelationInflation 0 1
                 , tpKalmanInnovationInflationThreshold = max 0 kalmanInnovationInflationThreshold
                 , tpKalmanInnovationInflationMax = max 1 kalmanInnovationInflationMax
@@ -5471,6 +5494,14 @@ runOptimizer args0 = do
                                                         kalmanProcessVarMax = max kalmanProcessVarMin (oaKalmanProcessVarMax args)
                                                         kalmanMeasurementVarMin = max 1e-12 (oaKalmanMeasurementVarMin args)
                                                         kalmanMeasurementVarMax = max kalmanMeasurementVarMin (oaKalmanMeasurementVarMax args)
+                                                        kalmanPhysicsBarsMin = max 4 (oaKalmanPhysicsBarsMin args)
+                                                        kalmanPhysicsBarsMax = max kalmanPhysicsBarsMin (oaKalmanPhysicsBarsMax args)
+                                                        kalmanPhysicsBacktestRatioMin =
+                                                            clamp (oaKalmanPhysicsBacktestRatioMin args) 0.000001 0.999999
+                                                        kalmanPhysicsBacktestRatioMax =
+                                                            max
+                                                                kalmanPhysicsBacktestRatioMin
+                                                                (clamp (oaKalmanPhysicsBacktestRatioMax args) 0.000001 0.999999)
                                                         kalmanZMinMin = max 0 (oaKalmanZMinMin args)
                                                         kalmanZMinMax = max kalmanZMinMin (oaKalmanZMinMax args)
                                                         kalmanZMaxMin = max 0 (oaKalmanZMaxMin args)
@@ -5848,6 +5879,10 @@ runOptimizer args0 = do
                                                                                 kalmanProcessVarMax
                                                                                 kalmanMeasurementVarMin
                                                                                 kalmanMeasurementVarMax
+                                                                                kalmanPhysicsBarsMin
+                                                                                kalmanPhysicsBarsMax
+                                                                                kalmanPhysicsBacktestRatioMin
+                                                                                kalmanPhysicsBacktestRatioMax
                                                                                 (clamp (oaSensorVarianceEwmaAlpha args) 0 1)
                                                                                 (clamp (oaKalmanSensorCorrelationInflation args) 0 1)
                                                                                 (max 0 (oaKalmanInnovationInflationThreshold args))
@@ -6718,6 +6753,8 @@ printBest tr = do
     putStrLn ("  kalmanDt:            " ++ show (tpKalmanDt p))
     putStrLn ("  kalmanProcessVar:    " ++ show (tpKalmanProcessVar p))
     putStrLn ("  kalmanMeasurementVar:" ++ show (tpKalmanMeasurementVar p))
+    putStrLn ("  kalmanPhysicsBars:   " ++ show (tpKalmanPhysicsBars p))
+    putStrLn ("  kalmanPhysicsBacktestRatio:" ++ show (tpKalmanPhysicsBacktestRatio p))
     putStrLn ("  kalmanZMin:          " ++ show (tpKalmanZMin p))
     putStrLn ("  kalmanZMax:          " ++ show (tpKalmanZMax p))
     putStrLn ("  maxHighVolProb:      " ++ showMaybe (tpMaxHighVolProb p))
@@ -7007,8 +7044,11 @@ crossoverTrialParams a b rng0 =
         (tpKalmanDt', rng87) = pickValue (tpKalmanDt a) (tpKalmanDt b) rng86
         (tpKalmanProcessVar', rng88) = pickValue (tpKalmanProcessVar a) (tpKalmanProcessVar b) rng87
         (tpKalmanMeasurementVar', rng89) = pickValue (tpKalmanMeasurementVar a) (tpKalmanMeasurementVar b) rng88
+        (tpKalmanPhysicsBars', rng89p) = pickValue (tpKalmanPhysicsBars a) (tpKalmanPhysicsBars b) rng89
+        (tpKalmanPhysicsBacktestRatio', rng89q) =
+            pickValue (tpKalmanPhysicsBacktestRatio a) (tpKalmanPhysicsBacktestRatio b) rng89p
         (tpKalmanSensorCorrelationInflation', rng89a) =
-            pickValue (tpKalmanSensorCorrelationInflation a) (tpKalmanSensorCorrelationInflation b) rng89
+            pickValue (tpKalmanSensorCorrelationInflation a) (tpKalmanSensorCorrelationInflation b) rng89q
         (tpKalmanInnovationInflationThreshold', rng89b) =
             pickValue (tpKalmanInnovationInflationThreshold a) (tpKalmanInnovationInflationThreshold b) rng89a
         (tpKalmanInnovationInflationMax', rng89c) =
@@ -7195,6 +7235,8 @@ crossoverTrialParams a b rng0 =
                 , tpKalmanDt = tpKalmanDt'
                 , tpKalmanProcessVar = tpKalmanProcessVar'
                 , tpKalmanMeasurementVar = tpKalmanMeasurementVar'
+                , tpKalmanPhysicsBars = tpKalmanPhysicsBars'
+                , tpKalmanPhysicsBacktestRatio = tpKalmanPhysicsBacktestRatio'
                 , tpKalmanSensorCorrelationInflation = tpKalmanSensorCorrelationInflation'
                 , tpKalmanInnovationInflationThreshold = tpKalmanInnovationInflationThreshold'
                 , tpKalmanInnovationInflationMax = tpKalmanInnovationInflationMax'
@@ -7325,7 +7367,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23d
         (kalmanProcessVar', rng25) = perturbDouble (tpKalmanProcessVar p) scaleDouble rng24
         (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) scaleDouble rng25
-        (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26
+        (kalmanPhysicsBars', rng26a) = perturbInt (tpKalmanPhysicsBars p) scaleInt rng26
+        (kalmanPhysicsBacktestRatio', rng26b) = perturbDouble (tpKalmanPhysicsBacktestRatio p) scaleDouble rng26a
+        (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26b
         (kalmanZMax', rng28) = perturbDouble (tpKalmanZMax p) scaleDouble rng27
         (fundingRate', rng29) = perturbDoubleSigned (tpFundingRate p) scaleDouble rng28
         (rebalanceBars', rng30) = perturbInt (tpRebalanceBars p) scaleInt rng29
@@ -7450,6 +7494,8 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpKalmanDt = kalmanDt'
                 , tpKalmanProcessVar = kalmanProcessVar'
                 , tpKalmanMeasurementVar = kalmanMeasurementVar'
+                , tpKalmanPhysicsBars = max 4 kalmanPhysicsBars'
+                , tpKalmanPhysicsBacktestRatio = clamp kalmanPhysicsBacktestRatio' 0.000001 0.999999
                 , tpKalmanZMin = kalmanZMin'
                 , tpKalmanZMax = kalmanZMax'
                 , tpFundingRate = fundingRate'
@@ -7721,6 +7767,8 @@ applyPriorOverlay allowedIntervals prior base =
                 , tpKalmanDt = fromMaybe (tpKalmanDt base) (doubleField ["kalmanDt"] params)
                 , tpKalmanProcessVar = fromMaybe (tpKalmanProcessVar base) (doubleField ["kalmanProcessVar"] params)
                 , tpKalmanMeasurementVar = fromMaybe (tpKalmanMeasurementVar base) (doubleField ["kalmanMeasurementVar"] params)
+                , tpKalmanPhysicsBars = fromMaybe (tpKalmanPhysicsBars base) (intField ["kalmanPhysicsBars"] params)
+                , tpKalmanPhysicsBacktestRatio = fromMaybe (tpKalmanPhysicsBacktestRatio base) (doubleField ["kalmanPhysicsBacktestRatio"] params)
                 , tpKalmanSensorCorrelationInflation = fromMaybe (tpKalmanSensorCorrelationInflation base) (doubleField ["kalmanSensorCorrelationInflation"] params)
                 , tpKalmanInnovationInflationThreshold = fromMaybe (tpKalmanInnovationInflationThreshold base) (doubleField ["kalmanInnovationInflationThreshold"] params)
                 , tpKalmanInnovationInflationMax = fromMaybe (tpKalmanInnovationInflationMax base) (doubleField ["kalmanInnovationInflationMax"] params)
@@ -8041,6 +8089,8 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "kalmanDt" .= tpKalmanDt params
                 , "kalmanProcessVar" .= tpKalmanProcessVar params
                 , "kalmanMeasurementVar" .= tpKalmanMeasurementVar params
+                , "kalmanPhysicsBars" .= tpKalmanPhysicsBars params
+                , "kalmanPhysicsBacktestRatio" .= tpKalmanPhysicsBacktestRatio params
                 , "sensorVarianceEwmaAlpha" .= tpSensorVarianceEwmaAlpha params
                 , "kalmanSensorCorrelationInflation" .= tpKalmanSensorCorrelationInflation params
                 , "kalmanInnovationInflationThreshold" .= tpKalmanInnovationInflationThreshold params
