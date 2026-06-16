@@ -799,10 +799,16 @@ anchorBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
+    Double ->
     Double
-anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+anchorBlendPredFromPreds conflictBaseRaw conflictScaleRaw alignedScaleRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        conflictBase = clamp01 conflictBaseRaw
+        conflictScale = clamp01 conflictScaleRaw
+        alignedScale = clamp01 alignedScaleRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -831,8 +837,8 @@ anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                                     else clamp01 (gap / total)
                             anchorWeight =
                                 if dKal /= dLstm
-                                    then min 1 (0.6 + 0.4 * conflictScore)
-                                    else 0.2 * conflictScore
+                                    then min 1 (conflictBase + conflictScale * conflictScore)
+                                    else alignedScale * conflictScore
                             pred = (1 - anchorWeight) * blend + anchorWeight * neutralPred
                          in if bad pred then blend else pred
                     _ -> blend
@@ -842,17 +848,20 @@ anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 anchorBlendPredictionsV ::
     Double ->
+    Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-anchorBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+anchorBlendPredictionsV conflictBase conflictScale alignedScale fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+             in anchorBlendPredFromPreds conflictBase conflictScale alignedScale fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 tensionGatePredFromPreds ::
@@ -2020,6 +2029,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         blendCoherenceBoostThreshold = clamp01 (ecBlendCoherenceBoostThreshold baseCfg)
         blendCoherenceBoostGain = max 0 (ecBlendCoherenceBoostGain baseCfg)
         blendCoherenceBoostSpan = max 1e-12 (ecBlendCoherenceBoostSpan baseCfg)
+        blendAnchorConflictBase = clamp01 (ecBlendAnchorConflictBase baseCfg)
+        blendAnchorConflictScale = clamp01 (ecBlendAnchorConflictScale baseCfg)
+        blendAnchorAlignedScale = clamp01 (ecBlendAnchorAlignedScale baseCfg)
         blendPhaseCancelReturnClamp = max 1e-12 (ecBlendPhaseCancelReturnClamp baseCfg)
         blendPhaseCancelConflictFloor = max 0 (ecBlendPhaseCancelConflictFloor baseCfg)
         blendPhaseCancelConflictScale = max 0 (ecBlendPhaseCancelConflictScale baseCfg)
@@ -2034,7 +2046,15 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         neutralGuardV0 = neutralGuardPredictionsV blendWeight pricesV kalV lstmV
         riskParityBlendV0 = riskParityBlendPredictionsV blendWeight pricesV kalV lstmV
         consensusBoostV0 = consensusBoostPredictionsV blendWeight pricesV kalV lstmV
-        anchorBlendV0 = anchorBlendPredictionsV blendWeight pricesV kalV lstmV
+        anchorBlendV0 =
+            anchorBlendPredictionsV
+                blendAnchorConflictBase
+                blendAnchorConflictScale
+                blendAnchorAlignedScale
+                blendWeight
+                pricesV
+                kalV
+                lstmV
         tensionGateV0 = tensionGatePredictionsV blendWeight pricesV kalV lstmV
         entropyBlendV0 = entropyBlendPredictionsV blendWeight pricesV kalV lstmV
         coherenceGateV0 =

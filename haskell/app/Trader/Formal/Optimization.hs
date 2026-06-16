@@ -725,6 +725,9 @@ optimizerSurfacePreservedFields base updated =
         , ecBlendCoherenceBoostThreshold updated == ecBlendCoherenceBoostThreshold base
         , ecBlendCoherenceBoostGain updated == ecBlendCoherenceBoostGain base
         , ecBlendCoherenceBoostSpan updated == ecBlendCoherenceBoostSpan base
+        , ecBlendAnchorConflictBase updated == ecBlendAnchorConflictBase base
+        , ecBlendAnchorConflictScale updated == ecBlendAnchorConflictScale base
+        , ecBlendAnchorAlignedScale updated == ecBlendAnchorAlignedScale base
         , ecBlendPhaseCancelReturnClamp updated == ecBlendPhaseCancelReturnClamp base
         , ecBlendPhaseCancelConflictFloor updated == ecBlendPhaseCancelConflictFloor base
         , ecBlendPhaseCancelConflictScale updated == ecBlendPhaseCancelConflictScale base
@@ -842,6 +845,9 @@ optimizerPublicSurfaceBaseConfig =
         , ecBlendCoherenceBoostThreshold = 0.6
         , ecBlendCoherenceBoostGain = 0.35
         , ecBlendCoherenceBoostSpan = 0.4
+        , ecBlendAnchorConflictBase = 0.6
+        , ecBlendAnchorConflictScale = 0.4
+        , ecBlendAnchorAlignedScale = 0.2
         , ecBlendPhaseCancelReturnClamp = 0.75
         , ecBlendPhaseCancelConflictFloor = 0.1
         , ecBlendPhaseCancelConflictScale = 0.6

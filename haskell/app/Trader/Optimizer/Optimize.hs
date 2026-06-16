@@ -211,6 +211,9 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torBlendCoherenceBoostThreshold :: !(Double, Double)
     , torBlendCoherenceBoostGain :: !(Double, Double)
     , torBlendCoherenceBoostSpan :: !(Double, Double)
+    , torBlendAnchorConflictBase :: !(Double, Double)
+    , torBlendAnchorConflictScale :: !(Double, Double)
+    , torBlendAnchorAlignedScale :: !(Double, Double)
     , torBlendPhaseCancelReturnClamp :: !(Double, Double)
     , torBlendPhaseCancelConflictFloor :: !(Double, Double)
     , torBlendPhaseCancelConflictScale :: !(Double, Double)
@@ -274,6 +277,9 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpBlendCoherenceBoostThreshold :: !Double
     , ttpBlendCoherenceBoostGain :: !Double
     , ttpBlendCoherenceBoostSpan :: !Double
+    , ttpBlendAnchorConflictBase :: !Double
+    , ttpBlendAnchorConflictScale :: !Double
+    , ttpBlendAnchorAlignedScale :: !Double
     , ttpBlendPhaseCancelReturnClamp :: !Double
     , ttpBlendPhaseCancelConflictFloor :: !Double
     , ttpBlendPhaseCancelConflictScale :: !Double
@@ -398,6 +404,9 @@ normalizeTechnicalTrialParams p =
             , ttpBlendCoherenceBoostThreshold = clamp (ttpBlendCoherenceBoostThreshold p) 0 1
             , ttpBlendCoherenceBoostGain = max 0 (ttpBlendCoherenceBoostGain p)
             , ttpBlendCoherenceBoostSpan = max 1e-6 (ttpBlendCoherenceBoostSpan p)
+            , ttpBlendAnchorConflictBase = clamp (ttpBlendAnchorConflictBase p) 0 1
+            , ttpBlendAnchorConflictScale = clamp (ttpBlendAnchorConflictScale p) 0 1
+            , ttpBlendAnchorAlignedScale = clamp (ttpBlendAnchorAlignedScale p) 0 1
             , ttpBlendPhaseCancelReturnClamp = max 1e-6 (ttpBlendPhaseCancelReturnClamp p)
             , ttpBlendPhaseCancelConflictFloor = max 0 (ttpBlendPhaseCancelConflictFloor p)
             , ttpBlendPhaseCancelConflictScale = max 0 (ttpBlendPhaseCancelConflictScale p)
@@ -463,26 +472,29 @@ sampleTechnicalTrialParams ranges rng0 =
         (blendCoherenceBoostThreshold, rng42) = sampleClamped 0 1 (torBlendCoherenceBoostThreshold ranges) rng41
         (blendCoherenceBoostGain, rng43) = sampleNonNegative (torBlendCoherenceBoostGain ranges) rng42
         (blendCoherenceBoostSpan, rng44) = samplePositive (torBlendCoherenceBoostSpan ranges) rng43
-        (blendPhaseCancelReturnClamp, rng45) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng44
-        (blendPhaseCancelConflictFloor, rng46) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng45
-        (blendPhaseCancelConflictScale, rng47) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng46
-        (blendPhaseCancelAlignmentScale, rng48) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng47
-        (signalEntryEdgeHeadroomMult, rng49) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng48
-        (signalEntryEdgeSpikeMult, rng50) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng49
-        (signalEntryEdgeSpikeCap, rng51) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng50
-        (signalEntryEdgeSpikeConsecutiveLimit, rng52) =
+        (blendAnchorConflictBase, rng45) = sampleClamped 0 1 (torBlendAnchorConflictBase ranges) rng44
+        (blendAnchorConflictScale, rng46) = sampleClamped 0 1 (torBlendAnchorConflictScale ranges) rng45
+        (blendAnchorAlignedScale, rng47) = sampleClamped 0 1 (torBlendAnchorAlignedScale ranges) rng46
+        (blendPhaseCancelReturnClamp, rng48) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng47
+        (blendPhaseCancelConflictFloor, rng49) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng48
+        (blendPhaseCancelConflictScale, rng50) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng49
+        (blendPhaseCancelAlignmentScale, rng51) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng50
+        (signalEntryEdgeHeadroomMult, rng52) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng51
+        (signalEntryEdgeSpikeMult, rng53) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng52
+        (signalEntryEdgeSpikeCap, rng54) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng53
+        (signalEntryEdgeSpikeConsecutiveLimit, rng55) =
             let (lo, hi) = orderedPair (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
-             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng51
-        (signalTrendSlackMult, rng53) = sampleNonNegative (torSignalTrendSlackMult ranges) rng52
-        (signalTrendSlackCap, rng54) = sampleNonNegative (torSignalTrendSlackCap ranges) rng53
-        (signalDirectionalityLookbackBars, rng55) =
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng54
+        (signalTrendSlackMult, rng56) = sampleNonNegative (torSignalTrendSlackMult ranges) rng55
+        (signalTrendSlackCap, rng57) = sampleNonNegative (torSignalTrendSlackCap ranges) rng56
+        (signalDirectionalityLookbackBars, rng58) =
             let (lo, hi) = orderedPair (torSignalDirectionalityLookbackBars ranges)
-             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng54
-        (signalDirectionalityChopEfficiencyMax, rng56) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng55
-        (signalDirectionalityMrEfficiencyMax0, rng57) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng56
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng57
+        (signalDirectionalityChopEfficiencyMax, rng59) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng58
+        (signalDirectionalityMrEfficiencyMax0, rng60) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng59
         signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
-        (signalDirectionalityWeakZMin, rng58) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng57
-        (signalPredictorTrackingFloor, rng59) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng58
+        (signalDirectionalityWeakZMin, rng61) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng60
+        (signalPredictorTrackingFloor, rng62) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng61
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -529,6 +541,9 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpBlendCoherenceBoostThreshold = blendCoherenceBoostThreshold
                 , ttpBlendCoherenceBoostGain = blendCoherenceBoostGain
                 , ttpBlendCoherenceBoostSpan = blendCoherenceBoostSpan
+                , ttpBlendAnchorConflictBase = blendAnchorConflictBase
+                , ttpBlendAnchorConflictScale = blendAnchorConflictScale
+                , ttpBlendAnchorAlignedScale = blendAnchorAlignedScale
                 , ttpBlendPhaseCancelReturnClamp = blendPhaseCancelReturnClamp
                 , ttpBlendPhaseCancelConflictFloor = blendPhaseCancelConflictFloor
                 , ttpBlendPhaseCancelConflictScale = blendPhaseCancelConflictScale
@@ -545,7 +560,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpSignalDirectionalityWeakZMin = signalDirectionalityWeakZMin
                 , ttpSignalPredictorTrackingFloor = signalPredictorTrackingFloor
                 }
-        , rng59
+        , rng62
         )
   where
     samplePositive range rng =
@@ -654,6 +669,12 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpBlendCoherenceBoostGain p)
     , "--blend-coherence-boost-span"
     , printf "%.12g" (ttpBlendCoherenceBoostSpan p)
+    , "--blend-anchor-conflict-base"
+    , printf "%.12g" (ttpBlendAnchorConflictBase p)
+    , "--blend-anchor-conflict-scale"
+    , printf "%.12g" (ttpBlendAnchorConflictScale p)
+    , "--blend-anchor-aligned-scale"
+    , printf "%.12g" (ttpBlendAnchorAlignedScale p)
     , "--blend-phase-cancel-return-clamp"
     , printf "%.12g" (ttpBlendPhaseCancelReturnClamp p)
     , "--blend-phase-cancel-conflict-floor"
@@ -732,6 +753,9 @@ technicalTrialParamsPairs p =
     , "blendCoherenceBoostThreshold" .= ttpBlendCoherenceBoostThreshold p
     , "blendCoherenceBoostGain" .= ttpBlendCoherenceBoostGain p
     , "blendCoherenceBoostSpan" .= ttpBlendCoherenceBoostSpan p
+    , "blendAnchorConflictBase" .= ttpBlendAnchorConflictBase p
+    , "blendAnchorConflictScale" .= ttpBlendAnchorConflictScale p
+    , "blendAnchorAlignedScale" .= ttpBlendAnchorAlignedScale p
     , "blendPhaseCancelReturnClamp" .= ttpBlendPhaseCancelReturnClamp p
     , "blendPhaseCancelConflictFloor" .= ttpBlendPhaseCancelConflictFloor p
     , "blendPhaseCancelConflictScale" .= ttpBlendPhaseCancelConflictScale p

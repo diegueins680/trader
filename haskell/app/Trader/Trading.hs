@@ -171,6 +171,9 @@ data EnsembleConfig = EnsembleConfig
     , ecBlendCoherenceBoostThreshold :: !Double
     , ecBlendCoherenceBoostGain :: !Double
     , ecBlendCoherenceBoostSpan :: !Double
+    , ecBlendAnchorConflictBase :: !Double
+    , ecBlendAnchorConflictScale :: !Double
+    , ecBlendAnchorAlignedScale :: !Double
     , ecBlendPhaseCancelReturnClamp :: !Double
     , ecBlendPhaseCancelConflictFloor :: !Double
     , ecBlendPhaseCancelConflictScale :: !Double

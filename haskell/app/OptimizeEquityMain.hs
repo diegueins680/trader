@@ -519,6 +519,9 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "blend-coherence-boost-threshold" 0.3 0.9
         <*> doubleRangeOption "blend-coherence-boost-gain" 0.0 0.8
         <*> doubleRangeOption "blend-coherence-boost-span" 0.1 0.8
+        <*> doubleRangeOption "blend-anchor-conflict-base" 0.2 0.9
+        <*> doubleRangeOption "blend-anchor-conflict-scale" 0.0 0.8
+        <*> doubleRangeOption "blend-anchor-aligned-scale" 0.0 0.5
         <*> doubleRangeOption "blend-phase-cancel-return-clamp" 0.25 1.5
         <*> doubleRangeOption "blend-phase-cancel-conflict-floor" 0.0 0.5
         <*> doubleRangeOption "blend-phase-cancel-conflict-scale" 0.0 1.2
@@ -822,6 +825,9 @@ validateTechnicalOptimizerRanges ranges = do
     unitRange "blend-coherence-boost-threshold" (torBlendCoherenceBoostThreshold ranges)
     nonNegativeRange "blend-coherence-boost-gain" (torBlendCoherenceBoostGain ranges)
     positiveRange "blend-coherence-boost-span" (torBlendCoherenceBoostSpan ranges)
+    unitRange "blend-anchor-conflict-base" (torBlendAnchorConflictBase ranges)
+    unitRange "blend-anchor-conflict-scale" (torBlendAnchorConflictScale ranges)
+    unitRange "blend-anchor-aligned-scale" (torBlendAnchorAlignedScale ranges)
     positiveRange "blend-phase-cancel-return-clamp" (torBlendPhaseCancelReturnClamp ranges)
     nonNegativeRange "blend-phase-cancel-conflict-floor" (torBlendPhaseCancelConflictFloor ranges)
     nonNegativeRange "blend-phase-cancel-conflict-scale" (torBlendPhaseCancelConflictScale ranges)

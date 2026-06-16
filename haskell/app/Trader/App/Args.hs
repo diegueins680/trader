@@ -294,6 +294,9 @@ data Args = Args
     , argBlendCoherenceBoostThreshold :: Double
     , argBlendCoherenceBoostGain :: Double
     , argBlendCoherenceBoostSpan :: Double
+    , argBlendAnchorConflictBase :: Double
+    , argBlendAnchorConflictScale :: Double
+    , argBlendAnchorAlignedScale :: Double
     , argBlendPhaseCancelReturnClamp :: Double
     , argBlendPhaseCancelConflictFloor :: Double
     , argBlendPhaseCancelConflictScale :: Double
@@ -1029,6 +1032,9 @@ opts = do
     argBlendCoherenceBoostThreshold <- option auto (long "blend-coherence-boost-threshold" <> value 0.6 <> showDefault <> help "Minimum source coherence before coherence_gate boosts agreement")
     argBlendCoherenceBoostGain <- option auto (long "blend-coherence-boost-gain" <> value 0.35 <> showDefault <> help "Maximum agreement boost gain for --method coherence_gate")
     argBlendCoherenceBoostSpan <- option auto (long "blend-coherence-boost-span" <> value 0.4 <> showDefault <> help "Coherence range over which coherence_gate boost gain ramps")
+    argBlendAnchorConflictBase <- option auto (long "blend-anchor-conflict-base" <> value 0.6 <> showDefault <> help "Base neutral-anchor weight when anchor_blend sources conflict (0..1)")
+    argBlendAnchorConflictScale <- option auto (long "blend-anchor-conflict-scale" <> value 0.4 <> showDefault <> help "Conflict-strength neutral-anchor scale for --method anchor_blend (0..1)")
+    argBlendAnchorAlignedScale <- option auto (long "blend-anchor-aligned-scale" <> value 0.2 <> showDefault <> help "Agreement neutral-anchor scale for --method anchor_blend (0..1)")
     argBlendPhaseCancelReturnClamp <- option auto (long "blend-phase-cancel-return-clamp" <> value 0.75 <> showDefault <> help "Maximum absolute per-bar return emitted by --method phase_cancel")
     argBlendPhaseCancelConflictFloor <- option auto (long "blend-phase-cancel-conflict-floor" <> value 0.1 <> showDefault <> help "Base return multiplier when phase_cancel sources conflict")
     argBlendPhaseCancelConflictScale <- option auto (long "blend-phase-cancel-conflict-scale" <> value 0.6 <> showDefault <> help "Cancellation-sensitive return multiplier for --method phase_cancel conflicts")
@@ -1549,6 +1555,9 @@ validateArgs args0 = do
             , ("--blend-coherence-boost-threshold", argBlendCoherenceBoostThreshold args)
             , ("--blend-coherence-boost-gain", argBlendCoherenceBoostGain args)
             , ("--blend-coherence-boost-span", argBlendCoherenceBoostSpan args)
+            , ("--blend-anchor-conflict-base", argBlendAnchorConflictBase args)
+            , ("--blend-anchor-conflict-scale", argBlendAnchorConflictScale args)
+            , ("--blend-anchor-aligned-scale", argBlendAnchorAlignedScale args)
             , ("--blend-phase-cancel-return-clamp", argBlendPhaseCancelReturnClamp args)
             , ("--blend-phase-cancel-conflict-floor", argBlendPhaseCancelConflictFloor args)
             , ("--blend-phase-cancel-conflict-scale", argBlendPhaseCancelConflictScale args)
@@ -1670,6 +1679,9 @@ validateArgs args0 = do
     ensure "--blend-coherence-boost-threshold must be between 0 and 1" (argBlendCoherenceBoostThreshold args >= 0 && argBlendCoherenceBoostThreshold args <= 1)
     ensure "--blend-coherence-boost-gain must be >= 0" (argBlendCoherenceBoostGain args >= 0)
     ensure "--blend-coherence-boost-span must be > 0" (argBlendCoherenceBoostSpan args > 0)
+    ensure "--blend-anchor-conflict-base must be between 0 and 1" (argBlendAnchorConflictBase args >= 0 && argBlendAnchorConflictBase args <= 1)
+    ensure "--blend-anchor-conflict-scale must be between 0 and 1" (argBlendAnchorConflictScale args >= 0 && argBlendAnchorConflictScale args <= 1)
+    ensure "--blend-anchor-aligned-scale must be between 0 and 1" (argBlendAnchorAlignedScale args >= 0 && argBlendAnchorAlignedScale args <= 1)
     ensure "--blend-phase-cancel-return-clamp must be > 0" (argBlendPhaseCancelReturnClamp args > 0)
     ensure "--blend-phase-cancel-conflict-floor must be >= 0" (argBlendPhaseCancelConflictFloor args >= 0)
     ensure "--blend-phase-cancel-conflict-scale must be >= 0" (argBlendPhaseCancelConflictScale args >= 0)

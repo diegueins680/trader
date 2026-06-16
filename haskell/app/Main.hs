@@ -2607,6 +2607,9 @@ argsPublicJson args =
             , "blendCoherenceBoostThreshold" .= argBlendCoherenceBoostThreshold args
             , "blendCoherenceBoostGain" .= argBlendCoherenceBoostGain args
             , "blendCoherenceBoostSpan" .= argBlendCoherenceBoostSpan args
+            , "blendAnchorConflictBase" .= argBlendAnchorConflictBase args
+            , "blendAnchorConflictScale" .= argBlendAnchorConflictScale args
+            , "blendAnchorAlignedScale" .= argBlendAnchorAlignedScale args
             , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
             , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
@@ -9502,6 +9505,9 @@ botOptimizeAfterOperation st = do
                                 , ecBlendCoherenceBoostThreshold = argBlendCoherenceBoostThreshold args
                                 , ecBlendCoherenceBoostGain = argBlendCoherenceBoostGain args
                                 , ecBlendCoherenceBoostSpan = argBlendCoherenceBoostSpan args
+                                , ecBlendAnchorConflictBase = argBlendAnchorConflictBase args
+                                , ecBlendAnchorConflictScale = argBlendAnchorConflictScale args
+                                , ecBlendAnchorAlignedScale = argBlendAnchorAlignedScale args
                                 , ecBlendPhaseCancelReturnClamp = argBlendPhaseCancelReturnClamp args
                                 , ecBlendPhaseCancelConflictFloor = argBlendPhaseCancelConflictFloor args
                                 , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
@@ -9968,6 +9974,9 @@ parseTopComboToArgs base combo = do
         blendCoherenceBoostThreshold = clamp01 (pickD "blendCoherenceBoostThreshold" (argBlendCoherenceBoostThreshold base))
         blendCoherenceBoostGain = max 0 (pickD "blendCoherenceBoostGain" (argBlendCoherenceBoostGain base))
         blendCoherenceBoostSpan = max 1e-12 (pickD "blendCoherenceBoostSpan" (argBlendCoherenceBoostSpan base))
+        blendAnchorConflictBase = clamp01 (pickD "blendAnchorConflictBase" (argBlendAnchorConflictBase base))
+        blendAnchorConflictScale = clamp01 (pickD "blendAnchorConflictScale" (argBlendAnchorConflictScale base))
+        blendAnchorAlignedScale = clamp01 (pickD "blendAnchorAlignedScale" (argBlendAnchorAlignedScale base))
         blendPhaseCancelReturnClamp = max 1e-12 (pickD "blendPhaseCancelReturnClamp" (argBlendPhaseCancelReturnClamp base))
         blendPhaseCancelConflictFloor = max 0 (pickD "blendPhaseCancelConflictFloor" (argBlendPhaseCancelConflictFloor base))
         blendPhaseCancelConflictScale = max 0 (pickD "blendPhaseCancelConflictScale" (argBlendPhaseCancelConflictScale base))
@@ -10103,6 +10112,9 @@ parseTopComboToArgs base combo = do
                 , argBlendCoherenceBoostThreshold = blendCoherenceBoostThreshold
                 , argBlendCoherenceBoostGain = blendCoherenceBoostGain
                 , argBlendCoherenceBoostSpan = blendCoherenceBoostSpan
+                , argBlendAnchorConflictBase = blendAnchorConflictBase
+                , argBlendAnchorConflictScale = blendAnchorConflictScale
+                , argBlendAnchorAlignedScale = blendAnchorAlignedScale
                 , argBlendPhaseCancelReturnClamp = blendPhaseCancelReturnClamp
                 , argBlendPhaseCancelConflictFloor = blendPhaseCancelConflictFloor
                 , argBlendPhaseCancelConflictScale = blendPhaseCancelConflictScale
@@ -13461,6 +13473,9 @@ argsCacheJsonSignal args =
             , "blendCoherenceBoostThreshold" .= argBlendCoherenceBoostThreshold args
             , "blendCoherenceBoostGain" .= argBlendCoherenceBoostGain args
             , "blendCoherenceBoostSpan" .= argBlendCoherenceBoostSpan args
+            , "blendAnchorConflictBase" .= argBlendAnchorConflictBase args
+            , "blendAnchorConflictScale" .= argBlendAnchorConflictScale args
+            , "blendAnchorAlignedScale" .= argBlendAnchorAlignedScale args
             , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
             , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
@@ -13652,6 +13667,9 @@ argsCacheJsonBacktest args =
             , "blendCoherenceBoostThreshold" .= argBlendCoherenceBoostThreshold args
             , "blendCoherenceBoostGain" .= argBlendCoherenceBoostGain args
             , "blendCoherenceBoostSpan" .= argBlendCoherenceBoostSpan args
+            , "blendAnchorConflictBase" .= argBlendAnchorConflictBase args
+            , "blendAnchorConflictScale" .= argBlendAnchorConflictScale args
+            , "blendAnchorAlignedScale" .= argBlendAnchorAlignedScale args
             , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
             , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
@@ -21159,10 +21177,16 @@ anchorBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
+    Double ->
     Double
-anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+anchorBlendPredFromPreds conflictBaseRaw conflictScaleRaw alignedScaleRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        conflictBase = clamp01 conflictBaseRaw
+        conflictScale = clamp01 conflictScaleRaw
+        alignedScale = clamp01 alignedScaleRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -21191,8 +21215,8 @@ anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                                     else clamp01 (gap / total)
                             anchorWeight =
                                 if dKal /= dLstm
-                                    then min 1 (0.6 + 0.4 * conflictScore)
-                                    else 0.2 * conflictScore
+                                    then min 1 (conflictBase + conflictScale * conflictScore)
+                                    else alignedScale * conflictScore
                             pred = (1 - anchorWeight) * blend + anchorWeight * neutralPred
                          in if bad pred then blend else pred
                     _ -> blend
@@ -21202,17 +21226,20 @@ anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 anchorBlendPredictionsV ::
     Double ->
+    Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-anchorBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+anchorBlendPredictionsV conflictBase conflictScale alignedScale fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+             in anchorBlendPredFromPreds conflictBase conflictScale alignedScale fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 tensionGatePredFromPreds ::
@@ -22290,6 +22317,9 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 blendCoherenceBoostThreshold = clamp01 (argBlendCoherenceBoostThreshold args)
                 blendCoherenceBoostGain = max 0 (argBlendCoherenceBoostGain args)
                 blendCoherenceBoostSpan = max 1e-12 (argBlendCoherenceBoostSpan args)
+                blendAnchorConflictBase = clamp01 (argBlendAnchorConflictBase args)
+                blendAnchorConflictScale = clamp01 (argBlendAnchorConflictScale args)
+                blendAnchorAlignedScale = clamp01 (argBlendAnchorAlignedScale args)
                 blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
                 blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
                 blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
@@ -22301,7 +22331,15 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 neutralGuardPred0 = neutralGuardPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 riskParityBlendPred0 = riskParityBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 consensusBoostPred0 = consensusBoostPredictionsV blendWeight pricesV kalPred0 lstmPred0
-                anchorBlendPred0 = anchorBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                anchorBlendPred0 =
+                    anchorBlendPredictionsV
+                        blendAnchorConflictBase
+                        blendAnchorConflictScale
+                        blendAnchorAlignedScale
+                        blendWeight
+                        pricesV
+                        kalPred0
+                        lstmPred0
                 tensionGatePred0 = tensionGatePredictionsV blendWeight pricesV kalPred0 lstmPred0
                 entropyBlendPred0 = entropyBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 coherenceGatePred0 =
@@ -25434,6 +25472,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecBlendCoherenceBoostThreshold = argBlendCoherenceBoostThreshold args
                 , ecBlendCoherenceBoostGain = argBlendCoherenceBoostGain args
                 , ecBlendCoherenceBoostSpan = argBlendCoherenceBoostSpan args
+                , ecBlendAnchorConflictBase = argBlendAnchorConflictBase args
+                , ecBlendAnchorConflictScale = argBlendAnchorConflictScale args
+                , ecBlendAnchorAlignedScale = argBlendAnchorAlignedScale args
                 , ecBlendPhaseCancelReturnClamp = argBlendPhaseCancelReturnClamp args
                 , ecBlendPhaseCancelConflictFloor = argBlendPhaseCancelConflictFloor args
                 , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
@@ -25547,6 +25588,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         blendCoherenceBoostThreshold = clamp01 (argBlendCoherenceBoostThreshold args)
         blendCoherenceBoostGain = max 0 (argBlendCoherenceBoostGain args)
         blendCoherenceBoostSpan = max 1e-12 (argBlendCoherenceBoostSpan args)
+        blendAnchorConflictBase = clamp01 (argBlendAnchorConflictBase args)
+        blendAnchorConflictScale = clamp01 (argBlendAnchorConflictScale args)
+        blendAnchorAlignedScale = clamp01 (argBlendAnchorAlignedScale args)
         blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
         blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
         blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
@@ -25607,7 +25651,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (anchorBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+             in V.toList (anchorBlendPredictionsV blendAnchorConflictBase blendAnchorConflictScale blendAnchorAlignedScale blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         tensionGatePredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -27503,6 +27547,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             blendCoherenceBoostThreshold = clamp01 (argBlendCoherenceBoostThreshold args)
             blendCoherenceBoostGain = max 0 (argBlendCoherenceBoostGain args)
             blendCoherenceBoostSpan = max 1e-12 (argBlendCoherenceBoostSpan args)
+            blendAnchorConflictBase = clamp01 (argBlendAnchorConflictBase args)
+            blendAnchorConflictScale = clamp01 (argBlendAnchorConflictScale args)
+            blendAnchorAlignedScale = clamp01 (argBlendAnchorAlignedScale args)
             blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
             blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
             blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
@@ -27817,6 +27864,9 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     (Just k, Just l) ->
                         Just
                             ( anchorBlendPredFromPreds
+                                blendAnchorConflictBase
+                                blendAnchorConflictScale
+                                blendAnchorAlignedScale
                                 blendWeight
                                 currentPrice
                                 k
