@@ -203,6 +203,9 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torBlendRegimeHighVolCutoff :: !(Double, Double)
     , torBlendRegimeKalmanZCutoff :: !(Double, Double)
     , torBlendBanditExploreScale :: !(Double, Double)
+    , torBlendFractalReturnClamp :: !(Double, Double)
+    , torBlendFractalAlignedGain :: !(Double, Double)
+    , torBlendFractalConflictGain :: !(Double, Double)
     , torBlendPhaseCancelReturnClamp :: !(Double, Double)
     , torBlendPhaseCancelConflictFloor :: !(Double, Double)
     , torBlendPhaseCancelConflictScale :: !(Double, Double)
@@ -258,6 +261,9 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpBlendRegimeHighVolCutoff :: !Double
     , ttpBlendRegimeKalmanZCutoff :: !Double
     , ttpBlendBanditExploreScale :: !Double
+    , ttpBlendFractalReturnClamp :: !Double
+    , ttpBlendFractalAlignedGain :: !Double
+    , ttpBlendFractalConflictGain :: !Double
     , ttpBlendPhaseCancelReturnClamp :: !Double
     , ttpBlendPhaseCancelConflictFloor :: !Double
     , ttpBlendPhaseCancelConflictScale :: !Double
@@ -374,6 +380,9 @@ normalizeTechnicalTrialParams p =
             , ttpBlendRegimeHighVolCutoff = clamp (ttpBlendRegimeHighVolCutoff p) 0 1
             , ttpBlendRegimeKalmanZCutoff = max 0 (ttpBlendRegimeKalmanZCutoff p)
             , ttpBlendBanditExploreScale = max 0 (ttpBlendBanditExploreScale p)
+            , ttpBlendFractalReturnClamp = max 1e-6 (ttpBlendFractalReturnClamp p)
+            , ttpBlendFractalAlignedGain = max 0 (ttpBlendFractalAlignedGain p)
+            , ttpBlendFractalConflictGain = max 0 (ttpBlendFractalConflictGain p)
             , ttpBlendPhaseCancelReturnClamp = max 1e-6 (ttpBlendPhaseCancelReturnClamp p)
             , ttpBlendPhaseCancelConflictFloor = max 0 (ttpBlendPhaseCancelConflictFloor p)
             , ttpBlendPhaseCancelConflictScale = max 0 (ttpBlendPhaseCancelConflictScale p)
@@ -431,26 +440,29 @@ sampleTechnicalTrialParams ranges rng0 =
         (blendRegimeHighVolCutoff, rng34) = sampleClamped 0 1 (torBlendRegimeHighVolCutoff ranges) rng33
         (blendRegimeKalmanZCutoff, rng35) = sampleNonNegative (torBlendRegimeKalmanZCutoff ranges) rng34
         (blendBanditExploreScale, rng36) = sampleNonNegative (torBlendBanditExploreScale ranges) rng35
-        (blendPhaseCancelReturnClamp, rng37) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng36
-        (blendPhaseCancelConflictFloor, rng38) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng37
-        (blendPhaseCancelConflictScale, rng39) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng38
-        (blendPhaseCancelAlignmentScale, rng40) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng39
-        (signalEntryEdgeHeadroomMult, rng41) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng40
-        (signalEntryEdgeSpikeMult, rng42) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng41
-        (signalEntryEdgeSpikeCap, rng43) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng42
-        (signalEntryEdgeSpikeConsecutiveLimit, rng44) =
+        (blendFractalReturnClamp, rng37) = samplePositive (torBlendFractalReturnClamp ranges) rng36
+        (blendFractalAlignedGain, rng38) = sampleNonNegative (torBlendFractalAlignedGain ranges) rng37
+        (blendFractalConflictGain, rng39) = sampleNonNegative (torBlendFractalConflictGain ranges) rng38
+        (blendPhaseCancelReturnClamp, rng40) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng39
+        (blendPhaseCancelConflictFloor, rng41) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng40
+        (blendPhaseCancelConflictScale, rng42) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng41
+        (blendPhaseCancelAlignmentScale, rng43) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng42
+        (signalEntryEdgeHeadroomMult, rng44) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng43
+        (signalEntryEdgeSpikeMult, rng45) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng44
+        (signalEntryEdgeSpikeCap, rng46) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng45
+        (signalEntryEdgeSpikeConsecutiveLimit, rng47) =
             let (lo, hi) = orderedPair (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
-             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng43
-        (signalTrendSlackMult, rng45) = sampleNonNegative (torSignalTrendSlackMult ranges) rng44
-        (signalTrendSlackCap, rng46) = sampleNonNegative (torSignalTrendSlackCap ranges) rng45
-        (signalDirectionalityLookbackBars, rng47) =
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng46
+        (signalTrendSlackMult, rng48) = sampleNonNegative (torSignalTrendSlackMult ranges) rng47
+        (signalTrendSlackCap, rng49) = sampleNonNegative (torSignalTrendSlackCap ranges) rng48
+        (signalDirectionalityLookbackBars, rng50) =
             let (lo, hi) = orderedPair (torSignalDirectionalityLookbackBars ranges)
-             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng46
-        (signalDirectionalityChopEfficiencyMax, rng48) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng47
-        (signalDirectionalityMrEfficiencyMax0, rng49) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng48
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng49
+        (signalDirectionalityChopEfficiencyMax, rng51) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng50
+        (signalDirectionalityMrEfficiencyMax0, rng52) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng51
         signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
-        (signalDirectionalityWeakZMin, rng50) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng49
-        (signalPredictorTrackingFloor, rng51) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng50
+        (signalDirectionalityWeakZMin, rng53) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng52
+        (signalPredictorTrackingFloor, rng54) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng53
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -489,6 +501,9 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpBlendRegimeHighVolCutoff = blendRegimeHighVolCutoff
                 , ttpBlendRegimeKalmanZCutoff = blendRegimeKalmanZCutoff
                 , ttpBlendBanditExploreScale = blendBanditExploreScale
+                , ttpBlendFractalReturnClamp = blendFractalReturnClamp
+                , ttpBlendFractalAlignedGain = blendFractalAlignedGain
+                , ttpBlendFractalConflictGain = blendFractalConflictGain
                 , ttpBlendPhaseCancelReturnClamp = blendPhaseCancelReturnClamp
                 , ttpBlendPhaseCancelConflictFloor = blendPhaseCancelConflictFloor
                 , ttpBlendPhaseCancelConflictScale = blendPhaseCancelConflictScale
@@ -505,7 +520,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpSignalDirectionalityWeakZMin = signalDirectionalityWeakZMin
                 , ttpSignalPredictorTrackingFloor = signalPredictorTrackingFloor
                 }
-        , rng47
+        , rng54
         )
   where
     samplePositive range rng =
@@ -598,6 +613,12 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpBlendRegimeKalmanZCutoff p)
     , "--blend-bandit-explore-scale"
     , printf "%.12g" (ttpBlendBanditExploreScale p)
+    , "--blend-fractal-return-clamp"
+    , printf "%.12g" (ttpBlendFractalReturnClamp p)
+    , "--blend-fractal-aligned-gain"
+    , printf "%.12g" (ttpBlendFractalAlignedGain p)
+    , "--blend-fractal-conflict-gain"
+    , printf "%.12g" (ttpBlendFractalConflictGain p)
     , "--blend-phase-cancel-return-clamp"
     , printf "%.12g" (ttpBlendPhaseCancelReturnClamp p)
     , "--blend-phase-cancel-conflict-floor"
@@ -668,6 +689,9 @@ technicalTrialParamsPairs p =
     , "blendRegimeHighVolCutoff" .= ttpBlendRegimeHighVolCutoff p
     , "blendRegimeKalmanZCutoff" .= ttpBlendRegimeKalmanZCutoff p
     , "blendBanditExploreScale" .= ttpBlendBanditExploreScale p
+    , "blendFractalReturnClamp" .= ttpBlendFractalReturnClamp p
+    , "blendFractalAlignedGain" .= ttpBlendFractalAlignedGain p
+    , "blendFractalConflictGain" .= ttpBlendFractalConflictGain p
     , "blendPhaseCancelReturnClamp" .= ttpBlendPhaseCancelReturnClamp p
     , "blendPhaseCancelConflictFloor" .= ttpBlendPhaseCancelConflictFloor p
     , "blendPhaseCancelConflictScale" .= ttpBlendPhaseCancelConflictScale p

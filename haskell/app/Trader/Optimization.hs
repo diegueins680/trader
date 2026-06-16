@@ -1078,10 +1078,16 @@ fractalBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
+    Double ->
     Double
-fractalBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+fractalBlendPredFromPreds returnClampRaw alignedGainRaw conflictGainRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        returnClamp = max 1e-12 returnClampRaw
+        alignedGain = max 0 alignedGainRaw
+        conflictGain = max 0 conflictGainRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -1095,7 +1101,7 @@ fractalBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                      in if bad v then Nothing else Just v
         signedRoot r = signum r * sqrt (abs r)
         signedSquare r = signum r * r * r
-        clampRet r = max (-0.75) (min 0.75 r)
+        clampRet r = max (negate returnClamp) (min returnClamp r)
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
                 case (ret kalPred, ret lstmPred) of
@@ -1104,7 +1110,7 @@ fractalBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
                             sLstm = signedRoot rLstm
                             sBlend = wFallback * sKal + (1 - wFallback) * sLstm
                             aligned = signum rKal == signum rLstm && signum rKal /= 0
-                            gain = if aligned then 1.12 else 0.82
+                            gain = if aligned then alignedGain else conflictGain
                             predRet = clampRet (signedSquare (gain * sBlend))
                             pred = neutralPred * (1 + predRet)
                          in if bad pred then blend else pred
@@ -1115,17 +1121,20 @@ fractalBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 fractalBlendPredictionsV ::
     Double ->
+    Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-fractalBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+fractalBlendPredictionsV returnClamp alignedGain conflictGain fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in fractalBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+             in fractalBlendPredFromPreds returnClamp alignedGain conflictGain fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 phaseCancelPredFromPreds ::
@@ -1988,6 +1997,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         blendRegimeHighVolCutoff = clamp01 (ecBlendRegimeHighVolCutoff baseCfg)
         blendRegimeKalmanZCutoff = max 0 (ecBlendRegimeKalmanZCutoff baseCfg)
         blendBanditExploreScale = max 0 (ecBlendBanditExploreScale baseCfg)
+        blendFractalReturnClamp = max 1e-12 (ecBlendFractalReturnClamp baseCfg)
+        blendFractalAlignedGain = max 0 (ecBlendFractalAlignedGain baseCfg)
+        blendFractalConflictGain = max 0 (ecBlendFractalConflictGain baseCfg)
         blendPhaseCancelReturnClamp = max 1e-12 (ecBlendPhaseCancelReturnClamp baseCfg)
         blendPhaseCancelConflictFloor = max 0 (ecBlendPhaseCancelConflictFloor baseCfg)
         blendPhaseCancelConflictScale = max 0 (ecBlendPhaseCancelConflictScale baseCfg)
@@ -2006,7 +2018,15 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         tensionGateV0 = tensionGatePredictionsV blendWeight pricesV kalV lstmV
         entropyBlendV0 = entropyBlendPredictionsV blendWeight pricesV kalV lstmV
         coherenceGateV0 = coherenceGatePredictionsV blendWeight pricesV kalV lstmV
-        fractalBlendV0 = fractalBlendPredictionsV blendWeight pricesV kalV lstmV
+        fractalBlendV0 =
+            fractalBlendPredictionsV
+                blendFractalReturnClamp
+                blendFractalAlignedGain
+                blendFractalConflictGain
+                blendWeight
+                pricesV
+                kalV
+                lstmV
         phaseCancelV0 =
             phaseCancelPredictionsV
                 blendPhaseCancelReturnClamp

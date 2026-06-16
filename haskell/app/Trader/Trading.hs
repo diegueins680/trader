@@ -163,6 +163,9 @@ data EnsembleConfig = EnsembleConfig
     , ecBlendRegimeHighVolCutoff :: !Double
     , ecBlendRegimeKalmanZCutoff :: !Double
     , ecBlendBanditExploreScale :: !Double
+    , ecBlendFractalReturnClamp :: !Double
+    , ecBlendFractalAlignedGain :: !Double
+    , ecBlendFractalConflictGain :: !Double
     , ecBlendPhaseCancelReturnClamp :: !Double
     , ecBlendPhaseCancelConflictFloor :: !Double
     , ecBlendPhaseCancelConflictScale :: !Double

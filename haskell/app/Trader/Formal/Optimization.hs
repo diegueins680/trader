@@ -717,6 +717,9 @@ optimizerSurfacePreservedFields base updated =
         , ecBlendRegimeHighVolCutoff updated == ecBlendRegimeHighVolCutoff base
         , ecBlendRegimeKalmanZCutoff updated == ecBlendRegimeKalmanZCutoff base
         , ecBlendBanditExploreScale updated == ecBlendBanditExploreScale base
+        , ecBlendFractalReturnClamp updated == ecBlendFractalReturnClamp base
+        , ecBlendFractalAlignedGain updated == ecBlendFractalAlignedGain base
+        , ecBlendFractalConflictGain updated == ecBlendFractalConflictGain base
         , ecBlendPhaseCancelReturnClamp updated == ecBlendPhaseCancelReturnClamp base
         , ecBlendPhaseCancelConflictFloor updated == ecBlendPhaseCancelConflictFloor base
         , ecBlendPhaseCancelConflictScale updated == ecBlendPhaseCancelConflictScale base
@@ -826,6 +829,9 @@ optimizerPublicSurfaceBaseConfig =
         , ecBlendRegimeHighVolCutoff = 0.6
         , ecBlendRegimeKalmanZCutoff = 1
         , ecBlendBanditExploreScale = 0.25
+        , ecBlendFractalReturnClamp = 0.75
+        , ecBlendFractalAlignedGain = 1.12
+        , ecBlendFractalConflictGain = 0.82
         , ecBlendPhaseCancelReturnClamp = 0.75
         , ecBlendPhaseCancelConflictFloor = 0.1
         , ecBlendPhaseCancelConflictScale = 0.6

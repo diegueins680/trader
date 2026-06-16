@@ -286,6 +286,9 @@ data Args = Args
     , argBlendRegimeHighVolCutoff :: Double
     , argBlendRegimeKalmanZCutoff :: Double
     , argBlendBanditExploreScale :: Double
+    , argBlendFractalReturnClamp :: Double
+    , argBlendFractalAlignedGain :: Double
+    , argBlendFractalConflictGain :: Double
     , argBlendPhaseCancelReturnClamp :: Double
     , argBlendPhaseCancelConflictFloor :: Double
     , argBlendPhaseCancelConflictScale :: Double
@@ -1013,6 +1016,9 @@ opts = do
     argBlendRegimeHighVolCutoff <- option auto (long "blend-regime-high-vol-cutoff" <> value 0.6 <> showDefault <> help "High-volatility probability cutoff for --method regime_switch/router")
     argBlendRegimeKalmanZCutoff <- option auto (long "blend-regime-kalman-z-cutoff" <> value 1.0 <> showDefault <> help "Kalman z-score cutoff for --method regime_switch/router")
     argBlendBanditExploreScale <- option auto (long "blend-bandit-explore-scale" <> value 0.25 <> showDefault <> help "UCB exploration bonus scale for --method bandit_router")
+    argBlendFractalReturnClamp <- option auto (long "blend-fractal-return-clamp" <> value 0.75 <> showDefault <> help "Maximum absolute per-bar return emitted by --method fractal_blend")
+    argBlendFractalAlignedGain <- option auto (long "blend-fractal-aligned-gain" <> value 1.12 <> showDefault <> help "Signed-root return gain when fractal_blend sources agree")
+    argBlendFractalConflictGain <- option auto (long "blend-fractal-conflict-gain" <> value 0.82 <> showDefault <> help "Signed-root return gain when fractal_blend sources conflict")
     argBlendPhaseCancelReturnClamp <- option auto (long "blend-phase-cancel-return-clamp" <> value 0.75 <> showDefault <> help "Maximum absolute per-bar return emitted by --method phase_cancel")
     argBlendPhaseCancelConflictFloor <- option auto (long "blend-phase-cancel-conflict-floor" <> value 0.1 <> showDefault <> help "Base return multiplier when phase_cancel sources conflict")
     argBlendPhaseCancelConflictScale <- option auto (long "blend-phase-cancel-conflict-scale" <> value 0.6 <> showDefault <> help "Cancellation-sensitive return multiplier for --method phase_cancel conflicts")
@@ -1525,6 +1531,9 @@ validateArgs args0 = do
             , ("--blend-regime-high-vol-cutoff", argBlendRegimeHighVolCutoff args)
             , ("--blend-regime-kalman-z-cutoff", argBlendRegimeKalmanZCutoff args)
             , ("--blend-bandit-explore-scale", argBlendBanditExploreScale args)
+            , ("--blend-fractal-return-clamp", argBlendFractalReturnClamp args)
+            , ("--blend-fractal-aligned-gain", argBlendFractalAlignedGain args)
+            , ("--blend-fractal-conflict-gain", argBlendFractalConflictGain args)
             , ("--blend-phase-cancel-return-clamp", argBlendPhaseCancelReturnClamp args)
             , ("--blend-phase-cancel-conflict-floor", argBlendPhaseCancelConflictFloor args)
             , ("--blend-phase-cancel-conflict-scale", argBlendPhaseCancelConflictScale args)
@@ -1638,6 +1647,9 @@ validateArgs args0 = do
     ensure "--blend-regime-high-vol-cutoff must be between 0 and 1" (argBlendRegimeHighVolCutoff args >= 0 && argBlendRegimeHighVolCutoff args <= 1)
     ensure "--blend-regime-kalman-z-cutoff must be >= 0" (argBlendRegimeKalmanZCutoff args >= 0)
     ensure "--blend-bandit-explore-scale must be >= 0" (argBlendBanditExploreScale args >= 0)
+    ensure "--blend-fractal-return-clamp must be > 0" (argBlendFractalReturnClamp args > 0)
+    ensure "--blend-fractal-aligned-gain must be >= 0" (argBlendFractalAlignedGain args >= 0)
+    ensure "--blend-fractal-conflict-gain must be >= 0" (argBlendFractalConflictGain args >= 0)
     ensure "--blend-phase-cancel-return-clamp must be > 0" (argBlendPhaseCancelReturnClamp args > 0)
     ensure "--blend-phase-cancel-conflict-floor must be >= 0" (argBlendPhaseCancelConflictFloor args >= 0)
     ensure "--blend-phase-cancel-conflict-scale must be >= 0" (argBlendPhaseCancelConflictScale args >= 0)

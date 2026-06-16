@@ -511,6 +511,9 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "blend-regime-high-vol-cutoff" 0.4 0.8
         <*> doubleRangeOption "blend-regime-kalman-z-cutoff" 0.5 2.0
         <*> doubleRangeOption "blend-bandit-explore-scale" 0.0 0.5
+        <*> doubleRangeOption "blend-fractal-return-clamp" 0.25 1.5
+        <*> doubleRangeOption "blend-fractal-aligned-gain" 0.8 1.5
+        <*> doubleRangeOption "blend-fractal-conflict-gain" 0.4 1.1
         <*> doubleRangeOption "blend-phase-cancel-return-clamp" 0.25 1.5
         <*> doubleRangeOption "blend-phase-cancel-conflict-floor" 0.0 0.5
         <*> doubleRangeOption "blend-phase-cancel-conflict-scale" 0.0 1.2
@@ -806,6 +809,9 @@ validateTechnicalOptimizerRanges ranges = do
     unitRange "blend-regime-high-vol-cutoff" (torBlendRegimeHighVolCutoff ranges)
     nonNegativeRange "blend-regime-kalman-z-cutoff" (torBlendRegimeKalmanZCutoff ranges)
     nonNegativeRange "blend-bandit-explore-scale" (torBlendBanditExploreScale ranges)
+    positiveRange "blend-fractal-return-clamp" (torBlendFractalReturnClamp ranges)
+    nonNegativeRange "blend-fractal-aligned-gain" (torBlendFractalAlignedGain ranges)
+    nonNegativeRange "blend-fractal-conflict-gain" (torBlendFractalConflictGain ranges)
     positiveRange "blend-phase-cancel-return-clamp" (torBlendPhaseCancelReturnClamp ranges)
     nonNegativeRange "blend-phase-cancel-conflict-floor" (torBlendPhaseCancelConflictFloor ranges)
     nonNegativeRange "blend-phase-cancel-conflict-scale" (torBlendPhaseCancelConflictScale ranges)
