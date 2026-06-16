@@ -47,12 +47,22 @@ import Trader.Platform (
     platformIntervalsCsv,
     platformSupportsTrading,
  )
+import Trader.Predictors.DecisionTree (
+    defaultDecisionTreeMaxDepth,
+    defaultDecisionTreeMinLeafSize,
+ )
+import Trader.Predictors.HMM (defaultHmmIterations)
+import Trader.Predictors.KNN (defaultKnnK, defaultKnnMaxExamples)
 import Trader.Predictors.Quantile (
     defaultQuantileEpochs,
     defaultQuantileL2,
     defaultQuantileLearningRate,
  )
 import Trader.Predictors.TCN (defaultTcnRidgeLambda)
+import Trader.Predictors.Transformer (
+    defaultTransformerMaxExamples,
+    defaultTransformerTemperature,
+ )
 import Trader.Predictors.Types (
     PredictorSet,
     allPredictors,
@@ -153,6 +163,13 @@ data Args = Args
     , argPredictorQuantileEpochs :: Int
     , argPredictorQuantileLearningRate :: Double
     , argPredictorQuantileL2 :: Double
+    , argPredictorKnnMaxExamples :: Int
+    , argPredictorKnnK :: Int
+    , argPredictorDecisionTreeMaxDepth :: Int
+    , argPredictorDecisionTreeMinLeafSize :: Int
+    , argPredictorTransformerTemperature :: Double
+    , argPredictorTransformerMaxExamples :: Int
+    , argPredictorHmmIterations :: Int
     , argKalmanMarketTopN :: Int
     , argOpenThreshold :: Double
     , argCloseThreshold :: Double
@@ -798,6 +815,13 @@ opts = do
     argPredictorQuantileEpochs <- option auto (long "predictor-quantile-epochs" <> value defaultQuantileEpochs <> showDefault <> help "Quantile predictor SGD epochs used by predictor sensor training")
     argPredictorQuantileLearningRate <- option auto (long "predictor-quantile-learning-rate" <> value defaultQuantileLearningRate <> showDefault <> help "Quantile predictor SGD learning rate used by predictor sensor training")
     argPredictorQuantileL2 <- option auto (long "predictor-quantile-l2" <> value defaultQuantileL2 <> showDefault <> help "Quantile predictor L2 regularization used by predictor sensor training")
+    argPredictorKnnMaxExamples <- option auto (long "predictor-knn-max-examples" <> value defaultKnnMaxExamples <> showDefault <> help "Maximum KNN predictor training examples retained by predictor sensor training")
+    argPredictorKnnK <- option auto (long "predictor-knn-k" <> value defaultKnnK <> showDefault <> help "Neighbor count used by the KNN predictor")
+    argPredictorDecisionTreeMaxDepth <- option auto (long "predictor-decision-tree-max-depth" <> value defaultDecisionTreeMaxDepth <> showDefault <> help "Maximum depth used by the decision-tree predictor")
+    argPredictorDecisionTreeMinLeafSize <- option auto (long "predictor-decision-tree-min-leaf-size" <> value defaultDecisionTreeMinLeafSize <> showDefault <> help "Minimum leaf size used by the decision-tree predictor")
+    argPredictorTransformerTemperature <- option auto (long "predictor-transformer-temperature" <> value defaultTransformerTemperature <> showDefault <> help "Attention score temperature used by the transformer predictor")
+    argPredictorTransformerMaxExamples <- option auto (long "predictor-transformer-max-examples" <> value defaultTransformerMaxExamples <> showDefault <> help "Maximum transformer predictor training examples retained by predictor sensor training")
+    argPredictorHmmIterations <- option auto (long "predictor-hmm-iterations" <> value defaultHmmIterations <> showDefault <> help "HMM EM iterations used by predictor sensor training")
     argKalmanMarketTopN <-
         option
             auto
@@ -1723,6 +1747,7 @@ validateArgs args0 = do
             , ("--predictor-tcn-ridge-lambda", argPredictorTcnRidgeLambda args)
             , ("--predictor-quantile-learning-rate", argPredictorQuantileLearningRate args)
             , ("--predictor-quantile-l2", argPredictorQuantileL2 args)
+            , ("--predictor-transformer-temperature", argPredictorTransformerTemperature args)
             , ("--blend-weight", argBlendWeight args)
             , ("--blend-softmax-scale", argBlendSoftmaxScale args)
             , ("--blend-net-softmax-scale", argBlendNetSoftmaxScale args)
@@ -1888,6 +1913,13 @@ validateArgs args0 = do
     ensure "--predictor-quantile-epochs must be >= 0" (argPredictorQuantileEpochs args >= 0)
     ensure "--predictor-quantile-learning-rate must be > 0" (argPredictorQuantileLearningRate args > 0)
     ensure "--predictor-quantile-l2 must be >= 0" (argPredictorQuantileL2 args >= 0)
+    ensure "--predictor-knn-max-examples must be >= 1" (argPredictorKnnMaxExamples args >= 1)
+    ensure "--predictor-knn-k must be >= 1" (argPredictorKnnK args >= 1)
+    ensure "--predictor-decision-tree-max-depth must be >= 1" (argPredictorDecisionTreeMaxDepth args >= 1)
+    ensure "--predictor-decision-tree-min-leaf-size must be >= 1" (argPredictorDecisionTreeMinLeafSize args >= 1)
+    ensure "--predictor-transformer-temperature must be > 0" (argPredictorTransformerTemperature args > 0)
+    ensure "--predictor-transformer-max-examples must be >= 1" (argPredictorTransformerMaxExamples args >= 1)
+    ensure "--predictor-hmm-iterations must be >= 0" (argPredictorHmmIterations args >= 0)
     ensure "--kalman-market-top-n must be >= 0" (argKalmanMarketTopN args >= 0)
     ensure "--open-threshold/--threshold must be >= 0" (argOpenThreshold args >= 0)
     ensure "--open-threshold/--threshold must be <= 1" (argOpenThreshold args <= 1)

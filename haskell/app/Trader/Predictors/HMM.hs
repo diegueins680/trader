@@ -1,6 +1,7 @@
 module Trader.Predictors.HMM (
     HMM3 (..),
     HMMFilter (..),
+    defaultHmmIterations,
     fitHMM3,
     filterPosterior,
     predictNextFromPosterior,
@@ -27,6 +28,9 @@ newtype HMMFilter = HMMFilter
     { hfPosterior :: [Double] -- posterior over last observed state
     }
     deriving (Eq, Show)
+
+defaultHmmIterations :: Int
+defaultHmmIterations = 10
 
 fitHMM3 :: Int -> [Double] -> HMM3
 fitHMM3 iters obs

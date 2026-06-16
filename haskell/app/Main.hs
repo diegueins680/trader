@@ -522,6 +522,13 @@ predictorTrainingConfigFromArgs args =
         , ptcQuantileEpochs = argPredictorQuantileEpochs args
         , ptcQuantileLearningRate = argPredictorQuantileLearningRate args
         , ptcQuantileL2 = argPredictorQuantileL2 args
+        , ptcKnnMaxExamples = argPredictorKnnMaxExamples args
+        , ptcKnnK = argPredictorKnnK args
+        , ptcDecisionTreeMaxDepth = argPredictorDecisionTreeMaxDepth args
+        , ptcDecisionTreeMinLeafSize = argPredictorDecisionTreeMinLeafSize args
+        , ptcTransformerTemperature = argPredictorTransformerTemperature args
+        , ptcTransformerMaxExamples = argPredictorTransformerMaxExamples args
+        , ptcHmmIterations = argPredictorHmmIterations args
         }
 
 volConfGateConfigFromArgs :: Args -> VolConfGateConfig
@@ -856,6 +863,13 @@ data ApiParams = ApiParams
     , apPredictorQuantileEpochs :: Maybe Int
     , apPredictorQuantileLearningRate :: Maybe Double
     , apPredictorQuantileL2 :: Maybe Double
+    , apPredictorKnnMaxExamples :: Maybe Int
+    , apPredictorKnnK :: Maybe Int
+    , apPredictorDecisionTreeMaxDepth :: Maybe Int
+    , apPredictorDecisionTreeMinLeafSize :: Maybe Int
+    , apPredictorTransformerTemperature :: Maybe Double
+    , apPredictorTransformerMaxExamples :: Maybe Int
+    , apPredictorHmmIterations :: Maybe Int
     , apKalmanMarketTopN :: Maybe Int
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
@@ -2575,6 +2589,13 @@ argsPublicJson args =
             , "predictorQuantileEpochs" .= argPredictorQuantileEpochs args
             , "predictorQuantileLearningRate" .= argPredictorQuantileLearningRate args
             , "predictorQuantileL2" .= argPredictorQuantileL2 args
+            , "predictorKnnMaxExamples" .= argPredictorKnnMaxExamples args
+            , "predictorKnnK" .= argPredictorKnnK args
+            , "predictorDecisionTreeMaxDepth" .= argPredictorDecisionTreeMaxDepth args
+            , "predictorDecisionTreeMinLeafSize" .= argPredictorDecisionTreeMinLeafSize args
+            , "predictorTransformerTemperature" .= argPredictorTransformerTemperature args
+            , "predictorTransformerMaxExamples" .= argPredictorTransformerMaxExamples args
+            , "predictorHmmIterations" .= argPredictorHmmIterations args
             , "patience" .= argPatience args
             , "gradClip" .= argGradClip args
             , "seed" .= argSeed args
@@ -10179,6 +10200,13 @@ parseTopComboToArgs base combo = do
         predictorQuantileEpochs = max 0 (pickI "predictorQuantileEpochs" (argPredictorQuantileEpochs base))
         predictorQuantileLearningRate = max 1e-12 (pickD "predictorQuantileLearningRate" (argPredictorQuantileLearningRate base))
         predictorQuantileL2 = max 0 (pickD "predictorQuantileL2" (argPredictorQuantileL2 base))
+        predictorKnnMaxExamples = max 1 (pickI "predictorKnnMaxExamples" (argPredictorKnnMaxExamples base))
+        predictorKnnK = max 1 (pickI "predictorKnnK" (argPredictorKnnK base))
+        predictorDecisionTreeMaxDepth = max 1 (pickI "predictorDecisionTreeMaxDepth" (argPredictorDecisionTreeMaxDepth base))
+        predictorDecisionTreeMinLeafSize = max 1 (pickI "predictorDecisionTreeMinLeafSize" (argPredictorDecisionTreeMinLeafSize base))
+        predictorTransformerTemperature = max 1e-12 (pickD "predictorTransformerTemperature" (argPredictorTransformerTemperature base))
+        predictorTransformerMaxExamples = max 1 (pickI "predictorTransformerMaxExamples" (argPredictorTransformerMaxExamples base))
+        predictorHmmIterations = max 0 (pickI "predictorHmmIterations" (argPredictorHmmIterations base))
         kalmanMarketTopN = max 0 (pickI "kalmanMarketTopN" (argKalmanMarketTopN base))
 
         walkForwardFolds = max 1 (pickI "walkForwardFolds" (argWalkForwardFolds base))
@@ -10352,6 +10380,13 @@ parseTopComboToArgs base combo = do
                 , argPredictorQuantileEpochs = predictorQuantileEpochs
                 , argPredictorQuantileLearningRate = predictorQuantileLearningRate
                 , argPredictorQuantileL2 = predictorQuantileL2
+                , argPredictorKnnMaxExamples = predictorKnnMaxExamples
+                , argPredictorKnnK = predictorKnnK
+                , argPredictorDecisionTreeMaxDepth = predictorDecisionTreeMaxDepth
+                , argPredictorDecisionTreeMinLeafSize = predictorDecisionTreeMinLeafSize
+                , argPredictorTransformerTemperature = predictorTransformerTemperature
+                , argPredictorTransformerMaxExamples = predictorTransformerMaxExamples
+                , argPredictorHmmIterations = predictorHmmIterations
                 , argKalmanMarketTopN = kalmanMarketTopN
                 , argKalmanZMin = kalZMin
                 , argKalmanZMax = kalZMax
@@ -13706,6 +13741,13 @@ argsCacheJsonSignal args =
             , "predictorQuantileEpochs" .= argPredictorQuantileEpochs args
             , "predictorQuantileLearningRate" .= argPredictorQuantileLearningRate args
             , "predictorQuantileL2" .= argPredictorQuantileL2 args
+            , "predictorKnnMaxExamples" .= argPredictorKnnMaxExamples args
+            , "predictorKnnK" .= argPredictorKnnK args
+            , "predictorDecisionTreeMaxDepth" .= argPredictorDecisionTreeMaxDepth args
+            , "predictorDecisionTreeMinLeafSize" .= argPredictorDecisionTreeMinLeafSize args
+            , "predictorTransformerTemperature" .= argPredictorTransformerTemperature args
+            , "predictorTransformerMaxExamples" .= argPredictorTransformerMaxExamples args
+            , "predictorHmmIterations" .= argPredictorHmmIterations args
             , "kalmanMarketTopN" .= argKalmanMarketTopN args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -13897,6 +13939,13 @@ argsCacheJsonBacktest args =
             , "predictorQuantileEpochs" .= argPredictorQuantileEpochs args
             , "predictorQuantileLearningRate" .= argPredictorQuantileLearningRate args
             , "predictorQuantileL2" .= argPredictorQuantileL2 args
+            , "predictorKnnMaxExamples" .= argPredictorKnnMaxExamples args
+            , "predictorKnnK" .= argPredictorKnnK args
+            , "predictorDecisionTreeMaxDepth" .= argPredictorDecisionTreeMaxDepth args
+            , "predictorDecisionTreeMinLeafSize" .= argPredictorDecisionTreeMinLeafSize args
+            , "predictorTransformerTemperature" .= argPredictorTransformerTemperature args
+            , "predictorTransformerMaxExamples" .= argPredictorTransformerMaxExamples args
+            , "predictorHmmIterations" .= argPredictorHmmIterations args
             , "kalmanMarketTopN" .= argKalmanMarketTopN args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -19963,6 +20012,13 @@ argsFromApi baseArgs p = do
                 , argPredictorQuantileEpochs = max 0 (pick (apPredictorQuantileEpochs p) (argPredictorQuantileEpochs baseArgs))
                 , argPredictorQuantileLearningRate = max 1e-12 (pick (apPredictorQuantileLearningRate p) (argPredictorQuantileLearningRate baseArgs))
                 , argPredictorQuantileL2 = max 0 (pick (apPredictorQuantileL2 p) (argPredictorQuantileL2 baseArgs))
+                , argPredictorKnnMaxExamples = max 1 (pick (apPredictorKnnMaxExamples p) (argPredictorKnnMaxExamples baseArgs))
+                , argPredictorKnnK = max 1 (pick (apPredictorKnnK p) (argPredictorKnnK baseArgs))
+                , argPredictorDecisionTreeMaxDepth = max 1 (pick (apPredictorDecisionTreeMaxDepth p) (argPredictorDecisionTreeMaxDepth baseArgs))
+                , argPredictorDecisionTreeMinLeafSize = max 1 (pick (apPredictorDecisionTreeMinLeafSize p) (argPredictorDecisionTreeMinLeafSize baseArgs))
+                , argPredictorTransformerTemperature = max 1e-12 (pick (apPredictorTransformerTemperature p) (argPredictorTransformerTemperature baseArgs))
+                , argPredictorTransformerMaxExamples = max 1 (pick (apPredictorTransformerMaxExamples p) (argPredictorTransformerMaxExamples baseArgs))
+                , argPredictorHmmIterations = max 0 (pick (apPredictorHmmIterations p) (argPredictorHmmIterations baseArgs))
                 , argKalmanMarketTopN = pick (apKalmanMarketTopN p) (argKalmanMarketTopN baseArgs)
                 , argOpenThreshold = openThr
                 , argCloseThreshold = closeThr

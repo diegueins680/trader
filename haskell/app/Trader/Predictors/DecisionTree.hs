@@ -1,6 +1,8 @@
 module Trader.Predictors.DecisionTree (
     DecisionTree (..),
     DecisionTreeModel (..),
+    defaultDecisionTreeMaxDepth,
+    defaultDecisionTreeMinLeafSize,
     trainDecisionTree,
     predictDecisionTree,
 ) where
@@ -33,6 +35,12 @@ data DecisionTreeModel = DecisionTreeModel
     , dmSigmaBase :: !(Maybe Double)
     }
     deriving (Eq, Show)
+
+defaultDecisionTreeMaxDepth :: Int
+defaultDecisionTreeMaxDepth = 6
+
+defaultDecisionTreeMinLeafSize :: Int
+defaultDecisionTreeMinLeafSize = 12
 
 trainDecisionTree :: Int -> Int -> [([Double], Double)] -> DecisionTreeModel
 trainDecisionTree maxDepth minLeafSize dataset

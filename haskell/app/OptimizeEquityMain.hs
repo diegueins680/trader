@@ -596,6 +596,13 @@ technicalOptimizerRangesParser =
         <*> intRangeOption "predictor-quantile-epochs" 0 40
         <*> doubleRangeOption "predictor-quantile-learning-rate" 0.005 0.10
         <*> doubleRangeOption "predictor-quantile-l2" 0.0 0.01
+        <*> intRangeOption "predictor-knn-max-examples" 256 2048
+        <*> intRangeOption "predictor-knn-k" 5 45
+        <*> intRangeOption "predictor-decision-tree-max-depth" 3 10
+        <*> intRangeOption "predictor-decision-tree-min-leaf-size" 4 32
+        <*> doubleRangeOption "predictor-transformer-temperature" 1.0 12.0
+        <*> intRangeOption "predictor-transformer-max-examples" 128 1024
+        <*> intRangeOption "predictor-hmm-iterations" 0 25
         <*> doubleRangeOption "vol-conf-volatility-evidence-max" 1.0 3.0
         <*> doubleRangeOption "vol-conf-low-vol-threshold" 0.25 0.75
         <*> doubleRangeOption "vol-conf-high-vol-threshold" 0.80 1.60
@@ -1014,6 +1021,13 @@ validateTechnicalOptimizerRanges ranges = do
     nonNegativeIntRange "predictor-quantile-epochs" (torPredictorQuantileEpochs ranges)
     positiveRange "predictor-quantile-learning-rate" (torPredictorQuantileLearningRate ranges)
     nonNegativeRange "predictor-quantile-l2" (torPredictorQuantileL2 ranges)
+    positiveIntRange "predictor-knn-max-examples" (torPredictorKnnMaxExamples ranges)
+    positiveIntRange "predictor-knn-k" (torPredictorKnnK ranges)
+    positiveIntRange "predictor-decision-tree-max-depth" (torPredictorDecisionTreeMaxDepth ranges)
+    positiveIntRange "predictor-decision-tree-min-leaf-size" (torPredictorDecisionTreeMinLeafSize ranges)
+    positiveRange "predictor-transformer-temperature" (torPredictorTransformerTemperature ranges)
+    positiveIntRange "predictor-transformer-max-examples" (torPredictorTransformerMaxExamples ranges)
+    nonNegativeIntRange "predictor-hmm-iterations" (torPredictorHmmIterations ranges)
     positiveRange "vol-conf-volatility-evidence-max" (torVolConfVolatilityEvidenceMax ranges)
     nonNegativeRange "vol-conf-low-vol-threshold" (torVolConfLowVolThreshold ranges)
     nonNegativeRange "vol-conf-high-vol-threshold" (torVolConfHighVolThreshold ranges)

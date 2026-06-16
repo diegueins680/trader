@@ -1,5 +1,7 @@
 module Trader.Predictors.KNN (
     KNNModel (..),
+    defaultKnnK,
+    defaultKnnMaxExamples,
     trainKNN,
     predictKNN,
 ) where
@@ -15,6 +17,12 @@ data KNNModel = KNNModel
     , kmSigmaBase :: !(Maybe Double)
     }
     deriving (Eq, Show)
+
+defaultKnnMaxExamples :: Int
+defaultKnnMaxExamples = 1024
+
+defaultKnnK :: Int
+defaultKnnK = 15
 
 trainKNN :: Int -> Int -> [([Double], Double)] -> KNNModel
 trainKNN maxExamples requestedK dataset

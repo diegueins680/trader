@@ -1,5 +1,7 @@
 module Trader.Predictors.Transformer (
     TransformerModel (..),
+    defaultTransformerMaxExamples,
+    defaultTransformerTemperature,
     trainTransformer,
     predictTransformer,
 ) where
@@ -13,6 +15,12 @@ data TransformerModel = TransformerModel
     , trFeatureDim :: !Int
     }
     deriving (Eq, Show)
+
+defaultTransformerTemperature :: Double
+defaultTransformerTemperature = 5.0
+
+defaultTransformerMaxExamples :: Int
+defaultTransformerMaxExamples = 512
 
 isFiniteDouble :: Double -> Bool
 isFiniteDouble x = not (isNaN x || isInfinite x)

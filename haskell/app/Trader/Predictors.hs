@@ -28,7 +28,13 @@ import qualified Data.Vector as V
 
 import Trader.MarketContext (MarketModel)
 import Trader.Predictors.Conformal (ConformalModel (..), fitConformal, predictInterval)
-import Trader.Predictors.DecisionTree (DecisionTreeModel (..), predictDecisionTree, trainDecisionTree)
+import Trader.Predictors.DecisionTree (
+    DecisionTreeModel (..),
+    defaultDecisionTreeMaxDepth,
+    defaultDecisionTreeMinLeafSize,
+    predictDecisionTree,
+    trainDecisionTree,
+ )
 import Trader.Predictors.Features (
     FeatureInputs (..),
     FeatureSpec,
@@ -39,8 +45,8 @@ import Trader.Predictors.Features (
     mkFeatureSpec,
  )
 import Trader.Predictors.GBDT (GBDTModel (..), predictGBDT, trainGBDT)
-import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
-import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
+import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), defaultHmmIterations, filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
+import Trader.Predictors.KNN (KNNModel (..), defaultKnnK, defaultKnnMaxExamples, predictKNN, trainKNN)
 import Trader.Predictors.Quantile (
     LinModel (..),
     QuantileModel (..),
@@ -51,7 +57,13 @@ import Trader.Predictors.Quantile (
     trainQuantileModel,
  )
 import Trader.Predictors.TCN (TCNModel (..), defaultTcnRidgeLambda, predictTCN, trainTCNWithLambda)
-import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
+import Trader.Predictors.Transformer (
+    TransformerModel (..),
+    defaultTransformerMaxExamples,
+    defaultTransformerTemperature,
+    predictTransformer,
+    trainTransformer,
+ )
 import Trader.Predictors.Types (
     Interval (..),
     PredictorSet,
@@ -86,6 +98,13 @@ data PredictorTrainingConfig = PredictorTrainingConfig
     , ptcQuantileEpochs :: !Int
     , ptcQuantileLearningRate :: !Double
     , ptcQuantileL2 :: !Double
+    , ptcKnnMaxExamples :: !Int
+    , ptcKnnK :: !Int
+    , ptcDecisionTreeMaxDepth :: !Int
+    , ptcDecisionTreeMinLeafSize :: !Int
+    , ptcTransformerTemperature :: !Double
+    , ptcTransformerMaxExamples :: !Int
+    , ptcHmmIterations :: !Int
     }
     deriving (Eq, Show)
 
@@ -100,6 +119,13 @@ defaultPredictorTrainingConfig =
         , ptcQuantileEpochs = defaultQuantileEpochs
         , ptcQuantileLearningRate = defaultQuantileLearningRate
         , ptcQuantileL2 = defaultQuantileL2
+        , ptcKnnMaxExamples = defaultKnnMaxExamples
+        , ptcKnnK = defaultKnnK
+        , ptcDecisionTreeMaxDepth = defaultDecisionTreeMaxDepth
+        , ptcDecisionTreeMinLeafSize = defaultDecisionTreeMinLeafSize
+        , ptcTransformerTemperature = defaultTransformerTemperature
+        , ptcTransformerMaxExamples = defaultTransformerMaxExamples
+        , ptcHmmIterations = defaultHmmIterations
         }
 
 sanitizePredictorTrainingConfig :: PredictorTrainingConfig -> PredictorTrainingConfig
@@ -119,6 +145,14 @@ sanitizePredictorTrainingConfig cfg =
             finitePositive defaultQuantileLearningRate (ptcQuantileLearningRate cfg)
         , ptcQuantileL2 =
             finiteNonNegative defaultQuantileL2 (ptcQuantileL2 cfg)
+        , ptcKnnMaxExamples = max 1 (ptcKnnMaxExamples cfg)
+        , ptcKnnK = max 1 (ptcKnnK cfg)
+        , ptcDecisionTreeMaxDepth = max 1 (ptcDecisionTreeMaxDepth cfg)
+        , ptcDecisionTreeMinLeafSize = max 1 (ptcDecisionTreeMinLeafSize cfg)
+        , ptcTransformerTemperature =
+            finitePositive defaultTransformerTemperature (ptcTransformerTemperature cfg)
+        , ptcTransformerMaxExamples = max 1 (ptcTransformerMaxExamples cfg)
+        , ptcHmmIterations = max 0 (ptcHmmIterations cfg)
         }
   where
     finitePositive fallback x
@@ -242,14 +276,14 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
                 then
                     if null trainSet
                         then emptyKnn
-                        else trainKNN 1024 15 trainSet
+                        else trainKNN (ptcKnnMaxExamples cfg) (ptcKnnK cfg) trainSet
                 else emptyKnn
         decisionTree =
             if useDecisionTree
                 then
                     if null trainSet
                         then emptyDecisionTree
-                        else trainDecisionTree 6 12 trainSet
+                        else trainDecisionTree (ptcDecisionTreeMaxDepth cfg) (ptcDecisionTreeMinLeafSize cfg) trainSet
                 else emptyDecisionTree
         quant =
             if useQuantile
@@ -260,7 +294,7 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
                 else emptyQuant
         transformer =
             if useTransformer
-                then trainTransformer 5.0 512 trainSet
+                then trainTransformer (ptcTransformerTemperature cfg) (ptcTransformerMaxExamples cfg) trainSet
                 else emptyTransformer
         hmmObs =
             if useHmm
@@ -272,7 +306,7 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
                 else []
         hmm =
             if useHmm
-                then fitHMM3 10 hmmObs
+                then fitHMM3 (ptcHmmIterations cfg) hmmObs
                 else fitHMM3 0 []
         absRes =
             if useConformal

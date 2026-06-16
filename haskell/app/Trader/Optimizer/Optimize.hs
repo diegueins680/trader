@@ -279,6 +279,13 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torPredictorQuantileEpochs :: !(Int, Int)
     , torPredictorQuantileLearningRate :: !(Double, Double)
     , torPredictorQuantileL2 :: !(Double, Double)
+    , torPredictorKnnMaxExamples :: !(Int, Int)
+    , torPredictorKnnK :: !(Int, Int)
+    , torPredictorDecisionTreeMaxDepth :: !(Int, Int)
+    , torPredictorDecisionTreeMinLeafSize :: !(Int, Int)
+    , torPredictorTransformerTemperature :: !(Double, Double)
+    , torPredictorTransformerMaxExamples :: !(Int, Int)
+    , torPredictorHmmIterations :: !(Int, Int)
     , torVolConfVolatilityEvidenceMax :: !(Double, Double)
     , torVolConfLowVolThreshold :: !(Double, Double)
     , torVolConfHighVolThreshold :: !(Double, Double)
@@ -370,6 +377,13 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpPredictorQuantileEpochs :: !Int
     , ttpPredictorQuantileLearningRate :: !Double
     , ttpPredictorQuantileL2 :: !Double
+    , ttpPredictorKnnMaxExamples :: !Int
+    , ttpPredictorKnnK :: !Int
+    , ttpPredictorDecisionTreeMaxDepth :: !Int
+    , ttpPredictorDecisionTreeMinLeafSize :: !Int
+    , ttpPredictorTransformerTemperature :: !Double
+    , ttpPredictorTransformerMaxExamples :: !Int
+    , ttpPredictorHmmIterations :: !Int
     , ttpVolConfVolatilityEvidenceMax :: !Double
     , ttpVolConfLowVolThreshold :: !Double
     , ttpVolConfHighVolThreshold :: !Double
@@ -539,6 +553,13 @@ normalizeTechnicalTrialParams p =
             , ttpPredictorQuantileEpochs = max 0 (ttpPredictorQuantileEpochs p)
             , ttpPredictorQuantileLearningRate = max 1e-6 (ttpPredictorQuantileLearningRate p)
             , ttpPredictorQuantileL2 = max 0 (ttpPredictorQuantileL2 p)
+            , ttpPredictorKnnMaxExamples = max 1 (ttpPredictorKnnMaxExamples p)
+            , ttpPredictorKnnK = max 1 (ttpPredictorKnnK p)
+            , ttpPredictorDecisionTreeMaxDepth = max 1 (ttpPredictorDecisionTreeMaxDepth p)
+            , ttpPredictorDecisionTreeMinLeafSize = max 1 (ttpPredictorDecisionTreeMinLeafSize p)
+            , ttpPredictorTransformerTemperature = max 1e-6 (ttpPredictorTransformerTemperature p)
+            , ttpPredictorTransformerMaxExamples = max 1 (ttpPredictorTransformerMaxExamples p)
+            , ttpPredictorHmmIterations = max 0 (ttpPredictorHmmIterations p)
             , ttpVolConfVolatilityEvidenceMax = volConfEvidenceMax
             , ttpVolConfLowVolThreshold = volConfLowVolThreshold
             , ttpVolConfHighVolThreshold = volConfHighVolThreshold
@@ -641,20 +662,39 @@ sampleTechnicalTrialParams ranges rng0 =
              in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng74
         (predictorQuantileLearningRate, rng76) = samplePositive (torPredictorQuantileLearningRate ranges) rng75
         (predictorQuantileL2, rng77) = sampleNonNegative (torPredictorQuantileL2 ranges) rng76
-        (volConfVolatilityEvidenceMax, rng78) = samplePositive (torVolConfVolatilityEvidenceMax ranges) rng77
-        (volConfLowVolThreshold0, rng79) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfLowVolThreshold ranges) rng78
-        (volConfHighVolThreshold0, rng80) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfHighVolThreshold ranges) rng79
+        (predictorKnnMaxExamples, rng78) =
+            let (lo, hi) = orderedPair (torPredictorKnnMaxExamples ranges)
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng77
+        (predictorKnnK, rng79) =
+            let (lo, hi) = orderedPair (torPredictorKnnK ranges)
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng78
+        (predictorDecisionTreeMaxDepth, rng80) =
+            let (lo, hi) = orderedPair (torPredictorDecisionTreeMaxDepth ranges)
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng79
+        (predictorDecisionTreeMinLeafSize, rng81) =
+            let (lo, hi) = orderedPair (torPredictorDecisionTreeMinLeafSize ranges)
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng80
+        (predictorTransformerTemperature, rng82) = samplePositive (torPredictorTransformerTemperature ranges) rng81
+        (predictorTransformerMaxExamples, rng83) =
+            let (lo, hi) = orderedPair (torPredictorTransformerMaxExamples ranges)
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng82
+        (predictorHmmIterations, rng84) =
+            let (lo, hi) = orderedPair (torPredictorHmmIterations ranges)
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng83
+        (volConfVolatilityEvidenceMax, rng85) = samplePositive (torVolConfVolatilityEvidenceMax ranges) rng84
+        (volConfLowVolThreshold0, rng86) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfLowVolThreshold ranges) rng85
+        (volConfHighVolThreshold0, rng87) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfHighVolThreshold ranges) rng86
         volConfLowVolThreshold = min volConfLowVolThreshold0 volConfHighVolThreshold0
         volConfHighVolThreshold = max volConfLowVolThreshold0 volConfHighVolThreshold0
-        (volConfWeakConfidenceThreshold0, rng81) = sampleClamped 0 1 (torVolConfWeakConfidenceThreshold ranges) rng80
-        (volConfStrongConfidenceThreshold0, rng82) = sampleClamped 0 1 (torVolConfStrongConfidenceThreshold ranges) rng81
+        (volConfWeakConfidenceThreshold0, rng88) = sampleClamped 0 1 (torVolConfWeakConfidenceThreshold ranges) rng87
+        (volConfStrongConfidenceThreshold0, rng89) = sampleClamped 0 1 (torVolConfStrongConfidenceThreshold ranges) rng88
         volConfWeakConfidenceThreshold = min volConfWeakConfidenceThreshold0 volConfStrongConfidenceThreshold0
         volConfStrongConfidenceThreshold = max volConfWeakConfidenceThreshold0 volConfStrongConfidenceThreshold0
-        (volConfLowMediumSizeMult, rng83) = sampleClamped 0 1 (torVolConfLowMediumSizeMult ranges) rng82
-        (volConfLowStrongSizeMult, rng84) = sampleClamped 0 1 (torVolConfLowStrongSizeMult ranges) rng83
-        (volConfMediumMediumSizeMult, rng85) = sampleClamped 0 1 (torVolConfMediumMediumSizeMult ranges) rng84
-        (volConfMediumStrongSizeMult, rng86) = sampleClamped 0 1 (torVolConfMediumStrongSizeMult ranges) rng85
-        (volConfHighStrongSizeMult, rng87) = sampleClamped 0 1 (torVolConfHighStrongSizeMult ranges) rng86
+        (volConfLowMediumSizeMult, rng90) = sampleClamped 0 1 (torVolConfLowMediumSizeMult ranges) rng89
+        (volConfLowStrongSizeMult, rng91) = sampleClamped 0 1 (torVolConfLowStrongSizeMult ranges) rng90
+        (volConfMediumMediumSizeMult, rng92) = sampleClamped 0 1 (torVolConfMediumMediumSizeMult ranges) rng91
+        (volConfMediumStrongSizeMult, rng93) = sampleClamped 0 1 (torVolConfMediumStrongSizeMult ranges) rng92
+        (volConfHighStrongSizeMult, rng94) = sampleClamped 0 1 (torVolConfHighStrongSizeMult ranges) rng93
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -734,6 +774,13 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpPredictorQuantileEpochs = predictorQuantileEpochs
                 , ttpPredictorQuantileLearningRate = predictorQuantileLearningRate
                 , ttpPredictorQuantileL2 = predictorQuantileL2
+                , ttpPredictorKnnMaxExamples = predictorKnnMaxExamples
+                , ttpPredictorKnnK = predictorKnnK
+                , ttpPredictorDecisionTreeMaxDepth = predictorDecisionTreeMaxDepth
+                , ttpPredictorDecisionTreeMinLeafSize = predictorDecisionTreeMinLeafSize
+                , ttpPredictorTransformerTemperature = predictorTransformerTemperature
+                , ttpPredictorTransformerMaxExamples = predictorTransformerMaxExamples
+                , ttpPredictorHmmIterations = predictorHmmIterations
                 , ttpVolConfVolatilityEvidenceMax = volConfVolatilityEvidenceMax
                 , ttpVolConfLowVolThreshold = volConfLowVolThreshold
                 , ttpVolConfHighVolThreshold = volConfHighVolThreshold
@@ -745,7 +792,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpVolConfMediumStrongSizeMult = volConfMediumStrongSizeMult
                 , ttpVolConfHighStrongSizeMult = volConfHighStrongSizeMult
                 }
-        , rng87
+        , rng94
         )
   where
     samplePositive range rng =
@@ -920,6 +967,20 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpPredictorQuantileLearningRate p)
     , "--predictor-quantile-l2"
     , printf "%.12g" (ttpPredictorQuantileL2 p)
+    , "--predictor-knn-max-examples"
+    , show (ttpPredictorKnnMaxExamples p)
+    , "--predictor-knn-k"
+    , show (ttpPredictorKnnK p)
+    , "--predictor-decision-tree-max-depth"
+    , show (ttpPredictorDecisionTreeMaxDepth p)
+    , "--predictor-decision-tree-min-leaf-size"
+    , show (ttpPredictorDecisionTreeMinLeafSize p)
+    , "--predictor-transformer-temperature"
+    , printf "%.12g" (ttpPredictorTransformerTemperature p)
+    , "--predictor-transformer-max-examples"
+    , show (ttpPredictorTransformerMaxExamples p)
+    , "--predictor-hmm-iterations"
+    , show (ttpPredictorHmmIterations p)
     , "--vol-conf-volatility-evidence-max"
     , printf "%.12g" (ttpVolConfVolatilityEvidenceMax p)
     , "--vol-conf-low-vol-threshold"
@@ -1021,6 +1082,13 @@ technicalTrialParamsPairs p =
     , "predictorQuantileEpochs" .= ttpPredictorQuantileEpochs p
     , "predictorQuantileLearningRate" .= ttpPredictorQuantileLearningRate p
     , "predictorQuantileL2" .= ttpPredictorQuantileL2 p
+    , "predictorKnnMaxExamples" .= ttpPredictorKnnMaxExamples p
+    , "predictorKnnK" .= ttpPredictorKnnK p
+    , "predictorDecisionTreeMaxDepth" .= ttpPredictorDecisionTreeMaxDepth p
+    , "predictorDecisionTreeMinLeafSize" .= ttpPredictorDecisionTreeMinLeafSize p
+    , "predictorTransformerTemperature" .= ttpPredictorTransformerTemperature p
+    , "predictorTransformerMaxExamples" .= ttpPredictorTransformerMaxExamples p
+    , "predictorHmmIterations" .= ttpPredictorHmmIterations p
     , "volConfVolatilityEvidenceMax" .= ttpVolConfVolatilityEvidenceMax p
     , "volConfLowVolThreshold" .= ttpVolConfLowVolThreshold p
     , "volConfHighVolThreshold" .= ttpVolConfHighVolThreshold p
@@ -7426,6 +7494,13 @@ applyTechnicalPriorOverlay params base =
             , ttpPredictorQuantileEpochs = fromMaybe (ttpPredictorQuantileEpochs base) (intField ["predictorQuantileEpochs"] params)
             , ttpPredictorQuantileLearningRate = fromMaybe (ttpPredictorQuantileLearningRate base) (doubleField ["predictorQuantileLearningRate"] params)
             , ttpPredictorQuantileL2 = fromMaybe (ttpPredictorQuantileL2 base) (doubleField ["predictorQuantileL2"] params)
+            , ttpPredictorKnnMaxExamples = fromMaybe (ttpPredictorKnnMaxExamples base) (intField ["predictorKnnMaxExamples"] params)
+            , ttpPredictorKnnK = fromMaybe (ttpPredictorKnnK base) (intField ["predictorKnnK"] params)
+            , ttpPredictorDecisionTreeMaxDepth = fromMaybe (ttpPredictorDecisionTreeMaxDepth base) (intField ["predictorDecisionTreeMaxDepth"] params)
+            , ttpPredictorDecisionTreeMinLeafSize = fromMaybe (ttpPredictorDecisionTreeMinLeafSize base) (intField ["predictorDecisionTreeMinLeafSize"] params)
+            , ttpPredictorTransformerTemperature = fromMaybe (ttpPredictorTransformerTemperature base) (doubleField ["predictorTransformerTemperature"] params)
+            , ttpPredictorTransformerMaxExamples = fromMaybe (ttpPredictorTransformerMaxExamples base) (intField ["predictorTransformerMaxExamples"] params)
+            , ttpPredictorHmmIterations = fromMaybe (ttpPredictorHmmIterations base) (intField ["predictorHmmIterations"] params)
             }
 
 optionalDoubleField :: [String] -> KM.KeyMap Value -> Maybe (Maybe Double)
