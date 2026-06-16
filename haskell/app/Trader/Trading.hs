@@ -154,6 +154,15 @@ data EnsembleConfig = EnsembleConfig
     , ecFundingBySide :: !Bool
     , ecFundingOnOpen :: !Bool
     , ecBlendWeight :: !Double
+    , ecBlendSoftmaxScale :: !Double
+    , ecBlendNetSoftmaxScale :: !Double
+    , ecBlendSmoothAlpha :: !Double
+    , ecBlendHedgeEta :: !Double
+    , ecBlendHedgeMaxError :: !Double
+    , ecBlendDivergenceK :: !Double
+    , ecBlendRegimeHighVolCutoff :: !Double
+    , ecBlendRegimeKalmanZCutoff :: !Double
+    , ecBlendBanditExploreScale :: !Double
     , ecKalmanDt :: !Double
     , ecKalmanProcessVar :: !Double
     , ecKalmanMeasurementVar :: !Double

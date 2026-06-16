@@ -708,6 +708,15 @@ optimizerSurfacePreservedFields base updated =
         , ecEntryEdgeSpikeAuditOnly updated == ecEntryEdgeSpikeAuditOnly base
         , ecEntryEdgeSpikeConsecutive updated == ecEntryEdgeSpikeConsecutive base
         , ecBlendWeight updated == ecBlendWeight base
+        , ecBlendSoftmaxScale updated == ecBlendSoftmaxScale base
+        , ecBlendNetSoftmaxScale updated == ecBlendNetSoftmaxScale base
+        , ecBlendSmoothAlpha updated == ecBlendSmoothAlpha base
+        , ecBlendHedgeEta updated == ecBlendHedgeEta base
+        , ecBlendHedgeMaxError updated == ecBlendHedgeMaxError base
+        , ecBlendDivergenceK updated == ecBlendDivergenceK base
+        , ecBlendRegimeHighVolCutoff updated == ecBlendRegimeHighVolCutoff base
+        , ecBlendRegimeKalmanZCutoff updated == ecBlendRegimeKalmanZCutoff base
+        , ecBlendBanditExploreScale updated == ecBlendBanditExploreScale base
         , ecKalmanZMin updated == ecKalmanZMin base
         , ecKalmanZMax updated == ecKalmanZMax base
         , ecKellyLiteSizing updated == ecKellyLiteSizing base
@@ -804,6 +813,15 @@ optimizerPublicSurfaceBaseConfig =
         , ecFundingBySide = False
         , ecFundingOnOpen = False
         , ecBlendWeight = 0.5
+        , ecBlendSoftmaxScale = 600
+        , ecBlendNetSoftmaxScale = 6000
+        , ecBlendSmoothAlpha = 0.2
+        , ecBlendHedgeEta = 6
+        , ecBlendHedgeMaxError = 0.1
+        , ecBlendDivergenceK = 4
+        , ecBlendRegimeHighVolCutoff = 0.6
+        , ecBlendRegimeKalmanZCutoff = 1
+        , ecBlendBanditExploreScale = 0.25
         , ecKalmanDt = 1
         , ecKalmanProcessVar = 1
         , ecKalmanMeasurementVar = 1

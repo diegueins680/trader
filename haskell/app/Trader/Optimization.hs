@@ -1196,9 +1196,11 @@ softmaxBlendWeightFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-softmaxBlendWeightFromPreds fallbackWeight prev kalPred lstmPred =
+softmaxBlendWeightFromPreds edgeScale fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
+        scale = max 1e-12 edgeScale
         wFallback = clamp01 fallbackWeight
         edge x =
             if prev <= 0 || bad prev || bad x
@@ -1208,8 +1210,7 @@ softmaxBlendWeightFromPreds fallbackWeight prev kalPred lstmPred =
                      in if bad v then Nothing else Just v
      in case (edge kalPred, edge lstmPred) of
             (Just eKal, Just eLstm) ->
-                let scale = 600
-                    d = eKal - eLstm
+                let d = eKal - eLstm
                     w0 = 1 / (1 + exp (negate (scale * d)))
                     w = clamp01 (wFallback + (w0 - 0.5))
                  in if bad w then wFallback else w
@@ -1222,13 +1223,14 @@ softmaxBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-softmaxBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+softmaxBlendPredFromPreds edgeScale fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
-                let w = softmaxBlendWeightFromPreds wFallback prev kalPred lstmPred
+                let w = softmaxBlendWeightFromPreds edgeScale wFallback prev kalPred lstmPred
                     pred = w * kalPred + (1 - w) * lstmPred
                  in if bad pred then finiteBlendOrNeutral wFallback prev kalPred lstmPred else pred
             (False, True) -> kalPred
@@ -1237,17 +1239,18 @@ softmaxBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 softmaxBlendPredictionsV ::
     Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-softmaxBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+softmaxBlendPredictionsV edgeScale fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in softmaxBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+             in softmaxBlendPredFromPreds edgeScale fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 netSoftmaxBlendWeightFromPreds ::
@@ -1256,9 +1259,11 @@ netSoftmaxBlendWeightFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-netSoftmaxBlendWeightFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
+netSoftmaxBlendWeightFromPreds edgeScale fallbackWeight roundTripCost prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
+        scale = max 1e-12 edgeScale
         wFallback = clamp01 fallbackWeight
         cost = max 0 roundTripCost
         edge x =
@@ -1270,8 +1275,7 @@ netSoftmaxBlendWeightFromPreds fallbackWeight roundTripCost prev kalPred lstmPre
         netEdge x = max 0 (x - cost)
      in case (edge kalPred, edge lstmPred) of
             (Just eKal, Just eLstm) ->
-                let scale = 6000
-                    d = netEdge eKal - netEdge eLstm
+                let d = netEdge eKal - netEdge eLstm
                     w0 = 1 / (1 + exp (negate (scale * d)))
                     w = clamp01 (wFallback + (w0 - 0.5))
                  in if bad w then wFallback else w
@@ -1285,13 +1289,14 @@ netSoftmaxBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-netSoftmaxBlendPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
+netSoftmaxBlendPredFromPreds edgeScale fallbackWeight roundTripCost prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
-                let w = netSoftmaxBlendWeightFromPreds wFallback roundTripCost prev kalPred lstmPred
+                let w = netSoftmaxBlendWeightFromPreds edgeScale wFallback roundTripCost prev kalPred lstmPred
                     pred = w * kalPred + (1 - w) * lstmPred
                  in if bad pred then finiteBlendOrNeutral wFallback prev kalPred lstmPred else pred
             (False, True) -> kalPred
@@ -1301,28 +1306,31 @@ netSoftmaxBlendPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred 
 netSoftmaxBlendPredictionsV ::
     Double ->
     Double ->
-    V.Vector Double ->
-    V.Vector Double ->
-    V.Vector Double ->
-    V.Vector Double
-netSoftmaxBlendPredictionsV fallbackWeight roundTripCost pricesV kalPredV lstmPredV =
-    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
-        pick t =
-            let prev = pricesV V.! t
-                kalPred = kalPredV V.! t
-                lstmPred = lstmPredV V.! t
-             in netSoftmaxBlendPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred
-     in V.generate (max 0 stepCount) pick
-
-smoothSoftmaxBlendPredictionsV ::
     Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-smoothSoftmaxBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+netSoftmaxBlendPredictionsV edgeScale fallbackWeight roundTripCost pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
-        alpha = 0.2
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in netSoftmaxBlendPredFromPreds edgeScale fallbackWeight roundTripCost prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
+smoothSoftmaxBlendPredictionsV ::
+    Double ->
+    Double ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+smoothSoftmaxBlendPredictionsV edgeScale alphaRaw fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        alpha = clamp01 alphaRaw
         bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
         step (t, wPrev0) =
@@ -1333,7 +1341,7 @@ smoothSoftmaxBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
                         kalPred = kalPredV V.! t
                         lstmPred = lstmPredV V.! t
                         wPrev = clamp01 wPrev0
-                        wSoft = softmaxBlendWeightFromPreds wFallback prev kalPred lstmPred
+                        wSoft = softmaxBlendWeightFromPreds edgeScale wFallback prev kalPred lstmPred
                         wRaw = (1 - alpha) * wPrev + alpha * wSoft
                         w =
                             if bad wRaw
@@ -1356,11 +1364,13 @@ divergenceGatePredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred =
+divergenceGatePredFromPreds divergenceK fallbackWeight openThr prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
         thr = max 1e-12 (abs openThr)
+        k = max 1e-12 divergenceK
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -1378,7 +1388,6 @@ divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred =
                     (Just rKal, Just rLstm) ->
                         let rBlend = wFallback * rKal + (1 - wFallback) * rLstm
                             disp = abs (rKal - rLstm)
-                            k = 4
                             alpha = 1 / (1 + disp / (k * thr))
                             a = if bad alpha then 1 else clamp01 alpha
                             pred = neutralPred * (1 + a * rBlend)
@@ -1391,17 +1400,18 @@ divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred =
 divergenceGatePredictionsV ::
     Double ->
     Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-divergenceGatePredictionsV fallbackWeight openThr pricesV kalPredV lstmPredV =
+divergenceGatePredictionsV divergenceK fallbackWeight openThr pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred
+             in divergenceGatePredFromPreds divergenceK fallbackWeight openThr prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 edgeBlendWeightFromPreds ::
@@ -1646,11 +1656,13 @@ conformalClipPredictionsV fallbackWeight pricesV kalPredV lstmPredV mMetaV =
 
 hedgeBlendPredictionsV ::
     Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
+hedgeBlendPredictionsV etaRaw maxErrRaw initWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         bad x = isNaN x || isInfinite x
         w0Raw = clamp01 initWeight
@@ -1661,8 +1673,8 @@ hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
             | z >= 30 = 1
             | z <= (-30) = 0
             | otherwise = 1 / (1 + exp (negate z))
-        eta = 6.0
-        maxErr = 0.1
+        eta = max 0 etaRaw
+        maxErr = max 1e-12 maxErrRaw
         safePred w prev kalPred lstmPred =
             case (bad kalPred, bad lstmPred) of
                 (False, False) ->
@@ -1955,6 +1967,15 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 _ -> metaV
 
         blendWeight = clamp01 (ecBlendWeight baseCfg)
+        blendSoftmaxScale = max 1e-12 (ecBlendSoftmaxScale baseCfg)
+        blendNetSoftmaxScale = max 1e-12 (ecBlendNetSoftmaxScale baseCfg)
+        blendSmoothAlpha = clamp01 (ecBlendSmoothAlpha baseCfg)
+        blendHedgeEta = max 0 (ecBlendHedgeEta baseCfg)
+        blendHedgeMaxError = max 1e-12 (ecBlendHedgeMaxError baseCfg)
+        blendDivergenceK = max 1e-12 (ecBlendDivergenceK baseCfg)
+        blendRegimeHighVolCutoff = clamp01 (ecBlendRegimeHighVolCutoff baseCfg)
+        blendRegimeKalmanZCutoff = max 0 (ecBlendRegimeKalmanZCutoff baseCfg)
+        blendBanditExploreScale = max 0 (ecBlendBanditExploreScale baseCfg)
         blendV = blendPredictionsV blendWeight pricesV kalV lstmV
         edgeBlendV0 = edgeBlendPredictionsV blendWeight pricesV kalV lstmV
         edgePickV0 = edgePickPredictionsV blendWeight pricesV kalV lstmV
@@ -1971,9 +1992,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         coherenceGateV0 = coherenceGatePredictionsV blendWeight pricesV kalV lstmV
         fractalBlendV0 = fractalBlendPredictionsV blendWeight pricesV kalV lstmV
         phaseCancelV0 = phaseCancelPredictionsV blendWeight pricesV kalV lstmV
-        softmaxBlendV0 = softmaxBlendPredictionsV blendWeight pricesV kalV lstmV
-        smoothSoftmaxBlendV0 = smoothSoftmaxBlendPredictionsV blendWeight pricesV kalV lstmV
-        netSoftmaxBlendV0 = netSoftmaxBlendPredictionsV blendWeight roundTripCost pricesV kalV lstmV
+        softmaxBlendV0 = softmaxBlendPredictionsV blendSoftmaxScale blendWeight pricesV kalV lstmV
+        smoothSoftmaxBlendV0 = smoothSoftmaxBlendPredictionsV blendSoftmaxScale blendSmoothAlpha blendWeight pricesV kalV lstmV
+        netSoftmaxBlendV0 = netSoftmaxBlendPredictionsV blendNetSoftmaxScale blendWeight roundTripCost pricesV kalV lstmV
         geoBlendV0 = geometricBlendPredictionsV blendWeight pricesV kalV lstmV
         kalZMinForBlend = max 0 (ecKalmanZMin baseCfg)
         kalZMaxForBlend = max kalZMinForBlend (ecKalmanZMax baseCfg)
@@ -1981,9 +2002,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         confBlendV0 = confidenceBlendPredictionsV blendWeight kalZMinForBlend kalZMaxForBlend confBlendOpenThr0 pricesV kalV lstmV metaV
         confPickV0 = confidencePickPredictionsV blendWeight kalZMinForBlend kalZMaxForBlend confBlendOpenThr0 pricesV kalV lstmV metaV
         conformalClipV0 = conformalClipPredictionsV blendWeight pricesV kalV lstmV metaV
-        divergenceGateV0 = divergenceGatePredictionsV blendWeight confBlendOpenThr0 pricesV kalV lstmV
-        hedgeBlendV0 = hedgeBlendPredictionsV blendWeight pricesV kalV lstmV
-        regimeSwitchV0 = regimeSwitchPredictionsV blendWeight 0.6 1.0 pricesV kalV lstmV metaV
+        divergenceGateV0 = divergenceGatePredictionsV blendDivergenceK blendWeight confBlendOpenThr0 pricesV kalV lstmV
+        hedgeBlendV0 = hedgeBlendPredictionsV blendHedgeEta blendHedgeMaxError blendWeight pricesV kalV lstmV
+        regimeSwitchV0 = regimeSwitchPredictionsV blendWeight blendRegimeHighVolCutoff blendRegimeKalmanZCutoff pricesV kalV lstmV metaV
 
         (kalUsedV0, lstmUsedV0) =
             case method of
@@ -2686,6 +2707,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                             let routerOpenThr = max openThr minEdge
                                 (routerPredV, routerModelsV) =
                                     routerPredictionsWithModelsV
+                                        blendRegimeHighVolCutoff
                                         routerOpenThr
                                         roundTripCost
                                         routerScorePnlWeight
@@ -2702,6 +2724,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                             let routerOpenThr = max openThr minEdge
                                 (routerPredV, routerModelsV) =
                                     banditPredictionsWithModelsV
+                                        blendRegimeHighVolCutoff
+                                        blendBanditExploreScale
                                         routerOpenThr
                                         roundTripCost
                                         routerScorePnlWeight
@@ -2744,6 +2768,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                             let divergenceGateOpenThr = max openThr minEdge
                                 divergenceGateV =
                                     divergenceGatePredictionsV
+                                        blendDivergenceK
                                         blendWeight
                                         divergenceGateOpenThr
                                         pricesV
@@ -2751,7 +2776,15 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                         lstmV
                              in (divergenceGateV, divergenceGateV, Nothing)
                         MethodRegimeSwitch ->
-                            let regimeSwitchV = regimeSwitchPredictionsV blendWeight 0.6 1.0 pricesV kalV lstmV metaV
+                            let regimeSwitchV =
+                                    regimeSwitchPredictionsV
+                                        blendWeight
+                                        blendRegimeHighVolCutoff
+                                        blendRegimeKalmanZCutoff
+                                        pricesV
+                                        kalV
+                                        lstmV
+                                        metaV
                              in (regimeSwitchV, regimeSwitchV, Nothing)
                         _ -> (kalUsedV0, lstmUsedV0, Nothing)
                 evalClose closeThr =
@@ -2931,6 +2964,7 @@ routerSelectModelAt ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Int ->
     Double ->
     V.Vector Double ->
@@ -2940,7 +2974,7 @@ routerSelectModelAt ::
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
+routerSelectModelAt highVolCutoffRaw openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -2951,7 +2985,7 @@ routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
         lookback = max 1 lookback0
         minScore = max 0 (min 1 minScore0)
         windowEnd = min (t - 1) (stepCount - 1)
-        volCutoff = 0.6 :: Double
+        volCutoff = clamp01 highVolCutoffRaw
         minRegimeBars = max 3 (lookback `div` 4)
         regimeAt i =
             case mMetaV of
@@ -2997,6 +3031,7 @@ routerPredictionsWithModelsV ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Int ->
     Double ->
     V.Vector Double ->
@@ -3005,7 +3040,7 @@ routerPredictionsWithModelsV ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
+routerPredictionsWithModelsV highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -3014,7 +3049,7 @@ routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore p
                 , V.length blendPredV
                 ]
         pickPred t =
-            case routerSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
+            case routerSelectModelAt highVolCutoff openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
@@ -3023,6 +3058,8 @@ routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore p
      in (V.map fst picks, V.map snd picks)
 
 banditSelectModelAt ::
+    Double ->
+    Double ->
     Double ->
     Double ->
     Double ->
@@ -3035,7 +3072,7 @@ banditSelectModelAt ::
     Maybe (V.Vector StepMeta) ->
     Int ->
     (Maybe RouterModel, Double, Maybe String)
-banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
+banditSelectModelAt highVolCutoffRaw exploreScaleRaw openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV mMetaV t =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -3046,7 +3083,7 @@ banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
         lookback = max 1 lookback0
         minScore = max 0 (min 1 minScore0)
         windowEnd = min (t - 1) (stepCount - 1)
-        volCutoff = 0.6 :: Double
+        volCutoff = clamp01 highVolCutoffRaw
         minRegimeBars = max 3 (lookback `div` 4)
         regimeAt i =
             case mMetaV of
@@ -3061,7 +3098,7 @@ banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
                 RouterBlend -> 2 :: Int
                 RouterKalman -> 1
                 RouterLstm -> 0
-        bonusScale = 0.25 :: Double
+        bonusScale = max 0 exploreScaleRaw
         scoreKey totalSignals (m, stats) =
             let n = max 0 (rsSignals stats)
                 explore = sqrt (2 * log (max 2 totalSignals) / fromIntegral (n + 1))
@@ -3098,6 +3135,8 @@ banditPredictionsWithModelsV ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
     Int ->
     Double ->
     V.Vector Double ->
@@ -3106,7 +3145,7 @@ banditPredictionsWithModelsV ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) ->
     (V.Vector Double, V.Vector (Maybe RouterModel))
-banditPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
+banditPredictionsWithModelsV highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV =
     let stepCount =
             minimum
                 [ V.length pricesV - 1
@@ -3115,7 +3154,7 @@ banditPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore p
                 , V.length blendPredV
                 ]
         pickPred t =
-            case banditSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
+            case banditSelectModelAt highVolCutoff exploreScale openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV mMetaV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
