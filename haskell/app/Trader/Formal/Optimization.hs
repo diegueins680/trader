@@ -710,6 +710,7 @@ optimizerSurfacePreservedFields base updated =
         , ecBlendWeight updated == ecBlendWeight base
         , ecBlendSoftmaxScale updated == ecBlendSoftmaxScale base
         , ecBlendNetSoftmaxScale updated == ecBlendNetSoftmaxScale base
+        , ecBlendEdgePower updated == ecBlendEdgePower base
         , ecBlendSmoothAlpha updated == ecBlendSmoothAlpha base
         , ecBlendHedgeEta updated == ecBlendHedgeEta base
         , ecBlendHedgeMaxError updated == ecBlendHedgeMaxError base
@@ -836,6 +837,7 @@ optimizerPublicSurfaceBaseConfig =
         , ecBlendWeight = 0.5
         , ecBlendSoftmaxScale = 600
         , ecBlendNetSoftmaxScale = 6000
+        , ecBlendEdgePower = 1.0
         , ecBlendSmoothAlpha = 0.2
         , ecBlendHedgeEta = 6
         , ecBlendHedgeMaxError = 0.1

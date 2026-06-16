@@ -156,6 +156,7 @@ data EnsembleConfig = EnsembleConfig
     , ecBlendWeight :: !Double
     , ecBlendSoftmaxScale :: !Double
     , ecBlendNetSoftmaxScale :: !Double
+    , ecBlendEdgePower :: !Double
     , ecBlendSmoothAlpha :: !Double
     , ecBlendHedgeEta :: !Double
     , ecBlendHedgeMaxError :: !Double

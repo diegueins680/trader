@@ -279,6 +279,7 @@ data Args = Args
     , argBlendWeight :: Double
     , argBlendSoftmaxScale :: Double
     , argBlendNetSoftmaxScale :: Double
+    , argBlendEdgePower :: Double
     , argBlendSmoothAlpha :: Double
     , argBlendHedgeEta :: Double
     , argBlendHedgeMaxError :: Double
@@ -1023,6 +1024,7 @@ opts = do
     argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch (0..1)")
     argBlendSoftmaxScale <- option auto (long "blend-softmax-scale" <> value 600 <> showDefault <> help "Edge-delta scale for --method softmax_blend")
     argBlendNetSoftmaxScale <- option auto (long "blend-net-softmax-scale" <> value 6000 <> showDefault <> help "Net-edge-delta scale for --method net_softmax_blend")
+    argBlendEdgePower <- option auto (long "blend-edge-power" <> value 1.0 <> showDefault <> help "Edge ratio exponent for --method edge_blend/edge_pick")
     argBlendSmoothAlpha <- option auto (long "blend-smooth-alpha" <> value 0.2 <> showDefault <> help "EMA alpha for --method smooth_softmax_blend weights (0..1)")
     argBlendHedgeEta <- option auto (long "blend-hedge-eta" <> value 6.0 <> showDefault <> help "Learning rate for --method hedge_blend")
     argBlendHedgeMaxError <- option auto (long "blend-hedge-max-error" <> value 0.1 <> showDefault <> help "Maximum per-step return error used by --method hedge_blend")
@@ -1552,6 +1554,7 @@ validateArgs args0 = do
             , ("--blend-weight", argBlendWeight args)
             , ("--blend-softmax-scale", argBlendSoftmaxScale args)
             , ("--blend-net-softmax-scale", argBlendNetSoftmaxScale args)
+            , ("--blend-edge-power", argBlendEdgePower args)
             , ("--blend-smooth-alpha", argBlendSmoothAlpha args)
             , ("--blend-hedge-eta", argBlendHedgeEta args)
             , ("--blend-hedge-max-error", argBlendHedgeMaxError args)
@@ -1682,6 +1685,7 @@ validateArgs args0 = do
     ensure "--router-score-pnl-weight must be between 0 and 1" (argRouterScorePnlWeight args >= 0 && argRouterScorePnlWeight args <= 1)
     ensure "--blend-softmax-scale must be > 0" (argBlendSoftmaxScale args > 0)
     ensure "--blend-net-softmax-scale must be > 0" (argBlendNetSoftmaxScale args > 0)
+    ensure "--blend-edge-power must be > 0" (argBlendEdgePower args > 0)
     ensure "--blend-smooth-alpha must be between 0 and 1" (argBlendSmoothAlpha args >= 0 && argBlendSmoothAlpha args <= 1)
     ensure "--blend-hedge-eta must be >= 0" (argBlendHedgeEta args >= 0)
     ensure "--blend-hedge-max-error must be > 0" (argBlendHedgeMaxError args > 0)

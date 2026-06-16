@@ -196,6 +196,7 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torTaSmaCrossConfidenceSpreadMult :: !(Double, Double)
     , torBlendSoftmaxScale :: !(Double, Double)
     , torBlendNetSoftmaxScale :: !(Double, Double)
+    , torBlendEdgePower :: !(Double, Double)
     , torBlendSmoothAlpha :: !(Double, Double)
     , torBlendHedgeEta :: !(Double, Double)
     , torBlendHedgeMaxError :: !(Double, Double)
@@ -268,6 +269,7 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpTaSmaCrossConfidenceSpreadMult :: !Double
     , ttpBlendSoftmaxScale :: !Double
     , ttpBlendNetSoftmaxScale :: !Double
+    , ttpBlendEdgePower :: !Double
     , ttpBlendSmoothAlpha :: !Double
     , ttpBlendHedgeEta :: !Double
     , ttpBlendHedgeMaxError :: !Double
@@ -401,6 +403,7 @@ normalizeTechnicalTrialParams p =
             , ttpTaSmaCrossConfidenceSpreadMult = max 0 (ttpTaSmaCrossConfidenceSpreadMult p)
             , ttpBlendSoftmaxScale = max 1e-6 (ttpBlendSoftmaxScale p)
             , ttpBlendNetSoftmaxScale = max 1e-6 (ttpBlendNetSoftmaxScale p)
+            , ttpBlendEdgePower = max 1e-6 (ttpBlendEdgePower p)
             , ttpBlendSmoothAlpha = clamp (ttpBlendSmoothAlpha p) 0 1
             , ttpBlendHedgeEta = max 0 (ttpBlendHedgeEta p)
             , ttpBlendHedgeMaxError = max 1e-6 (ttpBlendHedgeMaxError p)
@@ -475,50 +478,51 @@ sampleTechnicalTrialParams ranges rng0 =
         (taSmaCrossConfidenceSpreadMult, rng27) = sampleNonNegative (torTaSmaCrossConfidenceSpreadMult ranges) rng26
         (blendSoftmaxScale, rng28) = samplePositive (torBlendSoftmaxScale ranges) rng27
         (blendNetSoftmaxScale, rng29) = samplePositive (torBlendNetSoftmaxScale ranges) rng28
-        (blendSmoothAlpha, rng30) = sampleClamped 0 1 (torBlendSmoothAlpha ranges) rng29
-        (blendHedgeEta, rng31) = sampleNonNegative (torBlendHedgeEta ranges) rng30
-        (blendHedgeMaxError, rng32) = samplePositive (torBlendHedgeMaxError ranges) rng31
-        (blendDivergenceK, rng33) = samplePositive (torBlendDivergenceK ranges) rng32
-        (blendRegimeHighVolCutoff, rng34) = sampleClamped 0 1 (torBlendRegimeHighVolCutoff ranges) rng33
-        (blendRegimeKalmanZCutoff, rng35) = sampleNonNegative (torBlendRegimeKalmanZCutoff ranges) rng34
-        (blendBanditExploreScale, rng36) = sampleNonNegative (torBlendBanditExploreScale ranges) rng35
-        (blendFractalReturnClamp, rng37) = samplePositive (torBlendFractalReturnClamp ranges) rng36
-        (blendFractalAlignedGain, rng38) = sampleNonNegative (torBlendFractalAlignedGain ranges) rng37
-        (blendFractalConflictGain, rng39) = sampleNonNegative (torBlendFractalConflictGain ranges) rng38
-        (blendCoherenceConflictFloor, rng40) = sampleNonNegative (torBlendCoherenceConflictFloor ranges) rng39
-        (blendCoherenceConflictScale, rng41) = sampleNonNegative (torBlendCoherenceConflictScale ranges) rng40
-        (blendCoherenceBoostThreshold, rng42) = sampleClamped 0 1 (torBlendCoherenceBoostThreshold ranges) rng41
-        (blendCoherenceBoostGain, rng43) = sampleNonNegative (torBlendCoherenceBoostGain ranges) rng42
-        (blendCoherenceBoostSpan, rng44) = samplePositive (torBlendCoherenceBoostSpan ranges) rng43
-        (blendAnchorConflictBase, rng45) = sampleClamped 0 1 (torBlendAnchorConflictBase ranges) rng44
-        (blendAnchorConflictScale, rng46) = sampleClamped 0 1 (torBlendAnchorConflictScale ranges) rng45
-        (blendAnchorAlignedScale, rng47) = sampleClamped 0 1 (torBlendAnchorAlignedScale ranges) rng46
-        (blendTensionConflictShrink, rng48) = sampleClamped 0 1 (torBlendTensionConflictShrink ranges) rng47
-        (blendTensionNeutralShrink, rng49) = sampleClamped 0 1 (torBlendTensionNeutralShrink ranges) rng48
-        (blendEntropyConflictFloor, rng50) = sampleClamped 0 1 (torBlendEntropyConflictFloor ranges) rng49
-        (blendEntropyConflictScale, rng51) = sampleClamped 0 1 (torBlendEntropyConflictScale ranges) rng50
-        (blendEntropyAlignedBase, rng52) = sampleClamped 0 1 (torBlendEntropyAlignedBase ranges) rng51
-        (blendEntropyAlignedEntropyScale, rng53) = sampleClamped 0 1 (torBlendEntropyAlignedEntropyScale ranges) rng52
-        (blendPhaseCancelReturnClamp, rng54) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng53
-        (blendPhaseCancelConflictFloor, rng55) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng54
-        (blendPhaseCancelConflictScale, rng56) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng55
-        (blendPhaseCancelAlignmentScale, rng57) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng56
-        (signalEntryEdgeHeadroomMult, rng58) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng57
-        (signalEntryEdgeSpikeMult, rng59) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng58
-        (signalEntryEdgeSpikeCap, rng60) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng59
-        (signalEntryEdgeSpikeConsecutiveLimit, rng61) =
+        (blendEdgePower, rng30) = samplePositive (torBlendEdgePower ranges) rng29
+        (blendSmoothAlpha, rng31) = sampleClamped 0 1 (torBlendSmoothAlpha ranges) rng30
+        (blendHedgeEta, rng32) = sampleNonNegative (torBlendHedgeEta ranges) rng31
+        (blendHedgeMaxError, rng33) = samplePositive (torBlendHedgeMaxError ranges) rng32
+        (blendDivergenceK, rng34) = samplePositive (torBlendDivergenceK ranges) rng33
+        (blendRegimeHighVolCutoff, rng35) = sampleClamped 0 1 (torBlendRegimeHighVolCutoff ranges) rng34
+        (blendRegimeKalmanZCutoff, rng36) = sampleNonNegative (torBlendRegimeKalmanZCutoff ranges) rng35
+        (blendBanditExploreScale, rng37) = sampleNonNegative (torBlendBanditExploreScale ranges) rng36
+        (blendFractalReturnClamp, rng38) = samplePositive (torBlendFractalReturnClamp ranges) rng37
+        (blendFractalAlignedGain, rng39) = sampleNonNegative (torBlendFractalAlignedGain ranges) rng38
+        (blendFractalConflictGain, rng40) = sampleNonNegative (torBlendFractalConflictGain ranges) rng39
+        (blendCoherenceConflictFloor, rng41) = sampleNonNegative (torBlendCoherenceConflictFloor ranges) rng40
+        (blendCoherenceConflictScale, rng42) = sampleNonNegative (torBlendCoherenceConflictScale ranges) rng41
+        (blendCoherenceBoostThreshold, rng43) = sampleClamped 0 1 (torBlendCoherenceBoostThreshold ranges) rng42
+        (blendCoherenceBoostGain, rng44) = sampleNonNegative (torBlendCoherenceBoostGain ranges) rng43
+        (blendCoherenceBoostSpan, rng45) = samplePositive (torBlendCoherenceBoostSpan ranges) rng44
+        (blendAnchorConflictBase, rng46) = sampleClamped 0 1 (torBlendAnchorConflictBase ranges) rng45
+        (blendAnchorConflictScale, rng47) = sampleClamped 0 1 (torBlendAnchorConflictScale ranges) rng46
+        (blendAnchorAlignedScale, rng48) = sampleClamped 0 1 (torBlendAnchorAlignedScale ranges) rng47
+        (blendTensionConflictShrink, rng49) = sampleClamped 0 1 (torBlendTensionConflictShrink ranges) rng48
+        (blendTensionNeutralShrink, rng50) = sampleClamped 0 1 (torBlendTensionNeutralShrink ranges) rng49
+        (blendEntropyConflictFloor, rng51) = sampleClamped 0 1 (torBlendEntropyConflictFloor ranges) rng50
+        (blendEntropyConflictScale, rng52) = sampleClamped 0 1 (torBlendEntropyConflictScale ranges) rng51
+        (blendEntropyAlignedBase, rng53) = sampleClamped 0 1 (torBlendEntropyAlignedBase ranges) rng52
+        (blendEntropyAlignedEntropyScale, rng54) = sampleClamped 0 1 (torBlendEntropyAlignedEntropyScale ranges) rng53
+        (blendPhaseCancelReturnClamp, rng55) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng54
+        (blendPhaseCancelConflictFloor, rng56) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng55
+        (blendPhaseCancelConflictScale, rng57) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng56
+        (blendPhaseCancelAlignmentScale, rng58) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng57
+        (signalEntryEdgeHeadroomMult, rng59) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng58
+        (signalEntryEdgeSpikeMult, rng60) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng59
+        (signalEntryEdgeSpikeCap, rng61) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng60
+        (signalEntryEdgeSpikeConsecutiveLimit, rng62) =
             let (lo, hi) = orderedPair (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
-             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng60
-        (signalTrendSlackMult, rng62) = sampleNonNegative (torSignalTrendSlackMult ranges) rng61
-        (signalTrendSlackCap, rng63) = sampleNonNegative (torSignalTrendSlackCap ranges) rng62
-        (signalDirectionalityLookbackBars, rng64) =
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng61
+        (signalTrendSlackMult, rng63) = sampleNonNegative (torSignalTrendSlackMult ranges) rng62
+        (signalTrendSlackCap, rng64) = sampleNonNegative (torSignalTrendSlackCap ranges) rng63
+        (signalDirectionalityLookbackBars, rng65) =
             let (lo, hi) = orderedPair (torSignalDirectionalityLookbackBars ranges)
-             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng63
-        (signalDirectionalityChopEfficiencyMax, rng65) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng64
-        (signalDirectionalityMrEfficiencyMax0, rng66) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng65
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng64
+        (signalDirectionalityChopEfficiencyMax, rng66) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng65
+        (signalDirectionalityMrEfficiencyMax0, rng67) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng66
         signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
-        (signalDirectionalityWeakZMin, rng67) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng66
-        (signalPredictorTrackingFloor, rng68) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng67
+        (signalDirectionalityWeakZMin, rng68) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng67
+        (signalPredictorTrackingFloor, rng69) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng68
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -550,6 +554,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpTaSmaCrossConfidenceSpreadMult = taSmaCrossConfidenceSpreadMult
                 , ttpBlendSoftmaxScale = blendSoftmaxScale
                 , ttpBlendNetSoftmaxScale = blendNetSoftmaxScale
+                , ttpBlendEdgePower = blendEdgePower
                 , ttpBlendSmoothAlpha = blendSmoothAlpha
                 , ttpBlendHedgeEta = blendHedgeEta
                 , ttpBlendHedgeMaxError = blendHedgeMaxError
@@ -590,7 +595,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpSignalDirectionalityWeakZMin = signalDirectionalityWeakZMin
                 , ttpSignalPredictorTrackingFloor = signalPredictorTrackingFloor
                 }
-        , rng68
+        , rng69
         )
   where
     samplePositive range rng =
@@ -669,6 +674,8 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpBlendSoftmaxScale p)
     , "--blend-net-softmax-scale"
     , printf "%.12g" (ttpBlendNetSoftmaxScale p)
+    , "--blend-edge-power"
+    , printf "%.12g" (ttpBlendEdgePower p)
     , "--blend-smooth-alpha"
     , printf "%.12g" (ttpBlendSmoothAlpha p)
     , "--blend-hedge-eta"
@@ -780,6 +787,7 @@ technicalTrialParamsPairs p =
     , "taSmaCrossConfidenceSpreadMult" .= ttpTaSmaCrossConfidenceSpreadMult p
     , "blendSoftmaxScale" .= ttpBlendSoftmaxScale p
     , "blendNetSoftmaxScale" .= ttpBlendNetSoftmaxScale p
+    , "blendEdgePower" .= ttpBlendEdgePower p
     , "blendSmoothAlpha" .= ttpBlendSmoothAlpha p
     , "blendHedgeEta" .= ttpBlendHedgeEta p
     , "blendHedgeMaxError" .= ttpBlendHedgeMaxError p

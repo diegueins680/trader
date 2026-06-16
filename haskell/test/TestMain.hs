@@ -2380,6 +2380,7 @@ sampleEnsembleConfig =
         , ecBlendWeight = 0.5
         , ecBlendSoftmaxScale = 600
         , ecBlendNetSoftmaxScale = 6000
+        , ecBlendEdgePower = 1.0
         , ecBlendSmoothAlpha = 0.2
         , ecBlendHedgeEta = 6
         , ecBlendHedgeMaxError = 0.1

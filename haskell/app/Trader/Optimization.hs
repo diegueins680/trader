@@ -1482,21 +1482,25 @@ edgeBlendWeightFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-edgeBlendWeightFromPreds fallbackWeight prev kalPred lstmPred =
+edgeBlendWeightFromPreds edgePowerRaw fallbackWeight prev kalPred lstmPred =
     let edge x =
             if prev <= 0 || isNaN prev || isInfinite prev || isNaN x || isInfinite x
                 then Nothing
                 else
                     let v = abs (x / prev - 1)
                      in if isNaN v || isInfinite v then Nothing else Just v
+        edgePower = max 1e-12 edgePowerRaw
         wFallback = clamp01 fallbackWeight
      in case (edge kalPred, edge lstmPred) of
             (Just eKal, Just eLstm) ->
-                let denom = eKal + eLstm
+                let eKalPowered = eKal ** edgePower
+                    eLstmPowered = eLstm ** edgePower
+                    denom = eKalPowered + eLstmPowered
                  in if denom <= 1e-12
                         then wFallback
-                        else clamp01 (eKal / denom)
+                        else clamp01 (eKalPowered / denom)
             (Just _, Nothing) -> 1
             (Nothing, Just _) -> 0
             (Nothing, Nothing) -> wFallback
@@ -1506,13 +1510,14 @@ edgeBlendPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-edgeBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+edgeBlendPredFromPreds edgePower fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
-                let w = edgeBlendWeightFromPreds fallbackWeight prev kalPred lstmPred
+                let w = edgeBlendWeightFromPreds edgePower fallbackWeight prev kalPred lstmPred
                  in w * kalPred + (1 - w) * lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
@@ -1520,17 +1525,18 @@ edgeBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 edgeBlendPredictionsV ::
     Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-edgeBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+edgeBlendPredictionsV edgePower fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in edgeBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+             in edgeBlendPredFromPreds edgePower fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 edgePickPredFromPreds ::
@@ -1538,12 +1544,13 @@ edgePickPredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
     Double
-edgePickPredFromPreds fallbackWeight prev kalPred lstmPred =
+edgePickPredFromPreds edgePower fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
      in case (bad kalPred, bad lstmPred) of
             (False, False) ->
-                let w = edgeBlendWeightFromPreds fallbackWeight prev kalPred lstmPred
+                let w = edgeBlendWeightFromPreds edgePower fallbackWeight prev kalPred lstmPred
                  in if w >= 0.5 then kalPred else lstmPred
             (False, True) -> kalPred
             (True, False) -> lstmPred
@@ -1553,17 +1560,18 @@ edgePickPredFromPreds fallbackWeight prev kalPred lstmPred =
 
 edgePickPredictionsV ::
     Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-edgePickPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+edgePickPredictionsV edgePower fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in edgePickPredFromPreds fallbackWeight prev kalPred lstmPred
+             in edgePickPredFromPreds edgePower fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 geometricBlendPredFromPreds ::
@@ -2032,6 +2040,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         blendWeight = clamp01 (ecBlendWeight baseCfg)
         blendSoftmaxScale = max 1e-12 (ecBlendSoftmaxScale baseCfg)
         blendNetSoftmaxScale = max 1e-12 (ecBlendNetSoftmaxScale baseCfg)
+        blendEdgePower = max 1e-12 (ecBlendEdgePower baseCfg)
         blendSmoothAlpha = clamp01 (ecBlendSmoothAlpha baseCfg)
         blendHedgeEta = max 0 (ecBlendHedgeEta baseCfg)
         blendHedgeMaxError = max 1e-12 (ecBlendHedgeMaxError baseCfg)
@@ -2061,8 +2070,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         blendPhaseCancelConflictScale = max 0 (ecBlendPhaseCancelConflictScale baseCfg)
         blendPhaseCancelAlignmentScale = max 0 (ecBlendPhaseCancelAlignmentScale baseCfg)
         blendV = blendPredictionsV blendWeight pricesV kalV lstmV
-        edgeBlendV0 = edgeBlendPredictionsV blendWeight pricesV kalV lstmV
-        edgePickV0 = edgePickPredictionsV blendWeight pricesV kalV lstmV
+        edgeBlendV0 = edgeBlendPredictionsV blendEdgePower blendWeight pricesV kalV lstmV
+        edgePickV0 = edgePickPredictionsV blendEdgePower blendWeight pricesV kalV lstmV
         costPickV0 = costPickPredictionsV blendWeight roundTripCost pricesV kalV lstmV
         harmonicBlendV0 = harmonicBlendPredictionsV blendWeight pricesV kalV lstmV
         disagreementGuardV0 = disagreementGuardPredictionsV blendWeight pricesV kalV lstmV

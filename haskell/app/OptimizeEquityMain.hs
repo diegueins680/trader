@@ -504,6 +504,7 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "ta-sma-cross-confidence-spread-mult" 8 40
         <*> doubleRangeOption "blend-softmax-scale" 100 1500
         <*> doubleRangeOption "blend-net-softmax-scale" 1000 12000
+        <*> doubleRangeOption "blend-edge-power" 0.5 3.0
         <*> doubleRangeOption "blend-smooth-alpha" 0.05 0.5
         <*> doubleRangeOption "blend-hedge-eta" 1 12
         <*> doubleRangeOption "blend-hedge-max-error" 0.02 0.25
@@ -816,6 +817,7 @@ validateTechnicalOptimizerRanges ranges = do
     nonNegativeRange "ta-sma-cross-confidence-spread-mult" (torTaSmaCrossConfidenceSpreadMult ranges)
     positiveRange "blend-softmax-scale" (torBlendSoftmaxScale ranges)
     positiveRange "blend-net-softmax-scale" (torBlendNetSoftmaxScale ranges)
+    positiveRange "blend-edge-power" (torBlendEdgePower ranges)
     unitRange "blend-smooth-alpha" (torBlendSmoothAlpha ranges)
     nonNegativeRange "blend-hedge-eta" (torBlendHedgeEta ranges)
     positiveRange "blend-hedge-max-error" (torBlendHedgeMaxError ranges)
