@@ -219,7 +219,7 @@ import Trader.BotStartSemantics (
     botStartupBacktestVerdictWithMinTrades,
     botStartupGuardShouldPrune,
     botTradeEnabledFromApi,
-    capAdoptedMaxPositionSize,
+    capAdoptedMaxPositionSizeWithCap,
     comboTradeCountMeetsAdoptionFloor,
     comboWalkForwardSharpeMeetsAdoptionFloor,
     defaultBotStartupBacktestMinTrades,
@@ -2639,6 +2639,7 @@ argsPublicJson args =
             , "maxNetExposure" .= argMaxNetExposure args
             , "maxExposurePerBase" .= argMaxExposurePerBase args
             , "maxPositionSize" .= argMaxPositionSize args
+            , "adoptionMaxPositionSizeCap" .= argAdoptionMaxPositionSizeCap args
             , "volTarget" .= argVolTarget args
             , "volLookback" .= argVolLookback args
             , "volEwmaAlpha" .= argVolEwmaAlpha args
@@ -13588,6 +13589,7 @@ argsCacheJsonSignal args =
             , "maxNetExposure" .= argMaxNetExposure args
             , "maxExposurePerBase" .= argMaxExposurePerBase args
             , "maxPositionSize" .= argMaxPositionSize args
+            , "adoptionMaxPositionSizeCap" .= argAdoptionMaxPositionSizeCap args
             , "volTarget" .= argVolTarget args
             , "volLookback" .= argVolLookback args
             , "volEwmaAlpha" .= argVolEwmaAlpha args
@@ -13800,6 +13802,7 @@ argsCacheJsonBacktest args =
             , "edgeBuffer" .= argEdgeBuffer args
             , "trendLookback" .= argTrendLookback args
             , "maxPositionSize" .= argMaxPositionSize args
+            , "adoptionMaxPositionSizeCap" .= argAdoptionMaxPositionSizeCap args
             , "volTarget" .= argVolTarget args
             , "volLookback" .= argVolLookback args
             , "volEwmaAlpha" .= argVolEwmaAlpha args
@@ -16825,12 +16828,11 @@ applyTopComboForStart base combo = do
         -- Live-adoption safety cap: existing leaderboard combos can carry
         -- maxPositionSize up to 1.0 from before the cost-floor guards. At
         -- 10-20x perp leverage that is the cliff size from the 2026-06-13
-        -- incident. Clamp on adoption via 'capAdoptedMaxPositionSize' to
-        -- keep new exposure bounded until combos produced under the new
-        -- defaults take over.
+        -- incident. Clamp on adoption to keep new exposure bounded until
+        -- combos produced under the new defaults take over.
         args3 =
             args2
-                { argMaxPositionSize = capAdoptedMaxPositionSize (argMaxPositionSize args2)
+                { argMaxPositionSize = capAdoptedMaxPositionSizeWithCap (argAdoptionMaxPositionSizeCap base) (argMaxPositionSize args2)
                 }
     pure (normalizeBarsForLookback args3)
 

@@ -23,7 +23,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace, toLower)
 import Data.List (foldl', intercalate, isPrefixOf, isSuffixOf, sort, sortBy)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Scientific (FPFormat (..), Scientific, formatScientific, fromFloatDigits, toBoundedInteger, toRealFloat)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -43,6 +43,7 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, hPutStrLn, openBinaryTempFile, stderr)
 import Text.Read (readMaybe)
 
+import Trader.BotStartSemantics (adoptionMinTradeCount, comboTradeCountMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloor)
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
@@ -70,6 +71,13 @@ data Combo = Combo
     , comboMetrics :: !(Maybe (KM.KeyMap Value))
     , comboOperations :: !(Maybe [Value])
     , comboParams :: !(KM.KeyMap Value)
+    }
+    deriving (Eq, Show)
+
+data ComboLiveStats = ComboLiveStats
+    { clsFinalEquity :: !Double
+    , clsAnnualizedReturn :: !(Maybe Double)
+    , clsOperationCount :: !Int
     }
     deriving (Eq, Show)
 
@@ -256,15 +264,39 @@ mergeCombos sources =
 
 signatureKey :: Combo -> BS.ByteString
 signatureKey combo =
-    let identity =
-            object
-                [ "source" .= comboSource combo
-                , "params" .= Object (comboParams combo)
-                , "openThreshold" .= comboOpenThreshold combo
-                , "closeThreshold" .= comboCloseThreshold combo
-                , "objective" .= comboObjective combo
-                ]
-     in BL.toStrict (encodePretty identity)
+    BL.toStrict (encodePretty (comboProcessingIdentityValue combo))
+
+comboProcessingIdentityValue :: Combo -> Value
+comboProcessingIdentityValue combo =
+    object
+        [ "params" .= normalizeComboIdentityValue (Object (comboParams combo))
+        , "openThreshold" .= comboOpenThreshold combo
+        , "closeThreshold" .= comboCloseThreshold combo
+        , "objective" .= comboObjective combo
+        ]
+
+normalizeComboIdentityValue :: Value -> Value
+normalizeComboIdentityValue raw =
+    case raw of
+        Object obj ->
+            Object $
+                KM.fromList
+                    [ (key, normalized)
+                    | (key, val) <- KM.toList obj
+                    , let normalized = normalizeComboIdentityField key val
+                    , normalized /= Null
+                    ]
+        Array arr ->
+            Array (V.map normalizeComboIdentityValue arr)
+        other -> other
+
+normalizeComboIdentityField :: Key.Key -> Value -> Value
+normalizeComboIdentityField key val
+    | key == Key.fromString "platform" =
+        case normalizeComboIdentityValue val of
+            String "binance" -> Null
+            normalized -> normalized
+    | otherwise = normalizeComboIdentityValue val
 
 writeTopJson :: FilePath -> [Combo] -> Int -> IO ()
 writeTopJson path combos maxItems = do
@@ -289,28 +321,174 @@ writeTopJson path combos maxItems = do
 
 compareCombos :: Combo -> Combo -> Ordering
 compareCombos a b =
-    let annA = comboAnnualizedReturn a
-        annB = comboAnnualizedReturn b
-        scoreA = sanitizeScore (fromMaybe (-(1 / 0)) (comboScore a))
-        scoreB = sanitizeScore (fromMaybe (-(1 / 0)) (comboScore b))
-        eqA = sanitizeEq (comboFinalEquity a)
-        eqB = sanitizeEq (comboFinalEquity b)
-     in case compareDesc annA annB of
-            EQ ->
-                case compareDesc scoreA scoreB of
-                    EQ -> compareDesc eqA eqB
-                    ord -> ord
-            ord -> ord
+    compare (comboPerformanceKey a) (comboPerformanceKey b)
+
+comboPerformanceKey :: Combo -> (Int, Double, Double, Double, Double)
+comboPerformanceKey combo =
+    let ann = comboAnnualizedReturn combo
+        ann'
+            | comboLiveQuarantined combo = negate (1 / 0)
+            | comboProcessingTierRank combo > comboProcessingTierRankForCandidate = negate (1 / 0)
+            | otherwise = blendedAnnualizedReturn ann (comboLiveStats combo)
+        score = sanitizeScore (fromMaybe (-(1 / 0)) (comboScore combo))
+        eq = sanitizeEq (comboFinalEquity combo)
+     in (comboProcessingTierRank combo, negate (comboValidatedScore combo), negate ann', negate score, negate eq)
 
 comboMetricDouble :: String -> Combo -> Maybe Double
 comboMetricDouble key combo = do
     metrics <- comboMetrics combo
     KM.lookup (Key.fromString key) metrics >>= AT.parseMaybe Aeson.parseJSON
 
+comboMetricInt :: String -> Combo -> Maybe Int
+comboMetricInt key combo = do
+    metrics <- comboMetrics combo
+    KM.lookup (Key.fromString key) metrics >>= coerceIntValue
+
+comboAnnualizedReturnMaybe :: Combo -> Maybe Double
+comboAnnualizedReturnMaybe = comboMetricDouble "annualizedReturn"
+
 comboAnnualizedReturn :: Combo -> Double
 comboAnnualizedReturn combo =
-    let ann = fromMaybe (-(1 / 0)) (comboMetricDouble "annualizedReturn" combo)
+    let ann = fromMaybe (-(1 / 0)) (comboAnnualizedReturnMaybe combo)
      in if isNaN ann || isInfinite ann then -(1 / 0) else ann
+
+comboWalkForwardSharpeMean :: Combo -> Maybe Double
+comboWalkForwardSharpeMean combo = do
+    metrics <- comboMetrics combo
+    wf <- KM.lookup (Key.fromString "walkForwardSummary") metrics
+    case wf of
+        Object obj -> KM.lookup (Key.fromString "sharpeMean") obj >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
+comboProcessingTier :: Combo -> String
+comboProcessingTier combo
+    | comboLiveQuarantined combo = "quarantined"
+    | not (comboTradeCountMeetsAdoptionFloor (comboMetricInt "tradeCount" combo)) = "raw"
+    | isNothing (comboAnnualizedReturnMaybe combo) = "raw"
+    | comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMean combo) = "deployable"
+    | otherwise = "candidate"
+
+comboProcessingTierRank :: Combo -> Int
+comboProcessingTierRank combo =
+    case comboProcessingTier combo of
+        "deployable" -> 0
+        "candidate" -> 1
+        "raw" -> 2
+        _ -> 3
+
+comboProcessingTierRankForCandidate :: Int
+comboProcessingTierRankForCandidate = 1
+
+comboProcessingReasons :: Combo -> [String]
+comboProcessingReasons combo =
+    concat
+        [ ["live-quarantined" | comboLiveQuarantined combo]
+        , case comboMetricInt "tradeCount" combo of
+            Nothing -> ["trade-count-missing"]
+            Just trades
+                | not (comboTradeCountMeetsAdoptionFloor (Just trades)) -> ["trade-count-below-floor"]
+                | otherwise -> []
+        , ["annualized-return-missing" | isNothing (comboAnnualizedReturnMaybe combo)]
+        , case comboWalkForwardSharpeMean combo of
+            Nothing -> ["walk-forward-missing"]
+            Just sharpe
+                | not (comboWalkForwardSharpeMeetsAdoptionFloor (Just sharpe)) -> ["walk-forward-below-floor"]
+                | otherwise -> []
+        ]
+
+comboValidatedScore :: Combo -> Double
+comboValidatedScore combo =
+    let ann = comboAnnualizedReturn combo
+        annLive =
+            if comboLiveQuarantined combo || isNaN ann || isInfinite ann
+                then 0
+                else min 20 (max 0 (blendedAnnualizedReturn ann (comboLiveStats combo)))
+        trades = max 0 (fromMaybe 0 (comboMetricInt "tradeCount" combo))
+        tradeShrinkage =
+            let n = fromIntegral trades
+                floorN = fromIntegral adoptionMinTradeCount
+             in if n <= 0 then 0 else n / (n + floorN)
+        wfMultiplier =
+            case comboWalkForwardSharpeMean combo of
+                Just sharpe | comboWalkForwardSharpeMeetsAdoptionFloor (Just sharpe) -> 1.0
+                Just _ -> 0.35
+                Nothing -> 0.60
+        drawdown = max 0 (fromMaybe 0 (comboMetricDouble "maxDrawdown" combo))
+        drawdownMultiplier = 1 / (1 + 10 * drawdown)
+        eq = max 1.0e-9 (sanitizeEq (comboFinalEquity combo))
+        equityTerm = max (-1) (log eq)
+     in annLive * tradeShrinkage * wfMultiplier * drawdownMultiplier + equityTerm
+
+comboProcessingValue :: Combo -> Value
+comboProcessingValue combo =
+    object
+        [ "tier" .= comboProcessingTier combo
+        , "tierRank" .= comboProcessingTierRank combo
+        , "validatedScore" .= comboValidatedScore combo
+        , "reasons" .= comboProcessingReasons combo
+        ]
+
+liveBlendShrinkageOps :: Double
+liveBlendShrinkageOps = 25
+
+liveQuarantineMinOperations :: Int
+liveQuarantineMinOperations = 30
+
+liveQuarantineMaxFinalEquity :: Double
+liveQuarantineMaxFinalEquity = 0.99
+
+liveAnnualizedReturnFloor :: Double
+liveAnnualizedReturnFloor = -0.9999
+
+liveAnnualizedReturnCeiling :: Double
+liveAnnualizedReturnCeiling = 10
+
+clampLiveAnnualizedReturn :: Double -> Double
+clampLiveAnnualizedReturn ann =
+    max liveAnnualizedReturnFloor (min liveAnnualizedReturnCeiling ann)
+
+comboLiveStats :: Combo -> Maybe ComboLiveStats
+comboLiveStats combo = do
+    metrics <- comboMetrics combo
+    liveVal <- KM.lookup (Key.fromString "live") metrics
+    liveObj <-
+        case liveVal of
+            Object obj -> Just obj
+            _ -> Nothing
+    eq <- KM.lookup (Key.fromString "finalEquity") liveObj >>= coerceFloatValue
+    count <- KM.lookup (Key.fromString "operationCount") liveObj >>= coerceIntValue
+    if eq < 0 || count < 0
+        then Nothing
+        else
+            pure
+                ComboLiveStats
+                    { clsFinalEquity = eq
+                    , clsAnnualizedReturn = KM.lookup (Key.fromString "annualizedReturn") liveObj >>= coerceFloatValue
+                    , clsOperationCount = count
+                    }
+
+comboLiveQuarantined :: Combo -> Bool
+comboLiveQuarantined combo =
+    maybe False liveStatsQuarantined (comboLiveStats combo)
+
+liveStatsQuarantined :: ComboLiveStats -> Bool
+liveStatsQuarantined stats =
+    clsOperationCount stats >= liveQuarantineMinOperations
+        && clsFinalEquity stats <= liveQuarantineMaxFinalEquity
+
+blendedAnnualizedReturn :: Double -> Maybe ComboLiveStats -> Double
+blendedAnnualizedReturn backtestAnn mLive =
+    case mLive >>= liveAnnWithCount of
+        Nothing -> backtestAnn
+        Just (liveAnn, n) ->
+            let w = fromIntegral n / (fromIntegral n + liveBlendShrinkageOps)
+             in w * clampLiveAnnualizedReturn liveAnn + (1 - w) * backtestAnn
+  where
+    liveAnnWithCount stats = do
+        ann <- clsAnnualizedReturn stats
+        if isNaN ann || isInfinite ann || clsOperationCount stats <= 0
+            then Nothing
+            else Just (ann, clsOperationCount stats)
 
 comboOpenThresholdDeployable :: Combo -> Bool
 comboOpenThresholdDeployable combo =
@@ -378,6 +556,7 @@ comboToValue rank combo =
                 , "closeThreshold" .= comboCloseThreshold combo
                 , "source" .= comboSource combo
                 , "metrics" .= metricsVal
+                , "processing" .= comboProcessingValue combo
                 , "params" .= Object (comboParams combo)
                 ]
      in case comboOperations combo of
@@ -385,17 +564,7 @@ comboToValue rank combo =
             Nothing -> base
 
 comboIdentityValue :: Combo -> Value
-comboIdentityValue combo =
-    let baseIdentity =
-            object
-                [ "params" .= Object (comboParams combo)
-                , "openThreshold" .= comboOpenThreshold combo
-                , "closeThreshold" .= comboCloseThreshold combo
-                , "objective" .= comboObjective combo
-                ]
-     in case comboSource combo of
-            Just source | not (null source) -> addField "source" (toJSON source) baseIdentity
-            _ -> baseIdentity
+comboIdentityValue = comboProcessingIdentityValue
 
 comboUuid :: Combo -> String
 comboUuid combo =
@@ -629,8 +798,13 @@ normalizePlatform params source =
             case KM.lookup (Key.fromString "platform") params of
                 Just (String s) -> normalizeKnownPlatform (T.unpack s)
                 _ -> Nothing
+        fromBinanceSymbol =
+            case KM.lookup (Key.fromString "binanceSymbol") params of
+                Just Null -> Nothing
+                Just _ -> Just "binance"
+                Nothing -> Nothing
         fromSource = source >>= normalizeKnownPlatform
-     in fromParams <|> fromSource
+     in fromParams <|> fromBinanceSymbol <|> fromSource
 
 normalizeKnownPlatform :: String -> Maybe String
 normalizeKnownPlatform raw =

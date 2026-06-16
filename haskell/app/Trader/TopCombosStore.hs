@@ -1105,15 +1105,24 @@ normalizeComboIdentityValue raw =
                 KM.fromList
                     [ (key, normalized)
                     | (key, val) <- KM.toList obj
-                    , let normalized = normalizeComboIdentityValue val
+                    , let normalized = normalizeComboIdentityField key val
                     , normalized /= Aeson.Null
                     ]
         Aeson.Array arr ->
             Aeson.Array (V.map normalizeComboIdentityValue arr)
         other -> other
 
-{- | Ranking key: primarily the backtest annualized return blended with
-realized live performance ('blendedAnnualizedReturn').
+normalizeComboIdentityField :: Aeson.Key -> Aeson.Value -> Aeson.Value
+normalizeComboIdentityField key val
+    | key == AK.fromString "platform" =
+        case normalizeComboIdentityValue val of
+            Aeson.String "binance" -> Aeson.Null
+            normalized -> normalized
+    | otherwise = normalizeComboIdentityValue val
+
+{- | Ranking key: first the conservative processing tier and validated score,
+then the backtest annualized return blended with realized live performance
+('blendedAnnualizedReturn').
 
 Quarantined combos and combos whose stored backtest evidence does not meet the
 same trade-count floor required for live adoption sink to the bottom. This

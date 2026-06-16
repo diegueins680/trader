@@ -17,6 +17,7 @@ module Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
     adoptionMaxPositionSizeCap,
     capAdoptedMaxPositionSize,
+    capAdoptedMaxPositionSizeWithCap,
     adoptionMinTradeCount,
     adoptionMinWalkForwardSharpeMean,
     comboTradeCountMeetsAdoptionFloor,
@@ -46,10 +47,15 @@ to zero. Smaller-than-cap values are preserved so combos that already
 sample conservatively are not inflated.
 -}
 capAdoptedMaxPositionSize :: Double -> Double
-capAdoptedMaxPositionSize raw
+capAdoptedMaxPositionSize = capAdoptedMaxPositionSizeWithCap adoptionMaxPositionSizeCap
+
+capAdoptedMaxPositionSizeWithCap :: Double -> Double -> Double
+capAdoptedMaxPositionSizeWithCap capRaw raw
     | isNaN raw || isInfinite raw = 0
     | raw < 0 = 0
-    | otherwise = min adoptionMaxPositionSizeCap raw
+    | isNaN capRaw || isInfinite capRaw = 0
+    | capRaw < 0 = 0
+    | otherwise = min capRaw raw
 
 {- | Minimum backtest @tradeCount@ a top-combo must report on its stored
 metrics before the bot-start path is allowed to adopt it for live trading.

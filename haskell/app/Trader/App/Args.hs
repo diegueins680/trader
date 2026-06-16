@@ -31,6 +31,7 @@ import Text.Read (readMaybe)
 import Options.Applicative
 
 import Trader.Binance (BinanceMarket (..))
+import Trader.BotStartSemantics (adoptionMaxPositionSizeCap)
 import Trader.Duration (TimeWindow, lookbackBarsFrom, parseIntervalSeconds, parseTimeWindow)
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod)
 import Trader.Normalization (NormType (..), parseNormType)
@@ -233,6 +234,7 @@ data Args = Args
     , argEdgeBuffer :: Double
     , argTrendLookback :: Int
     , argMaxPositionSize :: Double
+    , argAdoptionMaxPositionSizeCap :: Double
     , argVolTarget :: Maybe Double
     , argVolLookback :: Int
     , argVolEwmaAlpha :: Maybe Double
@@ -997,6 +999,7 @@ opts = do
     argEdgeBuffer <- option auto (long "edge-buffer" <> value 0.0002 <> help "Extra buffer added to cost-aware min-edge")
     argTrendLookback <- option auto (long "trend-lookback" <> value 30 <> help "SMA lookback for trend filter (0 disables)")
     argMaxPositionSize <- option auto (long "max-position-size" <> value 0.8 <> help "Cap position size/leverage (1 = full size)")
+    argAdoptionMaxPositionSizeCap <- option auto (long "adoption-max-position-size-cap" <> value adoptionMaxPositionSizeCap <> showDefault <> help "Live top-combo adoption cap applied to adopted max position size")
     argVolTarget <-
         optional
             ( option
@@ -1650,6 +1653,7 @@ validateArgs args0 = do
             , ("--threshold-factor-lstm-health-weight", argThresholdFactorLstmHealthWeight args)
             , ("--edge-buffer", argEdgeBuffer args)
             , ("--max-position-size", argMaxPositionSize args)
+            , ("--adoption-max-position-size-cap", argAdoptionMaxPositionSizeCap args)
             , ("--vol-floor", argVolFloor args)
             , ("--vol-scale-max", argVolScaleMax args)
             , ("--rebalance-threshold", argRebalanceThreshold args)
@@ -2025,6 +2029,8 @@ validateArgs args0 = do
     ensure "--trend-lookback must be <= 1000" (argTrendLookback args <= 1000)
     ensure "--max-position-size must be > 0" (argMaxPositionSize args > 0)
     ensure "--max-position-size must be <= 10" (argMaxPositionSize args <= 10)
+    ensure "--adoption-max-position-size-cap must be >= 0" (argAdoptionMaxPositionSizeCap args >= 0)
+    ensure "--adoption-max-position-size-cap must be <= 10" (argAdoptionMaxPositionSizeCap args <= 10)
     let market = argBinanceMarket args
     when (market /= MarketFutures) $
         ensure "--max-position-size must be <= 5 for spot/margin markets" (argMaxPositionSize args <= 5)

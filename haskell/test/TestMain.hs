@@ -11,6 +11,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.List (isInfixOf)
@@ -20,10 +21,12 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
+import System.Directory (removeFile)
+import System.IO (hClose, openTempFile)
 import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
-import Trader.BotStartSemantics (BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, comboTradeCountMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloor, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, comboTradeCountMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloor, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.CapitalPreservation (CapitalPreservationConfig (..), CapitalPreservationReport (..), capitalPreservationIsEntryOnlyReason, capitalPreservationReport, defaultCapitalPreservationConfig)
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
 import Trader.CostCalibration (
@@ -83,6 +86,7 @@ import Trader.MarketDataIntegrity (
 import Trader.Method (Method (..))
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Optimization (TuneConfig (..), TuneStats (..), defaultTuneConfig, sweepThresholdWithHLWith)
+import Trader.Optimizer.Merge (MergeArgs (..), runMerge)
 import Trader.Optimizer.Optimize (
     OptimizerRecordsSummary (..),
     emptyOptimizerRecordsSummary,
@@ -349,6 +353,7 @@ main = do
     testLowTradeTopCombosSinkBelowEvidenceFloor
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
+    testMergeExecutableAnnotatesProcessingAndDedupe
     testSelectCombosForBacktestRefreshIncludesEveryStaleCombo
     testPrunedBacktestTombstonePreventsStaleResurrection
     testKeepAllUpdateKeepsUnprofitableComboStamped
@@ -3751,6 +3756,52 @@ testDeployableTierRanksAheadOfUnvalidatedCandidate = do
         "walk-forward deployable tier ranks ahead of a higher-return unvalidated candidate"
         (listToMaybe (mapMaybe comboProcessingTierForTest combos) == Just "deployable")
 
+testMergeExecutableAnnotatesProcessingAndDedupe :: IO ()
+testMergeExecutableAnnotatesProcessingAndDedupe = do
+    (inputPath, inputHandle) <- openTempFile "/tmp" "trader-merge-input.json"
+    hClose inputHandle
+    (outputPath, outputHandle) <- openTempFile "/tmp" "trader-merge-output.json"
+    hClose outputHandle
+    let dbCopy = processingComboForTest "same-strategy" "db" True Nothing 2.0 adoptionMinTradeCount
+        binanceCopy = processingComboForTest "same-strategy" "binance" False Nothing 2.0 adoptionMinTradeCount
+        payload =
+            Aeson.object
+                [ "combos" .= [dbCopy, binanceCopy]
+                , "generatedAtMs" .= (9000 :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+    BL.writeFile inputPath (Aeson.encode payload)
+    code <-
+        runMerge
+            MergeArgs
+                { maTopJson = inputPath
+                , maFromJsonl = []
+                , maFromTopJson = []
+                , maOut = outputPath
+                , maMax = 10
+                , maHistoryDir = Nothing
+                , maCopyToDist = False
+                }
+    decoded <- (Aeson.eitherDecode <$> BL.readFile outputPath) :: IO (Either String Aeson.Value)
+    let combos =
+            case decoded of
+                Right (Aeson.Object o) -> case KM.lookup "combos" o of
+                    Just (Aeson.Array v) -> V.toList v
+                    _ -> []
+                _ -> []
+        mCombo = listToMaybe combos
+    assert "merge executable exits successfully" (code == 0)
+    assert "merge executable collapses source/null-equivalent strategy rows" (length combos == 1)
+    assert
+        "merge executable emits candidate processing tier"
+        ((mCombo >>= comboProcessingTierForTest) == Just "candidate")
+    assert
+        "merge executable records missing walk-forward evidence"
+        (maybe False ("walk-forward-missing" `elem`) (mCombo >>= comboProcessingReasonsForTest))
+    _ <- try (removeFile inputPath) :: IO (Either SomeException ())
+    _ <- try (removeFile outputPath) :: IO (Either SomeException ())
+    pure ()
+
 selectionComboForTest :: T.Text -> Double -> Maybe Int64 -> Maybe Int64 -> Aeson.Value
 selectionComboForTest method score mCreatedAt mRefreshedAt =
     Aeson.object
@@ -6429,6 +6480,12 @@ testCapAdoptedMaxPositionSizeBoundsLiveExposure = do
     assert
         "cap preserves inputs that are already below the cap"
         (capAdoptedMaxPositionSize 0.10 == 0.10)
+    assert
+        "custom adoption cap saturates inputs above the custom cap"
+        (capAdoptedMaxPositionSizeWithCap 0.12 0.30 == 0.12)
+    assert
+        "custom adoption cap can intentionally disable adopted exposure"
+        (capAdoptedMaxPositionSizeWithCap 0 0.30 == 0)
     assert
         "cap clamps negative inputs to zero"
         (capAdoptedMaxPositionSize (negate 0.5) == 0)
