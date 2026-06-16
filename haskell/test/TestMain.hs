@@ -311,6 +311,7 @@ main = do
     testKalmanSensorCorrelationInflation
     testKalmanInnovationInflation
     testKalmanVarianceKnobsAffectPrediction
+    testKalmanVarianceKnobsAffectTrades
     testKalmanMarketTopNRejectsInvalidValues
     testTuneRatioRejectsInvalidValues
     testTunePenaltyMaxDrawdownRejectsInvalidValues
@@ -1661,6 +1662,25 @@ testKalmanVarianceKnobsAffectPrediction = do
         looseMeasurement = stepMulti [(1, 100)] (initKalman1 0 1 0)
     assert "process variance changes Kalman prediction gain" (kMean highProcess > kMean lowProcess)
     assert "measurement variance changes Kalman prediction gain" (kMean tightMeasurement > kMean looseMeasurement)
+
+testKalmanVarianceKnobsAffectTrades :: IO ()
+testKalmanVarianceKnobsAffectTrades = do
+    let tightReturn = kMean (stepMulti [(0.05, 1e-6)] (initKalman1 0 1e-6 0))
+        looseReturn = kMean (stepMulti [(0.05, 100)] (initKalman1 0 1e-6 0))
+        prices = V.fromList [100 :: Double, 100, 100, 100]
+        preds r = V.replicate 3 (100 * (1 + r))
+        cfg =
+            sampleEnsembleConfig
+                { ecOpenThreshold = 0.01
+                , ecCloseThreshold = 0.005
+                , ecFee = 0
+                , ecVolLookback = 2
+                , ecMaxPositionSize = 1
+                }
+        tightResult = simulateEnsemble cfg 1 prices prices prices (preds tightReturn) (preds tightReturn) (Nothing :: Maybe (V.Vector StepMeta))
+        looseResult = simulateEnsemble cfg 1 prices prices prices (preds looseReturn) (preds looseReturn) (Nothing :: Maybe (V.Vector StepMeta))
+    assert "tight Kalman measurement variance creates a tradeable forecast" (any (/= 0) (brPositions tightResult))
+    assert "loose Kalman measurement variance keeps the strategy flat" (all (== 0) (brPositions looseResult))
 
 testKalmanMarketTopNRejectsInvalidValues :: IO ()
 testKalmanMarketTopNRejectsInvalidValues = do

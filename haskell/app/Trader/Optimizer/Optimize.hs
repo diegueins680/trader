@@ -455,6 +455,7 @@ normalizeTrialParams p =
             , tpThresholdFactorMax = thresholdFactorMax'
             , tpMaxPositionSize = maxPositionSize'
             , tpVolEwmaAlpha = normalizeOptionalPositiveFraction (tpVolEwmaAlpha p)
+            , tpSensorVarianceEwmaAlpha = clamp (tpSensorVarianceEwmaAlpha p) 0 1
             , tpLstmAdamBeta1 = lstmAdamBeta1'
             , tpLstmAdamBeta2 = lstmAdamBeta2'
             , tpLstmAdamEps = lstmAdamEps'
@@ -469,6 +470,9 @@ normalizeTrialParams p =
             , tpMaxWeeklyLoss = normalizeOptionalPositiveFraction (tpMaxWeeklyLoss p)
             , tpKalmanZMin = kalmanZMin'
             , tpKalmanZMax = kalmanZMax'
+            , tpKalmanSensorCorrelationInflation = clamp (tpKalmanSensorCorrelationInflation p) 0 1
+            , tpKalmanInnovationInflationThreshold = max 0 (tpKalmanInnovationInflationThreshold p)
+            , tpKalmanInnovationInflationMax = max 1 (tpKalmanInnovationInflationMax p)
             , tpMaxHighVolProb = normalizeOptionalUnitInterval (tpMaxHighVolProb p)
             , tpProtectionMinConfidence = clamp (tpProtectionMinConfidence p) 0 1
             , tpMinPositionSize = minPositionSize'
@@ -2993,6 +2997,7 @@ data TrialParams = TrialParams
     , tpMaxVolatility :: !(Maybe Double)
     , tpPeriodsPerYear :: !(Maybe Double)
     , tpKalmanMarketTopN :: !Int
+    , tpSensorVarianceEwmaAlpha :: !Double
     , tpFee :: !Double
     , tpFundingRate :: !Double
     , tpFundingBySide :: !Bool
@@ -3053,6 +3058,9 @@ data TrialParams = TrialParams
     , tpKalmanDt :: !Double
     , tpKalmanProcessVar :: !Double
     , tpKalmanMeasurementVar :: !Double
+    , tpKalmanSensorCorrelationInflation :: !Double
+    , tpKalmanInnovationInflationThreshold :: !Double
+    , tpKalmanInnovationInflationMax :: !Double
     , tpKalmanZMin :: !Double
     , tpKalmanZMax :: !Double
     , tpMaxHighVolProb :: !(Maybe Double)
@@ -3510,6 +3518,14 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , printf "%.12g" (max 1e-12 (tpKalmanProcessVar params))
                    , "--kalman-measurement-var"
                    , printf "%.12g" (max 1e-12 (tpKalmanMeasurementVar params))
+                   , "--sensor-variance-ewma-alpha"
+                   , printf "%.6f" (clamp (tpSensorVarianceEwmaAlpha params) 0 1)
+                   , "--kalman-sensor-correlation-inflation"
+                   , printf "%.6f" (clamp (tpKalmanSensorCorrelationInflation params) 0 1)
+                   , "--kalman-innovation-inflation-threshold"
+                   , printf "%.6f" (max 0 (tpKalmanInnovationInflationThreshold params))
+                   , "--kalman-innovation-inflation-max"
+                   , printf "%.6f" (max 1 (tpKalmanInnovationInflationMax params))
                    , "--kalman-z-min"
                    , printf "%.12g" (max 0 (tpKalmanZMin params))
                    , "--kalman-z-max"
@@ -3906,6 +3922,7 @@ trialToRecord tr symbolLabel =
             , "maxVolatility" .= tpMaxVolatility (trParams tr)
             , "periodsPerYear" .= tpPeriodsPerYear (trParams tr)
             , "kalmanMarketTopN" .= tpKalmanMarketTopN (trParams tr)
+            , "sensorVarianceEwmaAlpha" .= tpSensorVarianceEwmaAlpha (trParams tr)
             , "fee" .= tpFee (trParams tr)
             , "fundingRate" .= tpFundingRate (trParams tr)
             , "fundingBySide" .= tpFundingBySide (trParams tr)
@@ -3966,6 +3983,9 @@ trialToRecord tr symbolLabel =
             , "kalmanDt" .= tpKalmanDt (trParams tr)
             , "kalmanProcessVar" .= tpKalmanProcessVar (trParams tr)
             , "kalmanMeasurementVar" .= tpKalmanMeasurementVar (trParams tr)
+            , "kalmanSensorCorrelationInflation" .= tpKalmanSensorCorrelationInflation (trParams tr)
+            , "kalmanInnovationInflationThreshold" .= tpKalmanInnovationInflationThreshold (trParams tr)
+            , "kalmanInnovationInflationMax" .= tpKalmanInnovationInflationMax (trParams tr)
             , "kalmanZMin" .= tpKalmanZMin (trParams tr)
             , "kalmanZMax" .= tpKalmanZMax (trParams tr)
             , "maxHighVolProb" .= tpMaxHighVolProb (trParams tr)
@@ -4181,6 +4201,10 @@ sampleParams
     kalmanProcessVarMax
     kalmanMeasurementVarMin
     kalmanMeasurementVarMax
+    sensorVarianceEwmaAlpha
+    kalmanSensorCorrelationInflation
+    kalmanInnovationInflationThreshold
+    kalmanInnovationInflationMax
     kalmanZMinMin
     kalmanZMinMax
     kalmanZMaxMin
@@ -4989,6 +5013,7 @@ sampleParams
                 , tpMaxVolatility = maxVolatility
                 , tpPeriodsPerYear = periodsPerYear
                 , tpKalmanMarketTopN = kalmanMarketTopN
+                , tpSensorVarianceEwmaAlpha = clamp sensorVarianceEwmaAlpha 0 1
                 , tpFee = fee
                 , tpFundingRate = fundingRate
                 , tpFundingBySide = fundingBySide
@@ -5049,6 +5074,9 @@ sampleParams
                 , tpKalmanDt = kalmanDt
                 , tpKalmanProcessVar = kalmanProcessVar
                 , tpKalmanMeasurementVar = kalmanMeasurementVar
+                , tpKalmanSensorCorrelationInflation = clamp kalmanSensorCorrelationInflation 0 1
+                , tpKalmanInnovationInflationThreshold = max 0 kalmanInnovationInflationThreshold
+                , tpKalmanInnovationInflationMax = max 1 kalmanInnovationInflationMax
                 , tpKalmanZMin = kalmanZMin
                 , tpKalmanZMax = kalmanZMax
                 , tpMaxHighVolProb = maxHighVolProb
@@ -5788,6 +5816,10 @@ runOptimizer args0 = do
                                                                                 kalmanProcessVarMax
                                                                                 kalmanMeasurementVarMin
                                                                                 kalmanMeasurementVarMax
+                                                                                (clamp (oaSensorVarianceEwmaAlpha args) 0 1)
+                                                                                (clamp (oaKalmanSensorCorrelationInflation args) 0 1)
+                                                                                (max 0 (oaKalmanInnovationInflationThreshold args))
+                                                                                (max 1 (oaKalmanInnovationInflationMax args))
                                                                                 kalmanZMinMin
                                                                                 kalmanZMinMax
                                                                                 kalmanZMaxMin
@@ -6452,14 +6484,6 @@ buildBaseArgs args csvCols = do
                            , printf "%.6f" (max 0 (oaTunePenaltyTurnover args))
                            , "--tune-max-threshold-candidates"
                            , show (max 0 (oaTuneMaxThresholdCandidates args))
-                           , "--sensor-variance-ewma-alpha"
-                           , printf "%.6f" (clamp (oaSensorVarianceEwmaAlpha args) 0 1)
-                           , "--kalman-sensor-correlation-inflation"
-                           , printf "%.6f" (clamp (oaKalmanSensorCorrelationInflation args) 0 1)
-                           , "--kalman-innovation-inflation-threshold"
-                           , printf "%.6f" (max 0 (oaKalmanInnovationInflationThreshold args))
-                           , "--kalman-innovation-inflation-max"
-                           , printf "%.6f" (max 1 (oaKalmanInnovationInflationMax args))
                            , "--seed"
                            , show (oaSeed args)
                            ]
@@ -6885,7 +6909,9 @@ crossoverTrialParams a b rng0 =
         (tpMaxVolatility', rng37) = pickValue (tpMaxVolatility a) (tpMaxVolatility b) rng36
         (tpPeriodsPerYear', rng38) = pickValue (tpPeriodsPerYear a) (tpPeriodsPerYear b) rng37
         (tpKalmanMarketTopN', rng39) = pickValue (tpKalmanMarketTopN a) (tpKalmanMarketTopN b) rng38
-        (tpFee', rng40) = pickValue (tpFee a) (tpFee b) rng39
+        (tpSensorVarianceEwmaAlpha', rng39a) =
+            pickValue (tpSensorVarianceEwmaAlpha a) (tpSensorVarianceEwmaAlpha b) rng39
+        (tpFee', rng40) = pickValue (tpFee a) (tpFee b) rng39a
         (tpFundingRate', rng41) = pickValue (tpFundingRate a) (tpFundingRate b) rng40
         (tpFundingBySide', rng42) = pickValue (tpFundingBySide a) (tpFundingBySide b) rng41
         (tpFundingOnOpen', rng43) = pickValue (tpFundingOnOpen a) (tpFundingOnOpen b) rng42
@@ -6945,7 +6971,13 @@ crossoverTrialParams a b rng0 =
         (tpKalmanDt', rng87) = pickValue (tpKalmanDt a) (tpKalmanDt b) rng86
         (tpKalmanProcessVar', rng88) = pickValue (tpKalmanProcessVar a) (tpKalmanProcessVar b) rng87
         (tpKalmanMeasurementVar', rng89) = pickValue (tpKalmanMeasurementVar a) (tpKalmanMeasurementVar b) rng88
-        (tpKalmanZMin', rng90) = pickValue (tpKalmanZMin a) (tpKalmanZMin b) rng89
+        (tpKalmanSensorCorrelationInflation', rng89a) =
+            pickValue (tpKalmanSensorCorrelationInflation a) (tpKalmanSensorCorrelationInflation b) rng89
+        (tpKalmanInnovationInflationThreshold', rng89b) =
+            pickValue (tpKalmanInnovationInflationThreshold a) (tpKalmanInnovationInflationThreshold b) rng89a
+        (tpKalmanInnovationInflationMax', rng89c) =
+            pickValue (tpKalmanInnovationInflationMax a) (tpKalmanInnovationInflationMax b) rng89b
+        (tpKalmanZMin', rng90) = pickValue (tpKalmanZMin a) (tpKalmanZMin b) rng89c
         (tpKalmanZMax', rng91) = pickValue (tpKalmanZMax a) (tpKalmanZMax b) rng90
         (tpMaxHighVolProb', rng92) = pickValue (tpMaxHighVolProb a) (tpMaxHighVolProb b) rng91
         (tpMaxConformalWidth', rng93) = pickValue (tpMaxConformalWidth a) (tpMaxConformalWidth b) rng92
@@ -7063,6 +7095,7 @@ crossoverTrialParams a b rng0 =
                 , tpMaxVolatility = tpMaxVolatility'
                 , tpPeriodsPerYear = tpPeriodsPerYear'
                 , tpKalmanMarketTopN = tpKalmanMarketTopN'
+                , tpSensorVarianceEwmaAlpha = tpSensorVarianceEwmaAlpha'
                 , tpFee = tpFee'
                 , tpFundingRate = tpFundingRate'
                 , tpFundingBySide = tpFundingBySide'
@@ -7123,6 +7156,9 @@ crossoverTrialParams a b rng0 =
                 , tpKalmanDt = tpKalmanDt'
                 , tpKalmanProcessVar = tpKalmanProcessVar'
                 , tpKalmanMeasurementVar = tpKalmanMeasurementVar'
+                , tpKalmanSensorCorrelationInflation = tpKalmanSensorCorrelationInflation'
+                , tpKalmanInnovationInflationThreshold = tpKalmanInnovationInflationThreshold'
+                , tpKalmanInnovationInflationMax = tpKalmanInnovationInflationMax'
                 , tpKalmanZMin = tpKalmanZMin'
                 , tpKalmanZMax = tpKalmanZMax'
                 , tpMaxHighVolProb = tpMaxHighVolProb'
@@ -7608,6 +7644,7 @@ applyPriorOverlay allowedIntervals prior base =
                 , tpMaxVolatility = fromMaybe (tpMaxVolatility base) (optionalDoubleField ["maxVolatility"] params)
                 , tpPeriodsPerYear = fromMaybe (tpPeriodsPerYear base) (optionalDoubleField ["periodsPerYear"] params)
                 , tpKalmanMarketTopN = fromMaybe (tpKalmanMarketTopN base) (intField ["kalmanMarketTopN"] params)
+                , tpSensorVarianceEwmaAlpha = fromMaybe (tpSensorVarianceEwmaAlpha base) (doubleField ["sensorVarianceEwmaAlpha"] params)
                 , tpEpochs = fromMaybe (tpEpochs base) (intField ["epochs"] params)
                 , tpHiddenSize = fromMaybe (tpHiddenSize base) (intField ["hiddenSize"] params)
                 , tpLearningRate = fromMaybe (tpLearningRate base) (doubleField ["learningRate"] params)
@@ -7639,6 +7676,9 @@ applyPriorOverlay allowedIntervals prior base =
                 , tpKalmanDt = fromMaybe (tpKalmanDt base) (doubleField ["kalmanDt"] params)
                 , tpKalmanProcessVar = fromMaybe (tpKalmanProcessVar base) (doubleField ["kalmanProcessVar"] params)
                 , tpKalmanMeasurementVar = fromMaybe (tpKalmanMeasurementVar base) (doubleField ["kalmanMeasurementVar"] params)
+                , tpKalmanSensorCorrelationInflation = fromMaybe (tpKalmanSensorCorrelationInflation base) (doubleField ["kalmanSensorCorrelationInflation"] params)
+                , tpKalmanInnovationInflationThreshold = fromMaybe (tpKalmanInnovationInflationThreshold base) (doubleField ["kalmanInnovationInflationThreshold"] params)
+                , tpKalmanInnovationInflationMax = fromMaybe (tpKalmanInnovationInflationMax base) (doubleField ["kalmanInnovationInflationMax"] params)
                 , tpKalmanZMin = fromMaybe (tpKalmanZMin base) (doubleField ["kalmanZMin"] params)
                 , tpKalmanZMax = fromMaybe (tpKalmanZMax base) (doubleField ["kalmanZMax"] params)
                 , tpMaxHighVolProb = fromMaybe (tpMaxHighVolProb base) (optionalDoubleField ["maxHighVolProb"] params)
@@ -7954,6 +7994,10 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "kalmanDt" .= tpKalmanDt params
                 , "kalmanProcessVar" .= tpKalmanProcessVar params
                 , "kalmanMeasurementVar" .= tpKalmanMeasurementVar params
+                , "sensorVarianceEwmaAlpha" .= tpSensorVarianceEwmaAlpha params
+                , "kalmanSensorCorrelationInflation" .= tpKalmanSensorCorrelationInflation params
+                , "kalmanInnovationInflationThreshold" .= tpKalmanInnovationInflationThreshold params
+                , "kalmanInnovationInflationMax" .= tpKalmanInnovationInflationMax params
                 , "kalmanZMin" .= tpKalmanZMin params
                 , "kalmanZMax" .= tpKalmanZMax params
                 , "maxHighVolProb" .= tpMaxHighVolProb params
