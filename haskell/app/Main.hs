@@ -424,6 +424,7 @@ import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
 import qualified Trader.TechnicalAnalysis.Strategies as TA
 import Trader.Text (dedupeStable, normalizeKey, trim)
+import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
@@ -16007,6 +16008,42 @@ runOptimizerProcess projectRoot outputPath maxOutputBytes cliArgs = do
                         Right val -> pure (Right (ApiOptimizerRunResponse val out err))
                 ExitFailure code -> pure (Left (printf "Optimizer executable failed (exit %d)" code, out, err))
 
+mergeTopComboScoringArgsFromEnv :: IO [String]
+mergeTopComboScoringArgsFromEnv = do
+    doubleArgs <- fmap concat (forM doubleSpecs readDoubleArg)
+    intArgs <- fmap concat (forM intSpecs readIntArg)
+    pure (doubleArgs ++ intArgs)
+  where
+    def = defaultTopComboScoringConfig
+    doubleSpecs =
+        [ ("TRADER_TOP_COMBO_SCORE_LIVE_BLEND_SHRINKAGE_OPS", "--score-live-blend-shrinkage-ops", tcscLiveBlendShrinkageOps def)
+        , ("TRADER_TOP_COMBO_SCORE_LIVE_QUARANTINE_MAX_FINAL_EQUITY", "--score-live-quarantine-max-final-equity", tcscLiveQuarantineMaxFinalEquity def)
+        , ("TRADER_TOP_COMBO_SCORE_LIVE_ANNUALIZED_RETURN_FLOOR", "--score-live-annualized-return-floor", tcscLiveAnnualizedReturnFloor def)
+        , ("TRADER_TOP_COMBO_SCORE_LIVE_ANNUALIZED_RETURN_CEILING", "--score-live-annualized-return-ceiling", tcscLiveAnnualizedReturnCeiling def)
+        , ("TRADER_TOP_COMBO_SCORE_VALIDATED_ANNUALIZED_RETURN_CAP", "--score-validated-annualized-return-cap", tcscValidatedAnnualizedReturnCap def)
+        , ("TRADER_TOP_COMBO_SCORE_WF_DEPLOYABLE_MULTIPLIER", "--score-wf-deployable-multiplier", tcscDeployableWalkForwardMultiplier def)
+        , ("TRADER_TOP_COMBO_SCORE_WF_BELOW_FLOOR_MULTIPLIER", "--score-wf-below-floor-multiplier", tcscBelowFloorWalkForwardMultiplier def)
+        , ("TRADER_TOP_COMBO_SCORE_WF_MISSING_MULTIPLIER", "--score-wf-missing-multiplier", tcscMissingWalkForwardMultiplier def)
+        , ("TRADER_TOP_COMBO_SCORE_DRAWDOWN_PENALTY_SCALE", "--score-drawdown-penalty-scale", tcscDrawdownPenaltyScale def)
+        , ("TRADER_TOP_COMBO_SCORE_EQUITY_FLOOR", "--score-equity-floor", tcscEquityFloor def)
+        , ("TRADER_TOP_COMBO_SCORE_EQUITY_LOG_FLOOR", "--score-equity-log-floor", tcscEquityLogFloor def)
+        ]
+    intSpecs =
+        [ ("TRADER_TOP_COMBO_SCORE_LIVE_QUARANTINE_MIN_OPERATIONS", "--score-live-quarantine-min-operations", tcscLiveQuarantineMinOperations def)
+        ]
+    readDoubleArg (envName, flagName, fallback) = do
+        raw <- lookupEnv envName
+        pure $
+            case raw >>= readMaybe of
+                Just value | isFiniteDouble value && value /= fallback -> [flagName, show value]
+                _ -> []
+    readIntArg (envName, flagName, fallback) = do
+        raw <- lookupEnv envName
+        pure $
+            case raw >>= readMaybe of
+                Just value | value /= fallback -> [flagName, show (value :: Int)]
+                _ -> []
+
 runMergeTopCombos ::
     Maybe StateSyncTarget ->
     FilePath ->
@@ -16025,10 +16062,11 @@ runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsPath maxItems 
             case exeResult of
                 Left err -> pure (Left (err, "", ""))
                 Right exePath -> do
+                    scoringArgs <- mergeTopComboScoringArgsFromEnv
                     let baseArgs = ["--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)]
                         remoteArgs = maybe [] (\p -> ["--from-top-json", p]) remoteTempPath
                         historyArgs = maybe [] (\dir -> ["--history-dir", dir]) historyDir
-                        args = baseArgs ++ remoteArgs ++ historyArgs
+                        args = baseArgs ++ remoteArgs ++ historyArgs ++ scoringArgs
                         proc' = (proc exePath args){cwd = Just projectRoot}
                         cleanup = maybe (pure ()) removeTempTopCombo remoteTempPath
                     (exitCode, out, err) <- readCreateProcessWithExitCode proc' "" `finally` cleanup

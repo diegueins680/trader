@@ -87,6 +87,21 @@ import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
 import qualified Trader.Symbol as Symbol
 import Trader.Text (normalizeKey, trim)
+import Trader.TopComboScoring (
+    clampLiveAnnualizedReturnWithConfig,
+    defaultTopComboScoringConfig,
+    tcscLiveAnnualizedReturnCeiling,
+    tcscLiveAnnualizedReturnFloor,
+    tcscLiveBlendShrinkageOps,
+    tcscLiveQuarantineMaxFinalEquity,
+    tcscLiveQuarantineMinOperations,
+    topComboDrawdownMultiplier,
+    topComboEquityTerm,
+    topComboLiveBlendWeight,
+    topComboLiveQuarantinedByConfig,
+    topComboValidatedAnnualizedReturn,
+    topComboWalkForwardMultiplier,
+ )
 
 data TopCombosStore = TopCombosStore
     { tcsPath :: !FilePath
@@ -422,32 +437,32 @@ data ComboLiveStats = ComboLiveStats
 weight as the backtest prior in the blended ranking (w = n / (n + k)).
 -}
 liveBlendShrinkageOps :: Double
-liveBlendShrinkageOps = 25
+liveBlendShrinkageOps = tcscLiveBlendShrinkageOps defaultTopComboScoringConfig
 
 -- | Minimum completed live orders before a combo can be quarantined.
 liveQuarantineMinOperations :: Int
-liveQuarantineMinOperations = 30
+liveQuarantineMinOperations = tcscLiveQuarantineMinOperations defaultTopComboScoringConfig
 
 {- | A combo with at least 'liveQuarantineMinOperations' live orders whose
 compounded live equity sits at or below this ceiling is quarantined: a real
 net loss, not break-even noise.
 -}
 liveQuarantineMaxFinalEquity :: Double
-liveQuarantineMaxFinalEquity = 0.99
+liveQuarantineMaxFinalEquity = tcscLiveQuarantineMaxFinalEquity defaultTopComboScoringConfig
 
 -- | Minimum observed live span before annualizing live equity (1 day).
 liveAnnualizationMinSpanMs :: Int64
 liveAnnualizationMinSpanMs = 86400000
 
 liveAnnualizedReturnFloor :: Double
-liveAnnualizedReturnFloor = -0.9999
+liveAnnualizedReturnFloor = tcscLiveAnnualizedReturnFloor defaultTopComboScoringConfig
 
 liveAnnualizedReturnCeiling :: Double
-liveAnnualizedReturnCeiling = 10
+liveAnnualizedReturnCeiling = tcscLiveAnnualizedReturnCeiling defaultTopComboScoringConfig
 
 clampLiveAnnualizedReturn :: Double -> Double
-clampLiveAnnualizedReturn ann =
-    max liveAnnualizedReturnFloor (min liveAnnualizedReturnCeiling ann)
+clampLiveAnnualizedReturn =
+    clampLiveAnnualizedReturnWithConfig defaultTopComboScoringConfig
 
 liveAnnualizedReturnFromSpan :: Double -> Int64 -> Maybe Double
 liveAnnualizedReturnFromSpan liveEq spanMs
@@ -525,7 +540,7 @@ blendedAnnualizedReturn backtestAnn mLive =
     case mLive >>= liveAnnWithCount of
         Nothing -> backtestAnn
         Just (liveAnn, n) ->
-            let w = fromIntegral n / (fromIntegral n + liveBlendShrinkageOps)
+            let w = topComboLiveBlendWeight defaultTopComboScoringConfig n
              in w * clampLiveAnnualizedReturn liveAnn + (1 - w) * backtestAnn
   where
     liveAnnWithCount stats = do
@@ -536,8 +551,10 @@ blendedAnnualizedReturn backtestAnn mLive =
 
 liveStatsQuarantined :: ComboLiveStats -> Bool
 liveStatsQuarantined stats =
-    clsOperationCount stats >= liveQuarantineMinOperations
-        && clsFinalEquity stats <= liveQuarantineMaxFinalEquity
+    topComboLiveQuarantinedByConfig
+        defaultTopComboScoringConfig
+        (clsOperationCount stats)
+        (clsFinalEquity stats)
 
 {- | Aggregate the live evidence of a strategy family (every combo that shares
 the same stable trading identity — symbol/interval/method) into a single
@@ -1215,21 +1232,20 @@ comboValidatedScore val =
         annLive =
             if comboLiveQuarantined val || isNaN ann || isInfinite ann
                 then 0
-                else min 20 (max 0 (blendedAnnualizedReturn ann (comboLiveStats val)))
+                else topComboValidatedAnnualizedReturn defaultTopComboScoringConfig (blendedAnnualizedReturn ann (comboLiveStats val))
         trades = max 0 (fromMaybe 0 (comboTradeCountValue val))
         tradeShrinkage =
             let n = fromIntegral trades
                 floorN = fromIntegral adoptionMinTradeCount
              in if n <= 0 then 0 else n / (n + floorN)
         wfMultiplier =
-            case comboWalkForwardSharpeMeanValue val of
-                Just sharpe | comboWalkForwardSharpeMeetsAdoptionFloor (Just sharpe) -> 1.0
-                Just _ -> 0.35
-                Nothing -> 0.60
+            topComboWalkForwardMultiplier
+                defaultTopComboScoringConfig
+                (comboWalkForwardSharpeMeetsAdoptionFloor . Just <$> comboWalkForwardSharpeMeanValue val)
         drawdown = max 0 (fromMaybe 0 (comboMetricsDouble "maxDrawdown" val <|> comboMetricDouble "maxDrawdown" val))
-        drawdownMultiplier = 1 / (1 + 10 * drawdown)
-        eq = max 1.0e-9 (fromMaybe 1 (comboFinalEquityValue val))
-        equityTerm = max (-1) (log eq)
+        drawdownMultiplier = topComboDrawdownMultiplier defaultTopComboScoringConfig drawdown
+        eq = fromMaybe 1 (comboFinalEquityValue val)
+        equityTerm = topComboEquityTerm defaultTopComboScoringConfig eq
      in annLive * tradeShrinkage * wfMultiplier * drawdownMultiplier + equityTerm
 
 comboProcessingValue :: Aeson.Value -> Aeson.Value

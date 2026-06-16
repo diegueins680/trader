@@ -157,6 +157,7 @@ import Trader.Test.AutoStartBackoff (autoStartBackoffSuite)
 import Trader.Test.BinanceProbe (binanceProbeSuite)
 import Trader.Test.TechnicalAnalysis (runTechnicalAnalysisTests)
 import Trader.ThresholdCalibration (CalibrationMethod (..), EdgeDistribution (..), ThresholdCalibration (..), calibrateThreshold, calibrationReport, calibrationToJson, computeEdgeDistribution, suggestedThreshold, thresholdAtPercentile)
+import Trader.TopComboScoring (defaultTopComboScoringConfig)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestUpdate (..),
@@ -3784,6 +3785,7 @@ testMergeExecutableAnnotatesProcessingAndDedupe = do
                 , maOut = outputPath
                 , maMax = 10
                 , maHistoryDir = Nothing
+                , maScoringConfig = defaultTopComboScoringConfig
                 , maCopyToDist = False
                 }
     decoded <- (Aeson.eitherDecode <$> BL.readFile outputPath) :: IO (Either String Aeson.Value)

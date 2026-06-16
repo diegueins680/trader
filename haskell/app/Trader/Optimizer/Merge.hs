@@ -48,6 +48,23 @@ import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
 import Trader.Symbol (sanitizeComboSymbolForPlatform)
+import Trader.TopComboScoring (
+    TopComboScoringConfig (..),
+    clampLiveAnnualizedReturnWithConfig,
+    defaultTopComboScoringConfig,
+    tcscLiveAnnualizedReturnCeiling,
+    tcscLiveAnnualizedReturnFloor,
+    tcscLiveBlendShrinkageOps,
+    tcscLiveQuarantineMaxFinalEquity,
+    tcscLiveQuarantineMinOperations,
+    topComboDrawdownMultiplier,
+    topComboEquityTerm,
+    topComboLiveBlendWeight,
+    topComboLiveQuarantinedByConfig,
+    topComboValidatedAnnualizedReturn,
+    topComboWalkForwardMultiplier,
+    validateTopComboScoringConfig,
+ )
 
 data MergeArgs = MergeArgs
     { maTopJson :: !FilePath
@@ -56,6 +73,7 @@ data MergeArgs = MergeArgs
     , maOut :: !FilePath
     , maMax :: !Int
     , maHistoryDir :: !(Maybe FilePath)
+    , maScoringConfig :: !TopComboScoringConfig
     , maCopyToDist :: !Bool
     }
     deriving (Eq, Show)
@@ -100,10 +118,11 @@ runMerge args = do
             hPutStrLn stderr err
             pure 1
         Right sources -> do
-            let merged = mergeCombos sources
+            let scoringConfig = maScoringConfig args
+                merged = mergeCombos sources
                 maxItems = max 0 (maMax args)
                 sourceCount = sum (map length sources)
-            writeTopJson outPath merged maxItems
+            writeTopJson scoringConfig outPath merged maxItems
             archiveTopJson historyDir outPath
             when (maCopyToDist args) (copyToDist outPath)
             putStrLn ("Merged " ++ show sourceCount ++ " candidates into " ++ show (length merged) ++ " unique combos.")
@@ -298,12 +317,12 @@ normalizeComboIdentityField key val
             normalized -> normalized
     | otherwise = normalizeComboIdentityValue val
 
-writeTopJson :: FilePath -> [Combo] -> Int -> IO ()
-writeTopJson path combos maxItems = do
+writeTopJson :: TopComboScoringConfig -> FilePath -> [Combo] -> Int -> IO ()
+writeTopJson scoringConfig path combos maxItems = do
     let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) > 1 && comboOpenThresholdDeployable combo) combos
-        sorted = take maxItems (sortBy compareCombos eligible)
+        sorted = take maxItems (sortBy (compareCombos scoringConfig) eligible)
     nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
-    let comboValues = zipWith comboToValue [1 ..] sorted
+    let comboValues = zipWith (comboToValue scoringConfig) [1 ..] sorted
         exportVal =
             object
                 [ "generatedAtMs" .= nowMs
@@ -319,20 +338,20 @@ writeTopJson path combos maxItems = do
     hClose h
     renameFile tmpPath path
 
-compareCombos :: Combo -> Combo -> Ordering
-compareCombos a b =
-    compare (comboPerformanceKey a) (comboPerformanceKey b)
+compareCombos :: TopComboScoringConfig -> Combo -> Combo -> Ordering
+compareCombos config a b =
+    compare (comboPerformanceKey config a) (comboPerformanceKey config b)
 
-comboPerformanceKey :: Combo -> (Int, Double, Double, Double, Double)
-comboPerformanceKey combo =
+comboPerformanceKey :: TopComboScoringConfig -> Combo -> (Int, Double, Double, Double, Double)
+comboPerformanceKey config combo =
     let ann = comboAnnualizedReturn combo
         ann'
-            | comboLiveQuarantined combo = negate (1 / 0)
-            | comboProcessingTierRank combo > comboProcessingTierRankForCandidate = negate (1 / 0)
-            | otherwise = blendedAnnualizedReturn ann (comboLiveStats combo)
+            | comboLiveQuarantined config combo = negate (1 / 0)
+            | comboProcessingTierRank config combo > comboProcessingTierRankForCandidate = negate (1 / 0)
+            | otherwise = blendedAnnualizedReturn config ann (comboLiveStats combo)
         score = sanitizeScore (fromMaybe (-(1 / 0)) (comboScore combo))
         eq = sanitizeEq (comboFinalEquity combo)
-     in (comboProcessingTierRank combo, negate (comboValidatedScore combo), negate ann', negate score, negate eq)
+     in (comboProcessingTierRank config combo, negate (comboValidatedScore config combo), negate ann', negate score, negate eq)
 
 comboMetricDouble :: String -> Combo -> Maybe Double
 comboMetricDouble key combo = do
@@ -360,17 +379,17 @@ comboWalkForwardSharpeMean combo = do
         Object obj -> KM.lookup (Key.fromString "sharpeMean") obj >>= AT.parseMaybe Aeson.parseJSON
         _ -> Nothing
 
-comboProcessingTier :: Combo -> String
-comboProcessingTier combo
-    | comboLiveQuarantined combo = "quarantined"
+comboProcessingTier :: TopComboScoringConfig -> Combo -> String
+comboProcessingTier config combo
+    | comboLiveQuarantined config combo = "quarantined"
     | not (comboTradeCountMeetsAdoptionFloor (comboMetricInt "tradeCount" combo)) = "raw"
     | isNothing (comboAnnualizedReturnMaybe combo) = "raw"
     | comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMean combo) = "deployable"
     | otherwise = "candidate"
 
-comboProcessingTierRank :: Combo -> Int
-comboProcessingTierRank combo =
-    case comboProcessingTier combo of
+comboProcessingTierRank :: TopComboScoringConfig -> Combo -> Int
+comboProcessingTierRank config combo =
+    case comboProcessingTier config combo of
         "deployable" -> 0
         "candidate" -> 1
         "raw" -> 2
@@ -379,10 +398,10 @@ comboProcessingTierRank combo =
 comboProcessingTierRankForCandidate :: Int
 comboProcessingTierRankForCandidate = 1
 
-comboProcessingReasons :: Combo -> [String]
-comboProcessingReasons combo =
+comboProcessingReasons :: TopComboScoringConfig -> Combo -> [String]
+comboProcessingReasons config combo =
     concat
-        [ ["live-quarantined" | comboLiveQuarantined combo]
+        [ ["live-quarantined" | comboLiveQuarantined config combo]
         , case comboMetricInt "tradeCount" combo of
             Nothing -> ["trade-count-missing"]
             Just trades
@@ -396,56 +415,54 @@ comboProcessingReasons combo =
                 | otherwise -> []
         ]
 
-comboValidatedScore :: Combo -> Double
-comboValidatedScore combo =
+comboValidatedScore :: TopComboScoringConfig -> Combo -> Double
+comboValidatedScore config combo =
     let ann = comboAnnualizedReturn combo
         annLive =
-            if comboLiveQuarantined combo || isNaN ann || isInfinite ann
+            if comboLiveQuarantined config combo || isNaN ann || isInfinite ann
                 then 0
-                else min 20 (max 0 (blendedAnnualizedReturn ann (comboLiveStats combo)))
+                else topComboValidatedAnnualizedReturn config (blendedAnnualizedReturn config ann (comboLiveStats combo))
         trades = max 0 (fromMaybe 0 (comboMetricInt "tradeCount" combo))
         tradeShrinkage =
             let n = fromIntegral trades
                 floorN = fromIntegral adoptionMinTradeCount
              in if n <= 0 then 0 else n / (n + floorN)
         wfMultiplier =
-            case comboWalkForwardSharpeMean combo of
-                Just sharpe | comboWalkForwardSharpeMeetsAdoptionFloor (Just sharpe) -> 1.0
-                Just _ -> 0.35
-                Nothing -> 0.60
+            topComboWalkForwardMultiplier
+                config
+                (comboWalkForwardSharpeMeetsAdoptionFloor . Just <$> comboWalkForwardSharpeMean combo)
         drawdown = max 0 (fromMaybe 0 (comboMetricDouble "maxDrawdown" combo))
-        drawdownMultiplier = 1 / (1 + 10 * drawdown)
-        eq = max 1.0e-9 (sanitizeEq (comboFinalEquity combo))
-        equityTerm = max (-1) (log eq)
+        drawdownMultiplier = topComboDrawdownMultiplier config drawdown
+        equityTerm = topComboEquityTerm config (sanitizeEq (comboFinalEquity combo))
      in annLive * tradeShrinkage * wfMultiplier * drawdownMultiplier + equityTerm
 
-comboProcessingValue :: Combo -> Value
-comboProcessingValue combo =
+comboProcessingValue :: TopComboScoringConfig -> Combo -> Value
+comboProcessingValue config combo =
     object
-        [ "tier" .= comboProcessingTier combo
-        , "tierRank" .= comboProcessingTierRank combo
-        , "validatedScore" .= comboValidatedScore combo
-        , "reasons" .= comboProcessingReasons combo
+        [ "tier" .= comboProcessingTier config combo
+        , "tierRank" .= comboProcessingTierRank config combo
+        , "validatedScore" .= comboValidatedScore config combo
+        , "reasons" .= comboProcessingReasons config combo
         ]
 
 liveBlendShrinkageOps :: Double
-liveBlendShrinkageOps = 25
+liveBlendShrinkageOps = tcscLiveBlendShrinkageOps defaultTopComboScoringConfig
 
 liveQuarantineMinOperations :: Int
-liveQuarantineMinOperations = 30
+liveQuarantineMinOperations = tcscLiveQuarantineMinOperations defaultTopComboScoringConfig
 
 liveQuarantineMaxFinalEquity :: Double
-liveQuarantineMaxFinalEquity = 0.99
+liveQuarantineMaxFinalEquity = tcscLiveQuarantineMaxFinalEquity defaultTopComboScoringConfig
 
 liveAnnualizedReturnFloor :: Double
-liveAnnualizedReturnFloor = -0.9999
+liveAnnualizedReturnFloor = tcscLiveAnnualizedReturnFloor defaultTopComboScoringConfig
 
 liveAnnualizedReturnCeiling :: Double
-liveAnnualizedReturnCeiling = 10
+liveAnnualizedReturnCeiling = tcscLiveAnnualizedReturnCeiling defaultTopComboScoringConfig
 
 clampLiveAnnualizedReturn :: Double -> Double
-clampLiveAnnualizedReturn ann =
-    max liveAnnualizedReturnFloor (min liveAnnualizedReturnCeiling ann)
+clampLiveAnnualizedReturn =
+    clampLiveAnnualizedReturnWithConfig defaultTopComboScoringConfig
 
 comboLiveStats :: Combo -> Maybe ComboLiveStats
 comboLiveStats combo = do
@@ -467,22 +484,24 @@ comboLiveStats combo = do
                     , clsOperationCount = count
                     }
 
-comboLiveQuarantined :: Combo -> Bool
-comboLiveQuarantined combo =
-    maybe False liveStatsQuarantined (comboLiveStats combo)
+comboLiveQuarantined :: TopComboScoringConfig -> Combo -> Bool
+comboLiveQuarantined config combo =
+    maybe False (liveStatsQuarantined config) (comboLiveStats combo)
 
-liveStatsQuarantined :: ComboLiveStats -> Bool
-liveStatsQuarantined stats =
-    clsOperationCount stats >= liveQuarantineMinOperations
-        && clsFinalEquity stats <= liveQuarantineMaxFinalEquity
+liveStatsQuarantined :: TopComboScoringConfig -> ComboLiveStats -> Bool
+liveStatsQuarantined config stats =
+    topComboLiveQuarantinedByConfig
+        config
+        (clsOperationCount stats)
+        (clsFinalEquity stats)
 
-blendedAnnualizedReturn :: Double -> Maybe ComboLiveStats -> Double
-blendedAnnualizedReturn backtestAnn mLive =
+blendedAnnualizedReturn :: TopComboScoringConfig -> Double -> Maybe ComboLiveStats -> Double
+blendedAnnualizedReturn config backtestAnn mLive =
     case mLive >>= liveAnnWithCount of
         Nothing -> backtestAnn
         Just (liveAnn, n) ->
-            let w = fromIntegral n / (fromIntegral n + liveBlendShrinkageOps)
-             in w * clampLiveAnnualizedReturn liveAnn + (1 - w) * backtestAnn
+            let w = topComboLiveBlendWeight config n
+             in w * clampLiveAnnualizedReturnWithConfig config liveAnn + (1 - w) * backtestAnn
   where
     liveAnnWithCount stats = do
         ann <- clsAnnualizedReturn stats
@@ -539,8 +558,8 @@ compareDesc a b
     | a < b = GT
     | otherwise = EQ
 
-comboToValue :: Int -> Combo -> Value
-comboToValue rank combo =
+comboToValue :: TopComboScoringConfig -> Int -> Combo -> Value
+comboToValue scoringConfig rank combo =
     let metricsVal =
             maybe Null Object (comboMetrics combo)
         uuidVal = comboUuid combo
@@ -556,7 +575,7 @@ comboToValue rank combo =
                 , "closeThreshold" .= comboCloseThreshold combo
                 , "source" .= comboSource combo
                 , "metrics" .= metricsVal
-                , "processing" .= comboProcessingValue combo
+                , "processing" .= comboProcessingValue scoringConfig combo
                 , "params" .= Object (comboParams combo)
                 ]
      in case comboOperations combo of
