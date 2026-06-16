@@ -9,7 +9,7 @@
 #   scripts/trader-monitor.sh status        # Show LaunchAgent status
 #
 # Environment:
-#   TRADER_API_BASE_URL   default: http://127.0.0.1:8080
+#   TRADER_API_BASE_URL   default: http://127.0.0.1:8090
 #   TRADER_API_LAUNCHD_LABEL  default: ai.openclaw.trader.api
 #   TRADER_MONITOR_LOG_DIR    default: /tmp/trader-monitor
 
@@ -18,7 +18,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-API_BASE="${TRADER_API_BASE_URL:-http://127.0.0.1:8080}"
+API_BASE="${TRADER_API_BASE_URL:-http://127.0.0.1:8090}"
 API_BASE="${API_BASE%/}"
 API_LABEL="${TRADER_API_LAUNCHD_LABEL:-ai.openclaw.trader.api}"
 LOG_DIR="${TRADER_MONITOR_LOG_DIR:-/tmp/trader-monitor}"
