@@ -81,7 +81,7 @@ import System.IO (Handle, hClose, openTempFile)
 import System.IO.Error (isAlreadyExistsError)
 import Text.Read (readMaybe)
 
-import Trader.BotStartSemantics (comboTradeCountMeetsAdoptionFloor)
+import Trader.BotStartSemantics (adoptionMinTradeCount, comboTradeCountMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloor)
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
@@ -289,7 +289,7 @@ normalizeTopCombosPayload payload =
   where
     addRank :: Int -> Aeson.Value -> Aeson.Value
     addRank rank val =
-        case val of
+        case annotateComboProcessing val of
             Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
             other -> other
 
@@ -386,6 +386,12 @@ comboMetricsInt :: String -> Aeson.Value -> Maybe Int
 comboMetricsInt key val = do
     metrics <- comboMetricValue "metrics" val
     comboMetricInt key metrics
+
+comboMetricObject :: String -> Aeson.Value -> Maybe Aeson.Object
+comboMetricObject key val =
+    case comboMetricValue key val of
+        Just (Aeson.Object obj) -> Just obj
+        _ -> Nothing
 
 comboFinalEquityValue :: Aeson.Value -> Maybe Double
 comboFinalEquityValue val =
@@ -673,7 +679,7 @@ selectCombosForBacktestRefresh topNRaw now combos =
     dedupeSelected = reverse . fst . foldl' keep ([], Set.empty)
 
     keep (acc, seen) item@(_, comboVal) =
-        case comboIdentityKey comboVal of
+        case comboProcessingIdentityKey comboVal <|> comboIdentityKey comboVal of
             Just key
                 | key `Set.member` seen -> (acc, seen)
                 | otherwise -> (item : acc, Set.insert key seen)
@@ -1071,21 +1077,40 @@ addField key value val =
         _ -> val
 
 comboMergeKey :: Aeson.Value -> Maybe BS.ByteString
-comboMergeKey val = do
+comboMergeKey = comboProcessingIdentityKey
+
+comboProcessingIdentityKey :: Aeson.Value -> Maybe BS.ByteString
+comboProcessingIdentityKey val = do
     params <- comboMetricValue "params" val
     let openThr = comboMetricValue "openThreshold" val
         closeThr = comboMetricValue "closeThreshold" val
         objective = comboMetricValue "objective" val
-        source = comboMetricValue "source" val
         identity =
             object
-                [ "source" .= source
-                , "params" .= params
-                , "openThreshold" .= openThr
-                , "closeThreshold" .= closeThr
-                , "objective" .= objective
+                [ "params" .= normalizeComboIdentityValue params
+                , "openThreshold" .= normalizeComboIdentityMaybe openThr
+                , "closeThreshold" .= normalizeComboIdentityMaybe closeThr
+                , "objective" .= normalizeComboIdentityMaybe objective
                 ]
     pure (BL.toStrict (encodePretty identity))
+
+normalizeComboIdentityMaybe :: Maybe Aeson.Value -> Maybe Aeson.Value
+normalizeComboIdentityMaybe = fmap normalizeComboIdentityValue
+
+normalizeComboIdentityValue :: Aeson.Value -> Aeson.Value
+normalizeComboIdentityValue raw =
+    case raw of
+        Aeson.Object obj ->
+            Aeson.Object $
+                KM.fromList
+                    [ (key, normalized)
+                    | (key, val) <- KM.toList obj
+                    , let normalized = normalizeComboIdentityValue val
+                    , normalized /= Aeson.Null
+                    ]
+        Aeson.Array arr ->
+            Aeson.Array (V.map normalizeComboIdentityValue arr)
+        other -> other
 
 {- | Ranking key: primarily the backtest annualized return blended with
 realized live performance ('blendedAnnualizedReturn').
@@ -1095,28 +1120,123 @@ same trade-count floor required for live adoption sink to the bottom. This
 keeps legacy one- or two-trade annualized-return outliers from occupying the
 top leaderboard slots and blocking freshly discovered deployable candidates.
 -}
-comboPerformanceKey :: Aeson.Value -> (Double, Double, Double, Int)
+comboPerformanceKey :: Aeson.Value -> (Int, Double, Double, Double, Double, Int)
 comboPerformanceKey val =
-    let ann =
-            fromMaybe
-                (negate (1 / 0))
-                (comboMetricsDouble "annualizedReturn" val <|> comboMetricDouble "annualizedReturn" val)
+    let ann = fromMaybe (negate (1 / 0)) (comboAnnualizedReturnValue val)
         eq = fromMaybe 0 (comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val)
         score = fromMaybe (negate (1 / 0)) (comboScoreValue val)
         rank =
             case val of
                 Aeson.Object o -> fromMaybe maxBound (KM.lookup (AK.fromString "rank") o >>= AT.parseMaybe Aeson.parseJSON)
                 _ -> maxBound
-        tradeCountMeetsFloor =
-            comboTradeCountMeetsAdoptionFloor (comboMetricsInt "tradeCount" val <|> comboMetricInt "tradeCount" val)
         ann'
             | comboLiveQuarantined val = negate (1 / 0)
-            | not tradeCountMeetsFloor = negate (1 / 0)
+            | comboProcessingTierRank val > comboProcessingTierRankForCandidate = negate (1 / 0)
             | isNaN ann || isInfinite ann = negate (1 / 0)
             | otherwise = blendedAnnualizedReturn ann (comboLiveStats val)
         eq' = if isNaN eq || isInfinite eq then 0 else eq
         score' = if isNaN score || isInfinite score then negate (1 / 0) else score
-     in (negate ann', negate score', negate eq', rank)
+     in (comboProcessingTierRank val, negate (comboValidatedScore val), negate ann', negate score', negate eq', rank)
+
+comboProcessingTierRankForCandidate :: Int
+comboProcessingTierRankForCandidate = 1
+
+comboAnnualizedReturnValue :: Aeson.Value -> Maybe Double
+comboAnnualizedReturnValue val =
+    comboMetricsDouble "annualizedReturn" val <|> comboMetricDouble "annualizedReturn" val
+
+comboTradeCountValue :: Aeson.Value -> Maybe Int
+comboTradeCountValue val =
+    comboMetricsInt "tradeCount" val <|> comboMetricInt "tradeCount" val
+
+comboWalkForwardSharpeMeanValue :: Aeson.Value -> Maybe Double
+comboWalkForwardSharpeMeanValue val = do
+    metrics <- comboMetricObject "metrics" val
+    wf <- KM.lookup (AK.fromString "walkForwardSummary") metrics
+    case wf of
+        Aeson.Object obj -> KM.lookup (AK.fromString "sharpeMean") obj >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
+comboProcessingTier :: Aeson.Value -> String
+comboProcessingTier val
+    | comboLiveQuarantined val = "quarantined"
+    | not tradeCountMeetsFloor = "raw"
+    | isNothingFinite (comboAnnualizedReturnValue val) = "raw"
+    | comboWalkForwardSharpeMeetsAdoptionFloor (comboWalkForwardSharpeMeanValue val) = "deployable"
+    | otherwise = "candidate"
+  where
+    tradeCountMeetsFloor =
+        comboTradeCountMeetsAdoptionFloor (comboTradeCountValue val)
+
+    isNothingFinite Nothing = True
+    isNothingFinite (Just x) = isNaN x || isInfinite x
+
+comboProcessingTierRank :: Aeson.Value -> Int
+comboProcessingTierRank val =
+    case comboProcessingTier val of
+        "deployable" -> 0
+        "candidate" -> 1
+        "raw" -> 2
+        _ -> 3
+
+comboProcessingReasons :: Aeson.Value -> [String]
+comboProcessingReasons val =
+    concat
+        [ ["live-quarantined" | comboLiveQuarantined val]
+        , case comboTradeCountValue val of
+            Nothing -> ["trade-count-missing"]
+            Just trades
+                | not (comboTradeCountMeetsAdoptionFloor (Just trades)) -> ["trade-count-below-floor"]
+                | otherwise -> []
+        , case comboAnnualizedReturnValue val of
+            Nothing -> ["annualized-return-missing"]
+            Just ann
+                | isNaN ann || isInfinite ann -> ["annualized-return-invalid"]
+                | otherwise -> []
+        , case comboWalkForwardSharpeMeanValue val of
+            Nothing -> ["walk-forward-missing"]
+            Just sharpe
+                | not (comboWalkForwardSharpeMeetsAdoptionFloor (Just sharpe)) -> ["walk-forward-below-floor"]
+                | otherwise -> []
+        ]
+
+comboValidatedScore :: Aeson.Value -> Double
+comboValidatedScore val =
+    let ann = fromMaybe 0 (comboAnnualizedReturnValue val)
+        annLive =
+            if comboLiveQuarantined val || isNaN ann || isInfinite ann
+                then 0
+                else min 20 (max 0 (blendedAnnualizedReturn ann (comboLiveStats val)))
+        trades = max 0 (fromMaybe 0 (comboTradeCountValue val))
+        tradeShrinkage =
+            let n = fromIntegral trades
+                floorN = fromIntegral adoptionMinTradeCount
+             in if n <= 0 then 0 else n / (n + floorN)
+        wfMultiplier =
+            case comboWalkForwardSharpeMeanValue val of
+                Just sharpe | comboWalkForwardSharpeMeetsAdoptionFloor (Just sharpe) -> 1.0
+                Just _ -> 0.35
+                Nothing -> 0.60
+        drawdown = max 0 (fromMaybe 0 (comboMetricsDouble "maxDrawdown" val <|> comboMetricDouble "maxDrawdown" val))
+        drawdownMultiplier = 1 / (1 + 10 * drawdown)
+        eq = max 1.0e-9 (fromMaybe 1 (comboFinalEquityValue val))
+        equityTerm = max (-1) (log eq)
+     in annLive * tradeShrinkage * wfMultiplier * drawdownMultiplier + equityTerm
+
+comboProcessingValue :: Aeson.Value -> Aeson.Value
+comboProcessingValue val =
+    object
+        [ "tier" .= comboProcessingTier val
+        , "tierRank" .= comboProcessingTierRank val
+        , "validatedScore" .= comboValidatedScore val
+        , "reasons" .= comboProcessingReasons val
+        ]
+
+annotateComboProcessing :: Aeson.Value -> Aeson.Value
+annotateComboProcessing val =
+    case val of
+        Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "processing") (comboProcessingValue val) o)
+        _ -> val
 
 extractPayloadSource :: Aeson.Value -> Maybe String
 extractPayloadSource val =
@@ -1246,7 +1366,7 @@ mergeTopCombosPayloadsWithStats maxItems now payloads =
 
     addRank :: Int -> Aeson.Value -> Aeson.Value
     addRank rank val =
-        case val of
+        case annotateComboProcessing val of
             Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
             other -> other
 
@@ -1352,15 +1472,29 @@ mergeComboDropTombstones =
 
 comboDroppedByTombstones :: M.Map BS.ByteString Int64 -> Aeson.Value -> Bool
 comboDroppedByTombstones tombstones comboVal =
-    case comboDropIdentityKey comboVal >>= (`M.lookup` tombstones) of
-        Nothing -> False
-        Just droppedAt ->
-            case comboBacktestFreshnessMs comboVal of
-                Nothing -> True
-                Just freshness -> droppedAt >= freshness
+    any tombstoneApplies (comboDropIdentityKeys comboVal)
+  where
+    tombstoneApplies key =
+        case M.lookup key tombstones of
+            Nothing -> False
+            Just droppedAt ->
+                case comboBacktestFreshnessMs comboVal of
+                    Nothing -> True
+                    Just freshness -> droppedAt >= freshness
 
 comboDropIdentityKey :: Aeson.Value -> Maybe BS.ByteString
-comboDropIdentityKey = comboIdentityKey . comboWithoutSourceField
+comboDropIdentityKey = comboProcessingIdentityKey . comboWithoutSourceField
+
+legacyComboDropIdentityKey :: Aeson.Value -> Maybe BS.ByteString
+legacyComboDropIdentityKey = comboIdentityKey . comboWithoutSourceField
+
+comboDropIdentityKeys :: Aeson.Value -> [BS.ByteString]
+comboDropIdentityKeys comboVal =
+    Set.toList $
+        Set.fromList $
+            Data.Maybe.mapMaybe
+                ($ comboVal)
+                [comboDropIdentityKey, legacyComboDropIdentityKey]
 
 comboWithoutSourceField :: Aeson.Value -> Aeson.Value
 comboWithoutSourceField val =
@@ -1471,7 +1605,7 @@ applyComboUpdatesWithStatsPrune pruneUnprofitable now updates val =
                                             else case comboIdentityKey comboVal of
                                                 Nothing -> (acc, updCount + 1, pruneCount + 1, pKeys, tKeys)
                                                 Just k ->
-                                                    let tKeys' = maybe tKeys (: tKeys) (comboDropIdentityKey comboVal)
+                                                    let tKeys' = comboDropIdentityKeys comboVal ++ tKeys
                                                      in (acc, updCount + 1, pruneCount + 1, k : pKeys, tKeys')
                         combosOut = Aeson.Array (V.fromList (reverse updatedCombos))
                         dropTombstones' = foldl' (\acc key -> M.insertWith max key now acc) priorDropTombstones tombstoneKeys

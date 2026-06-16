@@ -15,7 +15,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes, fromMaybe, isNothing, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
@@ -347,6 +347,8 @@ main = do
     testMergeUnstampedDuplicatesKeepBestEver
     testMergeSanitizeKeepsStampedSubOneRefresh
     testLowTradeTopCombosSinkBelowEvidenceFloor
+    testMergeDedupesSourceAndNullEquivalentCombos
+    testDeployableTierRanksAheadOfUnvalidatedCandidate
     testSelectCombosForBacktestRefreshIncludesEveryStaleCombo
     testPrunedBacktestTombstonePreventsStaleResurrection
     testKeepAllUpdateKeepsUnprofitableComboStamped
@@ -3636,6 +3638,118 @@ testLowTradeTopCombosSinkBelowEvidenceFloor = do
     assert
         "one-trade annualized-return outlier sinks below a combo that meets the evidence floor"
         (firstMethod == Just ("deployable" :: T.Text))
+
+processingComboForTest :: T.Text -> T.Text -> Bool -> Maybe Double -> Double -> Int -> Aeson.Value
+processingComboForTest label source includeNullParam mWalkForwardSharpe annualizedReturn tradeCount =
+    let params =
+            Aeson.object
+                ( [ "method" .= label
+                  , "lookback" .= (48 :: Int)
+                  , "interval" .= ("15m" :: T.Text)
+                  , "binanceSymbol" .= ("BTCUSDT" :: T.Text)
+                  ]
+                    ++ ["protectionMinConfidence" .= Aeson.Null | includeNullParam]
+                )
+        walkForward =
+            maybe
+                []
+                (\sharpe -> ["walkForwardSummary" .= Aeson.object ["sharpeMean" .= sharpe]])
+                mWalkForwardSharpe
+     in Aeson.object
+            [ "uuid" .= label
+            , "source" .= source
+            , "symbol" .= ("BTCUSDT" :: T.Text)
+            , "interval" .= ("15m" :: T.Text)
+            , "platform" .= ("binance" :: T.Text)
+            , "finalEquity" .= (1.08 :: Double)
+            , "score" .= annualizedReturn
+            , "openThreshold" .= (0.005 :: Double)
+            , "closeThreshold" .= (0.010 :: Double)
+            , "objective" .= ("annualized-equity" :: T.Text)
+            , "params" .= params
+            , "metrics"
+                .= Aeson.object
+                    ( [ "finalEquity" .= (1.08 :: Double)
+                      , "annualizedReturn" .= annualizedReturn
+                      , "tradeCount" .= tradeCount
+                      , "maxDrawdown" .= (0.02 :: Double)
+                      ]
+                        ++ walkForward
+                    )
+            ]
+
+mergedCombosForTest :: [Aeson.Value] -> [Aeson.Value]
+mergedCombosForTest combos =
+    let payload =
+            Aeson.object
+                [ "combos" .= combos
+                , "generatedAtMs" .= (9000 :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+     in case mergeTopCombosPayloads 10 9500 [payload] of
+            Aeson.Object o -> case KM.lookup "combos" o of
+                Just (Aeson.Array v) -> V.toList v
+                _ -> []
+            _ -> []
+
+comboProcessingTierForTest :: Aeson.Value -> Maybe T.Text
+comboProcessingTierForTest combo =
+    case combo of
+        Aeson.Object o -> do
+            Aeson.Object processing <- KM.lookup "processing" o
+            KM.lookup "tier" processing >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
+comboProcessingReasonsForTest :: Aeson.Value -> Maybe [T.Text]
+comboProcessingReasonsForTest combo =
+    case combo of
+        Aeson.Object o -> do
+            Aeson.Object processing <- KM.lookup "processing" o
+            KM.lookup "reasons" processing >>= AT.parseMaybe Aeson.parseJSON
+        _ -> Nothing
+
+testMergeDedupesSourceAndNullEquivalentCombos :: IO ()
+testMergeDedupesSourceAndNullEquivalentCombos = do
+    let dbCopy = processingComboForTest "same-strategy" "db" True Nothing 2.0 adoptionMinTradeCount
+        binanceCopy = processingComboForTest "same-strategy" "binance" False Nothing 2.0 adoptionMinTradeCount
+        combos = mergedCombosForTest [dbCopy, binanceCopy]
+        mCombo = listToMaybe combos
+        tier = mCombo >>= comboProcessingTierForTest
+    assert
+        "source/null-equivalent strategy rows collapse to one ranked combo"
+        (length combos == 1)
+    assert
+        "deduped combo is candidate until walk-forward evidence exists"
+        (tier == Just "candidate")
+    assert
+        "processing records missing walk-forward evidence explicitly"
+        (maybe False ("walk-forward-missing" `elem`) (mCombo >>= comboProcessingReasonsForTest))
+
+testDeployableTierRanksAheadOfUnvalidatedCandidate :: IO ()
+testDeployableTierRanksAheadOfUnvalidatedCandidate = do
+    let unvalidated =
+            processingComboForTest
+                "unvalidated-high-return"
+                "db"
+                False
+                Nothing
+                200.0
+                adoptionMinTradeCount
+        deployable =
+            processingComboForTest
+                "deployable-lower-return"
+                "db"
+                False
+                (Just adoptionMinWalkForwardSharpeMean)
+                1.0
+                adoptionMinTradeCount
+        combos = mergedCombosForTest [unvalidated, deployable]
+    assert
+        "combo merge returned both distinct strategies"
+        (length combos == 2)
+    assert
+        "walk-forward deployable tier ranks ahead of a higher-return unvalidated candidate"
+        (listToMaybe (mapMaybe comboProcessingTierForTest combos) == Just "deployable")
 
 selectionComboForTest :: T.Text -> Double -> Maybe Int64 -> Maybe Int64 -> Aeson.Value
 selectionComboForTest method score mCreatedAt mRefreshedAt =
