@@ -26,7 +26,7 @@ import System.IO (hClose, openTempFile)
 import Trader.App.Args (Args (..), argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Runtime (resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (FuturesPositionRisk (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
-import Trader.BotStartSemantics (BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, comboTradeCountMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloor, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
+import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, defaultBotStartupBacktestMinTrades, prioritizeBotStartSymbols, queuedStartOrderErrorIssue)
 import Trader.CapitalPreservation (CapitalPreservationConfig (..), CapitalPreservationReport (..), capitalPreservationIsEntryOnlyReason, capitalPreservationReport, defaultCapitalPreservationConfig)
 import Trader.Coinbase (CoinbaseCandle (..), CoinbaseOrderInfo (..), alignCoinbaseClosesToGrid, coinbaseProductFromBinance, decodeCoinbaseOrderInfo)
 import Trader.CostCalibration (
@@ -244,10 +244,12 @@ main = do
     testCapAdoptedMaxPositionSizeBoundsLiveExposure
     testAdoptionMinTradeCountMatchesOptimizerProductionGate
     testComboTradeCountMeetsAdoptionFloorMonotonicity
+    testComboTradeCountMeetsAdoptionFloorHonorsConfig
     testComboTradeCountMeetsAdoptionFloorMatchesProductionRegressionEvidence
     testAdoptionMinWalkForwardSharpeMatchesOptimizerDefault
     testComboWalkForwardSharpeMeetsAdoptionFloorFailsClosed
     testComboWalkForwardSharpeMeetsAdoptionFloorMonotonicity
+    testComboWalkForwardSharpeMeetsAdoptionFloorHonorsConfig
     testFuturesPositionRiskLeverageSaneCap
     testFeeRejectsNegativeValue
     testFeeRejectsAbsurdlyHighValue
@@ -6570,6 +6572,26 @@ testComboTradeCountMeetsAdoptionFloorMonotonicity = do
             && not (comboTradeCountMeetsAdoptionFloor (Just 5))
         )
 
+testComboTradeCountMeetsAdoptionFloorHonorsConfig :: IO ()
+testComboTradeCountMeetsAdoptionFloorHonorsConfig = do
+    let strictConfig =
+            AdoptionEvidenceConfig
+                { aecMinTradeCount = adoptionMinTradeCount + 10
+                , aecMinWalkForwardSharpeMean = adoptionMinWalkForwardSharpeMean
+                }
+        disabledFloorConfig = strictConfig{aecMinTradeCount = 0}
+    assert
+        "configured trade-count floor rejects readings below the configured value"
+        (not (comboTradeCountMeetsAdoptionFloorWithConfig strictConfig (Just adoptionMinTradeCount)))
+    assert
+        "configured trade-count floor accepts readings at the configured value"
+        (comboTradeCountMeetsAdoptionFloorWithConfig strictConfig (Just (adoptionMinTradeCount + 10)))
+    assert
+        "zero configured trade-count floor still requires a present reading"
+        ( comboTradeCountMeetsAdoptionFloorWithConfig disabledFloorConfig (Just 0)
+            && not (comboTradeCountMeetsAdoptionFloorWithConfig disabledFloorConfig Nothing)
+        )
+
 -- Regression: today's snapshot (haskell/.tmp/optimizer/top-combos.json,
 -- 2026-06-14) has 500/500 combos with median tradeCount=4. The adoption
 -- floor must reject the median so a sampling regression cannot revive
@@ -6625,4 +6647,24 @@ testComboWalkForwardSharpeMeetsAdoptionFloorMonotonicity = do
         "predicate is monotone in the reading (1.5 passes, 0.0 does not)"
         ( comboWalkForwardSharpeMeetsAdoptionFloor (Just 1.5)
             && not (comboWalkForwardSharpeMeetsAdoptionFloor (Just 0.0))
+        )
+
+testComboWalkForwardSharpeMeetsAdoptionFloorHonorsConfig :: IO ()
+testComboWalkForwardSharpeMeetsAdoptionFloorHonorsConfig = do
+    let strictConfig =
+            AdoptionEvidenceConfig
+                { aecMinTradeCount = adoptionMinTradeCount
+                , aecMinWalkForwardSharpeMean = adoptionMinWalkForwardSharpeMean + 0.4
+                }
+        relaxedConfig = strictConfig{aecMinWalkForwardSharpeMean = -0.1}
+    assert
+        "configured walk-forward Sharpe floor rejects readings below the configured value"
+        (not (comboWalkForwardSharpeMeetsAdoptionFloorWithConfig strictConfig (Just adoptionMinWalkForwardSharpeMean)))
+    assert
+        "configured walk-forward Sharpe floor accepts readings at the configured value"
+        (comboWalkForwardSharpeMeetsAdoptionFloorWithConfig strictConfig (Just (adoptionMinWalkForwardSharpeMean + 0.4)))
+    assert
+        "relaxed walk-forward Sharpe floor still fails closed on missing evidence"
+        ( comboWalkForwardSharpeMeetsAdoptionFloorWithConfig relaxedConfig (Just 0.0)
+            && not (comboWalkForwardSharpeMeetsAdoptionFloorWithConfig relaxedConfig Nothing)
         )

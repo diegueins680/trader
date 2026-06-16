@@ -211,6 +211,7 @@ import Trader.Binance (
  )
 import Trader.BinanceIntervals (binanceIntervals)
 import Trader.BotStartSemantics (
+    AdoptionEvidenceConfig (..),
     BacktestVerdict (..),
     adoptionMinTradeCount,
     adoptionMinWalkForwardSharpeMean,
@@ -220,8 +221,8 @@ import Trader.BotStartSemantics (
     botStartupGuardShouldPrune,
     botTradeEnabledFromApi,
     capAdoptedMaxPositionSizeWithCap,
-    comboTradeCountMeetsAdoptionFloor,
-    comboWalkForwardSharpeMeetsAdoptionFloor,
+    comboTradeCountMeetsAdoptionFloorWithConfig,
+    comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
     defaultBotStartupBacktestMinTrades,
     prioritizeBotStartSymbols,
     queuedStartOrderErrorIssue,
@@ -912,6 +913,8 @@ data ApiParams = ApiParams
     , apEdgeBuffer :: Maybe Double
     , apTrendLookback :: Maybe Int
     , apMaxPositionSize :: Maybe Double
+    , apAdoptionMinTradeCount :: Maybe Int
+    , apAdoptionMinWalkForwardSharpeMean :: Maybe Double
     , apVolTarget :: Maybe Double
     , apVolLookback :: Maybe Int
     , apVolEwmaAlpha :: Maybe Double
@@ -2640,6 +2643,8 @@ argsPublicJson args =
             , "maxExposurePerBase" .= argMaxExposurePerBase args
             , "maxPositionSize" .= argMaxPositionSize args
             , "adoptionMaxPositionSizeCap" .= argAdoptionMaxPositionSizeCap args
+            , "adoptionMinTradeCount" .= argAdoptionMinTradeCount args
+            , "adoptionMinWalkForwardSharpeMean" .= argAdoptionMinWalkForwardSharpeMean args
             , "volTarget" .= argVolTarget args
             , "volLookback" .= argVolLookback args
             , "volEwmaAlpha" .= argVolEwmaAlpha args
@@ -7479,14 +7484,15 @@ applyAdoptRequirementArgs args req
 
 selectCompatibleTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (Args, Maybe Text)
 selectCompatibleTopComboArgs limits sym args req export =
-    let combos =
+    let adoptionEvidenceConfig = adoptionEvidenceConfigFromArgs args
+        combos =
             filter
                 ( \c ->
                     topComboMatchesSymbol sym Nothing c
                         && not (topComboLiveQuarantined c)
                         && not (topComboMinEdgeBelowCostFloor c)
-                        && not (topComboTradeCountBelowFloor c)
-                        && not (topComboWalkForwardSharpeBelowFloor c)
+                        && not (topComboTradeCountBelowFloorWithConfig adoptionEvidenceConfig c)
+                        && not (topComboWalkForwardSharpeBelowFloorWithConfig adoptionEvidenceConfig c)
                 )
                 (tceCombos export)
         sortedCombos = sortOn topComboTradePriorityKey combos
@@ -7903,16 +7909,16 @@ dedupeTopComboTargets targets =
                 (HM.empty, [])
                 targets
 
-topCombosTopTargets :: [String] -> Int -> TopCombosExport -> [(String, TopCombo)]
-topCombosTopTargets disabledSymbols topN export =
+topCombosTopTargets :: AdoptionEvidenceConfig -> [String] -> Int -> TopCombosExport -> [(String, TopCombo)]
+topCombosTopTargets adoptionEvidenceConfig disabledSymbols topN export =
     let sorted = sortOn topComboTradePriorityKey (tceCombos export)
         targets =
             [ (normalizeSymbol sym, combo)
             | combo <- sorted
             , not (topComboLiveQuarantined combo)
             , not (topComboMinEdgeBelowCostFloor combo)
-            , not (topComboTradeCountBelowFloor combo)
-            , not (topComboWalkForwardSharpeBelowFloor combo)
+            , not (topComboTradeCountBelowFloorWithConfig adoptionEvidenceConfig combo)
+            , not (topComboWalkForwardSharpeBelowFloorWithConfig adoptionEvidenceConfig combo)
             , Just sym <- [topComboSymbol combo]
             , not (null sym)
             , not (botStartSymbolDisabled disabledSymbols sym)
@@ -8589,7 +8595,12 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                 putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
                                                 readIORef topTargetsRef
                                     Right export -> do
-                                        let targets = topCombosTopTargets disabledSymbols topComboTargetCount export
+                                        let targets =
+                                                topCombosTopTargets
+                                                    (adoptionEvidenceConfigFromArgs argsBase)
+                                                    disabledSymbols
+                                                    topComboTargetCount
+                                                    export
                                             targetCount = length targets
                                         writeIORef topTargetsRef targets
                                         writeIORef topErrRef Nothing
@@ -13590,6 +13601,8 @@ argsCacheJsonSignal args =
             , "maxExposurePerBase" .= argMaxExposurePerBase args
             , "maxPositionSize" .= argMaxPositionSize args
             , "adoptionMaxPositionSizeCap" .= argAdoptionMaxPositionSizeCap args
+            , "adoptionMinTradeCount" .= argAdoptionMinTradeCount args
+            , "adoptionMinWalkForwardSharpeMean" .= argAdoptionMinWalkForwardSharpeMean args
             , "volTarget" .= argVolTarget args
             , "volLookback" .= argVolLookback args
             , "volEwmaAlpha" .= argVolEwmaAlpha args
@@ -13803,6 +13816,8 @@ argsCacheJsonBacktest args =
             , "trendLookback" .= argTrendLookback args
             , "maxPositionSize" .= argMaxPositionSize args
             , "adoptionMaxPositionSizeCap" .= argAdoptionMaxPositionSizeCap args
+            , "adoptionMinTradeCount" .= argAdoptionMinTradeCount args
+            , "adoptionMinWalkForwardSharpeMean" .= argAdoptionMinWalkForwardSharpeMean args
             , "volTarget" .= argVolTarget args
             , "volLookback" .= argVolLookback args
             , "volEwmaAlpha" .= argVolEwmaAlpha args
@@ -16684,6 +16699,13 @@ topComboWalkForwardSharpeMean combo = do
             KM.lookup (AK.fromString "sharpeMean") obj >>= AT.parseMaybe parseJSON
         _ -> Nothing
 
+adoptionEvidenceConfigFromArgs :: Args -> AdoptionEvidenceConfig
+adoptionEvidenceConfigFromArgs args =
+    AdoptionEvidenceConfig
+        { aecMinTradeCount = argAdoptionMinTradeCount args
+        , aecMinWalkForwardSharpeMean = argAdoptionMinWalkForwardSharpeMean args
+        }
+
 {- | True when the combo's stored backtest @tradeCount@ falls below the
 adoption floor ('adoptionMinTradeCount'). Combos that have not generated
 at least the production-gate minimum number of trades carry too much
@@ -16700,8 +16722,13 @@ meaningless backtest estimates that the cost-floor filter caught only
 because the same combos also had a sub-floor minEdge.
 -}
 topComboTradeCountBelowFloor :: TopCombo -> Bool
-topComboTradeCountBelowFloor combo =
-    not (comboTradeCountMeetsAdoptionFloor (topComboMetricInt "tradeCount" combo))
+topComboTradeCountBelowFloor =
+    topComboTradeCountBelowFloorWithConfig
+        (AdoptionEvidenceConfig adoptionMinTradeCount adoptionMinWalkForwardSharpeMean)
+
+topComboTradeCountBelowFloorWithConfig :: AdoptionEvidenceConfig -> TopCombo -> Bool
+topComboTradeCountBelowFloorWithConfig config combo =
+    not (comboTradeCountMeetsAdoptionFloorWithConfig config (topComboMetricInt "tradeCount" combo))
 
 {- | True when the combo's walk-forward summary either is missing entirely
 or reports a mean Sharpe below 'adoptionMinWalkForwardSharpeMean'. The
@@ -16714,8 +16741,13 @@ Fails closed for missing readings: today's 2026-06-14 snapshot has
 them would silently downgrade the firm-wide stability gate.
 -}
 topComboWalkForwardSharpeBelowFloor :: TopCombo -> Bool
-topComboWalkForwardSharpeBelowFloor combo =
-    not (comboWalkForwardSharpeMeetsAdoptionFloor (topComboWalkForwardSharpeMean combo))
+topComboWalkForwardSharpeBelowFloor =
+    topComboWalkForwardSharpeBelowFloorWithConfig
+        (AdoptionEvidenceConfig adoptionMinTradeCount adoptionMinWalkForwardSharpeMean)
+
+topComboWalkForwardSharpeBelowFloorWithConfig :: AdoptionEvidenceConfig -> TopCombo -> Bool
+topComboWalkForwardSharpeBelowFloorWithConfig config combo =
+    not (comboWalkForwardSharpeMeetsAdoptionFloorWithConfig config (topComboWalkForwardSharpeMean combo))
 
 {- | Backtest annualized return blended with realized live performance;
 quarantined combos rank as -inf so they sink everywhere.
@@ -19675,6 +19707,8 @@ argsFromApi baseArgs p = do
                 , argEdgeBuffer = pick (apEdgeBuffer p) (argEdgeBuffer baseArgs)
                 , argTrendLookback = pick (apTrendLookback p) (argTrendLookback baseArgs)
                 , argMaxPositionSize = pick (apMaxPositionSize p) (argMaxPositionSize baseArgs)
+                , argAdoptionMinTradeCount = max 0 (pick (apAdoptionMinTradeCount p) (argAdoptionMinTradeCount baseArgs))
+                , argAdoptionMinWalkForwardSharpeMean = pick (apAdoptionMinWalkForwardSharpeMean p) (argAdoptionMinWalkForwardSharpeMean baseArgs)
                 , argVolTarget = pickMaybe (apVolTarget p) (argVolTarget baseArgs)
                 , argVolLookback = pick (apVolLookback p) (argVolLookback baseArgs)
                 , argVolEwmaAlpha = pickMaybe (apVolEwmaAlpha p) (argVolEwmaAlpha baseArgs)

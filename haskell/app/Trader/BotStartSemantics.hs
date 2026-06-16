@@ -18,10 +18,14 @@ module Trader.BotStartSemantics (
     adoptionMaxPositionSizeCap,
     capAdoptedMaxPositionSize,
     capAdoptedMaxPositionSizeWithCap,
+    AdoptionEvidenceConfig (..),
+    defaultAdoptionEvidenceConfig,
     adoptionMinTradeCount,
     adoptionMinWalkForwardSharpeMean,
     comboTradeCountMeetsAdoptionFloor,
+    comboTradeCountMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeMeetsAdoptionFloor,
+    comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
 ) where
 
 import Data.Char (isSpace, toUpper)
@@ -91,6 +95,19 @@ Falsifiable invariants:
 adoptionMinTradeCount :: Int
 adoptionMinTradeCount = 20
 
+data AdoptionEvidenceConfig = AdoptionEvidenceConfig
+    { aecMinTradeCount :: !Int
+    , aecMinWalkForwardSharpeMean :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultAdoptionEvidenceConfig :: AdoptionEvidenceConfig
+defaultAdoptionEvidenceConfig =
+    AdoptionEvidenceConfig
+        { aecMinTradeCount = adoptionMinTradeCount
+        , aecMinWalkForwardSharpeMean = adoptionMinWalkForwardSharpeMean
+        }
+
 {- | Adoption-time predicate: does the combo's backtest report at least
 'adoptionMinTradeCount' trades? A 'Nothing' reading fails closed because
 adoption is a positive assertion ("this combo's evidence is strong enough
@@ -98,8 +115,13 @@ to put live capital behind"), not a negative one ("we have no reason to
 reject").
 -}
 comboTradeCountMeetsAdoptionFloor :: Maybe Int -> Bool
-comboTradeCountMeetsAdoptionFloor Nothing = False
-comboTradeCountMeetsAdoptionFloor (Just n) = n >= adoptionMinTradeCount
+comboTradeCountMeetsAdoptionFloor =
+    comboTradeCountMeetsAdoptionFloorWithConfig defaultAdoptionEvidenceConfig
+
+comboTradeCountMeetsAdoptionFloorWithConfig :: AdoptionEvidenceConfig -> Maybe Int -> Bool
+comboTradeCountMeetsAdoptionFloorWithConfig _ Nothing = False
+comboTradeCountMeetsAdoptionFloorWithConfig config (Just n) =
+    n >= max 0 (aecMinTradeCount config)
 
 {- | Minimum walk-forward mean Sharpe a top-combo must report before the
 bot-start path is allowed to adopt it.
@@ -136,10 +158,14 @@ mean Sharpe that clears 'adoptionMinWalkForwardSharpeMean'? Missing and
 non-finite readings fail closed.
 -}
 comboWalkForwardSharpeMeetsAdoptionFloor :: Maybe Double -> Bool
-comboWalkForwardSharpeMeetsAdoptionFloor Nothing = False
-comboWalkForwardSharpeMeetsAdoptionFloor (Just s)
+comboWalkForwardSharpeMeetsAdoptionFloor =
+    comboWalkForwardSharpeMeetsAdoptionFloorWithConfig defaultAdoptionEvidenceConfig
+
+comboWalkForwardSharpeMeetsAdoptionFloorWithConfig :: AdoptionEvidenceConfig -> Maybe Double -> Bool
+comboWalkForwardSharpeMeetsAdoptionFloorWithConfig _ Nothing = False
+comboWalkForwardSharpeMeetsAdoptionFloorWithConfig config (Just s)
     | isNaN s || isInfinite s = False
-    | otherwise = s >= adoptionMinWalkForwardSharpeMean
+    | otherwise = s >= aecMinWalkForwardSharpeMean config
 
 botTradeEnabledFromApi :: Maybe Bool -> Bool
 botTradeEnabledFromApi = fromMaybe True
