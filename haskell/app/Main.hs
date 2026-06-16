@@ -333,7 +333,7 @@ import Trader.Optimizer.Common (
     applyCloseTimingMetrics,
     closeTimingReportFromBacktest,
     normalizeObjectiveCode,
-    objectiveScore,
+    objectiveScoreWithConfig,
  )
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Optimize (
@@ -385,6 +385,7 @@ import Trader.Predictors.Types (
     predictorSetFromString,
     predictorSetToList,
  )
+import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig, sanitizeRoiScoreConfig)
 import Trader.S3 (
     S3State (..),
     resolveS3State,
@@ -1065,6 +1066,17 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrObjective :: !(Maybe String)
     , arrPenaltyMaxDrawdown :: !(Maybe Double)
     , arrPenaltyTurnover :: !(Maybe Double)
+    , arrRoiScoreExpectancyWeight :: !(Maybe Double)
+    , arrRoiScorePaybackCap :: !(Maybe Double)
+    , arrRoiScoreMinActivity :: !(Maybe Int)
+    , arrRoiScoreMinExposure :: !(Maybe Double)
+    , arrRoiScoreZeroRoundTripPenalty :: !(Maybe Double)
+    , arrRoiScoreLowRoundTripPenalty :: !(Maybe Double)
+    , arrRoiScoreZeroActivityPenalty :: !(Maybe Double)
+    , arrRoiScoreLowActivityPenalty :: !(Maybe Double)
+    , arrRoiScoreZeroExposurePenalty :: !(Maybe Double)
+    , arrRoiScoreLowExposurePenalty :: !(Maybe Double)
+    , arrRoiScoreLowExposureGapPenalty :: !(Maybe Double)
     , arrMinAnnualizedReturn :: !(Maybe Double)
     , arrMinCalmar :: !(Maybe Double)
     , arrMaxTurnover :: !(Maybe Double)
@@ -13705,6 +13717,17 @@ argsCacheJsonBacktest args =
             , "tuneObjective" .= tuneObjectiveCode tuneObjectiveUsed
             , "tunePenaltyMaxDrawdown" .= argTunePenaltyMaxDrawdown args
             , "tunePenaltyTurnover" .= argTunePenaltyTurnover args
+            , "roiScoreExpectancyWeight" .= argRoiScoreExpectancyWeight args
+            , "roiScorePaybackCap" .= argRoiScorePaybackCap args
+            , "roiScoreMinActivity" .= argRoiScoreMinActivity args
+            , "roiScoreMinExposure" .= argRoiScoreMinExposure args
+            , "roiScoreZeroRoundTripPenalty" .= argRoiScoreZeroRoundTripPenalty args
+            , "roiScoreLowRoundTripPenalty" .= argRoiScoreLowRoundTripPenalty args
+            , "roiScoreZeroActivityPenalty" .= argRoiScoreZeroActivityPenalty args
+            , "roiScoreLowActivityPenalty" .= argRoiScoreLowActivityPenalty args
+            , "roiScoreZeroExposurePenalty" .= argRoiScoreZeroExposurePenalty args
+            , "roiScoreLowExposurePenalty" .= argRoiScoreLowExposurePenalty args
+            , "roiScoreLowExposureGapPenalty" .= argRoiScoreLowExposureGapPenalty args
             , "tuneStressVolMult" .= argTuneStressVolMult args
             , "tuneStressShock" .= argTuneStressShock args
             , "tuneStressWeight" .= argTuneStressWeight args
@@ -15095,6 +15118,20 @@ prepareOptimizerArgs outputPath req = do
                     case arrPenaltyTurnover req of
                         Nothing -> []
                         Just w -> ["--penalty-turnover", show (max 0 w)]
+                roiScoreArgs =
+                    concat
+                        [ maybeDoubleArg "--roi-score-expectancy-weight" (fmap (max 0) (arrRoiScoreExpectancyWeight req))
+                        , maybeDoubleArg "--roi-score-payback-cap" (fmap (max 0) (arrRoiScorePaybackCap req))
+                        , maybeIntArg "--roi-score-min-activity" (arrRoiScoreMinActivity req)
+                        , maybeDoubleArg "--roi-score-min-exposure" (fmap (max 0) (arrRoiScoreMinExposure req))
+                        , maybeDoubleArg "--roi-score-zero-round-trip-penalty" (fmap (max 0) (arrRoiScoreZeroRoundTripPenalty req))
+                        , maybeDoubleArg "--roi-score-low-round-trip-penalty" (fmap (max 0) (arrRoiScoreLowRoundTripPenalty req))
+                        , maybeDoubleArg "--roi-score-zero-activity-penalty" (fmap (max 0) (arrRoiScoreZeroActivityPenalty req))
+                        , maybeDoubleArg "--roi-score-low-activity-penalty" (fmap (max 0) (arrRoiScoreLowActivityPenalty req))
+                        , maybeDoubleArg "--roi-score-zero-exposure-penalty" (fmap (max 0) (arrRoiScoreZeroExposurePenalty req))
+                        , maybeDoubleArg "--roi-score-low-exposure-penalty" (fmap (max 0) (arrRoiScoreLowExposurePenalty req))
+                        , maybeDoubleArg "--roi-score-low-exposure-gap-penalty" (fmap (max 0) (arrRoiScoreLowExposureGapPenalty req))
+                        ]
                 minRoundTripsArgs =
                     case arrMinRoundTrips req of
                         Nothing -> []
@@ -15572,6 +15609,7 @@ prepareOptimizerArgs outputPath req = do
                 tuneArgsSuffix =
                     penaltyMaxDdArgs
                         ++ penaltyTurnoverArgs
+                        ++ roiScoreArgs
                         ++ minRoundTripsArgs
                         ++ minWinRateArgs
                         ++ minProfitFactorArgs
@@ -16558,7 +16596,8 @@ objectiveScoreFromMetrics args objective metricsVal =
     case metricsVal of
         Aeson.Object metrics ->
             let rawScore =
-                    objectiveScore
+                    objectiveScoreWithConfig
+                        (roiScoreConfigFromArgs args)
                         metrics
                         objective
                         (argTunePenaltyMaxDrawdown args)
@@ -16567,6 +16606,23 @@ objectiveScoreFromMetrics args objective metricsVal =
                     then Nothing
                     else Just rawScore
         _ -> Nothing
+
+roiScoreConfigFromArgs :: Args -> RoiScoreConfig
+roiScoreConfigFromArgs args =
+    sanitizeRoiScoreConfig
+        defaultRoiScoreConfig
+            { rscExpectancyRewardWeight = argRoiScoreExpectancyWeight args
+            , rscPaybackRewardCap = argRoiScorePaybackCap args
+            , rscMinimumActivityFloor = argRoiScoreMinActivity args
+            , rscMinimumExposureFloor = argRoiScoreMinExposure args
+            , rscZeroRoundTripPenalty = argRoiScoreZeroRoundTripPenalty args
+            , rscLowRoundTripPenalty = argRoiScoreLowRoundTripPenalty args
+            , rscZeroActivityPenalty = argRoiScoreZeroActivityPenalty args
+            , rscLowActivityPenalty = argRoiScoreLowActivityPenalty args
+            , rscZeroExposurePenalty = argRoiScoreZeroExposurePenalty args
+            , rscLowExposurePenaltyBase = argRoiScoreLowExposurePenalty args
+            , rscLowExposurePenaltyGapScale = argRoiScoreLowExposureGapPenalty args
+            }
 
 topComboParamString :: String -> TopCombo -> Maybe String
 topComboParamString key combo =

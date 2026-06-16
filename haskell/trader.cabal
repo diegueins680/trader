@@ -71,6 +71,7 @@ executable trader-hs
                      , Trader.Platform
                      , Trader.PredictionMarkets
                      , Trader.SensorVariance
+                     , Trader.RoiScore
                      , Trader.SignalGates
                      , Trader.Split
                      , Trader.Symbol
@@ -141,6 +142,7 @@ executable optimize-equity
                      , Trader.Optimizer.Random
                      , Trader.Optimization
                      , Trader.Predictors.Types
+                     , Trader.RoiScore
                      , Trader.SignalGates
                      , Trader.Symbol
                      , Trader.Text
@@ -284,6 +286,7 @@ test-suite trader-tests
                      , Trader.Platform
                      , Trader.PredictionMarkets
                      , Trader.SensorVariance
+                     , Trader.RoiScore
                      , Trader.SignalGates
                      , Trader.Split
                      , Trader.Symbol
@@ -373,6 +376,7 @@ benchmark trader-bench
                      , Trader.Predictors.HMM
                      , Trader.Platform
                      , Trader.SensorVariance
+                     , Trader.RoiScore
                      , Trader.Split
                      , Trader.Symbol
                      , Trader.TopCombosStore

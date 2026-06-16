@@ -17,6 +17,7 @@ import Trader.Optimizer.Optimize (
     optimizerOptionPresent,
     runOptimizer,
  )
+import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig)
 
 main :: IO ()
 main = do
@@ -91,6 +92,17 @@ optimizerArgsParser =
         <*> strOption (long "objective" <> value "roi" <> metavar "NAME")
         <*> option auto (long "penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
         <*> option auto (long "penalty-turnover" <> value 0.2 <> metavar "FLOAT")
+        <*> roiScoreDoubleOption "roi-score-expectancy-weight" rscExpectancyRewardWeight
+        <*> roiScoreDoubleOption "roi-score-payback-cap" rscPaybackRewardCap
+        <*> roiScoreIntOption "roi-score-min-activity" rscMinimumActivityFloor
+        <*> roiScoreDoubleOption "roi-score-min-exposure" rscMinimumExposureFloor
+        <*> roiScoreDoubleOption "roi-score-zero-round-trip-penalty" rscZeroRoundTripPenalty
+        <*> roiScoreDoubleOption "roi-score-low-round-trip-penalty" rscLowRoundTripPenalty
+        <*> roiScoreDoubleOption "roi-score-zero-activity-penalty" rscZeroActivityPenalty
+        <*> roiScoreDoubleOption "roi-score-low-activity-penalty" rscLowActivityPenalty
+        <*> roiScoreDoubleOption "roi-score-zero-exposure-penalty" rscZeroExposurePenalty
+        <*> roiScoreDoubleOption "roi-score-low-exposure-penalty" rscLowExposurePenaltyBase
+        <*> roiScoreDoubleOption "roi-score-low-exposure-gap-penalty" rscLowExposurePenaltyGapScale
         <*> option auto (long "min-annualized-return" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "min-calmar" <> value 0.8 <> metavar "FLOAT")
         <*> option auto (long "max-turnover" <> value 0.0 <> metavar "FLOAT")
@@ -575,6 +587,14 @@ doubleRangeOption name lo hi =
         <$> option auto (long (name ++ "-min") <> value lo <> metavar "FLOAT")
         <*> option auto (long (name ++ "-max") <> value hi <> metavar "FLOAT")
 
+roiScoreDoubleOption :: String -> (RoiScoreConfig -> Double) -> Parser Double
+roiScoreDoubleOption name field =
+    option auto (long name <> value (field defaultRoiScoreConfig) <> metavar "FLOAT")
+
+roiScoreIntOption :: String -> (RoiScoreConfig -> Int) -> Parser Int
+roiScoreIntOption name field =
+    option auto (long name <> value (field defaultRoiScoreConfig) <> metavar "INT")
+
 intRangeOption :: String -> Int -> Int -> Parser (Int, Int)
 intRangeOption name lo hi =
     (,)
@@ -632,6 +652,28 @@ validateArgs args = do
         Left "--quality-max-epochs must be >= 1."
     when (oaQualityMaxHiddenSize args < 1) $
         Left "--quality-max-hidden-size must be >= 1."
+    when (oaRoiScoreExpectancyWeight args < 0) $
+        Left "--roi-score-expectancy-weight must be >= 0."
+    when (oaRoiScorePaybackCap args < 0) $
+        Left "--roi-score-payback-cap must be >= 0."
+    when (oaRoiScoreMinActivity args < 0) $
+        Left "--roi-score-min-activity must be >= 0."
+    when (oaRoiScoreMinExposure args < 0) $
+        Left "--roi-score-min-exposure must be >= 0."
+    when (oaRoiScoreZeroRoundTripPenalty args < 0) $
+        Left "--roi-score-zero-round-trip-penalty must be >= 0."
+    when (oaRoiScoreLowRoundTripPenalty args < 0) $
+        Left "--roi-score-low-round-trip-penalty must be >= 0."
+    when (oaRoiScoreZeroActivityPenalty args < 0) $
+        Left "--roi-score-zero-activity-penalty must be >= 0."
+    when (oaRoiScoreLowActivityPenalty args < 0) $
+        Left "--roi-score-low-activity-penalty must be >= 0."
+    when (oaRoiScoreZeroExposurePenalty args < 0) $
+        Left "--roi-score-zero-exposure-penalty must be >= 0."
+    when (oaRoiScoreLowExposurePenalty args < 0) $
+        Left "--roi-score-low-exposure-penalty must be >= 0."
+    when (oaRoiScoreLowExposureGapPenalty args < 0) $
+        Left "--roi-score-low-exposure-gap-penalty must be >= 0."
     unless (oaBarsDistribution args `elem` barsDistributionChoices) $
         Left
             ( "Invalid bars distribution: "

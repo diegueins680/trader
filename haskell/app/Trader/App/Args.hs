@@ -50,6 +50,7 @@ import Trader.Predictors.Types (
     predictorSetFromString,
     predictorSetToCsv,
  )
+import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig)
 import Trader.SignalGates (SignalGateConfig (..), defaultSignalGateConfig)
 import Trader.Symbol (sanitizeSymbolForPlatform)
 import Trader.TechnicalAnalysis.Strategies (TechnicalStrategyCalibration (..), defaultTechnicalStrategyCalibration)
@@ -108,6 +109,17 @@ data Args = Args
     , argTuneObjective :: TuneObjective
     , argTunePenaltyMaxDrawdown :: Double
     , argTunePenaltyTurnover :: Double
+    , argRoiScoreExpectancyWeight :: Double
+    , argRoiScorePaybackCap :: Double
+    , argRoiScoreMinActivity :: Int
+    , argRoiScoreMinExposure :: Double
+    , argRoiScoreZeroRoundTripPenalty :: Double
+    , argRoiScoreLowRoundTripPenalty :: Double
+    , argRoiScoreZeroActivityPenalty :: Double
+    , argRoiScoreLowActivityPenalty :: Double
+    , argRoiScoreZeroExposurePenalty :: Double
+    , argRoiScoreLowExposurePenalty :: Double
+    , argRoiScoreLowExposureGapPenalty :: Double
     , argMinRoundTrips :: Int
     , argWalkForwardFolds :: Int
     , argWalkForwardEmbargoBars :: Int
@@ -593,6 +605,14 @@ parseIntrabarFill raw =
         "best" -> Right TakeProfitFirst
         _ -> Left "Invalid intrabar fill (expected stop-first|take-profit-first)"
 
+roiScoreDoubleOption :: String -> (RoiScoreConfig -> Double) -> Parser Double
+roiScoreDoubleOption name field =
+    option auto (long name <> value (field defaultRoiScoreConfig))
+
+roiScoreIntOption :: String -> (RoiScoreConfig -> Int) -> Parser Int
+roiScoreIntOption name field =
+    option auto (long name <> value (field defaultRoiScoreConfig))
+
 opts :: Parser Args
 opts = do
     let defaultOnSwitch onFlag offFlag helpOn helpOff =
@@ -690,6 +710,17 @@ opts = do
             )
     argTunePenaltyMaxDrawdown <- option auto (long "tune-penalty-max-drawdown" <> value 1.5 <> help "Penalty weight for max drawdown (used by equity-dd objectives)")
     argTunePenaltyTurnover <- option auto (long "tune-penalty-turnover" <> value 0.2 <> help "Penalty weight for turnover (used by roi/equity-dd-turnover)")
+    argRoiScoreExpectancyWeight <- roiScoreDoubleOption "roi-score-expectancy-weight" rscExpectancyRewardWeight
+    argRoiScorePaybackCap <- roiScoreDoubleOption "roi-score-payback-cap" rscPaybackRewardCap
+    argRoiScoreMinActivity <- roiScoreIntOption "roi-score-min-activity" rscMinimumActivityFloor
+    argRoiScoreMinExposure <- roiScoreDoubleOption "roi-score-min-exposure" rscMinimumExposureFloor
+    argRoiScoreZeroRoundTripPenalty <- roiScoreDoubleOption "roi-score-zero-round-trip-penalty" rscZeroRoundTripPenalty
+    argRoiScoreLowRoundTripPenalty <- roiScoreDoubleOption "roi-score-low-round-trip-penalty" rscLowRoundTripPenalty
+    argRoiScoreZeroActivityPenalty <- roiScoreDoubleOption "roi-score-zero-activity-penalty" rscZeroActivityPenalty
+    argRoiScoreLowActivityPenalty <- roiScoreDoubleOption "roi-score-low-activity-penalty" rscLowActivityPenalty
+    argRoiScoreZeroExposurePenalty <- roiScoreDoubleOption "roi-score-zero-exposure-penalty" rscZeroExposurePenalty
+    argRoiScoreLowExposurePenalty <- roiScoreDoubleOption "roi-score-low-exposure-penalty" rscLowExposurePenaltyBase
+    argRoiScoreLowExposureGapPenalty <- roiScoreDoubleOption "roi-score-low-exposure-gap-penalty" rscLowExposurePenaltyGapScale
     argMinRoundTrips <-
         option
             auto
@@ -1520,6 +1551,16 @@ validateArgs args0 = do
             , ("--tune-ratio", argTuneRatio args)
             , ("--tune-penalty-max-drawdown", argTunePenaltyMaxDrawdown args)
             , ("--tune-penalty-turnover", argTunePenaltyTurnover args)
+            , ("--roi-score-expectancy-weight", argRoiScoreExpectancyWeight args)
+            , ("--roi-score-payback-cap", argRoiScorePaybackCap args)
+            , ("--roi-score-min-exposure", argRoiScoreMinExposure args)
+            , ("--roi-score-zero-round-trip-penalty", argRoiScoreZeroRoundTripPenalty args)
+            , ("--roi-score-low-round-trip-penalty", argRoiScoreLowRoundTripPenalty args)
+            , ("--roi-score-zero-activity-penalty", argRoiScoreZeroActivityPenalty args)
+            , ("--roi-score-low-activity-penalty", argRoiScoreLowActivityPenalty args)
+            , ("--roi-score-zero-exposure-penalty", argRoiScoreZeroExposurePenalty args)
+            , ("--roi-score-low-exposure-penalty", argRoiScoreLowExposurePenalty args)
+            , ("--roi-score-low-exposure-gap-penalty", argRoiScoreLowExposureGapPenalty args)
             , ("--kalman-dt", argKalmanDt args)
             , ("--kalman-process-var", argKalmanProcessVar args)
             , ("--kalman-measurement-var", argKalmanMeasurementVar args)
@@ -1747,6 +1788,17 @@ validateArgs args0 = do
     ensure "--tune-ratio must be >= 0 and < 1" (argTuneRatio args >= 0 && argTuneRatio args < 1)
     ensure "--tune-penalty-max-drawdown must be >= 0" (argTunePenaltyMaxDrawdown args >= 0)
     ensure "--tune-penalty-turnover must be >= 0" (argTunePenaltyTurnover args >= 0)
+    ensure "--roi-score-expectancy-weight must be >= 0" (argRoiScoreExpectancyWeight args >= 0)
+    ensure "--roi-score-payback-cap must be >= 0" (argRoiScorePaybackCap args >= 0)
+    ensure "--roi-score-min-activity must be >= 0" (argRoiScoreMinActivity args >= 0)
+    ensure "--roi-score-min-exposure must be >= 0" (argRoiScoreMinExposure args >= 0)
+    ensure "--roi-score-zero-round-trip-penalty must be >= 0" (argRoiScoreZeroRoundTripPenalty args >= 0)
+    ensure "--roi-score-low-round-trip-penalty must be >= 0" (argRoiScoreLowRoundTripPenalty args >= 0)
+    ensure "--roi-score-zero-activity-penalty must be >= 0" (argRoiScoreZeroActivityPenalty args >= 0)
+    ensure "--roi-score-low-activity-penalty must be >= 0" (argRoiScoreLowActivityPenalty args >= 0)
+    ensure "--roi-score-zero-exposure-penalty must be >= 0" (argRoiScoreZeroExposurePenalty args >= 0)
+    ensure "--roi-score-low-exposure-penalty must be >= 0" (argRoiScoreLowExposurePenalty args >= 0)
+    ensure "--roi-score-low-exposure-gap-penalty must be >= 0" (argRoiScoreLowExposureGapPenalty args >= 0)
     ensure "--walk-forward-folds must be >= 1" (argWalkForwardFolds args >= 1)
     ensure "--walk-forward-embargo-bars must be >= 0" (argWalkForwardEmbargoBars args >= 0)
     ensure "--patience must be >= 0" (argPatience args >= 0)

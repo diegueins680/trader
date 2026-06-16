@@ -4,9 +4,11 @@ module Trader.Formal.Optimization (
     activityCountFromMetrics,
     preferTieBreakImplementation,
     preferTieBreakSpec,
+    roiImplementationScoreWithConfig,
     roiImplementationScore,
     roiRequirementClauses,
     roiRequirementSummary,
+    roiSpecScoreWithConfig,
     roiSpecScore,
     roiViewFromMetrics,
     rvActivityCount,
@@ -18,9 +20,22 @@ import Data.Maybe (isNothing)
 import Data.Ord (Down (..))
 import qualified Data.Vector as V
 
-import Trader.Duration (positiveFiniteDuration)
 import Trader.KalmanFusion (Kalman1 (..), initKalman1, updateMulti)
 import Trader.Metrics (BacktestMetrics (..))
+import Trader.RoiScore (
+    RoiScoreConfig,
+    RoiScoreInputs (..),
+    activityPenaltyFor,
+    defaultFormalRoiScoreConfig,
+    expectancyRewardFor,
+    exposurePenaltyFor,
+    meetsRoiPaybackFloor,
+    minimumRoiActivityFloor,
+    minimumRoiExposureFloor,
+    paybackRewardFor,
+    roiScoreFromInputsWithConfig,
+    roundTripPenaltyFor,
+ )
 import Trader.SignalGates (defaultSignalGateConfig)
 import Trader.Trading (
     EnsembleConfig (..),
@@ -119,48 +134,49 @@ data RoiView = RoiView
     deriving (Eq, Show)
 
 roiImplementationScore :: Double -> Double -> BacktestMetrics -> Double
-roiImplementationScore penaltyMaxDd penaltyTurnover m =
-    let annRet = sanitizeFinite0 (bmAnnualizedReturn m)
-        maxDd = max 0 (sanitizeFinite0 (bmMaxDrawdown m))
-        tailLoss = max 0 (sanitizeFinite0 (bmCVaR95 m))
-        turnover = max 0 (sanitizeFinite0 (bmTurnover m))
-        expectancy = sanitizeFinite0 (bmAvgTradeReturn m)
-        paybackDuration = positiveFiniteDuration (bmAvgHoldingPeriods m)
-        exposure = max 0 (sanitizeFinite0 (bmExposure m))
-        completedRoundTrips = completedRoundTripsFromMetrics m
-        activityCount = activityCountFromMetrics m
-        activityPenalty = activityPenaltyFor activityCount
-        roundTripPenalty = roundTripPenaltyFor completedRoundTrips
-        exposurePenalty = exposurePenaltyFor exposure
-        expectancyReward = expectancyRewardFor completedRoundTrips exposure expectancy
-        paybackReward = paybackRewardFor completedRoundTrips expectancy exposure paybackDuration
-        pDd = max 0 penaltyMaxDd
-        pTurn = max 0 penaltyTurnover
-     in annRet
-            - pDd * (maxDd + tailLoss)
-            - pTurn * turnover
-            + expectancyReward
-            + paybackReward
-            - activityPenalty
-            - roundTripPenalty
-            - exposurePenalty
+roiImplementationScore = roiImplementationScoreWithConfig defaultFormalRoiScoreConfig
+
+roiImplementationScoreWithConfig :: RoiScoreConfig -> Double -> Double -> BacktestMetrics -> Double
+roiImplementationScoreWithConfig cfg penaltyMaxDd penaltyTurnover m =
+    roiScoreFromInputsWithConfig
+        cfg
+        penaltyMaxDd
+        penaltyTurnover
+        ( RoiScoreInputs
+            { rsiAnnualizedReturn = bmAnnualizedReturn m
+            , rsiMaxDrawdown = bmMaxDrawdown m
+            , rsiTailLoss = bmCVaR95 m
+            , rsiTurnover = bmTurnover m
+            , rsiExpectancy = bmAvgTradeReturn m
+            , rsiPaybackDuration = Just (bmAvgHoldingPeriods m)
+            , rsiRoundTrips = bmRoundTrips m
+            , rsiTradeCount = bmTradeCount m
+            , rsiExposure = bmExposure m
+            }
+        )
 
 roiSpecScore :: Double -> Double -> BacktestMetrics -> Double
-roiSpecScore penaltyMaxDd penaltyTurnover m =
+roiSpecScore = roiSpecScoreWithConfig defaultFormalRoiScoreConfig
+
+roiSpecScoreWithConfig :: RoiScoreConfig -> Double -> Double -> BacktestMetrics -> Double
+roiSpecScoreWithConfig cfg penaltyMaxDd penaltyTurnover m =
     let view = roiViewFromMetrics m
-        activityCount = rvActivityCount view
-        completedRoundTrips = rvRoundTrips view
-        pDd = max 0 penaltyMaxDd
-        pTurn = max 0 penaltyTurnover
-        returnReward = rvAnnualizedReturn view
-        expectancyReward = expectancyRewardFor completedRoundTrips (rvExposure view) (rvExpectancy view)
-        paybackReward = paybackRewardFor completedRoundTrips (rvExpectancy view) (rvExposure view) (positiveFiniteDuration (rvAvgHold view))
-        riskPenalty = pDd * (rvMaxDrawdown view + rvTailLoss view)
-        turnoverPenalty = pTurn * rvTurnover view
-        sparseActivityPenalty = activityPenaltyFor activityCount
-        lowRoundTripPenalty = roundTripPenaltyFor completedRoundTrips
-        idleCapitalPenalty = exposurePenaltyFor (rvExposure view)
-     in returnReward + expectancyReward + paybackReward - riskPenalty - turnoverPenalty - sparseActivityPenalty - lowRoundTripPenalty - idleCapitalPenalty
+     in roiScoreFromInputsWithConfig
+            cfg
+            penaltyMaxDd
+            penaltyTurnover
+            ( RoiScoreInputs
+                { rsiAnnualizedReturn = rvAnnualizedReturn view
+                , rsiMaxDrawdown = rvMaxDrawdown view
+                , rsiTailLoss = rvTailLoss view
+                , rsiTurnover = rvTurnover view
+                , rsiExpectancy = rvExpectancy view
+                , rsiPaybackDuration = Just (rvAvgHold view)
+                , rsiRoundTrips = rvRoundTrips view
+                , rsiTradeCount = rvActivityCount view
+                , rsiExposure = rvExposure view
+                }
+            )
 
 tieBreakCandidateFromMetrics :: BacktestMetrics -> Double -> Double -> TieBreakCandidate
 tieBreakCandidateFromMetrics metrics openThr closeThr =
@@ -939,60 +955,6 @@ activityCountInvariantFor metrics =
             && activityCount >= 0
             && activityCount >= max 0 (bmRoundTrips metrics)
             && activityCount >= max 0 (bmTradeCount metrics)
-
-meetsRoiExpectancyFloor :: Int -> Double -> Bool
-meetsRoiExpectancyFloor completedRoundTrips exposure =
-    completedRoundTrips > 0 && exposure >= minimumRoiExposureFloor
-
-expectancyRewardFor :: Int -> Double -> Double -> Double
-expectancyRewardFor completedRoundTrips exposure expectancy
-    | expectancy <= 0 = 0.5 * expectancy
-    | not (meetsRoiExpectancyFloor completedRoundTrips exposure) = 0
-    | otherwise = 0.5 * expectancy
-
-paybackRewardFor :: Int -> Double -> Double -> Maybe Double -> Double
-paybackRewardFor completedRoundTrips expectancy exposure mAvgHold =
-    if not (meetsRoiPaybackFloor completedRoundTrips exposure) || expectancy <= 0
-        then 0
-        else maybe 0 paybackBonusFor mAvgHold
-
-paybackBonusFor :: Double -> Double
-paybackBonusFor avgHold =
-    case positiveFiniteDuration avgHold of
-        Just validAvgHold -> min 0.05 (1 / (1 + validAvgHold))
-        Nothing -> 0
-
-minimumRoiActivityFloor :: Int
-minimumRoiActivityFloor = 3
-
-minimumRoiExposureFloor :: Double
-minimumRoiExposureFloor = 0.01
-
-meetsRoiPaybackFloor :: Int -> Double -> Bool
-meetsRoiPaybackFloor completedRoundTrips exposure =
-    completedRoundTrips >= minimumRoiActivityFloor && exposure >= minimumRoiExposureFloor
-
--- Keep completed-round-trip evidence monotone even when raw trade count stays high.
-roundTripPenaltyFor :: Int -> Double
-roundTripPenaltyFor completedRoundTrips
-    | completedRoundTrips <= 0 = 0.08
-    | completedRoundTrips < minimumRoiActivityFloor =
-        0.02 * fromIntegral (minimumRoiActivityFloor - completedRoundTrips)
-    | otherwise = 0
-
-activityPenaltyFor :: Int -> Double
-activityPenaltyFor activityCount
-    | activityCount <= 0 = 0.25
-    | activityCount < minimumRoiActivityFloor = fromIntegral (minimumRoiActivityFloor - activityCount) * 0.03
-    | otherwise = 0
-
-exposurePenaltyFor :: Double -> Double
-exposurePenaltyFor exposure
-    | exposure <= 0 = 0.05
-    | exposure < minimumRoiExposureFloor =
-        let gap = 1 - clamp 0 1 (exposure / minimumRoiExposureFloor)
-         in 0.02 + 0.03 * gap
-    | otherwise = 0
 
 comparisonEps :: Double
 comparisonEps = 1e-12

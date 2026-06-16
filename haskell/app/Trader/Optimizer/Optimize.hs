@@ -115,6 +115,13 @@ import Trader.Optimizer.Random (
     seedRng,
  )
 import Trader.Platform (Platform (..), platformIntervals)
+import Trader.RoiScore (
+    RoiScoreConfig (..),
+    defaultRoiScoreConfig,
+    paybackBonusForWithConfig,
+    roiEvidencePenaltyWithConfig,
+    sanitizeRoiScoreConfig,
+ )
 import Trader.SignalGates (signalEntryOpenThresholdFeasibilityCap, signalEntryOpenThresholdFeasible)
 import Trader.Symbol (sanitizeComboSymbolForPlatform)
 
@@ -1405,7 +1412,10 @@ ensureAnnualizedReturnMetrics metrics finalEq periodsPerYear periods =
             Nothing -> Just (KM.fromList [(Key.fromString "annualizedReturn", annVal)])
 
 objectiveScore :: KM.KeyMap Value -> String -> Double -> Double -> Double
-objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
+objectiveScore = objectiveScoreWithConfig defaultRoiScoreConfig
+
+objectiveScoreWithConfig :: RoiScoreConfig -> KM.KeyMap Value -> String -> Double -> Double -> Double
+objectiveScoreWithConfig roiCfg0 metrics objective penaltyMaxDd penaltyTurnover =
     let finalEq = metricFloat (Just metrics) "finalEquity" 0
         maxDd = metricFloat (Just metrics) "maxDrawdown" 0
         cvar95 = metricFloat (Just metrics) "cvar95" 0
@@ -1423,23 +1433,17 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         roundTrips = metricInt (Just metrics) "roundTrips" 0
         tradeCount = metricInt (Just metrics) "tradeCount" 0
         activityCount = max roundTrips tradeCount
-        activityPenalty
-            | activityCount <= 0 = 0.25
-            | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
-            | otherwise = 0
-        exposurePenalty
-            | exposure <= 0 = 0.05
-            | exposure < 0.01 = 0.02
-            | otherwise = 0
+        roiCfg = sanitizeRoiScoreConfig roiCfg0
+        sparseEvidencePenalty = roiEvidencePenaltyWithConfig roiCfg roundTrips activityCount exposure
         paybackBonus
             | avgHoldingPeriods <= 0 = 0
-            | otherwise = min 0.05 (1 / (1 + avgHoldingPeriods))
+            | otherwise = paybackBonusForWithConfig roiCfg avgHoldingPeriods
         baseScore =
             case parseTuneObjective objective of
                 Right TuneFinalEquity -> finalEq
                 Right TuneAnnualizedEquity -> annRet
                 Right TuneRoi ->
-                    annRet - pDd * (maxDdN + cvar95N) - pTurn * turnoverN + 0.5 * avgTradeReturn + paybackBonus
+                    annRet - pDd * (maxDdN + cvar95N) - pTurn * turnoverN + rscExpectancyRewardWeight roiCfg * avgTradeReturn + paybackBonus
                 Right TuneSharpe -> sharpe
                 Right TuneCalmar ->
                     if maxDdN <= 0
@@ -1448,7 +1452,7 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
                 Right TuneEquityDd -> finalEq - pDd * maxDdN
                 Right TuneEquityDdTurnover -> finalEq - pDd * maxDdN - pTurn * turnoverN
                 Left _ -> finalEq
-     in baseScore - activityPenalty - exposurePenalty
+     in baseScore - sparseEvidencePenalty
 
 kellyLiteMetricFloat :: Maybe Value -> String -> Maybe Double
 kellyLiteMetricFloat raw key = do
@@ -1764,6 +1768,17 @@ data OptimizerArgs = OptimizerArgs
     , oaObjective :: !String
     , oaPenaltyMaxDrawdown :: !Double
     , oaPenaltyTurnover :: !Double
+    , oaRoiScoreExpectancyWeight :: !Double
+    , oaRoiScorePaybackCap :: !Double
+    , oaRoiScoreMinActivity :: !Int
+    , oaRoiScoreMinExposure :: !Double
+    , oaRoiScoreZeroRoundTripPenalty :: !Double
+    , oaRoiScoreLowRoundTripPenalty :: !Double
+    , oaRoiScoreZeroActivityPenalty :: !Double
+    , oaRoiScoreLowActivityPenalty :: !Double
+    , oaRoiScoreZeroExposurePenalty :: !Double
+    , oaRoiScoreLowExposurePenalty :: !Double
+    , oaRoiScoreLowExposureGapPenalty :: !Double
     , oaMinAnnualizedReturn :: !Double
     , oaMinCalmar :: !Double
     , oaMaxTurnover :: !Double
@@ -2148,6 +2163,23 @@ data OptimizerArgs = OptimizerArgs
     , oaCrossExchangeCoinbase :: !Bool
     }
     deriving (Eq, Show)
+
+roiScoreConfigFromOptimizerArgs :: OptimizerArgs -> RoiScoreConfig
+roiScoreConfigFromOptimizerArgs args =
+    sanitizeRoiScoreConfig
+        defaultRoiScoreConfig
+            { rscExpectancyRewardWeight = oaRoiScoreExpectancyWeight args
+            , rscPaybackRewardCap = oaRoiScorePaybackCap args
+            , rscMinimumActivityFloor = oaRoiScoreMinActivity args
+            , rscMinimumExposureFloor = oaRoiScoreMinExposure args
+            , rscZeroRoundTripPenalty = oaRoiScoreZeroRoundTripPenalty args
+            , rscLowRoundTripPenalty = oaRoiScoreLowRoundTripPenalty args
+            , rscZeroActivityPenalty = oaRoiScoreZeroActivityPenalty args
+            , rscLowActivityPenalty = oaRoiScoreLowActivityPenalty args
+            , rscZeroExposurePenalty = oaRoiScoreZeroExposurePenalty args
+            , rscLowExposurePenaltyBase = oaRoiScoreLowExposurePenalty args
+            , rscLowExposurePenaltyGapScale = oaRoiScoreLowExposureGapPenalty args
+            }
 
 applyQualityPreset :: OptimizerArgs -> OptimizerArgs
 applyQualityPreset args =
@@ -4489,6 +4521,7 @@ sampleParams
 runOptimizer :: OptimizerArgs -> IO Int
 runOptimizer args0 = do
     let args = if oaQuality args0 then applyQualityPreset args0 else args0
+        roiScoreConfig = roiScoreConfigFromOptimizerArgs args
     traderBin <- resolveTraderBin args
     case traderBin of
         Left err -> do
@@ -5294,7 +5327,8 @@ runOptimizer args0 = do
                                                                                                                                                                                                                                             ( True
                                                                                                                                                                                                                                             , Nothing
                                                                                                                                                                                                                                             , Just
-                                                                                                                                                                                                                                                ( objectiveScore
+                                                                                                                                                                                                                                                ( objectiveScoreWithConfig
+                                                                                                                                                                                                                                                    roiScoreConfig
                                                                                                                                                                                                                                                     metrics
                                                                                                                                                                                                                                                     objective
                                                                                                                                                                                                                                                     (oaPenaltyMaxDrawdown args)
@@ -5305,7 +5339,8 @@ runOptimizer args0 = do
                                                                                                                                                                                                                     ( True
                                                                                                                                                                                                                     , Nothing
                                                                                                                                                                                                                     , Just
-                                                                                                                                                                                                                        ( objectiveScore
+                                                                                                                                                                                                                        ( objectiveScoreWithConfig
+                                                                                                                                                                                                                            roiScoreConfig
                                                                                                                                                                                                                             metrics
                                                                                                                                                                                                                             objective
                                                                                                                                                                                                                             (oaPenaltyMaxDrawdown args)

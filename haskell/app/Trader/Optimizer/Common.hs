@@ -6,6 +6,7 @@ module Trader.Optimizer.Common (
     closeTimingReportFromBacktest,
     normalizeObjectiveCode,
     objectiveScore,
+    objectiveScoreWithConfig,
 ) where
 
 import Control.Applicative ((<|>))
@@ -31,6 +32,13 @@ import Trader.Formal.CloseTiming (
     minimumPositiveLiftSupportSamples,
  )
 import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
+import Trader.RoiScore (
+    RoiScoreConfig (..),
+    defaultRoiScoreConfig,
+    paybackBonusForWithConfig,
+    roiEvidencePenaltyWithConfig,
+    sanitizeRoiScoreConfig,
+ )
 
 -- Keep baseline backtest helpers separate from the optimizer search engine so
 -- trader-hs does not need to compile optimizer internals on simple execution paths.
@@ -119,7 +127,10 @@ coerceIntValue value =
         _ -> Nothing
 
 objectiveScore :: KM.KeyMap Value -> String -> Double -> Double -> Double
-objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
+objectiveScore = objectiveScoreWithConfig defaultRoiScoreConfig
+
+objectiveScoreWithConfig :: RoiScoreConfig -> KM.KeyMap Value -> String -> Double -> Double -> Double
+objectiveScoreWithConfig roiCfg0 metrics objective penaltyMaxDd penaltyTurnover =
     let finalEq = metricFloat (Just metrics) "finalEquity" 0
         maxDd = metricFloat (Just metrics) "maxDrawdown" 0
         cvar95 = metricFloat (Just metrics) "cvar95" 0
@@ -137,30 +148,19 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         roundTrips = metricInt (Just metrics) "roundTrips" 0
         tradeCount = metricInt (Just metrics) "tradeCount" 0
         activityCount = max roundTrips tradeCount
-        paybackActivityFloor = 3
-        paybackExposureFloor = 0.01
-        activityPenalty
-            | activityCount <= 0 = 0.25
-            | activityCount < paybackActivityFloor = fromIntegral (paybackActivityFloor - activityCount) * 0.03
-            | otherwise = 0
-        exposurePenalty
-            | exposure <= 0 = 0.05
-            | exposure < paybackExposureFloor = 0.02
-            | otherwise = 0
-        -- Fast payback should only break ties once the candidate clears the
-        -- same activity and deployment floors used to penalize brittle runs,
-        -- and only when the observed duration is finite and strictly positive.
+        roiCfg = sanitizeRoiScoreConfig roiCfg0
+        sparseEvidencePenalty = roiEvidencePenaltyWithConfig roiCfg roundTrips activityCount exposure
         paybackBonus
             | avgTradeReturn <= 0 = 0
-            | activityCount < paybackActivityFloor = 0
-            | exposure < paybackExposureFloor = 0
-            | otherwise = maybe 0 paybackBonusFromDuration paybackDuration
+            | activityCount < rscMinimumActivityFloor roiCfg = 0
+            | exposure < rscMinimumExposureFloor roiCfg = 0
+            | otherwise = maybe 0 (paybackBonusForWithConfig roiCfg) paybackDuration
         baseScore =
             case parseTuneObjective objective of
                 Right TuneFinalEquity -> finalEq
                 Right TuneAnnualizedEquity -> annRet
                 Right TuneRoi ->
-                    annRet - pDd * (maxDdN + cvar95N) - pTurn * turnoverN + 0.5 * avgTradeReturn + paybackBonus
+                    annRet - pDd * (maxDdN + cvar95N) - pTurn * turnoverN + rscExpectancyRewardWeight roiCfg * avgTradeReturn + paybackBonus
                 Right TuneSharpe -> sharpe
                 Right TuneCalmar ->
                     if maxDdN <= 0
@@ -169,11 +169,9 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
                 Right TuneEquityDd -> finalEq - pDd * maxDdN
                 Right TuneEquityDdTurnover -> finalEq - pDd * maxDdN - pTurn * turnoverN
                 Left _ -> finalEq
-     in baseScore - activityPenalty - exposurePenalty
-
-paybackBonusFromDuration :: Double -> Double
-paybackBonusFromDuration paybackDuration =
-    min 0.05 (1 / (1 + paybackDuration))
+     in case parseTuneObjective objective of
+            Right TuneRoi -> baseScore
+            _ -> baseScore - sparseEvidencePenalty
 
 normalizeObjectiveCode :: String -> Either String String
 normalizeObjectiveCode raw = tuneObjectiveCode <$> parseTuneObjective raw
