@@ -177,6 +177,8 @@ data Args = Args
     , argAdaptiveEdgeBufferMax :: Double
     , argAdaptiveMinSignalToNoiseMax :: Double
     , argAdaptiveKalmanZMinMax :: Double
+    , argAdaptiveWinRateSlack :: Double
+    , argAdaptiveProfitFactorSlack :: Double
     , argAdaptiveTrendLookbackMax :: Int
     , argMetaLabelFilter :: Bool
     , argMetaLabelMinEdge :: Double
@@ -874,6 +876,22 @@ opts = do
                 <> showDefault
                 <> help "Max additive Kalman z-min when adaptive filters are fully tightened"
             )
+    argAdaptiveWinRateSlack <-
+        option
+            auto
+            ( long "adaptive-win-rate-slack"
+                <> value 0.05
+                <> showDefault
+                <> help "Win-rate margin above --perf-min-win-rate where adaptive tightening begins"
+            )
+    argAdaptiveProfitFactorSlack <-
+        option
+            auto
+            ( long "adaptive-profit-factor-slack"
+                <> value 0.10
+                <> showDefault
+                <> help "Fractional profit-factor margin above --perf-min-profit-factor where adaptive tightening begins"
+            )
     argAdaptiveTrendLookbackMax <-
         option
             auto
@@ -1520,6 +1538,8 @@ validateArgs args0 = do
             , ("--adaptive-edge-buffer-max", argAdaptiveEdgeBufferMax args)
             , ("--adaptive-min-signal-to-noise-max", argAdaptiveMinSignalToNoiseMax args)
             , ("--adaptive-kalman-z-min-max", argAdaptiveKalmanZMinMax args)
+            , ("--adaptive-win-rate-slack", argAdaptiveWinRateSlack args)
+            , ("--adaptive-profit-factor-slack", argAdaptiveProfitFactorSlack args)
             , ("--meta-label-min-edge", argMetaLabelMinEdge args)
             , ("--meta-label-min-confidence", argMetaLabelMinConfidence args)
             , ("--regime-bank-hysteresis", argRegimeBankHysteresis args)
@@ -1873,6 +1893,8 @@ validateArgs args0 = do
     ensure "--adaptive-edge-buffer-max must be >= 0" (argAdaptiveEdgeBufferMax args >= 0)
     ensure "--adaptive-min-signal-to-noise-max must be >= 0" (argAdaptiveMinSignalToNoiseMax args >= 0)
     ensure "--adaptive-kalman-z-min-max must be >= 0" (argAdaptiveKalmanZMinMax args >= 0)
+    ensure "--adaptive-win-rate-slack must be >= 0" (argAdaptiveWinRateSlack args >= 0)
+    ensure "--adaptive-profit-factor-slack must be >= 0" (argAdaptiveProfitFactorSlack args >= 0)
     ensure "--adaptive-trend-lookback-max must be >= 0" (argAdaptiveTrendLookbackMax args >= 0)
     ensure "--meta-label-min-edge must be >= 0" (argMetaLabelMinEdge args >= 0)
     ensure "--meta-label-min-confidence must be between 0 and 1" (argMetaLabelMinConfidence args >= 0 && argMetaLabelMinConfidence args <= 1)

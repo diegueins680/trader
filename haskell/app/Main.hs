@@ -888,6 +888,8 @@ data ApiParams = ApiParams
     , apAdaptiveEdgeBufferMax :: Maybe Double
     , apAdaptiveMinSignalToNoiseMax :: Maybe Double
     , apAdaptiveKalmanZMinMax :: Maybe Double
+    , apAdaptiveWinRateSlack :: Maybe Double
+    , apAdaptiveProfitFactorSlack :: Maybe Double
     , apAdaptiveTrendLookbackMax :: Maybe Int
     , apThresholdFactorEnabled :: Maybe Bool
     , apThresholdFactorAlpha :: Maybe Double
@@ -1254,6 +1256,10 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrAdaptiveTrendLookbackMaxMax :: !(Maybe Int)
     , arrAdaptiveKalmanZMinMaxMin :: !(Maybe Double)
     , arrAdaptiveKalmanZMinMaxMax :: !(Maybe Double)
+    , arrAdaptiveWinRateSlackMin :: !(Maybe Double)
+    , arrAdaptiveWinRateSlackMax :: !(Maybe Double)
+    , arrAdaptiveProfitFactorSlackMin :: !(Maybe Double)
+    , arrAdaptiveProfitFactorSlackMax :: !(Maybe Double)
     , arrPAdaptiveFilters :: !(Maybe Double)
     , arrPerfLookbackMin :: !(Maybe Int)
     , arrPerfLookbackMax :: !(Maybe Int)
@@ -2559,6 +2565,8 @@ argsPublicJson args =
             , "adaptiveEdgeBufferMax" .= argAdaptiveEdgeBufferMax args
             , "adaptiveMinSignalToNoiseMax" .= argAdaptiveMinSignalToNoiseMax args
             , "adaptiveKalmanZMinMax" .= argAdaptiveKalmanZMinMax args
+            , "adaptiveWinRateSlack" .= argAdaptiveWinRateSlack args
+            , "adaptiveProfitFactorSlack" .= argAdaptiveProfitFactorSlack args
             , "adaptiveTrendLookbackMax" .= argAdaptiveTrendLookbackMax args
             , "metaLabelFilter" .= argMetaLabelFilter args
             , "metaLabelMinEdge" .= argMetaLabelMinEdge args
@@ -6033,14 +6041,14 @@ computeAdaptiveAdjustments args stats =
     let lookback = max 0 (argPerfLookback args)
         ready = lookback > 0 && bpsTrades stats >= lookback
         -- When adaptive filters are enabled, tighten gradually *before* the hard perf gate fails.
-        -- Win-rate tightening starts at (minWinRate + 0.05) and reaches full strictness at minWinRate.
-        -- Profit-factor tightening starts at (minPF * 1.10) and reaches full strictness at minPF.
+        -- The slack knobs define where the ramp begins above the hard gate.
+        winRateSlack = max 0 (argAdaptiveWinRateSlack args)
+        profitFactorSlack = max 0 (argAdaptiveProfitFactorSlack args)
         winScore =
             case argPerfMinWinRate args of
                 Just v
                     | v > 0 ->
-                        let slack = 0.05
-                            start = min 1 (v + slack)
+                        let start = min 1 (v + winRateSlack)
                             denom = max 1e-12 (start - v)
                             raw = (start - bpsWinRate stats) / denom
                          in clamp01 raw
@@ -6049,7 +6057,7 @@ computeAdaptiveAdjustments args stats =
             case argPerfMinProfitFactor args of
                 Just v
                     | v > 0 ->
-                        let start = v * 1.10
+                        let start = v * (1 + profitFactorSlack)
                             denom = max 1e-12 (start - v)
                             pfVal = fromMaybe start (bpsProfitFactor stats)
                             raw = (start - pfVal) / denom
@@ -9481,6 +9489,8 @@ botOptimizeAfterOperation st = do
                                 , ecAdaptiveEdgeBufferMax = argAdaptiveEdgeBufferMax args
                                 , ecAdaptiveMinSignalToNoiseMax = argAdaptiveMinSignalToNoiseMax args
                                 , ecAdaptiveKalmanZMinMax = argAdaptiveKalmanZMinMax args
+                                , ecAdaptiveWinRateSlack = argAdaptiveWinRateSlack args
+                                , ecAdaptiveProfitFactorSlack = argAdaptiveProfitFactorSlack args
                                 , ecAdaptiveTrendLookbackMax = argAdaptiveTrendLookbackMax args
                                 , ecLossStreakMax = argLossStreakMax args
                                 , ecLossStreakCooldownBars = argLossStreakCooldownBars args
@@ -15388,6 +15398,10 @@ prepareOptimizerArgs outputPath req = do
                         ++ maybeIntArg "--adaptive-trend-lookback-max-max" (fmap (max 1) (arrAdaptiveTrendLookbackMaxMax req))
                         ++ maybeDoubleArg "--adaptive-kalman-z-min-max-min" (fmap (max 0) (arrAdaptiveKalmanZMinMaxMin req))
                         ++ maybeDoubleArg "--adaptive-kalman-z-min-max-max" (fmap (max 0) (arrAdaptiveKalmanZMinMaxMax req))
+                        ++ maybeDoubleArg "--adaptive-win-rate-slack-min" (fmap (max 0) (arrAdaptiveWinRateSlackMin req))
+                        ++ maybeDoubleArg "--adaptive-win-rate-slack-max" (fmap (max 0) (arrAdaptiveWinRateSlackMax req))
+                        ++ maybeDoubleArg "--adaptive-profit-factor-slack-min" (fmap (max 0) (arrAdaptiveProfitFactorSlackMin req))
+                        ++ maybeDoubleArg "--adaptive-profit-factor-slack-max" (fmap (max 0) (arrAdaptiveProfitFactorSlackMax req))
                 performanceGateArgs =
                     maybeDoubleArg "--p-adaptive-filters" (fmap clamp01 (arrPAdaptiveFilters req))
                         ++ maybeIntArg "--perf-lookback-min" (fmap (max 1) (arrPerfLookbackMin req))
@@ -19542,6 +19556,8 @@ argsFromApi baseArgs p = do
                 , argAdaptiveEdgeBufferMax = pick (apAdaptiveEdgeBufferMax p) (argAdaptiveEdgeBufferMax baseArgs)
                 , argAdaptiveMinSignalToNoiseMax = pick (apAdaptiveMinSignalToNoiseMax p) (argAdaptiveMinSignalToNoiseMax baseArgs)
                 , argAdaptiveKalmanZMinMax = pick (apAdaptiveKalmanZMinMax p) (argAdaptiveKalmanZMinMax baseArgs)
+                , argAdaptiveWinRateSlack = max 0 (pick (apAdaptiveWinRateSlack p) (argAdaptiveWinRateSlack baseArgs))
+                , argAdaptiveProfitFactorSlack = max 0 (pick (apAdaptiveProfitFactorSlack p) (argAdaptiveProfitFactorSlack baseArgs))
                 , argAdaptiveTrendLookbackMax = pick (apAdaptiveTrendLookbackMax p) (argAdaptiveTrendLookbackMax baseArgs)
                 , argThresholdFactorEnabled = pick (apThresholdFactorEnabled p) (argThresholdFactorEnabled baseArgs)
                 , argThresholdFactorAlpha = pick (apThresholdFactorAlpha p) (argThresholdFactorAlpha baseArgs)
@@ -25594,6 +25610,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecAdaptiveEdgeBufferMax = argAdaptiveEdgeBufferMax args
                 , ecAdaptiveMinSignalToNoiseMax = argAdaptiveMinSignalToNoiseMax args
                 , ecAdaptiveKalmanZMinMax = argAdaptiveKalmanZMinMax args
+                , ecAdaptiveWinRateSlack = argAdaptiveWinRateSlack args
+                , ecAdaptiveProfitFactorSlack = argAdaptiveProfitFactorSlack args
                 , ecAdaptiveTrendLookbackMax = argAdaptiveTrendLookbackMax args
                 , ecLossStreakMax = argLossStreakMax args
                 , ecLossStreakCooldownBars = argLossStreakCooldownBars args

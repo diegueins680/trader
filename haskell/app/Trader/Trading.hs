@@ -109,6 +109,8 @@ data EnsembleConfig = EnsembleConfig
     , ecAdaptiveEdgeBufferMax :: !Double
     , ecAdaptiveMinSignalToNoiseMax :: !Double
     , ecAdaptiveKalmanZMinMax :: !Double
+    , ecAdaptiveWinRateSlack :: !Double
+    , ecAdaptiveProfitFactorSlack :: !Double
     , ecAdaptiveTrendLookbackMax :: !Int
     , ecLossStreakMax :: !Int
     , ecLossStreakCooldownBars :: !Int
@@ -800,6 +802,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
         adaptiveEdgeBufferMax = max 0 (ecAdaptiveEdgeBufferMax cfg)
         adaptiveMinSnrMax = max 0 (ecAdaptiveMinSignalToNoiseMax cfg)
         adaptiveKalmanZMinMax = max 0 (ecAdaptiveKalmanZMinMax cfg)
+        adaptiveWinRateSlack = max 0 (ecAdaptiveWinRateSlack cfg)
+        adaptiveProfitFactorSlack = max 0 (ecAdaptiveProfitFactorSlack cfg)
         adaptiveTrendLookbackMax = max 0 (ecAdaptiveTrendLookbackMax cfg)
         lossStreakMax = max 0 (ecLossStreakMax cfg)
         lossStreakCooldownBars = max 0 (ecLossStreakCooldownBars cfg)
@@ -2028,8 +2032,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                         case perfMinWinRate of
                                                             Just v
                                                                 | v > 0 ->
-                                                                    let slack = 0.05
-                                                                        start = min 1 (v + slack)
+                                                                    let start = min 1 (v + adaptiveWinRateSlack)
                                                                         denom = max 1e-12 (start - v)
                                                                         raw = (start - perfWinRateGate) / denom
                                                                      in clamp01 raw
@@ -2038,7 +2041,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                         case perfMinProfitFactor of
                                                             Just v
                                                                 | v > 0 ->
-                                                                    let start = v * 1.10
+                                                                    let start = v * (1 + adaptiveProfitFactorSlack)
                                                                         denom = max 1e-12 (start - v)
                                                                         pfVal = Data.Maybe.fromMaybe start perfProfitFactorGate
                                                                         raw = (start - pfVal) / denom

@@ -400,6 +400,10 @@ optimizerArgsParser =
         <*> option auto (long "adaptive-trend-lookback-max-max" <> value 120 <> metavar "INT")
         <*> option auto (long "adaptive-kalman-z-min-max-min" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "adaptive-kalman-z-min-max-max" <> value 3.0 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-win-rate-slack-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-win-rate-slack-max" <> value 0.10 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-profit-factor-slack-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "adaptive-profit-factor-slack-max" <> value 0.25 <> metavar "FLOAT")
         <*> option auto (long "p-adaptive-filters" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "perf-lookback-min" <> value 5 <> metavar "INT")
         <*> option auto (long "perf-lookback-max" <> value 60 <> metavar "INT")
@@ -672,6 +676,10 @@ validateArgs args = do
         Left "--max-wl-min/max must be >= 0."
     when (oaAdaptiveTrendLookbackMaxMin args < 1 || oaAdaptiveTrendLookbackMaxMax args < 1) $
         Left "--adaptive-trend-lookback-max-min/max must be >= 1."
+    when (oaAdaptiveWinRateSlackMin args < 0 || oaAdaptiveWinRateSlackMax args < 0) $
+        Left "--adaptive-win-rate-slack-min/max must be >= 0."
+    when (oaAdaptiveProfitFactorSlackMin args < 0 || oaAdaptiveProfitFactorSlackMax args < 0) $
+        Left "--adaptive-profit-factor-slack-min/max must be >= 0."
     when (oaPAdaptiveFilters args < 0 || oaPAdaptiveFilters args > 1) $
         Left "--p-adaptive-filters must be between 0 and 1."
     when (oaPerfLookbackMin args < 1 || oaPerfLookbackMax args < 1) $

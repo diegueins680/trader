@@ -384,6 +384,8 @@ normalizeTrialParams p =
             , tpKellyLiteCap = kellyLiteCap'
             , tpRouterMinScore = clamp (tpRouterMinScore p) 0 1
             , tpTakeProfitPartial = normalizeOptionalPositiveFraction (tpTakeProfitPartial p)
+            , tpAdaptiveWinRateSlack = max 0 (tpAdaptiveWinRateSlack p)
+            , tpAdaptiveProfitFactorSlack = max 0 (tpAdaptiveProfitFactorSlack p)
             , tpPerfMinWinRate = normalizeOptionalUnitInterval (tpPerfMinWinRate p)
             , tpMetaLabelMinConfidence = clamp (tpMetaLabelMinConfidence p) 0 1
             , tpRegimeBankHysteresis = clamp (tpRegimeBankHysteresis p) 0 1
@@ -2059,6 +2061,10 @@ data OptimizerArgs = OptimizerArgs
     , oaAdaptiveTrendLookbackMaxMax :: !Int
     , oaAdaptiveKalmanZMinMaxMin :: !Double
     , oaAdaptiveKalmanZMinMaxMax :: !Double
+    , oaAdaptiveWinRateSlackMin :: !Double
+    , oaAdaptiveWinRateSlackMax :: !Double
+    , oaAdaptiveProfitFactorSlackMin :: !Double
+    , oaAdaptiveProfitFactorSlackMax :: !Double
     , oaPAdaptiveFilters :: !Double
     , oaPerfLookbackMin :: !Int
     , oaPerfLookbackMax :: !Int
@@ -2434,6 +2440,8 @@ data TrialParams = TrialParams
     , tpAdaptiveMinSignalToNoiseMax :: !Double
     , tpAdaptiveTrendLookbackMax :: !Int
     , tpAdaptiveKalmanZMinMax :: !Double
+    , tpAdaptiveWinRateSlack :: !Double
+    , tpAdaptiveProfitFactorSlack :: !Double
     , tpAdaptiveFilters :: !Bool
     , tpPerfLookback :: !Int
     , tpPerfMinWinRate :: !(Maybe Double)
@@ -2691,6 +2699,10 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , show (max 1 (tpAdaptiveTrendLookbackMax params))
                    , "--adaptive-kalman-z-min-max"
                    , printf "%.12g" (max 0 (tpAdaptiveKalmanZMinMax params))
+                   , "--adaptive-win-rate-slack"
+                   , printf "%.12g" (max 0 (tpAdaptiveWinRateSlack params))
+                   , "--adaptive-profit-factor-slack"
+                   , printf "%.12g" (max 0 (tpAdaptiveProfitFactorSlack params))
                    , "--perf-lookback"
                    , show perfLookbackArg
                    ]
@@ -3317,6 +3329,8 @@ trialToRecord tr symbolLabel =
             , "adaptiveMinSignalToNoiseMax" .= tpAdaptiveMinSignalToNoiseMax (trParams tr)
             , "adaptiveTrendLookbackMax" .= tpAdaptiveTrendLookbackMax (trParams tr)
             , "adaptiveKalmanZMinMax" .= tpAdaptiveKalmanZMinMax (trParams tr)
+            , "adaptiveWinRateSlack" .= tpAdaptiveWinRateSlack (trParams tr)
+            , "adaptiveProfitFactorSlack" .= tpAdaptiveProfitFactorSlack (trParams tr)
             , "adaptiveFilters" .= tpAdaptiveFilters (trParams tr)
             , "perfLookback" .= tpPerfLookback (trParams tr)
             , "perfMinWinRate" .= tpPerfMinWinRate (trParams tr)
@@ -3559,6 +3573,8 @@ sampleParams
     adaptiveMinSignalToNoiseMaxRange
     adaptiveTrendLookbackMaxRange
     adaptiveKalmanZMinMaxRange
+    adaptiveWinRateSlackRange
+    adaptiveProfitFactorSlackRange
     pAdaptiveFilters
     perfLookbackRange
     perfMinWinRateRange
@@ -4081,8 +4097,14 @@ sampleParams
             (adaptiveMinSignalToNoiseMax, rng95) = uncurry nextUniform adaptiveMinSignalToNoiseMaxRange rng94
             (adaptiveTrendLookbackMax, rng96) = uncurry nextIntRange adaptiveTrendLookbackMaxRange rng95
             (adaptiveKalmanZMinMax, rng97) = uncurry nextUniform adaptiveKalmanZMinMaxRange rng96
+            (adaptiveWinRateSlack, rng97a) =
+                let (lo, hi) = ordered adaptiveWinRateSlackRange
+                 in nextUniform (max 0 lo) (max 0 hi) rng97
+            (adaptiveProfitFactorSlack, rng97b) =
+                let (lo, hi) = ordered adaptiveProfitFactorSlackRange
+                 in nextUniform (max 0 lo) (max 0 hi) rng97a
             (adaptiveFiltersEnabled, rng98) =
-                let (r, rng') = nextDouble rng97
+                let (r, rng') = nextDouble rng97b
                  in (r < pAdaptiveFilters, rng')
             (perfLookbackRaw, rng99) = uncurry nextIntRange perfLookbackRange rng98
             (perfMinWinRateRaw, rng100) =
@@ -4349,6 +4371,8 @@ sampleParams
                 , tpAdaptiveMinSignalToNoiseMax = adaptiveMinSignalToNoiseMax
                 , tpAdaptiveTrendLookbackMax = adaptiveTrendLookbackMax
                 , tpAdaptiveKalmanZMinMax = adaptiveKalmanZMinMax
+                , tpAdaptiveWinRateSlack = adaptiveWinRateSlack
+                , tpAdaptiveProfitFactorSlack = adaptiveProfitFactorSlack
                 , tpAdaptiveFilters = adaptiveFiltersEnabled
                 , tpPerfLookback = perfLookback
                 , tpPerfMinWinRate = perfMinWinRate
@@ -4778,6 +4802,8 @@ runOptimizer args0 = do
                                                         adaptiveMinSignalToNoiseMaxRange = (max 0 (oaAdaptiveMinSignalToNoiseMaxMin args), max 0 (oaAdaptiveMinSignalToNoiseMaxMax args))
                                                         adaptiveTrendLookbackMaxRange = (max 1 (oaAdaptiveTrendLookbackMaxMin args), max 1 (oaAdaptiveTrendLookbackMaxMax args))
                                                         adaptiveKalmanZMinMaxRange = (max 0 (oaAdaptiveKalmanZMinMaxMin args), max 0 (oaAdaptiveKalmanZMinMaxMax args))
+                                                        adaptiveWinRateSlackRange = (max 0 (oaAdaptiveWinRateSlackMin args), max 0 (oaAdaptiveWinRateSlackMax args))
+                                                        adaptiveProfitFactorSlackRange = (max 0 (oaAdaptiveProfitFactorSlackMin args), max 0 (oaAdaptiveProfitFactorSlackMax args))
                                                         pAdaptiveFilters = clamp (oaPAdaptiveFilters args) 0 1
                                                         perfLookbackRange = (max 1 (oaPerfLookbackMin args), max 1 (oaPerfLookbackMax args))
                                                         perfMinWinRateRange = (clamp (oaPerfMinWinRateMin args) 0 1, clamp (oaPerfMinWinRateMax args) 0 1)
@@ -5064,6 +5090,8 @@ runOptimizer args0 = do
                                                                                 adaptiveMinSignalToNoiseMaxRange
                                                                                 adaptiveTrendLookbackMaxRange
                                                                                 adaptiveKalmanZMinMaxRange
+                                                                                adaptiveWinRateSlackRange
+                                                                                adaptiveProfitFactorSlackRange
                                                                                 pAdaptiveFilters
                                                                                 perfLookbackRange
                                                                                 perfMinWinRateRange
@@ -5792,6 +5820,8 @@ printBest tr = do
     putStrLn ("  perfLookback:        " ++ show (tpPerfLookback p))
     putStrLn ("  perfMinWinRate:      " ++ showMaybe (tpPerfMinWinRate p))
     putStrLn ("  perfMinProfitFactor: " ++ showMaybe (tpPerfMinProfitFactor p))
+    putStrLn ("  adaptiveWinRateSlack:" ++ show (tpAdaptiveWinRateSlack p))
+    putStrLn ("  adaptiveProfitFactorSlack:" ++ show (tpAdaptiveProfitFactorSlack p))
     putStrLn ("  metaLabelFilter:     " ++ show (tpMetaLabelFilter p))
     putStrLn ("  metaLabelMinEdge:    " ++ show (tpMetaLabelMinEdge p))
     putStrLn ("  metaLabelMinConfidence:" ++ show (tpMetaLabelMinConfidence p))
@@ -6089,7 +6119,9 @@ crossoverTrialParams a b rng0 =
             pickValue (tpAdaptiveMinSignalToNoiseMax a) (tpAdaptiveMinSignalToNoiseMax b) rng118
         (tpAdaptiveTrendLookbackMax', rng120) = pickValue (tpAdaptiveTrendLookbackMax a) (tpAdaptiveTrendLookbackMax b) rng119
         (tpAdaptiveKalmanZMinMax', rng121) = pickValue (tpAdaptiveKalmanZMinMax a) (tpAdaptiveKalmanZMinMax b) rng120
-        (tpAdaptiveFilters', rng122) = pickValue (tpAdaptiveFilters a) (tpAdaptiveFilters b) rng121
+        (tpAdaptiveWinRateSlack', rng121a) = pickValue (tpAdaptiveWinRateSlack a) (tpAdaptiveWinRateSlack b) rng121
+        (tpAdaptiveProfitFactorSlack', rng121b) = pickValue (tpAdaptiveProfitFactorSlack a) (tpAdaptiveProfitFactorSlack b) rng121a
+        (tpAdaptiveFilters', rng122) = pickValue (tpAdaptiveFilters a) (tpAdaptiveFilters b) rng121b
         (tpPerfLookback', rng123) = pickValue (tpPerfLookback a) (tpPerfLookback b) rng122
         (tpPerfMinWinRate', rng124) = pickValue (tpPerfMinWinRate a) (tpPerfMinWinRate b) rng123
         (tpPerfMinProfitFactor', rng125) = pickValue (tpPerfMinProfitFactor a) (tpPerfMinProfitFactor b) rng124
@@ -6257,6 +6289,8 @@ crossoverTrialParams a b rng0 =
                 , tpAdaptiveMinSignalToNoiseMax = tpAdaptiveMinSignalToNoiseMax'
                 , tpAdaptiveTrendLookbackMax = tpAdaptiveTrendLookbackMax'
                 , tpAdaptiveKalmanZMinMax = tpAdaptiveKalmanZMinMax'
+                , tpAdaptiveWinRateSlack = tpAdaptiveWinRateSlack'
+                , tpAdaptiveProfitFactorSlack = tpAdaptiveProfitFactorSlack'
                 , tpAdaptiveFilters = tpAdaptiveFilters'
                 , tpPerfLookback = tpPerfLookback'
                 , tpPerfMinWinRate = tpPerfMinWinRate'
@@ -6384,7 +6418,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (adaptiveMinSignalToNoiseMax', rng64) = perturbDouble (tpAdaptiveMinSignalToNoiseMax p) scaleDouble rng63
         (adaptiveTrendLookbackMax', rng65) = perturbInt (tpAdaptiveTrendLookbackMax p) scaleInt rng64
         (adaptiveKalmanZMinMax', rng66) = perturbDouble (tpAdaptiveKalmanZMinMax p) scaleDouble rng65
-        (perfLookback', rng67) = perturbInt (tpPerfLookback p) scaleInt rng66
+        (adaptiveWinRateSlack', rng66a) = perturbDouble (tpAdaptiveWinRateSlack p) scaleDouble rng66
+        (adaptiveProfitFactorSlack', rng66b) = perturbDouble (tpAdaptiveProfitFactorSlack p) scaleDouble rng66a
+        (perfLookback', rng67) = perturbInt (tpPerfLookback p) scaleInt rng66b
         (perfMinWinRate', rng68) = perturbMaybeDouble (tpPerfMinWinRate p) scaleDouble rng67
         (perfMinProfitFactor', rng69) = perturbMaybeDouble (tpPerfMinProfitFactor p) scaleDouble rng68
         (metaLabelMinEdge', rng70) = perturbDouble (tpMetaLabelMinEdge p) scaleDouble rng69
@@ -6490,6 +6526,8 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpAdaptiveMinSignalToNoiseMax = adaptiveMinSignalToNoiseMax'
                 , tpAdaptiveTrendLookbackMax = adaptiveTrendLookbackMax'
                 , tpAdaptiveKalmanZMinMax = adaptiveKalmanZMinMax'
+                , tpAdaptiveWinRateSlack = max 0 adaptiveWinRateSlack'
+                , tpAdaptiveProfitFactorSlack = max 0 adaptiveProfitFactorSlack'
                 , tpPerfLookback = max 0 perfLookback'
                 , tpPerfMinWinRate = fmap (\v -> clamp v 0 1) perfMinWinRate'
                 , tpPerfMinProfitFactor = fmap (max 0) perfMinProfitFactor'
@@ -6727,6 +6765,8 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "adaptiveMinSignalToNoiseMax" .= tpAdaptiveMinSignalToNoiseMax params
                 , "adaptiveTrendLookbackMax" .= tpAdaptiveTrendLookbackMax params
                 , "adaptiveKalmanZMinMax" .= tpAdaptiveKalmanZMinMax params
+                , "adaptiveWinRateSlack" .= tpAdaptiveWinRateSlack params
+                , "adaptiveProfitFactorSlack" .= tpAdaptiveProfitFactorSlack params
                 , "adaptiveFilters" .= tpAdaptiveFilters params
                 , "perfLookback" .= tpPerfLookback params
                 , "perfMinWinRate" .= tpPerfMinWinRate params
