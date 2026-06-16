@@ -3,6 +3,7 @@ module Trader.Optimization (
     tuneObjectiveCode,
     parseTuneObjective,
     TuneConfig (..),
+    defaultMaxThresholdCandidates,
     defaultTuneConfig,
     TuneStats (..),
     bestFinalEquity,
@@ -99,11 +100,15 @@ data TuneConfig = TuneConfig
     , tcWalkForwardFolds :: !Int
     , tcWalkForwardEmbargoBars :: !Int
     , tcMinRoundTrips :: !Int
+    , tcMaxThresholdCandidates :: !Int
     , tcStressVolMultiplier :: !Double
     , tcStressShock :: !Double
     , tcStressWeight :: !Double
     }
     deriving (Eq, Show)
+
+defaultMaxThresholdCandidates :: Int
+defaultMaxThresholdCandidates = 60
 
 data TuneStats = TuneStats
     { tsFoldCount :: !Int
@@ -123,6 +128,7 @@ defaultTuneConfig periodsPerYear =
         , tcWalkForwardFolds = 1
         , tcWalkForwardEmbargoBars = 0
         , tcMinRoundTrips = 0
+        , tcMaxThresholdCandidates = defaultMaxThresholdCandidates
         , tcStressVolMultiplier = 1.0
         , tcStressShock = 0.0
         , tcStressWeight = 0.0
@@ -1965,7 +1971,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         baseOpenThreshold = max 0 (ecOpenThreshold baseCfg)
         baseCloseThreshold = max 0 (ecCloseThreshold baseCfg)
         minEdge = max 0 (ecMinEdge baseCfg)
-        maxCandidates = 60 :: Int
+        maxCandidates = max 0 (tcMaxThresholdCandidates cfg)
         minRoundTripsReq = max 0 (tcMinRoundTrips cfg)
         ineligibleScore = -1e18 :: Double
         routerLookback = max 2 (ecRouterLookback baseCfg)

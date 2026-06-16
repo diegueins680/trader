@@ -331,7 +331,7 @@ import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseM
 import Trader.Metrics (BacktestMetrics (..), computeMetrics)
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Ops.Migrations (ensureOpsDbSchema)
-import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
+import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), defaultMaxThresholdCandidates, optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Common (
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
@@ -1103,6 +1103,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrTuneObjective :: !(Maybe String)
     , arrTunePenaltyMaxDrawdown :: !(Maybe Double)
     , arrTunePenaltyTurnover :: !(Maybe Double)
+    , arrTuneMaxThresholdCandidates :: !(Maybe Int)
     , arrTuneStressVolMult :: !(Maybe Double)
     , arrTuneStressShock :: !(Maybe Double)
     , arrTuneStressWeight :: !(Maybe Double)
@@ -2754,6 +2755,7 @@ argsPublicJson args =
             , "tuneStressVolMult" .= argTuneStressVolMult args
             , "tuneStressShock" .= argTuneStressShock args
             , "tuneStressWeight" .= argTuneStressWeight args
+            , "tuneMaxThresholdCandidates" .= argTuneMaxThresholdCandidates args
             , "maxOrderErrors" .= argMaxOrderErrors args
             , "periodsPerYear" .= argPeriodsPerYear args
             ]
@@ -9690,6 +9692,7 @@ botOptimizeAfterOperation st = do
                                 , tcWalkForwardFolds = argWalkForwardFolds args
                                 , tcWalkForwardEmbargoBars = argWalkForwardEmbargoBars args
                                 , tcMinRoundTrips = argMinRoundTrips args
+                                , tcMaxThresholdCandidates = argTuneMaxThresholdCandidates args
                                 , tcStressVolMultiplier = argTuneStressVolMult args
                                 , tcStressShock = argTuneStressShock args
                                 , tcStressWeight = argTuneStressWeight args
@@ -10690,6 +10693,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     lookbackWindowsEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOWS"
                                     backtestEnv <- lookupEnv "TRADER_OPTIMIZER_BACKTEST_RATIO"
                                     tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
+                                    tuneMaxThresholdCandidatesEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_MAX_THRESHOLD_CANDIDATES"
                                     minRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_ROUND_TRIPS"
                                     minExposureEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_EXPOSURE"
                                     minSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_SHARPE"
@@ -10757,6 +10761,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                 _ -> fallback
                                         minRoundTrips :: Int
                                         minRoundTrips = readNonNegativeInt minRoundTripsEnv 3
+                                        tuneMaxThresholdCandidates :: Int
+                                        tuneMaxThresholdCandidates = readNonNegativeInt tuneMaxThresholdCandidatesEnv defaultMaxThresholdCandidates
                                         minExposure :: Double
                                         minExposure = clamp01 (readNonNegativeDouble minExposureEnv 0.02)
                                         minSharpe :: Double
@@ -10988,6 +10994,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , show backtestRatio
                                                                                         , "--tune-ratio"
                                                                                         , show tuneRatio
+                                                                                        , "--tune-max-threshold-candidates"
+                                                                                        , show tuneMaxThresholdCandidates
                                                                                         , "--trials"
                                                                                         , show (trialsVal :: Int)
                                                                                         , "--timeout-sec"
@@ -13816,6 +13824,7 @@ argsCacheJsonBacktest args =
             , "tuneStressVolMult" .= argTuneStressVolMult args
             , "tuneStressShock" .= argTuneStressShock args
             , "tuneStressWeight" .= argTuneStressWeight args
+            , "tuneMaxThresholdCandidates" .= argTuneMaxThresholdCandidates args
             , "minRoundTrips" .= argMinRoundTrips args
             , "walkForwardFolds" .= argWalkForwardFolds args
             , "walkForwardEmbargoBars" .= argWalkForwardEmbargoBars args
@@ -15111,6 +15120,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
     maxTrialsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_TRIALS"
     maxTimeoutEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_TIMEOUT_SEC"
     maxBarsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_BARS"
+    tuneMaxThresholdCandidatesEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_MAX_THRESHOLD_CANDIDATES"
     let source = fromMaybe OptimizerSourceBinance (arrSource req)
         defaultPriorJson =
             case source of
@@ -15287,6 +15297,10 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                     maybeDoubleArg "--tune-penalty-max-drawdown" (fmap (max 0) (arrTunePenaltyMaxDrawdown req))
                 tunePenaltyTurnoverArgs =
                     maybeDoubleArg "--tune-penalty-turnover" (fmap (max 0) (arrTunePenaltyTurnover req))
+                tuneMaxThresholdCandidatesArgs =
+                    maybeIntArg
+                        "--tune-max-threshold-candidates"
+                        (fmap (max 0) (arrTuneMaxThresholdCandidates req <|> (tuneMaxThresholdCandidatesEnv >>= readMaybe)))
                 tuneStressVolMultArgs =
                     maybeDoubleArg "--tune-stress-vol-mult" (fmap (max 1e-12) (arrTuneStressVolMult req))
                 tuneStressShockArgs = maybeDoubleArg "--tune-stress-shock" (arrTuneStressShock req)
@@ -15751,6 +15765,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ maxWalkForwardSharpeStdArgs
                         ++ tunePenaltyMaxDdArgs
                         ++ tunePenaltyTurnoverArgs
+                        ++ tuneMaxThresholdCandidatesArgs
                         ++ tuneStressVolMultArgs
                         ++ tuneStressShockArgs
                         ++ tuneStressWeightArgs
@@ -26051,6 +26066,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , tcWalkForwardFolds = argWalkForwardFolds args
                 , tcWalkForwardEmbargoBars = argWalkForwardEmbargoBars args
                 , tcMinRoundTrips = argMinRoundTrips args
+                , tcMaxThresholdCandidates = argTuneMaxThresholdCandidates args
                 , tcStressVolMultiplier = argTuneStressVolMult args
                 , tcStressShock = argTuneStressShock args
                 , tcStressWeight = argTuneStressWeight args

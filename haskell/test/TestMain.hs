@@ -308,6 +308,7 @@ main = do
     testTuneRatioRejectsInvalidValues
     testTunePenaltyMaxDrawdownRejectsInvalidValues
     testTunePenaltyTurnoverRejectsInvalidValues
+    testTuneMaxThresholdCandidatesRejectsInvalidValues
     testWalkForwardFoldsRejectsInvalidValues
     testWalkForwardEmbargoBarsRejectsInvalidValues
     testPatienceRejectsInvalidValues
@@ -1644,6 +1645,24 @@ testTunePenaltyTurnoverRejectsInvalidValues = do
         "tune-penalty-turnover accepts 1.0 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-penalty-turnover", "1.0"] of
             Right args -> argTunePenaltyTurnover args == 1.0
+            Left _ -> False
+        )
+
+testTuneMaxThresholdCandidatesRejectsInvalidValues :: IO ()
+testTuneMaxThresholdCandidatesRejectsInvalidValues = do
+    assert
+        "tune-max-threshold-candidates rejects -1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--tune-max-threshold-candidates", "-1"] == Left "--tune-max-threshold-candidates must be >= 0")
+    assert
+        "tune-max-threshold-candidates accepts 0 (base thresholds only)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-max-threshold-candidates", "0"] of
+            Right args -> argTuneMaxThresholdCandidates args == 0
+            Left _ -> False
+        )
+    assert
+        "tune-max-threshold-candidates accepts 60 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--tune-max-threshold-candidates", "60"] of
+            Right args -> argTuneMaxThresholdCandidates args == 60
             Left _ -> False
         )
 

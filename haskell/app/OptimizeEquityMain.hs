@@ -9,7 +9,7 @@ import System.Environment (getArgs, getProgName)
 import System.Exit (ExitCode (..), exitSuccess, exitWith)
 import System.IO (hPutStrLn, stderr)
 
-import Trader.Optimization (TuneObjective (..), tuneObjectiveCode)
+import Trader.Optimization (TuneObjective (..), defaultMaxThresholdCandidates, tuneObjectiveCode)
 import Trader.Optimizer.Optimize (
     OptimizerArgs (..),
     TechnicalOptimizerRanges (..),
@@ -122,6 +122,7 @@ optimizerArgsParser =
         <*> strOption (long "tune-objective" <> value "roi" <> metavar "NAME")
         <*> option auto (long "tune-penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
         <*> option auto (long "tune-penalty-turnover" <> value 0.2 <> metavar "FLOAT")
+        <*> option auto (long "tune-max-threshold-candidates" <> value defaultMaxThresholdCandidates <> showDefault <> metavar "INT")
         <*> option auto (long "tune-stress-vol-mult" <> value 1.25 <> metavar "FLOAT")
         <*> option auto (long "tune-stress-shock" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "tune-stress-weight" <> value 0.2 <> metavar "FLOAT")
@@ -656,6 +657,8 @@ validateArgs args = do
         Left "--prior-top-fraction must be between 0 and 1."
     when (oaPriorMinSamples args < 0) $
         Left "--prior-min-samples must be >= 0."
+    when (oaTuneMaxThresholdCandidates args < 0) $
+        Left "--tune-max-threshold-candidates must be >= 0."
     when (oaQualityMinTrials args < 1) $
         Left "--quality-min-trials must be >= 1."
     when (oaQualityMaxEpochs args < 1) $

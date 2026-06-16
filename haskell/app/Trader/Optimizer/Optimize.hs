@@ -2000,6 +2000,7 @@ data OptimizerArgs = OptimizerArgs
     , oaTuneObjective :: !String
     , oaTunePenaltyMaxDrawdown :: !Double
     , oaTunePenaltyTurnover :: !Double
+    , oaTuneMaxThresholdCandidates :: !Int
     , oaTuneStressVolMult :: !Double
     , oaTuneStressShock :: !Double
     , oaTuneStressWeight :: !Double
@@ -5945,6 +5946,8 @@ buildBaseArgs args csvCols = do
                            , printf "%.6f" (max 0 (oaTunePenaltyMaxDrawdown args))
                            , "--tune-penalty-turnover"
                            , printf "%.6f" (max 0 (oaTunePenaltyTurnover args))
+                           , "--tune-max-threshold-candidates"
+                           , show (max 0 (oaTuneMaxThresholdCandidates args))
                            , "--seed"
                            , show (oaSeed args)
                            ]

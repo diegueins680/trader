@@ -36,7 +36,7 @@ import Trader.CapitalPreservation (CapitalPreservationConfig (..), defaultCapita
 import Trader.Duration (TimeWindow, lookbackBarsFrom, parseIntervalSeconds, parseTimeWindow)
 import Trader.Method (Method (..), methodCode, methodIsTechnicalAnalysis, parseMethod)
 import Trader.Normalization (NormType (..), parseNormType)
-import Trader.Optimization (TuneObjective (..), parseTuneObjective, tuneObjectiveCode)
+import Trader.Optimization (TuneObjective (..), defaultMaxThresholdCandidates, parseTuneObjective, tuneObjectiveCode)
 import Trader.Platform (
     Platform (..),
     isPlatformInterval,
@@ -123,6 +123,7 @@ data Args = Args
     , argRoiScoreLowExposurePenalty :: Double
     , argRoiScoreLowExposureGapPenalty :: Double
     , argMinRoundTrips :: Int
+    , argTuneMaxThresholdCandidates :: Int
     , argWalkForwardFolds :: Int
     , argWalkForwardEmbargoBars :: Int
     , argPatience :: Int
@@ -738,6 +739,14 @@ opts = do
             ( long "min-round-trips"
                 <> value 0
                 <> help "When optimizing/sweeping, require at least N round trips in the tune split (0 disables; helps avoid 'no-trade' winners)"
+            )
+    argTuneMaxThresholdCandidates <-
+        option
+            auto
+            ( long "tune-max-threshold-candidates"
+                <> value defaultMaxThresholdCandidates
+                <> showDefault
+                <> help "Maximum dynamic threshold candidates sampled during sweep/tune (0 keeps only configured base thresholds)"
             )
     argWalkForwardFolds <- option auto (long "walk-forward-folds" <> value 7 <> help "Compute fold stats on tune/backtest windows (1 disables)")
     argWalkForwardEmbargoBars <-
@@ -1815,6 +1824,7 @@ validateArgs args0 = do
     ensure "--tune-ratio must be >= 0 and < 1" (argTuneRatio args >= 0 && argTuneRatio args < 1)
     ensure "--tune-penalty-max-drawdown must be >= 0" (argTunePenaltyMaxDrawdown args >= 0)
     ensure "--tune-penalty-turnover must be >= 0" (argTunePenaltyTurnover args >= 0)
+    ensure "--tune-max-threshold-candidates must be >= 0" (argTuneMaxThresholdCandidates args >= 0)
     ensure "--roi-score-expectancy-weight must be >= 0" (argRoiScoreExpectancyWeight args >= 0)
     ensure "--roi-score-payback-cap must be >= 0" (argRoiScorePaybackCap args >= 0)
     ensure "--roi-score-min-activity must be >= 0" (argRoiScoreMinActivity args >= 0)
