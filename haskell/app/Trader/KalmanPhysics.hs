@@ -1,6 +1,9 @@
 module Trader.KalmanPhysics (
+    KalmanPhysicsConfig (..),
     OhlcvBar (..),
+    defaultKalmanPhysicsConfig,
     predictKalmanPhysicsError,
+    predictKalmanPhysicsErrorWithConfig,
 ) where
 
 import Data.List (foldl', minimumBy)
@@ -38,6 +41,21 @@ data Candidate = Candidate
     }
     deriving (Eq, Show)
 
+data KalmanPhysicsConfig = KalmanPhysicsConfig
+    { kpcVolumeEwmaAlpha :: !Double
+    , kpcVolumeSignalClamp :: !Double
+    , kpcCloseBiasScale :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultKalmanPhysicsConfig :: KalmanPhysicsConfig
+defaultKalmanPhysicsConfig =
+    KalmanPhysicsConfig
+        { kpcVolumeEwmaAlpha = 0.1
+        , kpcVolumeSignalClamp = 3
+        , kpcCloseBiasScale = 0.05
+        }
+
 data PhysicsRow = PhysicsRow
     { prVelocity :: !Double
     , prAcceleration :: !Double
@@ -58,12 +76,23 @@ predictKalmanPhysicsError ::
     Int ->
     V.Vector OhlcvBar ->
     Either String [Double]
-predictKalmanPhysicsError dt processVar measurementVar trainEnd barsV
+predictKalmanPhysicsError =
+    predictKalmanPhysicsErrorWithConfig defaultKalmanPhysicsConfig
+
+predictKalmanPhysicsErrorWithConfig ::
+    KalmanPhysicsConfig ->
+    Double ->
+    Double ->
+    Double ->
+    Int ->
+    V.Vector OhlcvBar ->
+    Either String [Double]
+predictKalmanPhysicsErrorWithConfig cfg dt processVar measurementVar trainEnd barsV
     | n < 3 = Left "Need at least 3 bars for Kalman physics error prediction."
     | trainEnd <= 1 = Left "Kalman physics train split is too small (need at least 2 training bars)."
     | trainEnd >= n - 1 = Left "Kalman physics train split leaves no test rows."
     | otherwise =
-        let statesV = runKalmanStates dt processVar measurementVar barsV
+        let statesV = runKalmanStates cfg dt processVar measurementVar barsV
             rows = buildPhysicsRows dt barsV statesV
             trainRows = take (trainEnd - 1) rows
             testRows = drop trainEnd rows
@@ -80,8 +109,8 @@ predictKalmanPhysicsError dt processVar measurementVar trainEnd barsV
   where
     n = V.length barsV
 
-runKalmanStates :: Double -> Double -> Double -> V.Vector OhlcvBar -> V.Vector Vec3
-runKalmanStates dt processVar measurementVar barsV =
+runKalmanStates :: KalmanPhysicsConfig -> Double -> Double -> Double -> V.Vector OhlcvBar -> V.Vector Vec3
+runKalmanStates cfg dt processVar measurementVar barsV =
     let n = V.length barsV
      in if n <= 0
             then V.empty
@@ -89,10 +118,10 @@ runKalmanStates dt processVar measurementVar barsV =
                 let firstBar = barsV V.! 0
                     k0 = constantAcceleration1D dt processVar measurementVar (obClose firstBar)
                     volEwma0 = max 1e-9 (abs (obVolume firstBar))
-                    (k0', volEwma0') = assimilateBar k0 volEwma0 firstBar
+                    (k0', volEwma0') = assimilateBar cfg k0 volEwma0 firstBar
                     step (kPrev, volEwma, acc) bar =
                         let kPred = predict kPrev
-                            (kUpd, volEwma') = assimilateBar kPred volEwma bar
+                            (kUpd, volEwma') = assimilateBar cfg kPred volEwma bar
                          in (kUpd, volEwma', kx kUpd : acc)
                     tailBars =
                         if n <= 1
@@ -106,19 +135,22 @@ runKalmanStates dt processVar measurementVar barsV =
                  in V.fromList (reverse statesRev)
 
 assimilateBar ::
+    KalmanPhysicsConfig ->
     Kalman3 ->
     Double ->
     OhlcvBar ->
     (Kalman3, Double)
-assimilateBar k volEwma bar =
-    let alpha = 0.1
+assimilateBar cfg k volEwma bar =
+    let alpha = clamp 0 1 (kpcVolumeEwmaAlpha cfg)
+        signalClamp = max 0 (kpcVolumeSignalClamp cfg)
+        closeBiasScale = kpcCloseBiasScale cfg
         vRaw = max 0 (obVolume bar)
         volBase = if volEwma > 0 then volEwma else max 1e-9 vRaw
         volEwma' = (1 - alpha) * volBase + alpha * max 1e-9 vRaw
         volNorm = (vRaw - volEwma') / max 1e-9 volEwma'
-        volSignal = clamp (-3) 3 volNorm
+        volSignal = clamp (-signalClamp) signalClamp volNorm
         priceImbalance = obClose bar - obOpen bar
-        closeBias = obClose bar + 0.05 * priceImbalance * volSignal
+        closeBias = obClose bar + closeBiasScale * priceImbalance * volSignal
         measurements = [obOpen bar, obHigh bar, obLow bar, obClose bar, closeBias]
         k' = foldl' (flip update) k measurements
      in (k', volEwma')

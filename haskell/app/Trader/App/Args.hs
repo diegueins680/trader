@@ -155,6 +155,9 @@ data Args = Args
     , argKalmanMeasurementVar :: Double
     , argKalmanPhysicsBars :: Int
     , argKalmanPhysicsBacktestRatio :: Double
+    , argKalmanPhysicsVolumeEwmaAlpha :: Double
+    , argKalmanPhysicsVolumeSignalClamp :: Double
+    , argKalmanPhysicsCloseBiasScale :: Double
     , argSensorVarianceEwmaAlpha :: Double
     , argKalmanSensorCorrelationInflation :: Double
     , argKalmanInnovationInflationThreshold :: Double
@@ -832,6 +835,30 @@ opts = do
                 <> value 0.3
                 <> showDefault
                 <> help "Backtest holdout ratio used by --method kalman_physics_error"
+            )
+    argKalmanPhysicsVolumeEwmaAlpha <-
+        option
+            auto
+            ( long "kalman-physics-volume-ewma-alpha"
+                <> value 0.1
+                <> showDefault
+                <> help "Volume EWMA alpha used by --method kalman_physics_error measurement assimilation"
+            )
+    argKalmanPhysicsVolumeSignalClamp <-
+        option
+            auto
+            ( long "kalman-physics-volume-signal-clamp"
+                <> value 3
+                <> showDefault
+                <> help "Absolute clamp for volume-normalized close-bias signal used by --method kalman_physics_error"
+            )
+    argKalmanPhysicsCloseBiasScale <-
+        option
+            auto
+            ( long "kalman-physics-close-bias-scale"
+                <> value 0.05
+                <> showDefault
+                <> help "Scale applied to close-bias price imbalance in --method kalman_physics_error"
             )
     argSensorVarianceEwmaAlpha <- option auto (long "sensor-variance-ewma-alpha" <> value defaultSensorVarianceEwmaAlpha <> showDefault <> help "EWMA alpha for learned sensor residual variance used by Kalman fusion (0 keeps the initial residual variance; 1 uses only the latest residual)")
     argKalmanSensorCorrelationInflation <-
@@ -1721,6 +1748,9 @@ validateArgs args0 = do
             , ("--kalman-process-var", argKalmanProcessVar args)
             , ("--kalman-measurement-var", argKalmanMeasurementVar args)
             , ("--kalman-physics-backtest-ratio", argKalmanPhysicsBacktestRatio args)
+            , ("--kalman-physics-volume-ewma-alpha", argKalmanPhysicsVolumeEwmaAlpha args)
+            , ("--kalman-physics-volume-signal-clamp", argKalmanPhysicsVolumeSignalClamp args)
+            , ("--kalman-physics-close-bias-scale", argKalmanPhysicsCloseBiasScale args)
             , ("--sensor-variance-ewma-alpha", argSensorVarianceEwmaAlpha args)
             , ("--kalman-sensor-correlation-inflation", argKalmanSensorCorrelationInflation args)
             , ("--kalman-innovation-inflation-threshold", argKalmanInnovationInflationThreshold args)
@@ -2000,6 +2030,8 @@ validateArgs args0 = do
     ensure "--kalman-measurement-var must be > 0" (argKalmanMeasurementVar args > 0)
     ensure "--kalman-physics-bars must be >= 4" (argKalmanPhysicsBars args >= 4)
     ensure "--kalman-physics-backtest-ratio must be between 0 and 1" (argKalmanPhysicsBacktestRatio args > 0 && argKalmanPhysicsBacktestRatio args < 1)
+    ensure "--kalman-physics-volume-ewma-alpha must be between 0 and 1" (argKalmanPhysicsVolumeEwmaAlpha args >= 0 && argKalmanPhysicsVolumeEwmaAlpha args <= 1)
+    ensure "--kalman-physics-volume-signal-clamp must be >= 0" (argKalmanPhysicsVolumeSignalClamp args >= 0)
     ensure "--sensor-variance-ewma-alpha must be between 0 and 1" (argSensorVarianceEwmaAlpha args >= 0 && argSensorVarianceEwmaAlpha args <= 1)
     ensure "--kalman-sensor-correlation-inflation must be between 0 and 1" (argKalmanSensorCorrelationInflation args >= 0 && argKalmanSensorCorrelationInflation args <= 1)
     ensure "--kalman-innovation-inflation-threshold must be >= 0" (argKalmanInnovationInflationThreshold args >= 0)

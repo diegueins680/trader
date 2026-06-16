@@ -306,6 +306,7 @@ main = do
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
     testKalmanPhysicsKnobsRejectInvalidValues
+    testKalmanPhysicsMeasurementKnobsRejectInvalidValues
     testSensorVarianceEwmaAlphaRejectsInvalidValues
     testKalmanConservativeFusionRejectsInvalidValues
     testKalmanResidualVarianceFloor
@@ -1583,6 +1584,36 @@ testKalmanPhysicsKnobsRejectInvalidValues = do
         "kalman-physics-backtest-ratio accepts custom ratios"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-backtest-ratio", "0.4"] of
             Right args -> argKalmanPhysicsBacktestRatio args == 0.4
+            Left _ -> False
+        )
+
+testKalmanPhysicsMeasurementKnobsRejectInvalidValues :: IO ()
+testKalmanPhysicsMeasurementKnobsRejectInvalidValues = do
+    assert
+        "kalman-physics-volume-ewma-alpha rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-volume-ewma-alpha", "-0.1"] == Left "--kalman-physics-volume-ewma-alpha must be between 0 and 1")
+    assert
+        "kalman-physics-volume-ewma-alpha rejects values above one"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-volume-ewma-alpha", "1.1"] == Left "--kalman-physics-volume-ewma-alpha must be between 0 and 1")
+    assert
+        "kalman-physics-volume-ewma-alpha accepts custom ratios"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-volume-ewma-alpha", "0.2"] of
+            Right args -> argKalmanPhysicsVolumeEwmaAlpha args == 0.2
+            Left _ -> False
+        )
+    assert
+        "kalman-physics-volume-signal-clamp rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-volume-signal-clamp", "-0.1"] == Left "--kalman-physics-volume-signal-clamp must be >= 0")
+    assert
+        "kalman-physics-volume-signal-clamp accepts custom values"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-volume-signal-clamp", "2.5"] of
+            Right args -> argKalmanPhysicsVolumeSignalClamp args == 2.5
+            Left _ -> False
+        )
+    assert
+        "kalman-physics-close-bias-scale accepts signed values"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-close-bias-scale", "-0.03"] of
+            Right args -> argKalmanPhysicsCloseBiasScale args == -0.03
             Left _ -> False
         )
 

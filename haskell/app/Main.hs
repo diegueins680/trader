@@ -292,7 +292,7 @@ import Trader.Duration (
 import Trader.Formal.CloseTiming (ComboCloseTimingReport)
 import Trader.Kalman3 (KalmanRunV (..), runConstantAcceleration1DVec)
 import Trader.KalmanFusion (Kalman1 (..), KalmanFusionConfig (..), initKalman1, measurementVarianceWithResidualFloor, stepMultiWithConfig)
-import Trader.KalmanPhysics (OhlcvBar (..), predictKalmanPhysicsError)
+import Trader.KalmanPhysics (KalmanPhysicsConfig (..), OhlcvBar (..), predictKalmanPhysicsErrorWithConfig)
 import Trader.Kraken (KrakenCandle (..), fetchKrakenCandles, krakenBaseUrl, krakenCandlesCacheStats)
 import Trader.LSTM (
     EpochStats (..),
@@ -2618,6 +2618,9 @@ argsPublicJson args =
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
             , "kalmanPhysicsBars" .= argKalmanPhysicsBars args
             , "kalmanPhysicsBacktestRatio" .= argKalmanPhysicsBacktestRatio args
+            , "kalmanPhysicsVolumeEwmaAlpha" .= argKalmanPhysicsVolumeEwmaAlpha args
+            , "kalmanPhysicsVolumeSignalClamp" .= argKalmanPhysicsVolumeSignalClamp args
+            , "kalmanPhysicsCloseBiasScale" .= argKalmanPhysicsCloseBiasScale args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -10433,6 +10436,12 @@ parseTopComboToArgs base combo = do
                     max
                         0.000001
                         (min 0.999999 (pickD "kalmanPhysicsBacktestRatio" (argKalmanPhysicsBacktestRatio base)))
+                , argKalmanPhysicsVolumeEwmaAlpha =
+                    clamp01 (pickD "kalmanPhysicsVolumeEwmaAlpha" (argKalmanPhysicsVolumeEwmaAlpha base))
+                , argKalmanPhysicsVolumeSignalClamp =
+                    max 0 (pickD "kalmanPhysicsVolumeSignalClamp" (argKalmanPhysicsVolumeSignalClamp base))
+                , argKalmanPhysicsCloseBiasScale =
+                    pickD "kalmanPhysicsCloseBiasScale" (argKalmanPhysicsCloseBiasScale base)
                 , argSensorVarianceEwmaAlpha = clamp01 (pickD "sensorVarianceEwmaAlpha" (argSensorVarianceEwmaAlpha base))
                 , argKalmanSensorCorrelationInflation = kalmanSensorCorrelationInflation
                 , argKalmanInnovationInflationThreshold = kalmanInnovationInflationThreshold
@@ -13860,6 +13869,9 @@ argsCacheJsonSignal args =
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
             , "kalmanPhysicsBars" .= argKalmanPhysicsBars args
             , "kalmanPhysicsBacktestRatio" .= argKalmanPhysicsBacktestRatio args
+            , "kalmanPhysicsVolumeEwmaAlpha" .= argKalmanPhysicsVolumeEwmaAlpha args
+            , "kalmanPhysicsVolumeSignalClamp" .= argKalmanPhysicsVolumeSignalClamp args
+            , "kalmanPhysicsCloseBiasScale" .= argKalmanPhysicsCloseBiasScale args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -14080,6 +14092,9 @@ argsCacheJsonBacktest args =
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
             , "kalmanPhysicsBars" .= argKalmanPhysicsBars args
             , "kalmanPhysicsBacktestRatio" .= argKalmanPhysicsBacktestRatio args
+            , "kalmanPhysicsVolumeEwmaAlpha" .= argKalmanPhysicsVolumeEwmaAlpha args
+            , "kalmanPhysicsVolumeSignalClamp" .= argKalmanPhysicsVolumeSignalClamp args
+            , "kalmanPhysicsCloseBiasScale" .= argKalmanPhysicsCloseBiasScale args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -26192,6 +26207,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     lowsV' = V.fromList lowsAll
                     closesV = V.fromList prices
                     volumesV = V.fromList volumesAll
+                    kalmanPhysicsConfig =
+                        KalmanPhysicsConfig
+                            { kpcVolumeEwmaAlpha = argKalmanPhysicsVolumeEwmaAlpha args
+                            , kpcVolumeSignalClamp = argKalmanPhysicsVolumeSignalClamp args
+                            , kpcCloseBiasScale = argKalmanPhysicsCloseBiasScale args
+                            }
                     barsV =
                         V.generate n $ \i ->
                             OhlcvBar
@@ -26202,7 +26223,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                                 , obVolume = volumesV V.! i
                                 }
                 kalPred <-
-                    case predictKalmanPhysicsError (argKalmanDt args) (argKalmanProcessVar args) (argKalmanMeasurementVar args) predStart barsV of
+                    case predictKalmanPhysicsErrorWithConfig kalmanPhysicsConfig (argKalmanDt args) (argKalmanProcessVar args) (argKalmanMeasurementVar args) predStart barsV of
                         Left err -> throwIO (userError ("kalman_physics_error: " ++ err))
                         Right preds -> pure preds
                 let mLastBar =
@@ -26214,7 +26235,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         Nothing -> pure Nothing
                         Just lastBar -> do
                             let barsVExtended = V.snoc barsV lastBar
-                            case predictKalmanPhysicsError (argKalmanDt args) (argKalmanProcessVar args) (argKalmanMeasurementVar args) predStart barsVExtended of
+                            case predictKalmanPhysicsErrorWithConfig kalmanPhysicsConfig (argKalmanDt args) (argKalmanProcessVar args) (argKalmanMeasurementVar args) predStart barsVExtended of
                                 Left _ -> pure Nothing
                                 Right predsExt ->
                                     pure $

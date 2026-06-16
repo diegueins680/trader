@@ -470,6 +470,8 @@ normalizeTrialParams p =
             , tpMaxWeeklyLoss = normalizeOptionalPositiveFraction (tpMaxWeeklyLoss p)
             , tpKalmanPhysicsBars = max 4 (tpKalmanPhysicsBars p)
             , tpKalmanPhysicsBacktestRatio = clamp (tpKalmanPhysicsBacktestRatio p) 0.000001 0.999999
+            , tpKalmanPhysicsVolumeEwmaAlpha = clamp (tpKalmanPhysicsVolumeEwmaAlpha p) 0 1
+            , tpKalmanPhysicsVolumeSignalClamp = max 0 (tpKalmanPhysicsVolumeSignalClamp p)
             , tpKalmanZMin = kalmanZMin'
             , tpKalmanZMax = kalmanZMax'
             , tpKalmanSensorCorrelationInflation = clamp (tpKalmanSensorCorrelationInflation p) 0 1
@@ -2524,6 +2526,12 @@ data OptimizerArgs = OptimizerArgs
     , oaKalmanPhysicsBarsMax :: !Int
     , oaKalmanPhysicsBacktestRatioMin :: !Double
     , oaKalmanPhysicsBacktestRatioMax :: !Double
+    , oaKalmanPhysicsVolumeEwmaAlphaMin :: !Double
+    , oaKalmanPhysicsVolumeEwmaAlphaMax :: !Double
+    , oaKalmanPhysicsVolumeSignalClampMin :: !Double
+    , oaKalmanPhysicsVolumeSignalClampMax :: !Double
+    , oaKalmanPhysicsCloseBiasScaleMin :: !Double
+    , oaKalmanPhysicsCloseBiasScaleMax :: !Double
     , oaKalmanZMinMin :: !Double
     , oaKalmanZMinMax :: !Double
     , oaKalmanZMaxMin :: !Double
@@ -3074,6 +3082,9 @@ data TrialParams = TrialParams
     , tpKalmanMeasurementVar :: !Double
     , tpKalmanPhysicsBars :: !Int
     , tpKalmanPhysicsBacktestRatio :: !Double
+    , tpKalmanPhysicsVolumeEwmaAlpha :: !Double
+    , tpKalmanPhysicsVolumeSignalClamp :: !Double
+    , tpKalmanPhysicsCloseBiasScale :: !Double
     , tpKalmanSensorCorrelationInflation :: !Double
     , tpKalmanInnovationInflationThreshold :: !Double
     , tpKalmanInnovationInflationMax :: !Double
@@ -3544,6 +3555,12 @@ buildCommand traderBin baseArgs params0 tuneRatio useSweepThreshold =
                    , show (max 4 (tpKalmanPhysicsBars params))
                    , "--kalman-physics-backtest-ratio"
                    , printf "%.6f" (clamp (tpKalmanPhysicsBacktestRatio params) 0.000001 0.999999)
+                   , "--kalman-physics-volume-ewma-alpha"
+                   , printf "%.6f" (clamp (tpKalmanPhysicsVolumeEwmaAlpha params) 0 1)
+                   , "--kalman-physics-volume-signal-clamp"
+                   , printf "%.6f" (max 0 (tpKalmanPhysicsVolumeSignalClamp params))
+                   , "--kalman-physics-close-bias-scale"
+                   , printf "%.6f" (tpKalmanPhysicsCloseBiasScale params)
                    , "--sensor-variance-ewma-alpha"
                    , printf "%.6f" (clamp (tpSensorVarianceEwmaAlpha params) 0 1)
                    , "--kalman-sensor-correlation-inflation"
@@ -4011,6 +4028,9 @@ trialToRecord tr symbolLabel =
             , "kalmanMeasurementVar" .= tpKalmanMeasurementVar (trParams tr)
             , "kalmanPhysicsBars" .= tpKalmanPhysicsBars (trParams tr)
             , "kalmanPhysicsBacktestRatio" .= tpKalmanPhysicsBacktestRatio (trParams tr)
+            , "kalmanPhysicsVolumeEwmaAlpha" .= tpKalmanPhysicsVolumeEwmaAlpha (trParams tr)
+            , "kalmanPhysicsVolumeSignalClamp" .= tpKalmanPhysicsVolumeSignalClamp (trParams tr)
+            , "kalmanPhysicsCloseBiasScale" .= tpKalmanPhysicsCloseBiasScale (trParams tr)
             , "kalmanSensorCorrelationInflation" .= tpKalmanSensorCorrelationInflation (trParams tr)
             , "kalmanInnovationInflationThreshold" .= tpKalmanInnovationInflationThreshold (trParams tr)
             , "kalmanInnovationInflationMax" .= tpKalmanInnovationInflationMax (trParams tr)
@@ -4235,6 +4255,12 @@ sampleParams
     kalmanPhysicsBarsMax
     kalmanPhysicsBacktestRatioMin
     kalmanPhysicsBacktestRatioMax
+    kalmanPhysicsVolumeEwmaAlphaMin
+    kalmanPhysicsVolumeEwmaAlphaMax
+    kalmanPhysicsVolumeSignalClampMin
+    kalmanPhysicsVolumeSignalClampMax
+    kalmanPhysicsCloseBiasScaleMin
+    kalmanPhysicsCloseBiasScaleMax
     sensorVarianceEwmaAlpha
     kalmanSensorCorrelationInflation
     kalmanInnovationInflationThreshold
@@ -4688,7 +4714,13 @@ sampleParams
             (kalmanPhysicsBars, rng43a) = nextIntRange kalmanPhysicsBarsMin kalmanPhysicsBarsMax rng43
             (kalmanPhysicsBacktestRatio, rng43b) =
                 nextUniform kalmanPhysicsBacktestRatioMin kalmanPhysicsBacktestRatioMax rng43a
-            (kalmanZMin, rng44) = nextUniform (max 0 kalmanZMinMin) (max 0 kalmanZMinMax) rng43b
+            (kalmanPhysicsVolumeEwmaAlpha, rng43c) =
+                nextUniform kalmanPhysicsVolumeEwmaAlphaMin kalmanPhysicsVolumeEwmaAlphaMax rng43b
+            (kalmanPhysicsVolumeSignalClamp, rng43d) =
+                nextUniform kalmanPhysicsVolumeSignalClampMin kalmanPhysicsVolumeSignalClampMax rng43c
+            (kalmanPhysicsCloseBiasScale, rng43e) =
+                nextUniform kalmanPhysicsCloseBiasScaleMin kalmanPhysicsCloseBiasScaleMax rng43d
+            (kalmanZMin, rng44) = nextUniform (max 0 kalmanZMinMin) (max 0 kalmanZMinMax) rng43e
             (kalmanZMax, rng45) =
                 let zMaxLo = max kalmanZMin (max 0 kalmanZMaxMin)
                     zMaxHi = max zMaxLo kalmanZMaxMax
@@ -5119,6 +5151,9 @@ sampleParams
                 , tpKalmanMeasurementVar = kalmanMeasurementVar
                 , tpKalmanPhysicsBars = max 4 kalmanPhysicsBars
                 , tpKalmanPhysicsBacktestRatio = clamp kalmanPhysicsBacktestRatio 0.000001 0.999999
+                , tpKalmanPhysicsVolumeEwmaAlpha = clamp kalmanPhysicsVolumeEwmaAlpha 0 1
+                , tpKalmanPhysicsVolumeSignalClamp = max 0 kalmanPhysicsVolumeSignalClamp
+                , tpKalmanPhysicsCloseBiasScale = kalmanPhysicsCloseBiasScale
                 , tpKalmanSensorCorrelationInflation = clamp kalmanSensorCorrelationInflation 0 1
                 , tpKalmanInnovationInflationThreshold = max 0 kalmanInnovationInflationThreshold
                 , tpKalmanInnovationInflationMax = max 1 kalmanInnovationInflationMax
@@ -5502,6 +5537,18 @@ runOptimizer args0 = do
                                                             max
                                                                 kalmanPhysicsBacktestRatioMin
                                                                 (clamp (oaKalmanPhysicsBacktestRatioMax args) 0.000001 0.999999)
+                                                        kalmanPhysicsVolumeEwmaAlphaMin =
+                                                            clamp (oaKalmanPhysicsVolumeEwmaAlphaMin args) 0 1
+                                                        kalmanPhysicsVolumeEwmaAlphaMax =
+                                                            max
+                                                                kalmanPhysicsVolumeEwmaAlphaMin
+                                                                (clamp (oaKalmanPhysicsVolumeEwmaAlphaMax args) 0 1)
+                                                        kalmanPhysicsVolumeSignalClampMin = max 0 (oaKalmanPhysicsVolumeSignalClampMin args)
+                                                        kalmanPhysicsVolumeSignalClampMax =
+                                                            max kalmanPhysicsVolumeSignalClampMin (oaKalmanPhysicsVolumeSignalClampMax args)
+                                                        kalmanPhysicsCloseBiasScaleMin = oaKalmanPhysicsCloseBiasScaleMin args
+                                                        kalmanPhysicsCloseBiasScaleMax =
+                                                            max kalmanPhysicsCloseBiasScaleMin (oaKalmanPhysicsCloseBiasScaleMax args)
                                                         kalmanZMinMin = max 0 (oaKalmanZMinMin args)
                                                         kalmanZMinMax = max kalmanZMinMin (oaKalmanZMinMax args)
                                                         kalmanZMaxMin = max 0 (oaKalmanZMaxMin args)
@@ -5883,6 +5930,12 @@ runOptimizer args0 = do
                                                                                 kalmanPhysicsBarsMax
                                                                                 kalmanPhysicsBacktestRatioMin
                                                                                 kalmanPhysicsBacktestRatioMax
+                                                                                kalmanPhysicsVolumeEwmaAlphaMin
+                                                                                kalmanPhysicsVolumeEwmaAlphaMax
+                                                                                kalmanPhysicsVolumeSignalClampMin
+                                                                                kalmanPhysicsVolumeSignalClampMax
+                                                                                kalmanPhysicsCloseBiasScaleMin
+                                                                                kalmanPhysicsCloseBiasScaleMax
                                                                                 (clamp (oaSensorVarianceEwmaAlpha args) 0 1)
                                                                                 (clamp (oaKalmanSensorCorrelationInflation args) 0 1)
                                                                                 (max 0 (oaKalmanInnovationInflationThreshold args))
@@ -6755,6 +6808,9 @@ printBest tr = do
     putStrLn ("  kalmanMeasurementVar:" ++ show (tpKalmanMeasurementVar p))
     putStrLn ("  kalmanPhysicsBars:   " ++ show (tpKalmanPhysicsBars p))
     putStrLn ("  kalmanPhysicsBacktestRatio:" ++ show (tpKalmanPhysicsBacktestRatio p))
+    putStrLn ("  kalmanPhysicsVolumeEwmaAlpha:" ++ show (tpKalmanPhysicsVolumeEwmaAlpha p))
+    putStrLn ("  kalmanPhysicsVolumeSignalClamp:" ++ show (tpKalmanPhysicsVolumeSignalClamp p))
+    putStrLn ("  kalmanPhysicsCloseBiasScale:" ++ show (tpKalmanPhysicsCloseBiasScale p))
     putStrLn ("  kalmanZMin:          " ++ show (tpKalmanZMin p))
     putStrLn ("  kalmanZMax:          " ++ show (tpKalmanZMax p))
     putStrLn ("  maxHighVolProb:      " ++ showMaybe (tpMaxHighVolProb p))
@@ -7047,8 +7103,14 @@ crossoverTrialParams a b rng0 =
         (tpKalmanPhysicsBars', rng89p) = pickValue (tpKalmanPhysicsBars a) (tpKalmanPhysicsBars b) rng89
         (tpKalmanPhysicsBacktestRatio', rng89q) =
             pickValue (tpKalmanPhysicsBacktestRatio a) (tpKalmanPhysicsBacktestRatio b) rng89p
+        (tpKalmanPhysicsVolumeEwmaAlpha', rng89r) =
+            pickValue (tpKalmanPhysicsVolumeEwmaAlpha a) (tpKalmanPhysicsVolumeEwmaAlpha b) rng89q
+        (tpKalmanPhysicsVolumeSignalClamp', rng89s) =
+            pickValue (tpKalmanPhysicsVolumeSignalClamp a) (tpKalmanPhysicsVolumeSignalClamp b) rng89r
+        (tpKalmanPhysicsCloseBiasScale', rng89t) =
+            pickValue (tpKalmanPhysicsCloseBiasScale a) (tpKalmanPhysicsCloseBiasScale b) rng89s
         (tpKalmanSensorCorrelationInflation', rng89a) =
-            pickValue (tpKalmanSensorCorrelationInflation a) (tpKalmanSensorCorrelationInflation b) rng89q
+            pickValue (tpKalmanSensorCorrelationInflation a) (tpKalmanSensorCorrelationInflation b) rng89t
         (tpKalmanInnovationInflationThreshold', rng89b) =
             pickValue (tpKalmanInnovationInflationThreshold a) (tpKalmanInnovationInflationThreshold b) rng89a
         (tpKalmanInnovationInflationMax', rng89c) =
@@ -7237,6 +7299,9 @@ crossoverTrialParams a b rng0 =
                 , tpKalmanMeasurementVar = tpKalmanMeasurementVar'
                 , tpKalmanPhysicsBars = tpKalmanPhysicsBars'
                 , tpKalmanPhysicsBacktestRatio = tpKalmanPhysicsBacktestRatio'
+                , tpKalmanPhysicsVolumeEwmaAlpha = tpKalmanPhysicsVolumeEwmaAlpha'
+                , tpKalmanPhysicsVolumeSignalClamp = tpKalmanPhysicsVolumeSignalClamp'
+                , tpKalmanPhysicsCloseBiasScale = tpKalmanPhysicsCloseBiasScale'
                 , tpKalmanSensorCorrelationInflation = tpKalmanSensorCorrelationInflation'
                 , tpKalmanInnovationInflationThreshold = tpKalmanInnovationInflationThreshold'
                 , tpKalmanInnovationInflationMax = tpKalmanInnovationInflationMax'
@@ -7369,7 +7434,10 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
         (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) scaleDouble rng25
         (kalmanPhysicsBars', rng26a) = perturbInt (tpKalmanPhysicsBars p) scaleInt rng26
         (kalmanPhysicsBacktestRatio', rng26b) = perturbDouble (tpKalmanPhysicsBacktestRatio p) scaleDouble rng26a
-        (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26b
+        (kalmanPhysicsVolumeEwmaAlpha', rng26c) = perturbDouble (tpKalmanPhysicsVolumeEwmaAlpha p) scaleDouble rng26b
+        (kalmanPhysicsVolumeSignalClamp', rng26d) = perturbDouble (tpKalmanPhysicsVolumeSignalClamp p) scaleDouble rng26c
+        (kalmanPhysicsCloseBiasScale', rng26e) = perturbDoubleSigned (tpKalmanPhysicsCloseBiasScale p) scaleDouble rng26d
+        (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26e
         (kalmanZMax', rng28) = perturbDouble (tpKalmanZMax p) scaleDouble rng27
         (fundingRate', rng29) = perturbDoubleSigned (tpFundingRate p) scaleDouble rng28
         (rebalanceBars', rng30) = perturbInt (tpRebalanceBars p) scaleInt rng29
@@ -7496,6 +7564,9 @@ perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
                 , tpKalmanMeasurementVar = kalmanMeasurementVar'
                 , tpKalmanPhysicsBars = max 4 kalmanPhysicsBars'
                 , tpKalmanPhysicsBacktestRatio = clamp kalmanPhysicsBacktestRatio' 0.000001 0.999999
+                , tpKalmanPhysicsVolumeEwmaAlpha = clamp kalmanPhysicsVolumeEwmaAlpha' 0 1
+                , tpKalmanPhysicsVolumeSignalClamp = max 0 kalmanPhysicsVolumeSignalClamp'
+                , tpKalmanPhysicsCloseBiasScale = kalmanPhysicsCloseBiasScale'
                 , tpKalmanZMin = kalmanZMin'
                 , tpKalmanZMax = kalmanZMax'
                 , tpFundingRate = fundingRate'
@@ -7769,6 +7840,9 @@ applyPriorOverlay allowedIntervals prior base =
                 , tpKalmanMeasurementVar = fromMaybe (tpKalmanMeasurementVar base) (doubleField ["kalmanMeasurementVar"] params)
                 , tpKalmanPhysicsBars = fromMaybe (tpKalmanPhysicsBars base) (intField ["kalmanPhysicsBars"] params)
                 , tpKalmanPhysicsBacktestRatio = fromMaybe (tpKalmanPhysicsBacktestRatio base) (doubleField ["kalmanPhysicsBacktestRatio"] params)
+                , tpKalmanPhysicsVolumeEwmaAlpha = fromMaybe (tpKalmanPhysicsVolumeEwmaAlpha base) (doubleField ["kalmanPhysicsVolumeEwmaAlpha"] params)
+                , tpKalmanPhysicsVolumeSignalClamp = fromMaybe (tpKalmanPhysicsVolumeSignalClamp base) (doubleField ["kalmanPhysicsVolumeSignalClamp"] params)
+                , tpKalmanPhysicsCloseBiasScale = fromMaybe (tpKalmanPhysicsCloseBiasScale base) (doubleField ["kalmanPhysicsCloseBiasScale"] params)
                 , tpKalmanSensorCorrelationInflation = fromMaybe (tpKalmanSensorCorrelationInflation base) (doubleField ["kalmanSensorCorrelationInflation"] params)
                 , tpKalmanInnovationInflationThreshold = fromMaybe (tpKalmanInnovationInflationThreshold base) (doubleField ["kalmanInnovationInflationThreshold"] params)
                 , tpKalmanInnovationInflationMax = fromMaybe (tpKalmanInnovationInflationMax base) (doubleField ["kalmanInnovationInflationMax"] params)
@@ -8091,6 +8165,9 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "kalmanMeasurementVar" .= tpKalmanMeasurementVar params
                 , "kalmanPhysicsBars" .= tpKalmanPhysicsBars params
                 , "kalmanPhysicsBacktestRatio" .= tpKalmanPhysicsBacktestRatio params
+                , "kalmanPhysicsVolumeEwmaAlpha" .= tpKalmanPhysicsVolumeEwmaAlpha params
+                , "kalmanPhysicsVolumeSignalClamp" .= tpKalmanPhysicsVolumeSignalClamp params
+                , "kalmanPhysicsCloseBiasScale" .= tpKalmanPhysicsCloseBiasScale params
                 , "sensorVarianceEwmaAlpha" .= tpSensorVarianceEwmaAlpha params
                 , "kalmanSensorCorrelationInflation" .= tpKalmanSensorCorrelationInflation params
                 , "kalmanInnovationInflationThreshold" .= tpKalmanInnovationInflationThreshold params

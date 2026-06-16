@@ -269,6 +269,12 @@ optimizerArgsParser =
         <*> option auto (long "kalman-physics-bars-max" <> value 1000 <> metavar "INT")
         <*> option auto (long "kalman-physics-backtest-ratio-min" <> value 0.3 <> metavar "FLOAT")
         <*> option auto (long "kalman-physics-backtest-ratio-max" <> value 0.3 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-volume-ewma-alpha-min" <> value 0.1 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-volume-ewma-alpha-max" <> value 0.1 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-volume-signal-clamp-min" <> value 3 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-volume-signal-clamp-max" <> value 3 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-close-bias-scale-min" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-close-bias-scale-max" <> value 0.05 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-min-min" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-min-max" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-max-min" <> value 0.0 <> metavar "FLOAT")
@@ -757,6 +763,27 @@ validateArgs args = do
             || oaKalmanPhysicsBacktestRatioMax args >= 1
         )
         $ Left "--kalman-physics-backtest-ratio-min/max must be between 0 and 1."
+    when
+        ( not (finiteDouble (oaKalmanPhysicsVolumeEwmaAlphaMin args))
+            || not (finiteDouble (oaKalmanPhysicsVolumeEwmaAlphaMax args))
+            || oaKalmanPhysicsVolumeEwmaAlphaMin args < 0
+            || oaKalmanPhysicsVolumeEwmaAlphaMin args > 1
+            || oaKalmanPhysicsVolumeEwmaAlphaMax args < 0
+            || oaKalmanPhysicsVolumeEwmaAlphaMax args > 1
+        )
+        $ Left "--kalman-physics-volume-ewma-alpha-min/max must be between 0 and 1."
+    when
+        ( not (finiteDouble (oaKalmanPhysicsVolumeSignalClampMin args))
+            || not (finiteDouble (oaKalmanPhysicsVolumeSignalClampMax args))
+            || oaKalmanPhysicsVolumeSignalClampMin args < 0
+            || oaKalmanPhysicsVolumeSignalClampMax args < 0
+        )
+        $ Left "--kalman-physics-volume-signal-clamp-min/max must be >= 0."
+    when
+        ( not (finiteDouble (oaKalmanPhysicsCloseBiasScaleMin args))
+            || not (finiteDouble (oaKalmanPhysicsCloseBiasScaleMax args))
+        )
+        $ Left "--kalman-physics-close-bias-scale-min/max must be finite."
     when (not (finiteDouble (oaLstmAdamBeta1 args)) || oaLstmAdamBeta1 args < 0 || oaLstmAdamBeta1 args >= 1) $
         Left "--lstm-adam-beta1 must be >= 0 and < 1."
     when (not (finiteDouble (oaLstmAdamBeta2 args)) || oaLstmAdamBeta2 args < 0 || oaLstmAdamBeta2 args >= 1) $
