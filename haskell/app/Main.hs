@@ -368,13 +368,14 @@ import Trader.Predictors (
     HMMFilter (..),
     Interval (..),
     PredictorBundle,
+    PredictorTrainingConfig (..),
     Quantiles (..),
     RegimeProbs (..),
     SensorId (..),
     SensorOutput (..),
     initHMMFilter,
     predictSensorsWithInputs,
-    trainPredictorsWithInputsWithMarket,
+    trainPredictorsWithInputsWithMarketConfig,
     updateHMM,
  )
 import Trader.Predictors.Features (FeatureInputs (..), mkFeatureInputs, withCoinbaseInputs)
@@ -500,6 +501,15 @@ firstJust xs =
 type LstmCtx = (NormState, [Double], LSTMModel)
 
 type KalmanCtx = (PredictorBundle, Kalman1, HMMFilter, SensorVar)
+
+predictorTrainingConfigFromArgs :: Args -> PredictorTrainingConfig
+predictorTrainingConfigFromArgs args =
+    PredictorTrainingConfig
+        { ptcGbdtTrees = argPredictorGbdtTrees args
+        , ptcGbdtLearningRate = argPredictorGbdtLearningRate args
+        , ptcCalibrationRatio = argPredictorCalibrationRatio args
+        , ptcConformalAlpha = argPredictorConformalAlpha args
+        }
 
 data PredHistory = PredHistory
     { phKalman :: !(V.Vector Double)
@@ -2465,6 +2475,10 @@ argsPublicJson args =
             , "to" .= argBacktestTo args
             , "initialBalance" .= argInitialBalance args
             , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
+            , "predictorGbdtTrees" .= argPredictorGbdtTrees args
+            , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
+            , "predictorCalibrationRatio" .= argPredictorCalibrationRatio args
+            , "predictorConformalAlpha" .= argPredictorConformalAlpha args
             , "patience" .= argPatience args
             , "gradClip" .= argGradClip args
             , "seed" .= argSeed args
@@ -8945,7 +8959,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
             MethodLstmOnly -> pure (Nothing, V.replicate n nan)
             m | methodIsTechnicalAnalysis m -> pure (Nothing, V.replicate n nan)
             _ -> do
-                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback Nothing featureInputs
+                let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback Nothing featureInputs
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -9770,7 +9784,7 @@ rebuildKalmanCtx args lookback featureInputs =
      in if n < 2
             then Left "Not enough bars to rebuild Kalman context."
             else
-                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback Nothing featureInputs
+                let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback Nothing featureInputs
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -10009,6 +10023,10 @@ parseTopComboToArgs base combo = do
             case pickMaybeMaybeDbl "periodsPerYear" (argPeriodsPerYear base) of
                 Nothing -> Nothing
                 Just v -> if v <= 0 then Nothing else Just v
+        predictorGbdtTrees = max 1 (pickI "predictorGbdtTrees" (argPredictorGbdtTrees base))
+        predictorGbdtLearningRate = max 1e-12 (pickD "predictorGbdtLearningRate" (argPredictorGbdtLearningRate base))
+        predictorCalibrationRatio = max 0 (min 0.95 (pickD "predictorCalibrationRatio" (argPredictorCalibrationRatio base)))
+        predictorConformalAlpha = max 1e-6 (min 0.999999 (pickD "predictorConformalAlpha" (argPredictorConformalAlpha base)))
         kalmanMarketTopN = max 0 (pickI "kalmanMarketTopN" (argKalmanMarketTopN base))
 
         walkForwardFolds = max 1 (pickI "walkForwardFolds" (argWalkForwardFolds base))
@@ -10153,6 +10171,10 @@ parseTopComboToArgs base combo = do
                 , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
                 , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
                 , argKalmanMeasurementVar = max 1e-12 (pickD "kalmanMeasurementVar" (argKalmanMeasurementVar base))
+                , argPredictorGbdtTrees = predictorGbdtTrees
+                , argPredictorGbdtLearningRate = predictorGbdtLearningRate
+                , argPredictorCalibrationRatio = predictorCalibrationRatio
+                , argPredictorConformalAlpha = predictorConformalAlpha
                 , argKalmanMarketTopN = kalmanMarketTopN
                 , argKalmanZMin = kalZMin
                 , argKalmanZMax = kalZMax
@@ -13408,6 +13430,10 @@ argsCacheJsonSignal args =
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
             , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
+            , "predictorGbdtTrees" .= argPredictorGbdtTrees args
+            , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
+            , "predictorCalibrationRatio" .= argPredictorCalibrationRatio args
+            , "predictorConformalAlpha" .= argPredictorConformalAlpha args
             , "kalmanMarketTopN" .= argKalmanMarketTopN args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -13580,6 +13606,10 @@ argsCacheJsonBacktest args =
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
             , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
+            , "predictorGbdtTrees" .= argPredictorGbdtTrees args
+            , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
+            , "predictorCalibrationRatio" .= argPredictorCalibrationRatio args
+            , "predictorConformalAlpha" .= argPredictorConformalAlpha args
             , "kalmanMarketTopN" .= argKalmanMarketTopN args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -24848,7 +24878,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
             MethodLstmOnly -> pure (Nothing, Nothing, Nothing)
             m | methodIsTechnicalAnalysis m -> pure (Nothing, Nothing, Nothing)
             _ | needsHistory -> do
-                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel featureInputs
+                let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback mMarketModel featureInputs
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -24865,7 +24895,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                     metaV = V.fromList (reverse metaRev)
                 pure (Just (predictors, kalPrev, hmmPrev, svPrev), Just kalPredV, Just metaV)
             _ -> do
-                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel featureInputs
+                let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback mMarketModel featureInputs
                     hmm0 = initHMMFilter predictors []
                     kal0 =
                         initKalman1
@@ -25278,7 +25308,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         -- univariate persisted models.
                         pure (trainLSTMMulti lstmCfg [obsTrain, take predStart basisObsAll])
                     Nothing -> trainLstmWithPersistence args lookback lstmCfg obsTrain
-            let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel fitFeatureInputs
+            let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback mMarketModel fitFeatureInputs
                 hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                 hmm0 = initHMMFilter predictors hmmInitReturns
                 kal0 =
@@ -25309,7 +25339,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     (mLstmCtx, mHistory, kalPredAll, lstmPredAll, mKalmanCtx, mMetaAll, mPhysicsLatestPred) <-
         case methodForComputation of
             MethodKalmanPhysicsError -> do
-                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel fitFeatureInputs
+                let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback mMarketModel fitFeatureInputs
                     hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                     hmm0 = initHMMFilter predictors hmmInitReturns
                     kal0 =
@@ -25360,7 +25390,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 let meta = reverse metaRev
                 pure (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal), Just meta, mLatestPred)
             MethodKalmanOnly -> do
-                let predictors = trainPredictorsWithInputsWithMarket (argPredictors args) lookback mMarketModel fitFeatureInputs
+                let predictors = trainPredictorsWithInputsWithMarketConfig (predictorTrainingConfigFromArgs args) (argPredictors args) lookback mMarketModel fitFeatureInputs
                     hmmInitReturns = forwardReturns (take (predStart + 1) prices)
                     hmm0 = initHMMFilter predictors hmmInitReturns
                     kal0 =

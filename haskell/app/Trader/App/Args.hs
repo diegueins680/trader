@@ -118,6 +118,10 @@ data Args = Args
     , argKalmanProcessVar :: Double
     , argKalmanMeasurementVar :: Double
     , argPredictors :: PredictorSet
+    , argPredictorGbdtTrees :: Int
+    , argPredictorGbdtLearningRate :: Double
+    , argPredictorCalibrationRatio :: Double
+    , argPredictorConformalAlpha :: Double
     , argKalmanMarketTopN :: Int
     , argOpenThreshold :: Double
     , argCloseThreshold :: Double
@@ -700,6 +704,10 @@ opts = do
                 <> showDefaultWith predictorSetToCsv
                 <> help "Comma-separated predictors to train/use (gbdt,knn,decision_tree,tcn,transformer,hmm,quantile,conformal, all, none)"
             )
+    argPredictorGbdtTrees <- option auto (long "predictor-gbdt-trees" <> value 60 <> showDefault <> help "GBDT tree count used by predictor sensor training")
+    argPredictorGbdtLearningRate <- option auto (long "predictor-gbdt-learning-rate" <> value 0.1 <> showDefault <> help "GBDT learning rate used by predictor sensor training")
+    argPredictorCalibrationRatio <- option auto (long "predictor-calibration-ratio" <> value 0.2 <> showDefault <> help "Holdout ratio used for predictor calibration/conformal residuals (0..0.95)")
+    argPredictorConformalAlpha <- option auto (long "predictor-conformal-alpha" <> value 0.2 <> showDefault <> help "Conformal interval alpha used by the conformal predictor (0..1)")
     argKalmanMarketTopN <-
         option
             auto
@@ -1551,6 +1559,9 @@ validateArgs args0 = do
             , ("--rebalance-cost-mult", argRebalanceCostMult args)
             , ("--funding-rate", argFundingRate args)
             , ("--funding-oi-size-mult", argFundingOiSizeMult args)
+            , ("--predictor-gbdt-learning-rate", argPredictorGbdtLearningRate args)
+            , ("--predictor-calibration-ratio", argPredictorCalibrationRatio args)
+            , ("--predictor-conformal-alpha", argPredictorConformalAlpha args)
             , ("--blend-weight", argBlendWeight args)
             , ("--blend-softmax-scale", argBlendSoftmaxScale args)
             , ("--blend-net-softmax-scale", argBlendNetSoftmaxScale args)
@@ -1676,6 +1687,10 @@ validateArgs args0 = do
     ensure "--kalman-dt must be > 0" (argKalmanDt args > 0)
     ensure "--kalman-process-var must be > 0" (argKalmanProcessVar args > 0)
     ensure "--kalman-measurement-var must be > 0" (argKalmanMeasurementVar args > 0)
+    ensure "--predictor-gbdt-trees must be >= 1" (argPredictorGbdtTrees args >= 1)
+    ensure "--predictor-gbdt-learning-rate must be > 0" (argPredictorGbdtLearningRate args > 0)
+    ensure "--predictor-calibration-ratio must be between 0 and 0.95" (argPredictorCalibrationRatio args >= 0 && argPredictorCalibrationRatio args <= 0.95)
+    ensure "--predictor-conformal-alpha must be > 0 and < 1" (argPredictorConformalAlpha args > 0 && argPredictorConformalAlpha args < 1)
     ensure "--kalman-market-top-n must be >= 0" (argKalmanMarketTopN args >= 0)
     ensure "--open-threshold/--threshold must be >= 0" (argOpenThreshold args >= 0)
     ensure "--open-threshold/--threshold must be <= 1" (argOpenThreshold args <= 1)

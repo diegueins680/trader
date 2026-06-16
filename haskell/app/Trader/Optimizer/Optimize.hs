@@ -236,6 +236,10 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torSignalDirectionalityMrEfficiencyMax :: !(Double, Double)
     , torSignalDirectionalityWeakZMin :: !(Double, Double)
     , torSignalPredictorTrackingFloor :: !(Double, Double)
+    , torPredictorGbdtTrees :: !(Int, Int)
+    , torPredictorGbdtLearningRate :: !(Double, Double)
+    , torPredictorCalibrationRatio :: !(Double, Double)
+    , torPredictorConformalAlpha :: !(Double, Double)
     }
     deriving (Eq, Show)
 
@@ -309,6 +313,10 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpSignalDirectionalityMrEfficiencyMax :: !Double
     , ttpSignalDirectionalityWeakZMin :: !Double
     , ttpSignalPredictorTrackingFloor :: !Double
+    , ttpPredictorGbdtTrees :: !Int
+    , ttpPredictorGbdtLearningRate :: !Double
+    , ttpPredictorCalibrationRatio :: !Double
+    , ttpPredictorConformalAlpha :: !Double
     }
     deriving (Eq, Show)
 
@@ -443,6 +451,10 @@ normalizeTechnicalTrialParams p =
             , ttpSignalDirectionalityMrEfficiencyMax = max (clamp (ttpSignalDirectionalityChopEfficiencyMax p) 0 1) (clamp (ttpSignalDirectionalityMrEfficiencyMax p) 0 1)
             , ttpSignalDirectionalityWeakZMin = max 0 (ttpSignalDirectionalityWeakZMin p)
             , ttpSignalPredictorTrackingFloor = max 0 (ttpSignalPredictorTrackingFloor p)
+            , ttpPredictorGbdtTrees = max 1 (ttpPredictorGbdtTrees p)
+            , ttpPredictorGbdtLearningRate = max 1e-6 (ttpPredictorGbdtLearningRate p)
+            , ttpPredictorCalibrationRatio = clamp (ttpPredictorCalibrationRatio p) 0 0.95
+            , ttpPredictorConformalAlpha = clamp (ttpPredictorConformalAlpha p) 1e-6 0.999999
             }
 
 sampleTechnicalTrialParams :: TechnicalOptimizerRanges -> Rng -> (TechnicalTrialParams, Rng)
@@ -523,6 +535,12 @@ sampleTechnicalTrialParams ranges rng0 =
         signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
         (signalDirectionalityWeakZMin, rng68) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng67
         (signalPredictorTrackingFloor, rng69) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng68
+        (predictorGbdtTrees, rng70) =
+            let (lo, hi) = orderedPair (torPredictorGbdtTrees ranges)
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng69
+        (predictorGbdtLearningRate, rng71) = samplePositive (torPredictorGbdtLearningRate ranges) rng70
+        (predictorCalibrationRatio, rng72) = sampleClamped 0 0.95 (torPredictorCalibrationRatio ranges) rng71
+        (predictorConformalAlpha, rng73) = sampleClamped 1e-6 0.999999 (torPredictorConformalAlpha ranges) rng72
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -594,8 +612,12 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpSignalDirectionalityMrEfficiencyMax = signalDirectionalityMrEfficiencyMax
                 , ttpSignalDirectionalityWeakZMin = signalDirectionalityWeakZMin
                 , ttpSignalPredictorTrackingFloor = signalPredictorTrackingFloor
+                , ttpPredictorGbdtTrees = predictorGbdtTrees
+                , ttpPredictorGbdtLearningRate = predictorGbdtLearningRate
+                , ttpPredictorCalibrationRatio = predictorCalibrationRatio
+                , ttpPredictorConformalAlpha = predictorConformalAlpha
                 }
-        , rng69
+        , rng73
         )
   where
     samplePositive range rng =
@@ -754,6 +776,14 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpSignalDirectionalityWeakZMin p)
     , "--signal-predictor-tracking-floor"
     , printf "%.12g" (ttpSignalPredictorTrackingFloor p)
+    , "--predictor-gbdt-trees"
+    , show (ttpPredictorGbdtTrees p)
+    , "--predictor-gbdt-learning-rate"
+    , printf "%.12g" (ttpPredictorGbdtLearningRate p)
+    , "--predictor-calibration-ratio"
+    , printf "%.12g" (ttpPredictorCalibrationRatio p)
+    , "--predictor-conformal-alpha"
+    , printf "%.12g" (ttpPredictorConformalAlpha p)
     ]
 
 technicalTrialParamsPairs :: TechnicalTrialParams -> [AT.Pair]
@@ -827,6 +857,10 @@ technicalTrialParamsPairs p =
     , "signalDirectionalityMrEfficiencyMax" .= ttpSignalDirectionalityMrEfficiencyMax p
     , "signalDirectionalityWeakZMin" .= ttpSignalDirectionalityWeakZMin p
     , "signalPredictorTrackingFloor" .= ttpSignalPredictorTrackingFloor p
+    , "predictorGbdtTrees" .= ttpPredictorGbdtTrees p
+    , "predictorGbdtLearningRate" .= ttpPredictorGbdtLearningRate p
+    , "predictorCalibrationRatio" .= ttpPredictorCalibrationRatio p
+    , "predictorConformalAlpha" .= ttpPredictorConformalAlpha p
     ]
 
 normalizeSymbol :: Maybe String -> Maybe String

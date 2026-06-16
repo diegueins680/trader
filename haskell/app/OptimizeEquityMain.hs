@@ -544,6 +544,10 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "signal-directionality-mr-efficiency-max" 0.20 0.50
         <*> doubleRangeOption "signal-directionality-weak-z-min" 0.20 1.00
         <*> doubleRangeOption "signal-predictor-tracking-floor" 0.01 0.15
+        <*> intRangeOption "predictor-gbdt-trees" 20 120
+        <*> doubleRangeOption "predictor-gbdt-learning-rate" 0.03 0.20
+        <*> doubleRangeOption "predictor-calibration-ratio" 0.10 0.35
+        <*> doubleRangeOption "predictor-conformal-alpha" 0.05 0.35
 
 doubleRangeOption :: String -> Double -> Double -> Parser (Double, Double)
 doubleRangeOption name lo hi =
@@ -857,6 +861,10 @@ validateTechnicalOptimizerRanges ranges = do
     unitRange "signal-directionality-mr-efficiency-max" (torSignalDirectionalityMrEfficiencyMax ranges)
     nonNegativeRange "signal-directionality-weak-z-min" (torSignalDirectionalityWeakZMin ranges)
     nonNegativeRange "signal-predictor-tracking-floor" (torSignalPredictorTrackingFloor ranges)
+    positiveIntRange "predictor-gbdt-trees" (torPredictorGbdtTrees ranges)
+    positiveRange "predictor-gbdt-learning-rate" (torPredictorGbdtLearningRate ranges)
+    unitRange "predictor-calibration-ratio" (torPredictorCalibrationRatio ranges)
+    unitRange "predictor-conformal-alpha" (torPredictorConformalAlpha ranges)
   where
     finiteRange label (lo, hi) =
         when (isNaN lo || isInfinite lo || isNaN hi || isInfinite hi) $

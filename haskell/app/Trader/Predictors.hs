@@ -5,13 +5,19 @@ module Trader.Predictors (
     RegimeProbs (..),
     Quantiles (..),
     Interval (..),
+    PredictorTrainingConfig (..),
     PredictorBundle (..),
     HMMFilter (..),
     HMM3 (..),
+    defaultPredictorTrainingConfig,
     trainPredictors,
+    trainPredictorsWithConfig,
     trainPredictorsWithMarket,
+    trainPredictorsWithMarketConfig,
     trainPredictorsWithInputs,
+    trainPredictorsWithInputsConfig,
     trainPredictorsWithInputsWithMarket,
+    trainPredictorsWithInputsWithMarketConfig,
     initHMMFilter,
     predictSensors,
     predictSensorsWithInputs,
@@ -63,21 +69,64 @@ data PredictorBundle = PredictorBundle
     }
     deriving (Eq, Show)
 
+data PredictorTrainingConfig = PredictorTrainingConfig
+    { ptcGbdtTrees :: !Int
+    , ptcGbdtLearningRate :: !Double
+    , ptcCalibrationRatio :: !Double
+    , ptcConformalAlpha :: !Double
+    }
+    deriving (Eq, Show)
+
+defaultPredictorTrainingConfig :: PredictorTrainingConfig
+defaultPredictorTrainingConfig =
+    PredictorTrainingConfig
+        { ptcGbdtTrees = 60
+        , ptcGbdtLearningRate = 0.1
+        , ptcCalibrationRatio = 0.2
+        , ptcConformalAlpha = 0.2
+        }
+
+sanitizePredictorTrainingConfig :: PredictorTrainingConfig -> PredictorTrainingConfig
+sanitizePredictorTrainingConfig cfg =
+    cfg
+        { ptcGbdtTrees = max 1 (ptcGbdtTrees cfg)
+        , ptcGbdtLearningRate = max 1e-12 (ptcGbdtLearningRate cfg)
+        , ptcCalibrationRatio = clamp 0 0.95 (ptcCalibrationRatio cfg)
+        , ptcConformalAlpha = clamp 1e-6 0.999999 (ptcConformalAlpha cfg)
+        }
+
 trainPredictors :: PredictorSet -> Int -> V.Vector Double -> PredictorBundle
-trainPredictors enabled lookbackBars =
-    trainPredictorsWithMarket enabled lookbackBars Nothing
+trainPredictors =
+    trainPredictorsWithConfig defaultPredictorTrainingConfig
+
+trainPredictorsWithConfig :: PredictorTrainingConfig -> PredictorSet -> Int -> V.Vector Double -> PredictorBundle
+trainPredictorsWithConfig cfg enabled lookbackBars =
+    trainPredictorsWithMarketConfig cfg enabled lookbackBars Nothing
 
 trainPredictorsWithMarket :: PredictorSet -> Int -> Maybe MarketModel -> V.Vector Double -> PredictorBundle
-trainPredictorsWithMarket enabled lookbackBars mMarketModel trainPrices =
-    trainPredictorsWithInputsWithMarket enabled lookbackBars mMarketModel (featureInputsFromClose trainPrices)
+trainPredictorsWithMarket =
+    trainPredictorsWithMarketConfig defaultPredictorTrainingConfig
+
+trainPredictorsWithMarketConfig :: PredictorTrainingConfig -> PredictorSet -> Int -> Maybe MarketModel -> V.Vector Double -> PredictorBundle
+trainPredictorsWithMarketConfig cfg enabled lookbackBars mMarketModel trainPrices =
+    trainPredictorsWithInputsWithMarketConfig cfg enabled lookbackBars mMarketModel (featureInputsFromClose trainPrices)
 
 trainPredictorsWithInputs :: PredictorSet -> Int -> FeatureInputs -> PredictorBundle
-trainPredictorsWithInputs enabled lookbackBars =
-    trainPredictorsWithInputsWithMarket enabled lookbackBars Nothing
+trainPredictorsWithInputs =
+    trainPredictorsWithInputsConfig defaultPredictorTrainingConfig
+
+trainPredictorsWithInputsConfig :: PredictorTrainingConfig -> PredictorSet -> Int -> FeatureInputs -> PredictorBundle
+trainPredictorsWithInputsConfig cfg enabled lookbackBars =
+    trainPredictorsWithInputsWithMarketConfig cfg enabled lookbackBars Nothing
 
 trainPredictorsWithInputsWithMarket :: PredictorSet -> Int -> Maybe MarketModel -> FeatureInputs -> PredictorBundle
-trainPredictorsWithInputsWithMarket enabled lookbackBars mMarketModel trainInputs =
-    let fs = mkFeatureSpec lookbackBars
+trainPredictorsWithInputsWithMarket =
+    trainPredictorsWithInputsWithMarketConfig defaultPredictorTrainingConfig
+
+trainPredictorsWithInputsWithMarketConfig :: PredictorTrainingConfig -> PredictorSet -> Int -> Maybe MarketModel -> FeatureInputs -> PredictorBundle
+trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel trainInputs =
+    let cfg = sanitizePredictorTrainingConfig cfg0
+        fs = mkFeatureSpec lookbackBars
         trainPrices = fiClose trainInputs
         useGbdt = predictorEnabled enabled SensorGBT
         useKnn = predictorEnabled enabled SensorKNN
@@ -94,7 +143,7 @@ trainPredictorsWithInputsWithMarket enabled lookbackBars mMarketModel trainInput
                 else []
         (trainSetIdx, calibIdx) =
             if needFeatures
-                then splitCalib datasetWithIndex
+                then splitCalib (ptcCalibrationRatio cfg) datasetWithIndex
                 else ([], [])
         trainSetIdx' = if null trainSetIdx then datasetWithIndex else trainSetIdx
         trainSet = [(x, y) | (_, x, y) <- trainSetIdx']
@@ -154,7 +203,7 @@ trainPredictorsWithInputsWithMarket enabled lookbackBars mMarketModel trainInput
         gbdt
             | not gbdtTrained = emptyGbdt
             | null trainSet = emptyGbdt
-            | otherwise = trainGBDT 60 0.1 trainSet
+            | otherwise = trainGBDT (ptcGbdtTrees cfg) (ptcGbdtLearningRate cfg) trainSet
         knn =
             if useKnn
                 then
@@ -202,8 +251,8 @@ trainPredictorsWithInputsWithMarket enabled lookbackBars mMarketModel trainInput
                 else []
         conformal =
             if useConformal
-                then fitConformal 0.2 absRes
-                else fitConformal 0.2 []
+                then fitConformal (ptcConformalAlpha cfg) absRes
+                else fitConformal (ptcConformalAlpha cfg) []
         tcnTargets =
             if useTcn
                 then
@@ -233,15 +282,21 @@ trainPredictorsWithInputsWithMarket enabled lookbackBars mMarketModel trainInput
 initHMMFilter :: PredictorBundle -> [Double] -> HMMFilter
 initHMMFilter pb = filterPosterior (pbHMM pb)
 
-splitCalib :: [a] -> ([a], [a])
-splitCalib xs =
+splitCalib :: Double -> [a] -> ([a], [a])
+splitCalib ratio xs =
     let n = length xs
-        k0 = floor (0.2 * fromIntegral n)
+        ratio' = clamp 0 0.95 ratio
+        k0 = floor (ratio' * fromIntegral n)
         k =
             if n < 3
                 then 0
                 else min (n - 2) (max 1 k0)
      in splitAt (n - k) xs
+
+clamp :: Double -> Double -> Double -> Double
+clamp lo hi x =
+    let x' = if isNaN x || isInfinite x then lo else x
+     in max lo (min hi x')
 
 {- | Sensor predictions at bar t (end of bar t) for forward return r_t.
 Returns (sensor outputs, HMM predicted state distribution) where the latter
