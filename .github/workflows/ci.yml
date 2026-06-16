@@ -16,26 +16,26 @@ jobs:
           ghc: "9.4.8"
           cabal: latest
 
-      - name: Cache Cabal artifacts
+      - name: Restore Cabal cache
         uses: actions/cache@v5
         with:
           path: |
             ~/.cabal/store
             ~/.cabal/packages
             haskell/dist-newstyle
-          key: ${{ runner.os }}-cabal-${{ hashFiles('haskell/trader.cabal') }}
+          key: ${{ runner.os }}-cabal-${{ hashFiles('haskell/trader.cabal') }}-${{ hashFiles('haskell/app/**') }}
           restore-keys: |
+            ${{ runner.os }}-cabal-${{ hashFiles('haskell/trader.cabal') }}-
             ${{ runner.os }}-cabal-
 
-      - run: cd haskell && cabal update
-      - name: Install HLint
-        run: sudo apt-get update && sudo apt-get install -y hlint
-      - name: Install fourmolu
+      - name: Install system dependencies and dev tools
         run: |
-          cabal install fourmolu-0.15.0.0 \
-            --installdir="$HOME/.local/bin" \
-            --overwrite-policy=always
+          sudo apt-get update
+          sudo apt-get install -y hlint
+          cabal install fourmolu-0.15.0.0 --installdir="$HOME/.local/bin" --overwrite-policy=always
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - run: cd haskell && cabal update
       - run: bash scripts/verify.sh haskell
 
   web:
@@ -63,8 +63,8 @@ jobs:
 
       - run: bash scripts/verify.sh automation
 
-  deploy:
-    name: Deploy (Fly.io)
+  build-docker:
+    name: Build Docker image
     runs-on: ubuntu-latest
     needs: [haskell, web, automation]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -73,8 +73,27 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Inject build commit metadata
-        run: printf '%s\n' "${GITHUB_SHA}" > haskell/.build-commit
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and cache Docker image layers
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          cache-to: type=gha,mode=max
+          cache-from: type=gha
+
+  deploy:
+    name: Deploy (Fly.io)
+    runs-on: ubuntu-latest
+    needs: [haskell, web, automation, build-docker]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
 
       - name: Install flyctl
         id: setup_flyctl
@@ -170,7 +189,8 @@ jobs:
             config_basename="$(basename "$config_path")"
             pushd "$workdir" >/dev/null
 
-            local deploy_args=(deploy . --config "$config_basename" --remote-only --build-arg "TRADER_GIT_COMMIT=${GITHUB_SHA}")
+            local deploy_args=(deploy . --config "$config_basename" --remote-only)
+            deploy_args+=(--build-arg "TRADER_GIT_COMMIT=${GITHUB_SHA}")
             if [[ -n "$app_name" ]]; then
               deploy_args+=(--app "$app_name")
             fi

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 FROM haskell:9.4.8 AS build
 
 RUN sed -i 's|deb.debian.org/debian|archive.debian.org/debian|g' /etc/apt/sources.list \
@@ -7,37 +8,43 @@ RUN sed -i 's|deb.debian.org/debian|archive.debian.org/debian|g' /etc/apt/source
   && apt-get install -y --no-install-recommends libpq-dev pkg-config \
   && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt/trader
-
-# Copy only the Haskell project for better caching.
-COPY haskell/trader.cabal haskell/trader.cabal
-COPY haskell/.build-commit haskell/.build-commit
-COPY haskell/app haskell/app
-COPY haskell/test haskell/test
-
 WORKDIR /opt/trader/haskell
+
+# Copy cabal files first for dependency caching; .build-commit is runtime metadata, not needed for build
+COPY haskell/trader.cabal .
+
+# Update and fetch dependencies in one layer; cabal update is cached separately
 RUN --mount=type=cache,target=/root/.cabal \
   --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
-  cabal update
+  cabal update && cabal fetch --enable-tests --enable-benchmarks exe:trader-hs exe:optimize-equity exe:merge-top-combos
+
+# Copy source code after cabal files (changes to source don't invalidate dependency fetch)
+COPY haskell/app app
+COPY haskell/test test
+
+# Build all binaries in parallel with single RUN to reduce layers; -j4 parallelizes across CPU cores
 RUN --mount=type=cache,target=/root/.cabal \
   --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
-  cabal build -j1 --disable-optimization exe:trader-hs exe:optimize-equity exe:merge-top-combos
+  cabal build -j4 --disable-optimization exe:trader-hs exe:optimize-equity exe:merge-top-combos
+
+# Extract binaries and strip in one layer
 RUN --mount=type=cache,target=/root/.cabal \
   --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
   cp "$(cabal list-bin --disable-optimization exe:trader-hs)" /opt/trader/trader-hs \
   && cp "$(cabal list-bin --disable-optimization exe:optimize-equity)" /opt/trader/optimize-equity \
-  && cp "$(cabal list-bin --disable-optimization exe:merge-top-combos)" /opt/trader/merge-top-combos
+  && cp "$(cabal list-bin --disable-optimization exe:merge-top-combos)" /opt/trader/merge-top-combos \
+  && strip /opt/trader/trader-hs /opt/trader/optimize-equity /opt/trader/merge-top-combos
 
 FROM debian:bookworm-slim
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl libgmp10 libpq5 libtinfo6 \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /tmp/*
 
-COPY --from=build /opt/trader/trader-hs /usr/local/bin/trader-hs
-# optimize-equity + merge-top-combos are spawned by the auto-optimizer (research role).
-COPY --from=build /opt/trader/optimize-equity /usr/local/bin/optimize-equity
-COPY --from=build /opt/trader/merge-top-combos /usr/local/bin/merge-top-combos
+COPY --from=build /opt/trader/trader-hs /usr/local/bin/
+COPY --from=build /opt/trader/optimize-equity /usr/local/bin/
+COPY --from=build /opt/trader/merge-top-combos /usr/local/bin/
 
 WORKDIR /opt/trader/haskell
 COPY haskell/web/public /opt/trader/haskell/web/public
@@ -56,7 +63,7 @@ VOLUME ["/var/lib/trader"]
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
 
 USER 65532:65532
