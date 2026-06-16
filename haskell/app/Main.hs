@@ -15256,6 +15256,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
     priorPerturbScaleDoubleEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_DOUBLE"
     priorPerturbScaleIntEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_INT"
     priorAgeHalfLifeDaysEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_AGE_HALF_LIFE_DAYS"
+    priorDiversityMaxPerBucketEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_DIVERSITY_MAX_PER_BUCKET"
     let priorJson = pickDefaultString (fromMaybe "" mDefaultJson) priorJsonEnv
         priorSampleProb = clamp01 (readNonNegativeDoubleMaybe priorSampleProbEnv 0.6)
         priorMethodSampleProb = clamp01 (readNonNegativeDoubleMaybe priorMethodSampleProbEnv 0.5)
@@ -15265,6 +15266,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
         priorPerturbScaleDouble = readNonNegativeDoubleMaybe priorPerturbScaleDoubleEnv 0.05
         priorPerturbScaleInt = readNonNegativeIntMaybe priorPerturbScaleIntEnv 1
         priorAgeHalfLifeDays = readNonNegativeDoubleMaybe priorAgeHalfLifeDaysEnv 45.0
+        priorDiversityMaxPerBucket = readNonNegativeIntMaybe priorDiversityMaxPerBucketEnv 8
      in pure $
             if priorSampleProb <= 0 || null (trim priorJson)
                 then []
@@ -15287,6 +15289,8 @@ optimizerPriorArgsFromEnv mDefaultJson = do
                     , show priorPerturbScaleInt
                     , "--prior-age-half-life-days"
                     , show priorAgeHalfLifeDays
+                    , "--prior-diversity-max-per-bucket"
+                    , show priorDiversityMaxPerBucket
                     ]
 
 prepareOptimizerArgs :: FilePath -> Maybe FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])

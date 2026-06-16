@@ -1369,13 +1369,58 @@ selectOptimizerPriorTrials args nowMs symbol intervals rawTrials =
         sorted = sortOn (Data.Ord.Down . priorTrialRankScore args nowMs) eligible
         fraction = clamp (oaPriorTopFraction args) 0 1
         total = length sorted
+        diversityCap = max 0 (oaPriorDiversityMaxPerBucket args)
         requested =
             if fraction <= 0 || total <= 0
                 then 0
                 else
                     let byFraction = ceiling (fromIntegral total * fraction :: Double)
                      in max (max 0 (oaPriorMinSamples args)) byFraction
-     in take (min total requested) sorted
+     in selectDiversePriorTrials diversityCap (min total requested) sorted
+
+selectDiversePriorTrials :: Int -> Int -> [PriorTrial] -> [PriorTrial]
+selectDiversePriorTrials diversityCap requested trials
+    | requested <= 0 = []
+    | diversityCap <= 0 = take requested trials
+    | otherwise =
+        let indexed = zip [0 :: Int ..] trials
+            capped = takePriorTrialsWithBucketCap diversityCap requested indexed
+            cappedIndexes = Set.fromList (map fst capped)
+            backfillNeeded = requested - length capped
+            backfill =
+                if backfillNeeded <= 0
+                    then []
+                    else
+                        take
+                            backfillNeeded
+                            [ trial
+                            | (idx, trial) <- indexed
+                            , Set.notMember idx cappedIndexes
+                            ]
+         in map snd capped ++ backfill
+
+takePriorTrialsWithBucketCap :: Int -> Int -> [(Int, PriorTrial)] -> [(Int, PriorTrial)]
+takePriorTrialsWithBucketCap diversityCap requested =
+    reverse
+        . (\(picked, _, _) -> picked)
+        . foldl' pick ([], M.empty, 0)
+  where
+    pick acc@(_, _, pickedCount) _
+        | pickedCount >= requested = acc
+    pick (picked, bucketCounts, pickedCount) indexed@(_, trial) =
+        let bucket = priorTrialDiversityBucket trial
+            bucketCount = M.findWithDefault 0 bucket bucketCounts
+         in if bucketCount >= diversityCap
+                then (picked, bucketCounts, pickedCount)
+                else
+                    ( indexed : picked
+                    , M.insert bucket (bucketCount + 1) bucketCounts
+                    , pickedCount + 1
+                    )
+
+priorTrialDiversityBucket :: PriorTrial -> (Maybe String, Maybe String, Maybe String)
+priorTrialDiversityBucket trial =
+    (ptPlatform trial, ptInterval trial, ptMethod trial)
 
 priorTrialRankScore :: OptimizerArgs -> Int -> PriorTrial -> Double
 priorTrialRankScore args nowMs trial =
@@ -2181,6 +2226,7 @@ data OptimizerArgs = OptimizerArgs
     , oaPriorPerturbScaleDouble :: !Double
     , oaPriorPerturbScaleInt :: !Int
     , oaPriorAgeHalfLifeDays :: !Double
+    , oaPriorDiversityMaxPerBucket :: !Int
     , oaQuality :: !Bool
     , oaQualityMinTrials :: !Int
     , oaQualityMaxEpochs :: !Int
@@ -5454,6 +5500,7 @@ runOptimizer args0 = do
                                                                         priorPerturbScaleDouble = max 0 (oaPriorPerturbScaleDouble args)
                                                                         priorPerturbScaleInt = max 0 (oaPriorPerturbScaleInt args)
                                                                         priorAgeHalfLifeDays = max 0 (oaPriorAgeHalfLifeDays args)
+                                                                        priorDiversityMaxPerBucket = max 0 (oaPriorDiversityMaxPerBucket args)
                                                                         minRoundTrips = max 0 (oaMinRoundTrips args)
                                                                         minWinRate = max 0 (oaMinWinRate args)
                                                                         minProfitFactor = max 0 (oaMinProfitFactor args)
@@ -5466,7 +5513,7 @@ runOptimizer args0 = do
                                                                         maxTurnover = max 0 (oaMaxTurnover args)
                                                                         minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
                                                                         maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
-                                                                        priorTrials = selectOptimizerPriorTrials args{oaPriorAgeHalfLifeDays = priorAgeHalfLifeDays} priorNowMs symbolFinal intervals priorTrialsRaw
+                                                                        priorTrials = selectOptimizerPriorTrials args{oaPriorAgeHalfLifeDays = priorAgeHalfLifeDays, oaPriorDiversityMaxPerBucket = priorDiversityMaxPerBucket} priorNowMs symbolFinal intervals priorTrialsRaw
                                                                     when (priorSampleProb > 0 && not (null (trim (oaPriorJson args)))) $
                                                                         hPutStrLn
                                                                             stderr
