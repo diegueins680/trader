@@ -141,9 +141,11 @@ executable optimize-equity
                      , Trader.Optimizer.Json
                      , Trader.Optimizer.Optimize
                      , Trader.Optimizer.Random
+                     , Trader.OnlineStats
                      , Trader.Optimization
                      , Trader.Predictors.Types
                      , Trader.RoiScore
+                     , Trader.SensorVariance
                      , Trader.SignalGates
                      , Trader.Symbol
                      , Trader.Text

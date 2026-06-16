@@ -304,6 +304,7 @@ main = do
     testKalmanDtRejectsInvalidValues
     testKalmanProcessVarRejectsInvalidValues
     testKalmanMeasurementVarRejectsInvalidValues
+    testSensorVarianceEwmaAlphaRejectsInvalidValues
     testKalmanMarketTopNRejectsInvalidValues
     testTuneRatioRejectsInvalidValues
     testTunePenaltyMaxDrawdownRejectsInvalidValues
@@ -1546,6 +1547,33 @@ testKalmanMeasurementVarRejectsInvalidValues = do
         "kalman-measurement-var accepts 1e-3 (default)"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-measurement-var", "1e-3"] of
             Right args -> argKalmanMeasurementVar args == 1e-3
+            Left _ -> False
+        )
+
+testSensorVarianceEwmaAlphaRejectsInvalidValues :: IO ()
+testSensorVarianceEwmaAlphaRejectsInvalidValues = do
+    assert
+        "sensor-variance-ewma-alpha rejects -0.1 (negative)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--sensor-variance-ewma-alpha", "-0.1"] == Left "--sensor-variance-ewma-alpha must be between 0 and 1")
+    assert
+        "sensor-variance-ewma-alpha rejects 1.1 (above one)"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--sensor-variance-ewma-alpha", "1.1"] == Left "--sensor-variance-ewma-alpha must be between 0 and 1")
+    assert
+        "sensor-variance-ewma-alpha accepts 0 (initial variance only)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--sensor-variance-ewma-alpha", "0"] of
+            Right args -> argSensorVarianceEwmaAlpha args == 0
+            Left _ -> False
+        )
+    assert
+        "sensor-variance-ewma-alpha accepts 0.05 (default)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--sensor-variance-ewma-alpha", "0.05"] of
+            Right args -> argSensorVarianceEwmaAlpha args == 0.05
+            Left _ -> False
+        )
+    assert
+        "sensor-variance-ewma-alpha accepts 1 (latest residual only)"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--sensor-variance-ewma-alpha", "1"] of
+            Right args -> argSensorVarianceEwmaAlpha args == 1
             Left _ -> False
         )
 

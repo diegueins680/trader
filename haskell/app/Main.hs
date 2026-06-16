@@ -397,7 +397,7 @@ import Trader.S3 (
     s3KeyFor,
     s3PutObject,
  )
-import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
+import Trader.SensorVariance (SensorVar, SensorVarianceConfig (..), emptySensorVar, updateResidualWith, varianceFor)
 import Trader.SignalGates (
     DirectionalitySnapshot (..),
     SignalGateConfig (..),
@@ -843,6 +843,7 @@ data ApiParams = ApiParams
     , apKalmanDt :: Maybe Double
     , apKalmanProcessVar :: Maybe Double
     , apKalmanMeasurementVar :: Maybe Double
+    , apSensorVarianceEwmaAlpha :: Maybe Double
     , apPredictors :: Maybe String
     , apKalmanMarketTopN :: Maybe Int
     , apThreshold :: Maybe Double
@@ -1104,6 +1105,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrTunePenaltyMaxDrawdown :: !(Maybe Double)
     , arrTunePenaltyTurnover :: !(Maybe Double)
     , arrTuneMaxThresholdCandidates :: !(Maybe Int)
+    , arrSensorVarianceEwmaAlpha :: !(Maybe Double)
     , arrTuneStressVolMult :: !(Maybe Double)
     , arrTuneStressShock :: !(Maybe Double)
     , arrTuneStressWeight :: !(Maybe Double)
@@ -2552,6 +2554,7 @@ argsPublicJson args =
             , "kalmanDt" .= argKalmanDt args
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+            , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "threshold" .= argOpenThreshold args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -9075,10 +9078,7 @@ initBotState mBotStateDir mOps tenantKey args settings mComboUuid originIp sym =
                             fusedR = kMean kal'
                             kalNext = priceT * (1 + fusedR)
                             sv' =
-                                foldl'
-                                    (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
-                                    sv
-                                    sensorOuts
+                                updateSensorVarianceFromOutputs args realizedR sv sensorOuts
                             hmm' = updateHMM predictors predState realizedR
                          in (kal', hmm', sv', kalNext : predsAcc)
 
@@ -9905,10 +9905,7 @@ rebuildKalmanCtx args lookback featureInputs =
                             meas = mapMaybe (toMeasurement args sv) sensorOuts
                             kal' = stepMulti meas kal
                             sv' =
-                                foldl'
-                                    (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
-                                    sv
-                                    sensorOuts
+                                updateSensorVarianceFromOutputs args realizedR sv sensorOuts
                             hmm' = updateHMM predictors predState realizedR
                          in (kal', hmm', sv')
 
@@ -10303,6 +10300,7 @@ parseTopComboToArgs base combo = do
                 , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
                 , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
                 , argKalmanMeasurementVar = max 1e-12 (pickD "kalmanMeasurementVar" (argKalmanMeasurementVar base))
+                , argSensorVarianceEwmaAlpha = clamp01 (pickD "sensorVarianceEwmaAlpha" (argSensorVarianceEwmaAlpha base))
                 , argPredictorGbdtTrees = predictorGbdtTrees
                 , argPredictorGbdtLearningRate = predictorGbdtLearningRate
                 , argPredictorCalibrationRatio = predictorCalibrationRatio
@@ -10394,6 +10392,7 @@ buildOptimizerUpdate st combo = do
                                         || argKalmanDt args0 /= argKalmanDt curArgs
                                         || argKalmanProcessVar args0 /= argKalmanProcessVar curArgs
                                         || argKalmanMeasurementVar args0 /= argKalmanMeasurementVar curArgs
+                                        || argSensorVarianceEwmaAlpha args0 /= argSensorVarianceEwmaAlpha curArgs
                                         || argPredictors args0 /= argPredictors curArgs
                                         || lookback /= botLookback st
                                    )
@@ -10694,6 +10693,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                     backtestEnv <- lookupEnv "TRADER_OPTIMIZER_BACKTEST_RATIO"
                                     tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
                                     tuneMaxThresholdCandidatesEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_MAX_THRESHOLD_CANDIDATES"
+                                    sensorVarianceEwmaAlphaEnv <- lookupEnv "TRADER_OPTIMIZER_SENSOR_VARIANCE_EWMA_ALPHA"
                                     minRoundTripsEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_ROUND_TRIPS"
                                     minExposureEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_EXPOSURE"
                                     minSharpeEnv <- lookupEnv "TRADER_OPTIMIZER_MIN_SHARPE"
@@ -10763,6 +10763,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                         minRoundTrips = readNonNegativeInt minRoundTripsEnv 3
                                         tuneMaxThresholdCandidates :: Int
                                         tuneMaxThresholdCandidates = readNonNegativeInt tuneMaxThresholdCandidatesEnv defaultMaxThresholdCandidates
+                                        sensorVarianceEwmaAlpha :: Double
+                                        sensorVarianceEwmaAlpha = clamp01 (readNonNegativeDouble sensorVarianceEwmaAlphaEnv (argSensorVarianceEwmaAlpha baseArgs))
                                         minExposure :: Double
                                         minExposure = clamp01 (readNonNegativeDouble minExposureEnv 0.02)
                                         minSharpe :: Double
@@ -10996,6 +10998,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                         , show tuneRatio
                                                                                         , "--tune-max-threshold-candidates"
                                                                                         , show tuneMaxThresholdCandidates
+                                                                                        , "--sensor-variance-ewma-alpha"
+                                                                                        , show sensorVarianceEwmaAlpha
                                                                                         , "--trials"
                                                                                         , show (trialsVal :: Int)
                                                                                         , "--timeout-sec"
@@ -11957,10 +11961,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                     meas = mapMaybe (toMeasurement args svPrev) sensorOuts
                     kal' = stepMulti meas kalPrev
                     sv' =
-                        foldl'
-                            (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
-                            svPrev
-                            sensorOuts
+                        updateSensorVarianceFromOutputs args realizedR svPrev sensorOuts
                     hmm' = updateHMM predictors predState realizedR
                 pure (Just (predictors, kal', hmm', sv'))
 
@@ -13609,6 +13610,7 @@ argsCacheJsonSignal args =
             , "kalmanDt" .= argKalmanDt args
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+            , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
             , "predictorGbdtTrees" .= argPredictorGbdtTrees args
             , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
@@ -13792,6 +13794,7 @@ argsCacheJsonBacktest args =
             , "kalmanDt" .= argKalmanDt args
             , "kalmanProcessVar" .= argKalmanProcessVar args
             , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+            , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
             , "predictorGbdtTrees" .= argPredictorGbdtTrees args
             , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
@@ -15121,6 +15124,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
     maxTimeoutEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_TIMEOUT_SEC"
     maxBarsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_BARS"
     tuneMaxThresholdCandidatesEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_MAX_THRESHOLD_CANDIDATES"
+    sensorVarianceEwmaAlphaEnv <- lookupEnv "TRADER_OPTIMIZER_SENSOR_VARIANCE_EWMA_ALPHA"
     let source = fromMaybe OptimizerSourceBinance (arrSource req)
         defaultPriorJson =
             case source of
@@ -15301,6 +15305,10 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                     maybeIntArg
                         "--tune-max-threshold-candidates"
                         (fmap (max 0) (arrTuneMaxThresholdCandidates req <|> (tuneMaxThresholdCandidatesEnv >>= readMaybe)))
+                sensorVarianceEwmaAlphaArgs =
+                    maybeDoubleArg
+                        "--sensor-variance-ewma-alpha"
+                        (fmap clamp01 (arrSensorVarianceEwmaAlpha req <|> (sensorVarianceEwmaAlphaEnv >>= readMaybe)))
                 tuneStressVolMultArgs =
                     maybeDoubleArg "--tune-stress-vol-mult" (fmap (max 1e-12) (arrTuneStressVolMult req))
                 tuneStressShockArgs = maybeDoubleArg "--tune-stress-shock" (arrTuneStressShock req)
@@ -15766,6 +15774,7 @@ prepareOptimizerArgs outputPath mPriorJson req = do
                         ++ tunePenaltyMaxDdArgs
                         ++ tunePenaltyTurnoverArgs
                         ++ tuneMaxThresholdCandidatesArgs
+                        ++ sensorVarianceEwmaAlphaArgs
                         ++ tuneStressVolMultArgs
                         ++ tuneStressShockArgs
                         ++ tuneStressWeightArgs
@@ -19798,6 +19807,7 @@ argsFromApi baseArgs p = do
                 , argKalmanDt = pick (apKalmanDt p) (argKalmanDt baseArgs)
                 , argKalmanProcessVar = pick (apKalmanProcessVar p) (argKalmanProcessVar baseArgs)
                 , argKalmanMeasurementVar = pick (apKalmanMeasurementVar p) (argKalmanMeasurementVar baseArgs)
+                , argSensorVarianceEwmaAlpha = clamp01 (pick (apSensorVarianceEwmaAlpha p) (argSensorVarianceEwmaAlpha baseArgs))
                 , argPredictors = predictors
                 , argKalmanMarketTopN = pick (apKalmanMarketTopN p) (argKalmanMarketTopN baseArgs)
                 , argOpenThreshold = openThr
@@ -25304,10 +25314,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                             meas = mapMaybe (toMeasurement args sv) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
                             kal' = stepMulti meas kal
                             sv' =
-                                foldl'
-                                    (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
-                                    sv
-                                    sensorOuts
+                                updateSensorVarianceFromOutputs args realizedR sv sensorOuts
                             hmm' = updateHMM predictors predState realizedR
                          in (kal', hmm', sv')
 
@@ -31059,6 +31066,20 @@ toMeasurement args sv (sid, out) =
         var' = max 1e-12 var
      in Just (soMu out, var')
 
+sensorVarianceConfigFromArgs :: Args -> SensorVarianceConfig
+sensorVarianceConfigFromArgs args =
+    SensorVarianceConfig
+        { svcEwmaAlpha = argSensorVarianceEwmaAlpha args
+        }
+
+updateSensorVarianceFromOutputs :: Args -> Double -> SensorVar -> [(SensorId, SensorOutput)] -> SensorVar
+updateSensorVarianceFromOutputs args realizedR sv sensorOuts =
+    let cfg = sensorVarianceConfigFromArgs args
+     in foldl'
+            (\acc (sid, out) -> updateResidualWith cfg sid (realizedR - soMu out) acc)
+            sv
+            sensorOuts
+
 backtestStepKalmanOnly ::
     Args ->
     FeatureInputs ->
@@ -31095,10 +31116,7 @@ backtestStepKalmanOnly args inputs predictors trainEnd mMarketModel (kal, hmm, s
                 }
 
         sv' =
-            foldl'
-                (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
-                sv
-                sensorOuts
+            updateSensorVarianceFromOutputs args realizedR sv sensorOuts
         hmm' = updateHMM predictors predState realizedR
      in (kal', hmm', sv', kalNext : kalAcc, meta : metaAcc)
 
@@ -31154,10 +31172,7 @@ backtestStep args lookback normState obsAll mBasisObs inputs lstmModel predictor
         lstmNext = inverseNorm normState lstmNextObs
 
         sv' =
-            foldl'
-                (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
-                sv
-                sensorOuts
+            updateSensorVarianceFromOutputs args realizedR sv sensorOuts
         hmm' = updateHMM predictors predState realizedR
      in (kal', hmm', sv', kalNext : kalAcc, lstmNext : lstmAcc, meta : metaAcc)
 

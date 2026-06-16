@@ -1,9 +1,16 @@
 module Trader.SensorVariance (
+    SensorVarianceConfig (..),
     SensorVar (..),
+    defaultSensorVarianceConfig,
+    defaultSensorVarianceEwmaAlpha,
     emptySensorVar,
     updateResidual,
+    updateResidualWith,
+    validateSensorVarianceConfig,
     varianceFor,
 ) where
+
+import Data.Either (fromRight)
 
 import Trader.OnlineStats (Welford, emptyWelford, updateWelford, varianceWelford)
 import Trader.Predictors.Types (SensorId (..))
@@ -14,21 +21,43 @@ data EwmaVar = EwmaVar
     }
     deriving (Eq, Show)
 
-ewmaAlpha :: Double
-ewmaAlpha = 0.05
+newtype SensorVarianceConfig = SensorVarianceConfig
+    { svcEwmaAlpha :: Double
+    }
+    deriving (Eq, Show)
+
+defaultSensorVarianceEwmaAlpha :: Double
+defaultSensorVarianceEwmaAlpha = 0.05
+
+defaultSensorVarianceConfig :: SensorVarianceConfig
+defaultSensorVarianceConfig =
+    SensorVarianceConfig
+        { svcEwmaAlpha = defaultSensorVarianceEwmaAlpha
+        }
+
+validateSensorVarianceConfig :: SensorVarianceConfig -> Either String SensorVarianceConfig
+validateSensorVarianceConfig config = do
+    let alpha = svcEwmaAlpha config
+    if isFinite alpha && alpha >= 0 && alpha <= 1
+        then Right config
+        else Left "sensor variance EWMA alpha must be finite and between 0 and 1"
+
+sanitizeSensorVarianceConfig :: SensorVarianceConfig -> SensorVarianceConfig
+sanitizeSensorVarianceConfig config =
+    fromRight defaultSensorVarianceConfig (validateSensorVarianceConfig config)
 
 emptyEwmaVar :: EwmaVar
 emptyEwmaVar = EwmaVar{evVar = 0, evReady = False}
 
-updateEwmaVar :: Double -> EwmaVar -> EwmaVar
-updateEwmaVar resid ev =
+updateEwmaVarWith :: SensorVarianceConfig -> Double -> EwmaVar -> EwmaVar
+updateEwmaVarWith config resid ev =
     if not (isFinite resid)
         then ev
         else
             let x2 = resid * resid
              in if evReady ev
                     then
-                        let a = ewmaAlpha
+                        let a = svcEwmaAlpha (sanitizeSensorVarianceConfig config)
                          in ev{evVar = (1 - a) * evVar ev + a * x2}
                     else EwmaVar{evVar = x2, evReady = True}
 
@@ -78,49 +107,52 @@ emptySensorVar =
         }
 
 updateResidual :: SensorId -> Double -> SensorVar -> SensorVar
-updateResidual sid resid sv =
+updateResidual = updateResidualWith defaultSensorVarianceConfig
+
+updateResidualWith :: SensorVarianceConfig -> SensorId -> Double -> SensorVar -> SensorVar
+updateResidualWith config sid resid sv =
     if not (isFinite resid)
         then sv
         else case sid of
             SensorGBT ->
                 sv
                     { svGBT = updateWelford resid (svGBT sv)
-                    , svGBTEwma = updateEwmaVar resid (svGBTEwma sv)
+                    , svGBTEwma = updateEwmaVarWith config resid (svGBTEwma sv)
                     }
             SensorKNN ->
                 sv
                     { svKNN = updateWelford resid (svKNN sv)
-                    , svKNNEwma = updateEwmaVar resid (svKNNEwma sv)
+                    , svKNNEwma = updateEwmaVarWith config resid (svKNNEwma sv)
                     }
             SensorDecisionTree ->
                 sv
                     { svDecisionTree = updateWelford resid (svDecisionTree sv)
-                    , svDecisionTreeEwma = updateEwmaVar resid (svDecisionTreeEwma sv)
+                    , svDecisionTreeEwma = updateEwmaVarWith config resid (svDecisionTreeEwma sv)
                     }
             SensorTCN ->
                 sv
                     { svTCN = updateWelford resid (svTCN sv)
-                    , svTCNEwma = updateEwmaVar resid (svTCNEwma sv)
+                    , svTCNEwma = updateEwmaVarWith config resid (svTCNEwma sv)
                     }
             SensorTransformer ->
                 sv
                     { svTransformer = updateWelford resid (svTransformer sv)
-                    , svTransformerEwma = updateEwmaVar resid (svTransformerEwma sv)
+                    , svTransformerEwma = updateEwmaVarWith config resid (svTransformerEwma sv)
                     }
             SensorHMM ->
                 sv
                     { svHMM = updateWelford resid (svHMM sv)
-                    , svHMMEwma = updateEwmaVar resid (svHMMEwma sv)
+                    , svHMMEwma = updateEwmaVarWith config resid (svHMMEwma sv)
                     }
             SensorQuantile ->
                 sv
                     { svQuantile = updateWelford resid (svQuantile sv)
-                    , svQuantileEwma = updateEwmaVar resid (svQuantileEwma sv)
+                    , svQuantileEwma = updateEwmaVarWith config resid (svQuantileEwma sv)
                     }
             SensorConformal ->
                 sv
                     { svConformal = updateWelford resid (svConformal sv)
-                    , svConformalEwma = updateEwmaVar resid (svConformalEwma sv)
+                    , svConformalEwma = updateEwmaVarWith config resid (svConformalEwma sv)
                     }
 
 varianceFor :: SensorId -> SensorVar -> Maybe Double

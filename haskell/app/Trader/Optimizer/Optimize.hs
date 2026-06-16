@@ -1228,7 +1228,7 @@ selectOptimizerPriorTrials args symbol intervals rawTrials =
             filter
                 (priorTrialMeetsEvidence args symbol intervals)
                 rawTrials
-        sorted = sortOn (Data.Ord.Down . ptScore) eligible
+        sorted = sortOn (Data.Ord.Down . priorTrialRankScore args) eligible
         fraction = clamp (oaPriorTopFraction args) 0 1
         total = length sorted
         requested =
@@ -1238,6 +1238,22 @@ selectOptimizerPriorTrials args symbol intervals rawTrials =
                     let byFraction = ceiling (fromIntegral total * fraction :: Double)
                      in max (max 0 (oaPriorMinSamples args)) byFraction
      in take (min total requested) sorted
+
+priorTrialRankScore :: OptimizerArgs -> PriorTrial -> Double
+priorTrialRankScore args trial =
+    if KM.null (ptMetrics trial)
+        then ptScore trial
+        else
+            let score =
+                    objectiveScoreWithConfig
+                        (roiScoreConfigFromOptimizerArgs args)
+                        (ptMetrics trial)
+                        (oaObjective args)
+                        (oaPenaltyMaxDrawdown args)
+                        (oaPenaltyTurnover args)
+             in if isNaN score || isInfinite score
+                    then ptScore trial
+                    else score
 
 priorTrialMeetsEvidence :: OptimizerArgs -> Maybe String -> [String] -> PriorTrial -> Bool
 priorTrialMeetsEvidence args symbol intervals trial =
@@ -2001,6 +2017,7 @@ data OptimizerArgs = OptimizerArgs
     , oaTunePenaltyMaxDrawdown :: !Double
     , oaTunePenaltyTurnover :: !Double
     , oaTuneMaxThresholdCandidates :: !Int
+    , oaSensorVarianceEwmaAlpha :: !Double
     , oaTuneStressVolMult :: !Double
     , oaTuneStressShock :: !Double
     , oaTuneStressWeight :: !Double
@@ -5948,6 +5965,8 @@ buildBaseArgs args csvCols = do
                            , printf "%.6f" (max 0 (oaTunePenaltyTurnover args))
                            , "--tune-max-threshold-candidates"
                            , show (max 0 (oaTuneMaxThresholdCandidates args))
+                           , "--sensor-variance-ewma-alpha"
+                           , printf "%.6f" (clamp (oaSensorVarianceEwmaAlpha args) 0 1)
                            , "--seed"
                            , show (oaSeed args)
                            ]

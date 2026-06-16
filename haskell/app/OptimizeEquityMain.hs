@@ -18,6 +18,7 @@ import Trader.Optimizer.Optimize (
     runOptimizer,
  )
 import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig)
+import Trader.SensorVariance (defaultSensorVarianceEwmaAlpha)
 
 main :: IO ()
 main = do
@@ -123,6 +124,7 @@ optimizerArgsParser =
         <*> option auto (long "tune-penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
         <*> option auto (long "tune-penalty-turnover" <> value 0.2 <> metavar "FLOAT")
         <*> option auto (long "tune-max-threshold-candidates" <> value defaultMaxThresholdCandidates <> showDefault <> metavar "INT")
+        <*> option auto (long "sensor-variance-ewma-alpha" <> value defaultSensorVarianceEwmaAlpha <> showDefault <> metavar "FLOAT")
         <*> option auto (long "tune-stress-vol-mult" <> value 1.25 <> metavar "FLOAT")
         <*> option auto (long "tune-stress-shock" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "tune-stress-weight" <> value 0.2 <> metavar "FLOAT")
@@ -659,6 +661,8 @@ validateArgs args = do
         Left "--prior-min-samples must be >= 0."
     when (oaTuneMaxThresholdCandidates args < 0) $
         Left "--tune-max-threshold-candidates must be >= 0."
+    when (oaSensorVarianceEwmaAlpha args < 0 || oaSensorVarianceEwmaAlpha args > 1) $
+        Left "--sensor-variance-ewma-alpha must be between 0 and 1."
     when (oaQualityMinTrials args < 1) $
         Left "--quality-min-trials must be >= 1."
     when (oaQualityMaxEpochs args < 1) $
