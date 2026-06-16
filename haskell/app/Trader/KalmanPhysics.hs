@@ -47,6 +47,8 @@ data KalmanPhysicsConfig = KalmanPhysicsConfig
     , kpcCloseBiasScale :: !Double
     , kpcCandidateValidationRatio :: !Double
     , kpcSmallSampleValidationRatio :: !Double
+    , kpcCandidateTrees :: !Int
+    , kpcCandidateLearningRate :: !Double
     }
     deriving (Eq, Show)
 
@@ -58,6 +60,8 @@ defaultKalmanPhysicsConfig =
         , kpcCloseBiasScale = 0.05
         , kpcCandidateValidationRatio = 0.2
         , kpcSmallSampleValidationRatio = 1 / 3
+        , kpcCandidateTrees = 0
+        , kpcCandidateLearningRate = 0
         }
 
 data PhysicsRow = PhysicsRow
@@ -193,18 +197,29 @@ buildPhysicsRows dt barsV statesV =
 
 chooseBestCandidate :: KalmanPhysicsConfig -> [PhysicsRow] -> Candidate
 chooseBestCandidate cfg trainRows =
-    let candidates =
-            [ Candidate FeatureDeltaAccel 40 0.05
-            , Candidate FeatureDeltaAccel 80 0.08
-            , Candidate FeatureDeltaAccel 120 0.05
-            , Candidate FeatureJerk 40 0.05
-            , Candidate FeatureJerk 80 0.08
-            , Candidate FeatureJerk 120 0.05
-            ]
+    let candidates = candidateGrid cfg
         scored = map (\c -> (scoreCandidate cfg c trainRows, c)) candidates
         bad x = isNaN x || isInfinite x
         scoreOrInf x = if bad x then 1 / 0 else x
      in snd (minimumBy (comparing (scoreOrInf . fst)) scored)
+
+candidateGrid :: KalmanPhysicsConfig -> [Candidate]
+candidateGrid cfg =
+    let trees = kpcCandidateTrees cfg
+        learningRate = kpcCandidateLearningRate cfg
+     in if trees > 0 && learningRate > 0
+            then
+                [ Candidate FeatureDeltaAccel trees learningRate
+                , Candidate FeatureJerk trees learningRate
+                ]
+            else
+                [ Candidate FeatureDeltaAccel 40 0.05
+                , Candidate FeatureDeltaAccel 80 0.08
+                , Candidate FeatureDeltaAccel 120 0.05
+                , Candidate FeatureJerk 40 0.05
+                , Candidate FeatureJerk 80 0.08
+                , Candidate FeatureJerk 120 0.05
+                ]
 
 scoreCandidate :: KalmanPhysicsConfig -> Candidate -> [PhysicsRow] -> Double
 scoreCandidate cfg cand rows =

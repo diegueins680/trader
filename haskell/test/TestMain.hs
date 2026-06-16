@@ -308,6 +308,7 @@ main = do
     testKalmanPhysicsKnobsRejectInvalidValues
     testKalmanPhysicsMeasurementKnobsRejectInvalidValues
     testKalmanPhysicsCandidateValidationRatiosRejectInvalidValues
+    testKalmanPhysicsCandidateGridKnobsRejectInvalidValues
     testSensorVarianceEwmaAlphaRejectsInvalidValues
     testKalmanConservativeFusionRejectsInvalidValues
     testKalmanResidualVarianceFloor
@@ -1642,6 +1643,27 @@ testKalmanPhysicsCandidateValidationRatiosRejectInvalidValues = do
         "kalman-physics-small-sample-validation-ratio accepts custom values"
         ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-small-sample-validation-ratio", "0.4"] of
             Right args -> argKalmanPhysicsSmallSampleValidationRatio args == 0.4
+            Left _ -> False
+        )
+
+testKalmanPhysicsCandidateGridKnobsRejectInvalidValues :: IO ()
+testKalmanPhysicsCandidateGridKnobsRejectInvalidValues = do
+    assert
+        "kalman-physics-candidate-trees rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-candidate-trees", "-1"] == Left "--kalman-physics-candidate-trees must be >= 0")
+    assert
+        "kalman-physics-candidate-trees accepts custom values"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-candidate-trees", "96"] of
+            Right args -> argKalmanPhysicsCandidateTrees args == 96
+            Left _ -> False
+        )
+    assert
+        "kalman-physics-candidate-learning-rate rejects negative values"
+        (parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-candidate-learning-rate", "-0.01"] == Left "--kalman-physics-candidate-learning-rate must be >= 0")
+    assert
+        "kalman-physics-candidate-learning-rate accepts custom values"
+        ( case parseAndValidateCliArgs ["--data", "sample.csv", "--kalman-physics-candidate-learning-rate", "0.07"] of
+            Right args -> argKalmanPhysicsCandidateLearningRate args == 0.07
             Left _ -> False
         )
 

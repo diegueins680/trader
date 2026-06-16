@@ -279,6 +279,10 @@ optimizerArgsParser =
         <*> option auto (long "kalman-physics-candidate-validation-ratio-max" <> value 0.2 <> metavar "FLOAT")
         <*> option auto (long "kalman-physics-small-sample-validation-ratio-min" <> value (1 / 3) <> metavar "FLOAT")
         <*> option auto (long "kalman-physics-small-sample-validation-ratio-max" <> value (1 / 3) <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-candidate-trees-min" <> value 0 <> metavar "INT")
+        <*> option auto (long "kalman-physics-candidate-trees-max" <> value 0 <> metavar "INT")
+        <*> option auto (long "kalman-physics-candidate-learning-rate-min" <> value 0 <> metavar "FLOAT")
+        <*> option auto (long "kalman-physics-candidate-learning-rate-max" <> value 0 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-min-min" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-min-max" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-z-max-min" <> value 0.0 <> metavar "FLOAT")
@@ -806,6 +810,15 @@ validateArgs args = do
             || oaKalmanPhysicsSmallSampleValidationRatioMax args >= 1
         )
         $ Left "--kalman-physics-small-sample-validation-ratio-min/max must be >= 0 and < 1."
+    when (oaKalmanPhysicsCandidateTreesMin args < 0 || oaKalmanPhysicsCandidateTreesMax args < 0) $
+        Left "--kalman-physics-candidate-trees-min/max must be >= 0."
+    when
+        ( not (finiteDouble (oaKalmanPhysicsCandidateLearningRateMin args))
+            || not (finiteDouble (oaKalmanPhysicsCandidateLearningRateMax args))
+            || oaKalmanPhysicsCandidateLearningRateMin args < 0
+            || oaKalmanPhysicsCandidateLearningRateMax args < 0
+        )
+        $ Left "--kalman-physics-candidate-learning-rate-min/max must be >= 0."
     when (not (finiteDouble (oaLstmAdamBeta1 args)) || oaLstmAdamBeta1 args < 0 || oaLstmAdamBeta1 args >= 1) $
         Left "--lstm-adam-beta1 must be >= 0 and < 1."
     when (not (finiteDouble (oaLstmAdamBeta2 args)) || oaLstmAdamBeta2 args < 0 || oaLstmAdamBeta2 args >= 1) $

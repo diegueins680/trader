@@ -2623,6 +2623,8 @@ argsPublicJson args =
             , "kalmanPhysicsCloseBiasScale" .= argKalmanPhysicsCloseBiasScale args
             , "kalmanPhysicsCandidateValidationRatio" .= argKalmanPhysicsCandidateValidationRatio args
             , "kalmanPhysicsSmallSampleValidationRatio" .= argKalmanPhysicsSmallSampleValidationRatio args
+            , "kalmanPhysicsCandidateTrees" .= argKalmanPhysicsCandidateTrees args
+            , "kalmanPhysicsCandidateLearningRate" .= argKalmanPhysicsCandidateLearningRate args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -10452,6 +10454,10 @@ parseTopComboToArgs base combo = do
                     max
                         0
                         (min 0.999999 (pickD "kalmanPhysicsSmallSampleValidationRatio" (argKalmanPhysicsSmallSampleValidationRatio base)))
+                , argKalmanPhysicsCandidateTrees =
+                    max 0 (pickI "kalmanPhysicsCandidateTrees" (argKalmanPhysicsCandidateTrees base))
+                , argKalmanPhysicsCandidateLearningRate =
+                    max 0 (pickD "kalmanPhysicsCandidateLearningRate" (argKalmanPhysicsCandidateLearningRate base))
                 , argSensorVarianceEwmaAlpha = clamp01 (pickD "sensorVarianceEwmaAlpha" (argSensorVarianceEwmaAlpha base))
                 , argKalmanSensorCorrelationInflation = kalmanSensorCorrelationInflation
                 , argKalmanInnovationInflationThreshold = kalmanInnovationInflationThreshold
@@ -13884,6 +13890,8 @@ argsCacheJsonSignal args =
             , "kalmanPhysicsCloseBiasScale" .= argKalmanPhysicsCloseBiasScale args
             , "kalmanPhysicsCandidateValidationRatio" .= argKalmanPhysicsCandidateValidationRatio args
             , "kalmanPhysicsSmallSampleValidationRatio" .= argKalmanPhysicsSmallSampleValidationRatio args
+            , "kalmanPhysicsCandidateTrees" .= argKalmanPhysicsCandidateTrees args
+            , "kalmanPhysicsCandidateLearningRate" .= argKalmanPhysicsCandidateLearningRate args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -14109,6 +14117,8 @@ argsCacheJsonBacktest args =
             , "kalmanPhysicsCloseBiasScale" .= argKalmanPhysicsCloseBiasScale args
             , "kalmanPhysicsCandidateValidationRatio" .= argKalmanPhysicsCandidateValidationRatio args
             , "kalmanPhysicsSmallSampleValidationRatio" .= argKalmanPhysicsSmallSampleValidationRatio args
+            , "kalmanPhysicsCandidateTrees" .= argKalmanPhysicsCandidateTrees args
+            , "kalmanPhysicsCandidateLearningRate" .= argKalmanPhysicsCandidateLearningRate args
             , "sensorVarianceEwmaAlpha" .= argSensorVarianceEwmaAlpha args
             , "kalmanSensorCorrelationInflation" .= argKalmanSensorCorrelationInflation args
             , "kalmanInnovationInflationThreshold" .= argKalmanInnovationInflationThreshold args
@@ -26228,6 +26238,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                             , kpcCloseBiasScale = argKalmanPhysicsCloseBiasScale args
                             , kpcCandidateValidationRatio = argKalmanPhysicsCandidateValidationRatio args
                             , kpcSmallSampleValidationRatio = argKalmanPhysicsSmallSampleValidationRatio args
+                            , kpcCandidateTrees = argKalmanPhysicsCandidateTrees args
+                            , kpcCandidateLearningRate = argKalmanPhysicsCandidateLearningRate args
                             }
                     barsV =
                         V.generate n $ \i ->

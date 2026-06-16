@@ -160,6 +160,8 @@ data Args = Args
     , argKalmanPhysicsCloseBiasScale :: Double
     , argKalmanPhysicsCandidateValidationRatio :: Double
     , argKalmanPhysicsSmallSampleValidationRatio :: Double
+    , argKalmanPhysicsCandidateTrees :: Int
+    , argKalmanPhysicsCandidateLearningRate :: Double
     , argSensorVarianceEwmaAlpha :: Double
     , argKalmanSensorCorrelationInflation :: Double
     , argKalmanInnovationInflationThreshold :: Double
@@ -877,6 +879,22 @@ opts = do
                 <> value (1 / 3)
                 <> showDefault
                 <> help "Validation split ratio used by --method kalman_physics_error candidate selection when fewer than five training rows are available"
+            )
+    argKalmanPhysicsCandidateTrees <-
+        option
+            auto
+            ( long "kalman-physics-candidate-trees"
+                <> value 0
+                <> showDefault
+                <> help "GBDT tree count for a fixed --method kalman_physics_error correction candidate (0 uses the built-in candidate grid)"
+            )
+    argKalmanPhysicsCandidateLearningRate <-
+        option
+            auto
+            ( long "kalman-physics-candidate-learning-rate"
+                <> value 0
+                <> showDefault
+                <> help "GBDT learning rate for a fixed --method kalman_physics_error correction candidate (0 uses the built-in candidate grid)"
             )
     argSensorVarianceEwmaAlpha <- option auto (long "sensor-variance-ewma-alpha" <> value defaultSensorVarianceEwmaAlpha <> showDefault <> help "EWMA alpha for learned sensor residual variance used by Kalman fusion (0 keeps the initial residual variance; 1 uses only the latest residual)")
     argKalmanSensorCorrelationInflation <-
@@ -1771,6 +1789,7 @@ validateArgs args0 = do
             , ("--kalman-physics-close-bias-scale", argKalmanPhysicsCloseBiasScale args)
             , ("--kalman-physics-candidate-validation-ratio", argKalmanPhysicsCandidateValidationRatio args)
             , ("--kalman-physics-small-sample-validation-ratio", argKalmanPhysicsSmallSampleValidationRatio args)
+            , ("--kalman-physics-candidate-learning-rate", argKalmanPhysicsCandidateLearningRate args)
             , ("--sensor-variance-ewma-alpha", argSensorVarianceEwmaAlpha args)
             , ("--kalman-sensor-correlation-inflation", argKalmanSensorCorrelationInflation args)
             , ("--kalman-innovation-inflation-threshold", argKalmanInnovationInflationThreshold args)
@@ -2054,6 +2073,8 @@ validateArgs args0 = do
     ensure "--kalman-physics-volume-signal-clamp must be >= 0" (argKalmanPhysicsVolumeSignalClamp args >= 0)
     ensure "--kalman-physics-candidate-validation-ratio must be >= 0 and < 1" (argKalmanPhysicsCandidateValidationRatio args >= 0 && argKalmanPhysicsCandidateValidationRatio args < 1)
     ensure "--kalman-physics-small-sample-validation-ratio must be >= 0 and < 1" (argKalmanPhysicsSmallSampleValidationRatio args >= 0 && argKalmanPhysicsSmallSampleValidationRatio args < 1)
+    ensure "--kalman-physics-candidate-trees must be >= 0" (argKalmanPhysicsCandidateTrees args >= 0)
+    ensure "--kalman-physics-candidate-learning-rate must be >= 0" (argKalmanPhysicsCandidateLearningRate args >= 0)
     ensure "--sensor-variance-ewma-alpha must be between 0 and 1" (argSensorVarianceEwmaAlpha args >= 0 && argSensorVarianceEwmaAlpha args <= 1)
     ensure "--kalman-sensor-correlation-inflation must be between 0 and 1" (argKalmanSensorCorrelationInflation args >= 0 && argKalmanSensorCorrelationInflation args <= 1)
     ensure "--kalman-innovation-inflation-threshold must be >= 0" (argKalmanInnovationInflationThreshold args >= 0)
