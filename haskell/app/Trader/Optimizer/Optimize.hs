@@ -1256,6 +1256,31 @@ priorTrialRankScore args trial =
                     then ptScore trial
                     else score
 
+priorTrialDistributionSummary :: [PriorTrial] -> String
+priorTrialDistributionSummary trials =
+    let methodSummary = countSummary (fromMaybe "unknown" . ptMethod) trials
+        intervalSummary = countSummary (fromMaybe "unknown" . ptInterval) trials
+        wfCount = length (filter priorTrialHasWalkForwardSummary trials)
+     in " methods="
+            ++ methodSummary
+            ++ " intervals="
+            ++ intervalSummary
+            ++ " walkForward="
+            ++ show wfCount
+            ++ "/"
+            ++ show (length trials)
+
+countSummary :: (PriorTrial -> String) -> [PriorTrial] -> String
+countSummary pick trials =
+    let add acc trial = M.insertWith (+) (pick trial) (1 :: Int) acc
+        counts = sortOn (Data.Ord.Down . snd) (M.toList (foldl' add M.empty trials))
+        render (key, n) = key ++ ":" ++ show n
+     in intercalate "," (map render (take 8 counts))
+
+priorTrialHasWalkForwardSummary :: PriorTrial -> Bool
+priorTrialHasWalkForwardSummary trial =
+    isJust (valueObjectAt (Object (ptMetrics trial)) "walkForwardSummary")
+
 priorTrialMeetsEvidence :: OptimizerArgs -> Maybe String -> [String] -> PriorTrial -> Bool
 priorTrialMeetsEvidence args symbol intervals trial =
     let metrics = Just (ptMetrics trial)
@@ -5226,6 +5251,7 @@ runOptimizer args0 = do
                                                                                 ++ show (length priorTrialsRaw)
                                                                                 ++ " rows from "
                                                                                 ++ oaPriorJson args
+                                                                                ++ priorTrialDistributionSummary priorTrials
                                                                             )
                                                                     outHandle <-
                                                                         if null (trim (oaOutput args))
