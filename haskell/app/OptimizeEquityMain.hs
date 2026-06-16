@@ -514,6 +514,11 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "blend-fractal-return-clamp" 0.25 1.5
         <*> doubleRangeOption "blend-fractal-aligned-gain" 0.8 1.5
         <*> doubleRangeOption "blend-fractal-conflict-gain" 0.4 1.1
+        <*> doubleRangeOption "blend-coherence-conflict-floor" 0.0 0.6
+        <*> doubleRangeOption "blend-coherence-conflict-scale" 0.0 1.0
+        <*> doubleRangeOption "blend-coherence-boost-threshold" 0.3 0.9
+        <*> doubleRangeOption "blend-coherence-boost-gain" 0.0 0.8
+        <*> doubleRangeOption "blend-coherence-boost-span" 0.1 0.8
         <*> doubleRangeOption "blend-phase-cancel-return-clamp" 0.25 1.5
         <*> doubleRangeOption "blend-phase-cancel-conflict-floor" 0.0 0.5
         <*> doubleRangeOption "blend-phase-cancel-conflict-scale" 0.0 1.2
@@ -812,6 +817,11 @@ validateTechnicalOptimizerRanges ranges = do
     positiveRange "blend-fractal-return-clamp" (torBlendFractalReturnClamp ranges)
     nonNegativeRange "blend-fractal-aligned-gain" (torBlendFractalAlignedGain ranges)
     nonNegativeRange "blend-fractal-conflict-gain" (torBlendFractalConflictGain ranges)
+    nonNegativeRange "blend-coherence-conflict-floor" (torBlendCoherenceConflictFloor ranges)
+    nonNegativeRange "blend-coherence-conflict-scale" (torBlendCoherenceConflictScale ranges)
+    unitRange "blend-coherence-boost-threshold" (torBlendCoherenceBoostThreshold ranges)
+    nonNegativeRange "blend-coherence-boost-gain" (torBlendCoherenceBoostGain ranges)
+    positiveRange "blend-coherence-boost-span" (torBlendCoherenceBoostSpan ranges)
     positiveRange "blend-phase-cancel-return-clamp" (torBlendPhaseCancelReturnClamp ranges)
     nonNegativeRange "blend-phase-cancel-conflict-floor" (torBlendPhaseCancelConflictFloor ranges)
     nonNegativeRange "blend-phase-cancel-conflict-scale" (torBlendPhaseCancelConflictScale ranges)

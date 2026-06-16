@@ -2602,6 +2602,11 @@ argsPublicJson args =
             , "blendFractalReturnClamp" .= argBlendFractalReturnClamp args
             , "blendFractalAlignedGain" .= argBlendFractalAlignedGain args
             , "blendFractalConflictGain" .= argBlendFractalConflictGain args
+            , "blendCoherenceConflictFloor" .= argBlendCoherenceConflictFloor args
+            , "blendCoherenceConflictScale" .= argBlendCoherenceConflictScale args
+            , "blendCoherenceBoostThreshold" .= argBlendCoherenceBoostThreshold args
+            , "blendCoherenceBoostGain" .= argBlendCoherenceBoostGain args
+            , "blendCoherenceBoostSpan" .= argBlendCoherenceBoostSpan args
             , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
             , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
@@ -9492,6 +9497,11 @@ botOptimizeAfterOperation st = do
                                 , ecBlendFractalReturnClamp = argBlendFractalReturnClamp args
                                 , ecBlendFractalAlignedGain = argBlendFractalAlignedGain args
                                 , ecBlendFractalConflictGain = argBlendFractalConflictGain args
+                                , ecBlendCoherenceConflictFloor = argBlendCoherenceConflictFloor args
+                                , ecBlendCoherenceConflictScale = argBlendCoherenceConflictScale args
+                                , ecBlendCoherenceBoostThreshold = argBlendCoherenceBoostThreshold args
+                                , ecBlendCoherenceBoostGain = argBlendCoherenceBoostGain args
+                                , ecBlendCoherenceBoostSpan = argBlendCoherenceBoostSpan args
                                 , ecBlendPhaseCancelReturnClamp = argBlendPhaseCancelReturnClamp args
                                 , ecBlendPhaseCancelConflictFloor = argBlendPhaseCancelConflictFloor args
                                 , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
@@ -9953,6 +9963,11 @@ parseTopComboToArgs base combo = do
         blendFractalReturnClamp = max 1e-12 (pickD "blendFractalReturnClamp" (argBlendFractalReturnClamp base))
         blendFractalAlignedGain = max 0 (pickD "blendFractalAlignedGain" (argBlendFractalAlignedGain base))
         blendFractalConflictGain = max 0 (pickD "blendFractalConflictGain" (argBlendFractalConflictGain base))
+        blendCoherenceConflictFloor = max 0 (pickD "blendCoherenceConflictFloor" (argBlendCoherenceConflictFloor base))
+        blendCoherenceConflictScale = max 0 (pickD "blendCoherenceConflictScale" (argBlendCoherenceConflictScale base))
+        blendCoherenceBoostThreshold = clamp01 (pickD "blendCoherenceBoostThreshold" (argBlendCoherenceBoostThreshold base))
+        blendCoherenceBoostGain = max 0 (pickD "blendCoherenceBoostGain" (argBlendCoherenceBoostGain base))
+        blendCoherenceBoostSpan = max 1e-12 (pickD "blendCoherenceBoostSpan" (argBlendCoherenceBoostSpan base))
         blendPhaseCancelReturnClamp = max 1e-12 (pickD "blendPhaseCancelReturnClamp" (argBlendPhaseCancelReturnClamp base))
         blendPhaseCancelConflictFloor = max 0 (pickD "blendPhaseCancelConflictFloor" (argBlendPhaseCancelConflictFloor base))
         blendPhaseCancelConflictScale = max 0 (pickD "blendPhaseCancelConflictScale" (argBlendPhaseCancelConflictScale base))
@@ -10083,6 +10098,11 @@ parseTopComboToArgs base combo = do
                 , argBlendFractalReturnClamp = blendFractalReturnClamp
                 , argBlendFractalAlignedGain = blendFractalAlignedGain
                 , argBlendFractalConflictGain = blendFractalConflictGain
+                , argBlendCoherenceConflictFloor = blendCoherenceConflictFloor
+                , argBlendCoherenceConflictScale = blendCoherenceConflictScale
+                , argBlendCoherenceBoostThreshold = blendCoherenceBoostThreshold
+                , argBlendCoherenceBoostGain = blendCoherenceBoostGain
+                , argBlendCoherenceBoostSpan = blendCoherenceBoostSpan
                 , argBlendPhaseCancelReturnClamp = blendPhaseCancelReturnClamp
                 , argBlendPhaseCancelConflictFloor = blendPhaseCancelConflictFloor
                 , argBlendPhaseCancelConflictScale = blendPhaseCancelConflictScale
@@ -13436,6 +13456,11 @@ argsCacheJsonSignal args =
             , "blendFractalReturnClamp" .= argBlendFractalReturnClamp args
             , "blendFractalAlignedGain" .= argBlendFractalAlignedGain args
             , "blendFractalConflictGain" .= argBlendFractalConflictGain args
+            , "blendCoherenceConflictFloor" .= argBlendCoherenceConflictFloor args
+            , "blendCoherenceConflictScale" .= argBlendCoherenceConflictScale args
+            , "blendCoherenceBoostThreshold" .= argBlendCoherenceBoostThreshold args
+            , "blendCoherenceBoostGain" .= argBlendCoherenceBoostGain args
+            , "blendCoherenceBoostSpan" .= argBlendCoherenceBoostSpan args
             , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
             , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
@@ -13622,6 +13647,11 @@ argsCacheJsonBacktest args =
             , "blendFractalReturnClamp" .= argBlendFractalReturnClamp args
             , "blendFractalAlignedGain" .= argBlendFractalAlignedGain args
             , "blendFractalConflictGain" .= argBlendFractalConflictGain args
+            , "blendCoherenceConflictFloor" .= argBlendCoherenceConflictFloor args
+            , "blendCoherenceConflictScale" .= argBlendCoherenceConflictScale args
+            , "blendCoherenceBoostThreshold" .= argBlendCoherenceBoostThreshold args
+            , "blendCoherenceBoostGain" .= argBlendCoherenceBoostGain args
+            , "blendCoherenceBoostSpan" .= argBlendCoherenceBoostSpan args
             , "blendPhaseCancelReturnClamp" .= argBlendPhaseCancelReturnClamp args
             , "blendPhaseCancelConflictFloor" .= argBlendPhaseCancelConflictFloor args
             , "blendPhaseCancelConflictScale" .= argBlendPhaseCancelConflictScale args
@@ -21325,10 +21355,20 @@ coherenceGatePredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     Double
-coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
+coherenceGatePredFromPreds conflictFloorRaw conflictScaleRaw boostThresholdRaw boostGainRaw boostSpanRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        conflictFloor = max 0 conflictFloorRaw
+        conflictScale = max 0 conflictScaleRaw
+        boostThreshold = clamp01 boostThresholdRaw
+        boostGain = max 0 boostGainRaw
+        boostSpan = max 1e-12 boostSpanRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -21369,11 +21409,11 @@ coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
                             weakPred = chooseWeak eKal eLstm
                             pred
                                 | dKal /= dLstm =
-                                    shrink (0.2 + 0.5 * coherence) weakPred
+                                    shrink (clamp01 (conflictFloor + conflictScale * coherence)) weakPred
                                 | dKal == 0 =
                                     neutralPred
-                                | coherence >= 0.6 =
-                                    let gain = 1 + 0.35 * ((coherence - 0.6) / 0.4)
+                                | coherence >= boostThreshold =
+                                    let gain = 1 + boostGain * ((coherence - boostThreshold) / boostSpan)
                                      in neutralPred + gain * (blend - neutralPred)
                                 | otherwise =
                                     weakPred
@@ -21385,17 +21425,22 @@ coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
 
 coherenceGatePredictionsV ::
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-coherenceGatePredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+coherenceGatePredictionsV conflictFloor conflictScale boostThreshold boostGain boostSpan fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred
+             in coherenceGatePredFromPreds conflictFloor conflictScale boostThreshold boostGain boostSpan fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 fractalBlendPredFromPreds ::
@@ -22240,6 +22285,11 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 blendFractalReturnClamp = max 1e-12 (argBlendFractalReturnClamp args)
                 blendFractalAlignedGain = max 0 (argBlendFractalAlignedGain args)
                 blendFractalConflictGain = max 0 (argBlendFractalConflictGain args)
+                blendCoherenceConflictFloor = max 0 (argBlendCoherenceConflictFloor args)
+                blendCoherenceConflictScale = max 0 (argBlendCoherenceConflictScale args)
+                blendCoherenceBoostThreshold = clamp01 (argBlendCoherenceBoostThreshold args)
+                blendCoherenceBoostGain = max 0 (argBlendCoherenceBoostGain args)
+                blendCoherenceBoostSpan = max 1e-12 (argBlendCoherenceBoostSpan args)
                 blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
                 blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
                 blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
@@ -22254,7 +22304,17 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 anchorBlendPred0 = anchorBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 tensionGatePred0 = tensionGatePredictionsV blendWeight pricesV kalPred0 lstmPred0
                 entropyBlendPred0 = entropyBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
-                coherenceGatePred0 = coherenceGatePredictionsV blendWeight pricesV kalPred0 lstmPred0
+                coherenceGatePred0 =
+                    coherenceGatePredictionsV
+                        blendCoherenceConflictFloor
+                        blendCoherenceConflictScale
+                        blendCoherenceBoostThreshold
+                        blendCoherenceBoostGain
+                        blendCoherenceBoostSpan
+                        blendWeight
+                        pricesV
+                        kalPred0
+                        lstmPred0
                 fractalBlendPred0 =
                     fractalBlendPredictionsV
                         blendFractalReturnClamp
@@ -25369,6 +25429,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecBlendFractalReturnClamp = argBlendFractalReturnClamp args
                 , ecBlendFractalAlignedGain = argBlendFractalAlignedGain args
                 , ecBlendFractalConflictGain = argBlendFractalConflictGain args
+                , ecBlendCoherenceConflictFloor = argBlendCoherenceConflictFloor args
+                , ecBlendCoherenceConflictScale = argBlendCoherenceConflictScale args
+                , ecBlendCoherenceBoostThreshold = argBlendCoherenceBoostThreshold args
+                , ecBlendCoherenceBoostGain = argBlendCoherenceBoostGain args
+                , ecBlendCoherenceBoostSpan = argBlendCoherenceBoostSpan args
                 , ecBlendPhaseCancelReturnClamp = argBlendPhaseCancelReturnClamp args
                 , ecBlendPhaseCancelConflictFloor = argBlendPhaseCancelConflictFloor args
                 , ecBlendPhaseCancelConflictScale = argBlendPhaseCancelConflictScale args
@@ -25477,6 +25542,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         blendFractalReturnClamp = max 1e-12 (argBlendFractalReturnClamp args)
         blendFractalAlignedGain = max 0 (argBlendFractalAlignedGain args)
         blendFractalConflictGain = max 0 (argBlendFractalConflictGain args)
+        blendCoherenceConflictFloor = max 0 (argBlendCoherenceConflictFloor args)
+        blendCoherenceConflictScale = max 0 (argBlendCoherenceConflictScale args)
+        blendCoherenceBoostThreshold = clamp01 (argBlendCoherenceBoostThreshold args)
+        blendCoherenceBoostGain = max 0 (argBlendCoherenceBoostGain args)
+        blendCoherenceBoostSpan = max 1e-12 (argBlendCoherenceBoostSpan args)
         blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
         blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
         blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
@@ -25552,7 +25622,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
-             in V.toList (coherenceGatePredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+             in V.toList (coherenceGatePredictionsV blendCoherenceConflictFloor blendCoherenceConflictScale blendCoherenceBoostThreshold blendCoherenceBoostGain blendCoherenceBoostSpan blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         fractalBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -27428,6 +27498,11 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
             blendFractalReturnClamp = max 1e-12 (argBlendFractalReturnClamp args)
             blendFractalAlignedGain = max 0 (argBlendFractalAlignedGain args)
             blendFractalConflictGain = max 0 (argBlendFractalConflictGain args)
+            blendCoherenceConflictFloor = max 0 (argBlendCoherenceConflictFloor args)
+            blendCoherenceConflictScale = max 0 (argBlendCoherenceConflictScale args)
+            blendCoherenceBoostThreshold = clamp01 (argBlendCoherenceBoostThreshold args)
+            blendCoherenceBoostGain = max 0 (argBlendCoherenceBoostGain args)
+            blendCoherenceBoostSpan = max 1e-12 (argBlendCoherenceBoostSpan args)
             blendPhaseCancelReturnClamp = max 1e-12 (argBlendPhaseCancelReturnClamp args)
             blendPhaseCancelConflictFloor = max 0 (argBlendPhaseCancelConflictFloor args)
             blendPhaseCancelConflictScale = max 0 (argBlendPhaseCancelConflictScale args)
@@ -27775,6 +27850,11 @@ computeLatestSignal args lookback featureInputs mLstmCtx mKalmanCtx mMarketModel
                     (Just k, Just l) ->
                         Just
                             ( coherenceGatePredFromPreds
+                                blendCoherenceConflictFloor
+                                blendCoherenceConflictScale
+                                blendCoherenceBoostThreshold
+                                blendCoherenceBoostGain
+                                blendCoherenceBoostSpan
                                 blendWeight
                                 currentPrice
                                 k

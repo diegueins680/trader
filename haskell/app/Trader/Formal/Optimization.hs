@@ -720,6 +720,11 @@ optimizerSurfacePreservedFields base updated =
         , ecBlendFractalReturnClamp updated == ecBlendFractalReturnClamp base
         , ecBlendFractalAlignedGain updated == ecBlendFractalAlignedGain base
         , ecBlendFractalConflictGain updated == ecBlendFractalConflictGain base
+        , ecBlendCoherenceConflictFloor updated == ecBlendCoherenceConflictFloor base
+        , ecBlendCoherenceConflictScale updated == ecBlendCoherenceConflictScale base
+        , ecBlendCoherenceBoostThreshold updated == ecBlendCoherenceBoostThreshold base
+        , ecBlendCoherenceBoostGain updated == ecBlendCoherenceBoostGain base
+        , ecBlendCoherenceBoostSpan updated == ecBlendCoherenceBoostSpan base
         , ecBlendPhaseCancelReturnClamp updated == ecBlendPhaseCancelReturnClamp base
         , ecBlendPhaseCancelConflictFloor updated == ecBlendPhaseCancelConflictFloor base
         , ecBlendPhaseCancelConflictScale updated == ecBlendPhaseCancelConflictScale base
@@ -832,6 +837,11 @@ optimizerPublicSurfaceBaseConfig =
         , ecBlendFractalReturnClamp = 0.75
         , ecBlendFractalAlignedGain = 1.12
         , ecBlendFractalConflictGain = 0.82
+        , ecBlendCoherenceConflictFloor = 0.2
+        , ecBlendCoherenceConflictScale = 0.5
+        , ecBlendCoherenceBoostThreshold = 0.6
+        , ecBlendCoherenceBoostGain = 0.35
+        , ecBlendCoherenceBoostSpan = 0.4
         , ecBlendPhaseCancelReturnClamp = 0.75
         , ecBlendPhaseCancelConflictFloor = 0.1
         , ecBlendPhaseCancelConflictScale = 0.6

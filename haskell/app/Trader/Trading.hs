@@ -166,6 +166,11 @@ data EnsembleConfig = EnsembleConfig
     , ecBlendFractalReturnClamp :: !Double
     , ecBlendFractalAlignedGain :: !Double
     , ecBlendFractalConflictGain :: !Double
+    , ecBlendCoherenceConflictFloor :: !Double
+    , ecBlendCoherenceConflictScale :: !Double
+    , ecBlendCoherenceBoostThreshold :: !Double
+    , ecBlendCoherenceBoostGain :: !Double
+    , ecBlendCoherenceBoostSpan :: !Double
     , ecBlendPhaseCancelReturnClamp :: !Double
     , ecBlendPhaseCancelConflictFloor :: !Double
     , ecBlendPhaseCancelConflictScale :: !Double

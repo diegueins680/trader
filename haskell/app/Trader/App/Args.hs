@@ -289,6 +289,11 @@ data Args = Args
     , argBlendFractalReturnClamp :: Double
     , argBlendFractalAlignedGain :: Double
     , argBlendFractalConflictGain :: Double
+    , argBlendCoherenceConflictFloor :: Double
+    , argBlendCoherenceConflictScale :: Double
+    , argBlendCoherenceBoostThreshold :: Double
+    , argBlendCoherenceBoostGain :: Double
+    , argBlendCoherenceBoostSpan :: Double
     , argBlendPhaseCancelReturnClamp :: Double
     , argBlendPhaseCancelConflictFloor :: Double
     , argBlendPhaseCancelConflictScale :: Double
@@ -1019,6 +1024,11 @@ opts = do
     argBlendFractalReturnClamp <- option auto (long "blend-fractal-return-clamp" <> value 0.75 <> showDefault <> help "Maximum absolute per-bar return emitted by --method fractal_blend")
     argBlendFractalAlignedGain <- option auto (long "blend-fractal-aligned-gain" <> value 1.12 <> showDefault <> help "Signed-root return gain when fractal_blend sources agree")
     argBlendFractalConflictGain <- option auto (long "blend-fractal-conflict-gain" <> value 0.82 <> showDefault <> help "Signed-root return gain when fractal_blend sources conflict")
+    argBlendCoherenceConflictFloor <- option auto (long "blend-coherence-conflict-floor" <> value 0.2 <> showDefault <> help "Base shrink factor when coherence_gate sources conflict")
+    argBlendCoherenceConflictScale <- option auto (long "blend-coherence-conflict-scale" <> value 0.5 <> showDefault <> help "Coherence-weighted shrink scale when coherence_gate sources conflict")
+    argBlendCoherenceBoostThreshold <- option auto (long "blend-coherence-boost-threshold" <> value 0.6 <> showDefault <> help "Minimum source coherence before coherence_gate boosts agreement")
+    argBlendCoherenceBoostGain <- option auto (long "blend-coherence-boost-gain" <> value 0.35 <> showDefault <> help "Maximum agreement boost gain for --method coherence_gate")
+    argBlendCoherenceBoostSpan <- option auto (long "blend-coherence-boost-span" <> value 0.4 <> showDefault <> help "Coherence range over which coherence_gate boost gain ramps")
     argBlendPhaseCancelReturnClamp <- option auto (long "blend-phase-cancel-return-clamp" <> value 0.75 <> showDefault <> help "Maximum absolute per-bar return emitted by --method phase_cancel")
     argBlendPhaseCancelConflictFloor <- option auto (long "blend-phase-cancel-conflict-floor" <> value 0.1 <> showDefault <> help "Base return multiplier when phase_cancel sources conflict")
     argBlendPhaseCancelConflictScale <- option auto (long "blend-phase-cancel-conflict-scale" <> value 0.6 <> showDefault <> help "Cancellation-sensitive return multiplier for --method phase_cancel conflicts")
@@ -1534,6 +1544,11 @@ validateArgs args0 = do
             , ("--blend-fractal-return-clamp", argBlendFractalReturnClamp args)
             , ("--blend-fractal-aligned-gain", argBlendFractalAlignedGain args)
             , ("--blend-fractal-conflict-gain", argBlendFractalConflictGain args)
+            , ("--blend-coherence-conflict-floor", argBlendCoherenceConflictFloor args)
+            , ("--blend-coherence-conflict-scale", argBlendCoherenceConflictScale args)
+            , ("--blend-coherence-boost-threshold", argBlendCoherenceBoostThreshold args)
+            , ("--blend-coherence-boost-gain", argBlendCoherenceBoostGain args)
+            , ("--blend-coherence-boost-span", argBlendCoherenceBoostSpan args)
             , ("--blend-phase-cancel-return-clamp", argBlendPhaseCancelReturnClamp args)
             , ("--blend-phase-cancel-conflict-floor", argBlendPhaseCancelConflictFloor args)
             , ("--blend-phase-cancel-conflict-scale", argBlendPhaseCancelConflictScale args)
@@ -1650,6 +1665,11 @@ validateArgs args0 = do
     ensure "--blend-fractal-return-clamp must be > 0" (argBlendFractalReturnClamp args > 0)
     ensure "--blend-fractal-aligned-gain must be >= 0" (argBlendFractalAlignedGain args >= 0)
     ensure "--blend-fractal-conflict-gain must be >= 0" (argBlendFractalConflictGain args >= 0)
+    ensure "--blend-coherence-conflict-floor must be >= 0" (argBlendCoherenceConflictFloor args >= 0)
+    ensure "--blend-coherence-conflict-scale must be >= 0" (argBlendCoherenceConflictScale args >= 0)
+    ensure "--blend-coherence-boost-threshold must be between 0 and 1" (argBlendCoherenceBoostThreshold args >= 0 && argBlendCoherenceBoostThreshold args <= 1)
+    ensure "--blend-coherence-boost-gain must be >= 0" (argBlendCoherenceBoostGain args >= 0)
+    ensure "--blend-coherence-boost-span must be > 0" (argBlendCoherenceBoostSpan args > 0)
     ensure "--blend-phase-cancel-return-clamp must be > 0" (argBlendPhaseCancelReturnClamp args > 0)
     ensure "--blend-phase-cancel-conflict-floor must be >= 0" (argBlendPhaseCancelConflictFloor args >= 0)
     ensure "--blend-phase-cancel-conflict-scale must be >= 0" (argBlendPhaseCancelConflictScale args >= 0)

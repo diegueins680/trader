@@ -995,10 +995,20 @@ coherenceGatePredFromPreds ::
     Double ->
     Double ->
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     Double
-coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
+coherenceGatePredFromPreds conflictFloorRaw conflictScaleRaw boostThresholdRaw boostGainRaw boostSpanRaw fallbackWeight prev kalPred lstmPred =
     let bad x = isNaN x || isInfinite x
         wFallback = clamp01 fallbackWeight
+        conflictFloor = max 0 conflictFloorRaw
+        conflictScale = max 0 conflictScaleRaw
+        boostThreshold = clamp01 boostThresholdRaw
+        boostGain = max 0 boostGainRaw
+        boostSpan = max 1e-12 boostSpanRaw
         blend = finiteBlendOrNeutral wFallback prev kalPred lstmPred
         neutralPred =
             if bad prev || isInfinite prev
@@ -1044,11 +1054,11 @@ coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
                             weakPred = chooseWeak eKal eLstm
                             pred
                                 | dKal /= dLstm =
-                                    shrink (0.2 + 0.5 * coherence) weakPred
+                                    shrink (clamp01 (conflictFloor + conflictScale * coherence)) weakPred
                                 | dKal == 0 =
                                     neutralPred
-                                | coherence >= 0.6 =
-                                    let gain = 1 + 0.35 * ((coherence - 0.6) / 0.4)
+                                | coherence >= boostThreshold =
+                                    let gain = 1 + boostGain * ((coherence - boostThreshold) / boostSpan)
                                      in neutralPred + gain * (blend - neutralPred)
                                 | otherwise =
                                     weakPred
@@ -1060,17 +1070,22 @@ coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred =
 
 coherenceGatePredictionsV ::
     Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double ->
     V.Vector Double
-coherenceGatePredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+coherenceGatePredictionsV conflictFloor conflictScale boostThreshold boostGain boostSpan fallbackWeight pricesV kalPredV lstmPredV =
     let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
         pick t =
             let prev = pricesV V.! t
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
-             in coherenceGatePredFromPreds fallbackWeight prev kalPred lstmPred
+             in coherenceGatePredFromPreds conflictFloor conflictScale boostThreshold boostGain boostSpan fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
 fractalBlendPredFromPreds ::
@@ -2000,6 +2015,11 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         blendFractalReturnClamp = max 1e-12 (ecBlendFractalReturnClamp baseCfg)
         blendFractalAlignedGain = max 0 (ecBlendFractalAlignedGain baseCfg)
         blendFractalConflictGain = max 0 (ecBlendFractalConflictGain baseCfg)
+        blendCoherenceConflictFloor = max 0 (ecBlendCoherenceConflictFloor baseCfg)
+        blendCoherenceConflictScale = max 0 (ecBlendCoherenceConflictScale baseCfg)
+        blendCoherenceBoostThreshold = clamp01 (ecBlendCoherenceBoostThreshold baseCfg)
+        blendCoherenceBoostGain = max 0 (ecBlendCoherenceBoostGain baseCfg)
+        blendCoherenceBoostSpan = max 1e-12 (ecBlendCoherenceBoostSpan baseCfg)
         blendPhaseCancelReturnClamp = max 1e-12 (ecBlendPhaseCancelReturnClamp baseCfg)
         blendPhaseCancelConflictFloor = max 0 (ecBlendPhaseCancelConflictFloor baseCfg)
         blendPhaseCancelConflictScale = max 0 (ecBlendPhaseCancelConflictScale baseCfg)
@@ -2017,7 +2037,17 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         anchorBlendV0 = anchorBlendPredictionsV blendWeight pricesV kalV lstmV
         tensionGateV0 = tensionGatePredictionsV blendWeight pricesV kalV lstmV
         entropyBlendV0 = entropyBlendPredictionsV blendWeight pricesV kalV lstmV
-        coherenceGateV0 = coherenceGatePredictionsV blendWeight pricesV kalV lstmV
+        coherenceGateV0 =
+            coherenceGatePredictionsV
+                blendCoherenceConflictFloor
+                blendCoherenceConflictScale
+                blendCoherenceBoostThreshold
+                blendCoherenceBoostGain
+                blendCoherenceBoostSpan
+                blendWeight
+                pricesV
+                kalV
+                lstmV
         fractalBlendV0 =
             fractalBlendPredictionsV
                 blendFractalReturnClamp

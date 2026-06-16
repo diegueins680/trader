@@ -206,6 +206,11 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torBlendFractalReturnClamp :: !(Double, Double)
     , torBlendFractalAlignedGain :: !(Double, Double)
     , torBlendFractalConflictGain :: !(Double, Double)
+    , torBlendCoherenceConflictFloor :: !(Double, Double)
+    , torBlendCoherenceConflictScale :: !(Double, Double)
+    , torBlendCoherenceBoostThreshold :: !(Double, Double)
+    , torBlendCoherenceBoostGain :: !(Double, Double)
+    , torBlendCoherenceBoostSpan :: !(Double, Double)
     , torBlendPhaseCancelReturnClamp :: !(Double, Double)
     , torBlendPhaseCancelConflictFloor :: !(Double, Double)
     , torBlendPhaseCancelConflictScale :: !(Double, Double)
@@ -264,6 +269,11 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpBlendFractalReturnClamp :: !Double
     , ttpBlendFractalAlignedGain :: !Double
     , ttpBlendFractalConflictGain :: !Double
+    , ttpBlendCoherenceConflictFloor :: !Double
+    , ttpBlendCoherenceConflictScale :: !Double
+    , ttpBlendCoherenceBoostThreshold :: !Double
+    , ttpBlendCoherenceBoostGain :: !Double
+    , ttpBlendCoherenceBoostSpan :: !Double
     , ttpBlendPhaseCancelReturnClamp :: !Double
     , ttpBlendPhaseCancelConflictFloor :: !Double
     , ttpBlendPhaseCancelConflictScale :: !Double
@@ -383,6 +393,11 @@ normalizeTechnicalTrialParams p =
             , ttpBlendFractalReturnClamp = max 1e-6 (ttpBlendFractalReturnClamp p)
             , ttpBlendFractalAlignedGain = max 0 (ttpBlendFractalAlignedGain p)
             , ttpBlendFractalConflictGain = max 0 (ttpBlendFractalConflictGain p)
+            , ttpBlendCoherenceConflictFloor = max 0 (ttpBlendCoherenceConflictFloor p)
+            , ttpBlendCoherenceConflictScale = max 0 (ttpBlendCoherenceConflictScale p)
+            , ttpBlendCoherenceBoostThreshold = clamp (ttpBlendCoherenceBoostThreshold p) 0 1
+            , ttpBlendCoherenceBoostGain = max 0 (ttpBlendCoherenceBoostGain p)
+            , ttpBlendCoherenceBoostSpan = max 1e-6 (ttpBlendCoherenceBoostSpan p)
             , ttpBlendPhaseCancelReturnClamp = max 1e-6 (ttpBlendPhaseCancelReturnClamp p)
             , ttpBlendPhaseCancelConflictFloor = max 0 (ttpBlendPhaseCancelConflictFloor p)
             , ttpBlendPhaseCancelConflictScale = max 0 (ttpBlendPhaseCancelConflictScale p)
@@ -443,26 +458,31 @@ sampleTechnicalTrialParams ranges rng0 =
         (blendFractalReturnClamp, rng37) = samplePositive (torBlendFractalReturnClamp ranges) rng36
         (blendFractalAlignedGain, rng38) = sampleNonNegative (torBlendFractalAlignedGain ranges) rng37
         (blendFractalConflictGain, rng39) = sampleNonNegative (torBlendFractalConflictGain ranges) rng38
-        (blendPhaseCancelReturnClamp, rng40) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng39
-        (blendPhaseCancelConflictFloor, rng41) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng40
-        (blendPhaseCancelConflictScale, rng42) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng41
-        (blendPhaseCancelAlignmentScale, rng43) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng42
-        (signalEntryEdgeHeadroomMult, rng44) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng43
-        (signalEntryEdgeSpikeMult, rng45) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng44
-        (signalEntryEdgeSpikeCap, rng46) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng45
-        (signalEntryEdgeSpikeConsecutiveLimit, rng47) =
+        (blendCoherenceConflictFloor, rng40) = sampleNonNegative (torBlendCoherenceConflictFloor ranges) rng39
+        (blendCoherenceConflictScale, rng41) = sampleNonNegative (torBlendCoherenceConflictScale ranges) rng40
+        (blendCoherenceBoostThreshold, rng42) = sampleClamped 0 1 (torBlendCoherenceBoostThreshold ranges) rng41
+        (blendCoherenceBoostGain, rng43) = sampleNonNegative (torBlendCoherenceBoostGain ranges) rng42
+        (blendCoherenceBoostSpan, rng44) = samplePositive (torBlendCoherenceBoostSpan ranges) rng43
+        (blendPhaseCancelReturnClamp, rng45) = samplePositive (torBlendPhaseCancelReturnClamp ranges) rng44
+        (blendPhaseCancelConflictFloor, rng46) = sampleNonNegative (torBlendPhaseCancelConflictFloor ranges) rng45
+        (blendPhaseCancelConflictScale, rng47) = sampleNonNegative (torBlendPhaseCancelConflictScale ranges) rng46
+        (blendPhaseCancelAlignmentScale, rng48) = sampleNonNegative (torBlendPhaseCancelAlignmentScale ranges) rng47
+        (signalEntryEdgeHeadroomMult, rng49) = samplePositive (torSignalEntryEdgeHeadroomMult ranges) rng48
+        (signalEntryEdgeSpikeMult, rng50) = sampleNonNegative (torSignalEntryEdgeSpikeMult ranges) rng49
+        (signalEntryEdgeSpikeCap, rng51) = samplePositive (torSignalEntryEdgeSpikeCap ranges) rng50
+        (signalEntryEdgeSpikeConsecutiveLimit, rng52) =
             let (lo, hi) = orderedPair (torSignalEntryEdgeSpikeConsecutiveLimit ranges)
-             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng46
-        (signalTrendSlackMult, rng48) = sampleNonNegative (torSignalTrendSlackMult ranges) rng47
-        (signalTrendSlackCap, rng49) = sampleNonNegative (torSignalTrendSlackCap ranges) rng48
-        (signalDirectionalityLookbackBars, rng50) =
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng51
+        (signalTrendSlackMult, rng53) = sampleNonNegative (torSignalTrendSlackMult ranges) rng52
+        (signalTrendSlackCap, rng54) = sampleNonNegative (torSignalTrendSlackCap ranges) rng53
+        (signalDirectionalityLookbackBars, rng55) =
             let (lo, hi) = orderedPair (torSignalDirectionalityLookbackBars ranges)
-             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng49
-        (signalDirectionalityChopEfficiencyMax, rng51) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng50
-        (signalDirectionalityMrEfficiencyMax0, rng52) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng51
+             in nextIntRange (max 1 lo) (max (max 1 lo) hi) rng54
+        (signalDirectionalityChopEfficiencyMax, rng56) = sampleClamped 0 1 (torSignalDirectionalityChopEfficiencyMax ranges) rng55
+        (signalDirectionalityMrEfficiencyMax0, rng57) = sampleClamped 0 1 (torSignalDirectionalityMrEfficiencyMax ranges) rng56
         signalDirectionalityMrEfficiencyMax = max signalDirectionalityChopEfficiencyMax signalDirectionalityMrEfficiencyMax0
-        (signalDirectionalityWeakZMin, rng53) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng52
-        (signalPredictorTrackingFloor, rng54) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng53
+        (signalDirectionalityWeakZMin, rng58) = sampleNonNegative (torSignalDirectionalityWeakZMin ranges) rng57
+        (signalPredictorTrackingFloor, rng59) = sampleNonNegative (torSignalPredictorTrackingFloor ranges) rng58
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -504,6 +524,11 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpBlendFractalReturnClamp = blendFractalReturnClamp
                 , ttpBlendFractalAlignedGain = blendFractalAlignedGain
                 , ttpBlendFractalConflictGain = blendFractalConflictGain
+                , ttpBlendCoherenceConflictFloor = blendCoherenceConflictFloor
+                , ttpBlendCoherenceConflictScale = blendCoherenceConflictScale
+                , ttpBlendCoherenceBoostThreshold = blendCoherenceBoostThreshold
+                , ttpBlendCoherenceBoostGain = blendCoherenceBoostGain
+                , ttpBlendCoherenceBoostSpan = blendCoherenceBoostSpan
                 , ttpBlendPhaseCancelReturnClamp = blendPhaseCancelReturnClamp
                 , ttpBlendPhaseCancelConflictFloor = blendPhaseCancelConflictFloor
                 , ttpBlendPhaseCancelConflictScale = blendPhaseCancelConflictScale
@@ -520,7 +545,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpSignalDirectionalityWeakZMin = signalDirectionalityWeakZMin
                 , ttpSignalPredictorTrackingFloor = signalPredictorTrackingFloor
                 }
-        , rng54
+        , rng59
         )
   where
     samplePositive range rng =
@@ -619,6 +644,16 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpBlendFractalAlignedGain p)
     , "--blend-fractal-conflict-gain"
     , printf "%.12g" (ttpBlendFractalConflictGain p)
+    , "--blend-coherence-conflict-floor"
+    , printf "%.12g" (ttpBlendCoherenceConflictFloor p)
+    , "--blend-coherence-conflict-scale"
+    , printf "%.12g" (ttpBlendCoherenceConflictScale p)
+    , "--blend-coherence-boost-threshold"
+    , printf "%.12g" (ttpBlendCoherenceBoostThreshold p)
+    , "--blend-coherence-boost-gain"
+    , printf "%.12g" (ttpBlendCoherenceBoostGain p)
+    , "--blend-coherence-boost-span"
+    , printf "%.12g" (ttpBlendCoherenceBoostSpan p)
     , "--blend-phase-cancel-return-clamp"
     , printf "%.12g" (ttpBlendPhaseCancelReturnClamp p)
     , "--blend-phase-cancel-conflict-floor"
@@ -692,6 +727,11 @@ technicalTrialParamsPairs p =
     , "blendFractalReturnClamp" .= ttpBlendFractalReturnClamp p
     , "blendFractalAlignedGain" .= ttpBlendFractalAlignedGain p
     , "blendFractalConflictGain" .= ttpBlendFractalConflictGain p
+    , "blendCoherenceConflictFloor" .= ttpBlendCoherenceConflictFloor p
+    , "blendCoherenceConflictScale" .= ttpBlendCoherenceConflictScale p
+    , "blendCoherenceBoostThreshold" .= ttpBlendCoherenceBoostThreshold p
+    , "blendCoherenceBoostGain" .= ttpBlendCoherenceBoostGain p
+    , "blendCoherenceBoostSpan" .= ttpBlendCoherenceBoostSpan p
     , "blendPhaseCancelReturnClamp" .= ttpBlendPhaseCancelReturnClamp p
     , "blendPhaseCancelConflictFloor" .= ttpBlendPhaseCancelConflictFloor p
     , "blendPhaseCancelConflictScale" .= ttpBlendPhaseCancelConflictScale p
