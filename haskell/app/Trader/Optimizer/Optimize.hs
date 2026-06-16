@@ -276,6 +276,9 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torPredictorCalibrationRatio :: !(Double, Double)
     , torPredictorConformalAlpha :: !(Double, Double)
     , torPredictorTcnRidgeLambda :: !(Double, Double)
+    , torPredictorQuantileEpochs :: !(Int, Int)
+    , torPredictorQuantileLearningRate :: !(Double, Double)
+    , torPredictorQuantileL2 :: !(Double, Double)
     , torVolConfVolatilityEvidenceMax :: !(Double, Double)
     , torVolConfLowVolThreshold :: !(Double, Double)
     , torVolConfHighVolThreshold :: !(Double, Double)
@@ -364,6 +367,9 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpPredictorCalibrationRatio :: !Double
     , ttpPredictorConformalAlpha :: !Double
     , ttpPredictorTcnRidgeLambda :: !Double
+    , ttpPredictorQuantileEpochs :: !Int
+    , ttpPredictorQuantileLearningRate :: !Double
+    , ttpPredictorQuantileL2 :: !Double
     , ttpVolConfVolatilityEvidenceMax :: !Double
     , ttpVolConfLowVolThreshold :: !Double
     , ttpVolConfHighVolThreshold :: !Double
@@ -530,6 +536,9 @@ normalizeTechnicalTrialParams p =
             , ttpPredictorCalibrationRatio = clamp (ttpPredictorCalibrationRatio p) 0 0.95
             , ttpPredictorConformalAlpha = clamp (ttpPredictorConformalAlpha p) 1e-6 0.999999
             , ttpPredictorTcnRidgeLambda = max 0 (ttpPredictorTcnRidgeLambda p)
+            , ttpPredictorQuantileEpochs = max 0 (ttpPredictorQuantileEpochs p)
+            , ttpPredictorQuantileLearningRate = max 1e-6 (ttpPredictorQuantileLearningRate p)
+            , ttpPredictorQuantileL2 = max 0 (ttpPredictorQuantileL2 p)
             , ttpVolConfVolatilityEvidenceMax = volConfEvidenceMax
             , ttpVolConfLowVolThreshold = volConfLowVolThreshold
             , ttpVolConfHighVolThreshold = volConfHighVolThreshold
@@ -627,20 +636,25 @@ sampleTechnicalTrialParams ranges rng0 =
         (predictorCalibrationRatio, rng72) = sampleClamped 0 0.95 (torPredictorCalibrationRatio ranges) rng71
         (predictorConformalAlpha, rng73) = sampleClamped 1e-6 0.999999 (torPredictorConformalAlpha ranges) rng72
         (predictorTcnRidgeLambda, rng74) = sampleNonNegative (torPredictorTcnRidgeLambda ranges) rng73
-        (volConfVolatilityEvidenceMax, rng75) = samplePositive (torVolConfVolatilityEvidenceMax ranges) rng74
-        (volConfLowVolThreshold0, rng76) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfLowVolThreshold ranges) rng75
-        (volConfHighVolThreshold0, rng77) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfHighVolThreshold ranges) rng76
+        (predictorQuantileEpochs, rng75) =
+            let (lo, hi) = orderedPair (torPredictorQuantileEpochs ranges)
+             in nextIntRange (max 0 lo) (max (max 0 lo) hi) rng74
+        (predictorQuantileLearningRate, rng76) = samplePositive (torPredictorQuantileLearningRate ranges) rng75
+        (predictorQuantileL2, rng77) = sampleNonNegative (torPredictorQuantileL2 ranges) rng76
+        (volConfVolatilityEvidenceMax, rng78) = samplePositive (torVolConfVolatilityEvidenceMax ranges) rng77
+        (volConfLowVolThreshold0, rng79) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfLowVolThreshold ranges) rng78
+        (volConfHighVolThreshold0, rng80) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfHighVolThreshold ranges) rng79
         volConfLowVolThreshold = min volConfLowVolThreshold0 volConfHighVolThreshold0
         volConfHighVolThreshold = max volConfLowVolThreshold0 volConfHighVolThreshold0
-        (volConfWeakConfidenceThreshold0, rng78) = sampleClamped 0 1 (torVolConfWeakConfidenceThreshold ranges) rng77
-        (volConfStrongConfidenceThreshold0, rng79) = sampleClamped 0 1 (torVolConfStrongConfidenceThreshold ranges) rng78
+        (volConfWeakConfidenceThreshold0, rng81) = sampleClamped 0 1 (torVolConfWeakConfidenceThreshold ranges) rng80
+        (volConfStrongConfidenceThreshold0, rng82) = sampleClamped 0 1 (torVolConfStrongConfidenceThreshold ranges) rng81
         volConfWeakConfidenceThreshold = min volConfWeakConfidenceThreshold0 volConfStrongConfidenceThreshold0
         volConfStrongConfidenceThreshold = max volConfWeakConfidenceThreshold0 volConfStrongConfidenceThreshold0
-        (volConfLowMediumSizeMult, rng80) = sampleClamped 0 1 (torVolConfLowMediumSizeMult ranges) rng79
-        (volConfLowStrongSizeMult, rng81) = sampleClamped 0 1 (torVolConfLowStrongSizeMult ranges) rng80
-        (volConfMediumMediumSizeMult, rng82) = sampleClamped 0 1 (torVolConfMediumMediumSizeMult ranges) rng81
-        (volConfMediumStrongSizeMult, rng83) = sampleClamped 0 1 (torVolConfMediumStrongSizeMult ranges) rng82
-        (volConfHighStrongSizeMult, rng84) = sampleClamped 0 1 (torVolConfHighStrongSizeMult ranges) rng83
+        (volConfLowMediumSizeMult, rng83) = sampleClamped 0 1 (torVolConfLowMediumSizeMult ranges) rng82
+        (volConfLowStrongSizeMult, rng84) = sampleClamped 0 1 (torVolConfLowStrongSizeMult ranges) rng83
+        (volConfMediumMediumSizeMult, rng85) = sampleClamped 0 1 (torVolConfMediumMediumSizeMult ranges) rng84
+        (volConfMediumStrongSizeMult, rng86) = sampleClamped 0 1 (torVolConfMediumStrongSizeMult ranges) rng85
+        (volConfHighStrongSizeMult, rng87) = sampleClamped 0 1 (torVolConfHighStrongSizeMult ranges) rng86
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -717,6 +731,9 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpPredictorCalibrationRatio = predictorCalibrationRatio
                 , ttpPredictorConformalAlpha = predictorConformalAlpha
                 , ttpPredictorTcnRidgeLambda = predictorTcnRidgeLambda
+                , ttpPredictorQuantileEpochs = predictorQuantileEpochs
+                , ttpPredictorQuantileLearningRate = predictorQuantileLearningRate
+                , ttpPredictorQuantileL2 = predictorQuantileL2
                 , ttpVolConfVolatilityEvidenceMax = volConfVolatilityEvidenceMax
                 , ttpVolConfLowVolThreshold = volConfLowVolThreshold
                 , ttpVolConfHighVolThreshold = volConfHighVolThreshold
@@ -728,7 +745,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpVolConfMediumStrongSizeMult = volConfMediumStrongSizeMult
                 , ttpVolConfHighStrongSizeMult = volConfHighStrongSizeMult
                 }
-        , rng84
+        , rng87
         )
   where
     samplePositive range rng =
@@ -897,6 +914,12 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpPredictorConformalAlpha p)
     , "--predictor-tcn-ridge-lambda"
     , printf "%.12g" (ttpPredictorTcnRidgeLambda p)
+    , "--predictor-quantile-epochs"
+    , show (ttpPredictorQuantileEpochs p)
+    , "--predictor-quantile-learning-rate"
+    , printf "%.12g" (ttpPredictorQuantileLearningRate p)
+    , "--predictor-quantile-l2"
+    , printf "%.12g" (ttpPredictorQuantileL2 p)
     , "--vol-conf-volatility-evidence-max"
     , printf "%.12g" (ttpVolConfVolatilityEvidenceMax p)
     , "--vol-conf-low-vol-threshold"
@@ -995,6 +1018,9 @@ technicalTrialParamsPairs p =
     , "predictorCalibrationRatio" .= ttpPredictorCalibrationRatio p
     , "predictorConformalAlpha" .= ttpPredictorConformalAlpha p
     , "predictorTcnRidgeLambda" .= ttpPredictorTcnRidgeLambda p
+    , "predictorQuantileEpochs" .= ttpPredictorQuantileEpochs p
+    , "predictorQuantileLearningRate" .= ttpPredictorQuantileLearningRate p
+    , "predictorQuantileL2" .= ttpPredictorQuantileL2 p
     , "volConfVolatilityEvidenceMax" .= ttpVolConfVolatilityEvidenceMax p
     , "volConfLowVolThreshold" .= ttpVolConfLowVolThreshold p
     , "volConfHighVolThreshold" .= ttpVolConfHighVolThreshold p
@@ -7397,6 +7423,9 @@ applyTechnicalPriorOverlay params base =
             , ttpPredictorCalibrationRatio = fromMaybe (ttpPredictorCalibrationRatio base) (doubleField ["predictorCalibrationRatio"] params)
             , ttpPredictorConformalAlpha = fromMaybe (ttpPredictorConformalAlpha base) (doubleField ["predictorConformalAlpha"] params)
             , ttpPredictorTcnRidgeLambda = fromMaybe (ttpPredictorTcnRidgeLambda base) (doubleField ["predictorTcnRidgeLambda"] params)
+            , ttpPredictorQuantileEpochs = fromMaybe (ttpPredictorQuantileEpochs base) (intField ["predictorQuantileEpochs"] params)
+            , ttpPredictorQuantileLearningRate = fromMaybe (ttpPredictorQuantileLearningRate base) (doubleField ["predictorQuantileLearningRate"] params)
+            , ttpPredictorQuantileL2 = fromMaybe (ttpPredictorQuantileL2 base) (doubleField ["predictorQuantileL2"] params)
             }
 
 optionalDoubleField :: [String] -> KM.KeyMap Value -> Maybe (Maybe Double)

@@ -41,7 +41,15 @@ import Trader.Predictors.Features (
 import Trader.Predictors.GBDT (GBDTModel (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
-import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
+import Trader.Predictors.Quantile (
+    LinModel (..),
+    QuantileModel (..),
+    defaultQuantileEpochs,
+    defaultQuantileL2,
+    defaultQuantileLearningRate,
+    predictQuantiles,
+    trainQuantileModel,
+ )
 import Trader.Predictors.TCN (TCNModel (..), defaultTcnRidgeLambda, predictTCN, trainTCNWithLambda)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (
@@ -75,6 +83,9 @@ data PredictorTrainingConfig = PredictorTrainingConfig
     , ptcCalibrationRatio :: !Double
     , ptcConformalAlpha :: !Double
     , ptcTcnRidgeLambda :: !Double
+    , ptcQuantileEpochs :: !Int
+    , ptcQuantileLearningRate :: !Double
+    , ptcQuantileL2 :: !Double
     }
     deriving (Eq, Show)
 
@@ -86,6 +97,9 @@ defaultPredictorTrainingConfig =
         , ptcCalibrationRatio = 0.2
         , ptcConformalAlpha = 0.2
         , ptcTcnRidgeLambda = defaultTcnRidgeLambda
+        , ptcQuantileEpochs = defaultQuantileEpochs
+        , ptcQuantileLearningRate = defaultQuantileLearningRate
+        , ptcQuantileL2 = defaultQuantileL2
         }
 
 sanitizePredictorTrainingConfig :: PredictorTrainingConfig -> PredictorTrainingConfig
@@ -100,7 +114,19 @@ sanitizePredictorTrainingConfig cfg =
              in if isNaN lambda || isInfinite lambda
                     then defaultTcnRidgeLambda
                     else max 0 lambda
+        , ptcQuantileEpochs = max 0 (ptcQuantileEpochs cfg)
+        , ptcQuantileLearningRate =
+            finitePositive defaultQuantileLearningRate (ptcQuantileLearningRate cfg)
+        , ptcQuantileL2 =
+            finiteNonNegative defaultQuantileL2 (ptcQuantileL2 cfg)
         }
+  where
+    finitePositive fallback x
+        | isNaN x || isInfinite x || x <= 0 = fallback
+        | otherwise = x
+    finiteNonNegative fallback x
+        | isNaN x || isInfinite x || x < 0 = fallback
+        | otherwise = x
 
 trainPredictors :: PredictorSet -> Int -> V.Vector Double -> PredictorBundle
 trainPredictors =
@@ -230,7 +256,7 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
                 then
                     if null trainSet
                         then emptyQuant
-                        else trainQuantileModel 20 5e-2 1e-3 trainSet
+                        else trainQuantileModel (ptcQuantileEpochs cfg) (ptcQuantileLearningRate cfg) (ptcQuantileL2 cfg) trainSet
                 else emptyQuant
         transformer =
             if useTransformer

@@ -1,6 +1,9 @@
 module Trader.Predictors.Quantile (
     LinModel (..),
     QuantileModel (..),
+    defaultQuantileEpochs,
+    defaultQuantileLearningRate,
+    defaultQuantileL2,
     trainQuantileModel,
     predictQuantiles,
     sigmaFromQ1090,
@@ -20,6 +23,15 @@ data QuantileModel = QuantileModel
     , qm90 :: LinModel
     }
     deriving (Eq, Show)
+
+defaultQuantileEpochs :: Int
+defaultQuantileEpochs = 20
+
+defaultQuantileLearningRate :: Double
+defaultQuantileLearningRate = 5e-2
+
+defaultQuantileL2 :: Double
+defaultQuantileL2 = 1e-3
 
 featureDimFromDataset :: [([Double], Double)] -> Int
 featureDimFromDataset dataset =

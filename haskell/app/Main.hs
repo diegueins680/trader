@@ -519,6 +519,9 @@ predictorTrainingConfigFromArgs args =
         , ptcCalibrationRatio = argPredictorCalibrationRatio args
         , ptcConformalAlpha = argPredictorConformalAlpha args
         , ptcTcnRidgeLambda = argPredictorTcnRidgeLambda args
+        , ptcQuantileEpochs = argPredictorQuantileEpochs args
+        , ptcQuantileLearningRate = argPredictorQuantileLearningRate args
+        , ptcQuantileL2 = argPredictorQuantileL2 args
         }
 
 volConfGateConfigFromArgs :: Args -> VolConfGateConfig
@@ -850,6 +853,9 @@ data ApiParams = ApiParams
     , apSensorVarianceEwmaAlpha :: Maybe Double
     , apPredictors :: Maybe String
     , apPredictorTcnRidgeLambda :: Maybe Double
+    , apPredictorQuantileEpochs :: Maybe Int
+    , apPredictorQuantileLearningRate :: Maybe Double
+    , apPredictorQuantileL2 :: Maybe Double
     , apKalmanMarketTopN :: Maybe Int
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
@@ -2566,6 +2572,9 @@ argsPublicJson args =
             , "predictorCalibrationRatio" .= argPredictorCalibrationRatio args
             , "predictorConformalAlpha" .= argPredictorConformalAlpha args
             , "predictorTcnRidgeLambda" .= argPredictorTcnRidgeLambda args
+            , "predictorQuantileEpochs" .= argPredictorQuantileEpochs args
+            , "predictorQuantileLearningRate" .= argPredictorQuantileLearningRate args
+            , "predictorQuantileL2" .= argPredictorQuantileL2 args
             , "patience" .= argPatience args
             , "gradClip" .= argGradClip args
             , "seed" .= argSeed args
@@ -10167,6 +10176,9 @@ parseTopComboToArgs base combo = do
         predictorCalibrationRatio = max 0 (min 0.95 (pickD "predictorCalibrationRatio" (argPredictorCalibrationRatio base)))
         predictorConformalAlpha = max 1e-6 (min 0.999999 (pickD "predictorConformalAlpha" (argPredictorConformalAlpha base)))
         predictorTcnRidgeLambda = max 0 (pickD "predictorTcnRidgeLambda" (argPredictorTcnRidgeLambda base))
+        predictorQuantileEpochs = max 0 (pickI "predictorQuantileEpochs" (argPredictorQuantileEpochs base))
+        predictorQuantileLearningRate = max 1e-12 (pickD "predictorQuantileLearningRate" (argPredictorQuantileLearningRate base))
+        predictorQuantileL2 = max 0 (pickD "predictorQuantileL2" (argPredictorQuantileL2 base))
         kalmanMarketTopN = max 0 (pickI "kalmanMarketTopN" (argKalmanMarketTopN base))
 
         walkForwardFolds = max 1 (pickI "walkForwardFolds" (argWalkForwardFolds base))
@@ -10337,6 +10349,9 @@ parseTopComboToArgs base combo = do
                 , argPredictorCalibrationRatio = predictorCalibrationRatio
                 , argPredictorConformalAlpha = predictorConformalAlpha
                 , argPredictorTcnRidgeLambda = predictorTcnRidgeLambda
+                , argPredictorQuantileEpochs = predictorQuantileEpochs
+                , argPredictorQuantileLearningRate = predictorQuantileLearningRate
+                , argPredictorQuantileL2 = predictorQuantileL2
                 , argKalmanMarketTopN = kalmanMarketTopN
                 , argKalmanZMin = kalZMin
                 , argKalmanZMax = kalZMax
@@ -13688,6 +13703,9 @@ argsCacheJsonSignal args =
             , "predictorCalibrationRatio" .= argPredictorCalibrationRatio args
             , "predictorConformalAlpha" .= argPredictorConformalAlpha args
             , "predictorTcnRidgeLambda" .= argPredictorTcnRidgeLambda args
+            , "predictorQuantileEpochs" .= argPredictorQuantileEpochs args
+            , "predictorQuantileLearningRate" .= argPredictorQuantileLearningRate args
+            , "predictorQuantileL2" .= argPredictorQuantileL2 args
             , "kalmanMarketTopN" .= argKalmanMarketTopN args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -13876,6 +13894,9 @@ argsCacheJsonBacktest args =
             , "predictorCalibrationRatio" .= argPredictorCalibrationRatio args
             , "predictorConformalAlpha" .= argPredictorConformalAlpha args
             , "predictorTcnRidgeLambda" .= argPredictorTcnRidgeLambda args
+            , "predictorQuantileEpochs" .= argPredictorQuantileEpochs args
+            , "predictorQuantileLearningRate" .= argPredictorQuantileLearningRate args
+            , "predictorQuantileL2" .= argPredictorQuantileL2 args
             , "kalmanMarketTopN" .= argKalmanMarketTopN args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -19939,6 +19960,9 @@ argsFromApi baseArgs p = do
                 , argSensorVarianceEwmaAlpha = clamp01 (pick (apSensorVarianceEwmaAlpha p) (argSensorVarianceEwmaAlpha baseArgs))
                 , argPredictors = predictors
                 , argPredictorTcnRidgeLambda = max 0 (pick (apPredictorTcnRidgeLambda p) (argPredictorTcnRidgeLambda baseArgs))
+                , argPredictorQuantileEpochs = max 0 (pick (apPredictorQuantileEpochs p) (argPredictorQuantileEpochs baseArgs))
+                , argPredictorQuantileLearningRate = max 1e-12 (pick (apPredictorQuantileLearningRate p) (argPredictorQuantileLearningRate baseArgs))
+                , argPredictorQuantileL2 = max 0 (pick (apPredictorQuantileL2 p) (argPredictorQuantileL2 baseArgs))
                 , argKalmanMarketTopN = pick (apKalmanMarketTopN p) (argKalmanMarketTopN baseArgs)
                 , argOpenThreshold = openThr
                 , argCloseThreshold = closeThr

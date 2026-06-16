@@ -47,6 +47,11 @@ import Trader.Platform (
     platformIntervalsCsv,
     platformSupportsTrading,
  )
+import Trader.Predictors.Quantile (
+    defaultQuantileEpochs,
+    defaultQuantileL2,
+    defaultQuantileLearningRate,
+ )
 import Trader.Predictors.TCN (defaultTcnRidgeLambda)
 import Trader.Predictors.Types (
     PredictorSet,
@@ -145,6 +150,9 @@ data Args = Args
     , argPredictorCalibrationRatio :: Double
     , argPredictorConformalAlpha :: Double
     , argPredictorTcnRidgeLambda :: Double
+    , argPredictorQuantileEpochs :: Int
+    , argPredictorQuantileLearningRate :: Double
+    , argPredictorQuantileL2 :: Double
     , argKalmanMarketTopN :: Int
     , argOpenThreshold :: Double
     , argCloseThreshold :: Double
@@ -787,6 +795,9 @@ opts = do
     argPredictorCalibrationRatio <- option auto (long "predictor-calibration-ratio" <> value 0.2 <> showDefault <> help "Holdout ratio used for predictor calibration/conformal residuals (0..0.95)")
     argPredictorConformalAlpha <- option auto (long "predictor-conformal-alpha" <> value 0.2 <> showDefault <> help "Conformal interval alpha used by the conformal predictor (0..1)")
     argPredictorTcnRidgeLambda <- option auto (long "predictor-tcn-ridge-lambda" <> value defaultTcnRidgeLambda <> showDefault <> help "TCN ridge regularization lambda used by predictor sensor training")
+    argPredictorQuantileEpochs <- option auto (long "predictor-quantile-epochs" <> value defaultQuantileEpochs <> showDefault <> help "Quantile predictor SGD epochs used by predictor sensor training")
+    argPredictorQuantileLearningRate <- option auto (long "predictor-quantile-learning-rate" <> value defaultQuantileLearningRate <> showDefault <> help "Quantile predictor SGD learning rate used by predictor sensor training")
+    argPredictorQuantileL2 <- option auto (long "predictor-quantile-l2" <> value defaultQuantileL2 <> showDefault <> help "Quantile predictor L2 regularization used by predictor sensor training")
     argKalmanMarketTopN <-
         option
             auto
@@ -1710,6 +1721,8 @@ validateArgs args0 = do
             , ("--predictor-calibration-ratio", argPredictorCalibrationRatio args)
             , ("--predictor-conformal-alpha", argPredictorConformalAlpha args)
             , ("--predictor-tcn-ridge-lambda", argPredictorTcnRidgeLambda args)
+            , ("--predictor-quantile-learning-rate", argPredictorQuantileLearningRate args)
+            , ("--predictor-quantile-l2", argPredictorQuantileL2 args)
             , ("--blend-weight", argBlendWeight args)
             , ("--blend-softmax-scale", argBlendSoftmaxScale args)
             , ("--blend-net-softmax-scale", argBlendNetSoftmaxScale args)
@@ -1872,6 +1885,9 @@ validateArgs args0 = do
     ensure "--predictor-calibration-ratio must be between 0 and 0.95" (argPredictorCalibrationRatio args >= 0 && argPredictorCalibrationRatio args <= 0.95)
     ensure "--predictor-conformal-alpha must be > 0 and < 1" (argPredictorConformalAlpha args > 0 && argPredictorConformalAlpha args < 1)
     ensure "--predictor-tcn-ridge-lambda must be >= 0" (argPredictorTcnRidgeLambda args >= 0)
+    ensure "--predictor-quantile-epochs must be >= 0" (argPredictorQuantileEpochs args >= 0)
+    ensure "--predictor-quantile-learning-rate must be > 0" (argPredictorQuantileLearningRate args > 0)
+    ensure "--predictor-quantile-l2 must be >= 0" (argPredictorQuantileL2 args >= 0)
     ensure "--kalman-market-top-n must be >= 0" (argKalmanMarketTopN args >= 0)
     ensure "--open-threshold/--threshold must be >= 0" (argOpenThreshold args >= 0)
     ensure "--open-threshold/--threshold must be <= 1" (argOpenThreshold args <= 1)

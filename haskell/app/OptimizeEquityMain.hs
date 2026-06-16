@@ -593,6 +593,9 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "predictor-calibration-ratio" 0.10 0.35
         <*> doubleRangeOption "predictor-conformal-alpha" 0.05 0.35
         <*> doubleRangeOption "predictor-tcn-ridge-lambda" 0.0 0.01
+        <*> intRangeOption "predictor-quantile-epochs" 0 40
+        <*> doubleRangeOption "predictor-quantile-learning-rate" 0.005 0.10
+        <*> doubleRangeOption "predictor-quantile-l2" 0.0 0.01
         <*> doubleRangeOption "vol-conf-volatility-evidence-max" 1.0 3.0
         <*> doubleRangeOption "vol-conf-low-vol-threshold" 0.25 0.75
         <*> doubleRangeOption "vol-conf-high-vol-threshold" 0.80 1.60
@@ -1008,6 +1011,9 @@ validateTechnicalOptimizerRanges ranges = do
     unitRange "predictor-calibration-ratio" (torPredictorCalibrationRatio ranges)
     unitRange "predictor-conformal-alpha" (torPredictorConformalAlpha ranges)
     nonNegativeRange "predictor-tcn-ridge-lambda" (torPredictorTcnRidgeLambda ranges)
+    nonNegativeIntRange "predictor-quantile-epochs" (torPredictorQuantileEpochs ranges)
+    positiveRange "predictor-quantile-learning-rate" (torPredictorQuantileLearningRate ranges)
+    nonNegativeRange "predictor-quantile-l2" (torPredictorQuantileL2 ranges)
     positiveRange "vol-conf-volatility-evidence-max" (torVolConfVolatilityEvidenceMax ranges)
     nonNegativeRange "vol-conf-low-vol-threshold" (torVolConfLowVolThreshold ranges)
     nonNegativeRange "vol-conf-high-vol-threshold" (torVolConfHighVolThreshold ranges)
