@@ -267,6 +267,26 @@ test("buildOptimizerCorrelationGuess emits advanced optimizer knobs through extr
   assert.ok(guess.extras.maxHighVolProbMax >= guess.extras.maxHighVolProbMin);
 });
 
+test("buildOptimizerCorrelationGuess emits router regime range extras", () => {
+  const combos = [
+    optimizerCombo(1, 1.01, { routerRegimeMinBars: 3, routerRegimeMinFraction: 0.1 }),
+    optimizerCombo(2, 1.02, { routerRegimeMinBars: 6, routerRegimeMinFraction: 0.2 }),
+    optimizerCombo(3, 1.05, { routerRegimeMinBars: 12, routerRegimeMinFraction: 0.35 }),
+    optimizerCombo(4, 1.09, { routerRegimeMinBars: 18, routerRegimeMinFraction: 0.5 }),
+  ];
+  const guess = buildOptimizerCorrelationGuess(combos);
+
+  assert.ok(guess);
+  assert.ok(Number.isInteger(guess.extras.routerRegimeMinBarsMin));
+  assert.ok(Number.isInteger(guess.extras.routerRegimeMinBarsMax));
+  assert.ok(guess.extras.routerRegimeMinBarsMin >= 10);
+  assert.ok(guess.extras.routerRegimeMinBarsMax <= 18);
+  assert.ok(guess.extras.routerRegimeMinBarsMax >= guess.extras.routerRegimeMinBarsMin);
+  assert.ok(guess.extras.routerRegimeMinFractionMin >= 0.3);
+  assert.ok(guess.extras.routerRegimeMinFractionMax <= 0.5);
+  assert.ok(guess.extras.routerRegimeMinFractionMax >= guess.extras.routerRegimeMinFractionMin);
+});
+
 test("buildOptimizerCorrelationGuess returns null when mapped parameters have no usable variation", () => {
   const combos = [
     optimizerCombo(1, 1.01, { stopLoss: 0.02 }),

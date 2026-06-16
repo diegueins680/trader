@@ -1301,9 +1301,11 @@ const OPTIMIZER_EXTRA_WHOLE_NUMBER_KEYS = [
   "maxHoldBarsMax",
   "trendLookbackMin",
   "trendLookbackMax",
+  "routerRegimeMinBarsMin",
+  "routerRegimeMinBarsMax",
 ] as const;
 
-const OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS = ["timeoutSec", "backtestRatio", "tuneRatio"] as const;
+const OPTIMIZER_EXTRA_FINITE_NUMBER_KEYS = ["timeoutSec", "backtestRatio", "tuneRatio", "routerRegimeMinFractionMin", "routerRegimeMinFractionMax"] as const;
 
 const OPTIMIZER_EXTRA_TRIMMED_STRING_KEYS = [
   "data",
@@ -1786,6 +1788,8 @@ const OPTIMIZER_CORRELATION_RANGE_CONFIGS: Record<string, OptimizerCorrelationRa
   trailingStop: { min: "trailMin", max: "trailMax", lowerBound: 0 },
   rebalanceCostMult: { min: "rebalanceCostMultMin", max: "rebalanceCostMultMax", lowerBound: 0 },
   blendWeight: { min: "blendWeightMin", max: "blendWeightMax", lowerBound: 0, upperBound: 1 },
+  routerRegimeMinBars: { extraMin: "routerRegimeMinBarsMin", extraMax: "routerRegimeMinBarsMax", integer: true, lowerBound: 0 },
+  routerRegimeMinFraction: { extraMin: "routerRegimeMinFractionMin", extraMax: "routerRegimeMinFractionMax", lowerBound: 0, upperBound: 1 },
   walkForwardFolds: { min: "walkForwardFoldsMin", max: "walkForwardFoldsMax", integer: true, lowerBound: 1 },
   walkForwardEmbargoBars: { min: "walkForwardEmbargoBarsMin", max: "walkForwardEmbargoBarsMax", integer: true, lowerBound: 0 },
   maxHighVolProb: { extraMin: "maxHighVolProbMin", extraMax: "maxHighVolProbMax", lowerBound: 0, upperBound: 1 },

@@ -573,17 +573,23 @@ test("router combo params apply exactly and participate in combo signatures", ()
     ...defaultForm,
     method: "router",
     routerLookback: 30,
+    routerRegimeMinBars: 3,
+    routerRegimeMinFraction: 0.25,
     routerMinScore: 0.25,
   };
   const combo = buildComboFromForm(prev, {
     method: "router",
     routerLookback: 72,
+    routerRegimeMinBars: 8,
+    routerRegimeMinFraction: 0.5,
     routerMinScore: 0.6,
   });
 
   const next = applyComboToForm(prev, combo, null);
 
   assert.equal(next.routerLookback, 72);
+  assert.equal(next.routerRegimeMinBars, 8);
+  assert.equal(next.routerRegimeMinFraction, 0.5);
   assert.equal(next.routerMinScore, 0.6);
   assert.notEqual(
     formApplySignature(prev),
