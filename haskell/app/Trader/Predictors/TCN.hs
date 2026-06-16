@@ -1,6 +1,8 @@
 module Trader.Predictors.TCN (
     TCNModel (..),
+    defaultTcnRidgeLambda,
     trainTCN,
+    trainTCNWithLambda,
     tcnFeaturesAt,
     predictTCN,
 ) where
@@ -15,6 +17,9 @@ data TCNModel = TCNModel
     , tmSigma :: !(Maybe Double)
     }
     deriving (Eq, Show)
+
+defaultTcnRidgeLambda :: Double
+defaultTcnRidgeLambda = 1e-3
 
 tcnFeaturesAt :: [Int] -> Int -> V.Vector Double -> Int -> Maybe [Double]
 tcnFeaturesAt dilations kernelSize prices t =
@@ -61,7 +66,11 @@ predictTCN m prices t = do
                     else Nothing
 
 trainTCN :: Int -> V.Vector Double -> [(Int, Double)] -> TCNModel
-trainTCN lookbackBars prices trainTargets
+trainTCN =
+    trainTCNWithLambda defaultTcnRidgeLambda
+
+trainTCNWithLambda :: Double -> Int -> V.Vector Double -> [(Int, Double)] -> TCNModel
+trainTCNWithLambda ridgeLambda lookbackBars prices trainTargets
     | lookbackBars <= 1 = emptyTCNModel
     | otherwise =
         let kernelSize = min 3 lookbackBars
@@ -69,7 +78,7 @@ trainTCN lookbackBars prices trainTargets
             dilations = takeWhile (<= maxD) (iterate (* 2) 1)
             lags = tcnLags dilations kernelSize
             maxLag = maximum lags
-            lambda = 1e-3
+            lambda = normalizeTcnRidgeLambda ridgeLambda
             xsYs =
                 [ (x ++ [1.0], y)
                 | (t, y) <- trainTargets
@@ -106,6 +115,11 @@ trainTCN lookbackBars prices trainTargets
 
 isFiniteDouble :: Double -> Bool
 isFiniteDouble x = not (isNaN x || isInfinite x)
+
+normalizeTcnRidgeLambda :: Double -> Double
+normalizeTcnRidgeLambda x
+    | not (isFiniteDouble x) = defaultTcnRidgeLambda
+    | otherwise = max 0 x
 
 finiteMaybe :: Double -> Maybe Double
 finiteMaybe x

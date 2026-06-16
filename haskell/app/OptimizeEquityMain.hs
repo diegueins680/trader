@@ -94,6 +94,7 @@ optimizerArgsParser =
         <*> option auto (long "prior-min-samples" <> value 1 <> metavar "INT")
         <*> option auto (long "prior-perturb-scale-double" <> value 0.05 <> metavar "FLOAT")
         <*> option auto (long "prior-perturb-scale-int" <> value 1 <> metavar "INT")
+        <*> option auto (long "prior-age-half-life-days" <> value 45.0 <> metavar "FLOAT")
         <*> switch (long "quality")
         <*> option auto (long "quality-min-trials" <> value 500 <> metavar "INT")
         <*> option auto (long "quality-max-epochs" <> value 50 <> metavar "INT")
@@ -591,6 +592,7 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "predictor-gbdt-learning-rate" 0.03 0.20
         <*> doubleRangeOption "predictor-calibration-ratio" 0.10 0.35
         <*> doubleRangeOption "predictor-conformal-alpha" 0.05 0.35
+        <*> doubleRangeOption "predictor-tcn-ridge-lambda" 0.0 0.01
         <*> doubleRangeOption "vol-conf-volatility-evidence-max" 1.0 3.0
         <*> doubleRangeOption "vol-conf-low-vol-threshold" 0.25 0.75
         <*> doubleRangeOption "vol-conf-high-vol-threshold" 0.80 1.60
@@ -684,6 +686,8 @@ validateArgs args = do
         Left "--prior-perturb-scale-double must be >= 0."
     when (oaPriorPerturbScaleInt args < 0) $
         Left "--prior-perturb-scale-int must be >= 0."
+    when (oaPriorAgeHalfLifeDays args < 0) $
+        Left "--prior-age-half-life-days must be >= 0."
     when (oaTuneMaxThresholdCandidates args < 0) $
         Left "--tune-max-threshold-candidates must be >= 0."
     when (oaSensorVarianceEwmaAlpha args < 0 || oaSensorVarianceEwmaAlpha args > 1) $
@@ -1003,6 +1007,7 @@ validateTechnicalOptimizerRanges ranges = do
     positiveRange "predictor-gbdt-learning-rate" (torPredictorGbdtLearningRate ranges)
     unitRange "predictor-calibration-ratio" (torPredictorCalibrationRatio ranges)
     unitRange "predictor-conformal-alpha" (torPredictorConformalAlpha ranges)
+    nonNegativeRange "predictor-tcn-ridge-lambda" (torPredictorTcnRidgeLambda ranges)
     positiveRange "vol-conf-volatility-evidence-max" (torVolConfVolatilityEvidenceMax ranges)
     nonNegativeRange "vol-conf-low-vol-threshold" (torVolConfLowVolThreshold ranges)
     nonNegativeRange "vol-conf-high-vol-threshold" (torVolConfHighVolThreshold ranges)

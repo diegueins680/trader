@@ -42,7 +42,7 @@ import Trader.Predictors.GBDT (GBDTModel (..), predictGBDT, trainGBDT)
 import Trader.Predictors.HMM (HMM3 (..), HMMFilter (..), filterPosterior, fitHMM3, predictNextFromPosterior, updatePosterior)
 import Trader.Predictors.KNN (KNNModel (..), predictKNN, trainKNN)
 import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQuantiles, trainQuantileModel)
-import Trader.Predictors.TCN (TCNModel (..), predictTCN, trainTCN)
+import Trader.Predictors.TCN (TCNModel (..), defaultTcnRidgeLambda, predictTCN, trainTCNWithLambda)
 import Trader.Predictors.Transformer (TransformerModel (..), predictTransformer, trainTransformer)
 import Trader.Predictors.Types (
     Interval (..),
@@ -74,6 +74,7 @@ data PredictorTrainingConfig = PredictorTrainingConfig
     , ptcGbdtLearningRate :: !Double
     , ptcCalibrationRatio :: !Double
     , ptcConformalAlpha :: !Double
+    , ptcTcnRidgeLambda :: !Double
     }
     deriving (Eq, Show)
 
@@ -84,6 +85,7 @@ defaultPredictorTrainingConfig =
         , ptcGbdtLearningRate = 0.1
         , ptcCalibrationRatio = 0.2
         , ptcConformalAlpha = 0.2
+        , ptcTcnRidgeLambda = defaultTcnRidgeLambda
         }
 
 sanitizePredictorTrainingConfig :: PredictorTrainingConfig -> PredictorTrainingConfig
@@ -93,6 +95,11 @@ sanitizePredictorTrainingConfig cfg =
         , ptcGbdtLearningRate = max 1e-12 (ptcGbdtLearningRate cfg)
         , ptcCalibrationRatio = clamp 0 0.95 (ptcCalibrationRatio cfg)
         , ptcConformalAlpha = clamp 1e-6 0.999999 (ptcConformalAlpha cfg)
+        , ptcTcnRidgeLambda =
+            let lambda = ptcTcnRidgeLambda cfg
+             in if isNaN lambda || isInfinite lambda
+                    then defaultTcnRidgeLambda
+                    else max 0 lambda
         }
 
 trainPredictors :: PredictorSet -> Int -> V.Vector Double -> PredictorBundle
@@ -263,7 +270,7 @@ trainPredictorsWithInputsWithMarketConfig cfg0 enabled lookbackBars mMarketModel
                 else []
         tcn =
             if useTcn
-                then trainTCN lookbackBars trainPrices' tcnTargets
+                then trainTCNWithLambda (ptcTcnRidgeLambda cfg) lookbackBars trainPrices' tcnTargets
                 else emptyTcn
      in PredictorBundle
             { pbEnabled = enabled

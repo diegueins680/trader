@@ -518,6 +518,7 @@ predictorTrainingConfigFromArgs args =
         , ptcGbdtLearningRate = argPredictorGbdtLearningRate args
         , ptcCalibrationRatio = argPredictorCalibrationRatio args
         , ptcConformalAlpha = argPredictorConformalAlpha args
+        , ptcTcnRidgeLambda = argPredictorTcnRidgeLambda args
         }
 
 volConfGateConfigFromArgs :: Args -> VolConfGateConfig
@@ -848,6 +849,7 @@ data ApiParams = ApiParams
     , apKalmanMeasurementVar :: Maybe Double
     , apSensorVarianceEwmaAlpha :: Maybe Double
     , apPredictors :: Maybe String
+    , apPredictorTcnRidgeLambda :: Maybe Double
     , apKalmanMarketTopN :: Maybe Int
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
@@ -2563,6 +2565,7 @@ argsPublicJson args =
             , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
             , "predictorCalibrationRatio" .= argPredictorCalibrationRatio args
             , "predictorConformalAlpha" .= argPredictorConformalAlpha args
+            , "predictorTcnRidgeLambda" .= argPredictorTcnRidgeLambda args
             , "patience" .= argPatience args
             , "gradClip" .= argGradClip args
             , "seed" .= argSeed args
@@ -10163,6 +10166,7 @@ parseTopComboToArgs base combo = do
         predictorGbdtLearningRate = max 1e-12 (pickD "predictorGbdtLearningRate" (argPredictorGbdtLearningRate base))
         predictorCalibrationRatio = max 0 (min 0.95 (pickD "predictorCalibrationRatio" (argPredictorCalibrationRatio base)))
         predictorConformalAlpha = max 1e-6 (min 0.999999 (pickD "predictorConformalAlpha" (argPredictorConformalAlpha base)))
+        predictorTcnRidgeLambda = max 0 (pickD "predictorTcnRidgeLambda" (argPredictorTcnRidgeLambda base))
         kalmanMarketTopN = max 0 (pickI "kalmanMarketTopN" (argKalmanMarketTopN base))
 
         walkForwardFolds = max 1 (pickI "walkForwardFolds" (argWalkForwardFolds base))
@@ -10332,6 +10336,7 @@ parseTopComboToArgs base combo = do
                 , argPredictorGbdtLearningRate = predictorGbdtLearningRate
                 , argPredictorCalibrationRatio = predictorCalibrationRatio
                 , argPredictorConformalAlpha = predictorConformalAlpha
+                , argPredictorTcnRidgeLambda = predictorTcnRidgeLambda
                 , argKalmanMarketTopN = kalmanMarketTopN
                 , argKalmanZMin = kalZMin
                 , argKalmanZMax = kalZMax
@@ -13682,6 +13687,7 @@ argsCacheJsonSignal args =
             , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
             , "predictorCalibrationRatio" .= argPredictorCalibrationRatio args
             , "predictorConformalAlpha" .= argPredictorConformalAlpha args
+            , "predictorTcnRidgeLambda" .= argPredictorTcnRidgeLambda args
             , "kalmanMarketTopN" .= argKalmanMarketTopN args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -13869,6 +13875,7 @@ argsCacheJsonBacktest args =
             , "predictorGbdtLearningRate" .= argPredictorGbdtLearningRate args
             , "predictorCalibrationRatio" .= argPredictorCalibrationRatio args
             , "predictorConformalAlpha" .= argPredictorConformalAlpha args
+            , "predictorTcnRidgeLambda" .= argPredictorTcnRidgeLambda args
             , "kalmanMarketTopN" .= argKalmanMarketTopN args
             , "openThreshold" .= argOpenThreshold args
             , "closeThreshold" .= argCloseThreshold args
@@ -15178,6 +15185,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
     priorMinSamplesEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_MIN_SAMPLES"
     priorPerturbScaleDoubleEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_DOUBLE"
     priorPerturbScaleIntEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_PERTURB_SCALE_INT"
+    priorAgeHalfLifeDaysEnv <- lookupEnv "TRADER_OPTIMIZER_PRIOR_AGE_HALF_LIFE_DAYS"
     let priorJson = pickDefaultString (fromMaybe "" mDefaultJson) priorJsonEnv
         priorSampleProb = clamp01 (readNonNegativeDoubleMaybe priorSampleProbEnv 0.6)
         priorMethodSampleProb = clamp01 (readNonNegativeDoubleMaybe priorMethodSampleProbEnv 0.5)
@@ -15186,6 +15194,7 @@ optimizerPriorArgsFromEnv mDefaultJson = do
         priorMinSamples = readNonNegativeIntMaybe priorMinSamplesEnv 3
         priorPerturbScaleDouble = readNonNegativeDoubleMaybe priorPerturbScaleDoubleEnv 0.05
         priorPerturbScaleInt = readNonNegativeIntMaybe priorPerturbScaleIntEnv 1
+        priorAgeHalfLifeDays = readNonNegativeDoubleMaybe priorAgeHalfLifeDaysEnv 45.0
      in pure $
             if priorSampleProb <= 0 || null (trim priorJson)
                 then []
@@ -15206,6 +15215,8 @@ optimizerPriorArgsFromEnv mDefaultJson = do
                     , show priorPerturbScaleDouble
                     , "--prior-perturb-scale-int"
                     , show priorPerturbScaleInt
+                    , "--prior-age-half-life-days"
+                    , show priorAgeHalfLifeDays
                     ]
 
 prepareOptimizerArgs :: FilePath -> Maybe FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
@@ -19927,6 +19938,7 @@ argsFromApi baseArgs p = do
                 , argKalmanMeasurementVar = pick (apKalmanMeasurementVar p) (argKalmanMeasurementVar baseArgs)
                 , argSensorVarianceEwmaAlpha = clamp01 (pick (apSensorVarianceEwmaAlpha p) (argSensorVarianceEwmaAlpha baseArgs))
                 , argPredictors = predictors
+                , argPredictorTcnRidgeLambda = max 0 (pick (apPredictorTcnRidgeLambda p) (argPredictorTcnRidgeLambda baseArgs))
                 , argKalmanMarketTopN = pick (apKalmanMarketTopN p) (argKalmanMarketTopN baseArgs)
                 , argOpenThreshold = openThr
                 , argCloseThreshold = closeThr

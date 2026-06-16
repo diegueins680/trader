@@ -275,6 +275,7 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torPredictorGbdtLearningRate :: !(Double, Double)
     , torPredictorCalibrationRatio :: !(Double, Double)
     , torPredictorConformalAlpha :: !(Double, Double)
+    , torPredictorTcnRidgeLambda :: !(Double, Double)
     , torVolConfVolatilityEvidenceMax :: !(Double, Double)
     , torVolConfLowVolThreshold :: !(Double, Double)
     , torVolConfHighVolThreshold :: !(Double, Double)
@@ -362,6 +363,7 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpPredictorGbdtLearningRate :: !Double
     , ttpPredictorCalibrationRatio :: !Double
     , ttpPredictorConformalAlpha :: !Double
+    , ttpPredictorTcnRidgeLambda :: !Double
     , ttpVolConfVolatilityEvidenceMax :: !Double
     , ttpVolConfLowVolThreshold :: !Double
     , ttpVolConfHighVolThreshold :: !Double
@@ -527,6 +529,7 @@ normalizeTechnicalTrialParams p =
             , ttpPredictorGbdtLearningRate = max 1e-6 (ttpPredictorGbdtLearningRate p)
             , ttpPredictorCalibrationRatio = clamp (ttpPredictorCalibrationRatio p) 0 0.95
             , ttpPredictorConformalAlpha = clamp (ttpPredictorConformalAlpha p) 1e-6 0.999999
+            , ttpPredictorTcnRidgeLambda = max 0 (ttpPredictorTcnRidgeLambda p)
             , ttpVolConfVolatilityEvidenceMax = volConfEvidenceMax
             , ttpVolConfLowVolThreshold = volConfLowVolThreshold
             , ttpVolConfHighVolThreshold = volConfHighVolThreshold
@@ -623,20 +626,21 @@ sampleTechnicalTrialParams ranges rng0 =
         (predictorGbdtLearningRate, rng71) = samplePositive (torPredictorGbdtLearningRate ranges) rng70
         (predictorCalibrationRatio, rng72) = sampleClamped 0 0.95 (torPredictorCalibrationRatio ranges) rng71
         (predictorConformalAlpha, rng73) = sampleClamped 1e-6 0.999999 (torPredictorConformalAlpha ranges) rng72
-        (volConfVolatilityEvidenceMax, rng74) = samplePositive (torVolConfVolatilityEvidenceMax ranges) rng73
-        (volConfLowVolThreshold0, rng75) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfLowVolThreshold ranges) rng74
-        (volConfHighVolThreshold0, rng76) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfHighVolThreshold ranges) rng75
+        (predictorTcnRidgeLambda, rng74) = sampleNonNegative (torPredictorTcnRidgeLambda ranges) rng73
+        (volConfVolatilityEvidenceMax, rng75) = samplePositive (torVolConfVolatilityEvidenceMax ranges) rng74
+        (volConfLowVolThreshold0, rng76) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfLowVolThreshold ranges) rng75
+        (volConfHighVolThreshold0, rng77) = sampleClamped 0 volConfVolatilityEvidenceMax (torVolConfHighVolThreshold ranges) rng76
         volConfLowVolThreshold = min volConfLowVolThreshold0 volConfHighVolThreshold0
         volConfHighVolThreshold = max volConfLowVolThreshold0 volConfHighVolThreshold0
-        (volConfWeakConfidenceThreshold0, rng77) = sampleClamped 0 1 (torVolConfWeakConfidenceThreshold ranges) rng76
-        (volConfStrongConfidenceThreshold0, rng78) = sampleClamped 0 1 (torVolConfStrongConfidenceThreshold ranges) rng77
+        (volConfWeakConfidenceThreshold0, rng78) = sampleClamped 0 1 (torVolConfWeakConfidenceThreshold ranges) rng77
+        (volConfStrongConfidenceThreshold0, rng79) = sampleClamped 0 1 (torVolConfStrongConfidenceThreshold ranges) rng78
         volConfWeakConfidenceThreshold = min volConfWeakConfidenceThreshold0 volConfStrongConfidenceThreshold0
         volConfStrongConfidenceThreshold = max volConfWeakConfidenceThreshold0 volConfStrongConfidenceThreshold0
-        (volConfLowMediumSizeMult, rng79) = sampleClamped 0 1 (torVolConfLowMediumSizeMult ranges) rng78
-        (volConfLowStrongSizeMult, rng80) = sampleClamped 0 1 (torVolConfLowStrongSizeMult ranges) rng79
-        (volConfMediumMediumSizeMult, rng81) = sampleClamped 0 1 (torVolConfMediumMediumSizeMult ranges) rng80
-        (volConfMediumStrongSizeMult, rng82) = sampleClamped 0 1 (torVolConfMediumStrongSizeMult ranges) rng81
-        (volConfHighStrongSizeMult, rng83) = sampleClamped 0 1 (torVolConfHighStrongSizeMult ranges) rng82
+        (volConfLowMediumSizeMult, rng80) = sampleClamped 0 1 (torVolConfLowMediumSizeMult ranges) rng79
+        (volConfLowStrongSizeMult, rng81) = sampleClamped 0 1 (torVolConfLowStrongSizeMult ranges) rng80
+        (volConfMediumMediumSizeMult, rng82) = sampleClamped 0 1 (torVolConfMediumMediumSizeMult ranges) rng81
+        (volConfMediumStrongSizeMult, rng83) = sampleClamped 0 1 (torVolConfMediumStrongSizeMult ranges) rng82
+        (volConfHighStrongSizeMult, rng84) = sampleClamped 0 1 (torVolConfHighStrongSizeMult ranges) rng83
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -712,6 +716,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpPredictorGbdtLearningRate = predictorGbdtLearningRate
                 , ttpPredictorCalibrationRatio = predictorCalibrationRatio
                 , ttpPredictorConformalAlpha = predictorConformalAlpha
+                , ttpPredictorTcnRidgeLambda = predictorTcnRidgeLambda
                 , ttpVolConfVolatilityEvidenceMax = volConfVolatilityEvidenceMax
                 , ttpVolConfLowVolThreshold = volConfLowVolThreshold
                 , ttpVolConfHighVolThreshold = volConfHighVolThreshold
@@ -723,7 +728,7 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpVolConfMediumStrongSizeMult = volConfMediumStrongSizeMult
                 , ttpVolConfHighStrongSizeMult = volConfHighStrongSizeMult
                 }
-        , rng83
+        , rng84
         )
   where
     samplePositive range rng =
@@ -890,6 +895,8 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpPredictorCalibrationRatio p)
     , "--predictor-conformal-alpha"
     , printf "%.12g" (ttpPredictorConformalAlpha p)
+    , "--predictor-tcn-ridge-lambda"
+    , printf "%.12g" (ttpPredictorTcnRidgeLambda p)
     , "--vol-conf-volatility-evidence-max"
     , printf "%.12g" (ttpVolConfVolatilityEvidenceMax p)
     , "--vol-conf-low-vol-threshold"
@@ -987,6 +994,7 @@ technicalTrialParamsPairs p =
     , "predictorGbdtLearningRate" .= ttpPredictorGbdtLearningRate p
     , "predictorCalibrationRatio" .= ttpPredictorCalibrationRatio p
     , "predictorConformalAlpha" .= ttpPredictorConformalAlpha p
+    , "predictorTcnRidgeLambda" .= ttpPredictorTcnRidgeLambda p
     , "volConfVolatilityEvidenceMax" .= ttpVolConfVolatilityEvidenceMax p
     , "volConfLowVolThreshold" .= ttpVolConfLowVolThreshold p
     , "volConfHighVolThreshold" .= ttpVolConfHighVolThreshold p
@@ -1173,6 +1181,7 @@ data PriorTrial = PriorTrial
     { ptParams :: !(KM.KeyMap Value)
     , ptMetrics :: !(KM.KeyMap Value)
     , ptScore :: !Double
+    , ptCreatedAtMs :: !(Maybe Int)
     , ptEligible :: !Bool
     , ptSymbol :: !(Maybe String)
     , ptPlatform :: !(Maybe String)
@@ -1235,6 +1244,7 @@ priorTrialFromObject obj = do
             fromMaybe
                 (metricFloat (Just metrics) "annualizedReturn" 0)
                 (doubleField ["score", "finalEquity"] obj)
+        createdAtMs = intField ["createdAtMs"] obj
         symbol =
             normalizeSymbol
                 ( stringField ["binanceSymbol", "symbol", "binance_symbol"] params
@@ -1248,6 +1258,7 @@ priorTrialFromObject obj = do
                 { ptParams = params
                 , ptMetrics = metrics
                 , ptScore = if isNaN score || isInfinite score then -(1 / 0) else score
+                , ptCreatedAtMs = createdAtMs
                 , ptEligible = eligible
                 , ptSymbol = symbol
                 , ptPlatform = platform
@@ -1255,13 +1266,13 @@ priorTrialFromObject obj = do
                 , ptMethod = method
                 }
 
-selectOptimizerPriorTrials :: OptimizerArgs -> Maybe String -> [String] -> [PriorTrial] -> [PriorTrial]
-selectOptimizerPriorTrials args symbol intervals rawTrials =
+selectOptimizerPriorTrials :: OptimizerArgs -> Int -> Maybe String -> [String] -> [PriorTrial] -> [PriorTrial]
+selectOptimizerPriorTrials args nowMs symbol intervals rawTrials =
     let eligible =
             filter
                 (priorTrialMeetsEvidence args symbol intervals)
                 rawTrials
-        sorted = sortOn (Data.Ord.Down . priorTrialRankScore args) eligible
+        sorted = sortOn (Data.Ord.Down . priorTrialRankScore args nowMs) eligible
         fraction = clamp (oaPriorTopFraction args) 0 1
         total = length sorted
         requested =
@@ -1272,33 +1283,61 @@ selectOptimizerPriorTrials args symbol intervals rawTrials =
                      in max (max 0 (oaPriorMinSamples args)) byFraction
      in take (min total requested) sorted
 
-priorTrialRankScore :: OptimizerArgs -> PriorTrial -> Double
-priorTrialRankScore args trial =
-    if KM.null (ptMetrics trial)
-        then ptScore trial
-        else
-            let score =
-                    objectiveScoreWithConfig
-                        (roiScoreConfigFromOptimizerArgs args)
-                        (ptMetrics trial)
-                        (oaObjective args)
-                        (oaPenaltyMaxDrawdown args)
-                        (oaPenaltyTurnover args)
-             in if isNaN score || isInfinite score
-                    then ptScore trial
-                    else score
+priorTrialRankScore :: OptimizerArgs -> Int -> PriorTrial -> Double
+priorTrialRankScore args nowMs trial =
+    let score =
+            if KM.null (ptMetrics trial)
+                then ptScore trial
+                else
+                    let objectiveScoreValue =
+                            objectiveScoreWithConfig
+                                (roiScoreConfigFromOptimizerArgs args)
+                                (ptMetrics trial)
+                                (oaObjective args)
+                                (oaPenaltyMaxDrawdown args)
+                                (oaPenaltyTurnover args)
+                     in if isNaN objectiveScoreValue || isInfinite objectiveScoreValue
+                            then ptScore trial
+                            else objectiveScoreValue
+     in ageAdjustedPriorScore (oaPriorAgeHalfLifeDays args) nowMs (ptCreatedAtMs trial) score
+
+ageAdjustedPriorScore :: Double -> Int -> Maybe Int -> Double -> Double
+ageAdjustedPriorScore halfLifeDays nowMs mCreatedAtMs score
+    | halfLifeDays <= 0 = score
+    | isNaN halfLifeDays || isInfinite halfLifeDays = score
+    | otherwise =
+        let decay = priorAgeDecayMultiplier halfLifeDays nowMs mCreatedAtMs
+         in if score >= 0
+                then score * decay
+                else score / max 1e-9 decay
+
+priorAgeDecayMultiplier :: Double -> Int -> Maybe Int -> Double
+priorAgeDecayMultiplier halfLifeDays nowMs mCreatedAtMs =
+    case mCreatedAtMs of
+        Nothing -> 1
+        Just createdAtMs ->
+            let ageDays =
+                    max 0 $
+                        fromIntegral (max 0 (nowMs - createdAtMs))
+                            / (1000 * 60 * 60 * 24 :: Double)
+             in 0.5 ** (ageDays / halfLifeDays)
 
 priorTrialDistributionSummary :: [PriorTrial] -> String
 priorTrialDistributionSummary trials =
     let methodSummary = countSummary (fromMaybe "unknown" . ptMethod) trials
         intervalSummary = countSummary (fromMaybe "unknown" . ptInterval) trials
         wfCount = length (filter priorTrialHasWalkForwardSummary trials)
+        createdAtCount = length (filter (isJust . ptCreatedAtMs) trials)
      in " methods="
             ++ methodSummary
             ++ " intervals="
             ++ intervalSummary
             ++ " walkForward="
             ++ show wfCount
+            ++ "/"
+            ++ show (length trials)
+            ++ " createdAt="
+            ++ show createdAtCount
             ++ "/"
             ++ show (length trials)
 
@@ -2047,6 +2086,7 @@ data OptimizerArgs = OptimizerArgs
     , oaPriorMinSamples :: !Int
     , oaPriorPerturbScaleDouble :: !Double
     , oaPriorPerturbScaleInt :: !Int
+    , oaPriorAgeHalfLifeDays :: !Double
     , oaQuality :: !Bool
     , oaQualityMinTrials :: !Int
     , oaQualityMaxEpochs :: !Int
@@ -5290,6 +5330,7 @@ runOptimizer args0 = do
                                                                         if oaPriorSampleProb args <= 0
                                                                             then pure []
                                                                             else readOptimizerPriorTrials (oaPriorJson args)
+                                                                    priorNowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
                                                                     let rngStart = seedRng (oaSeed args)
                                                                         dataSource = if isNothing (oaData args) then "binance" else "csv"
                                                                         sourceOverride = map toLower (trim (oaSourceLabel args))
@@ -5318,6 +5359,7 @@ runOptimizer args0 = do
                                                                         priorRankBias = max 1 (oaPriorRankBias args)
                                                                         priorPerturbScaleDouble = max 0 (oaPriorPerturbScaleDouble args)
                                                                         priorPerturbScaleInt = max 0 (oaPriorPerturbScaleInt args)
+                                                                        priorAgeHalfLifeDays = max 0 (oaPriorAgeHalfLifeDays args)
                                                                         minRoundTrips = max 0 (oaMinRoundTrips args)
                                                                         minWinRate = max 0 (oaMinWinRate args)
                                                                         minProfitFactor = max 0 (oaMinProfitFactor args)
@@ -5330,7 +5372,7 @@ runOptimizer args0 = do
                                                                         maxTurnover = max 0 (oaMaxTurnover args)
                                                                         minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
                                                                         maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
-                                                                        priorTrials = selectOptimizerPriorTrials args symbolFinal intervals priorTrialsRaw
+                                                                        priorTrials = selectOptimizerPriorTrials args{oaPriorAgeHalfLifeDays = priorAgeHalfLifeDays} priorNowMs symbolFinal intervals priorTrialsRaw
                                                                     when (priorSampleProb > 0 && not (null (trim (oaPriorJson args)))) $
                                                                         hPutStrLn
                                                                             stderr
@@ -7354,6 +7396,7 @@ applyTechnicalPriorOverlay params base =
             , ttpPredictorGbdtLearningRate = fromMaybe (ttpPredictorGbdtLearningRate base) (doubleField ["predictorGbdtLearningRate"] params)
             , ttpPredictorCalibrationRatio = fromMaybe (ttpPredictorCalibrationRatio base) (doubleField ["predictorCalibrationRatio"] params)
             , ttpPredictorConformalAlpha = fromMaybe (ttpPredictorConformalAlpha base) (doubleField ["predictorConformalAlpha"] params)
+            , ttpPredictorTcnRidgeLambda = fromMaybe (ttpPredictorTcnRidgeLambda base) (doubleField ["predictorTcnRidgeLambda"] params)
             }
 
 optionalDoubleField :: [String] -> KM.KeyMap Value -> Maybe (Maybe Double)

@@ -47,6 +47,7 @@ import Trader.Platform (
     platformIntervalsCsv,
     platformSupportsTrading,
  )
+import Trader.Predictors.TCN (defaultTcnRidgeLambda)
 import Trader.Predictors.Types (
     PredictorSet,
     allPredictors,
@@ -143,6 +144,7 @@ data Args = Args
     , argPredictorGbdtLearningRate :: Double
     , argPredictorCalibrationRatio :: Double
     , argPredictorConformalAlpha :: Double
+    , argPredictorTcnRidgeLambda :: Double
     , argKalmanMarketTopN :: Int
     , argOpenThreshold :: Double
     , argCloseThreshold :: Double
@@ -784,6 +786,7 @@ opts = do
     argPredictorGbdtLearningRate <- option auto (long "predictor-gbdt-learning-rate" <> value 0.1 <> showDefault <> help "GBDT learning rate used by predictor sensor training")
     argPredictorCalibrationRatio <- option auto (long "predictor-calibration-ratio" <> value 0.2 <> showDefault <> help "Holdout ratio used for predictor calibration/conformal residuals (0..0.95)")
     argPredictorConformalAlpha <- option auto (long "predictor-conformal-alpha" <> value 0.2 <> showDefault <> help "Conformal interval alpha used by the conformal predictor (0..1)")
+    argPredictorTcnRidgeLambda <- option auto (long "predictor-tcn-ridge-lambda" <> value defaultTcnRidgeLambda <> showDefault <> help "TCN ridge regularization lambda used by predictor sensor training")
     argKalmanMarketTopN <-
         option
             auto
@@ -1706,6 +1709,7 @@ validateArgs args0 = do
             , ("--predictor-gbdt-learning-rate", argPredictorGbdtLearningRate args)
             , ("--predictor-calibration-ratio", argPredictorCalibrationRatio args)
             , ("--predictor-conformal-alpha", argPredictorConformalAlpha args)
+            , ("--predictor-tcn-ridge-lambda", argPredictorTcnRidgeLambda args)
             , ("--blend-weight", argBlendWeight args)
             , ("--blend-softmax-scale", argBlendSoftmaxScale args)
             , ("--blend-net-softmax-scale", argBlendNetSoftmaxScale args)
@@ -1867,6 +1871,7 @@ validateArgs args0 = do
     ensure "--predictor-gbdt-learning-rate must be > 0" (argPredictorGbdtLearningRate args > 0)
     ensure "--predictor-calibration-ratio must be between 0 and 0.95" (argPredictorCalibrationRatio args >= 0 && argPredictorCalibrationRatio args <= 0.95)
     ensure "--predictor-conformal-alpha must be > 0 and < 1" (argPredictorConformalAlpha args > 0 && argPredictorConformalAlpha args < 1)
+    ensure "--predictor-tcn-ridge-lambda must be >= 0" (argPredictorTcnRidgeLambda args >= 0)
     ensure "--kalman-market-top-n must be >= 0" (argKalmanMarketTopN args >= 0)
     ensure "--open-threshold/--threshold must be >= 0" (argOpenThreshold args >= 0)
     ensure "--open-threshold/--threshold must be <= 1" (argOpenThreshold args <= 1)
