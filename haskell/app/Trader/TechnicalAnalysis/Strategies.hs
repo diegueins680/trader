@@ -14,6 +14,7 @@ module Trader.TechnicalAnalysis.Strategies (
     bestCandidateAt,
     candidateForMethodAt,
     candidateRewardEdge,
+    defaultRegimeCalibration,
     defaultTechnicalStrategyCalibration,
     momentumReversionAt,
     momentumReversionAtWithCalibration,
@@ -84,8 +85,40 @@ data RegimeCalibration = RegimeCalibration
     { rcAdxWeight :: !Double
     , rcTrendThreshold :: !Double
     , rcRangeThreshold :: !Double
+    , rcTrendAdxFloor :: !Double
+    , rcTrendAdxSpan :: !Double
+    , rcTrendAroonFloor :: !Double
+    , rcTrendAroonSpan :: !Double
+    , rcTrendSlopeFloor :: !Double
+    , rcTrendSlopeSpan :: !Double
+    , rcTrendAroonWeight :: !Double
+    , rcRangeAdxCeiling :: !Double
+    , rcRangeAdxSpan :: !Double
+    , rcRangeWidthCeiling :: !Double
+    , rcRangeWidthSpan :: !Double
+    , rcRangeAdxWeight :: !Double
     }
     deriving (Eq, Show)
+
+defaultRegimeCalibration :: RegimeCalibration
+defaultRegimeCalibration =
+    RegimeCalibration
+        { rcAdxWeight = 0.40
+        , rcTrendThreshold = 0.55
+        , rcRangeThreshold = 0.55
+        , rcTrendAdxFloor = 15
+        , rcTrendAdxSpan = 20
+        , rcTrendAroonFloor = 20
+        , rcTrendAroonSpan = 40
+        , rcTrendSlopeFloor = 0.005
+        , rcTrendSlopeSpan = 0.015
+        , rcTrendAroonWeight = 0.35 / 0.60
+        , rcRangeAdxCeiling = 25
+        , rcRangeAdxSpan = 15
+        , rcRangeWidthCeiling = 0.12
+        , rcRangeWidthSpan = 0.08
+        , rcRangeAdxWeight = 0.5
+        }
 
 data TechnicalStrategyCalibration = TechnicalStrategyCalibration
     { tscEntryOpenThreshold :: !Double
@@ -272,21 +305,31 @@ regimeSelectorDecomposed cal series = do
     let slope = safeDivide (fastNow - fastPrev) closeNow
         width = safeDivide (bandUpper bbNow - bandLower bbNow) closeNow
         aroonGap = abs (aroonUp aroonNow - aroonDown aroonNow)
-        adxTrendScore = clamp01 ((adxValue adxNow - 15) / 20)
-        aroonTrendScore = clamp01 ((aroonGap - 20) / 40)
-        slopeTrendScore = clamp01 ((abs slope - 0.005) / 0.015)
-        wAdx = rcAdxWeight cal
-        trendScore = wAdx * adxTrendScore + (1 - wAdx) * (0.35 / 0.60 * aroonTrendScore + 0.25 / 0.60 * slopeTrendScore)
-        adxRangeScore = clamp01 ((25 - adxValue adxNow) / 15)
-        widthRangeScore = clamp01 ((0.12 - width) / 0.08)
-        rangeScore = 0.5 * adxRangeScore + 0.5 * widthRangeScore
+    pure (regimeScoreFromComponents cal (adxValue adxNow) aroonGap slope width)
+
+regimeScoreFromComponents :: RegimeCalibration -> Double -> Double -> Double -> Double -> RegimeScore
+regimeScoreFromComponents cal adxVal aroonGap slope width =
+    let trendAdxSpan = max 1e-12 (rcTrendAdxSpan cal)
+        trendAroonSpan = max 1e-12 (rcTrendAroonSpan cal)
+        trendSlopeSpan = max 1e-12 (rcTrendSlopeSpan cal)
+        rangeAdxSpan = max 1e-12 (rcRangeAdxSpan cal)
+        rangeWidthSpan = max 1e-12 (rcRangeWidthSpan cal)
+        adxTrendScore = clamp01 ((adxVal - rcTrendAdxFloor cal) / trendAdxSpan)
+        aroonTrendScore = clamp01 ((aroonGap - rcTrendAroonFloor cal) / trendAroonSpan)
+        slopeTrendScore = clamp01 ((abs slope - rcTrendSlopeFloor cal) / trendSlopeSpan)
+        wAdx = clamp01 (rcAdxWeight cal)
+        wAroon = clamp01 (rcTrendAroonWeight cal)
+        trendShapeScore = wAroon * aroonTrendScore + (1 - wAroon) * slopeTrendScore
+        trendScore = wAdx * adxTrendScore + (1 - wAdx) * trendShapeScore
+        adxRangeScore = clamp01 ((rcRangeAdxCeiling cal - adxVal) / rangeAdxSpan)
+        widthRangeScore = clamp01 ((rcRangeWidthCeiling cal - width) / rangeWidthSpan)
+        wRangeAdx = clamp01 (rcRangeAdxWeight cal)
+        rangeScore = wRangeAdx * adxRangeScore + (1 - wRangeAdx) * widthRangeScore
         maxScore = max trendScore rangeScore
-        neutralScore = max 0 (1 - maxScore)
-    pure
-        RegimeScore
+     in RegimeScore
             { rsTrend = trendScore
             , rsRange = rangeScore
-            , rsNeutral = neutralScore
+            , rsNeutral = max 0 (1 - maxScore)
             , rsConfidence = maxScore
             }
 
@@ -648,7 +691,7 @@ data OhlcvIndicators = OhlcvIndicators
 This reduces backtest complexity from O(n²) to O(n).
 -}
 precomputeIndicators :: OhlcvSeries -> OhlcvIndicators
-precomputeIndicators = precomputeIndicatorsWithCalibration (RegimeCalibration 0.40 0.55 0.55)
+precomputeIndicators = precomputeIndicatorsWithCalibration defaultRegimeCalibration
 
 precomputeIndicatorsWithCalibration :: RegimeCalibration -> OhlcvSeries -> OhlcvIndicators
 precomputeIndicatorsWithCalibration cal series =
@@ -685,21 +728,12 @@ precomputeIndicatorsWithCalibration cal series =
             let slope = safeDivide (fastNow - fastPrev) closeNow
                 width = safeDivide (bandUpper bbNow - bandLower bbNow) closeNow
                 aroonGap = abs (aroonUp aroonNow - aroonDown aroonNow)
-                adxTrendScore = clamp01 ((adxValue adxNow - 15) / 20)
-                aroonTrendScore = clamp01 ((aroonGap - 20) / 40)
-                slopeTrendScore = clamp01 ((abs slope - 0.005) / 0.015)
-                wAdx = rcAdxWeight cal
-                trendScore = wAdx * adxTrendScore + (1 - wAdx) * (0.35 / 0.60 * aroonTrendScore + 0.25 / 0.60 * slopeTrendScore)
-                adxRangeScore = clamp01 ((25 - adxValue adxNow) / 15)
-                widthRangeScore = clamp01 ((0.12 - width) / 0.08)
-                rangeScore = 0.5 * adxRangeScore + 0.5 * widthRangeScore
-                maxScore = max trendScore rangeScore
-                neutralScore = max 0 (1 - maxScore)
+                score = regimeScoreFromComponents cal (adxValue adxNow) aroonGap slope width
             pure $
-                if trendScore >= rcTrendThreshold cal
+                if rsTrend score >= rcTrendThreshold cal
                     then RegimeTrend
                     else
-                        if rangeScore >= rcRangeThreshold cal
+                        if rsRange score >= rcRangeThreshold cal
                             then RegimeRange
                             else RegimeNeutral
      in OhlcvIndicators

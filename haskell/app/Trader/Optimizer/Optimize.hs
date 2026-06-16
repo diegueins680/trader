@@ -296,6 +296,21 @@ data TechnicalOptimizerRanges = TechnicalOptimizerRanges
     , torVolConfMediumMediumSizeMult :: !(Double, Double)
     , torVolConfMediumStrongSizeMult :: !(Double, Double)
     , torVolConfHighStrongSizeMult :: !(Double, Double)
+    , torRegimeAdxWeight :: !(Double, Double)
+    , torRegimeTrendThreshold :: !(Double, Double)
+    , torRegimeRangeThreshold :: !(Double, Double)
+    , torRegimeTrendAdxFloor :: !(Double, Double)
+    , torRegimeTrendAdxSpan :: !(Double, Double)
+    , torRegimeTrendAroonFloor :: !(Double, Double)
+    , torRegimeTrendAroonSpan :: !(Double, Double)
+    , torRegimeTrendSlopeFloor :: !(Double, Double)
+    , torRegimeTrendSlopeSpan :: !(Double, Double)
+    , torRegimeTrendAroonWeight :: !(Double, Double)
+    , torRegimeRangeAdxCeiling :: !(Double, Double)
+    , torRegimeRangeAdxSpan :: !(Double, Double)
+    , torRegimeRangeWidthCeiling :: !(Double, Double)
+    , torRegimeRangeWidthSpan :: !(Double, Double)
+    , torRegimeRangeAdxWeight :: !(Double, Double)
     }
     deriving (Eq, Show)
 
@@ -394,6 +409,21 @@ data TechnicalTrialParams = TechnicalTrialParams
     , ttpVolConfMediumMediumSizeMult :: !Double
     , ttpVolConfMediumStrongSizeMult :: !Double
     , ttpVolConfHighStrongSizeMult :: !Double
+    , ttpRegimeAdxWeight :: !Double
+    , ttpRegimeTrendThreshold :: !Double
+    , ttpRegimeRangeThreshold :: !Double
+    , ttpRegimeTrendAdxFloor :: !Double
+    , ttpRegimeTrendAdxSpan :: !Double
+    , ttpRegimeTrendAroonFloor :: !Double
+    , ttpRegimeTrendAroonSpan :: !Double
+    , ttpRegimeTrendSlopeFloor :: !Double
+    , ttpRegimeTrendSlopeSpan :: !Double
+    , ttpRegimeTrendAroonWeight :: !Double
+    , ttpRegimeRangeAdxCeiling :: !Double
+    , ttpRegimeRangeAdxSpan :: !Double
+    , ttpRegimeRangeWidthCeiling :: !Double
+    , ttpRegimeRangeWidthSpan :: !Double
+    , ttpRegimeRangeAdxWeight :: !Double
     }
     deriving (Eq, Show)
 
@@ -570,6 +600,21 @@ normalizeTechnicalTrialParams p =
             , ttpVolConfMediumMediumSizeMult = clamp (ttpVolConfMediumMediumSizeMult p) 0 1
             , ttpVolConfMediumStrongSizeMult = clamp (ttpVolConfMediumStrongSizeMult p) 0 1
             , ttpVolConfHighStrongSizeMult = clamp (ttpVolConfHighStrongSizeMult p) 0 1
+            , ttpRegimeAdxWeight = clamp (ttpRegimeAdxWeight p) 0 1
+            , ttpRegimeTrendThreshold = clamp (ttpRegimeTrendThreshold p) 0 1
+            , ttpRegimeRangeThreshold = clamp (ttpRegimeRangeThreshold p) 0 1
+            , ttpRegimeTrendAdxFloor = clamp (ttpRegimeTrendAdxFloor p) 0 100
+            , ttpRegimeTrendAdxSpan = max 1e-6 (ttpRegimeTrendAdxSpan p)
+            , ttpRegimeTrendAroonFloor = clamp (ttpRegimeTrendAroonFloor p) 0 100
+            , ttpRegimeTrendAroonSpan = max 1e-6 (ttpRegimeTrendAroonSpan p)
+            , ttpRegimeTrendSlopeFloor = max 0 (ttpRegimeTrendSlopeFloor p)
+            , ttpRegimeTrendSlopeSpan = max 1e-6 (ttpRegimeTrendSlopeSpan p)
+            , ttpRegimeTrendAroonWeight = clamp (ttpRegimeTrendAroonWeight p) 0 1
+            , ttpRegimeRangeAdxCeiling = clamp (ttpRegimeRangeAdxCeiling p) 0 100
+            , ttpRegimeRangeAdxSpan = max 1e-6 (ttpRegimeRangeAdxSpan p)
+            , ttpRegimeRangeWidthCeiling = max 0 (ttpRegimeRangeWidthCeiling p)
+            , ttpRegimeRangeWidthSpan = max 1e-6 (ttpRegimeRangeWidthSpan p)
+            , ttpRegimeRangeAdxWeight = clamp (ttpRegimeRangeAdxWeight p) 0 1
             }
 
 sampleTechnicalTrialParams :: TechnicalOptimizerRanges -> Rng -> (TechnicalTrialParams, Rng)
@@ -695,6 +740,21 @@ sampleTechnicalTrialParams ranges rng0 =
         (volConfMediumMediumSizeMult, rng92) = sampleClamped 0 1 (torVolConfMediumMediumSizeMult ranges) rng91
         (volConfMediumStrongSizeMult, rng93) = sampleClamped 0 1 (torVolConfMediumStrongSizeMult ranges) rng92
         (volConfHighStrongSizeMult, rng94) = sampleClamped 0 1 (torVolConfHighStrongSizeMult ranges) rng93
+        (regimeAdxWeight, rng95) = sampleClamped 0 1 (torRegimeAdxWeight ranges) rng94
+        (regimeTrendThreshold, rng96) = sampleClamped 0 1 (torRegimeTrendThreshold ranges) rng95
+        (regimeRangeThreshold, rng97) = sampleClamped 0 1 (torRegimeRangeThreshold ranges) rng96
+        (regimeTrendAdxFloor, rng98) = sampleClamped 0 100 (torRegimeTrendAdxFloor ranges) rng97
+        (regimeTrendAdxSpan, rng99) = samplePositive (torRegimeTrendAdxSpan ranges) rng98
+        (regimeTrendAroonFloor, rng100) = sampleClamped 0 100 (torRegimeTrendAroonFloor ranges) rng99
+        (regimeTrendAroonSpan, rng101) = samplePositive (torRegimeTrendAroonSpan ranges) rng100
+        (regimeTrendSlopeFloor, rng102) = sampleNonNegative (torRegimeTrendSlopeFloor ranges) rng101
+        (regimeTrendSlopeSpan, rng103) = samplePositive (torRegimeTrendSlopeSpan ranges) rng102
+        (regimeTrendAroonWeight, rng104) = sampleClamped 0 1 (torRegimeTrendAroonWeight ranges) rng103
+        (regimeRangeAdxCeiling, rng105) = sampleClamped 0 100 (torRegimeRangeAdxCeiling ranges) rng104
+        (regimeRangeAdxSpan, rng106) = samplePositive (torRegimeRangeAdxSpan ranges) rng105
+        (regimeRangeWidthCeiling, rng107) = sampleNonNegative (torRegimeRangeWidthCeiling ranges) rng106
+        (regimeRangeWidthSpan, rng108) = samplePositive (torRegimeRangeWidthSpan ranges) rng107
+        (regimeRangeAdxWeight, rng109) = sampleClamped 0 1 (torRegimeRangeAdxWeight ranges) rng108
      in ( normalizeTechnicalTrialParams
             TechnicalTrialParams
                 { ttpTaEntryOpenThreshold = taEntryOpenThreshold
@@ -791,8 +851,23 @@ sampleTechnicalTrialParams ranges rng0 =
                 , ttpVolConfMediumMediumSizeMult = volConfMediumMediumSizeMult
                 , ttpVolConfMediumStrongSizeMult = volConfMediumStrongSizeMult
                 , ttpVolConfHighStrongSizeMult = volConfHighStrongSizeMult
+                , ttpRegimeAdxWeight = regimeAdxWeight
+                , ttpRegimeTrendThreshold = regimeTrendThreshold
+                , ttpRegimeRangeThreshold = regimeRangeThreshold
+                , ttpRegimeTrendAdxFloor = regimeTrendAdxFloor
+                , ttpRegimeTrendAdxSpan = regimeTrendAdxSpan
+                , ttpRegimeTrendAroonFloor = regimeTrendAroonFloor
+                , ttpRegimeTrendAroonSpan = regimeTrendAroonSpan
+                , ttpRegimeTrendSlopeFloor = regimeTrendSlopeFloor
+                , ttpRegimeTrendSlopeSpan = regimeTrendSlopeSpan
+                , ttpRegimeTrendAroonWeight = regimeTrendAroonWeight
+                , ttpRegimeRangeAdxCeiling = regimeRangeAdxCeiling
+                , ttpRegimeRangeAdxSpan = regimeRangeAdxSpan
+                , ttpRegimeRangeWidthCeiling = regimeRangeWidthCeiling
+                , ttpRegimeRangeWidthSpan = regimeRangeWidthSpan
+                , ttpRegimeRangeAdxWeight = regimeRangeAdxWeight
                 }
-        , rng94
+        , rng109
         )
   where
     samplePositive range rng =
@@ -1001,6 +1076,36 @@ technicalTrialParamsArgs p =
     , printf "%.12g" (ttpVolConfMediumStrongSizeMult p)
     , "--vol-conf-high-strong-size"
     , printf "%.12g" (ttpVolConfHighStrongSizeMult p)
+    , "--regime-adx-weight"
+    , printf "%.12g" (ttpRegimeAdxWeight p)
+    , "--regime-trend-threshold"
+    , printf "%.12g" (ttpRegimeTrendThreshold p)
+    , "--regime-range-threshold"
+    , printf "%.12g" (ttpRegimeRangeThreshold p)
+    , "--regime-trend-adx-floor"
+    , printf "%.12g" (ttpRegimeTrendAdxFloor p)
+    , "--regime-trend-adx-span"
+    , printf "%.12g" (ttpRegimeTrendAdxSpan p)
+    , "--regime-trend-aroon-floor"
+    , printf "%.12g" (ttpRegimeTrendAroonFloor p)
+    , "--regime-trend-aroon-span"
+    , printf "%.12g" (ttpRegimeTrendAroonSpan p)
+    , "--regime-trend-slope-floor"
+    , printf "%.12g" (ttpRegimeTrendSlopeFloor p)
+    , "--regime-trend-slope-span"
+    , printf "%.12g" (ttpRegimeTrendSlopeSpan p)
+    , "--regime-trend-aroon-weight"
+    , printf "%.12g" (ttpRegimeTrendAroonWeight p)
+    , "--regime-range-adx-ceiling"
+    , printf "%.12g" (ttpRegimeRangeAdxCeiling p)
+    , "--regime-range-adx-span"
+    , printf "%.12g" (ttpRegimeRangeAdxSpan p)
+    , "--regime-range-width-ceiling"
+    , printf "%.12g" (ttpRegimeRangeWidthCeiling p)
+    , "--regime-range-width-span"
+    , printf "%.12g" (ttpRegimeRangeWidthSpan p)
+    , "--regime-range-adx-weight"
+    , printf "%.12g" (ttpRegimeRangeAdxWeight p)
     ]
 
 technicalTrialParamsPairs :: TechnicalTrialParams -> [AT.Pair]
@@ -1099,6 +1204,21 @@ technicalTrialParamsPairs p =
     , "volConfMediumMediumSizeMult" .= ttpVolConfMediumMediumSizeMult p
     , "volConfMediumStrongSizeMult" .= ttpVolConfMediumStrongSizeMult p
     , "volConfHighStrongSizeMult" .= ttpVolConfHighStrongSizeMult p
+    , "regimeAdxWeight" .= ttpRegimeAdxWeight p
+    , "regimeTrendThreshold" .= ttpRegimeTrendThreshold p
+    , "regimeRangeThreshold" .= ttpRegimeRangeThreshold p
+    , "regimeTrendAdxFloor" .= ttpRegimeTrendAdxFloor p
+    , "regimeTrendAdxSpan" .= ttpRegimeTrendAdxSpan p
+    , "regimeTrendAroonFloor" .= ttpRegimeTrendAroonFloor p
+    , "regimeTrendAroonSpan" .= ttpRegimeTrendAroonSpan p
+    , "regimeTrendSlopeFloor" .= ttpRegimeTrendSlopeFloor p
+    , "regimeTrendSlopeSpan" .= ttpRegimeTrendSlopeSpan p
+    , "regimeTrendAroonWeight" .= ttpRegimeTrendAroonWeight p
+    , "regimeRangeAdxCeiling" .= ttpRegimeRangeAdxCeiling p
+    , "regimeRangeAdxSpan" .= ttpRegimeRangeAdxSpan p
+    , "regimeRangeWidthCeiling" .= ttpRegimeRangeWidthCeiling p
+    , "regimeRangeWidthSpan" .= ttpRegimeRangeWidthSpan p
+    , "regimeRangeAdxWeight" .= ttpRegimeRangeAdxWeight p
     ]
 
 normalizeSymbol :: Maybe String -> Maybe String
@@ -3010,6 +3130,7 @@ data TrialResult = TrialResult
     { trOk :: !Bool
     , trReason :: !(Maybe String)
     , trElapsedSec :: !Double
+    , trOrigin :: !String
     , trParams :: !TrialParams
     , trFinalEquity :: !(Maybe Double)
     , trMetrics :: !(Maybe (KM.KeyMap Value))
@@ -3523,6 +3644,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                     { trOk = False
                     , trReason = Just ("timeout>" ++ show timeoutSec ++ "s")
                     , trElapsedSec = elapsed
+                    , trOrigin = "direct"
                     , trParams = params
                     , trFinalEquity = Nothing
                     , trMetrics = Nothing
@@ -3549,6 +3671,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                             { trOk = False
                             , trReason = Just reason
                             , trElapsedSec = elapsed
+                            , trOrigin = "direct"
                             , trParams = params
                             , trFinalEquity = Nothing
                             , trMetrics = Nothing
@@ -3568,6 +3691,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                                     { trOk = False
                                     , trReason = Just ("json parse error: " ++ e)
                                     , trElapsedSec = elapsed
+                                    , trOrigin = "direct"
                                     , trParams = params
                                     , trFinalEquity = Nothing
                                     , trMetrics = Nothing
@@ -3587,6 +3711,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                                             { trOk = False
                                             , trReason = Just ("unexpected json schema: " ++ e)
                                             , trElapsedSec = elapsed
+                                            , trOrigin = "direct"
                                             , trParams = params
                                             , trFinalEquity = Nothing
                                             , trMetrics = Nothing
@@ -3604,6 +3729,7 @@ runTrial traderBin baseArgs params0 tuneRatio useSweepThreshold timeoutSec disab
                                             { trOk = True
                                             , trReason = Nothing
                                             , trElapsedSec = elapsed
+                                            , trOrigin = "direct"
                                             , trParams = params
                                             , trFinalEquity = Just finalEq
                                             , trMetrics = Just metrics
@@ -3935,6 +4061,7 @@ trialToRecord tr symbolLabel =
             , "activityDiagnostic" .= activityFilterDiagnostic tr
             , "reason" .= trReason tr
             , "elapsedSec" .= trElapsedSec tr
+            , "optimizerTrialOrigin" .= trOrigin tr
             , "finalEquity" .= trFinalEquity tr
             , "openThreshold" .= trOpenThreshold tr
             , "closeThreshold" .= trCloseThreshold tr
@@ -5808,21 +5935,30 @@ runOptimizer args0 = do
                                                                                                 (tpBars overlaid)
                                                                                         }
                                                                         runTrialWith idx rng mPriorSeed mBase mParents best recordsRev = do
-                                                                            let (params, _) =
+                                                                            let (params, origin) =
                                                                                     case mPriorSeed of
-                                                                                        Just prior -> (samplePriorSeedParams prior rng, rng)
+                                                                                        Just prior -> (samplePriorSeedParams prior rng, "prior-seed")
                                                                                         Nothing ->
                                                                                             case mBase of
-                                                                                                Nothing -> sampleParamsMaybePrior rng
+                                                                                                Nothing ->
+                                                                                                    let (params0, _, mOrigin) = sampleParamsMaybePrior rng
+                                                                                                     in (params0, fromMaybe "sobol-seed" mOrigin)
                                                                                                 Just base ->
                                                                                                     case mParents of
                                                                                                         Just parents@(_ : _ : _) ->
                                                                                                             case pickParentPair parents rng of
                                                                                                                 Just ((p1, p2), rng1) ->
-                                                                                                                    let (child, rng2) = crossoverTrialParams p1 p2 rng1
-                                                                                                                     in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
-                                                                                                                Nothing -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
-                                                                                                        _ -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                                                    let crossover = crossoverTrialParams p1 p2 rng1
+                                                                                                                        child = fst crossover
+                                                                                                                        rng2 = snd crossover
+                                                                                                                        params0 = fst (perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2)
+                                                                                                                     in (params0, "survivor-crossover")
+                                                                                                                Nothing ->
+                                                                                                                    let (params0, _) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                                                     in (params0, "survivor-perturb")
+                                                                                                        _ ->
+                                                                                                            let (params0, _) = perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
+                                                                                                             in (params0, "survivor-perturb")
                                                                             tr0 <-
                                                                                 runTrial
                                                                                     traderBinPath
@@ -5942,6 +6078,7 @@ runOptimizer args0 = do
                                                                                         , trFilterReason = filterReason
                                                                                         , trObjective = objective
                                                                                         , trScore = score
+                                                                                        , trOrigin = origin
                                                                                         }
                                                                             case outHandle of
                                                                                 Nothing -> pure ()
@@ -7290,14 +7427,14 @@ samplePriorParams ::
     [PriorTrial] ->
     TrialParams ->
     Rng ->
-    (TrialParams, Rng)
+    (TrialParams, Rng, Maybe String)
 samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleInt priorMethodProb priorRankBias priors base rng0
-    | null priors = (base, rng0)
-    | priorProb <= 0 = (base, rng0)
+    | null priors = (base, rng0, Nothing)
+    | priorProb <= 0 = (base, rng0, Nothing)
     | otherwise =
         let (r, rng1) = nextDouble rng0
          in if r >= clamp priorProb 0 1
-                then (base, rng1)
+                then (base, rng1, Nothing)
                 else
                     let (methodR, rng1a) = nextDouble rng1
                         usePriorMethod = methodR < clamp priorMethodProb 0 1
@@ -7306,16 +7443,21 @@ samplePriorParams priorProb allowedIntervals barsMin barsMax scaleDouble scaleIn
                                 then priorMethodSteeringPool base priors
                                 else priorPoolForBase base priors
                      in case pool of
-                            [] -> (base, rng1a)
+                            [] -> (base, rng1a, Nothing)
                             pool ->
                                 let (picked, rng2) = pickRankBiasedPrior priorRankBias pool rng1a
                                  in case picked of
-                                        Nothing -> (base, rng2)
+                                        Nothing -> (base, rng2, Nothing)
                                         Just prior ->
                                             let overlaid =
                                                     applyPriorMethodIfEnabled usePriorMethod prior $
                                                         applyPriorOverlay allowedIntervals prior base
-                                             in perturbTrialParams barsMin barsMax scaleDouble scaleInt overlaid rng2
+                                                (params, rng3) = perturbTrialParams barsMin barsMax scaleDouble scaleInt overlaid rng2
+                                                origin =
+                                                    if usePriorMethod
+                                                        then "prior-method-sample"
+                                                        else "prior-sample"
+                                             in (params, rng3, Just origin)
 
 pickRankBiasedPrior :: Double -> [PriorTrial] -> Rng -> (Maybe PriorTrial, Rng)
 pickRankBiasedPrior bias pool rng
@@ -7537,6 +7679,21 @@ applyTechnicalPriorOverlay params base =
             , ttpTaTrendStopAtrMult = fromMaybe (ttpTaTrendStopAtrMult base) (doubleField ["taTrendStopAtrMult"] params)
             , ttpTaTrendTakeProfitAtrMult = fromMaybe (ttpTaTrendTakeProfitAtrMult base) (doubleField ["taTrendTakeProfitAtrMult"] params)
             , ttpTaBestCandidateMinConfidence = fromMaybe (ttpTaBestCandidateMinConfidence base) (doubleField ["taBestCandidateMinConfidence"] params)
+            , ttpRegimeAdxWeight = fromMaybe (ttpRegimeAdxWeight base) (doubleField ["regimeAdxWeight"] params)
+            , ttpRegimeTrendThreshold = fromMaybe (ttpRegimeTrendThreshold base) (doubleField ["regimeTrendThreshold"] params)
+            , ttpRegimeRangeThreshold = fromMaybe (ttpRegimeRangeThreshold base) (doubleField ["regimeRangeThreshold"] params)
+            , ttpRegimeTrendAdxFloor = fromMaybe (ttpRegimeTrendAdxFloor base) (doubleField ["regimeTrendAdxFloor"] params)
+            , ttpRegimeTrendAdxSpan = fromMaybe (ttpRegimeTrendAdxSpan base) (doubleField ["regimeTrendAdxSpan"] params)
+            , ttpRegimeTrendAroonFloor = fromMaybe (ttpRegimeTrendAroonFloor base) (doubleField ["regimeTrendAroonFloor"] params)
+            , ttpRegimeTrendAroonSpan = fromMaybe (ttpRegimeTrendAroonSpan base) (doubleField ["regimeTrendAroonSpan"] params)
+            , ttpRegimeTrendSlopeFloor = fromMaybe (ttpRegimeTrendSlopeFloor base) (doubleField ["regimeTrendSlopeFloor"] params)
+            , ttpRegimeTrendSlopeSpan = fromMaybe (ttpRegimeTrendSlopeSpan base) (doubleField ["regimeTrendSlopeSpan"] params)
+            , ttpRegimeTrendAroonWeight = fromMaybe (ttpRegimeTrendAroonWeight base) (doubleField ["regimeTrendAroonWeight"] params)
+            , ttpRegimeRangeAdxCeiling = fromMaybe (ttpRegimeRangeAdxCeiling base) (doubleField ["regimeRangeAdxCeiling"] params)
+            , ttpRegimeRangeAdxSpan = fromMaybe (ttpRegimeRangeAdxSpan base) (doubleField ["regimeRangeAdxSpan"] params)
+            , ttpRegimeRangeWidthCeiling = fromMaybe (ttpRegimeRangeWidthCeiling base) (doubleField ["regimeRangeWidthCeiling"] params)
+            , ttpRegimeRangeWidthSpan = fromMaybe (ttpRegimeRangeWidthSpan base) (doubleField ["regimeRangeWidthSpan"] params)
+            , ttpRegimeRangeAdxWeight = fromMaybe (ttpRegimeRangeAdxWeight base) (doubleField ["regimeRangeAdxWeight"] params)
             , ttpBlendSoftmaxScale = fromMaybe (ttpBlendSoftmaxScale base) (doubleField ["blendSoftmaxScale"] params)
             , ttpBlendNetSoftmaxScale = fromMaybe (ttpBlendNetSoftmaxScale base) (doubleField ["blendNetSoftmaxScale"] params)
             , ttpBlendEdgePower = fromMaybe (ttpBlendEdgePower base) (doubleField ["blendEdgePower"] params)
@@ -7869,6 +8026,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "openThreshold" .= trOpenThreshold tr
                 , "closeThreshold" .= trCloseThreshold tr
                 , "source" .= source
+                , "optimizerTrialOrigin" .= trOrigin tr
                 , "metrics" .= metricsVal
                 , "params" .= paramsValue
                 ]

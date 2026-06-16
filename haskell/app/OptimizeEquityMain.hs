@@ -615,6 +615,21 @@ technicalOptimizerRangesParser =
         <*> doubleRangeOption "vol-conf-medium-medium-size" 0.20 0.70
         <*> doubleRangeOption "vol-conf-medium-strong-size" 0.45 0.95
         <*> doubleRangeOption "vol-conf-high-strong-size" 0.10 0.60
+        <*> doubleRangeOption "regime-adx-weight" 0.20 0.70
+        <*> doubleRangeOption "regime-trend-threshold" 0.45 0.70
+        <*> doubleRangeOption "regime-range-threshold" 0.45 0.70
+        <*> doubleRangeOption "regime-trend-adx-floor" 10 25
+        <*> doubleRangeOption "regime-trend-adx-span" 10 35
+        <*> doubleRangeOption "regime-trend-aroon-floor" 10 35
+        <*> doubleRangeOption "regime-trend-aroon-span" 20 60
+        <*> doubleRangeOption "regime-trend-slope-floor" 0.0 0.015
+        <*> doubleRangeOption "regime-trend-slope-span" 0.005 0.030
+        <*> doubleRangeOption "regime-trend-aroon-weight" 0.35 0.80
+        <*> doubleRangeOption "regime-range-adx-ceiling" 18 35
+        <*> doubleRangeOption "regime-range-adx-span" 8 25
+        <*> doubleRangeOption "regime-range-width-ceiling" 0.06 0.20
+        <*> doubleRangeOption "regime-range-width-span" 0.03 0.15
+        <*> doubleRangeOption "regime-range-adx-weight" 0.25 0.75
 
 doubleRangeOption :: String -> Double -> Double -> Parser (Double, Double)
 doubleRangeOption name lo hi =
@@ -1044,6 +1059,21 @@ validateTechnicalOptimizerRanges ranges = do
     unitRange "vol-conf-medium-medium-size" (torVolConfMediumMediumSizeMult ranges)
     unitRange "vol-conf-medium-strong-size" (torVolConfMediumStrongSizeMult ranges)
     unitRange "vol-conf-high-strong-size" (torVolConfHighStrongSizeMult ranges)
+    unitRange "regime-adx-weight" (torRegimeAdxWeight ranges)
+    unitRange "regime-trend-threshold" (torRegimeTrendThreshold ranges)
+    unitRange "regime-range-threshold" (torRegimeRangeThreshold ranges)
+    unit100Range "regime-trend-adx-floor" (torRegimeTrendAdxFloor ranges)
+    positiveRange "regime-trend-adx-span" (torRegimeTrendAdxSpan ranges)
+    unit100Range "regime-trend-aroon-floor" (torRegimeTrendAroonFloor ranges)
+    positiveRange "regime-trend-aroon-span" (torRegimeTrendAroonSpan ranges)
+    nonNegativeRange "regime-trend-slope-floor" (torRegimeTrendSlopeFloor ranges)
+    positiveRange "regime-trend-slope-span" (torRegimeTrendSlopeSpan ranges)
+    unitRange "regime-trend-aroon-weight" (torRegimeTrendAroonWeight ranges)
+    unit100Range "regime-range-adx-ceiling" (torRegimeRangeAdxCeiling ranges)
+    positiveRange "regime-range-adx-span" (torRegimeRangeAdxSpan ranges)
+    nonNegativeRange "regime-range-width-ceiling" (torRegimeRangeWidthCeiling ranges)
+    positiveRange "regime-range-width-span" (torRegimeRangeWidthSpan ranges)
+    unitRange "regime-range-adx-weight" (torRegimeRangeAdxWeight ranges)
   where
     finiteRange label (lo, hi) =
         when (isNaN lo || isInfinite lo || isNaN hi || isInfinite hi) $

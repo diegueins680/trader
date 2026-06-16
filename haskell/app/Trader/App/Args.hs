@@ -73,7 +73,7 @@ import Trader.RoiScore (RoiScoreConfig (..), defaultRoiScoreConfig)
 import Trader.SensorVariance (defaultSensorVarianceEwmaAlpha)
 import Trader.SignalGates (SignalGateConfig (..), defaultSignalGateConfig)
 import Trader.Symbol (sanitizeSymbolForPlatform)
-import Trader.TechnicalAnalysis.Strategies (TechnicalStrategyCalibration (..), defaultTechnicalStrategyCalibration)
+import Trader.TechnicalAnalysis.Strategies (RegimeCalibration (..), TechnicalStrategyCalibration (..), defaultRegimeCalibration, defaultTechnicalStrategyCalibration)
 import Trader.Text (normalizeKey, trim)
 import Trader.Trading (IntrabarFill (..), Positioning (..))
 import Trader.VolConfGate (
@@ -292,6 +292,18 @@ data Args = Args
     , argRegimeAdxWeight :: Double
     , argRegimeTrendThreshold :: Double
     , argRegimeRangeThreshold :: Double
+    , argRegimeTrendAdxFloor :: Double
+    , argRegimeTrendAdxSpan :: Double
+    , argRegimeTrendAroonFloor :: Double
+    , argRegimeTrendAroonSpan :: Double
+    , argRegimeTrendSlopeFloor :: Double
+    , argRegimeTrendSlopeSpan :: Double
+    , argRegimeTrendAroonWeight :: Double
+    , argRegimeRangeAdxCeiling :: Double
+    , argRegimeRangeAdxSpan :: Double
+    , argRegimeRangeWidthCeiling :: Double
+    , argRegimeRangeWidthSpan :: Double
+    , argRegimeRangeAdxWeight :: Double
     , argTaEntryOpenThreshold :: Double
     , argTaTrendAdxThreshold :: Double
     , argTaTrendStopAtrMult :: Double
@@ -1121,9 +1133,22 @@ opts = do
         optional (option auto (long "vol-conf-medium-strong-size" <> help "Override entry size multiplier for medium-vol strong-confidence gate cells"))
     argVolConfHighStrongSizeMult <-
         optional (option auto (long "vol-conf-high-strong-size" <> help "Override entry size multiplier for high-vol strong-confidence gate cells"))
-    argRegimeAdxWeight <- option auto (long "regime-adx-weight" <> value 0.40 <> showDefault <> help "ADX weight in regime trend-score blend (0..1)")
-    argRegimeTrendThreshold <- option auto (long "regime-trend-threshold" <> value 0.55 <> showDefault <> help "Minimum trend score to classify regime as trending (0..1)")
-    argRegimeRangeThreshold <- option auto (long "regime-range-threshold" <> value 0.55 <> showDefault <> help "Minimum range score to classify regime as ranging (0..1)")
+    let defaultRegime = defaultRegimeCalibration
+    argRegimeAdxWeight <- option auto (long "regime-adx-weight" <> value (rcAdxWeight defaultRegime) <> showDefault <> help "ADX weight in regime trend-score blend (0..1)")
+    argRegimeTrendThreshold <- option auto (long "regime-trend-threshold" <> value (rcTrendThreshold defaultRegime) <> showDefault <> help "Minimum trend score to classify regime as trending (0..1)")
+    argRegimeRangeThreshold <- option auto (long "regime-range-threshold" <> value (rcRangeThreshold defaultRegime) <> showDefault <> help "Minimum range score to classify regime as ranging (0..1)")
+    argRegimeTrendAdxFloor <- option auto (long "regime-trend-adx-floor" <> value (rcTrendAdxFloor defaultRegime) <> showDefault <> help "ADX floor where regime trend scoring starts")
+    argRegimeTrendAdxSpan <- option auto (long "regime-trend-adx-span" <> value (rcTrendAdxSpan defaultRegime) <> showDefault <> help "ADX span for regime trend score saturation")
+    argRegimeTrendAroonFloor <- option auto (long "regime-trend-aroon-floor" <> value (rcTrendAroonFloor defaultRegime) <> showDefault <> help "Aroon gap floor where regime trend scoring starts")
+    argRegimeTrendAroonSpan <- option auto (long "regime-trend-aroon-span" <> value (rcTrendAroonSpan defaultRegime) <> showDefault <> help "Aroon gap span for regime trend score saturation")
+    argRegimeTrendSlopeFloor <- option auto (long "regime-trend-slope-floor" <> value (rcTrendSlopeFloor defaultRegime) <> showDefault <> help "EMA slope floor where regime trend scoring starts")
+    argRegimeTrendSlopeSpan <- option auto (long "regime-trend-slope-span" <> value (rcTrendSlopeSpan defaultRegime) <> showDefault <> help "EMA slope span for regime trend score saturation")
+    argRegimeTrendAroonWeight <- option auto (long "regime-trend-aroon-weight" <> value (rcTrendAroonWeight defaultRegime) <> showDefault <> help "Aroon share of non-ADX regime trend scoring (0..1)")
+    argRegimeRangeAdxCeiling <- option auto (long "regime-range-adx-ceiling" <> value (rcRangeAdxCeiling defaultRegime) <> showDefault <> help "ADX ceiling where range scoring starts to fade")
+    argRegimeRangeAdxSpan <- option auto (long "regime-range-adx-span" <> value (rcRangeAdxSpan defaultRegime) <> showDefault <> help "ADX span for range score fadeout")
+    argRegimeRangeWidthCeiling <- option auto (long "regime-range-width-ceiling" <> value (rcRangeWidthCeiling defaultRegime) <> showDefault <> help "Bollinger width ceiling where range scoring starts to fade")
+    argRegimeRangeWidthSpan <- option auto (long "regime-range-width-span" <> value (rcRangeWidthSpan defaultRegime) <> showDefault <> help "Bollinger width span for range score fadeout")
+    argRegimeRangeAdxWeight <- option auto (long "regime-range-adx-weight" <> value (rcRangeAdxWeight defaultRegime) <> showDefault <> help "ADX share of regime range scoring (0..1)")
     let defaultTa = defaultTechnicalStrategyCalibration
         defaultSignal = defaultSignalGateConfig
     argTaEntryOpenThreshold <- option auto (long "ta-entry-open-threshold" <> value (tscEntryOpenThreshold defaultTa) <> showDefault <> help "TA-specific entry threshold used by reward-edge gates")
@@ -1679,6 +1704,21 @@ validateArgs args0 = do
             , ("--regime-trend-size-mult", argRegimeTrendSizeMult args)
             , ("--regime-mr-size-mult", argRegimeMrSizeMult args)
             , ("--regime-high-vol-size-mult", argRegimeHighVolSizeMult args)
+            , ("--regime-adx-weight", argRegimeAdxWeight args)
+            , ("--regime-trend-threshold", argRegimeTrendThreshold args)
+            , ("--regime-range-threshold", argRegimeRangeThreshold args)
+            , ("--regime-trend-adx-floor", argRegimeTrendAdxFloor args)
+            , ("--regime-trend-adx-span", argRegimeTrendAdxSpan args)
+            , ("--regime-trend-aroon-floor", argRegimeTrendAroonFloor args)
+            , ("--regime-trend-aroon-span", argRegimeTrendAroonSpan args)
+            , ("--regime-trend-slope-floor", argRegimeTrendSlopeFloor args)
+            , ("--regime-trend-slope-span", argRegimeTrendSlopeSpan args)
+            , ("--regime-trend-aroon-weight", argRegimeTrendAroonWeight args)
+            , ("--regime-range-adx-ceiling", argRegimeRangeAdxCeiling args)
+            , ("--regime-range-adx-span", argRegimeRangeAdxSpan args)
+            , ("--regime-range-width-ceiling", argRegimeRangeWidthCeiling args)
+            , ("--regime-range-width-span", argRegimeRangeWidthSpan args)
+            , ("--regime-range-adx-weight", argRegimeRangeAdxWeight args)
             , ("--ta-entry-open-threshold", argTaEntryOpenThreshold args)
             , ("--ta-trend-adx-threshold", argTaTrendAdxThreshold args)
             , ("--ta-trend-stop-atr-mult", argTaTrendStopAtrMult args)
@@ -2074,6 +2114,21 @@ validateArgs args0 = do
     ensure "--regime-trend-size-mult must be >= 0" (argRegimeTrendSizeMult args >= 0)
     ensure "--regime-mr-size-mult must be >= 0" (argRegimeMrSizeMult args >= 0)
     ensure "--regime-high-vol-size-mult must be >= 0" (argRegimeHighVolSizeMult args >= 0)
+    ensure "--regime-adx-weight must be between 0 and 1" (argRegimeAdxWeight args >= 0 && argRegimeAdxWeight args <= 1)
+    ensure "--regime-trend-threshold must be between 0 and 1" (argRegimeTrendThreshold args >= 0 && argRegimeTrendThreshold args <= 1)
+    ensure "--regime-range-threshold must be between 0 and 1" (argRegimeRangeThreshold args >= 0 && argRegimeRangeThreshold args <= 1)
+    ensure "--regime-trend-adx-floor must be between 0 and 100" (argRegimeTrendAdxFloor args >= 0 && argRegimeTrendAdxFloor args <= 100)
+    ensure "--regime-trend-adx-span must be > 0" (argRegimeTrendAdxSpan args > 0)
+    ensure "--regime-trend-aroon-floor must be between 0 and 100" (argRegimeTrendAroonFloor args >= 0 && argRegimeTrendAroonFloor args <= 100)
+    ensure "--regime-trend-aroon-span must be > 0" (argRegimeTrendAroonSpan args > 0)
+    ensure "--regime-trend-slope-floor must be >= 0" (argRegimeTrendSlopeFloor args >= 0)
+    ensure "--regime-trend-slope-span must be > 0" (argRegimeTrendSlopeSpan args > 0)
+    ensure "--regime-trend-aroon-weight must be between 0 and 1" (argRegimeTrendAroonWeight args >= 0 && argRegimeTrendAroonWeight args <= 1)
+    ensure "--regime-range-adx-ceiling must be between 0 and 100" (argRegimeRangeAdxCeiling args >= 0 && argRegimeRangeAdxCeiling args <= 100)
+    ensure "--regime-range-adx-span must be > 0" (argRegimeRangeAdxSpan args > 0)
+    ensure "--regime-range-width-ceiling must be >= 0" (argRegimeRangeWidthCeiling args >= 0)
+    ensure "--regime-range-width-span must be > 0" (argRegimeRangeWidthSpan args > 0)
+    ensure "--regime-range-adx-weight must be between 0 and 1" (argRegimeRangeAdxWeight args >= 0 && argRegimeRangeAdxWeight args <= 1)
     ensure "--ta-entry-open-threshold must be >= 0" (argTaEntryOpenThreshold args >= 0)
     ensure "--ta-trend-adx-threshold must be between 0 and 100" (argTaTrendAdxThreshold args >= 0 && argTaTrendAdxThreshold args <= 100)
     ensure "--ta-trend-stop-atr-mult must be > 0" (argTaTrendStopAtrMult args > 0)

@@ -28,6 +28,14 @@ assert :: String -> Bool -> IO ()
 assert message condition =
     unless condition (ioError (userError ("Assertion failed: " ++ message)))
 
+testRegimeCalibration :: RegimeCalibration
+testRegimeCalibration =
+    defaultRegimeCalibration
+        { rcAdxWeight = 0.40
+        , rcTrendThreshold = 0.55
+        , rcRangeThreshold = 0.55
+        }
+
 testEmaPrefixInvariance :: IO ()
 testEmaPrefixInvariance = do
     let closes = V.fromList [100 + fromIntegral i | i <- [0 .. 79]]
@@ -66,7 +74,7 @@ testRegimeSelectorFindsTrend = do
         opens = V.map (subtract 0.4) closes
         volumes = V.fromList [1000 + fromIntegral (i * 10) | i <- [0 .. 119]]
         series = OhlcvSeries opens highs lows closes volumes
-    assert "regimeSelector identifies a clean synthetic trend" (regimeSelector (RegimeCalibration 0.40 0.55 0.55) series == Just RegimeTrend)
+    assert "regimeSelector identifies a clean synthetic trend" (regimeSelector testRegimeCalibration series == Just RegimeTrend)
 
 testTrendCandidateFailsClosedOnShortSeries :: IO ()
 testTrendCandidateFailsClosedOnShortSeries = do
@@ -76,7 +84,7 @@ testTrendCandidateFailsClosedOnShortSeries = do
         opens = V.map (subtract 0.5) closes
         volumes = V.replicate 40 1000
         series = OhlcvSeries opens highs lows closes volumes
-    assert "trendFollowingCandidate fails closed on short history" (isNothing (trendFollowingCandidate (RegimeCalibration 0.40 0.55 0.55) series))
+    assert "trendFollowingCandidate fails closed on short history" (isNothing (trendFollowingCandidate testRegimeCalibration series))
 
 testBreakoutCandidateCanTriggerLong :: IO ()
 testBreakoutCandidateCanTriggerLong = do
@@ -119,7 +127,7 @@ testGatedCandidateAdmissionHonorsRiskGates = do
                 , tagVolatility = Just 0.4
                 , tagVolConfGate = VolConfGateDisabled
                 , tagVolConfGateConfig = defaultVolConfGateConfig
-                , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
+                , tagRegimeCalibration = testRegimeCalibration
                 , tagStrategyCalibration = defaultTechnicalStrategyCalibration
                 , tagSignalGateConfig = defaultSignalGateConfig
                 , tagOpenThreshold = 0.0
@@ -204,7 +212,7 @@ taTestInputs =
         , tagVolatility = Just 0.4
         , tagVolConfGate = VolConfGateDisabled
         , tagVolConfGateConfig = defaultVolConfGateConfig
-        , tagRegimeCalibration = RegimeCalibration 0.40 0.55 0.55
+        , tagRegimeCalibration = testRegimeCalibration
         , tagStrategyCalibration = defaultTechnicalStrategyCalibration
         , tagSignalGateConfig = defaultSignalGateConfig
         , tagOpenThreshold = 0.0
@@ -212,4 +220,4 @@ taTestInputs =
         }
 
 breakoutTestCalibration :: RegimeCalibration
-breakoutTestCalibration = RegimeCalibration 0.40 1.01 0.55
+breakoutTestCalibration = testRegimeCalibration{rcTrendThreshold = 1.01}
