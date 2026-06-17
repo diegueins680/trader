@@ -31,6 +31,7 @@ autoStartBackoffSuite =
     , ("classify LOT_SIZE rejection as ErrPermanent", testClassifyPermanentLotSize)
     , ("classify unknown noise as ErrUnknown", testClassifyUnknown)
     , ("transient backoff is monotone up to cap", testTransientMonotone)
+    , ("transient backoff multiplier controls retry slope", testTransientMultiplier)
     , ("auth backoff jumps to circuit-open delay on first failure", testAuthInitialDelay)
     , ("auth backoff stays >= circuit-open on subsequent failures", testAuthStayHigh)
     , ("shouldAttempt is true at exactly nextAllowedAt", testShouldAttemptBoundary)
@@ -126,6 +127,22 @@ testTransientMonotone = do
     expectTrue
         ("monotone non-decreasing modulo cap " ++ show delays)
         (and (zipWith (\a b -> b >= a || b == capMs) delays (tail delays)))
+
+testTransientMultiplier :: IO ()
+testTransientMultiplier = do
+    let tunedPolicy =
+            policy
+                { bpInitialDelaySec = 10
+                , bpMaxDelaySec = 100
+                , bpMultiplier = 1.5
+                }
+        sb0 = initialBackoff (fromInteger now) ErrTransient "DNS" tunedPolicy
+        sb1 = nextBackoff tunedPolicy (fromInteger (now + 1_000)) (Just sb0) ErrTransient "DNS"
+        sb2 = nextBackoff tunedPolicy (fromInteger (now + 2_000)) (Just sb1) ErrTransient "DNS"
+        gap1 = sbNextAllowedAtMs sb1 - sbLastErrorAtMs sb1
+        gap2 = sbNextAllowedAtMs sb2 - sbLastErrorAtMs sb2
+    expectEq "second transient delay uses multiplier" 15_000 gap1
+    expectEq "third transient delay keeps multiplier slope" 22_000 gap2
 
 testAuthInitialDelay :: IO ()
 testAuthInitialDelay = do

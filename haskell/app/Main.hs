@@ -7494,6 +7494,16 @@ readBoundedIntEnv name minValue maxValue fallback = do
             Just n | n >= minValue -> min maxValue n
             _ -> fallback
 
+readBoundedDoubleEnv :: String -> Double -> Double -> Double -> IO Double
+readBoundedDoubleEnv name minValue maxValue fallback = do
+    raw <- lookupEnv name
+    pure $
+        case raw >>= readMaybe of
+            Just n | isFinite n && n >= minValue -> min maxValue n
+            _ -> fallback
+  where
+    isFinite x = not (isNaN x || isInfinite x)
+
 defaultTopComboBotCount :: Int
 defaultTopComboBotCount = 3
 
@@ -7563,12 +7573,14 @@ autoStartBackoffPolicyFromEnv :: IO BackoffPolicy
 autoStartBackoffPolicyFromEnv = do
     initial <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_BACKOFF_INITIAL_SEC" 1 3600 (bpInitialDelaySec defaultBackoffPolicy)
     cap <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_BACKOFF_MAX_SEC" 1 86400 (bpMaxDelaySec defaultBackoffPolicy)
+    multiplier <- readBoundedDoubleEnv "TRADER_BOT_AUTOSTART_BACKOFF_MULTIPLIER" 1.0 10.0 (bpMultiplier defaultBackoffPolicy)
     auth <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_AUTH_OPEN_SEC" 60 86400 (bpAuthCircuitOpenSec defaultBackoffPolicy)
     permanent <- readBoundedIntEnv "TRADER_BOT_AUTOSTART_PERMANENT_OPEN_SEC" 60 604800 (bpPermanentOpenSec defaultBackoffPolicy)
     pure
         defaultBackoffPolicy
             { bpInitialDelaySec = initial
             , bpMaxDelaySec = max initial cap
+            , bpMultiplier = multiplier
             , bpAuthCircuitOpenSec = auth
             , bpPermanentOpenSec = permanent
             }
