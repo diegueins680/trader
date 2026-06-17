@@ -208,6 +208,7 @@ import Trader.TopCombosStore (
     blendedAnnualizedReturn,
     comboBacktestDueForRefresh,
     comboBacktestDueForRefreshWithPolicy,
+    comboBacktestFreshEnoughForMaxAge,
     comboBacktestFreshnessMs,
     comboBacktestStaleAfterMs,
     comboIdentityKey,
@@ -425,6 +426,7 @@ main = do
     testMergeFreshnessScoringPromotesFreshCandidate
     testMergeExecutableAnnotatesProcessingAndDedupe
     testSelectCombosForBacktestRefreshIncludesEveryStaleCombo
+    testLiveComboFreshnessRequiresRecentBacktestEvidence
     testPrunedBacktestTombstonePreventsStaleResurrection
     testKeepAllUpdateKeepsUnprofitableComboStamped
     testTradeOutcomeWeightsSemantics
@@ -4465,6 +4467,28 @@ testSelectCombosForBacktestRefreshIncludesEveryStaleCombo = do
         ( comboBacktestDueForRefreshWithPolicy shortStalePolicy now shortStale
             && hasShortPolicy shortStale
             && not (hasShortPolicy freshLowRank)
+        )
+
+testLiveComboFreshnessRequiresRecentBacktestEvidence :: IO ()
+testLiveComboFreshnessRequiresRecentBacktestEvidence = do
+    let day = 86400000 :: Int64
+        maxAge = 14 * day
+        now = 30 * day
+        combo fields = Aeson.object fields
+        freshByCreated = combo ["createdAtMs" .= (now - maxAge)]
+        staleByCreated = combo ["createdAtMs" .= (now - maxAge - 1)]
+        freshByRefresh =
+            combo
+                [ "createdAtMs" .= (now - 100 * day)
+                , "backtestRefreshedAtMs" .= (now - day)
+                ]
+        missingFreshness = combo []
+    assert
+        "live combo freshness requires created/refreshed evidence no older than the live max age"
+        ( comboBacktestFreshEnoughForMaxAge maxAge now freshByCreated
+            && not (comboBacktestFreshEnoughForMaxAge maxAge now staleByCreated)
+            && comboBacktestFreshEnoughForMaxAge maxAge now freshByRefresh
+            && not (comboBacktestFreshEnoughForMaxAge maxAge now missingFreshness)
         )
 
 testPrunedBacktestTombstonePreventsStaleResurrection :: IO ()

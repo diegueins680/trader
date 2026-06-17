@@ -15,6 +15,7 @@ module Trader.TopCombosStore (
     comboBacktestDueForRefresh,
     comboBacktestDueForRefreshWithPolicy,
     comboBacktestFreshnessMs,
+    comboBacktestFreshEnoughForMaxAge,
     comboBacktestStaleAfterMs,
     compactTopCombosPayloadForSync,
     comboFinalEquityValue,
@@ -683,6 +684,15 @@ fallback when comparing against a refreshed record.
 comboBacktestFreshnessMs :: Aeson.Value -> Maybe Int64
 comboBacktestFreshnessMs val =
     comboBacktestRefreshedAtMs val <|> comboTopLevelInt64 "createdAtMs" val
+
+comboBacktestFreshEnoughForMaxAge :: Int64 -> Int64 -> Aeson.Value -> Bool
+comboBacktestFreshEnoughForMaxAge maxAgeMsRaw now val =
+    case comboBacktestFreshnessMs val of
+        Nothing -> False
+        Just refreshedAt ->
+            let maxAgeMs = max 0 maxAgeMsRaw
+                ageMs = max 0 (now - refreshedAt)
+             in ageMs <= maxAgeMs
 
 data ComboBacktestRefreshPolicy = ComboBacktestRefreshPolicy
     { cbrpStaleAfterMs :: !Int64

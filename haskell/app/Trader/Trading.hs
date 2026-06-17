@@ -389,6 +389,7 @@ exitReasonFromCode code
     | normalized == "MAX_WEEKLY_LOSS" = Just ExitMaxWeeklyLoss
     | normalized == "LIQUIDATION" = Just ExitLiquidation
     | normalized == "EOD" = Just ExitEod
+    | normalized == "STALE_COMBO" = Just (ExitOther "STALE_COMBO")
     | otherwise = Nothing
   where
     normalized = map toUpper code

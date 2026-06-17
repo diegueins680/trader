@@ -442,6 +442,7 @@ import Trader.TopCombosStore (
     applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
     blendedAnnualizedReturn,
+    comboBacktestFreshEnoughForMaxAge,
     comboIdentityKey,
     comboLiveStats,
     comboLiveStatsFromObject,
@@ -3159,7 +3160,6 @@ data PersistedComboRow = PersistedComboRow
     , pcrParams :: !(Maybe Text)
     , pcrMetrics :: !(Maybe Text)
     , pcrCreatedAtMs :: !(Maybe Int64)
-    , pcrUpdatedAtMs :: !(Maybe Int64)
     }
     deriving (Eq, Show)
 
@@ -3167,7 +3167,6 @@ instance FromRow PersistedComboRow where
     fromRow =
         PersistedComboRow
             <$> field
-            <*> field
             <*> field
             <*> field
             <*> field
@@ -3198,11 +3197,13 @@ persistedComboToValue row = do
             case (pcrFinalEquity row, KM.lookup (AK.fromString "finalEquity") metricsWithAnnualized >>= coerceDoubleValue) of
                 (Just eq, Nothing) | not (isNaN eq || isInfinite eq) -> KM.insert (AK.fromString "finalEquity") (toJSON eq) metricsWithAnnualized
                 _ -> metricsWithAnnualized
+        backtestRefreshedAtMs :: Maybe Int64
+        backtestRefreshedAtMs = KM.lookup (AK.fromString "backtestRefreshedAtMs") metricsWithFinalEq >>= AT.parseMaybe parseJSON
         metricsVal =
             if KM.null metricsWithFinalEq
                 then Aeson.Null
                 else Aeson.Object metricsWithFinalEq
-        createdAtMs = pcrCreatedAtMs row <|> pcrUpdatedAtMs row
+        createdAtMs = pcrCreatedAtMs row
         comboFields =
             [ "uuid" .= uuidToText (pcrUuid row)
             , "createdAtMs" .= createdAtMs
@@ -3218,6 +3219,7 @@ persistedComboToValue row = do
     pure
         ( object
             ( maybe [] (\source -> ["source" .= source]) (persistedComboSource row)
+                ++ maybe [] (\ts -> ["backtestRefreshedAtMs" .= ts]) backtestRefreshedAtMs
                 ++ comboFields
             )
         )
@@ -5260,6 +5262,7 @@ data ComboParamsRow = ComboParamsRow
     , cprCloseThreshold :: !(Maybe Double)
     , cprParams :: !(Maybe Text)
     , cprMetrics :: !(Maybe Text)
+    , cprCreatedAtMs :: !(Maybe Int64)
     }
     deriving (Eq, Show)
 
@@ -5267,6 +5270,7 @@ instance FromRow ComboParamsRow where
     fromRow =
         ComboParamsRow
             <$> field
+            <*> field
             <*> field
             <*> field
             <*> field
@@ -5285,6 +5289,8 @@ comboParamsRowToTopCombo uuid row = do
             case decodeJsonTextMaybe (cprMetrics row) of
                 Just (Aeson.Object o) -> Just o
                 _ -> Nothing
+        mBacktestRefreshedAtMs =
+            metricsObj >>= KM.lookup (AK.fromString "backtestRefreshedAtMs") >>= AT.parseMaybe parseJSON
     pure
         TopCombo
             { tcRank = Nothing
@@ -5297,6 +5303,8 @@ comboParamsRowToTopCombo uuid row = do
             , tcSource = normalizedTopComboSource (T.unpack <$> cprSource row)
             , tcParams = paramsObj
             , tcMetrics = metricsObj
+            , tcCreatedAtMs = cprCreatedAtMs row
+            , tcBacktestRefreshedAtMs = mBacktestRefreshedAtMs
             }
 
 readTopComboByUuidFromDb :: OpsStore -> UUID.UUID -> IO (Maybe TopCombo)
@@ -5305,7 +5313,7 @@ readTopComboByUuidFromDb store comboUuid =
         rows <-
             query
                 conn
-                "SELECT final_equity, objective, source, score, open_threshold, close_threshold, params_json::text, metrics_json::text FROM combos WHERE combo_uuid = ?"
+                "SELECT final_equity, objective, source, score, open_threshold, close_threshold, params_json::text, metrics_json::text, created_at_ms FROM combos WHERE combo_uuid = ?"
                 (Only comboUuid) ::
                 IO [ComboParamsRow]
         pure (listToMaybe (mapMaybe (comboParamsRowToTopCombo comboUuid) rows))
@@ -5500,6 +5508,8 @@ data TopCombo = TopCombo
     , tcSource :: !(Maybe String)
     , tcParams :: !Aeson.Object
     , tcMetrics :: !(Maybe Aeson.Object)
+    , tcCreatedAtMs :: !(Maybe Int64)
+    , tcBacktestRefreshedAtMs :: !(Maybe Int64)
     }
 
 instance FromJSON TopCombosExport where
@@ -5520,6 +5530,8 @@ instance FromJSON TopCombo where
             <*> o Aeson..:? "source"
             <*> pure params
             <*> pure metrics
+            <*> o Aeson..:? "createdAtMs"
+            <*> o Aeson..:? "backtestRefreshedAtMs"
 
 formatUuidFromHex :: String -> Text
 formatUuidFromHex hex =
@@ -5661,6 +5673,18 @@ data BotState = BotState
     , botError :: !(Maybe String)
     , botBuildCommit :: !(Maybe String)
     }
+
+botCurrentComboFreshForLive :: Maybe OpsStore -> TopCombosStore -> Int64 -> BotState -> IO Bool
+botCurrentComboFreshForLive _ _ _ st | isNothing (botComboUuid st) = pure True
+botCurrentComboFreshForLive mOps topCombosStore now st =
+    case botComboUuid st of
+        Nothing -> pure True
+        Just comboUuid -> do
+            comboValOrErr <- lookupTopComboValueByUuid mOps topCombosStore comboUuid
+            pure $
+                case comboValOrErr of
+                    Left _ -> False
+                    Right comboVal -> comboBacktestFreshEnoughForMaxAge liveTopComboMaxAgeMs now comboVal
 
 data BotStartStability
     = BotStartStable
@@ -7778,17 +7802,14 @@ applyAdoptRequirementArgs args req
         args{argPositioning = LongShort}
     | otherwise = args
 
-selectCompatibleTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (Args, Maybe Text)
-selectCompatibleTopComboArgs limits sym args req export =
+selectCompatibleTopComboArgs :: Int64 -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (Args, Maybe Text)
+selectCompatibleTopComboArgs now limits sym args req export =
     let adoptionEvidenceConfig = adoptionEvidenceConfigFromArgs args
         combos =
             filter
                 ( \c ->
                     topComboMatchesSymbol sym Nothing c
-                        && not (topComboLiveQuarantined c)
-                        && not (topComboMinEdgeBelowCostFloor c)
-                        && not (topComboTradeCountBelowFloorWithConfig adoptionEvidenceConfig c)
-                        && not (topComboWalkForwardSharpeBelowFloorWithConfig adoptionEvidenceConfig c)
+                        && topComboLiveAdoptionEligible now adoptionEvidenceConfig c
                 )
                 (tceCombos export)
         sortedCombos = sortOn topComboTradePriorityKey combos
@@ -7808,11 +7829,12 @@ selectCompatibleTopComboArgs limits sym args req export =
 applyLatestTopCombo :: Maybe OpsStore -> TopCombosStore -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO (Args, Maybe Text)
 applyLatestTopCombo mOps topCombosStore limits sym args req = do
     combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+    now <- getTimestampMs
     let baseArgs = applyAdoptRequirementArgs args req
     case combosOrErr of
         Left _ -> pure (baseArgs, Nothing)
         Right export ->
-            case selectCompatibleTopComboArgs limits sym baseArgs req export of
+            case selectCompatibleTopComboArgs now limits sym baseArgs req export of
                 Nothing -> pure (baseArgs, Nothing)
                 Just (args', mUuid) -> pure (args', mUuid)
 
@@ -7987,13 +8009,6 @@ topComboStartupAbortMessage sym comboUuid mFinalEq pruned =
 
 runTopComboStartupBacktestGuard :: TopCombosBacktestCtx -> TenantKey -> String -> Args -> Maybe Text -> IO (Either String ())
 runTopComboStartupBacktestGuard _ _ _ _ Nothing = pure (Right ())
--- Honor the box-level disable switch (TRADER_TOP_COMBOS_BACKTEST_ENABLED): when
--- off, never gate a live start on a fresh backtest. This guard falls through to
--- the full backtest equation below when top-combo backtesting is enabled.
-runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid)
-    | not (tcbcEnabled ctx) = do
-        recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_skipped" sym comboUuid Nothing (Just "top-combo startup backtest disabled (TRADER_TOP_COMBOS_BACKTEST_ENABLED=false)")
-        pure (Right ())
 runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
     comboValOrErr <- lookupTopComboValueByUuid (tcbcOps ctx) (tcbcStore ctx) comboUuid
     case comboValOrErr of
@@ -8004,109 +8019,120 @@ runTopComboStartupBacktestGuard ctx tenantKey sym args (Just comboUuid) = do
             -- not blocked by the backtest path. Only a genuine sub-threshold ROI
             -- reading aborts a start.
             pure (Right ())
-        Right comboVal ->
-            case comboIdentityKey comboVal of
-                Nothing -> do
-                    let msg = "Top-combo startup backtest failed: selected combo has no stable identity."
-                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
-                    -- Infrastructure failure (no stable identity): fail open.
-                    pure (Right ())
-                Just comboKey -> do
-                    let argsBacktest = topComboStartupBacktestArgs sym args
-                    case validateApiComputeLimits (tcbcLimits ctx) argsBacktest of
-                        Left err -> do
-                            let msg = "Top-combo startup backtest failed: " ++ err
-                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
-                            -- Infrastructure failure (compute-limit validation): fail open.
+        Right comboVal -> do
+            now <- getTimestampMs
+            if not (comboBacktestFreshEnoughForMaxAge liveTopComboMaxAgeMs now comboVal)
+                then do
+                    let msg = topComboStaleForLiveMessage sym comboUuid
+                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_stale" sym comboUuid Nothing (Just msg)
+                    pure (Left msg)
+                else
+                    if not (tcbcEnabled ctx)
+                        then do
+                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_skipped" sym comboUuid Nothing (Just "top-combo startup backtest disabled (TRADER_TOP_COMBOS_BACKTEST_ENABLED=false)")
                             pure (Right ())
-                        Right argsOk -> do
-                            backtestResult <- runBacktestWithGateWait (tcbcGate ctx) (computeBacktestFromArgsFreshBinanceWithLimits (tcbcLimits ctx) (tcbcOps ctx) argsOk)
-                            case backtestResult of
-                                Left failure -> do
-                                    let msg = "Top-combo startup backtest failed: " ++ backtestFailureMessage (tcbcGate ctx) failure
-                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
-                                    -- Infrastructure failure (backtest run errored/timed out): fail open.
-                                    pure (Right ())
-                                Right out ->
-                                    case extractBacktestMetrics out of
-                                        Nothing -> do
-                                            let msg = "Top-combo startup backtest failed: backtest missing metrics."
-                                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
-                                            -- Infrastructure failure (backtest produced no metrics): fail open.
-                                            pure (Right ())
-                                        Just metricsVal -> do
-                                            let mFinalEq = comboMetricDouble "finalEquity" metricsVal
-                                                mTradeCount = comboMetricInt "tradeCount" metricsVal
-                                                objective =
-                                                    case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
-                                                        Aeson.Success combo -> fromMaybe "final-equity" (tcObjectiveLabel combo)
-                                                        Aeson.Error _ -> "final-equity"
-                                                verdict =
-                                                    botStartupBacktestVerdictWithMinTrades
-                                                        (tcbcMinTradesForAbort ctx)
-                                                        (tcbcEnabled ctx)
-                                                        mFinalEq
-                                                        mTradeCount
-                                            case verdict of
-                                                BacktestNoVerdict -> do
-                                                    -- Zero-trade, under-min-trades, or unknown-trade smoke
-                                                    -- window. Do NOT persist the smoke metrics onto the combo
-                                                    -- and do NOT prune it: the on-disk metrics are the
-                                                    -- optimizer's out-of-sample reading, which is the right
-                                                    -- artifact to keep. Pruning here would silently delete
-                                                    -- healthy combos every quiet day (124 such erroneous
-                                                    -- prunes in the 2026-06-10 launchd log).
-                                                    let reason =
-                                                            "top-combo startup backtest produced no verdict (tradeCount="
-                                                                ++ maybe "unknown" show mTradeCount
-                                                                ++ ", finalEquity="
-                                                                ++ maybe "unknown" (printf "%.6f") mFinalEq
-                                                                ++ ", minTradesForAbort="
-                                                                ++ show (tcbcMinTradesForAbort ctx)
-                                                                ++ "); allowing start without persisting smoke metrics."
-                                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_no_verdict" sym comboUuid mFinalEq (Just reason)
-                                                    pure (Right ())
-                                                _ -> do
-                                                    let update =
-                                                            ComboBacktestUpdate
-                                                                { cbuMetrics = metricsVal
-                                                                , cbuFinalEquity = mFinalEq
-                                                                , cbuScore = objectiveScoreFromMetrics argsOk objective metricsVal
-                                                                , cbuOperations = extractBacktestOperations out
-                                                                }
-                                                    -- Use the keep-all path: the bot-start guard should
-                                                    -- /block/ a start, not delete a combo. Scheduled stale
-                                                    -- refreshes prune losers with tombstones; startup guards
-                                                    -- keep the selected combo visible and simply refuse to
-                                                    -- start it. See 'botStartupGuardShouldPrune' in
-                                                    -- BotStartSemantics.
-                                                    updateResult <- applyStartupComboBacktestUpdateKeepAll ctx comboKey update
-                                                    -- Reached only when the verdict is Allow or Abort and the
-                                                    -- guard is enabled (disabled boxes return Allow above).
-                                                    let acceptable = not (backtestVerdictAborts verdict)
-                                                    case updateResult of
-                                                        Left err -> do
-                                                            let msg = "Top-combo startup backtest failed: " ++ err
-                                                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid mFinalEq (Just msg)
-                                                            if acceptable
-                                                                then pure (Right ())
-                                                                else pure (Left msg)
-                                                        Right _stats -> do
-                                                            recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest" sym comboUuid mFinalEq Nothing
-                                                            if acceptable
-                                                                then pure (Right ())
-                                                                else do
-                                                                    -- Block the start, but DO NOT delete the
-                                                                    -- combo. The policy lives in
-                                                                    -- 'botStartupGuardShouldPrune': as of
-                                                                    -- 2026-06-12 this is False for every verdict.
-                                                                    let pruneOnAbort = botStartupGuardShouldPrune verdict
-                                                                    when
-                                                                        pruneOnAbort
-                                                                        (deleteTopComboFromDbMaybe (tcbcOps ctx) comboUuid)
-                                                                    let msg = topComboStartupAbortMessage sym comboUuid mFinalEq pruneOnAbort
-                                                                    recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_aborted" sym comboUuid mFinalEq (Just msg)
-                                                                    pure (Left msg)
+                        else case comboIdentityKey comboVal of
+                            Nothing -> do
+                                let msg = "Top-combo startup backtest failed: selected combo has no stable identity."
+                                recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
+                                -- Infrastructure failure (no stable identity): fail open.
+                                pure (Right ())
+                            Just comboKey -> do
+                                let argsBacktest = topComboStartupBacktestArgs sym args
+                                case validateApiComputeLimits (tcbcLimits ctx) argsBacktest of
+                                    Left err -> do
+                                        let msg = "Top-combo startup backtest failed: " ++ err
+                                        recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
+                                        -- Infrastructure failure (compute-limit validation): fail open.
+                                        pure (Right ())
+                                    Right argsOk -> do
+                                        backtestResult <- runBacktestWithGateWait (tcbcGate ctx) (computeBacktestFromArgsFreshBinanceWithLimits (tcbcLimits ctx) (tcbcOps ctx) argsOk)
+                                        case backtestResult of
+                                            Left failure -> do
+                                                let msg = "Top-combo startup backtest failed: " ++ backtestFailureMessage (tcbcGate ctx) failure
+                                                recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
+                                                -- Infrastructure failure (backtest run errored/timed out): fail open.
+                                                pure (Right ())
+                                            Right out ->
+                                                case extractBacktestMetrics out of
+                                                    Nothing -> do
+                                                        let msg = "Top-combo startup backtest failed: backtest missing metrics."
+                                                        recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid Nothing (Just msg)
+                                                        -- Infrastructure failure (backtest produced no metrics): fail open.
+                                                        pure (Right ())
+                                                    Just metricsVal -> do
+                                                        let mFinalEq = comboMetricDouble "finalEquity" metricsVal
+                                                            mTradeCount = comboMetricInt "tradeCount" metricsVal
+                                                            objective =
+                                                                case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
+                                                                    Aeson.Success combo -> fromMaybe "final-equity" (tcObjectiveLabel combo)
+                                                                    Aeson.Error _ -> "final-equity"
+                                                            verdict =
+                                                                botStartupBacktestVerdictWithMinTrades
+                                                                    (tcbcMinTradesForAbort ctx)
+                                                                    (tcbcEnabled ctx)
+                                                                    mFinalEq
+                                                                    mTradeCount
+                                                        case verdict of
+                                                            BacktestNoVerdict -> do
+                                                                -- Zero-trade, under-min-trades, or unknown-trade smoke
+                                                                -- window. Do NOT persist the smoke metrics onto the combo
+                                                                -- and do NOT prune it: the on-disk metrics are the
+                                                                -- optimizer's out-of-sample reading, which is the right
+                                                                -- artifact to keep. Pruning here would silently delete
+                                                                -- healthy combos every quiet day (124 such erroneous
+                                                                -- prunes in the 2026-06-10 launchd log).
+                                                                let reason =
+                                                                        "top-combo startup backtest produced no verdict (tradeCount="
+                                                                            ++ maybe "unknown" show mTradeCount
+                                                                            ++ ", finalEquity="
+                                                                            ++ maybe "unknown" (printf "%.6f") mFinalEq
+                                                                            ++ ", minTradesForAbort="
+                                                                            ++ show (tcbcMinTradesForAbort ctx)
+                                                                            ++ "); allowing start without persisting smoke metrics."
+                                                                recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_no_verdict" sym comboUuid mFinalEq (Just reason)
+                                                                pure (Right ())
+                                                            _ -> do
+                                                                let update =
+                                                                        ComboBacktestUpdate
+                                                                            { cbuMetrics = metricsVal
+                                                                            , cbuFinalEquity = mFinalEq
+                                                                            , cbuScore = objectiveScoreFromMetrics argsOk objective metricsVal
+                                                                            , cbuOperations = extractBacktestOperations out
+                                                                            }
+                                                                -- Use the keep-all path: the bot-start guard should
+                                                                -- /block/ a start, not delete a combo. Scheduled stale
+                                                                -- refreshes prune losers with tombstones; startup guards
+                                                                -- keep the selected combo visible and simply refuse to
+                                                                -- start it. See 'botStartupGuardShouldPrune' in
+                                                                -- BotStartSemantics.
+                                                                updateResult <- applyStartupComboBacktestUpdateKeepAll ctx comboKey update
+                                                                -- Reached only when the verdict is Allow or Abort and the
+                                                                -- guard is enabled (disabled boxes return Allow above).
+                                                                let acceptable = not (backtestVerdictAborts verdict)
+                                                                case updateResult of
+                                                                    Left err -> do
+                                                                        let msg = "Top-combo startup backtest failed: " ++ err
+                                                                        recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_failed" sym comboUuid mFinalEq (Just msg)
+                                                                        if acceptable
+                                                                            then pure (Right ())
+                                                                            else pure (Left msg)
+                                                                    Right _stats -> do
+                                                                        recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest" sym comboUuid mFinalEq Nothing
+                                                                        if acceptable
+                                                                            then pure (Right ())
+                                                                            else do
+                                                                                -- Block the start, but DO NOT delete the
+                                                                                -- combo. The policy lives in
+                                                                                -- 'botStartupGuardShouldPrune': as of
+                                                                                -- 2026-06-12 this is False for every verdict.
+                                                                                let pruneOnAbort = botStartupGuardShouldPrune verdict
+                                                                                when
+                                                                                    pruneOnAbort
+                                                                                    (deleteTopComboFromDbMaybe (tcbcOps ctx) comboUuid)
+                                                                                let msg = topComboStartupAbortMessage sym comboUuid mFinalEq pruneOnAbort
+                                                                                recordTopComboStartupBacktestEvent ctx tenantKey "bot.start_combo_backtest_aborted" sym comboUuid mFinalEq (Just msg)
+                                                                                pure (Left msg)
 
 clearPositionOriginIfFlatMaybe :: Maybe OpsStore -> TenantKey -> Args -> String -> IO ()
 clearPositionOriginIfFlatMaybe mOps tenantKey args sym =
@@ -8178,13 +8204,19 @@ applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req s
                                                                         (tceCombos export)
                                             case mCombo of
                                                 Nothing -> pure (baseArgs, Nothing)
-                                                Just combo ->
-                                                    case applyTopComboForStartWithUuid baseArgs combo of
-                                                        Left _ -> pure (baseArgs, Nothing)
-                                                        Right (argsApplied0, mUuid) ->
-                                                            case validateApiComputeLimits limits argsApplied0 of
+                                                Just combo -> do
+                                                    now <- getTimestampMs
+                                                    if not (topComboFreshEnoughForLive now combo)
+                                                        then do
+                                                            deletePositionOrigin store tenantKey baseArgs sym
+                                                            pure (baseArgs, Nothing)
+                                                        else
+                                                            case applyTopComboForStartWithUuid baseArgs combo of
                                                                 Left _ -> pure (baseArgs, Nothing)
-                                                                Right argsApplied -> pure (argsApplied, mUuid)
+                                                                Right (argsApplied0, mUuid) ->
+                                                                    case validateApiComputeLimits limits argsApplied0 of
+                                                                        Left _ -> pure (baseArgs, Nothing)
+                                                                        Right argsApplied -> pure (argsApplied, mUuid)
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =
@@ -8205,16 +8237,13 @@ dedupeTopComboTargets targets =
                 (HM.empty, [])
                 targets
 
-topCombosTopTargets :: AdoptionEvidenceConfig -> [String] -> Int -> TopCombosExport -> [(String, TopCombo)]
-topCombosTopTargets adoptionEvidenceConfig disabledSymbols topN export =
+topCombosTopTargets :: Int64 -> AdoptionEvidenceConfig -> [String] -> Int -> TopCombosExport -> [(String, TopCombo)]
+topCombosTopTargets now adoptionEvidenceConfig disabledSymbols topN export =
     let sorted = sortOn topComboTradePriorityKey (tceCombos export)
         targets =
             [ (normalizeSymbol sym, combo)
             | combo <- sorted
-            , not (topComboLiveQuarantined combo)
-            , not (topComboMinEdgeBelowCostFloor combo)
-            , not (topComboTradeCountBelowFloorWithConfig adoptionEvidenceConfig combo)
-            , not (topComboWalkForwardSharpeBelowFloorWithConfig adoptionEvidenceConfig combo)
+            , topComboLiveAdoptionEligible now adoptionEvidenceConfig combo
             , Just sym <- [topComboSymbol combo]
             , not (null sym)
             , not (botStartSymbolDisabled disabledSymbols sym)
@@ -8897,8 +8926,10 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                 putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
                                                 readIORef topTargetsRef
                                     Right export -> do
+                                        now <- getTimestampMs
                                         let targets =
                                                 topCombosTopTargets
+                                                    now
                                                     (adoptionEvidenceConfigFromArgs argsBase)
                                                     disabledSymbols
                                                     topComboTargetCount
@@ -8960,33 +8991,43 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         Nothing ->
                                                             case mCombo of
                                                                 Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                                Just combo ->
-                                                                    case applyTopComboForStartWithUuid argsSym combo of
-                                                                        Left err -> do
-                                                                            recordError sym ("Top combo parse failed: " ++ err)
+                                                                Just combo -> do
+                                                                    now <- getTimestampMs
+                                                                    if not (topComboFreshEnoughForLive now combo)
+                                                                        then do
+                                                                            recordError sym "Top combo older than 14 days; falling back to latest compatible combo."
                                                                             applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                                        Right (args', uuid) ->
-                                                                            if argBinanceMarket args' == argBinanceMarket argsSym
-                                                                                then pure (args', uuid)
-                                                                                else do
-                                                                                    recordError sym "Top combo market mismatch; falling back to latest compatible combo."
-                                                                                    applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                        else case applyTopComboForStartWithUuid argsSym combo of
+                                                                            Left err -> do
+                                                                                recordError sym ("Top combo parse failed: " ++ err)
+                                                                                applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                            Right (args', uuid) ->
+                                                                                if argBinanceMarket args' == argBinanceMarket argsSym
+                                                                                    then pure (args', uuid)
+                                                                                    else do
+                                                                                        recordError sym "Top combo market mismatch; falling back to latest compatible combo."
+                                                                                        applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                 else do
                                                     when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
                                                         clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
                                                     case mCombo of
                                                         Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                        Just combo ->
-                                                            case applyTopComboForStartWithUuid argsSym combo of
-                                                                Left err -> do
-                                                                    recordError sym ("Top combo parse failed: " ++ err)
+                                                        Just combo -> do
+                                                            now <- getTimestampMs
+                                                            if not (topComboFreshEnoughForLive now combo)
+                                                                then do
+                                                                    recordError sym "Top combo older than 14 days; falling back to latest compatible combo."
                                                                     applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
-                                                                Right (args', uuid) ->
-                                                                    if argBinanceMarket args' == argBinanceMarket argsSym
-                                                                        then pure (args', uuid)
-                                                                        else do
-                                                                            recordError sym "Top combo market mismatch; falling back to latest compatible combo."
-                                                                            applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                else case applyTopComboForStartWithUuid argsSym combo of
+                                                                    Left err -> do
+                                                                        recordError sym ("Top combo parse failed: " ++ err)
+                                                                        applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
+                                                                    Right (args', uuid) ->
+                                                                        if argBinanceMarket args' == argBinanceMarket argsSym
+                                                                            then pure (args', uuid)
+                                                                            else do
+                                                                                recordError sym "Top combo market mismatch; falling back to latest compatible combo."
+                                                                                applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                         case validateApiComputeLimits limits argsCombo of
                                             Left err -> recordError sym err
                                             Right argsOk -> do
@@ -10870,9 +10911,11 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
                     combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
                     case combosOrErr of
                         Left e -> recordError "bot.combo.sync_failed" e (botTenantKey st) sym interval (botComboUuid st)
-                        Right export ->
-                            case bestTopComboForSymbol sym (Just interval) export of
-                                Nothing -> recordError "bot.combo.sync_failed" "No top combo for symbol+interval." (botTenantKey st) sym interval (botComboUuid st)
+                        Right export -> do
+                            now <- getTimestampMs
+                            let adoptionEvidenceConfig = adoptionEvidenceConfigFromArgs (botArgs st)
+                            case bestLiveTopComboForSymbol now adoptionEvidenceConfig sym (Just interval) export of
+                                Nothing -> recordError "bot.combo.sync_failed" "No fresh deployable top combo for symbol+interval." (botTenantKey st) sym interval (botComboUuid st)
                                 Just bestCombo -> do
                                     clearError
                                     updOrErr <- buildOptimizerUpdate st bestCombo
@@ -11625,8 +11668,16 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                     pure (True, summary)
 
                                                                             (primaryMerged, primarySummary) <- runAutoAttempt "primary" recordsPath cliArgs
+                                                                            freshDeployableExists <- hasFreshDeployableTopComboForSymbolInterval mOps topCombosStore baseArgs sym interval
+                                                                            let shouldRetryDiscovery = optimizerRecordsShouldRetryDiscovery primarySummary
+                                                                                shouldRunRecovery = discoveryRecoveryEnabled && (shouldRetryDiscovery || not freshDeployableExists)
+                                                                                recoveryReason :: String
+                                                                                recoveryReason =
+                                                                                    if shouldRetryDiscovery
+                                                                                        then "primary-zero-eligible"
+                                                                                        else "no-fresh-live-combo"
                                                                             recoveryMerged <-
-                                                                                if discoveryRecoveryEnabled && optimizerRecordsShouldRetryDiscovery primarySummary
+                                                                                if shouldRunRecovery
                                                                                     then do
                                                                                         now <- getTimestampMs
                                                                                         journalWriteMaybe
@@ -11637,6 +11688,8 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                 , "symbol" .= sym
                                                                                                 , "interval" .= interval
                                                                                                 , "lookbackWindow" .= selectedLookbackWindow
+                                                                                                , "reason" .= recoveryReason
+                                                                                                , "freshDeployableExists" .= freshDeployableExists
                                                                                                 , "recordsSummary" .= optimizerRecordsSummaryJson primarySummary
                                                                                                 , "minRoundTrips" .= discoveryRecoveryMinRoundTrips
                                                                                                 , "minExposure" .= discoveryRecoveryMinExposure
@@ -12480,6 +12533,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                 pure (Just (normState, obsAll', lstmModel1))
 
     allStates <- botGetStates ctrl (botTenantKey st)
+    comboFreshForLive <- botCurrentComboFreshForLive (tcbcOps topCombosCtx) (tcbcStore topCombosCtx) now st
 
     latest0Base <-
         case computeLatestSignal
@@ -12896,10 +12950,18 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st0 k = do
                                     else (latest2{lsAction = action}, prevPos, Nothing)
                 Nothing -> (latest2, desiredPosWanted2, mExitReason2)
 
+        (latest2c, desiredPosWanted2c, mExitReason2c) =
+            if comboFreshForLive
+                then (latest2b, desiredPosWanted2b, mExitReason2b)
+                else
+                    if prevPos == 0
+                        then (latest2b{lsChosenDir = Nothing, lsAction = "HOLD_STALE_COMBO"}, 0, Nothing)
+                        else (latest2b{lsChosenDir = Just (negate prevPos), lsAction = "EXIT_STALE_COMBO"}, 0, Just "STALE_COMBO")
+
         (latest, desiredPosWanted, mExitReason) =
-            if prevPos == 0 && desiredPosWanted2b /= 0 && cooldownBlocked
-                then (latest2b{lsAction = "HOLD_COOLDOWN"}, 0, Nothing)
-                else (latest2b, desiredPosWanted2b, mExitReason2b)
+            if prevPos == 0 && desiredPosWanted2c /= 0 && cooldownBlocked
+                then (latest2c{lsAction = "HOLD_COOLDOWN"}, 0, Nothing)
+                else (latest2c, desiredPosWanted2c, mExitReason2c)
 
         partialExitWanted =
             case mPartialExitReason of
@@ -17340,8 +17402,18 @@ persistTopCombosToDb conn export =
                         mSource = T.pack <$> normalizedTopComboSource (tcSource combo)
                         mAnnualized = topComboMetricDouble "annualizedReturn" combo
                         paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
-                        metricsJson = encodeJsonTextMaybe (Aeson.Object <$> tcMetrics combo)
+                        metricsObj =
+                            maybe
+                                id
+                                (\ts -> KM.insert (AK.fromString "backtestRefreshedAtMs") (toJSON ts))
+                                (tcBacktestRefreshedAtMs combo)
+                                (fromMaybe KM.empty (tcMetrics combo))
+                        metricsJson =
+                            if KM.null metricsObj
+                                then Nothing
+                                else encodeJsonTextMaybe (Just (Aeson.Object metricsObj))
                         opCount = fromMaybe 0 (M.lookup comboUuid opCountMap)
+                        createdAtMs = tcCreatedAtMs combo
                     void $
                         execute
                             conn
@@ -17373,6 +17445,7 @@ persistTopCombosToDb conn export =
                                 <> "THEN COALESCE(EXCLUDED.metrics_json, '{}'::jsonb) || jsonb_build_object('live', combos.metrics_json->'live') "
                                 <> "ELSE EXCLUDED.metrics_json END, "
                                 <> "operation_count = EXCLUDED.operation_count, "
+                                <> "created_at_ms = COALESCE(combos.created_at_ms, EXCLUDED.created_at_ms), "
                                 <> "updated_at_ms = EXCLUDED.updated_at_ms"
                             )
                             ( comboUuid
@@ -17389,7 +17462,7 @@ persistTopCombosToDb conn export =
                             , paramsJson
                             , metricsJson
                             , opCount
-                            , now
+                            , createdAtMs
                             , now
                             )
                     persistComboParameters conn comboUuid mStrategyId (tcParams combo)
@@ -17430,7 +17503,7 @@ readTopCombosValueFromDbRaw store = do
                 query
                     conn
                     ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
-                        <> "params_json::text, metrics_json::text, created_at_ms, updated_at_ms "
+                        <> "params_json::text, metrics_json::text, created_at_ms "
                         <> "FROM combos "
                         <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, updated_at_ms DESC NULLS LAST "
                         <> "LIMIT ?"
@@ -17663,6 +17736,35 @@ adoptionEvidenceConfigFromArgs args =
         , aecMinWalkForwardSharpeMean = argAdoptionMinWalkForwardSharpeMean args
         }
 
+liveTopComboMaxAgeMs :: Int64
+liveTopComboMaxAgeMs = 14 * 86400000
+
+topComboBacktestFreshnessMs :: TopCombo -> Maybe Int64
+topComboBacktestFreshnessMs combo =
+    tcBacktestRefreshedAtMs combo <|> tcCreatedAtMs combo
+
+topComboFreshEnoughForLive :: Int64 -> TopCombo -> Bool
+topComboFreshEnoughForLive now combo =
+    case topComboBacktestFreshnessMs combo of
+        Nothing -> False
+        Just ts -> max 0 (now - ts) <= liveTopComboMaxAgeMs
+
+topComboLiveAdoptionEligible :: Int64 -> AdoptionEvidenceConfig -> TopCombo -> Bool
+topComboLiveAdoptionEligible now adoptionEvidenceConfig combo =
+    topComboFreshEnoughForLive now combo
+        && not (topComboLiveQuarantined combo)
+        && not (topComboMinEdgeBelowCostFloor combo)
+        && not (topComboTradeCountBelowFloorWithConfig adoptionEvidenceConfig combo)
+        && not (topComboWalkForwardSharpeBelowFloorWithConfig adoptionEvidenceConfig combo)
+
+topComboStaleForLiveMessage :: String -> Text -> String
+topComboStaleForLiveMessage sym comboUuid =
+    "Top combo "
+        ++ T.unpack comboUuid
+        ++ " for "
+        ++ sym
+        ++ " is older than 14 days or missing freshness evidence; refusing live operation until a fresh combo is found."
+
 {- | True when the combo's stored backtest @tradeCount@ falls below the
 adoption floor ('adoptionMinTradeCount'). Combos that have not generated
 at least the production-gate minimum number of trades carry too much
@@ -17791,6 +17893,28 @@ bestTopCombo export = bestTopComboFromList (tceCombos export)
 bestTopComboForSymbol :: String -> Maybe String -> TopCombosExport -> Maybe TopCombo
 bestTopComboForSymbol symRaw mInterval export =
     bestTopComboFromList (filter (topComboMatchesSymbol symRaw mInterval) (tceCombos export))
+
+bestLiveTopComboForSymbol :: Int64 -> AdoptionEvidenceConfig -> String -> Maybe String -> TopCombosExport -> Maybe TopCombo
+bestLiveTopComboForSymbol now adoptionEvidenceConfig symRaw mInterval export =
+    bestTopComboFromList
+        ( filter
+            ( \combo ->
+                topComboMatchesSymbol symRaw mInterval combo
+                    && topComboLiveAdoptionEligible now adoptionEvidenceConfig combo
+            )
+            (tceCombos export)
+        )
+
+hasFreshDeployableTopComboForSymbolInterval :: Maybe OpsStore -> TopCombosStore -> Args -> String -> String -> IO Bool
+hasFreshDeployableTopComboForSymbolInterval mOps topCombosStore args sym interval = do
+    combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+    now <- getTimestampMs
+    let adoptionEvidenceConfig = adoptionEvidenceConfigFromArgs args
+    pure $
+        case combosOrErr of
+            Left _ -> False
+            Right export ->
+                isJust (bestLiveTopComboForSymbol now adoptionEvidenceConfig sym (Just interval) export)
 
 applyTopComboForStart :: Args -> TopCombo -> Either String Args
 applyTopComboForStart base combo = do
@@ -20254,7 +20378,11 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                             Right adoptReq -> do
                                                                 (argsCombo, mComboUuid) <-
                                                                     if arActive adoptReq
-                                                                        then applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey argsSym adoptReq sym
+                                                                        then do
+                                                                            origin@(argsOrigin, mOriginUuid) <- applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey argsSym adoptReq sym
+                                                                            case mOriginUuid of
+                                                                                Just _ -> pure origin
+                                                                                Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsOrigin adoptReq
                                                                         else do
                                                                             when (shouldClearPositionOriginOnStart adoptable (arActive adoptReq)) $
                                                                                 clearPositionOriginIfFlatMaybe mOps tenantKey argsSym sym
