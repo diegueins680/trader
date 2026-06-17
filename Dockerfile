@@ -16,7 +16,7 @@ COPY haskell/trader.cabal .
 # Update and fetch dependencies in one layer; cabal update is cached separately
 RUN --mount=type=cache,target=/root/.cabal \
   --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
-  cabal update && cabal fetch --enable-tests --enable-benchmarks exe:trader-hs exe:optimize-equity exe:merge-top-combos
+  cabal update && cabal fetch --enable-tests --enable-benchmarks all
 
 # Copy source code after cabal files (changes to source don't invalidate dependency fetch)
 COPY haskell/app app
